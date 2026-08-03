@@ -1,0 +1,522 @@
+# rust-k — feasibility study: porting the K frontend to Rust
+
+**Status:** investigation notes, not a plan of record. Nothing has been built.
+
+**Question being answered:** how hard is it for an AI agent fleet to reimplement the
+Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
+third parties would realistically want to extract (KORE parsing, KAST parsing, …)?
+Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
+
+**Provenance.** All figures below were measured directly against these trees, not recalled:
+
+| Repo | Path | Commit |
+|---|---|---|
+| `runtimeverification/k` | `inspirations/runtimeverification/k` | `4a46d12314` (v7.1.337) |
+| `runtimeverification/scala-kore` | `inspirations/runtimeverification/scala-kore` | `844214975c` (v0.3.3) |
+
+Claims marked **[unverified]** were not checked and must be confirmed before being relied on.
+Re-measure everything if the pinned commits move.
+
+---
+
+## 1. Headline conclusions
+
+1. **Volume is not the problem.** The entire frontend is ~44k LOC. The extractable
+   library core is ~2.5k. This is small.
+2. **The hard problems initially identified were WASM-induced, not inherent.**
+   Restricting WASM to the library layer (and leaving `kompile` native) means `flex`,
+   Z3, and MPFR can keep being subprocesses / C bindings exactly as they are today.
+   That removes all three research-flavoured blockers.
+3. **The KORE parser is not in the `k` repo.** It is a separate ~2.5k-line artifact
+   (`scala-kore`). It is also the most portable, best-oracled, most independently-useful
+   component in the ecosystem — and it is the prerequisite for everything else. Build it first.
+4. **The deliverable is bug-compatibility, not correctness.** That is the crux of the
+   difficulty assessment, and it is what agents are worst at (§9).
+5. **The residual top risk is collection iteration-order determinism** (§6.1), not parsing.
+   It is *smaller than it first appears* — K has an explicit `Ordering[Sentence]` — but it
+   needs a real investigation, not an assumption.
+
+---
+
+## 2. Inventory (measured)
+
+### 2.1 `k-frontend`
+
+```
+39,589  LOC Java   (252 files)
+ 4,522  LOC Scala  ( 28 files)
+ 1,269  lines JavaCC/JJTree grammars
+-------
+~44,000 LOC total
+```
+
+By subsystem:
+
+| Lines | Files | Path | Notes |
+|---|---|---|---|
+| 11,886 | 68 | `java/…/compile/` | ~60 passes + ~20 `checks/`. The bulk; the parallel fan-out target. |
+| 9,015 | 38 | `java/…/parser/` | outer (JavaCC) + Earley + disambiguation |
+| 3,676 | 45 | `java/…/utils/` | errors, files, options, Guice DI |
+| 3,052 | 8 | `java/…/kompile/` | pipeline driver |
+| 2,926 | 3 | `java/…/backend/kore/` | `ModuleToKORE.java` is 2,353 of these |
+| 1,599 | 9 | `java/…/lsp/` | LSP server — probably out of scope |
+| 1,577 | 5 | `scala/…/definition/` | **`outer.scala` (1,054) is the risk epicentre — see §6.1** |
+| 1,445 | 22 | `java/…/kil/` | legacy AST — **[unverified: is this still live?]** |
+| 839 | 8 | `scala/…/kore/` | K AST |
+| 567 | 7 | `java/…/definition/` | includes `regex/` (475) — see §6.4 |
+
+Largest individual files:
+
+```
+2353  backend/kore/ModuleToKORE.java              ← the output artifact generator
+1135  parser/inner/kernel/EarleyParser.java
+1072  parser/inner/disambiguation/TypeInferencer.java     ← Z3-backed
+1054  scala/definition/outer.scala                ← Module: 77 lazy vals. §6.1
+ 954  compile/SortCells.java
+ 871  compile/GenerateSentencesFromConfigDecl.java
+ 823  parser/inner/RuleGrammarGenerator.java
+ 823  javacc/Outer.jj                             ← outer syntax grammar
+ 818  compile/ConstantFolding.java                ← MPFR floats. §6.3
+ 637  parser/inner/kernel/KSyntax2Bison.java      ← parser/scanner codegen
+ 591  parser/inner/disambiguation/inference/SortInferencer.java  ← newer, non-Z3
+ 532  compile/AddSortInjections.java
+ 523  parser/inner/kernel/Scanner.java            ← generates flex, shells out to cc
+ 493  unparser/ToJson.java                        ← KAST JSON out (format version 4)
+ 474  parser/json/JsonParser.java                 ← KAST JSON in
+ 295  compile/checks/CheckRegex.java
+ 211  definition/regex/RegexSyntax.java           ← 3 printers: K, Flex, …
+ 208  javacc/KastParser.jj                        ← KAST text in
+ 191  jjtree/TagSelector.jjt                      ← Markdown fence selector language
+```
+
+### 2.2 `scala-kore` — the KORE parser (external, 2,545 LOC total)
+
+```
+881  src/main/scala/.../parser/TextToKore.scala   recursive descent, LL(1), no backtracking
+722  src/main/scala/.../interface.scala           abstract AST (traits + Builders factory)
+273  src/main/scala/.../Default.scala             concrete AST impl
+176  src/main/scala/.../parser/Scanner.scala      hand-written, line-based, 1-char pushback
+136  src/main/java/.../utils/StringUtil.java      KORE string escape/unescape — §6.2
+112  src/main/java/com/davekoelle/AlphanumComparator.java
+--- tests ---
+176  src/test/.../InterfaceTest.scala
+ 69  src/test/.../parser/TextToKoreTest.scala     ← essentially no coverage
+```
+
+`Scanner.scala` has no flex, no regex, no external tooling — just
+`next()`/`putback()`/`skipWhitespaces()`/`skipComments()`. `TextToKore` is LL(1) recursive
+descent over it with `consume(str)` for keywords and single-char lookahead. No backtracking,
+no ambiguity, no error recovery. This is about as directly transcribable as a parser gets,
+and it is WASM-clean by construction (the only I/O is `io.Source`, which becomes `&str`).
+
+The `k` frontend contains only the thin adapter: `parser/KoreParser.java` (46 lines) →
+`scala/…/parser/kore/parser/KoreToK.scala` (180).
+
+### 2.3 External process dependencies — **all in the `kompile` path**
+
+```
+parser/inner/disambiguation/TypeInferencer.java  →  ProcessBuilder("z3", "-in")
+parser/inner/kernel/Scanner.java                 →  flex, then cc, then run the binary
+parser/KRead.java, kompile/Kompile.java          →  llvm-kompile / haskell backend tooling
+```
+
+None are in the library layer. This is the entire reason the WASM scoping decision matters.
+
+### 2.4 Maven dependencies → porting implications
+
+| Dep | Used by | Class | Notes |
+|---|---|---|---|
+| `mpfr_java` | `FloatBuiltin.java`, `ConstantFolding.java` | **semantic** | §6.3. `rug` binds the same C MPFR natively. |
+| `dk.brics.automaton` | `scala/definition/outer.scala:1034` (`RegexTerminal.pattern`) | **semantic** | §6.4. Regex→DFA matcher. |
+| `flexmark-all` | literate-K Markdown extraction | **semantic** | §6.5. Disagrees with `pulldown-cmark` on malformed fences. |
+| `com.davekoelle` (vendored) | both repos | **semantic** | §6.6. Natural-sort ordering. |
+| `jung-api`, `jung-graph-impl` | `compile/ComputeTransitiveFunctionDependencies.java` only (108 lines) | trivial | Just graph reachability. Replace with a hand-rolled DFS. |
+| `pcollections`, `guava`, `commons-*` | pervasive | trivial | Standard collections/utils. |
+| `guice`, `guice-multibindings`, … | pervasive DI | **structural** | Does *not* port. See note below. |
+| `jcommander` | CLI options | structural | → `clap`. |
+| `org.eclipse.lsp4j` | `lsp/` | structural | Only if LSP is in scope → `tower-lsp`. |
+| `nailgun-server`, `ng` | `kserver/` | structural | Only if `kserver` is in scope. |
+| `jline`, `jansi` | terminal I/O | trivial | → `rustyline`/`anstyle`. |
+| `javax.json` | KAST JSON | trivial | → `serde_json`. |
+
+**On Guice:** dependency injection is a pervasive structural pattern here, and it does not
+translate. In Rust you pass structs. This means `utils/` and the frontend drivers are a
+*rewrite of the wiring*, not a translation — less mechanical than the pass layer, and a place
+where an agent will produce something that works but looks nothing like the original. That is
+fine, but it breaks line-by-line reviewability, so plan to review those by behaviour instead.
+
+### 2.5 Test surface available as oracles
+
+```
+229    test dirs in k-distribution/tests/regression-new
+1,191  .out golden files in that suite
+213    test dirs in pyk/regression-new (113 skipped, per k/CLAUDE.md)
+2,035  .k files in the k repo
+32     Java/Scala unit test files in k-frontend (5,933 lines)
+245    lines of test in all of scala-kore
+0      .kore golden files anywhere in the test suite
+```
+
+Note the last two lines. There is **no existing golden-file suite for `definition.kore`**, and
+`scala-kore` is effectively untested. Building both corpora is a prerequisite, not a
+nice-to-have (§5.1, §10).
+
+---
+
+## 3. Architecture: where the WASM boundary goes
+
+```
+┌─────────────────────────────────────────────┐
+│  kore-rs        WASM  ~1.5k LOC             │  lexer, parser, printer, AST,
+│                                             │  binary KORE format
+├─────────────────────────────────────────────┤
+│  kast-rs        WASM  ~1.5k LOC             │  KAST text parser, KAST JSON in/out
+├─────────────────────────────────────────────┤
+│  kdef-rs        WASM  ~3k LOC               │  Att, Sort, Production, Module,
+│                                             │  Definition — the shared data model
+├─────────────────────────────────────────────┤
+│  kompile-rs     native  ~35k LOC            │  passes, checks, Earley,
+│                                             │  flex/z3/cc subprocesses, ModuleToKORE
+└─────────────────────────────────────────────┘
+```
+
+Two properties make this the right cut:
+
+- **The dependency order is favourable.** The shared data model — which everything else
+  blocks on — *is* the WASM crate. You build the small, high-confidence,
+  independently-shippable part first, and it is exactly the prerequisite for the rest. You
+  can ship the WASM crates standalone and decide about `kompile` later with real information.
+- **The most-used code becomes the most-tested code**, because `kompile-rs` exercises the
+  library crates on every run.
+
+**Enforce the boundary mechanically.** Add CI that builds the three lower crates for
+`wasm32-unknown-unknown`. It is very easy for an agent to reach for `std::fs` or
+`std::process` in `kdef-rs` — source-location handling and `requires` path resolution both
+tempt it — and silently cost you the WASM target. Make it a build failure, not a code-review
+convention.
+
+---
+
+## 4. Work decomposition
+
+### Phase 0 — de-risking spikes (serial, human-supervised)
+Run these *before* committing. Any of them could invalidate the plan.
+
+- **S0. JSON round-trip integrity.** Verify Java → `--emit-json` → Java reproduces an
+  identical `definition.kore`. **If this fails, the strangler-fig strategy in §5.1 does not
+  work and the whole plan needs rethinking.** Cheapest high-information experiment available.
+  Do it first.
+- **S1. `StringUtil` differential.** Exhaustive test over all codepoints `0..=0x10FFFF` plus
+  malformed-escape cases, Rust vs. Java, cross-checked against the other four implementations.
+  136 lines — small enough to be *exhaustively* testable, a rare luxury. Take it. §6.2.
+- **S2. `Module` determinism.** Trace which of `outer.scala`'s 77 lazy vals actually feed
+  `ModuleToKORE` output, and whether the unsorted (`immutable.Set`) ones ever do. §6.1.
+
+### Phase 1 — `kore-rs` (small, high confidence)
+~1.5k LOC. Four reference implementations to cross-check (§7). Ship standalone as WASM.
+
+It *shrinks* in the port: `interface.scala` (722) + `Default.scala` (273) are ~1000 lines of
+abstract-trait + Builders-factory indirection existing so the K frontend can construct its own
+AST. A standalone Rust lib collapses that to a plain `enum Pattern { … }` of maybe 150 lines.
+
+Separable sub-deliverables:
+- KORE text lexer + parser + AST — context-free and pure
+- KORE printer — needs `StringUtil`, needs `AlphanumComparator` for any sorted output
+- KORE binary format — spec at `llvm-backend/.../docs/binary-kore{,-2}.md`
+- KORE → KAST conversion (`KoreToK.scala`, 180 lines) — **not** context-free; needs the
+  sort→hook attribute map from a compiled definition, so it depends on `kdef-rs`
+
+### Phase 2 — `kast-rs` + `kdef-rs` (serial prefix, needs human design review)
+The data model, including the `Module` design. One strong agent, reviewed design, because
+every downstream agent inherits its bugs — especially its iteration order.
+
+### Phase 3 — massively parallel fan-out (~14k LOC, the bulk)
+The ~60 compile passes and ~20 checks. Each is `Module → Module`, pure, independently
+harnessable via JSON in/out against the Java pass. Close to ideal agent work: one agent per
+pass, mechanical oracle, no cross-talk. Only four are chunky: `SortCells` (954),
+`GenerateSentencesFromConfigDecl` (871), `ConstantFolding` (818), `AddSortInjections` (532).
+
+### Phase 3b — `ModuleToKORE` (parallel, do early, high value)
+2,353 LOC. Pure `Module → text`, byte-exact oracle, and it is what gives you the end-to-end
+acceptance criterion. Testable from Java's `compiled.json` before any pass is ported.
+
+### Phase 4 — serial and genuinely hard (~4k LOC, majority of the cost)
+Scanner, Earley kernel, disambiguation stack, sort inference. Coupled to each other, weakest
+oracles, and where the remaining judgement calls live.
+
+**Scanner shortcut worth taking:** keep the flex codegen approach. `Scanner.java` and
+`KSyntax2Bison.java` *generate* a `.l` file, shell out to `flex` + `cc`, and run the binary.
+Port the string-generation, not the lexing, and you inherit byte-identical tokenisation for
+free. Only revisit this if `kompile` ever needs to be WASM.
+
+---
+
+## 5. Testability — the part that determines success
+
+### 5.1 The strangler-fig strategy
+
+The single most important architectural finding:
+
+`ToJson.apply` / `JsonParser.parseDefinition` **already serialise the full definition at two
+pipeline points** — `parsed.json` and `compiled.json`, behind `--emit-json`
+(`Kompile.java:231-236`). So you can run a hybrid pipeline:
+
+```
+Java parses  →  JSON  →  Rust runs passes k..m  →  JSON  →  Java finishes  →  definition.kore
+```
+
+Every individual pass gets a real differential harness against the real corpus on day one, and
+the port lands incrementally instead of needing 100% before anything is testable.
+**Do not attempt a big-bang rewrite.** (Contingent on spike S0.)
+
+### 5.2 Acceptance criteria differ by layer
+
+This distinction matters and is easy to conflate:
+
+| Layer | Criterion |
+|---|---|
+| `kore-rs`, `kast-rs` as extractable libraries | parse-correctness + *semantic* equality. Byte-identical output not required. |
+| KAST JSON specifically | **schema-exact.** `ToJson.java:56` declares `version = 4`; pyk's `kast/outer.py` (1,679) + `inner.py` (972) + `_ast_to_kast.py` are the de-facto consumer spec. Anything pyk can read, you must produce. |
+| `kompile-rs` end to end | **byte-identical `definition.kore`**, over large external semantics. |
+
+### 5.3 Oracles, ranked by strength
+
+1. **Roundtrip property tests — no reference implementation needed.** Random KORE/KAST AST →
+   print → reparse → compare. Same for text ↔ JSON ↔ binary. The only self-contained oracle in
+   the project; finds real bugs with zero Java in the loop. Fuzz it.
+   - ⚠️ Direction matters: for KORE strings `unquote ∘ enquote = id`, but `enquote ∘ unquote`
+     is *canonicalisation*, not identity (§6.2 trap 4). Getting this backwards gives a test
+     that fails for the wrong reason.
+2. **Three-way vote across existing implementations** (§7). Divergence between Java/Scala,
+   Python, and your Rust is a majority vote, not a coin flip. Where the *existing*
+   implementations disagree with each other, you have found a real ecosystem bug and need a
+   human decision.
+3. **Byte-identical `definition.kore`** over `evm-semantics` / `wasm-semantics`. **This is the
+   real acceptance test and it is not in this repo.** The 229 in-repo regression dirs are
+   necessary but nowhere near sufficient.
+4. **The 1,191 `.out` golden files** — catch gross regressions; weak on the hard paths.
+
+### 5.4 Where differential testing quietly lies to you
+
+- **Iteration order.** 69 files in `k-frontend` use raw `HashMap`/`HashSet`, plus Scala
+  immutable collections. Java's hash order is arbitrary-but-stable-per-JVM; Rust's is
+  randomised per process. You will get flaky diffs where real bugs and ordering flake are
+  indistinguishable. Budget for canonicalising both sides *and* for the cases where order is
+  load-bearing.
+- **Error and warning text.** ~20 `Check*` passes exist *only* to emit diagnostics. There is
+  no IR for these — the output is human-readable text with source locations. **Decide up front
+  whether byte-exact diagnostics are in scope; if yes it roughly doubles the work.**
+- **Ambiguity coverage.** Disambiguation is order-sensitive, and its correctness is only
+  observable on genuinely ambiguous grammars. Real semantics are written to *avoid* ambiguity,
+  so the corpus systematically under-covers precisely the hardest code. Needs generated
+  adversarial grammars.
+- **Malformed input.** Several paths throw Java runtime exceptions
+  (`StringIndexOutOfBoundsException`) rather than structured errors. Rust will panic or return
+  `Err`. Divergence on malformed input is guaranteed unless explicitly specified.
+- **Java-isms with observable behaviour.** `String.format` is locale-sensitive in general
+  (though `%02x` hex is not); `BigInteger` semantics; custom comparators. Audit rather than
+  assume.
+
+### 5.5 You will have to instrument the Java reference
+
+Not all oracles exist yet. `--emit-json` gives you the pass boundary, but the scanner oracle
+(token streams) and per-pass intermediate state for anything not covered by JSON require
+*patching the Java frontend to emit them*. Budget for maintaining that instrumentation fork
+for the life of the project, and for rebasing it as upstream moves.
+
+Build/lint commands for the reference implementation (from `k/CLAUDE.md`):
+
+```
+mvn package -DskipTests          # compile the Java toolchain (Java 17 + Scala 2.13)
+mvn spotless:apply               # required before any commit to the Java side
+mvn verify                       # Java unit tests
+make -C k-distribution/tests/regression-new              # Java regression suite
+make -C k-distribution/tests/regression-new update-results   # regenerate .out baselines
+make -C pyk check                # Python lint
+make -C pyk test-unit            # fast Python tests, no K toolchain needed
+```
+
+---
+
+## 6. Risk register (ranked)
+
+### 6.1 `Module` iteration-order determinism — **top risk, but smaller than it looks**
+
+`scala/definition/outer.scala` is 1,054 lines and is essentially one `Module` class carrying
+**77 `lazy val`s** (7 `@transient`) forming a memoised derived-view graph: `sentences`,
+`productions`, `productionsFor`, `productionsForSort`, `importedModules`, `definedKLabels`,
+`tokenSorts`, `rulesFor`, `sortSynonymMap`, … Most are `immutable.Set`, which is unordered.
+That ordering leaks into `ModuleToKORE` output. In Rust this becomes an
+interning/arena/memoisation design problem.
+
+**The good news, found by inspection:** there is an explicit `implicit val ord: Ordering[Sentence]`
+at `outer.scala:581`, dispatching case-by-case to per-sentence-type orderings, and the class
+provides deliberately *sorted* views — `sortedLocalSentences` (176), `sortedProductions` (215),
+`sortedRules` (346) — alongside the unsorted ones. The codebase clearly knows Set order is
+unreliable and uses sorted views where order matters. So the canonical ordering is
+**specified in code**, not accidental, and can be ported faithfully.
+
+**The actual investigation task (spike S2)** is therefore narrow: trace which lazy vals feed
+`ModuleToKORE`'s output, confirm the sorted views are used consistently on those paths, and
+identify any unsorted `Set` that reaches output. That is a bounded question with a definite
+answer, not open-ended risk.
+
+**Also note:** `outer.scala:49` is the one parallel site in the frontend —
+`.par.map(f).seq.map(m => m.name -> m).toMap`. The result is a name-keyed Map so ordering is
+not observable *there*, but confirm `f` is side-effect-free. **[unverified]** Otherwise the
+frontend is single-threaded (`CompletableFuture` appears only in `lsp/`), which removes a
+determinism concern that would otherwise be significant.
+
+### 6.2 `StringUtil` — small, untested, and the entire byte-exactness surface
+136 lines, zero tests. Four traps found by reading it:
+
+1. **`\xNN` is a codepoint escape, not a byte escape.**
+   `sb.append((char) Integer.parseInt(arg, 16))` — `\xff` means U+00FF, not byte `0xFF`.
+   Rust's own `\x` and `escape_default` mean the opposite. A natural Rust implementation gets
+   this wrong and it only surfaces on non-ASCII data. **Cross-check whether the
+   C++/Haskell/Python parsers agree with Java here** — a plausible site of real ecosystem-wide
+   divergence.
+2. **Unknown escapes silently drop the backslash.** The if-chain has no `else`; if the char
+   after `\` is not one of `" \ n r t f x u U`, nothing is appended and `i` advances by one.
+   So `"\q"` unquotes to `q`, with no error.
+3. **No bounds checks.** `str.substring(i+2, i+4)` on a truncated `"\x` throws
+   `StringIndexOutOfBoundsException`, not a `ParseError`.
+4. **`enquote ∘ unquote` is canonicalisation, not identity.** `ÿ` and `\xff` unquote to
+   the same string; `enquote` only ever emits `\xff`.
+
+Good news: `throwIfSurrogatePair` rejects `D800..DFFF` and `>= 0x110000`, and `enquote` escapes
+everything outside 32..126. All output is pure ASCII and all escaped input is a valid Unicode
+scalar value — **no UTF-16/UTF-8 impedance mismatch.** The concern one would flag blind turns
+out not to apply.
+
+Recommendation: hand-write and hand-review this file. Do not delegate it.
+
+### 6.3 Floats / MPFR — silent numeric divergence
+Contained to `compile/FloatBuiltin.java` (191) and `compile/ConstantFolding.java` (818), via
+`mpfr_java`. Natively you can bind the same C MPFR through `rug`/`gmp-mpfr-sys` and get exact
+agreement by construction — **do that.** If anyone is tempted to substitute a pure-Rust
+arbitrary-precision float library for WASM reasons, the failure mode is silent divergence in
+rounding mode, precision handling, NaN payloads, and signed zero — none of which the regression
+corpus is likely to catch. This is the strongest argument for keeping `kompile` native.
+
+### 6.4 Regex — K has its own AST; brics is one backend
+Better-scoped than it first appears. K defines its own regex AST in `definition/regex/`
+(475 lines: `Regex`, `RegexBody`, `RegexSyntax` 211, `RegexTransformer`, `RegexVisitor`), and
+`RegexSyntax` provides multiple printers — `RegexSyntax.K` and `RegexSyntax.Flex` (the latter
+feeds the scanner codegen). `dk.brics.automaton` appears only at `outer.scala:1034`:
+
+```scala
+lazy val pattern = new RunAutomaton(new RegExp(RegexSyntax.K.print(regex)).toAutomaton, false)
+```
+
+So brics is purely a *matcher* for the K-syntax rendering. A Rust port needs a matcher with
+brics-compatible semantics for whatever `RegexSyntax.K.print` emits — a real but well-scoped
+and identifiable compatibility surface. `compile/checks/CheckRegex.java` (295) is the validator.
+
+### 6.5 Markdown / literate K
+`flexmark-all` parses `.md` files with fenced K blocks, plus `jjtree/TagSelector.jjt` — a whole
+selector mini-language (191 lines). `pulldown-cmark` disagrees with flexmark on malformed
+fences. With WASM off `kompile` there is no crate constraint, so porting flexmark's
+fenced-block handling directly is an option. pyk's `kast/markdown.py` (226) is a second
+reference.
+
+### 6.6 `AlphanumComparator` duplication
+Natural-sort ordering, present in **both** `k-frontend` and `scala-kore` (`com.davekoelle`,
+112 lines). Port once, share between crates, test against a generated string corpus.
+Comparator bugs are order-dependent and will not reproduce reliably from a diff.
+
+### 6.7 Earley + disambiguation
+Order-sensitive; corpus under-covers it (§5.4). Unchanged by the WASM scoping decision.
+
+### 6.8 Diagnostic fidelity
+Large, tedious, non-parallelisable-by-inspection surface. Needs a scope decision (§8).
+
+### 6.9 Sort inference — *deferred, not solved*
+`ParseInModule.java:417` gates on `SortInferencer.isSupported(...)` (newer,
+Hindley-Milner-ish, 591 LOC) and falls back to the Z3-backed `TypeInferencer` (1,072 LOC).
+With native `kompile` you keep shelling out to Z3, so this is a straight port rather than a
+design decision. **But measure what fraction of the corpus takes each path** — if the Z3
+fallback is common it constrains any future attempt to make `kompile` WASM-capable, and it
+makes output dependent on Z3's model choice across solver versions.
+
+---
+
+## 7. Reference implementations (five KORE parsers exist)
+
+| Impl | Location | Size | Use as |
+|---|---|---|---|
+| **Python (pyk)** | `k/pyk/src/pyk/kore/` — `lexer.py` 256, `parser.py` 538, `syntax.py` 2273 | ~3k | **primary reference** — readable, tested (`pyk/src/tests/unit/kore/`) |
+| **Scala** | `scala-kore` (external artifact used by the Java frontend) | 2.5k | authority on what K actually does today |
+| **C++** | `k/llvm-backend/.../lib/parser/` — `KOREParser.cpp` 457, `KOREScanner.l` 191 (flex) | ~890 | lexical edge cases |
+| **Haskell** | `k/haskell-backend/.../kore/src/Kore/Parser/` — `Lexer.x` + `Parser.y` (alex/happy) | ~440 + gen | grammar cross-check |
+| **Haskell (Booster)** | `k/haskell-backend/.../booster/library/Booster/Syntax/ParsedKore/` | — | second Haskell datapoint |
+
+For **KAST** rather than KORE, pyk has an independent pure-Python implementation —
+`kast/outer_lexer.py` (959), `outer_parser.py` (418), `markdown.py` (226), `lexer.py` (265),
+plus `outer.py` (1,679) and `inner.py` (972) as the JSON schema consumer. Free second
+reference implementation *and* a free set of already-discovered edge cases.
+
+### Specs
+- `k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md` — normative KORE syntax
+- `k/haskell-backend/.../docs/kore-implicits.md`
+- `k/llvm-backend/.../docs/binary-kore.md`, `binary-kore-2.md` — binary format
+- `ToJson.java:56` — KAST JSON `version = 4`
+
+---
+
+## 8. Open questions requiring a human decision
+
+1. **Is byte-exact diagnostic text in scope?** Roughly doubles the work if yes.
+2. **Which drivers are in scope?** `kompile` certainly; what about `kprove` (has its own
+   `--emit-json` / `--emit-json-spec`), `kast`, `krun`, `kdep`, `ksearchpattern`, the LSP
+   server (1,599 LOC), `kserver`/nailgun?
+3. **Is `kil/` (1,445 LOC) still live, or dead legacy?** **[unverified]**
+4. **Where do the five existing KORE implementations disagree?** Any divergence found is an
+   ecosystem bug and someone must decide which behaviour is normative.
+5. **Which external semantics form the acceptance corpus?** `evm-semantics` and
+   `wasm-semantics` are the obvious candidates; neither is in this workspace, and both need
+   vendoring and version pinning.
+6. **Fork or upstream contribution?** Determines whether bug-compatibility is the permanent
+   contract or a transitional one.
+7. **Does `f` at `outer.scala:49` have side effects?** Small, but it gates whether the port can
+   assume a single-threaded model. **[unverified]**
+
+---
+
+## 9. Difficulty assessment (the answer to the original question)
+
+**The library layer (`kore-rs`, `kast-rs`):** low difficulty, high achievable confidence.
+~3k LOC of Rust, mechanically derivable from a hand-written recursive-descent parser, four
+independent reference implementations, unlimited corpus, and a self-contained roundtrip oracle.
+An agent can do most of this nearly unsupervised. The exception is `StringUtil`.
+
+**The `kompile` pipeline:** the difficulty is *not* writing 35k lines of Rust — agents are good
+at that, and the pass layer is nearly ideal for fan-out. The difficulty is that the deliverable
+is **bug-compatibility, not correctness**, and the long tail of divergences each requires
+understanding *why* the Java does something odd.
+
+That is precisely what agents are weakest at: they fix a diff by special-casing rather than by
+finding the invariant, and special-cases compound. The mitigation is structural — per-pass
+differential harnesses via the JSON boundary (§5.1), so a divergence is localised to one pass
+instead of surfacing 40 passes downstream as a mangled `.kore` file.
+
+**Overall shape:** one small high-confidence library project, plus one large tedious port whose
+remaining risk is concentrated in collection-ordering determinism — and that risk is bounded by
+the fact that K already specifies its canonical ordering in code.
+
+---
+
+## 10. Suggested next actions
+
+- [ ] **Spike S0 — JSON round-trip integrity.** Cheapest, highest-information, and it gates
+      the entire incremental strategy. Do it first.
+- [ ] **Spike S1 — `StringUtil` exhaustive differential.** Self-contained, and immediately
+      tells you whether the five existing implementations agree with each other.
+- [ ] **Spike S2 — `Module` determinism trace.** Which of the 77 lazy vals reach output, and
+      are the sorted views used consistently on those paths?
+- [ ] Build the `definition.kore` golden corpus that does not currently exist: kompile
+      `evm-semantics` / `wasm-semantics` / the 229 in-repo tests, archive outputs, pin the
+      toolchain version.
+- [ ] Stand up the Java instrumentation fork (§5.5) and decide how it will be maintained.
+- [ ] Measure the `SortInferencer` vs `TypeInferencer` (Z3) split across the corpus (§6.9).
+- [ ] Answer the scope questions in §8.
