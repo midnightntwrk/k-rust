@@ -292,9 +292,10 @@ impl Parser<'_> {
     }
 
     fn associative(&mut self, associativity: Associativity) -> Result<Pattern, ParseError> {
-        self.expect(match associativity {
-            Associativity::Left => TokenKind::MlLeftAssoc,
-            Associativity::Right => TokenKind::MlRightAssoc,
+        self.expect(if associativity == Associativity::Left {
+            TokenKind::MlLeftAssoc
+        } else {
+            TokenKind::MlRightAssoc
         })?;
         self.expect(TokenKind::LBrace)?;
         self.expect(TokenKind::RBrace)?;
@@ -303,6 +304,13 @@ impl Parser<'_> {
             unreachable!("application always returns Pattern::Application");
         };
         self.expect(TokenKind::RParen)?;
+        let offset = self.peek().map_or(self.input_len, |token| token.offset);
+        if arguments.is_empty() {
+            return Err(ParseError {
+                offset,
+                message: "associative application requires at least one argument".into(),
+            });
+        }
         Ok(Pattern::AssociativeApplication {
             associativity,
             symbol,
@@ -349,6 +357,27 @@ mod tests {
                 \or{SortBool{}}(a{}(), b{}(), c{}())
             )
             "#
+        );
+    }
+
+    #[test]
+    fn preserves_multiary_connective_arity() {
+        let top = crate::kore::parser::parse_pattern(r"\and{S}()").unwrap();
+        let bottom = crate::kore::parser::parse_pattern(r"\or{S}()").unwrap();
+        let unary_and = crate::kore::parser::parse_pattern(r"\and{S}(a{}())").unwrap();
+        let unary_or = crate::kore::parser::parse_pattern(r"\or{S}(a{}())").unwrap();
+
+        assert!(
+            matches!(top, crate::kore::ast::Pattern::And { arguments, .. } if arguments.is_empty())
+        );
+        assert!(
+            matches!(bottom, crate::kore::ast::Pattern::Or { arguments, .. } if arguments.is_empty())
+        );
+        assert!(
+            matches!(unary_and, crate::kore::ast::Pattern::And { arguments, .. } if arguments.len() == 1)
+        );
+        assert!(
+            matches!(unary_or, crate::kore::ast::Pattern::Or { arguments, .. } if arguments.len() == 1)
         );
     }
 

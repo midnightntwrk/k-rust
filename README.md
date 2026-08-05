@@ -2,7 +2,9 @@
 
 **Status:** investigation notes plus an implementation in progress. The single `k-rust` crate
 now contains a WASM-compatible KORE AST, lexer, parser, string codec, compact/pretty printer,
-snapshot tests, and upstream-derived parse/print/parse fixtures.
+lossless KORE JSON v1 codec, Scala-compatible ordering and explicit KAST normalization,
+snapshot tests, property tests,
+and upstream-derived text and JSON fixtures.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces

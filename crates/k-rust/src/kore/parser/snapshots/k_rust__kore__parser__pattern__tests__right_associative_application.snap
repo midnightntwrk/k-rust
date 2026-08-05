@@ -1,5 +1,6 @@
 ---
 source: crates/k-rust/src/kore/parser/pattern.rs
+assertion_line: 455
 description: "KORE pattern:\n\n\\right-assoc{}(append{S}(a{}(), b{}(), c{}()))\n"
 ---
 AssociativeApplication {
