@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "k-rust"
+name = "kore-rs"
 version = "0.1.0"

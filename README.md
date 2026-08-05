@@ -1,6 +1,7 @@
 # rust-k — feasibility study: porting the K frontend to Rust
 
-**Status:** investigation notes, not a plan of record. Nothing has been built.
+**Status:** investigation notes, not a plan of record. Implementation has started with the
+WASM-compatible `kore-rs` lexer, KORE string codec, and their first upstream-derived tests.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
