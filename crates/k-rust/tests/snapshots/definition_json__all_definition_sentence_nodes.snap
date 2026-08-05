@@ -1,0 +1,285 @@
+---
+source: crates/k-rust/tests/definition_json.rs
+expression: encoded
+---
+{
+  "format": "KAST",
+  "version": 4,
+  "term": {
+    "node": "KDefinition",
+    "mainModule": "MAIN",
+    "modules": [
+      {
+        "node": "KFlatModule",
+        "name": "MAIN",
+        "imports": [
+          {
+            "node": "KImport",
+            "name": "PRELUDE",
+            "isPublic": true
+          }
+        ],
+        "localSentences": [
+          {
+            "node": "KSyntaxSort",
+            "sort": {
+              "node": "KSort",
+              "name": "List",
+              "params": [
+                {
+                  "node": "KSort",
+                  "name": "S",
+                  "params": []
+                }
+              ]
+            },
+            "params": [
+              {
+                "node": "KSort",
+                "name": "S",
+                "params": []
+              }
+            ],
+            "att": {
+              "node": "KAtt",
+              "att": {}
+            }
+          },
+          {
+            "node": "KSortSynonym",
+            "newSort": {
+              "node": "KSort",
+              "name": "Nat",
+              "params": []
+            },
+            "oldSort": {
+              "node": "KSort",
+              "name": "Int",
+              "params": []
+            },
+            "att": {
+              "node": "KAtt",
+              "att": {}
+            }
+          },
+          {
+            "node": "KSyntaxLexical",
+            "name": "Identifier",
+            "regex": "[a-z][A-Za-z0-9]*",
+            "att": {
+              "node": "KAtt",
+              "att": {}
+            }
+          },
+          {
+            "node": "KProduction",
+            "klabel": {
+              "node": "KLabel",
+              "name": "cons",
+              "params": []
+            },
+            "productionItems": [
+              {
+                "node": "KTerminal",
+                "value": "["
+              },
+              {
+                "node": "KNonTerminal",
+                "sort": {
+                  "node": "KSort",
+                  "name": "S",
+                  "params": []
+                },
+                "name": "head"
+              },
+              {
+                "node": "KRegexTerminal",
+                "regex": "[ ]*"
+              }
+            ],
+            "params": [
+              {
+                "node": "KSort",
+                "name": "S",
+                "params": []
+              }
+            ],
+            "sort": {
+              "node": "KSort",
+              "name": "List",
+              "params": []
+            },
+            "att": {
+              "node": "KAtt",
+              "att": {}
+            }
+          },
+          {
+            "node": "KSyntaxAssociativity",
+            "assoc": "Left",
+            "tags": [
+              "plus"
+            ],
+            "att": {
+              "node": "KAtt",
+              "att": {}
+            }
+          },
+          {
+            "node": "KSyntaxPriority",
+            "priorities": [
+              [
+                "times"
+              ],
+              [
+                "plus"
+              ]
+            ],
+            "att": {
+              "node": "KAtt",
+              "att": {}
+            }
+          },
+          {
+            "node": "KContext",
+            "body": {
+              "node": "KVariable",
+              "name": "X"
+            },
+            "requires": {
+              "node": "KToken",
+              "sort": {
+                "node": "KSort",
+                "name": "Bool",
+                "params": []
+              },
+              "token": "true"
+            },
+            "att": {
+              "node": "KAtt",
+              "att": {}
+            }
+          },
+          {
+            "node": "KRule",
+            "body": {
+              "node": "KRewrite",
+              "lhs": {
+                "node": "KVariable",
+                "name": "X"
+              },
+              "rhs": {
+                "node": "KToken",
+                "sort": {
+                  "node": "KSort",
+                  "name": "Bool",
+                  "params": []
+                },
+                "token": "true"
+              }
+            },
+            "requires": {
+              "node": "KToken",
+              "sort": {
+                "node": "KSort",
+                "name": "Bool",
+                "params": []
+              },
+              "token": "true"
+            },
+            "ensures": {
+              "node": "KToken",
+              "sort": {
+                "node": "KSort",
+                "name": "Bool",
+                "params": []
+              },
+              "token": "true"
+            },
+            "att": {
+              "node": "KAtt",
+              "att": {}
+            }
+          },
+          {
+            "node": "KClaim",
+            "body": {
+              "node": "KVariable",
+              "name": "X"
+            },
+            "requires": {
+              "node": "KToken",
+              "sort": {
+                "node": "KSort",
+                "name": "Bool",
+                "params": []
+              },
+              "token": "true"
+            },
+            "ensures": {
+              "node": "KToken",
+              "sort": {
+                "node": "KSort",
+                "name": "Bool",
+                "params": []
+              },
+              "token": "true"
+            },
+            "att": {
+              "node": "KAtt",
+              "att": {}
+            }
+          },
+          {
+            "node": "KConfiguration",
+            "body": {
+              "node": "KApply",
+              "label": {
+                "node": "KLabel",
+                "name": "<k>",
+                "params": []
+              },
+              "arity": 1,
+              "args": [
+                {
+                  "node": "KVariable",
+                  "name": "X"
+                }
+              ]
+            },
+            "ensures": {
+              "node": "KToken",
+              "sort": {
+                "node": "KSort",
+                "name": "Bool",
+                "params": []
+              },
+              "token": "true"
+            },
+            "att": {
+              "node": "KAtt",
+              "att": {}
+            }
+          },
+          {
+            "node": "KBubble",
+            "sentenceType": "rule",
+            "contents": "X => Y",
+            "att": {
+              "node": "KAtt",
+              "att": {}
+            }
+          }
+        ],
+        "att": {
+          "node": "KAtt",
+          "att": {}
+        }
+      }
+    ],
+    "att": {
+      "node": "KAtt",
+      "att": {}
+    }
+  }
+}

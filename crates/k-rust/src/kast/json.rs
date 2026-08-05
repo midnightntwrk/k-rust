@@ -84,10 +84,10 @@ pub fn to_string_pretty(term: &Term) -> Result<String, Error> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-struct JsonSort {
+pub(crate) struct JsonSort {
     node: SortNode,
-    name: String,
-    params: Vec<JsonSort>,
+    pub(crate) name: String,
+    pub(crate) params: Vec<JsonSort>,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -96,10 +96,10 @@ enum SortNode {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-struct JsonLabel {
+pub(crate) struct JsonLabel {
     node: LabelNode,
-    name: String,
-    params: Vec<JsonSort>,
+    pub(crate) name: String,
+    pub(crate) params: Vec<JsonSort>,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -147,7 +147,7 @@ impl From<JsonLabel> for Label {
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "node")]
-enum JsonTerm {
+pub(crate) enum JsonTerm {
     KToken {
         sort: JsonSort,
         token: String,

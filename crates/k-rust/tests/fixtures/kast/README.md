@@ -9,3 +9,9 @@ The upstream material is redistributed under the repository's BSD 3-Clause
 license; see `../kore/LICENSE.md`.
 
 `kast-data.kast` is the frontend's own textual KAST parser fixture.
+
+`definition.json` is a compact reduction of the K frontend's `imp-outer-json`
+regression output. It preserves the compiled-definition envelope, flat module,
+import, sentence, production-item, typed-attribute, and nested-term shapes.
+It also retains the legacy optional `precedeRegex`/`followRegex` fields found
+in that real artifact, which current Java and Pyk models otherwise obscure.

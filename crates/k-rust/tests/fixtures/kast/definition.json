@@ -1,0 +1,75 @@
+{
+  "format": "KAST",
+  "version": 4,
+  "term": {
+    "node": "KDefinition",
+    "mainModule": "IMP",
+    "modules": [
+      {
+        "node": "KFlatModule",
+        "name": "BOOL-SYNTAX",
+        "imports": [],
+        "localSentences": [
+          {
+            "node": "KSyntaxSort",
+            "sort": { "node": "KSort", "name": "Bool", "params": [] },
+            "params": [],
+            "att": { "node": "KAtt", "att": {} }
+          },
+          {
+            "node": "KProduction",
+            "klabel": { "node": "KLabel", "name": "_andBool_", "params": [] },
+            "productionItems": [
+              { "node": "KNonTerminal", "sort": { "node": "KSort", "name": "Bool", "params": [] }, "name": "left" },
+              { "node": "KTerminal", "value": "and" },
+              { "node": "KRegexTerminal", "precedeRegex": "[A-Z]", "regex": "[a-z]+", "followRegex": "#" }
+            ],
+            "params": [],
+            "sort": { "node": "KSort", "name": "Bool", "params": [] },
+            "att": {
+              "node": "KAtt",
+              "att": {
+                "assoc": "",
+                "org.kframework.attributes.Location": [4, 3, 4, 42],
+                "org.kframework.attributes.Source": "imp.k"
+              }
+            }
+          }
+        ],
+        "att": { "node": "KAtt", "att": {} }
+      },
+      {
+        "node": "KFlatModule",
+        "name": "IMP",
+        "imports": [
+          { "node": "KImport", "name": "BOOL-SYNTAX", "isPublic": true }
+        ],
+        "localSentences": [
+          {
+            "node": "KRule",
+            "body": {
+              "node": "KRewrite",
+              "lhs": { "node": "KVariable", "name": "B", "sort": { "node": "KSort", "name": "Bool", "params": [] } },
+              "rhs": { "node": "KToken", "sort": { "node": "KSort", "name": "Bool", "params": [] }, "token": "true" }
+            },
+            "requires": { "node": "KSequence", "arity": 0, "items": [] },
+            "ensures": {
+              "node": "KApply",
+              "label": { "node": "KLabel", "name": "isBool", "params": [] },
+              "arity": 1,
+              "args": [{ "node": "KVariable", "name": "B" }]
+            },
+            "att": { "node": "KAtt", "att": { "label": "example" } }
+          },
+          {
+            "node": "KSyntaxPriority",
+            "priorities": [["multiplicative"], ["additive", "boolean"]],
+            "att": { "node": "KAtt", "att": {} }
+          }
+        ],
+        "att": { "node": "KAtt", "att": {} }
+      }
+    ],
+    "att": { "node": "KAtt", "att": {} }
+  }
+}
