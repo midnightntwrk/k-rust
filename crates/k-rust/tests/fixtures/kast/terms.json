@@ -1,0 +1,9 @@
+[
+  {"format":"KAST","version":4,"term":{"node":"KToken","sort":{"node":"KSort","name":"Int","params":[]},"token":"0"}},
+  {"format":"KAST","version":4,"term":{"node":"KApply","label":{"node":"KLabel","name":"i32","params":[]},"arity":0,"args":[]}},
+  {"format":"KAST","version":4,"term":{"node":"KSequence","arity":0,"items":[]}},
+  {"format":"KAST","version":4,"term":{"node":"KVariable","name":"K"}},
+  {"format":"KAST","version":4,"term":{"node":"KRewrite","lhs":{"node":"KVariable","name":"_Gen0","sort":{"node":"KSort","name":"Int","params":[]}},"rhs":{"node":"KSequence","arity":0,"items":[]}}},
+  {"format":"KAST","version":4,"term":{"node":"KAs","pattern":{"node":"KVariable","name":"X"},"alias":{"node":"KVariable","name":"Y"}}},
+  {"format":"KAST","version":4,"term":{"node":"InjectedKLabel","label":{"node":"KLabel","name":"_+Int_","params":[]}}}
+]

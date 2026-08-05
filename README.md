@@ -4,7 +4,8 @@
 now contains a WASM-compatible KORE AST, lexer, parser, string codec, compact/pretty printer,
 lossless KORE JSON v1 codec, Scala-compatible ordering and explicit KAST normalization,
 snapshot tests, property tests,
-and upstream-derived text and JSON fixtures.
+and upstream-derived text and JSON fixtures. The user-facing KAST term model now includes
+KAST JSON v4, textual parsing/printing, and context-free KORE conversion.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -173,7 +174,7 @@ nice-to-have (§5.1, §10).
 crates/k-rust/
 ├── src/lib.rs
 ├── src/kore/          WASM-compatible   lexer, parser, printer, AST, binary KORE
-├── src/kast/          WASM-compatible   KAST text and JSON (planned)
+├── src/kast/          WASM-compatible   KAST terms, text/JSON, KORE conversion
 ├── src/definition/    WASM-compatible   shared K definition model (planned)
 ├── src/kompile/       native-only       passes, checks, Earley, ModuleToKORE (planned)
 └── src/bin/k-rust.rs  native-only       command-line frontend (planned)
@@ -225,11 +226,13 @@ Separable sub-deliverables:
 - KORE text lexer + parser + AST — context-free and pure
 - KORE printer — needs `StringUtil`, needs `AlphanumComparator` for any sorted output
 - KORE binary format — spec at `llvm-backend/.../docs/binary-kore{,-2}.md`
-- KORE → KAST conversion (`KoreToK.scala`, 180 lines) — **not** context-free; needs the
-  sort→hook attribute map from a compiled definition, so it depends on `k_rust::definition`
+- KORE → KAST conversion (`KoreToK.scala`, 180 lines) — the context-free conversion and
+  injectable sort-hook map are implemented; populating that map from compiled definitions
+  depends on `k_rust::definition`
 
 ### Phase 2 — `k_rust::kast` + `k_rust::definition` (serial prefix, needs human design review)
-The data model, including the `Module` design. One strong agent, reviewed design, because
+The inner KAST term model and its text/JSON formats are implemented. Next is the definition
+data model, including the `Module` design. One strong agent, reviewed design, because
 every downstream agent inherits its bugs — especially its iteration order.
 
 ### Phase 3 — massively parallel fan-out (~14k LOC, the bulk)

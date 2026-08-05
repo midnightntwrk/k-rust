@@ -1,0 +1,34 @@
+---
+source: crates/k-rust/src/kast/parser.rs
+assertion_line: 299
+description: "textual KAST:\n\n``foo(X) #as Y`` ~> #klabel(`_+_`)\n"
+---
+Sequence(
+    [
+        As {
+            pattern: Apply {
+                label: Label {
+                    name: "foo",
+                    parameters: [],
+                },
+                arguments: [
+                    Variable {
+                        name: "X",
+                        sort: None,
+                    },
+                ],
+            },
+            alias: Variable {
+                name: "Y",
+                sort: None,
+            },
+        },
+        InjectedLabel(
+            Label {
+                name: "_+_",
+                parameters: [],
+            },
+        ),
+    ],
+)
+ 

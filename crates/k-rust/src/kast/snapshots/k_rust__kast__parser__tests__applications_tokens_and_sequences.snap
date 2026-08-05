@@ -1,0 +1,41 @@
+---
+source: crates/k-rust/src/kast/parser.rs
+assertion_line: 287
+description: "textual KAST:\n\n`pair,_`{S}(\n    #token(\"hello\\\\nworld\", \"String\"),,\n    X ~> foo(.::KList)\n)\n"
+---
+Apply {
+    label: Label {
+        name: "pair,_",
+        parameters: [
+            Sort {
+                name: "S",
+                parameters: [],
+            },
+        ],
+    },
+    arguments: [
+        Token {
+            token: "hello\\nworld",
+            sort: Sort {
+                name: "String",
+                parameters: [],
+            },
+        },
+        Sequence(
+            [
+                Variable {
+                    name: "X",
+                    sort: None,
+                },
+                Apply {
+                    label: Label {
+                        name: "foo",
+                        parameters: [],
+                    },
+                    arguments: [],
+                },
+            ],
+        ),
+    ],
+}
+ 
