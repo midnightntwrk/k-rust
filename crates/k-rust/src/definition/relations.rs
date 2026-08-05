@@ -1,8 +1,8 @@
-//! Derived subsort and production-overload relations.
+//! Derived subsort, overload, priority, and associativity relations.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::ast::{ProductionItem, Sentence};
+use super::ast::{Associativity, ProductionItem, Sentence};
 use super::ordering::{compare_sentences, sentence_equivalent};
 use super::partial_order::{Cycle, PartialOrder};
 use super::resolve::{ModuleId, ResolvedDefinition};
@@ -25,6 +25,13 @@ impl std::fmt::Display for ProductionId {
 pub struct OverloadOrder<'a> {
     productions: Vec<&'a Sentence>,
     order: PartialOrder<ProductionId>,
+}
+
+/// The tag pairs constrained by syntax associativity declarations.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AssociativityRelations {
+    pub left: BTreeSet<(String, String)>,
+    pub right: BTreeSet<(String, String)>,
 }
 
 impl<'a> OverloadOrder<'a> {
@@ -96,6 +103,63 @@ pub fn compute_subsorts<'a>(
         })
         .collect::<BTreeSet<_>>();
     PartialOrder::new(relations)
+}
+
+/// Compute Scala's priority order from adjacent syntax-priority blocks.
+///
+/// For `A B > C > D E`, the direct relations are `A/C`, `B/C`, `C/D`,
+/// and `C/E`; the partial order supplies the transitive relations.
+pub fn compute_priorities<'a>(
+    sentences: impl IntoIterator<Item = &'a Sentence>,
+) -> Result<PartialOrder<String>, Cycle<String>> {
+    let mut relations = BTreeSet::new();
+    for sentence in sentences {
+        let Sentence::SyntaxPriority { priorities, .. } = sentence else {
+            continue;
+        };
+        for adjacent in priorities.windows(2) {
+            for greater_precedence in &adjacent[0] {
+                for lesser_precedence in &adjacent[1] {
+                    relations.insert((greater_precedence.clone(), lesser_precedence.clone()));
+                }
+            }
+        }
+    }
+    PartialOrder::new(relations)
+}
+
+/// Compute the exact tag-pair sets used for left and right associativity.
+///
+/// A non-associative group is deliberately included in both sets, matching
+/// Scala's `buildAssoc` and allowing consumers to reject either nesting side.
+pub fn compute_associativities<'a>(
+    sentences: impl IntoIterator<Item = &'a Sentence>,
+) -> AssociativityRelations {
+    let mut relations = AssociativityRelations::default();
+    for sentence in sentences {
+        let Sentence::SyntaxAssociativity {
+            associativity,
+            tags,
+            ..
+        } = sentence
+        else {
+            continue;
+        };
+        let targets: &mut [&mut BTreeSet<(String, String)>] = match associativity {
+            Associativity::Left => &mut [&mut relations.left],
+            Associativity::Right => &mut [&mut relations.right],
+            Associativity::NonAssoc => &mut [&mut relations.left, &mut relations.right],
+            Associativity::Unspecified => &mut [],
+        };
+        for target in targets {
+            for parent in tags {
+                for child in tags {
+                    target.insert((parent.clone(), child.clone()));
+                }
+            }
+        }
+    }
+    relations
 }
 
 /// Compute Scala's combined explicit and legacy production-overload relation.
@@ -181,6 +245,22 @@ impl ResolvedDefinition {
         let subsorts =
             compute_subsorts(sentences.iter().copied(), false).map_err(Error::CircularSubsort)?;
         compute_overloads(sentences, &subsorts).map_err(Error::CircularOverload)
+    }
+
+    pub fn priorities(&self, module: ModuleId) -> Result<PartialOrder<String>, Cycle<String>> {
+        compute_priorities(self.sentences(module))
+    }
+
+    pub fn associativities(&self, module: ModuleId) -> AssociativityRelations {
+        compute_associativities(self.sentences(module))
+    }
+
+    pub fn left_assoc(&self, module: ModuleId) -> BTreeSet<(String, String)> {
+        self.associativities(module).left
+    }
+
+    pub fn right_assoc(&self, module: ModuleId) -> BTreeSet<(String, String)> {
+        self.associativities(module).right
     }
 }
 

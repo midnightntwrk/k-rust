@@ -17,6 +17,7 @@ pub use ordering::{
 };
 pub use partial_order::{Cycle as PartialOrderCycle, PartialOrder};
 pub use relations::{
-    Error as RelationError, OverloadOrder, ProductionId, compute_overloads, compute_subsorts,
+    AssociativityRelations, Error as RelationError, OverloadOrder, ProductionId,
+    compute_associativities, compute_overloads, compute_priorities, compute_subsorts,
 };
 pub use resolve::{Error as ResolveError, ImportRef, ModuleId, ResolvedDefinition, ResolvedModule};
