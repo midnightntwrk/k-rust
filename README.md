@@ -8,7 +8,9 @@ and upstream-derived text and JSON fixtures. The user-facing KAST term model now
 KAST JSON v4, textual parsing/printing, and context-free KORE conversion. The portable
 definition layer now includes the flat Scala-faithful sentence/module model and lossless
 compiled-definition KAST JSON v4 interchange. Deterministic, WASM-compatible module-import
-resolution uses `petgraph`, preserves visibility, and reports complete import cycles.
+resolution uses `petgraph`, preserves visibility, and reports complete import cycles. Resolved
+sentence identity and ordering reproduce Scala's explicit rules, including its deliberate gaps
+and its unusual `Production` equality/ordering divergence.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -234,10 +236,11 @@ Separable sub-deliverables:
   depends on `k_rust::definition`
 
 ### Phase 2 — `k_rust::kast` + `k_rust::definition` (serial prefix, needs human design review)
-The inner KAST term model, flat definition model, their text/JSON formats, and deterministic
-import-graph resolution are implemented. Next is Scala-compatible sentence ordering, subsort
-and overload partial orders, and the remaining derived module views. This remains a reviewed
-design boundary because every downstream pass inherits its bugs — especially its iteration order.
+The inner KAST term model, flat definition model, their text/JSON formats, deterministic
+import-graph resolution, and Scala-compatible sentence ordering are implemented. Next are
+subsort and overload partial orders plus the remaining derived module views. This remains a
+reviewed design boundary because every downstream pass inherits its bugs — especially its
+iteration order.
 
 ### Phase 3 — massively parallel fan-out (~14k LOC, the bulk)
 The ~60 compile passes and ~20 checks. Each is `Module → Module`, pure, independently

@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
 
 use k_rust::definition::{
-    Attributes, Definition, FlatImport, FlatModule, ResolveError, ResolvedDefinition, Sentence,
+    Attributes, Definition, FlatImport, FlatModule, ProductionItem, ResolveError,
+    ResolvedDefinition, Sentence,
 };
-use serde_json::Value;
+use k_rust::kast::{Label, Sort};
+use serde_json::{Value, json};
 
 fn attrs(entries: &[(&str, &str)]) -> Attributes {
     Attributes::new(
@@ -207,6 +209,24 @@ fn deduplicates_flat_sets_only_during_resolution() {
 }
 
 #[test]
+fn deduplicates_productions_using_scala_equality() {
+    let production = |line| Sentence::Production {
+        label: Some(Label::new("label")),
+        parameters: Vec::new(),
+        sort: Sort::new("K"),
+        items: vec![ProductionItem::Terminal("token".into())],
+        attributes: Attributes::new(BTreeMap::from([(
+            "org.kframework.attributes.Location".into(),
+            json!([line, 1, line, 2]),
+        )])),
+    };
+    let mut a = module("A", &[]);
+    a.local_sentences = vec![production(1), production(2)];
+    let resolved = ResolvedDefinition::resolve(&definition(vec![a])).unwrap();
+    assert_eq!(resolved.main_module().local_sentences.len(), 1);
+}
+
+#[test]
 fn resolves_the_upstream_reduced_fixture() {
     let definition =
         k_rust::definition::json::from_str(include_str!("fixtures/kast/definition.json")).unwrap();
@@ -216,4 +236,7 @@ fn resolves_the_upstream_reduced_fixture() {
         module_names(&resolved, resolved.dependency_order()),
         ["BOOL-SYNTAX", "IMP"]
     );
+    for (module, _) in resolved.modules() {
+        resolved.sorted_local_sentences(module).unwrap();
+    }
 }

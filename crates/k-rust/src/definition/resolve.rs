@@ -8,6 +8,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 
 use super::ast::{Attributes, Definition, FlatModule, Sentence};
+use super::ordering::{Error as OrderingError, compare_sentences, sentence_equivalent};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Error {
@@ -214,14 +215,17 @@ impl ResolvedDefinition {
         let mut visible = self.transitive_imports(module);
         visible.push(module);
         let visible = visible.into_iter().collect::<BTreeSet<_>>();
-        let mut sentences = Vec::new();
+        let mut sentences: Vec<&Sentence> = Vec::new();
         for sentence in self
             .dependency_order
             .iter()
             .filter(|id| visible.contains(id))
             .flat_map(|id| self.module(*id).local_sentences.iter())
         {
-            if !sentences.contains(&sentence) {
+            if !sentences
+                .iter()
+                .any(|existing| sentence_equivalent(existing, sentence))
+            {
                 sentences.push(sentence);
             }
         }
@@ -243,6 +247,24 @@ impl ResolvedDefinition {
                 }
             })
             .collect()
+    }
+
+    pub fn sorted_local_sentences(
+        &self,
+        module: ModuleId,
+    ) -> Result<Vec<&Sentence>, OrderingError> {
+        let mut sentences = self
+            .module(module)
+            .local_sentences
+            .iter()
+            .collect::<Vec<_>>();
+        for sentence in &sentences {
+            compare_sentences(sentence, sentence)?;
+        }
+        sentences.sort_by(|left, right| {
+            compare_sentences(left, right).expect("sentence kinds were prevalidated")
+        });
+        Ok(sentences)
     }
 }
 
@@ -321,7 +343,10 @@ impl From<&FlatModule> for ResolvedModule {
 fn deduplicate_sentences(sentences: &[Sentence]) -> Vec<Sentence> {
     let mut unique = Vec::new();
     for sentence in sentences {
-        if !unique.contains(sentence) {
+        if !unique
+            .iter()
+            .any(|existing| sentence_equivalent(existing, sentence))
+        {
             unique.push(sentence.clone());
         }
     }

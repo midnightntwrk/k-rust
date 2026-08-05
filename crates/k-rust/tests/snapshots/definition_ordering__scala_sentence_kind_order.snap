@@ -1,0 +1,15 @@
+---
+source: crates/k-rust/tests/definition_ordering.rs
+expression: "sentences.iter().map(sentence_name).collect::<Vec<_>>().join(\"\\n\")"
+---
+KSyntaxSort
+KSortSynonym
+KSyntaxLexical
+KProduction
+KSyntaxAssociativity
+KSyntaxPriority
+KContextAlias
+KContext
+KRule
+KClaim
+KBubble
