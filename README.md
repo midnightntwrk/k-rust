@@ -10,7 +10,8 @@ definition layer now includes the flat Scala-faithful sentence/module model and 
 compiled-definition KAST JSON v4 interchange. Deterministic, WASM-compatible module-import
 resolution uses `petgraph`, preserves visibility, and reports complete import cycles. Resolved
 sentence identity and ordering reproduce Scala's explicit rules, including its deliberate gaps
-and its unusual `Production` equality/ordering divergence.
+and its unusual `Production` equality/ordering divergence. A deterministic `petgraph`-backed
+partial-order layer now derives semantic/syntactic subsorts and both Scala overload mechanisms.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -238,7 +239,8 @@ Separable sub-deliverables:
 ### Phase 2 — `k_rust::kast` + `k_rust::definition` (serial prefix, needs human design review)
 The inner KAST term model, flat definition model, their text/JSON formats, deterministic
 import-graph resolution, and Scala-compatible sentence ordering are implemented. Next are
-subsort and overload partial orders plus the remaining derived module views. This remains a
+the remaining derived module views; subsort and overload partial orders are implemented,
+including Scala's distinct explicit-group and legacy same-label mechanisms. This remains a
 reviewed design boundary because every downstream pass inherits its bugs — especially its
 iteration order.
 
