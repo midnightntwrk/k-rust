@@ -1,0 +1,52 @@
+---
+source: crates/k-rust/src/parser/pattern.rs
+description: "KORE pattern:\n\n\\iff{S}(\n    \\not{S}(a{}()),\n    \\implies{S}(b{}(), \\rewrites{S}(c{}(), d{}()))\n)\n"
+---
+Iff {
+    sort: Variable(
+        "S",
+    ),
+    left: Not {
+        sort: Variable(
+            "S",
+        ),
+        argument: Application {
+            symbol: Symbol {
+                name: "a",
+                sort_parameters: [],
+            },
+            arguments: [],
+        },
+    },
+    right: Implies {
+        sort: Variable(
+            "S",
+        ),
+        left: Application {
+            symbol: Symbol {
+                name: "b",
+                sort_parameters: [],
+            },
+            arguments: [],
+        },
+        right: Rewrites {
+            sort: Variable(
+                "S",
+            ),
+            left: Application {
+                symbol: Symbol {
+                    name: "c",
+                    sort_parameters: [],
+                },
+                arguments: [],
+            },
+            right: Application {
+                symbol: Symbol {
+                    name: "d",
+                    sort_parameters: [],
+                },
+                arguments: [],
+            },
+        },
+    },
+}

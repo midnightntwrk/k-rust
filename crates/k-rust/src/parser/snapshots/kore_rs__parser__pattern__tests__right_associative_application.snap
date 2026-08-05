@@ -1,0 +1,38 @@
+---
+source: crates/k-rust/src/parser/pattern.rs
+description: "KORE pattern:\n\n\\right-assoc{}(append{S}(a{}(), b{}(), c{}()))\n"
+---
+AssociativeApplication {
+    associativity: Right,
+    symbol: Symbol {
+        name: "append",
+        sort_parameters: [
+            Variable(
+                "S",
+            ),
+        ],
+    },
+    arguments: [
+        Application {
+            symbol: Symbol {
+                name: "a",
+                sort_parameters: [],
+            },
+            arguments: [],
+        },
+        Application {
+            symbol: Symbol {
+                name: "b",
+                sort_parameters: [],
+            },
+            arguments: [],
+        },
+        Application {
+            symbol: Symbol {
+                name: "c",
+                sort_parameters: [],
+            },
+            arguments: [],
+        },
+    ],
+}

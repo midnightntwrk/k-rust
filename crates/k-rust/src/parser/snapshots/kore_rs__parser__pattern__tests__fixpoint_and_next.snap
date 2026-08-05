@@ -1,0 +1,30 @@
+---
+source: crates/k-rust/src/parser/pattern.rs
+description: "KORE pattern:\n\n\\mu{}(@X:SortSet{}, \\next{SortSet{}}(@X:SortSet{}))\n"
+---
+Mu {
+    variable: Variable {
+        kind: Set,
+        name: "@X",
+        sort: Application {
+            name: "SortSet",
+            arguments: [],
+        },
+    },
+    body: Next {
+        sort: Application {
+            name: "SortSet",
+            arguments: [],
+        },
+        argument: Variable(
+            Variable {
+                kind: Set,
+                name: "@X",
+                sort: Application {
+                    name: "SortSet",
+                    arguments: [],
+                },
+            },
+        ),
+    },
+}

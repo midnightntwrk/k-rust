@@ -1,0 +1,34 @@
+---
+source: crates/k-rust/src/parser/pattern.rs
+description: "KORE pattern:\n\n\\left-assoc{}(Lbl'Unds'Map'Unds{}(a{}(), b{}(), c{}()))\n"
+---
+AssociativeApplication {
+    associativity: Left,
+    symbol: Symbol {
+        name: "Lbl'Unds'Map'Unds",
+        sort_parameters: [],
+    },
+    arguments: [
+        Application {
+            symbol: Symbol {
+                name: "a",
+                sort_parameters: [],
+            },
+            arguments: [],
+        },
+        Application {
+            symbol: Symbol {
+                name: "b",
+                sort_parameters: [],
+            },
+            arguments: [],
+        },
+        Application {
+            symbol: Symbol {
+                name: "c",
+                sort_parameters: [],
+            },
+            arguments: [],
+        },
+    ],
+}

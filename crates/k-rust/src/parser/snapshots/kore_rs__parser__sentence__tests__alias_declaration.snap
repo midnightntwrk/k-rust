@@ -1,0 +1,55 @@
+---
+source: crates/k-rust/src/parser/sentence.rs
+description: "KORE sentence:\n\nalias id{S}(S) : S where id{S}(X:S) := X:S []\n"
+---
+AliasDeclaration {
+    alias: Symbol {
+        name: "id",
+        sort_parameters: [
+            Variable(
+                "S",
+            ),
+        ],
+    },
+    argument_sorts: [
+        Variable(
+            "S",
+        ),
+    ],
+    result_sort: Variable(
+        "S",
+    ),
+    left: Application {
+        symbol: Symbol {
+            name: "id",
+            sort_parameters: [
+                Variable(
+                    "S",
+                ),
+            ],
+        },
+        arguments: [
+            Variable(
+                Variable {
+                    kind: Element,
+                    name: "X",
+                    sort: Variable(
+                        "S",
+                    ),
+                },
+            ),
+        ],
+    },
+    right: Variable(
+        Variable {
+            kind: Element,
+            name: "X",
+            sort: Variable(
+                "S",
+            ),
+        },
+    ),
+    attributes: Attributes(
+        [],
+    ),
+}

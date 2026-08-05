@@ -1,0 +1,27 @@
+---
+source: crates/k-rust/src/parser/sentence.rs
+description: "KORE sentence:\n\nhooked-sort SortMap{K, V} [hook{}(\"MAP.Map\")]\n"
+---
+SortDeclaration {
+    hooked: true,
+    name: "SortMap",
+    parameters: [
+        "K",
+        "V",
+    ],
+    attributes: Attributes(
+        [
+            Application {
+                symbol: Symbol {
+                    name: "hook",
+                    sort_parameters: [],
+                },
+                arguments: [
+                    String(
+                        "MAP.Map",
+                    ),
+                ],
+            },
+        ],
+    ),
+}

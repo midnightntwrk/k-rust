@@ -1,0 +1,46 @@
+---
+source: crates/k-rust/src/parser/pattern.rs
+description: "KORE pattern:\n\nfoo{S, List{T}}(X:S, @Set:SortSet{}, \"value\")\n"
+---
+Application {
+    symbol: Symbol {
+        name: "foo",
+        sort_parameters: [
+            Variable(
+                "S",
+            ),
+            Application {
+                name: "List",
+                arguments: [
+                    Variable(
+                        "T",
+                    ),
+                ],
+            },
+        ],
+    },
+    arguments: [
+        Variable(
+            Variable {
+                kind: Element,
+                name: "X",
+                sort: Variable(
+                    "S",
+                ),
+            },
+        ),
+        Variable(
+            Variable {
+                kind: Set,
+                name: "@Set",
+                sort: Application {
+                    name: "SortSet",
+                    arguments: [],
+                },
+            },
+        ),
+        String(
+            "value",
+        ),
+    ],
+}

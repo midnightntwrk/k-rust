@@ -1,0 +1,45 @@
+---
+source: crates/k-rust/src/parser/pattern.rs
+description: "KORE pattern:\n\n\\forall{SortBool{}}(\n    X:SortInt{},\n    \\equals{SortInt{}, SortBool{}}(X:SortInt{}, \\dv{SortInt{}}(\"42\"))\n)\n"
+---
+Forall {
+    sort: Application {
+        name: "SortBool",
+        arguments: [],
+    },
+    variable: Variable {
+        kind: Element,
+        name: "X",
+        sort: Application {
+            name: "SortInt",
+            arguments: [],
+        },
+    },
+    body: Equals {
+        operand_sort: Application {
+            name: "SortInt",
+            arguments: [],
+        },
+        result_sort: Application {
+            name: "SortBool",
+            arguments: [],
+        },
+        left: Variable(
+            Variable {
+                kind: Element,
+                name: "X",
+                sort: Application {
+                    name: "SortInt",
+                    arguments: [],
+                },
+            },
+        ),
+        right: DomainValue {
+            sort: Application {
+                name: "SortInt",
+                arguments: [],
+            },
+            value: "42",
+        },
+    },
+}

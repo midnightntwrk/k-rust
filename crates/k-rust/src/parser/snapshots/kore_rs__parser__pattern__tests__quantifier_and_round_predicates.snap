@@ -1,0 +1,55 @@
+---
+source: crates/k-rust/src/parser/pattern.rs
+description: "KORE pattern:\n\n\\exists{SortBool{}}(\n    X:SortInt{},\n    \\in{SortInt{}, SortBool{}}(\n        X:SortInt{},\n        \\ceil{SortInt{}, SortBool{}}(value{}())\n    )\n)\n"
+---
+Exists {
+    sort: Application {
+        name: "SortBool",
+        arguments: [],
+    },
+    variable: Variable {
+        kind: Element,
+        name: "X",
+        sort: Application {
+            name: "SortInt",
+            arguments: [],
+        },
+    },
+    body: In {
+        operand_sort: Application {
+            name: "SortInt",
+            arguments: [],
+        },
+        result_sort: Application {
+            name: "SortBool",
+            arguments: [],
+        },
+        left: Variable(
+            Variable {
+                kind: Element,
+                name: "X",
+                sort: Application {
+                    name: "SortInt",
+                    arguments: [],
+                },
+            },
+        ),
+        right: Ceil {
+            operand_sort: Application {
+                name: "SortInt",
+                arguments: [],
+            },
+            result_sort: Application {
+                name: "SortBool",
+                arguments: [],
+            },
+            argument: Application {
+                symbol: Symbol {
+                    name: "value",
+                    sort_parameters: [],
+                },
+                arguments: [],
+            },
+        },
+    },
+}

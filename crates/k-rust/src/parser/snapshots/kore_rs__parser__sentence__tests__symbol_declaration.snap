@@ -1,0 +1,63 @@
+---
+source: crates/k-rust/src/parser/sentence.rs
+description: "KORE sentence:\n\nsymbol concat{S}(List{S}, List{S}) : List{S} [assoc{}(), unit{}(\"nil\")]\n"
+---
+SymbolDeclaration {
+    hooked: false,
+    symbol: Symbol {
+        name: "concat",
+        sort_parameters: [
+            Variable(
+                "S",
+            ),
+        ],
+    },
+    argument_sorts: [
+        Application {
+            name: "List",
+            arguments: [
+                Variable(
+                    "S",
+                ),
+            ],
+        },
+        Application {
+            name: "List",
+            arguments: [
+                Variable(
+                    "S",
+                ),
+            ],
+        },
+    ],
+    result_sort: Application {
+        name: "List",
+        arguments: [
+            Variable(
+                "S",
+            ),
+        ],
+    },
+    attributes: Attributes(
+        [
+            Application {
+                symbol: Symbol {
+                    name: "assoc",
+                    sort_parameters: [],
+                },
+                arguments: [],
+            },
+            Application {
+                symbol: Symbol {
+                    name: "unit",
+                    sort_parameters: [],
+                },
+                arguments: [
+                    String(
+                        "nil",
+                    ),
+                ],
+            },
+        ],
+    ),
+}

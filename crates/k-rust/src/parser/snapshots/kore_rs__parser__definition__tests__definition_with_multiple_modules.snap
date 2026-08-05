@@ -1,0 +1,85 @@
+---
+source: crates/k-rust/src/parser/definition.rs
+description: "KORE definition:\n\n[source{}(\"snapshot-test\")]\n\nmodule BOOL\n    sort SortBool{} []\nendmodule []\n\nmodule MAIN\n    import BOOL []\n    claim{}\n        \\implies{SortBool{}}(\\top{SortBool{}}(), \\top{SortBool{}}())\n        [trusted{}()]\nendmodule []\n"
+---
+Definition {
+    attributes: Attributes(
+        [
+            Application {
+                symbol: Symbol {
+                    name: "source",
+                    sort_parameters: [],
+                },
+                arguments: [
+                    String(
+                        "snapshot-test",
+                    ),
+                ],
+            },
+        ],
+    ),
+    modules: [
+        Module {
+            name: "BOOL",
+            sentences: [
+                SortDeclaration {
+                    hooked: false,
+                    name: "SortBool",
+                    parameters: [],
+                    attributes: Attributes(
+                        [],
+                    ),
+                },
+            ],
+            attributes: Attributes(
+                [],
+            ),
+        },
+        Module {
+            name: "MAIN",
+            sentences: [
+                Import {
+                    module: "BOOL",
+                    attributes: Attributes(
+                        [],
+                    ),
+                },
+                Claim {
+                    parameters: [],
+                    pattern: Implies {
+                        sort: Application {
+                            name: "SortBool",
+                            arguments: [],
+                        },
+                        left: Top {
+                            sort: Application {
+                                name: "SortBool",
+                                arguments: [],
+                            },
+                        },
+                        right: Top {
+                            sort: Application {
+                                name: "SortBool",
+                                arguments: [],
+                            },
+                        },
+                    },
+                    attributes: Attributes(
+                        [
+                            Application {
+                                symbol: Symbol {
+                                    name: "trusted",
+                                    sort_parameters: [],
+                                },
+                                arguments: [],
+                            },
+                        ],
+                    ),
+                },
+            ],
+            attributes: Attributes(
+                [],
+            ),
+        },
+    ],
+}

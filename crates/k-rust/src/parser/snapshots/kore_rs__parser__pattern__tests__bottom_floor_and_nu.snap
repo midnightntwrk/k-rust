@@ -1,0 +1,30 @@
+---
+source: crates/k-rust/src/parser/pattern.rs
+description: "KORE pattern:\n\n\\nu{}(\n    @X:SortSet{},\n    \\floor{SortSet{}, SortBool{}}(\\bottom{SortSet{}}())\n)\n"
+---
+Nu {
+    variable: Variable {
+        kind: Set,
+        name: "@X",
+        sort: Application {
+            name: "SortSet",
+            arguments: [],
+        },
+    },
+    body: Floor {
+        operand_sort: Application {
+            name: "SortSet",
+            arguments: [],
+        },
+        result_sort: Application {
+            name: "SortBool",
+            arguments: [],
+        },
+        argument: Bottom {
+            sort: Application {
+                name: "SortSet",
+                arguments: [],
+            },
+        },
+    },
+}

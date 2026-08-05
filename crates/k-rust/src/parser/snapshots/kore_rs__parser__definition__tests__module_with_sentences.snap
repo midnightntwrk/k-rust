@@ -1,0 +1,143 @@
+---
+source: crates/k-rust/src/parser/definition.rs
+description: "KORE module:\n\nmodule NAT\n    import BOOL []\n    sort SortNat{} [hook{}(\"NAT.Nat\")]\n    symbol zero{}() : SortNat{} [constructor{}()]\n    symbol succ{}(SortNat{}) : SortNat{} [constructor{}()]\n    axiom{}\n        \\equals{SortNat{}, SortBool{}}(succ{}(zero{}()), succ{}(zero{}()))\n        []\nendmodule [main{}()]\n"
+---
+Module {
+    name: "NAT",
+    sentences: [
+        Import {
+            module: "BOOL",
+            attributes: Attributes(
+                [],
+            ),
+        },
+        SortDeclaration {
+            hooked: false,
+            name: "SortNat",
+            parameters: [],
+            attributes: Attributes(
+                [
+                    Application {
+                        symbol: Symbol {
+                            name: "hook",
+                            sort_parameters: [],
+                        },
+                        arguments: [
+                            String(
+                                "NAT.Nat",
+                            ),
+                        ],
+                    },
+                ],
+            ),
+        },
+        SymbolDeclaration {
+            hooked: false,
+            symbol: Symbol {
+                name: "zero",
+                sort_parameters: [],
+            },
+            argument_sorts: [],
+            result_sort: Application {
+                name: "SortNat",
+                arguments: [],
+            },
+            attributes: Attributes(
+                [
+                    Application {
+                        symbol: Symbol {
+                            name: "constructor",
+                            sort_parameters: [],
+                        },
+                        arguments: [],
+                    },
+                ],
+            ),
+        },
+        SymbolDeclaration {
+            hooked: false,
+            symbol: Symbol {
+                name: "succ",
+                sort_parameters: [],
+            },
+            argument_sorts: [
+                Application {
+                    name: "SortNat",
+                    arguments: [],
+                },
+            ],
+            result_sort: Application {
+                name: "SortNat",
+                arguments: [],
+            },
+            attributes: Attributes(
+                [
+                    Application {
+                        symbol: Symbol {
+                            name: "constructor",
+                            sort_parameters: [],
+                        },
+                        arguments: [],
+                    },
+                ],
+            ),
+        },
+        Axiom {
+            parameters: [],
+            pattern: Equals {
+                operand_sort: Application {
+                    name: "SortNat",
+                    arguments: [],
+                },
+                result_sort: Application {
+                    name: "SortBool",
+                    arguments: [],
+                },
+                left: Application {
+                    symbol: Symbol {
+                        name: "succ",
+                        sort_parameters: [],
+                    },
+                    arguments: [
+                        Application {
+                            symbol: Symbol {
+                                name: "zero",
+                                sort_parameters: [],
+                            },
+                            arguments: [],
+                        },
+                    ],
+                },
+                right: Application {
+                    symbol: Symbol {
+                        name: "succ",
+                        sort_parameters: [],
+                    },
+                    arguments: [
+                        Application {
+                            symbol: Symbol {
+                                name: "zero",
+                                sort_parameters: [],
+                            },
+                            arguments: [],
+                        },
+                    ],
+                },
+            },
+            attributes: Attributes(
+                [],
+            ),
+        },
+    ],
+    attributes: Attributes(
+        [
+            Application {
+                symbol: Symbol {
+                    name: "main",
+                    sort_parameters: [],
+                },
+                arguments: [],
+            },
+        ],
+    ),
+}

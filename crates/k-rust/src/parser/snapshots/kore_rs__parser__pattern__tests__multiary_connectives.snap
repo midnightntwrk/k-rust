@@ -1,0 +1,47 @@
+---
+source: crates/k-rust/src/parser/pattern.rs
+description: "KORE pattern:\n\n\\and{SortBool{}}(\n    \\top{SortBool{}}(),\n    \\or{SortBool{}}(a{}(), b{}(), c{}())\n)\n"
+---
+And {
+    sort: Application {
+        name: "SortBool",
+        arguments: [],
+    },
+    arguments: [
+        Top {
+            sort: Application {
+                name: "SortBool",
+                arguments: [],
+            },
+        },
+        Or {
+            sort: Application {
+                name: "SortBool",
+                arguments: [],
+            },
+            arguments: [
+                Application {
+                    symbol: Symbol {
+                        name: "a",
+                        sort_parameters: [],
+                    },
+                    arguments: [],
+                },
+                Application {
+                    symbol: Symbol {
+                        name: "b",
+                        sort_parameters: [],
+                    },
+                    arguments: [],
+                },
+                Application {
+                    symbol: Symbol {
+                        name: "c",
+                        sort_parameters: [],
+                    },
+                    arguments: [],
+                },
+            ],
+        },
+    ],
+}

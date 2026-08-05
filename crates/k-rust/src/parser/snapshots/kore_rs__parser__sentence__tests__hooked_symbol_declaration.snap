@@ -1,0 +1,40 @@
+---
+source: crates/k-rust/src/parser/sentence.rs
+description: "KORE sentence:\n\nhooked-symbol plus{}(SortInt{}, SortInt{}) : SortInt{} [hook{}(\"INT.add\")]\n"
+---
+SymbolDeclaration {
+    hooked: true,
+    symbol: Symbol {
+        name: "plus",
+        sort_parameters: [],
+    },
+    argument_sorts: [
+        Application {
+            name: "SortInt",
+            arguments: [],
+        },
+        Application {
+            name: "SortInt",
+            arguments: [],
+        },
+    ],
+    result_sort: Application {
+        name: "SortInt",
+        arguments: [],
+    },
+    attributes: Attributes(
+        [
+            Application {
+                symbol: Symbol {
+                    name: "hook",
+                    sort_parameters: [],
+                },
+                arguments: [
+                    String(
+                        "INT.add",
+                    ),
+                ],
+            },
+        ],
+    ),
+}
