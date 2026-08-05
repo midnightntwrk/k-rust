@@ -1,1 +1,7 @@
 target/
+
+# ignore some references
+evm-semantics/
+k/
+scala-kore/
+wasm-semantics/
