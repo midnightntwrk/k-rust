@@ -1,7 +1,7 @@
-# rust-k — feasibility study: porting the K frontend to Rust
+# k-rust — feasibility study: porting the K frontend to Rust
 
 **Status:** investigation notes, not a plan of record. Implementation has started with the
-WASM-compatible `kore-rs` lexer, KORE string codec, and their first upstream-derived tests.
+WASM-compatible `k-rust` lexer, KORE string codec, and their first upstream-derived tests.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -164,37 +164,35 @@ nice-to-have (§5.1, §10).
 
 ---
 
-## 3. Architecture: where the WASM boundary goes
+## 3. Architecture: one crate, explicit portability boundaries
 
 ```
-┌─────────────────────────────────────────────┐
-│  kore-rs        WASM  ~1.5k LOC             │  lexer, parser, printer, AST,
-│                                             │  binary KORE format
-├─────────────────────────────────────────────┤
-│  kast-rs        WASM  ~1.5k LOC             │  KAST text parser, KAST JSON in/out
-├─────────────────────────────────────────────┤
-│  kdef-rs        WASM  ~3k LOC               │  Att, Sort, Production, Module,
-│                                             │  Definition — the shared data model
-├─────────────────────────────────────────────┤
-│  kompile-rs     native  ~35k LOC            │  passes, checks, Earley,
-│                                             │  flex/z3/cc subprocesses, ModuleToKORE
-└─────────────────────────────────────────────┘
+crates/k-rust/
+├── src/lib.rs
+├── src/kore/          WASM-compatible   lexer, parser, printer, AST, binary KORE
+├── src/kast/          WASM-compatible   KAST text and JSON (planned)
+├── src/definition/    WASM-compatible   shared K definition model (planned)
+├── src/kompile/       native-only       passes, checks, Earley, ModuleToKORE (planned)
+└── src/bin/k-rust.rs  native-only       command-line frontend (planned)
 ```
 
-Two properties make this the right cut:
+Start with one Cargo package. The module boundaries preserve the option to extract crates later
+if compile times, dependency boundaries, or independent releases justify it. Splitting packages
+before those pressures exist would add coordination overhead without improving correctness.
+
+Two properties make this the right internal cut:
 
 - **The dependency order is favourable.** The shared data model — which everything else
-  blocks on — *is* the WASM crate. You build the small, high-confidence,
-  independently-shippable part first, and it is exactly the prerequisite for the rest. You
-  can ship the WASM crates standalone and decide about `kompile` later with real information.
-- **The most-used code becomes the most-tested code**, because `kompile-rs` exercises the
-  library crates on every run.
+  blocks on — remains in the portable portion of the crate. The small, independently useful
+  KORE and KAST APIs are built first and become prerequisites for the native frontend.
+- **The most-used code becomes the most-tested code**, because the native `kompile` module
+  exercises the portable modules on every run.
 
-**Enforce the boundary mechanically.** Add CI that builds the three lower crates for
-`wasm32-unknown-unknown`. It is very easy for an agent to reach for `std::fs` or
-`std::process` in `kdef-rs` — source-location handling and `requires` path resolution both
-tempt it — and silently cost you the WASM target. Make it a build failure, not a code-review
-convention.
+**Enforce the boundary mechanically.** CI builds `k-rust` for `wasm32-unknown-unknown`.
+Native-only modules and the CLI must be target-gated when they arrive. It is very easy for an
+agent to reach for `std::fs` or `std::process` in portable definition code — source-location
+handling and `requires` path resolution both tempt it — and silently cost the project its WASM
+target. Make it a build failure, not a code-review convention.
 
 ---
 
@@ -213,7 +211,7 @@ Run these *before* committing. Any of them could invalidate the plan.
 - **S2. `Module` determinism.** Trace which of `outer.scala`'s 77 lazy vals actually feed
   `ModuleToKORE` output, and whether the unsorted (`immutable.Set`) ones ever do. §6.1.
 
-### Phase 1 — `kore-rs` (small, high confidence)
+### Phase 1 — `k_rust::kore` (small, high confidence)
 ~1.5k LOC. Four reference implementations to cross-check (§7). Ship standalone as WASM.
 
 It *shrinks* in the port: `interface.scala` (722) + `Default.scala` (273) are ~1000 lines of
@@ -225,9 +223,9 @@ Separable sub-deliverables:
 - KORE printer — needs `StringUtil`, needs `AlphanumComparator` for any sorted output
 - KORE binary format — spec at `llvm-backend/.../docs/binary-kore{,-2}.md`
 - KORE → KAST conversion (`KoreToK.scala`, 180 lines) — **not** context-free; needs the
-  sort→hook attribute map from a compiled definition, so it depends on `kdef-rs`
+  sort→hook attribute map from a compiled definition, so it depends on `k_rust::definition`
 
-### Phase 2 — `kast-rs` + `kdef-rs` (serial prefix, needs human design review)
+### Phase 2 — `k_rust::kast` + `k_rust::definition` (serial prefix, needs human design review)
 The data model, including the `Module` design. One strong agent, reviewed design, because
 every downstream agent inherits its bugs — especially its iteration order.
 
@@ -276,9 +274,9 @@ This distinction matters and is easy to conflate:
 
 | Layer | Criterion |
 |---|---|
-| `kore-rs`, `kast-rs` as extractable libraries | parse-correctness + *semantic* equality. Byte-identical output not required. |
+| Portable `k_rust::kore` and `k_rust::kast` APIs | parse-correctness + *semantic* equality. Byte-identical output not required. |
 | KAST JSON specifically | **schema-exact.** `ToJson.java:56` declares `version = 4`; pyk's `kast/outer.py` (1,679) + `inner.py` (972) + `_ast_to_kast.py` are the de-facto consumer spec. Anything pyk can read, you must produce. |
-| `kompile-rs` end to end | **byte-identical `definition.kore`**, over large external semantics. |
+| Native `k_rust::kompile` pipeline end to end | **byte-identical `definition.kore`**, over large external semantics. |
 
 ### 5.3 Oracles, ranked by strength
 
@@ -417,13 +415,13 @@ and identifiable compatibility surface. `compile/checks/CheckRegex.java` (295) i
 ### 6.5 Markdown / literate K
 `flexmark-all` parses `.md` files with fenced K blocks, plus `jjtree/TagSelector.jjt` — a whole
 selector mini-language (191 lines). `pulldown-cmark` disagrees with flexmark on malformed
-fences. With WASM off `kompile` there is no crate constraint, so porting flexmark's
+fences. With the `kompile` module native-only there is no WASM constraint, so porting flexmark's
 fenced-block handling directly is an option. pyk's `kast/markdown.py` (226) is a second
 reference.
 
 ### 6.6 `AlphanumComparator` duplication
 Natural-sort ordering, present in **both** `k-frontend` and `scala-kore` (`com.davekoelle`,
-112 lines). Port once, share between crates, test against a generated string corpus.
+112 lines). Port once, share between modules, test against a generated string corpus.
 Comparator bugs are order-dependent and will not reproduce reliably from a diff.
 
 ### 6.7 Earley + disambiguation
@@ -486,7 +484,8 @@ reference implementation *and* a free set of already-discovered edge cases.
 
 ## 9. Difficulty assessment (the answer to the original question)
 
-**The library layer (`kore-rs`, `kast-rs`):** low difficulty, high achievable confidence.
+**The portable library modules (`k_rust::kore`, `k_rust::kast`):** low difficulty, high
+achievable confidence.
 ~3k LOC of Rust, mechanically derivable from a hand-written recursive-descent parser, four
 independent reference implementations, unlimited corpus, and a self-contained roundtrip oracle.
 An agent can do most of this nearly unsupervised. The exception is `StringUtil`.

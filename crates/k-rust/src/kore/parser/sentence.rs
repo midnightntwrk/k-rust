@@ -1,5 +1,5 @@
-use crate::ast::{Attributes, Sentence};
-use crate::lexer::TokenKind;
+use crate::kore::ast::{Attributes, Sentence};
+use crate::kore::lexer::TokenKind;
 
 use super::{ParseError, Parser};
 
@@ -128,7 +128,8 @@ mod tests {
     macro_rules! assert_sentence_snapshot {
         ($code:expr) => {{
             let source = indoc! { $code };
-            let sentence = $crate::parser::parse_sentence(source).expect("sentence should parse");
+            let sentence =
+                $crate::kore::parser::parse_sentence(source).expect("sentence should parse");
 
             insta::with_settings!({
                 description => format!("KORE sentence:\n\n{source}"),

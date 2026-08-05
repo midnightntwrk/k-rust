@@ -1,5 +1,5 @@
 ---
-source: crates/k-rust/src/parser/definition.rs
+source: crates/k-rust/src/kore/parser/definition.rs
 description: "KORE module:\n\nmodule NAT\n    import BOOL []\n    sort SortNat{} [hook{}(\"NAT.Nat\")]\n    symbol zero{}() : SortNat{} [constructor{}()]\n    symbol succ{}(SortNat{}) : SortNat{} [constructor{}()]\n    axiom{}\n        \\equals{SortNat{}, SortBool{}}(succ{}(zero{}()), succ{}(zero{}()))\n        []\nendmodule [main{}()]\n"
 ---
 Module {

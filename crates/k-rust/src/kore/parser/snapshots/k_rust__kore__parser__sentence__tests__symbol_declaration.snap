@@ -1,5 +1,5 @@
 ---
-source: crates/k-rust/src/parser/sentence.rs
+source: crates/k-rust/src/kore/parser/sentence.rs
 description: "KORE sentence:\n\nsymbol concat{S}(List{S}, List{S}) : List{S} [assoc{}(), unit{}(\"nil\")]\n"
 ---
 SymbolDeclaration {

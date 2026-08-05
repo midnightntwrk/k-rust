@@ -1,5 +1,5 @@
-use crate::ast::{Definition, Module};
-use crate::lexer::TokenKind;
+use crate::kore::ast::{Definition, Module};
+use crate::kore::lexer::TokenKind;
 
 use super::{ParseError, Parser};
 
@@ -43,7 +43,7 @@ mod tests {
     macro_rules! assert_module_snapshot {
         ($code:expr) => {{
             let source = indoc! { $code };
-            let module = $crate::parser::parse_module(source).expect("module should parse");
+            let module = $crate::kore::parser::parse_module(source).expect("module should parse");
 
             insta::with_settings!({
                 description => format!("KORE module:\n\n{source}"),
@@ -59,7 +59,7 @@ mod tests {
         ($code:expr) => {{
             let source = indoc! { $code };
             let definition =
-                $crate::parser::parse_definition(source).expect("definition should parse");
+                $crate::kore::parser::parse_definition(source).expect("definition should parse");
 
             insta::with_settings!({
                 description => format!("KORE definition:\n\n{source}"),

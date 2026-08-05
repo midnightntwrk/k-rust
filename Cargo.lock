@@ -80,7 +80,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kore-rs"
+name = "k-rust"
 version = "0.1.0"
 dependencies = [
  "indoc",

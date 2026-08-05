@@ -1,6 +1,6 @@
 // Cases ported from pyk and expanded to pin scala-kore StringUtil compatibility.
 
-use kore_rs::string::{quote, unquote};
+use k_rust::kore::string::{quote, unquote};
 
 #[test]
 fn unquotes_kore_escapes() {

@@ -6,8 +6,8 @@ mod sentence;
 
 use std::fmt;
 
-use crate::ast::{Definition, Module, Pattern, Sentence};
-use crate::lexer::{LexError, Token, TokenKind, lex};
+use crate::kore::ast::{Definition, Module, Pattern, Sentence};
+use crate::kore::lexer::{LexError, Token, TokenKind, lex};
 
 pub fn parse_pattern(input: &str) -> Result<Pattern, ParseError> {
     Parser::new(input)?.finish(Parser::pattern)

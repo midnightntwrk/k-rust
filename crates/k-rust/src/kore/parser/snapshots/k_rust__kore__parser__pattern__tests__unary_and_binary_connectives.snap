@@ -1,5 +1,5 @@
 ---
-source: crates/k-rust/src/parser/pattern.rs
+source: crates/k-rust/src/kore/parser/pattern.rs
 description: "KORE pattern:\n\n\\iff{S}(\n    \\not{S}(a{}()),\n    \\implies{S}(b{}(), \\rewrites{S}(c{}(), d{}()))\n)\n"
 ---
 Iff {

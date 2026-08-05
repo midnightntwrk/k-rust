@@ -1,6 +1,6 @@
 // Ported from pyk's BSD-3-Clause-licensed KORE lexer tests.
 
-use kore_rs::lexer::{TokenKind, lex};
+use k_rust::kore::lexer::{TokenKind, lex};
 
 fn kinds(input: &str) -> Vec<TokenKind> {
     lex(input)

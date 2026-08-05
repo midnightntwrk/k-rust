@@ -1,6 +1,6 @@
-use crate::ast::{Associativity, Pattern, Sort, Symbol, Variable, VariableKind};
-use crate::lexer::TokenKind;
-use crate::string;
+use crate::kore::ast::{Associativity, Pattern, Sort, Symbol, Variable, VariableKind};
+use crate::kore::lexer::TokenKind;
+use crate::kore::string;
 
 use super::{ParseError, Parser};
 
@@ -318,7 +318,8 @@ mod tests {
     macro_rules! assert_pattern_snapshot {
         ($code:expr) => {{
             let source = indoc! { $code };
-            let pattern = $crate::parser::parse_pattern(source).expect("pattern should parse");
+            let pattern =
+                $crate::kore::parser::parse_pattern(source).expect("pattern should parse");
 
             insta::with_settings!({
                 description => format!("KORE pattern:\n\n{source}"),

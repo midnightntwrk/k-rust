@@ -1,5 +1,5 @@
 ---
-source: crates/k-rust/src/parser/pattern.rs
+source: crates/k-rust/src/kore/parser/pattern.rs
 description: "KORE pattern:\n\n\\mu{}(@X:SortSet{}, \\next{SortSet{}}(@X:SortSet{}))\n"
 ---
 Mu {

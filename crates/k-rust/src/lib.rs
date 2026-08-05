@@ -1,6 +1,3 @@
-//! A Rust implementation of KORE's portable frontend pieces.
+//! A Rust implementation of the K Framework frontend.
 
-pub mod ast;
-pub mod lexer;
-pub mod parser;
-pub mod string;
+pub mod kore;

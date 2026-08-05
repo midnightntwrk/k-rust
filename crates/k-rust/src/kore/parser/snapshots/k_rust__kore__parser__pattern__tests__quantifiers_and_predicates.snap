@@ -1,5 +1,5 @@
 ---
-source: crates/k-rust/src/parser/pattern.rs
+source: crates/k-rust/src/kore/parser/pattern.rs
 description: "KORE pattern:\n\n\\forall{SortBool{}}(\n    X:SortInt{},\n    \\equals{SortInt{}, SortBool{}}(X:SortInt{}, \\dv{SortInt{}}(\"42\"))\n)\n"
 ---
 Forall {
