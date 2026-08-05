@@ -7,7 +7,8 @@ snapshot tests, property tests,
 and upstream-derived text and JSON fixtures. The user-facing KAST term model now includes
 KAST JSON v4, textual parsing/printing, and context-free KORE conversion. The portable
 definition layer now includes the flat Scala-faithful sentence/module model and lossless
-compiled-definition KAST JSON v4 interchange; resolved import graphs are the next slice.
+compiled-definition KAST JSON v4 interchange. Deterministic, WASM-compatible module-import
+resolution uses `petgraph`, preserves visibility, and reports complete import cycles.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -177,7 +178,7 @@ crates/k-rust/
 ├── src/lib.rs
 ├── src/kore/          WASM-compatible   lexer, parser, printer, AST, binary KORE
 ├── src/kast/          WASM-compatible   KAST terms, text/JSON, KORE conversion
-├── src/definition/    WASM-compatible   flat K definitions + JSON; resolution planned
+├── src/definition/    WASM-compatible   definitions, JSON, resolved import graphs
 ├── src/kompile/       native-only       passes, checks, Earley, ModuleToKORE (planned)
 └── src/bin/k-rust.rs  native-only       command-line frontend (planned)
 ```
@@ -233,10 +234,10 @@ Separable sub-deliverables:
   depends on `k_rust::definition`
 
 ### Phase 2 — `k_rust::kast` + `k_rust::definition` (serial prefix, needs human design review)
-The inner KAST term model, flat definition model, and their text/JSON formats are implemented.
-Next is deterministic import-graph resolution with `petgraph`, followed by Scala-compatible
-sentence ordering and derived module views. This remains a reviewed design boundary because
-every downstream pass inherits its bugs — especially its iteration order.
+The inner KAST term model, flat definition model, their text/JSON formats, and deterministic
+import-graph resolution are implemented. Next is Scala-compatible sentence ordering, subsort
+and overload partial orders, and the remaining derived module views. This remains a reviewed
+design boundary because every downstream pass inherits its bugs — especially its iteration order.
 
 ### Phase 3 — massively parallel fan-out (~14k LOC, the bulk)
 The ~60 compile passes and ~20 checks. Each is `Module → Module`, pure, independently
