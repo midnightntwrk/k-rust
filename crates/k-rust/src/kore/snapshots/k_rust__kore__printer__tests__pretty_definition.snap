@@ -1,0 +1,12 @@
+---
+source: crates/k-rust/src/kore/printer.rs
+description: "Input KORE definition:\n\n[source{}(\"printer-test\")]\n\nmodule MAIN\n    hooked-sort SortInt{} [hook{}(\"INT.Int\")]\n    hooked-symbol plus{}(SortInt{}, SortInt{}) : SortInt{} [hook{}(\"INT.add\")]\n    claim{}\n        \\rewrites{SortInt{}}(plus{}(X:SortInt{}, \\dv{SortInt{}}(\"0\")), X:SortInt{})\n        [simplification{}()]\nendmodule []\n"
+---
+[source{}("printer-test")]
+module MAIN
+  hooked-sort SortInt{} [hook{}("INT.Int")]
+  hooked-symbol plus{}(SortInt{}, SortInt{}) : SortInt{} [hook{}("INT.add")]
+  claim{}
+    \rewrites{SortInt{}}(plus{}(X:SortInt{}, \dv{SortInt{}}("0")), X:SortInt{})
+    [simplification{}()]
+endmodule []
