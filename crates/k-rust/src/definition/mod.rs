@@ -2,6 +2,7 @@
 
 pub mod ast;
 pub mod catalog;
+pub mod checks;
 pub mod json;
 pub mod ordering;
 pub mod partial_order;
@@ -11,11 +12,15 @@ pub mod rule_catalog;
 pub mod sort_catalog;
 
 pub use ast::{
-    Associativity, Attributes, Definition, FlatImport, FlatModule, Location, ProductionItem,
-    Sentence,
+    Associativity, Attributes, Definition, FlatImport, FlatModule, LOCATION_ATTRIBUTE, Location,
+    ProductionItem, SOURCE_ATTRIBUTE, Sentence,
 };
 pub use catalog::{
     FreshGeneratorError, LabelHead, ProductionCatalog, ProductionId, ProductionSignature, SortHead,
+};
+pub use checks::{
+    Error as CheckError, check_associativity, check_duplicate_labels, check_module,
+    check_sort_top_uniqueness, check_syntax_groups, check_tokens,
 };
 pub use ordering::{
     Error as OrderingError, compare_attributes, compare_sentences, compare_terms,

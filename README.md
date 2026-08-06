@@ -19,6 +19,8 @@ A Scala-compatible sort catalog covers arity-aware sort heads, declarations, syn
 parametric instantiations, locality, merged attributes, hooks, token sorts, and user-list sorts.
 Production label metadata and stable rule/claim/context catalogs cover merged label attributes,
 result sorts, fresh generators, macros, locality, ordering, and Scala's `#withConfig` grouping.
+A renderer-independent diagnostic model and the first Java-compatible structural checks cover
+duplicate labels, syntax groups, associativity, multiple top sorts, and token productions.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -246,11 +248,12 @@ Separable sub-deliverables:
 ### Phase 2 — `k_rust::kast` + `k_rust::definition` (serial prefix, needs human design review)
 The inner KAST term model, flat definition model, their text/JSON formats, deterministic
 import-graph resolution, and Scala-compatible sentence ordering are implemented. Next are
-specialized parser/layout views and frontend validation checks. Production, sort, and rule
-catalogs plus subsort, overload, and syntax-priority partial orders are implemented, including
-Scala's distinct explicit-group and legacy same-label overload mechanisms and exact associativity
-tag pairs. This remains a reviewed design boundary because every downstream pass inherits its
-bugs — especially its iteration order.
+specialized parser/layout views and the remaining frontend validation checks. Production, sort,
+and rule catalogs plus subsort, overload, and syntax-priority partial orders are implemented,
+including Scala's distinct explicit-group and legacy same-label overload mechanisms and exact
+associativity tag pairs. The first structural checks and their renderer-independent diagnostics
+are also implemented. This remains a reviewed design boundary because every downstream pass
+inherits its bugs — especially its iteration order.
 
 ### Phase 3 — massively parallel fan-out (~14k LOC, the bulk)
 The ~60 compile passes and ~20 checks. Each is `Module → Module`, pure, independently

@@ -166,6 +166,14 @@ impl<T: Clone + Ord> PartialOrder<T> {
         self.less_than_eq(lesser, greater)
     }
 
+    pub fn in_some_relation(&self, first: &T, second: &T) -> bool {
+        self.less_than(first, second) || self.greater_than(first, second)
+    }
+
+    pub fn in_some_relation_eq(&self, first: &T, second: &T) -> bool {
+        first == second || self.in_some_relation(first, second)
+    }
+
     pub fn upper_bounds<'a>(&self, elements: impl IntoIterator<Item = &'a T>) -> BTreeSet<T>
     where
         T: 'a,

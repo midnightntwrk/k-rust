@@ -15,6 +15,8 @@ fn computes_direct_and_transitive_relations() {
     assert!(order.less_than(&"A", &"C"));
     assert!(order.less_than_eq(&"A", &"A"));
     assert!(order.greater_than(&"C", &"B"));
+    assert!(order.in_some_relation(&"C", &"A"));
+    assert!(order.in_some_relation_eq(&"A", &"A"));
     assert!(!order.less_than(&"C", &"A"));
     assert_eq!(order.relations_from(&"A"), Some(&set(["B", "C"])));
 

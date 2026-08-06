@@ -9,7 +9,7 @@ use crate::kast::{Label, Sort, Term};
 pub const LOCATION_ATTRIBUTE: &str = "org.kframework.attributes.Location";
 pub const SOURCE_ATTRIBUTE: &str = "org.kframework.attributes.Source";
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Location {
     pub start_line: u32,
     pub start_column: u32,
