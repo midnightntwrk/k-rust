@@ -9,16 +9,20 @@ use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{Label, Sort, Term};
 
+mod attributes;
 mod functions;
 mod labels;
 mod production_shapes;
 mod rhs_variables;
+mod smt_lemmas;
 mod term_position;
 
+pub use attributes::{check_attribute_semantics, check_attributes};
 pub use functions::check_functions;
 pub use labels::{check_duplicate_klabels, check_function_rule_attributes, check_klabels};
 pub use production_shapes::{check_configuration_cells, check_holes, check_streams};
 pub use rhs_variables::{StructuralCheckBackend, StructuralCheckOptions, check_rhs_variables};
+pub use smt_lemmas::check_smt_lemmas;
 
 const ALLOWED_TOKEN_ATTRIBUTES: [&str; 3] = ["function", "token", "bracket"];
 const IGNORED_TOKEN_SORTS: [&str; 2] = ["KBott", "KLabel"];
@@ -69,8 +73,9 @@ pub fn check_module_with_options(
     let rule_catalog = definition.rule_catalog(module);
     let macro_labels = rule_catalog.all_macro_labels(&production_catalog);
 
-    let mut diagnostics = check_duplicate_labels(&sentences)
+    let mut diagnostics = check_attributes(definition.module(module))
         .into_iter()
+        .chain(check_duplicate_labels(&sentences))
         .chain(check_syntax_groups(&sentences, &priorities))
         .chain(check_associativity(&sentences, &subsorts))
         .chain(check_sort_top_uniqueness(&sentences, &subsorts))
@@ -96,6 +101,12 @@ pub fn check_module_with_options(
             &production_catalog,
             &sort_catalog,
         ))
+        .chain(check_attribute_semantics(
+            &sentences,
+            &production_catalog,
+            &sort_catalog,
+        ))
+        .chain(check_smt_lemmas(&sentences, &production_catalog))
         .collect::<Vec<_>>();
     diagnostics.sort();
     Ok(diagnostics)

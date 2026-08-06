@@ -1,6 +1,6 @@
 //! Portable, renderer-independent frontend diagnostics.
 
-use crate::definition::{Location, Sentence};
+use crate::definition::{Attributes, Location, Sentence};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Severity {
@@ -10,16 +10,20 @@ pub enum Severity {
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticCode {
+    DeprecatedAttribute,
     DuplicateSentenceLabel,
     DuplicateConfigurationCell,
     DuplicateKLabel,
     InvalidAnonymousVariable,
+    InvalidAttribute,
     InvalidAsPattern,
+    InvalidBracketProduction,
     InvalidAssociativity,
     InvalidExistentialVariable,
     InvalidFunctionPattern,
     InvalidHole,
     InvalidRewrite,
+    InvalidSmtLemma,
     InvalidStreamCell,
     InvalidStrictness,
     IllegalFunctionOnLhs,
@@ -31,6 +35,7 @@ pub enum DiagnosticCode {
     UnsupportedExistentialVariable,
     UnsupportedCellBag,
     UndefinedKLabel,
+    UnrecognizedAttribute,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -51,18 +56,43 @@ impl Diagnostic {
         Self::new(Severity::Warning, code, message, sentence)
     }
 
+    pub fn error_at(
+        code: DiagnosticCode,
+        message: impl Into<String>,
+        attributes: &Attributes,
+    ) -> Self {
+        Self::at(Severity::Error, code, message, attributes)
+    }
+
+    pub fn warning_at(
+        code: DiagnosticCode,
+        message: impl Into<String>,
+        attributes: &Attributes,
+    ) -> Self {
+        Self::at(Severity::Warning, code, message, attributes)
+    }
+
     fn new(
         severity: Severity,
         code: DiagnosticCode,
         message: impl Into<String>,
         sentence: &Sentence,
     ) -> Self {
+        Self::at(severity, code, message, sentence.attributes())
+    }
+
+    fn at(
+        severity: Severity,
+        code: DiagnosticCode,
+        message: impl Into<String>,
+        attributes: &Attributes,
+    ) -> Self {
         Self {
             severity,
             code,
             message: message.into(),
-            source: sentence.attributes().source().map(str::to_owned),
-            location: sentence.attributes().location(),
+            source: attributes.source().map(str::to_owned),
+            location: attributes.location(),
         }
     }
 }

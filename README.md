@@ -34,6 +34,10 @@ Definition-wide checking now composes those module checks deterministically, val
 rule/context KLabel against visible productions and K's derived internal labels, rejects duplicate
 production symbols across the main import closure, and enforces Java's concrete/symbolic function
 rule consistency policy.
+A canonical attribute registry now validates recognized attributes and their permitted module or
+sentence kinds. Java-compatible attribute semantics cover rule-mode conflicts, hooked-sort
+constructors, binders, format/color strings, symbol migration, overload restrictions, bracket
+productions, deprecation warnings, and SMT-lemma symbols.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -49,11 +53,17 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
 - Add Java-compatible unused-symbol warnings once nested term sources and include-directory
   provenance are available. Those warnings deliberately depend on both, so the current portable
   checker does not guess from sentence-level metadata.
+- Port `CheckDeprecated` after terms retain their resolved-production attributes; sentence-level
+  production catalogs cannot identify which overloaded production a parsed application used.
+- Introduce a structured K-regex AST and parser before porting `CheckRegex`; the flat definition
+  model currently preserves regex source strings losslessly but cannot inspect ranges, anchors, or
+  lexical-reference cycles. Port the pre-flattening `CheckListDecl` with the outer-syntax AST,
+  because compiled productions no longer preserve inline-list syntax.
 - Add presentation adapters for diagnostics after the portable diagnostic model stabilizes. A
   renderer such as `miette` may be useful for a future native CLI, but it does not belong in the
   WASM-compatible core yet.
-- Port the remaining Java structural checks, followed by specialized parser/layout views and the
-  compilation passes.
+- Finish the representation-dependent Java checks, followed by specialized parser/layout views and
+  the compilation passes.
 - Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.
 - Revisit package splitting only if compile times, dependency boundaries, or release needs justify
   moving beyond the current single-crate workspace.

@@ -2,11 +2,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::definition::{
     Associativity, Attributes, Definition, FlatImport, FlatModule, LOCATION_ATTRIBUTE,
-    PartialOrder, ProductionCatalog, ProductionItem, SOURCE_ATTRIBUTE, Sentence, SortCatalog,
-    StructuralCheckBackend, StructuralCheckOptions, check_anonymous_variables, check_associativity,
-    check_configuration_cells, check_definition, check_duplicate_klabels, check_duplicate_labels,
+    PartialOrder, ProductionCatalog, ProductionItem, ResolvedModule, SOURCE_ATTRIBUTE, Sentence,
+    SortCatalog, StructuralCheckBackend, StructuralCheckOptions, check_anonymous_variables,
+    check_associativity, check_attribute_semantics, check_attributes, check_configuration_cells,
+    check_definition, check_duplicate_klabels, check_duplicate_labels,
     check_function_rule_attributes, check_functions, check_holes, check_k_terms, check_klabels,
-    check_module, check_module_with_options, check_rewrites, check_rhs_variables,
+    check_module, check_module_with_options, check_rewrites, check_rhs_variables, check_smt_lemmas,
     check_sort_top_uniqueness, check_streams, check_syntax_groups, check_tokens,
     compute_priorities,
 };
@@ -1419,4 +1420,311 @@ fn definition_runner_checks_every_module_and_definition_wide_invariants() {
 
     assert!(codes.contains(&DiagnosticCode::DuplicateKLabel));
     assert!(codes.contains(&DiagnosticCode::InvalidHole));
+}
+
+#[test]
+fn attribute_registry_rejects_unknown_and_misplaced_attributes() {
+    let sentence = Sentence::Rule {
+        body: rewrite(token("0"), token("1")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[
+            ("binder", json!("")),
+            ("made-up", json!("value")),
+            ("label", json!("bad label`")),
+            (SOURCE_ATTRIBUTE, json!("attributes.k")),
+            (LOCATION_ATTRIBUTE, json!([4, 2, 4, 20])),
+        ]),
+    };
+    let module = ResolvedModule {
+        name: "MAIN".into(),
+        local_sentences: vec![sentence],
+        attributes: attrs(&[("function", json!(""))]),
+    };
+    let diagnostics = check_attributes(&module);
+
+    assert_eq!(diagnostics.len(), 4);
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::InvalidAttribute)
+            .count(),
+        3
+    );
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == DiagnosticCode::UnrecognizedAttribute
+            && diagnostic.message.contains("made-up")
+            && diagnostic.source.as_deref() == Some("attributes.k")
+    }));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.message == "Label 'bad label`' cannot contain whitespace or backticks."
+    }));
+}
+
+#[test]
+fn rule_attribute_interactions_match_check_att() {
+    let function = production(Some("f"), "Int", &[], attrs(&[("function", json!(""))]));
+    let ordinary = production(Some("g"), "Int", &[], Attributes::default());
+    let non_executable = Sentence::Rule {
+        body: rewrite(Term::apply("g", Vec::new()), token("0")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[("non-executable", json!(""))]),
+    };
+    let simplification = Sentence::Rule {
+        body: rewrite(Term::apply("f", Vec::new()), token("1")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[
+            ("simplification", json!("")),
+            ("owise", json!("")),
+            ("priority", json!("50")),
+            ("anywhere", json!("")),
+            ("symbolic", json!("")),
+        ]),
+    };
+    let syntactic = Sentence::Rule {
+        body: rewrite(Term::apply("g", Vec::new()), token("2")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[("syntactic", json!("X"))]),
+    };
+    let production_catalog = ProductionCatalog::from_visible([&function, &ordinary]);
+    let sort_catalog = SortCatalog::from_visible([&function, &ordinary]);
+    let diagnostics = check_attribute_semantics(
+        &[&non_executable, &simplification, &syntactic],
+        &production_catalog,
+        &sort_catalog,
+    );
+
+    assert_eq!(diagnostics.len(), 6);
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("non-executable attribute is only supported")
+    }));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("anywhere attribute is not supported on symbolic rules")
+    }));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("syntactic attribute is only supported")
+    }));
+}
+
+#[test]
+fn hooked_sort_binder_and_bracket_checks_use_visible_sort_metadata() {
+    let hooked_sort = Sentence::SyntaxSort {
+        parameters: Vec::new(),
+        sort: Sort::new("Hooked"),
+        attributes: attrs(&[("hook", json!("TEST.Hooked"))]),
+    };
+    let variable_sort = Sentence::SyntaxSort {
+        parameters: Vec::new(),
+        sort: Sort::new("Name"),
+        attributes: attrs(&[("hook", json!("STRING.String"))]),
+    };
+    let hooked_constructor = production(Some("newHooked"), "Hooked", &[], Attributes::default());
+    let binder = production(
+        Some("bind"),
+        "Expr",
+        &["Name", "Expr"],
+        attrs(&[("binder", json!(""))]),
+    );
+    let bracket = production(
+        Some("bracket"),
+        "Expr",
+        &["Other"],
+        attrs(&[("bracket", json!(""))]),
+    );
+    let visible = [
+        &hooked_sort,
+        &variable_sort,
+        &hooked_constructor,
+        &binder,
+        &bracket,
+    ];
+    let production_catalog = ProductionCatalog::from_visible(visible);
+    let sort_catalog = SortCatalog::from_visible(visible);
+    let diagnostics = check_attribute_semantics(
+        &[&hooked_constructor, &binder, &bracket],
+        &production_catalog,
+        &sort_catalog,
+    );
+
+    assert_eq!(diagnostics.len(), 3);
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("Cannot add new constructors to hooked sort Hooked")
+    }));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("First child of binder must have a sort")
+    }));
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.code == DiagnosticCode::InvalidBracketProduction })
+    );
+}
+
+#[test]
+fn production_format_colors_and_deprecation_checks_match_java() {
+    let missing_format = Sentence::Production {
+        label: Some(Label::new("regex")),
+        parameters: Vec::new(),
+        sort: Sort::new("Token"),
+        items: vec![ProductionItem::regex("[a-z]+")],
+        attributes: Attributes::default(),
+    };
+    let unfinished = Sentence::Production {
+        label: Some(Label::new("unfinished")),
+        parameters: Vec::new(),
+        sort: Sort::new("Expr"),
+        items: vec![ProductionItem::Terminal("x".into())],
+        attributes: attrs(&[("format", json!("%"))]),
+    };
+    let bad_index = Sentence::Production {
+        label: Some(Label::new("badIndex")),
+        parameters: Vec::new(),
+        sort: Sort::new("Expr"),
+        items: vec![ProductionItem::Terminal("x".into())],
+        attributes: attrs(&[("format", json!("%0"))]),
+    };
+    let regex_index = Sentence::Production {
+        label: Some(Label::new("regexIndex")),
+        parameters: Vec::new(),
+        sort: Sort::new("Expr"),
+        items: vec![ProductionItem::regex("x")],
+        attributes: attrs(&[("format", json!("%1"))]),
+    };
+    let colors = Sentence::Production {
+        label: Some(Label::new("colors")),
+        parameters: Vec::new(),
+        sort: Sort::new("Expr"),
+        items: vec![
+            ProductionItem::Terminal("(".into()),
+            ProductionItem::NonTerminal {
+                sort: Sort::new("Expr"),
+                name: None,
+            },
+        ],
+        attributes: attrs(&[("format", json!("%1%2")), ("colors", json!("red,blue"))]),
+    };
+    let deprecated = production(
+        Some("legacy"),
+        "Expr",
+        &[],
+        attrs(&[
+            ("total", json!("")),
+            ("terminator-symbol", json!(".Legacy")),
+            ("functional", json!("")),
+            ("latex", json!("legacy")),
+        ]),
+    );
+    let visible = [
+        &missing_format,
+        &unfinished,
+        &bad_index,
+        &regex_index,
+        &colors,
+        &deprecated,
+    ];
+    let production_catalog = ProductionCatalog::from_visible(visible);
+    let sort_catalog = SortCatalog::from_visible(visible);
+    let diagnostics = check_attribute_semantics(&visible, &production_catalog, &sort_catalog);
+
+    assert_eq!(diagnostics.len(), 9);
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::DeprecatedAttribute)
+            .count(),
+        2
+    );
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.message == "Invalid format attribute: unfinished escape sequence."
+    }));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("Invalid colors attribute: expected 1")
+    }));
+}
+
+#[test]
+fn symbol_migration_and_overload_attributes_are_checked_together() {
+    let legacy = production(
+        Some("legacy"),
+        "Expr",
+        &[],
+        attrs(&[("klabel", json!("legacy")), ("symbol", json!(""))]),
+    );
+    let conflicting = production(
+        Some("conflicting"),
+        "Expr",
+        &[],
+        attrs(&[
+            ("klabel", json!("old")),
+            ("symbol", json!("new")),
+            ("overload", json!("group")),
+        ]),
+    );
+    let unlabeled_overload = production(None, "Expr", &[], attrs(&[("overload", json!("group"))]));
+    let visible = [&legacy, &conflicting, &unlabeled_overload];
+    let production_catalog = ProductionCatalog::from_visible(visible);
+    let sort_catalog = SortCatalog::from_visible(visible);
+    let diagnostics = check_attribute_semantics(&visible, &production_catalog, &sort_catalog);
+
+    assert_eq!(diagnostics.len(), 4);
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == Severity::Warning)
+            .count(),
+        1
+    );
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("cannot be combined with `klabel(_)`")
+    }));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("Production would not be a KORE symbol")
+    }));
+}
+
+#[test]
+fn smt_lemma_terms_require_smt_backed_visible_productions() {
+    let good = production(
+        Some("good"),
+        "Bool",
+        &["Bool"],
+        attrs(&[("smt-hook", json!("good"))]),
+    );
+    let bad = production(Some("bad"), "Bool", &[], Attributes::default());
+    let rule = Sentence::Rule {
+        body: Term::apply(
+            "good",
+            vec![
+                Term::apply("bad", Vec::new()),
+                Term::apply("unknown", Vec::new()),
+            ],
+        ),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[("smt-lemma", json!(""))]),
+    };
+    let productions = ProductionCatalog::from_visible([&good, &bad]);
+    let diagnostics = check_smt_lemmas(&[&rule], &productions);
+
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, DiagnosticCode::InvalidSmtLemma);
 }
