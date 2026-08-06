@@ -1,0 +1,119 @@
+---
+source: crates/k-rust/tests/definition_synonyms.rs
+expression: transformed
+---
+Definition {
+    main_module: "MAIN",
+    modules: [
+        FlatModule {
+            name: "BASE",
+            imports: [],
+            local_sentences: [
+                SortSynonym {
+                    new_sort: Sort {
+                        name: "Alias",
+                        parameters: [],
+                    },
+                    old_sort: Sort {
+                        name: "Exp",
+                        parameters: [],
+                    },
+                    attributes: Attributes {
+                        entries: {},
+                    },
+                },
+                SortSynonym {
+                    new_sort: Sort {
+                        name: "Exp",
+                        parameters: [],
+                    },
+                    old_sort: Sort {
+                        name: "Term",
+                        parameters: [],
+                    },
+                    attributes: Attributes {
+                        entries: {},
+                    },
+                },
+            ],
+            attributes: Attributes {
+                entries: {},
+            },
+        },
+        FlatModule {
+            name: "MAIN",
+            imports: [
+                FlatImport {
+                    name: "BASE",
+                    public: true,
+                },
+            ],
+            local_sentences: [
+                Production {
+                    label: Some(
+                        Label {
+                            name: "wrap",
+                            parameters: [],
+                        },
+                    ),
+                    parameters: [
+                        Sort {
+                            name: "S",
+                            parameters: [],
+                        },
+                        Sort {
+                            name: "Alias",
+                            parameters: [],
+                        },
+                    ],
+                    sort: Sort {
+                        name: "Exp",
+                        parameters: [],
+                    },
+                    items: [
+                        Terminal(
+                            "[",
+                        ),
+                        NonTerminal {
+                            sort: Sort {
+                                name: "Exp",
+                                parameters: [],
+                            },
+                            name: Some(
+                                "value",
+                            ),
+                        },
+                        NonTerminal {
+                            sort: Sort {
+                                name: "Wrapper",
+                                parameters: [
+                                    Sort {
+                                        name: "Alias",
+                                        parameters: [],
+                                    },
+                                ],
+                            },
+                            name: None,
+                        },
+                        RegexTerminal {
+                            precede_regex: None,
+                            regex: "[a-z]+",
+                            follow_regex: None,
+                        },
+                    ],
+                    attributes: Attributes {
+                        entries: {
+                            "marker": String("preserved"),
+                        },
+                    },
+                },
+            ],
+            attributes: Attributes {
+                entries: {},
+            },
+        },
+    ],
+    attributes: Attributes {
+        entries: {},
+    },
+}

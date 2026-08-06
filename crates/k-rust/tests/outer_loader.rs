@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use indoc::indoc;
+use k_rust::definition::Sentence;
 use k_rust::outer::{LoadError, ResolvedSource, load};
 use proptest::prelude::*;
 
@@ -138,6 +139,53 @@ fn canonical_source_identity_deduplicates_diamond_leaves() {
             .collect::<Vec<_>>(),
         ["canonical/shared.k", "main.k"]
     );
+}
+
+#[test]
+fn applies_imported_sort_synonyms_after_resolving_the_source_graph() {
+    let mut resolver = |_: &str, required: &str| match required {
+        "base.k" => Ok(ResolvedSource::new(
+            "base.k",
+            indoc! {r#"
+                module BASE
+                  syntax Alias = Exp
+                endmodule
+            "#},
+        )),
+        _ => Err("not found".to_owned()),
+    };
+    let loaded = load(
+        ResolvedSource::new(
+            "main.k",
+            indoc! {r#"
+                requires "base.k"
+                module MAIN
+                  imports BASE
+                  syntax Alias ::= "wrap" Alias [klabel(wrap)]
+                endmodule
+            "#},
+        ),
+        "MAIN",
+        &mut resolver,
+    )
+    .unwrap();
+
+    let flat_main = loaded.definition.main_module().unwrap();
+    let Sentence::Production { sort, items, .. } = &flat_main.local_sentences[0] else {
+        panic!("expected production")
+    };
+    assert_eq!(sort, &k_rust::kast::Sort::new("Exp"));
+    assert!(matches!(
+        &items[1],
+        k_rust::definition::ProductionItem::NonTerminal { sort, .. }
+            if sort == &k_rust::kast::Sort::new("Exp")
+    ));
+
+    let resolved_main = loaded.resolved.main_module();
+    let Sentence::Production { sort, .. } = &resolved_main.local_sentences[0] else {
+        panic!("expected production")
+    };
+    assert_eq!(sort, &k_rust::kast::Sort::new("Exp"));
 }
 
 macro_rules! load_error_snapshot {

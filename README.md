@@ -53,8 +53,9 @@ not accepted by the pinned JavaCC grammar either.
 A host-independent source loader now walks recursive `requires` graphs through a caller-provided
 resolver, deduplicates canonical source identities, reports require cycles with their complete
 paths, lowers all files with one global production-tag index, and hands the result to the existing
-deterministic module-import resolver. This keeps filesystem and URL policy outside the
-WASM-compatible frontend core.
+deterministic module-import resolver. Production result and nonterminal sorts are then normalized
+through each module's visible sort-synonym map at the same boundary as the Java frontend. This
+keeps filesystem and URL policy outside the WASM-compatible frontend core.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces

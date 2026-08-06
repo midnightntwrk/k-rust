@@ -11,6 +11,7 @@ pub mod relations;
 pub mod resolve;
 pub mod rule_catalog;
 pub mod sort_catalog;
+pub mod synonyms;
 
 pub use ast::{
     Associativity, Attributes, Definition, FlatImport, FlatModule, LOCATION_ATTRIBUTE, Location,
@@ -41,3 +42,4 @@ pub use relations::{
 pub use resolve::{Error as ResolveError, ImportRef, ModuleId, ResolvedDefinition, ResolvedModule};
 pub use rule_catalog::{ClaimId, ContextId, RuleCatalog, RuleId, match_rule_label};
 pub use sort_catalog::SortCatalog;
+pub use synonyms::apply_sort_synonyms;

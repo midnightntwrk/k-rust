@@ -3,7 +3,7 @@
 use std::{collections::BTreeMap, error::Error, fmt};
 
 use crate::{
-    definition::{Definition, ResolveError, ResolvedDefinition},
+    definition::{Definition, ResolveError, ResolvedDefinition, apply_sort_synonyms},
     diagnostic::Diagnostic,
 };
 
@@ -138,6 +138,7 @@ pub fn load(
 
     let definition =
         lower_files(&loader.files, main_module).map_err(LoadError::SourceDiagnostics)?;
+    let definition = apply_sort_synonyms(&definition).map_err(LoadError::DefinitionResolution)?;
     let resolved =
         ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
     Ok(LoadedDefinition {
