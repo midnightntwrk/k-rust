@@ -1,0 +1,10 @@
+---
+source: crates/k-rust/tests/outer_loader.rs
+expression: error
+---
+DefinitionResolution(
+    MissingImport {
+        module: "MAIN",
+        import: "ABSENT",
+    },
+)

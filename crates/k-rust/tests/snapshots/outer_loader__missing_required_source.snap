@@ -1,0 +1,21 @@
+---
+source: crates/k-rust/tests/outer_loader.rs
+expression: error
+---
+ResolveRequire {
+    source: "main.k",
+    required: "missing.k",
+    span: Span {
+        start: Position {
+            offset: 0,
+            line: 1,
+            column: 1,
+        },
+        end: Position {
+            offset: 20,
+            line: 1,
+            column: 21,
+        },
+    },
+    message: "missing.k was not found",
+}

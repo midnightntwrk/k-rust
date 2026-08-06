@@ -50,6 +50,11 @@ converts priorities and associativity, preserves source metadata, and leaves rul
 for the inner parser. A probe over 1,504 `.k` files at the pinned K commit accepts 1,499; the five
 exceptions are four intentional malformed-string tests and one legacy `Token{...}` fixture that is
 not accepted by the pinned JavaCC grammar either.
+A host-independent source loader now walks recursive `requires` graphs through a caller-provided
+resolver, deduplicates canonical source identities, reports require cycles with their complete
+paths, lowers all files with one global production-tag index, and hands the result to the existing
+deterministic module-import resolver. This keeps filesystem and URL policy outside the
+WASM-compatible frontend core.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -75,6 +80,8 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
 - Finish the representation-dependent Java checks, followed by specialized parser/layout views and
   the compilation passes.
 - Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.
+- Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
+  auto-imported prelude policy alongside the future command-line frontend.
 - Revisit package splitting only if compile times, dependency boundaries, or release needs justify
   moving beyond the current single-crate workspace.
 - Measure and port both sort-inference paths, including the Z3 fallback described in §6.9.

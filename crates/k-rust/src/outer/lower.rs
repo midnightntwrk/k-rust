@@ -26,19 +26,32 @@ pub fn lower(
     file: &SourceFile,
     main_module: impl Into<String>,
 ) -> Result<Definition, Vec<crate::diagnostic::Diagnostic>> {
-    let mut diagnostics = check_list_declarations(file);
-    diagnostics.extend(check_brackets(file));
+    lower_files(std::slice::from_ref(file), main_module)
+}
+
+pub(crate) fn lower_files(
+    files: &[SourceFile],
+    main_module: impl Into<String>,
+) -> Result<Definition, Vec<crate::diagnostic::Diagnostic>> {
+    let mut diagnostics = Vec::new();
+    for file in files {
+        diagnostics.extend(check_list_declarations(file));
+        diagnostics.extend(check_brackets(file));
+    }
     if !diagnostics.is_empty() {
         return Err(diagnostics);
     }
 
-    let tag_index = build_tag_index(file);
+    let tag_index = build_tag_index(files);
     Ok(Definition {
         main_module: main_module.into(),
-        modules: file
-            .modules
+        modules: files
             .iter()
-            .map(|module| lower_module(file, module, &tag_index))
+            .flat_map(|file| {
+                file.modules
+                    .iter()
+                    .map(|module| lower_module(file, module, &tag_index))
+            })
             .collect(),
         attributes: Attributes::default(),
     })
@@ -375,9 +388,9 @@ fn block_tags(module: &Module, result_sort: &Sort, block: &PriorityBlock) -> Vec
         .collect()
 }
 
-fn build_tag_index(file: &SourceFile) -> TagIndex {
+fn build_tag_index(files: &[SourceFile]) -> TagIndex {
     let mut index = TagIndex::new();
-    for module in &file.modules {
+    for module in files.iter().flat_map(|file| &file.modules) {
         for sentence in &module.sentences {
             let Sentence::Syntax(syntax) = sentence else {
                 continue;

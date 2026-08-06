@@ -1,0 +1,34 @@
+---
+source: crates/k-rust/tests/outer_loader.rs
+expression: summary
+---
+LoadSummary {
+    files: [
+        "d.k",
+        "b.k",
+        "c.k",
+        "main.k",
+    ],
+    flat_modules: [
+        "D",
+        "B",
+        "C",
+        "MAIN",
+    ],
+    dependency_order: [
+        "D",
+        "B",
+        "C",
+        "MAIN",
+    ],
+    main_priorities: [
+        [
+            [
+                "foo_D_Exp",
+            ],
+            [
+                "bar",
+            ],
+        ],
+    ],
+}

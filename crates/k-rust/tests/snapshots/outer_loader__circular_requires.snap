@@ -1,0 +1,11 @@
+---
+source: crates/k-rust/tests/outer_loader.rs
+expression: error
+---
+CircularRequires(
+    [
+        "main.k",
+        "b.k",
+        "main.k",
+    ],
+)

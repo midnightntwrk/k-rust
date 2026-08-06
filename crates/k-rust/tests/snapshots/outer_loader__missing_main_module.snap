@@ -1,0 +1,9 @@
+---
+source: crates/k-rust/tests/outer_loader.rs
+expression: error
+---
+DefinitionResolution(
+    MissingMainModule(
+        "MISSING",
+    ),
+)

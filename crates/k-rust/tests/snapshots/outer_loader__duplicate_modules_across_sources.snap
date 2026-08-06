@@ -1,0 +1,9 @@
+---
+source: crates/k-rust/tests/outer_loader.rs
+expression: error
+---
+DuplicateModule {
+    name: "SAME",
+    first_source: "other.k",
+    second_source: "main.k",
+}
