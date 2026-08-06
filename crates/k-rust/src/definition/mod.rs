@@ -19,9 +19,10 @@ pub use catalog::{
     FreshGeneratorError, LabelHead, ProductionCatalog, ProductionId, ProductionSignature, SortHead,
 };
 pub use checks::{
-    Error as CheckError, check_anonymous_variables, check_associativity, check_duplicate_labels,
-    check_k_terms, check_module, check_rewrites, check_sort_top_uniqueness, check_syntax_groups,
-    check_tokens,
+    Error as CheckError, StructuralCheckBackend, StructuralCheckOptions, check_anonymous_variables,
+    check_associativity, check_duplicate_labels, check_k_terms, check_module,
+    check_module_with_options, check_rewrites, check_rhs_variables, check_sort_top_uniqueness,
+    check_syntax_groups, check_tokens,
 };
 pub use ordering::{
     Error as OrderingError, compare_attributes, compare_sentences, compare_terms,

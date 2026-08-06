@@ -9,6 +9,10 @@ use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{Label, Sort, Term};
 
+mod rhs_variables;
+
+pub use rhs_variables::{StructuralCheckBackend, StructuralCheckOptions, check_rhs_variables};
+
 const ALLOWED_TOKEN_ATTRIBUTES: [&str; 3] = ["function", "token", "bracket"];
 const IGNORED_TOKEN_SORTS: [&str; 2] = ["KBott", "KLabel"];
 
@@ -35,6 +39,14 @@ impl std::error::Error for Error {}
 pub fn check_module(
     definition: &ResolvedDefinition,
     module: ModuleId,
+) -> Result<Vec<Diagnostic>, Error> {
+    check_module_with_options(definition, module, StructuralCheckOptions::default())
+}
+
+pub fn check_module_with_options(
+    definition: &ResolvedDefinition,
+    module: ModuleId,
+    options: StructuralCheckOptions,
 ) -> Result<Vec<Diagnostic>, Error> {
     let sentences = definition
         .sorted_local_sentences(module)
@@ -63,6 +75,7 @@ pub fn check_module(
         .chain(check_k_terms(&sentences))
         .chain(check_rewrites(&sentences))
         .chain(check_anonymous_variables(&sentences))
+        .chain(check_rhs_variables(&sentences, options))
         .collect::<Vec<_>>();
     diagnostics.sort();
     Ok(diagnostics)

@@ -2,8 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::definition::{
     Associativity, Attributes, Definition, FlatImport, FlatModule, LOCATION_ATTRIBUTE,
-    PartialOrder, ProductionItem, SOURCE_ATTRIBUTE, Sentence, check_anonymous_variables,
-    check_associativity, check_duplicate_labels, check_k_terms, check_module, check_rewrites,
+    PartialOrder, ProductionItem, SOURCE_ATTRIBUTE, Sentence, StructuralCheckBackend,
+    StructuralCheckOptions, check_anonymous_variables, check_associativity, check_duplicate_labels,
+    check_k_terms, check_module, check_module_with_options, check_rewrites, check_rhs_variables,
     check_sort_top_uniqueness, check_syntax_groups, check_tokens, compute_priorities,
 };
 use k_rust::diagnostic::{DiagnosticCode, Severity};
@@ -462,6 +463,226 @@ fn anonymous_check_preserves_context_exemptions_and_generated_suppression() {
     let generated = rule_with_body(Term::variable("GENERATED"));
 
     assert!(check_anonymous_variables(&[&context, &alias, &generated]).is_empty());
+}
+
+#[test]
+fn rhs_check_reports_unbound_variables_and_preserves_fresh_exceptions() {
+    let sentence = rule_with_body(rewrite(
+        Term::variable("X"),
+        Term::sequence([
+            Term::variable("X"),
+            Term::variable("Y"),
+            Term::variable("?FRESH"),
+            Term::variable("!CONSTANT"),
+            Term::variable("THIS_CONFIGURATION"),
+        ]),
+    ));
+    let diagnostics = check_rhs_variables(
+        &[&sentence],
+        StructuralCheckOptions {
+            symbolic: true,
+            ..StructuralCheckOptions::default()
+        },
+    );
+
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, DiagnosticCode::UnboundVariable);
+    assert!(diagnostics[0].message.contains("variable Y"));
+    assert!(diagnostics[0].message.contains("\"?Y\""));
+}
+
+#[test]
+fn unbound_variables_attribute_allows_named_exceptions() {
+    let sentence = Sentence::Rule {
+        body: rewrite(
+            token("0"),
+            Term::sequence([
+                Term::variable("A"),
+                Term::variable("B"),
+                Term::variable("_"),
+            ]),
+        ),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[("unboundVariables", json!(" A, B, _ "))]),
+    };
+
+    assert!(check_rhs_variables(&[&sentence], StructuralCheckOptions::default()).is_empty());
+}
+
+#[test]
+fn requirements_bind_claim_and_haskell_variables_only() {
+    let rule = Sentence::Rule {
+        body: rewrite(token("0"), Term::variable("X")),
+        requires: Term::variable("X"),
+        ensures: truth(),
+        attributes: Attributes::default(),
+    };
+    let claim = Sentence::Claim {
+        body: rewrite(token("0"), Term::variable("X")),
+        requires: Term::variable("X"),
+        ensures: truth(),
+        attributes: Attributes::default(),
+    };
+
+    let ordinary = check_rhs_variables(&[&rule], StructuralCheckOptions::default());
+    let haskell = check_rhs_variables(
+        &[&rule],
+        StructuralCheckOptions {
+            backend: StructuralCheckBackend::Haskell,
+            ..StructuralCheckOptions::default()
+        },
+    );
+    let claim = check_rhs_variables(&[&claim], StructuralCheckOptions::default());
+
+    assert_eq!(ordinary.len(), 2);
+    assert!(haskell.is_empty());
+    assert!(claim.is_empty());
+}
+
+#[test]
+fn concrete_mode_rejects_each_existential_occurrence() {
+    let sentence = rule_with_body(rewrite(
+        Term::variable("?X"),
+        Term::sequence([Term::variable("?X"), Term::variable("?Y")]),
+    ));
+    let concrete = check_rhs_variables(&[&sentence], StructuralCheckOptions::default());
+    let symbolic = check_rhs_variables(
+        &[&sentence],
+        StructuralCheckOptions {
+            symbolic: true,
+            ..StructuralCheckOptions::default()
+        },
+    );
+
+    assert_eq!(
+        concrete
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.code == DiagnosticCode::UnsupportedExistentialVariable
+            })
+            .count(),
+        3
+    );
+    assert!(symbolic.is_empty());
+}
+
+#[test]
+fn ml_binders_bind_their_rhs_variables() {
+    let sentence = rule_with_body(rewrite(
+        token("0"),
+        Term::apply(
+            "#Exists",
+            vec![
+                Term::variable("X"),
+                Term::apply("predicate", vec![Term::variable("X")]),
+            ],
+        ),
+    ));
+
+    assert!(check_rhs_variables(&[&sentence], StructuralCheckOptions::default()).is_empty());
+}
+
+#[test]
+fn semantic_casts_supply_variable_sort_context() {
+    let typed = Term::Variable {
+        name: "X".into(),
+        sort: Some(Sort::new("Int")),
+    };
+    let cast = rule_with_body(rewrite(
+        typed.clone(),
+        Term::apply("#SemanticCastToInt", vec![Term::variable("X")]),
+    ));
+    let untyped = rule_with_body(rewrite(typed, Term::variable("X")));
+
+    assert!(check_rhs_variables(&[&cast], StructuralCheckOptions::default()).is_empty());
+    assert_eq!(
+        check_rhs_variables(&[&untyped], StructuralCheckOptions::default()).len(),
+        1
+    );
+}
+
+#[test]
+fn fun_in_pattern_and_in_k_special_cases_match_java() {
+    let fun_pattern = rule_with_body(rewrite(
+        Term::apply("#fun2", vec![rewrite(token("0"), token("1")), token("2")]),
+        token("3"),
+    ));
+    let in_k = rule_with_body(rewrite(
+        token("0"),
+        Term::apply("_:=K_", vec![Term::variable("IGNORED"), token("1")]),
+    ));
+    let fun_diagnostics = check_rhs_variables(
+        &[&fun_pattern],
+        StructuralCheckOptions {
+            symbolic: true,
+            ..StructuralCheckOptions::default()
+        },
+    );
+
+    assert_eq!(fun_diagnostics.len(), 1);
+    assert_eq!(
+        fun_diagnostics[0].code,
+        DiagnosticCode::InvalidFunctionPattern
+    );
+    assert!(check_rhs_variables(&[&in_k], StructuralCheckOptions::default()).is_empty());
+}
+
+#[test]
+fn context_alias_hole_is_the_only_unbound_context_exception() {
+    let alias = Sentence::ContextAlias {
+        body: rewrite(token("0"), Term::variable("HOLE")),
+        requires: truth(),
+        attributes: Attributes::default(),
+    };
+    let context = Sentence::Context {
+        body: rewrite(token("0"), Term::variable("HOLE")),
+        requires: truth(),
+        attributes: Attributes::default(),
+    };
+
+    assert!(check_rhs_variables(&[&alias], StructuralCheckOptions::default()).is_empty());
+    assert_eq!(
+        check_rhs_variables(&[&context], StructuralCheckOptions::default()).len(),
+        1
+    );
+}
+
+#[test]
+fn module_runner_options_control_existential_policy() {
+    let sentence = rule_with_body(rewrite(token("0"), Term::variable("?X")));
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&Definition {
+        main_module: "MAIN".into(),
+        modules: vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: vec![sentence],
+            attributes: Attributes::default(),
+        }],
+        attributes: Attributes::default(),
+    })
+    .unwrap();
+    let concrete = check_module(&resolved, resolved.main_module_id()).unwrap();
+    let symbolic = check_module_with_options(
+        &resolved,
+        resolved.main_module_id(),
+        StructuralCheckOptions {
+            symbolic: true,
+            ..StructuralCheckOptions::default()
+        },
+    )
+    .unwrap();
+
+    assert!(
+        concrete.iter().any(|diagnostic| {
+            diagnostic.code == DiagnosticCode::UnsupportedExistentialVariable
+        })
+    );
+    assert!(
+        !symbolic.iter().any(|diagnostic| {
+            diagnostic.code == DiagnosticCode::UnsupportedExistentialVariable
+        })
+    );
 }
 
 fn rule_with_body(body: Term) -> Sentence {

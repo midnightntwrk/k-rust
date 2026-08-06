@@ -24,6 +24,8 @@ duplicate labels, syntax groups, associativity, multiple top sorts, and token pr
 Reusable KAST traversal now supports Java-compatible `CheckK`, `CheckRewrite`, and
 `CheckAnonymous` validation for `#as`, rewrite placement, function contexts, existential
 variables, and anonymous-variable usage.
+Position-aware variable analysis ports `CheckRHSVariables`, including ML binders, semantic casts,
+pattern/value positions, `unboundVariables`, and explicit symbolic/Haskell policy options.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -32,9 +34,10 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
 
 ## TODOs
 
-- Preserve source and location attributes on nested KAST terms. Diagnostics emitted for nested
-  terms currently use the containing sentence's source span; exact term-level spans are deferred
-  until the lossless representation and parser can carry them end to end.
+- Preserve attributes on nested KAST terms, especially source locations and resolved production
+  metadata. Diagnostics emitted for nested terms currently use the containing sentence's span,
+  and semantic-cast sort context is recovered from its label; exact spans and parametric cast sorts
+  are deferred until the lossless representation and parser carry term attributes end to end.
 - Add presentation adapters for diagnostics after the portable diagnostic model stabilizes. A
   renderer such as `miette` may be useful for a future native CLI, but it does not belong in the
   WASM-compatible core yet.
@@ -270,9 +273,9 @@ specialized parser/layout views and the remaining frontend validation checks. Pr
 and rule catalogs plus subsort, overload, and syntax-priority partial orders are implemented,
 including Scala's distinct explicit-group and legacy same-label overload mechanisms and exact
 associativity tag pairs. The dependency-light structural checks now include label, syntax-group,
-associativity, sort-top, token, K term, rewrite, and anonymous-variable validation backed by
-reusable KAST traversal. This remains a reviewed design boundary because every downstream pass
-inherits its bugs — especially its iteration order.
+associativity, sort-top, token, K term, rewrite, anonymous-variable, and RHS-variable validation
+backed by reusable position-aware KAST traversal. This remains a reviewed design boundary because
+every downstream pass inherits its bugs — especially its iteration order.
 
 ### Phase 3 — massively parallel fan-out (~14k LOC, the bulk)
 The ~60 compile passes and ~20 checks. Each is `Module → Module`, pure, independently

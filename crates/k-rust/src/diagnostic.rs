@@ -15,10 +15,13 @@ pub enum DiagnosticCode {
     InvalidAsPattern,
     InvalidAssociativity,
     InvalidExistentialVariable,
+    InvalidFunctionPattern,
     InvalidRewrite,
     MultipleTopSorts,
     InvalidTokenProduction,
     UnusedVariable,
+    UnboundVariable,
+    UnsupportedExistentialVariable,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
