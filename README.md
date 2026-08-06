@@ -13,6 +13,8 @@ sentence identity and ordering reproduce Scala's explicit rules, including its d
 and its unusual `Production` equality/ordering divergence. A deterministic `petgraph`-backed
 partial-order layer now derives semantic/syntactic subsorts and both Scala overload mechanisms.
 It also derives syntax-priority closure and Scala's left/right/non-associative tag-pair sets.
+A shared deterministic production catalog provides stable identities plus label, sort, token,
+function, locality, ordering, and signature indexes; overload relations use the same identities.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -240,10 +242,10 @@ Separable sub-deliverables:
 ### Phase 2 — `k_rust::kast` + `k_rust::definition` (serial prefix, needs human design review)
 The inner KAST term model, flat definition model, their text/JSON formats, deterministic
 import-graph resolution, and Scala-compatible sentence ordering are implemented. Next are
-the remaining indexed module views; subsort, overload, and syntax-priority partial orders are
-implemented, including Scala's distinct explicit-group and legacy same-label overload mechanisms
-and exact associativity tag pairs. This remains a reviewed design boundary because every
-downstream pass inherits its bugs — especially its iteration order.
+the remaining sort, attribute, and rule indexes. Production indexes plus subsort, overload, and
+syntax-priority partial orders are implemented, including Scala's distinct explicit-group and
+legacy same-label overload mechanisms and exact associativity tag pairs. This remains a reviewed
+design boundary because every downstream pass inherits its bugs — especially its iteration order.
 
 ### Phase 3 — massively parallel fan-out (~14k LOC, the bulk)
 The ~60 compile passes and ~20 checks. Each is `Module → Module`, pure, independently
