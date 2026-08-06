@@ -1,0 +1,526 @@
+---
+source: crates/k-rust/tests/outer_parser.rs
+expression: "lower(&parsed, \"OUTER-CORPUS\").unwrap()"
+---
+Definition {
+    main_module: "OUTER-CORPUS",
+    modules: [
+        FlatModule {
+            name: "OUTER-CORPUS",
+            imports: [
+                FlatImport {
+                    name: "INT",
+                    public: true,
+                },
+            ],
+            local_sentences: [
+                Production {
+                    label: None,
+                    parameters: [],
+                    sort: Sort {
+                        name: "Program",
+                        parameters: [],
+                    },
+                    items: [
+                        NonTerminal {
+                            sort: Sort {
+                                name: "Set",
+                                parameters: [],
+                            },
+                            name: None,
+                        },
+                    ],
+                    attributes: Attributes {
+                        entries: {
+                            "org.kframework.attributes.Location": Array [
+                                Number(6),
+                                Number(22),
+                                Number(6),
+                                Number(25),
+                            ],
+                            "org.kframework.attributes.Source": String("record-and-list.k"),
+                        },
+                    },
+                },
+                Production {
+                    label: None,
+                    parameters: [],
+                    sort: Sort {
+                        name: "Program",
+                        parameters: [],
+                    },
+                    items: [
+                        NonTerminal {
+                            sort: Sort {
+                                name: "List",
+                                parameters: [],
+                            },
+                            name: None,
+                        },
+                    ],
+                    attributes: Attributes {
+                        entries: {
+                            "org.kframework.attributes.Location": Array [
+                                Number(6),
+                                Number(28),
+                                Number(6),
+                                Number(32),
+                            ],
+                            "org.kframework.attributes.Source": String("record-and-list.k"),
+                        },
+                    },
+                },
+                Production {
+                    label: Some(
+                        Label {
+                            name: "pair",
+                            parameters: [],
+                        },
+                    ),
+                    parameters: [],
+                    sort: Sort {
+                        name: "Pair",
+                        parameters: [],
+                    },
+                    items: [
+                        Terminal(
+                            "pair(",
+                        ),
+                        NonTerminal {
+                            sort: Sort {
+                                name: "Int",
+                                parameters: [],
+                            },
+                            name: Some(
+                                "left",
+                            ),
+                        },
+                        Terminal(
+                            ",",
+                        ),
+                        NonTerminal {
+                            sort: Sort {
+                                name: "Int",
+                                parameters: [],
+                            },
+                            name: Some(
+                                "right",
+                            ),
+                        },
+                        Terminal(
+                            ")",
+                        ),
+                    ],
+                    attributes: Attributes {
+                        entries: {
+                            "org.kframework.attributes.Location": Array [
+                                Number(7),
+                                Number(19),
+                                Number(7),
+                                Number(61),
+                            ],
+                            "org.kframework.attributes.Source": String("record-and-list.k"),
+                            "symbol": String("pair"),
+                        },
+                    },
+                },
+                SyntaxPriority {
+                    priorities: [
+                        [],
+                        [
+                            "_+_",
+                            "(_)_OUTER-CORPUS_Exp_Exp",
+                        ],
+                    ],
+                    attributes: Attributes {
+                        entries: {
+                            "org.kframework.attributes.Location": Array [
+                                Number(8),
+                                Number(3),
+                                Number(11),
+                                Number(3),
+                            ],
+                            "org.kframework.attributes.Source": String("record-and-list.k"),
+                        },
+                    },
+                },
+                Production {
+                    label: None,
+                    parameters: [],
+                    sort: Sort {
+                        name: "Exp",
+                        parameters: [],
+                    },
+                    items: [
+                        NonTerminal {
+                            sort: Sort {
+                                name: "Int",
+                                parameters: [],
+                            },
+                            name: None,
+                        },
+                    ],
+                    attributes: Attributes {
+                        entries: {
+                            "org.kframework.attributes.Location": Array [
+                                Number(8),
+                                Number(18),
+                                Number(8),
+                                Number(21),
+                            ],
+                            "org.kframework.attributes.Source": String("record-and-list.k"),
+                        },
+                    },
+                },
+                SyntaxAssociativity {
+                    associativity: Left,
+                    tags: [
+                        "_+_",
+                        "(_)_OUTER-CORPUS_Exp_Exp",
+                    ],
+                    attributes: Attributes {
+                        entries: {
+                            "org.kframework.attributes.Location": Array [
+                                Number(9),
+                                Number(18),
+                                Number(11),
+                                Number(3),
+                            ],
+                            "org.kframework.attributes.Source": String("record-and-list.k"),
+                        },
+                    },
+                },
+                Production {
+                    label: Some(
+                        Label {
+                            name: "_+_",
+                            parameters: [],
+                        },
+                    ),
+                    parameters: [],
+                    sort: Sort {
+                        name: "Exp",
+                        parameters: [],
+                    },
+                    items: [
+                        NonTerminal {
+                            sort: Sort {
+                                name: "Exp",
+                                parameters: [],
+                            },
+                            name: None,
+                        },
+                        Terminal(
+                            "+",
+                        ),
+                        NonTerminal {
+                            sort: Sort {
+                                name: "Exp",
+                                parameters: [],
+                            },
+                            name: None,
+                        },
+                    ],
+                    attributes: Attributes {
+                        entries: {
+                            "org.kframework.attributes.Location": Array [
+                                Number(9),
+                                Number(24),
+                                Number(9),
+                                Number(49),
+                            ],
+                            "org.kframework.attributes.Source": String("record-and-list.k"),
+                            "symbol": String("_+_"),
+                        },
+                    },
+                },
+                Production {
+                    label: None,
+                    parameters: [],
+                    sort: Sort {
+                        name: "Exp",
+                        parameters: [],
+                    },
+                    items: [
+                        Terminal(
+                            "(",
+                        ),
+                        NonTerminal {
+                            sort: Sort {
+                                name: "Exp",
+                                parameters: [],
+                            },
+                            name: None,
+                        },
+                        Terminal(
+                            ")",
+                        ),
+                    ],
+                    attributes: Attributes {
+                        entries: {
+                            "bracket": String(""),
+                            "bracketLabel": String("(_)_OUTER-CORPUS_Exp_Exp"),
+                            "org.kframework.attributes.Location": Array [
+                                Number(10),
+                                Number(18),
+                                Number(10),
+                                Number(39),
+                            ],
+                            "org.kframework.attributes.Source": String("record-and-list.k"),
+                        },
+                    },
+                },
+                Production {
+                    label: Some(
+                        Label {
+                            name: "_,_",
+                            parameters: [],
+                        },
+                    ),
+                    parameters: [],
+                    sort: Sort {
+                        name: "Exps",
+                        parameters: [],
+                    },
+                    items: [
+                        NonTerminal {
+                            sort: Sort {
+                                name: "Exp",
+                                parameters: [],
+                            },
+                            name: None,
+                        },
+                        Terminal(
+                            ",",
+                        ),
+                        NonTerminal {
+                            sort: Sort {
+                                name: "Exps",
+                                parameters: [],
+                            },
+                            name: None,
+                        },
+                    ],
+                    attributes: Attributes {
+                        entries: {
+                            "org.kframework.attributes.Location": Array [
+                                Number(11),
+                                Number(19),
+                                Number(11),
+                                Number(73),
+                            ],
+                            "org.kframework.attributes.Source": String("record-and-list.k"),
+                            "symbol": String("_,_"),
+                            "terminator-symbol": String(".Exps"),
+                            "userList": String("*"),
+                        },
+                    },
+                },
+                Production {
+                    label: Some(
+                        Label {
+                            name: ".Exps",
+                            parameters: [],
+                        },
+                    ),
+                    parameters: [],
+                    sort: Sort {
+                        name: "Exps",
+                        parameters: [],
+                    },
+                    items: [
+                        Terminal(
+                            ".Exps",
+                        ),
+                    ],
+                    attributes: Attributes {
+                        entries: {
+                            "org.kframework.attributes.Location": Array [
+                                Number(11),
+                                Number(19),
+                                Number(11),
+                                Number(73),
+                            ],
+                            "org.kframework.attributes.Source": String("record-and-list.k"),
+                            "symbol": String(".Exps"),
+                            "userList": String("*"),
+                        },
+                    },
+                },
+                Production {
+                    label: Some(
+                        Label {
+                            name: "_,__OUTER-CORPUS_Ints_Int_Ints",
+                            parameters: [],
+                        },
+                    ),
+                    parameters: [],
+                    sort: Sort {
+                        name: "Ints",
+                        parameters: [],
+                    },
+                    items: [
+                        NonTerminal {
+                            sort: Sort {
+                                name: "Int",
+                                parameters: [],
+                            },
+                            name: None,
+                        },
+                        Terminal(
+                            ",",
+                        ),
+                        NonTerminal {
+                            sort: Sort {
+                                name: "Ints",
+                                parameters: [],
+                            },
+                            name: None,
+                        },
+                    ],
+                    attributes: Attributes {
+                        entries: {
+                            "org.kframework.attributes.Location": Array [
+                                Number(12),
+                                Number(19),
+                                Number(12),
+                                Number(35),
+                            ],
+                            "org.kframework.attributes.Source": String("record-and-list.k"),
+                            "userList": String("+"),
+                        },
+                    },
+                },
+                Production {
+                    label: Some(
+                        Label {
+                            name: ".List{\"_,__OUTER-CORPUS_Ints_Int_Ints\"}_Ints",
+                            parameters: [],
+                        },
+                    ),
+                    parameters: [],
+                    sort: Sort {
+                        name: "Ints",
+                        parameters: [],
+                    },
+                    items: [
+                        Terminal(
+                            ".Ints",
+                        ),
+                    ],
+                    attributes: Attributes {
+                        entries: {
+                            "org.kframework.attributes.Location": Array [
+                                Number(12),
+                                Number(19),
+                                Number(12),
+                                Number(35),
+                            ],
+                            "org.kframework.attributes.Source": String("record-and-list.k"),
+                            "symbol": String(".List{\"_,_\"}"),
+                            "userList": String("+"),
+                        },
+                    },
+                },
+                Production {
+                    label: Some(
+                        Label {
+                            name: "_or__OUTER-CORPUS_Exp_Exp_Exp",
+                            parameters: [],
+                        },
+                    ),
+                    parameters: [],
+                    sort: Sort {
+                        name: "Exp",
+                        parameters: [],
+                    },
+                    items: [
+                        NonTerminal {
+                            sort: Sort {
+                                name: "Exp",
+                                parameters: [],
+                            },
+                            name: None,
+                        },
+                        Terminal(
+                            "or",
+                        ),
+                        NonTerminal {
+                            sort: Sort {
+                                name: "Exp",
+                                parameters: [],
+                            },
+                            name: None,
+                        },
+                    ],
+                    attributes: Attributes {
+                        entries: {
+                            "klabel": String("_or_"),
+                            "org.kframework.attributes.Location": Array [
+                                Number(13),
+                                Number(18),
+                                Number(13),
+                                Number(45),
+                            ],
+                            "org.kframework.attributes.Source": String("record-and-list.k"),
+                        },
+                    },
+                },
+                SyntaxPriority {
+                    priorities: [
+                        [
+                            "_or__OUTER-CORPUS_Exp_Exp_Exp",
+                        ],
+                        [
+                            "_+_",
+                        ],
+                    ],
+                    attributes: Attributes {
+                        entries: {
+                            "org.kframework.attributes.Location": Array [
+                                Number(14),
+                                Number(3),
+                                Number(16),
+                                Number(3),
+                            ],
+                            "org.kframework.attributes.Source": String("record-and-list.k"),
+                        },
+                    },
+                },
+                Bubble {
+                    sentence_type: "rule",
+                    contents: "X + 0 => X",
+                    attributes: Attributes {
+                        entries: {
+                            "contentStartColumn": Number(20),
+                            "contentStartLine": Number(16),
+                            "label": String("OUTER-CORPUS.identity"),
+                            "org.kframework.attributes.Location": Array [
+                                Number(16),
+                                Number(3),
+                                Number(16),
+                                Number(47),
+                            ],
+                            "org.kframework.attributes.Source": String("record-and-list.k"),
+                            "simplification": String(""),
+                        },
+                    },
+                },
+            ],
+            attributes: Attributes {
+                entries: {
+                    "org.kframework.attributes.Location": Array [
+                        Number(3),
+                        Number(1),
+                        Number(17),
+                        Number(10),
+                    ],
+                    "org.kframework.attributes.Source": String("record-and-list.k"),
+                },
+            },
+        },
+    ],
+    attributes: Attributes {
+        entries: {},
+    },
+}

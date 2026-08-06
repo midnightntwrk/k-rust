@@ -44,7 +44,12 @@ frontend's asymmetric-anchor bug. `CheckRegex` validation covers lexical referen
 named-syntax anchors, character and repetition ranges, and the frontend's Unicode restrictions.
 The first unlowered outer-syntax layer now preserves source spans, modules, imports, syntax
 declarations, user lists, priorities, associativity, lexical declarations, and rule-like bubbles;
-the Java-compatible `CheckListDecl` runs against this source-shaped AST before flattening.
+the Java-compatible `CheckListDecl` and `CheckBracket` run against this source-shaped AST before
+flattening. The initial `KILtoKORE`-shaped lowering expands user lists, derives production labels,
+converts priorities and associativity, preserves source metadata, and leaves rule bodies as bubbles
+for the inner parser. A probe over 1,504 `.k` files at the pinned K commit accepts 1,499; the five
+exceptions are four intentional malformed-string tests and one legacy `Token{...}` fixture that is
+not accepted by the pinned JavaCC grammar either.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -62,8 +67,8 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
   checker does not guess from sentence-level metadata.
 - Port `CheckDeprecated` after terms retain their resolved-production attributes; sentence-level
   production catalogs cannot identify which overloaded production a parsed application used.
-- Complete differential coverage of the JavaCC outer grammar, including its lexical edge cases,
-  before treating the new source parser as a drop-in replacement.
+- Add an AST-level differential oracle against the JavaCC outer parser and extend exact lexical
+  error coverage before treating the new source parser as a drop-in replacement.
 - Add presentation adapters for diagnostics after the portable diagnostic model stabilizes. A
   renderer such as `miette` may be useful for a future native CLI, but it does not belong in the
   WASM-compatible core yet.

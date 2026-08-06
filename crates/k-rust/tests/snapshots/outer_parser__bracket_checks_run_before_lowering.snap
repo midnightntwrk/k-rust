@@ -1,0 +1,38 @@
+---
+source: crates/k-rust/tests/outer_parser.rs
+expression: diagnostics
+---
+[
+    Diagnostic {
+        severity: Error,
+        code: InvalidBracketProduction,
+        message: "bracket productions should have exactly one non-terminal of the same sort as the production.",
+        source: Some(
+            "brackets.k",
+        ),
+        location: Some(
+            Location {
+                start_line: 2,
+                start_column: 18,
+                end_line: 2,
+                end_column: 39,
+            },
+        ),
+    },
+    Diagnostic {
+        severity: Error,
+        code: InvalidBracketProduction,
+        message: "bracket productions should have exactly one non-terminal of the same sort as the production.",
+        source: Some(
+            "brackets.k",
+        ),
+        location: Some(
+            Location {
+                start_line: 3,
+                start_column: 16,
+                end_line: 3,
+                end_column: 41,
+            },
+        ),
+    },
+]

@@ -1,0 +1,697 @@
+---
+source: crates/k-rust/tests/outer_parser.rs
+expression: parsed
+---
+SourceFile {
+    source: "record-and-list.k",
+    requires: [
+        Require {
+            path: "domains.md",
+            span: Span {
+                start: Position {
+                    offset: 0,
+                    line: 1,
+                    column: 1,
+                },
+                end: Position {
+                    offset: 21,
+                    line: 1,
+                    column: 22,
+                },
+            },
+        },
+    ],
+    modules: [
+        Module {
+            name: "OUTER-CORPUS",
+            attributes: [],
+            imports: [
+                Import {
+                    module: "INT",
+                    public: true,
+                    span: Span {
+                        start: Position {
+                            offset: 45,
+                            line: 4,
+                            column: 3,
+                        },
+                        end: Position {
+                            offset: 63,
+                            line: 4,
+                            column: 21,
+                        },
+                    },
+                },
+            ],
+            sentences: [
+                Syntax(
+                    SyntaxDeclaration {
+                        parameters: [],
+                        sort: Sort {
+                            name: "Program",
+                            parameters: [],
+                        },
+                        body: Productions(
+                            [
+                                PriorityBlock {
+                                    associativity: Unspecified,
+                                    productions: [
+                                        Production {
+                                            items: [
+                                                NonTerminal {
+                                                    name: None,
+                                                    sort: Sort {
+                                                        name: "Set",
+                                                        parameters: [],
+                                                    },
+                                                },
+                                            ],
+                                            attributes: [],
+                                            span: Span {
+                                                start: Position {
+                                                    offset: 86,
+                                                    line: 6,
+                                                    column: 22,
+                                                },
+                                                end: Position {
+                                                    offset: 89,
+                                                    line: 6,
+                                                    column: 25,
+                                                },
+                                            },
+                                        },
+                                        Production {
+                                            items: [
+                                                NonTerminal {
+                                                    name: None,
+                                                    sort: Sort {
+                                                        name: "List",
+                                                        parameters: [],
+                                                    },
+                                                },
+                                            ],
+                                            attributes: [],
+                                            span: Span {
+                                                start: Position {
+                                                    offset: 92,
+                                                    line: 6,
+                                                    column: 28,
+                                                },
+                                                end: Position {
+                                                    offset: 96,
+                                                    line: 6,
+                                                    column: 32,
+                                                },
+                                            },
+                                        },
+                                    ],
+                                    span: Span {
+                                        start: Position {
+                                            offset: 86,
+                                            line: 6,
+                                            column: 22,
+                                        },
+                                        end: Position {
+                                            offset: 99,
+                                            line: 7,
+                                            column: 3,
+                                        },
+                                    },
+                                },
+                            ],
+                        ),
+                        span: Span {
+                            start: Position {
+                                offset: 67,
+                                line: 6,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 99,
+                                line: 7,
+                                column: 3,
+                            },
+                        },
+                    },
+                ),
+                Syntax(
+                    SyntaxDeclaration {
+                        parameters: [],
+                        sort: Sort {
+                            name: "Pair",
+                            parameters: [],
+                        },
+                        body: Productions(
+                            [
+                                PriorityBlock {
+                                    associativity: Unspecified,
+                                    productions: [
+                                        Production {
+                                            items: [
+                                                Terminal(
+                                                    "pair(",
+                                                ),
+                                                NonTerminal {
+                                                    name: Some(
+                                                        "left",
+                                                    ),
+                                                    sort: Sort {
+                                                        name: "Int",
+                                                        parameters: [],
+                                                    },
+                                                },
+                                                Terminal(
+                                                    ",",
+                                                ),
+                                                NonTerminal {
+                                                    name: Some(
+                                                        "right",
+                                                    ),
+                                                    sort: Sort {
+                                                        name: "Int",
+                                                        parameters: [],
+                                                    },
+                                                },
+                                                Terminal(
+                                                    ")",
+                                                ),
+                                            ],
+                                            attributes: [
+                                                Attribute {
+                                                    key: "symbol",
+                                                    value: Some(
+                                                        "pair",
+                                                    ),
+                                                },
+                                            ],
+                                            span: Span {
+                                                start: Position {
+                                                    offset: 115,
+                                                    line: 7,
+                                                    column: 19,
+                                                },
+                                                end: Position {
+                                                    offset: 157,
+                                                    line: 7,
+                                                    column: 61,
+                                                },
+                                            },
+                                        },
+                                    ],
+                                    span: Span {
+                                        start: Position {
+                                            offset: 115,
+                                            line: 7,
+                                            column: 19,
+                                        },
+                                        end: Position {
+                                            offset: 160,
+                                            line: 8,
+                                            column: 3,
+                                        },
+                                    },
+                                },
+                            ],
+                        ),
+                        span: Span {
+                            start: Position {
+                                offset: 99,
+                                line: 7,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 160,
+                                line: 8,
+                                column: 3,
+                            },
+                        },
+                    },
+                ),
+                Syntax(
+                    SyntaxDeclaration {
+                        parameters: [],
+                        sort: Sort {
+                            name: "Exp",
+                            parameters: [],
+                        },
+                        body: Productions(
+                            [
+                                PriorityBlock {
+                                    associativity: Unspecified,
+                                    productions: [
+                                        Production {
+                                            items: [
+                                                NonTerminal {
+                                                    name: None,
+                                                    sort: Sort {
+                                                        name: "Int",
+                                                        parameters: [],
+                                                    },
+                                                },
+                                            ],
+                                            attributes: [],
+                                            span: Span {
+                                                start: Position {
+                                                    offset: 175,
+                                                    line: 8,
+                                                    column: 18,
+                                                },
+                                                end: Position {
+                                                    offset: 178,
+                                                    line: 8,
+                                                    column: 21,
+                                                },
+                                            },
+                                        },
+                                    ],
+                                    span: Span {
+                                        start: Position {
+                                            offset: 175,
+                                            line: 8,
+                                            column: 18,
+                                        },
+                                        end: Position {
+                                            offset: 194,
+                                            line: 9,
+                                            column: 16,
+                                        },
+                                    },
+                                },
+                                PriorityBlock {
+                                    associativity: Left,
+                                    productions: [
+                                        Production {
+                                            items: [
+                                                NonTerminal {
+                                                    name: None,
+                                                    sort: Sort {
+                                                        name: "Exp",
+                                                        parameters: [],
+                                                    },
+                                                },
+                                                Terminal(
+                                                    "+",
+                                                ),
+                                                NonTerminal {
+                                                    name: None,
+                                                    sort: Sort {
+                                                        name: "Exp",
+                                                        parameters: [],
+                                                    },
+                                                },
+                                            ],
+                                            attributes: [
+                                                Attribute {
+                                                    key: "symbol",
+                                                    value: Some(
+                                                        "_+_",
+                                                    ),
+                                                },
+                                            ],
+                                            span: Span {
+                                                start: Position {
+                                                    offset: 202,
+                                                    line: 9,
+                                                    column: 24,
+                                                },
+                                                end: Position {
+                                                    offset: 227,
+                                                    line: 9,
+                                                    column: 49,
+                                                },
+                                            },
+                                        },
+                                        Production {
+                                            items: [
+                                                Terminal(
+                                                    "(",
+                                                ),
+                                                NonTerminal {
+                                                    name: None,
+                                                    sort: Sort {
+                                                        name: "Exp",
+                                                        parameters: [],
+                                                    },
+                                                },
+                                                Terminal(
+                                                    ")",
+                                                ),
+                                            ],
+                                            attributes: [
+                                                Attribute {
+                                                    key: "bracket",
+                                                    value: None,
+                                                },
+                                            ],
+                                            span: Span {
+                                                start: Position {
+                                                    offset: 245,
+                                                    line: 10,
+                                                    column: 18,
+                                                },
+                                                end: Position {
+                                                    offset: 266,
+                                                    line: 10,
+                                                    column: 39,
+                                                },
+                                            },
+                                        },
+                                    ],
+                                    span: Span {
+                                        start: Position {
+                                            offset: 196,
+                                            line: 9,
+                                            column: 18,
+                                        },
+                                        end: Position {
+                                            offset: 269,
+                                            line: 11,
+                                            column: 3,
+                                        },
+                                    },
+                                },
+                            ],
+                        ),
+                        span: Span {
+                            start: Position {
+                                offset: 160,
+                                line: 8,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 269,
+                                line: 11,
+                                column: 3,
+                            },
+                        },
+                    },
+                ),
+                Syntax(
+                    SyntaxDeclaration {
+                        parameters: [],
+                        sort: Sort {
+                            name: "Exps",
+                            parameters: [],
+                        },
+                        body: Productions(
+                            [
+                                PriorityBlock {
+                                    associativity: Unspecified,
+                                    productions: [
+                                        Production {
+                                            items: [
+                                                UserList {
+                                                    sort: Sort {
+                                                        name: "Exp",
+                                                        parameters: [],
+                                                    },
+                                                    separator: ",",
+                                                    non_empty: false,
+                                                },
+                                            ],
+                                            attributes: [
+                                                Attribute {
+                                                    key: "symbol",
+                                                    value: Some(
+                                                        "_,_",
+                                                    ),
+                                                },
+                                                Attribute {
+                                                    key: "terminator-symbol",
+                                                    value: Some(
+                                                        ".Exps",
+                                                    ),
+                                                },
+                                            ],
+                                            span: Span {
+                                                start: Position {
+                                                    offset: 285,
+                                                    line: 11,
+                                                    column: 19,
+                                                },
+                                                end: Position {
+                                                    offset: 339,
+                                                    line: 11,
+                                                    column: 73,
+                                                },
+                                            },
+                                        },
+                                    ],
+                                    span: Span {
+                                        start: Position {
+                                            offset: 285,
+                                            line: 11,
+                                            column: 19,
+                                        },
+                                        end: Position {
+                                            offset: 342,
+                                            line: 12,
+                                            column: 3,
+                                        },
+                                    },
+                                },
+                            ],
+                        ),
+                        span: Span {
+                            start: Position {
+                                offset: 269,
+                                line: 11,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 342,
+                                line: 12,
+                                column: 3,
+                            },
+                        },
+                    },
+                ),
+                Syntax(
+                    SyntaxDeclaration {
+                        parameters: [],
+                        sort: Sort {
+                            name: "Ints",
+                            parameters: [],
+                        },
+                        body: Productions(
+                            [
+                                PriorityBlock {
+                                    associativity: Unspecified,
+                                    productions: [
+                                        Production {
+                                            items: [
+                                                UserList {
+                                                    sort: Sort {
+                                                        name: "Int",
+                                                        parameters: [],
+                                                    },
+                                                    separator: ",",
+                                                    non_empty: true,
+                                                },
+                                            ],
+                                            attributes: [],
+                                            span: Span {
+                                                start: Position {
+                                                    offset: 358,
+                                                    line: 12,
+                                                    column: 19,
+                                                },
+                                                end: Position {
+                                                    offset: 374,
+                                                    line: 12,
+                                                    column: 35,
+                                                },
+                                            },
+                                        },
+                                    ],
+                                    span: Span {
+                                        start: Position {
+                                            offset: 358,
+                                            line: 12,
+                                            column: 19,
+                                        },
+                                        end: Position {
+                                            offset: 377,
+                                            line: 13,
+                                            column: 3,
+                                        },
+                                    },
+                                },
+                            ],
+                        ),
+                        span: Span {
+                            start: Position {
+                                offset: 342,
+                                line: 12,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 377,
+                                line: 13,
+                                column: 3,
+                            },
+                        },
+                    },
+                ),
+                Syntax(
+                    SyntaxDeclaration {
+                        parameters: [],
+                        sort: Sort {
+                            name: "Exp",
+                            parameters: [],
+                        },
+                        body: Productions(
+                            [
+                                PriorityBlock {
+                                    associativity: Unspecified,
+                                    productions: [
+                                        Production {
+                                            items: [
+                                                NonTerminal {
+                                                    name: None,
+                                                    sort: Sort {
+                                                        name: "Exp",
+                                                        parameters: [],
+                                                    },
+                                                },
+                                                Terminal(
+                                                    "or",
+                                                ),
+                                                NonTerminal {
+                                                    name: None,
+                                                    sort: Sort {
+                                                        name: "Exp",
+                                                        parameters: [],
+                                                    },
+                                                },
+                                            ],
+                                            attributes: [
+                                                Attribute {
+                                                    key: "klabel",
+                                                    value: Some(
+                                                        "_or_",
+                                                    ),
+                                                },
+                                            ],
+                                            span: Span {
+                                                start: Position {
+                                                    offset: 392,
+                                                    line: 13,
+                                                    column: 18,
+                                                },
+                                                end: Position {
+                                                    offset: 419,
+                                                    line: 13,
+                                                    column: 45,
+                                                },
+                                            },
+                                        },
+                                    ],
+                                    span: Span {
+                                        start: Position {
+                                            offset: 392,
+                                            line: 13,
+                                            column: 18,
+                                        },
+                                        end: Position {
+                                            offset: 422,
+                                            line: 14,
+                                            column: 3,
+                                        },
+                                    },
+                                },
+                            ],
+                        ),
+                        span: Span {
+                            start: Position {
+                                offset: 377,
+                                line: 13,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 422,
+                                line: 14,
+                                column: 3,
+                            },
+                        },
+                    },
+                ),
+                Priority(
+                    SyntaxPriority {
+                        groups: [
+                            [
+                                "_or_",
+                            ],
+                            [
+                                "_+_",
+                            ],
+                        ],
+                        span: Span {
+                            start: Position {
+                                offset: 422,
+                                line: 14,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 452,
+                                line: 16,
+                                column: 3,
+                            },
+                        },
+                    },
+                ),
+                Bubble(
+                    Bubble {
+                        kind: Rule,
+                        content: "X + 0 => X",
+                        label: Some(
+                            "identity",
+                        ),
+                        attributes: [
+                            Attribute {
+                                key: "simplification",
+                                value: None,
+                            },
+                        ],
+                        content_span: Span {
+                            start: Position {
+                                offset: 469,
+                                line: 16,
+                                column: 20,
+                            },
+                            end: Position {
+                                offset: 480,
+                                line: 16,
+                                column: 31,
+                            },
+                        },
+                        span: Span {
+                            start: Position {
+                                offset: 452,
+                                line: 16,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 496,
+                                line: 16,
+                                column: 47,
+                            },
+                        },
+                    },
+                ),
+            ],
+            span: Span {
+                start: Position {
+                    offset: 23,
+                    line: 3,
+                    column: 1,
+                },
+                end: Position {
+                    offset: 506,
+                    line: 17,
+                    column: 10,
+                },
+            },
+        },
+    ],
+}

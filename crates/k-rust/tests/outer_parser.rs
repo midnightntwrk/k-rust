@@ -1,5 +1,5 @@
 use indoc::indoc;
-use k_rust::outer::{check_list_declarations, parse};
+use k_rust::outer::{check_brackets, check_list_declarations, lower, parse};
 use proptest::prelude::*;
 
 macro_rules! outer_snapshot {
@@ -91,9 +91,42 @@ fn comments_and_escaped_literals_are_lexed_without_losing_spans() {
     insta::assert_debug_snapshot!(parsed);
 }
 
+#[test]
+fn pinned_outer_corpus_families_parse_and_lower() {
+    let source = include_str!("fixtures/outer/record-and-list.k");
+    let parsed = parse("record-and-list.k", source).unwrap();
+
+    insta::assert_debug_snapshot!("pinned_outer_corpus", parsed);
+    insta::assert_debug_snapshot!(
+        "pinned_outer_lowering",
+        lower(&parsed, "OUTER-CORPUS").unwrap()
+    );
+}
+
+#[test]
+fn bracket_checks_run_before_lowering() {
+    let parsed = parse(
+        "brackets.k",
+        indoc! {r#"
+            module BRACKETS
+              syntax Exp ::= "(" Int ")" [bracket]
+                         | "[" Exp Exp "]" [bracket]
+                         | "{" Exp "}" [bracket]
+            endmodule
+        "#},
+    )
+    .unwrap();
+
+    let diagnostics = check_brackets(&parsed);
+    insta::assert_debug_snapshot!(diagnostics);
+    assert!(lower(&parsed, "BRACKETS").is_err());
+}
+
 proptest! {
     #[test]
     fn arbitrary_source_never_panics(source in any::<String>()) {
-        let _ = parse("fuzz.k", &source);
+        if let Ok(parsed) = parse("fuzz.k", &source) {
+            let _ = lower(&parsed, "FUZZ");
+        }
     }
 }

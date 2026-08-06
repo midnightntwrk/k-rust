@@ -1,4 +1,4 @@
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, rc::Rc};
 
 use crate::kast::Sort;
 
@@ -54,6 +54,7 @@ pub fn parse(source: impl Into<String>, input: &str) -> Result<SourceFile, Parse
 
 struct Parser<'a> {
     input: &'a str,
+    line_starts: Rc<Vec<usize>>,
     offset: usize,
     end: usize,
     last_start: usize,
@@ -61,8 +62,26 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn new(input: &'a str, offset: usize, end: usize) -> Self {
+        let line_starts = std::iter::once(0)
+            .chain(
+                input
+                    .match_indices('\n')
+                    .map(|(offset, _)| offset + '\n'.len_utf8()),
+            )
+            .collect();
         Self {
             input,
+            line_starts: Rc::new(line_starts),
+            offset,
+            end,
+            last_start: offset,
+        }
+    }
+
+    fn subparser(&self, offset: usize, end: usize) -> Self {
+        Self {
+            input: self.input,
+            line_starts: Rc::clone(&self.line_starts),
             offset,
             end,
             last_start: offset,
@@ -100,7 +119,7 @@ impl<'a> Parser<'a> {
             }
             let sentence_start = self.offset;
             let sentence_end = self.next_sentence_boundary(sentence_start)?;
-            let mut sentence_parser = Self::new(self.input, sentence_start, sentence_end);
+            let mut sentence_parser = self.subparser(sentence_start, sentence_end);
             let sentence = sentence_parser.sentence()?;
             sentence_parser.skip_trivia()?;
             if !sentence_parser.done() {
@@ -254,11 +273,17 @@ impl<'a> Parser<'a> {
                 }
                 Some('"') => items.push(ProductionItem::Terminal(self.quoted()?)),
                 Some('(') => {
-                    for sort in self.sort_list('(', ')')? {
-                        items.push(ProductionItem::NonTerminal { name: None, sort });
+                    self.expect_char('(')?;
+                    items.push(ProductionItem::Terminal("(".into()));
+                    for (index, item) in self.nonterminals_until(')')?.into_iter().enumerate() {
+                        if index > 0 {
+                            items.push(ProductionItem::Terminal(",".into()));
+                        }
+                        items.push(item);
                     }
+                    items.push(ProductionItem::Terminal(")".into()));
                 }
-                _ if self.peek_word("List") || self.peek_word("NeList") => {
+                _ if self.peek_user_list("List") || self.peek_user_list("NeList") => {
                     let non_empty = self.consume_word("NeList");
                     if !non_empty {
                         self.expect_word("List")?;
@@ -277,6 +302,7 @@ impl<'a> Parser<'a> {
                 _ if self.peek_regex() => items.push(ProductionItem::Regex(self.regex()?)),
                 _ => {
                     let first = self.word()?;
+                    let after_first = self.offset;
                     self.skip_trivia()?;
                     if self.consume(":") {
                         items.push(ProductionItem::NonTerminal {
@@ -285,15 +311,16 @@ impl<'a> Parser<'a> {
                         });
                     } else if self.consume("(") {
                         items.push(ProductionItem::Terminal(format!("{first}(")));
-                        let arguments = self.sorts_until(')')?;
-                        for (index, sort) in arguments.into_iter().enumerate() {
+                        let arguments = self.nonterminals_until(')')?;
+                        for (index, argument) in arguments.into_iter().enumerate() {
                             if index > 0 {
                                 items.push(ProductionItem::Terminal(",".into()));
                             }
-                            items.push(ProductionItem::NonTerminal { name: None, sort });
+                            items.push(argument);
                         }
                         items.push(ProductionItem::Terminal(")".into()));
                     } else {
+                        self.offset = after_first;
                         let mut sort = Sort::new(first);
                         if self.peek_char_after_trivia()? == Some('{') {
                             sort.parameters = self.sort_list('{', '}')?;
@@ -361,7 +388,7 @@ impl<'a> Parser<'a> {
         raw_start: usize,
     ) -> Result<(String, Vec<Attribute>, usize), ParseError> {
         for (index, _) in raw.match_indices('[').rev() {
-            let mut parser = Self::new(self.input, raw_start + index, raw_start + raw.len());
+            let mut parser = self.subparser(raw_start + index, raw_start + raw.len());
             if let Ok(attributes) = parser.attributes() {
                 parser.skip_trivia()?;
                 if parser.done() {
@@ -413,7 +440,12 @@ impl<'a> Parser<'a> {
                         }
                     }
                 };
-                Some(parsed.ok_or_else(|| self.error("unterminated attribute value"))?)
+                let parsed = parsed.ok_or_else(|| self.error("unterminated attribute value"))?;
+                Some(if parsed.starts_with('"') && parsed.ends_with('"') {
+                    serde_json::from_str(&parsed).unwrap_or(parsed)
+                } else {
+                    parsed
+                })
             } else {
                 None
             };
@@ -458,6 +490,35 @@ impl<'a> Parser<'a> {
             self.expect_char(',')?;
         }
         Ok(sorts)
+    }
+
+    fn nonterminals_until(&mut self, close: char) -> Result<Vec<ProductionItem>, ParseError> {
+        let mut items = Vec::new();
+        self.skip_trivia()?;
+        if self.consume(&close.to_string()) {
+            return Ok(items);
+        }
+        loop {
+            let first = self.word()?;
+            self.skip_trivia()?;
+            let (name, sort) = if self.consume(":") {
+                (Some(first), self.sort()?)
+            } else {
+                let parameters = if self.peek_char_after_trivia()? == Some('{') {
+                    self.sort_list('{', '}')?
+                } else {
+                    Vec::new()
+                };
+                (None, Sort::with_parameters(first, parameters))
+            };
+            items.push(ProductionItem::NonTerminal { name, sort });
+            self.skip_trivia()?;
+            if self.consume(&close.to_string()) {
+                break;
+            }
+            self.expect_char(',')?;
+        }
+        Ok(items)
     }
 
     fn raw_groups(&mut self, separator: char) -> Result<Vec<Vec<String>>, ParseError> {
@@ -734,6 +795,14 @@ impl<'a> Parser<'a> {
         result
     }
 
+    fn peek_user_list(&mut self, name: &str) -> bool {
+        let saved = self.offset;
+        let result =
+            self.consume_word(name) && self.peek_char_after_trivia().ok().flatten() == Some('{');
+        self.offset = saved;
+        result
+    }
+
     fn starts_with(&self, text: &str) -> bool {
         self.input[self.offset..self.end].starts_with(text)
     }
@@ -772,13 +841,12 @@ impl<'a> Parser<'a> {
             .all(char::is_whitespace)
     }
     fn position(&self, offset: usize) -> Position {
-        let prefix = &self.input[..offset];
-        let line = prefix.bytes().filter(|byte| *byte == b'\n').count() as u32 + 1;
-        let line_start = prefix.rfind('\n').map_or(0, |index| index + 1);
+        let line_index = self.line_starts.partition_point(|start| *start <= offset) - 1;
+        let line_start = self.line_starts[line_index];
         Position {
             offset,
-            line,
-            column: prefix[line_start..].chars().count() as u32 + 1,
+            line: line_index as u32 + 1,
+            column: self.input[line_start..offset].chars().count() as u32 + 1,
         }
     }
     fn span(&self, start: usize, end: usize) -> Span {
