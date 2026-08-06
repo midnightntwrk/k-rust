@@ -3,8 +3,9 @@
 use std::collections::BTreeSet;
 
 use super::Sentence;
+use super::labels::internal_labels;
 use super::term_position::{TermPosition, positioned_children};
-use crate::definition::{LabelHead, ProductionCatalog, ProductionItem, SortCatalog};
+use crate::definition::{LabelHead, ProductionCatalog, SortCatalog};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::Term;
 
@@ -22,21 +23,6 @@ const COLLECTION_HOOKS: [&str; 13] = [
     "BAG.element",
     "BAG.concat",
     "BAG.unit",
-];
-
-const FIXED_INTERNAL_LABELS: [&str; 12] = [
-    "#cells",
-    "#dots",
-    "#noDots",
-    "#Or",
-    "#fun2",
-    "#fun3",
-    "#let",
-    "#withConfig",
-    "<generatedTop>",
-    "#SemanticCastToBag",
-    "_:=K_",
-    "_:/=K_",
 ];
 
 pub fn check_functions(
@@ -202,38 +188,4 @@ fn visit_arguments(
             diagnostics,
         );
     }
-}
-
-fn internal_labels(
-    productions: &ProductionCatalog<'_>,
-    sorts: &SortCatalog<'_>,
-) -> BTreeSet<String> {
-    let mut labels: BTreeSet<String> = FIXED_INTERNAL_LABELS
-        .map(str::to_owned)
-        .into_iter()
-        .collect();
-    for sort in sorts.all_sorts() {
-        labels.insert(format!("#SemanticCastTo{sort}"));
-        labels.insert(format!("project:{sort}"));
-        labels.insert(format!("is{sort}"));
-    }
-    for id in productions.ids() {
-        let Sentence::Production {
-            label: Some(label),
-            items,
-            ..
-        } = productions.production(id)
-        else {
-            continue;
-        };
-        for item in items {
-            if let ProductionItem::NonTerminal {
-                name: Some(name), ..
-            } = item
-            {
-                labels.insert(format!("project:{}:{name}", label.name));
-            }
-        }
-    }
-    labels
 }

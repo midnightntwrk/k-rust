@@ -12,6 +12,7 @@ pub enum Severity {
 pub enum DiagnosticCode {
     DuplicateSentenceLabel,
     DuplicateConfigurationCell,
+    DuplicateKLabel,
     InvalidAnonymousVariable,
     InvalidAsPattern,
     InvalidAssociativity,
@@ -22,12 +23,14 @@ pub enum DiagnosticCode {
     InvalidStreamCell,
     InvalidStrictness,
     IllegalFunctionOnLhs,
+    InconsistentFunctionRuleAttributes,
     MultipleTopSorts,
     InvalidTokenProduction,
     UnusedVariable,
     UnboundVariable,
     UnsupportedExistentialVariable,
     UnsupportedCellBag,
+    UndefinedKLabel,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]

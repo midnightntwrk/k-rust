@@ -4,7 +4,8 @@ use k_rust::definition::{
     Associativity, Attributes, Definition, FlatImport, FlatModule, LOCATION_ATTRIBUTE,
     PartialOrder, ProductionCatalog, ProductionItem, SOURCE_ATTRIBUTE, Sentence, SortCatalog,
     StructuralCheckBackend, StructuralCheckOptions, check_anonymous_variables, check_associativity,
-    check_configuration_cells, check_duplicate_labels, check_functions, check_holes, check_k_terms,
+    check_configuration_cells, check_definition, check_duplicate_klabels, check_duplicate_labels,
+    check_function_rule_attributes, check_functions, check_holes, check_k_terms, check_klabels,
     check_module, check_module_with_options, check_rewrites, check_rhs_variables,
     check_sort_top_uniqueness, check_streams, check_syntax_groups, check_tokens,
     compute_priorities,
@@ -1120,4 +1121,302 @@ fn rule_with_body(body: Term) -> Sentence {
         ensures: truth(),
         attributes: Attributes::default(),
     }
+}
+
+#[test]
+fn klabel_checks_use_visible_productions_and_internal_labels() {
+    let defined = production(Some("defined"), "Int", &[], Attributes::default());
+    let missing = rule_with_body(rewrite(
+        Term::apply("defined", Vec::new()),
+        Term::apply("missing", Vec::new()),
+    ));
+    let injected = rule_with_body(rewrite(
+        Term::InjectedLabel(Label::new("alsoMissing")),
+        Term::apply("isInt", vec![token("0")]),
+    ));
+    let claim = Sentence::Claim {
+        body: rewrite(Term::apply("ignoredInClaims", Vec::new()), token("0")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: Attributes::default(),
+    };
+    let productions = ProductionCatalog::from_visible([&defined]);
+    let sorts = SortCatalog::from_visible([&defined]);
+    let diagnostics = check_klabels(&[&missing, &injected, &claim], &productions, &sorts);
+
+    assert_eq!(diagnostics.len(), 2);
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == DiagnosticCode::UndefinedKLabel && diagnostic.message.contains("missing")
+    }));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == DiagnosticCode::UndefinedKLabel
+            && diagnostic.message.contains("alsoMissing")
+    }));
+}
+
+#[test]
+fn duplicate_klabels_are_scoped_to_the_main_import_closure() {
+    let base = FlatModule {
+        name: "BASE".into(),
+        imports: Vec::new(),
+        local_sentences: vec![
+            production(Some("dup"), "Int", &[], Attributes::default()),
+            production(Some("#EmptyK"), "K", &[], Attributes::default()),
+        ],
+        attributes: Attributes::default(),
+    };
+    let main = FlatModule {
+        name: "MAIN".into(),
+        imports: vec![FlatImport {
+            name: "BASE".into(),
+            public: true,
+        }],
+        local_sentences: vec![
+            production(Some("dup"), "Other", &[], Attributes::default()),
+            production(Some("#EmptyK"), "K", &[], Attributes::default()),
+        ],
+        attributes: Attributes::default(),
+    };
+    let disconnected = FlatModule {
+        name: "DISCONNECTED".into(),
+        imports: Vec::new(),
+        local_sentences: vec![production(
+            Some("dup"),
+            "Elsewhere",
+            &[],
+            Attributes::default(),
+        )],
+        attributes: Attributes::default(),
+    };
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&Definition {
+        main_module: "MAIN".into(),
+        modules: vec![disconnected, main, base],
+        attributes: Attributes::default(),
+    })
+    .unwrap();
+    let diagnostics = check_duplicate_klabels(&resolved);
+
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, DiagnosticCode::DuplicateKLabel);
+    assert!(diagnostics[0].message.contains("dup"));
+}
+
+#[test]
+fn function_rules_must_consistently_use_concrete_or_symbolic() {
+    let function = production(Some("f"), "Int", &[], attrs(&[("function", json!(""))]));
+    let concrete = Sentence::Rule {
+        body: rewrite(Term::apply("f", Vec::new()), token("0")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[("concrete", json!(""))]),
+    };
+    let ordinary = Sentence::Rule {
+        body: rewrite(Term::apply("f", Vec::new()), token("1")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: Attributes::default(),
+    };
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&Definition {
+        main_module: "MAIN".into(),
+        modules: vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: vec![function, concrete, ordinary],
+            attributes: Attributes::default(),
+        }],
+        attributes: Attributes::default(),
+    })
+    .unwrap();
+    let diagnostics = check_function_rule_attributes(&resolved);
+
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(
+        diagnostics[0].code,
+        DiagnosticCode::InconsistentFunctionRuleAttributes
+    );
+    assert!(diagnostics[0].message.contains("non-concrete rules"));
+}
+
+#[test]
+fn function_rule_policy_covers_symbolic_conflicts_and_consistent_sets() {
+    let symbolic_function = production(
+        Some("symbolicF"),
+        "Int",
+        &[],
+        attrs(&[("function", json!(""))]),
+    );
+    let conflicting_function = production(
+        Some("conflictingF"),
+        "Int",
+        &[],
+        attrs(&[("function", json!(""))]),
+    );
+    let consistent_function = production(
+        Some("consistentF"),
+        "Int",
+        &[],
+        attrs(&[("function", json!(""))]),
+    );
+    let symbolic = Sentence::Rule {
+        body: rewrite(Term::apply("symbolicF", Vec::new()), token("0")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[("symbolic", json!(""))]),
+    };
+    let ordinary = Sentence::Rule {
+        body: rewrite(Term::apply("symbolicF", Vec::new()), token("1")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: Attributes::default(),
+    };
+    let conflicting = Sentence::Rule {
+        body: rewrite(Term::apply("conflictingF", Vec::new()), token("2")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[("concrete", json!("")), ("symbolic", json!(""))]),
+    };
+    let consistent_one = Sentence::Rule {
+        body: rewrite(Term::apply("consistentF", Vec::new()), token("3")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[("concrete", json!(""))]),
+    };
+    let consistent_two = Sentence::Rule {
+        body: rewrite(Term::apply("consistentF", Vec::new()), token("4")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[("concrete", json!(""))]),
+    };
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&Definition {
+        main_module: "MAIN".into(),
+        modules: vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: vec![
+                symbolic_function,
+                conflicting_function,
+                consistent_function,
+                symbolic,
+                ordinary,
+                conflicting,
+                consistent_one,
+                consistent_two,
+            ],
+            attributes: Attributes::default(),
+        }],
+        attributes: Attributes::default(),
+    })
+    .unwrap();
+    let diagnostics = check_function_rule_attributes(&resolved);
+
+    assert_eq!(diagnostics.len(), 2);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("non-symbolic rules"))
+    );
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.message == "Rule cannot be both concrete and symbolic in the same variable."
+    }));
+}
+
+#[test]
+fn simplification_rules_reject_overlapping_concrete_and_symbolic_variables() {
+    let simplification = Sentence::Rule {
+        body: rewrite(token("0"), token("1")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[
+            ("simplification", json!("")),
+            ("concrete", json!("X, Y")),
+            ("symbolic", json!("Y, Z")),
+        ]),
+    };
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&Definition {
+        main_module: "MAIN".into(),
+        modules: vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: vec![simplification],
+            attributes: Attributes::default(),
+        }],
+        attributes: Attributes::default(),
+    })
+    .unwrap();
+    let diagnostics = check_function_rule_attributes(&resolved);
+
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(
+        diagnostics[0].message,
+        "Rule cannot be both concrete and symbolic in the same variable: [Y]"
+    );
+}
+
+#[test]
+fn simplification_rule_empty_attribute_overlap_preserves_java_rendering() {
+    let simplification = Sentence::Rule {
+        body: rewrite(token("0"), token("1")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[
+            ("simplification", json!("")),
+            ("concrete", json!("")),
+            ("symbolic", json!("")),
+        ]),
+    };
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&Definition {
+        main_module: "MAIN".into(),
+        modules: vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: vec![simplification],
+            attributes: Attributes::default(),
+        }],
+        attributes: Attributes::default(),
+    })
+    .unwrap();
+    let diagnostics = check_function_rule_attributes(&resolved);
+
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(
+        diagnostics[0].message,
+        "Rule cannot be both concrete and symbolic in the same variable: []"
+    );
+}
+
+#[test]
+fn definition_runner_checks_every_module_and_definition_wide_invariants() {
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&Definition {
+        main_module: "MAIN".into(),
+        modules: vec![
+            FlatModule {
+                name: "MAIN".into(),
+                imports: vec![FlatImport {
+                    name: "BASE".into(),
+                    public: true,
+                }],
+                local_sentences: vec![production(Some("dup"), "Int", &[], Attributes::default())],
+                attributes: Attributes::default(),
+            },
+            FlatModule {
+                name: "BASE".into(),
+                imports: Vec::new(),
+                local_sentences: vec![
+                    production(Some("dup"), "Int", &[], Attributes::default()),
+                    production(Some("hot"), "Foo", &["K"], attrs(&[("strict", json!(""))])),
+                ],
+                attributes: Attributes::default(),
+            },
+        ],
+        attributes: Attributes::default(),
+    })
+    .unwrap();
+    let diagnostics = check_definition(&resolved).unwrap();
+    let codes = diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.code)
+        .collect::<BTreeSet<_>>();
+
+    assert!(codes.contains(&DiagnosticCode::DuplicateKLabel));
+    assert!(codes.contains(&DiagnosticCode::InvalidHole));
 }

@@ -30,6 +30,10 @@ The same shared positional traversal now powers `CheckFunctions`, using visible 
 metadata and Java's special collection-hook matching behavior.
 Production-shape validation covers strict and sequential-strict positions, sort-`K` holes,
 stream-cell contents, duplicate configuration cells, and unsupported cell bags.
+Definition-wide checking now composes those module checks deterministically, validates every
+rule/context KLabel against visible productions and K's derived internal labels, rejects duplicate
+production symbols across the main import closure, and enforces Java's concrete/symbolic function
+rule consistency policy.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -42,6 +46,9 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
   metadata. Diagnostics emitted for nested terms currently use the containing sentence's span,
   and semantic-cast sort context is recovered from its label; exact spans and parametric cast sorts
   are deferred until the lossless representation and parser carry term attributes end to end.
+- Add Java-compatible unused-symbol warnings once nested term sources and include-directory
+  provenance are available. Those warnings deliberately depend on both, so the current portable
+  checker does not guess from sentence-level metadata.
 - Add presentation adapters for diagnostics after the portable diagnostic model stabilizes. A
   renderer such as `miette` may be useful for a future native CLI, but it does not belong in the
   WASM-compatible core yet.

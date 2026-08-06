@@ -10,11 +10,13 @@ use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{Label, Sort, Term};
 
 mod functions;
+mod labels;
 mod production_shapes;
 mod rhs_variables;
 mod term_position;
 
 pub use functions::check_functions;
+pub use labels::{check_duplicate_klabels, check_function_rule_attributes, check_klabels};
 pub use production_shapes::{check_configuration_cells, check_holes, check_streams};
 pub use rhs_variables::{StructuralCheckBackend, StructuralCheckOptions, check_rhs_variables};
 
@@ -89,7 +91,31 @@ pub fn check_module_with_options(
             &production_catalog,
             &sort_catalog,
         ))
+        .chain(check_klabels(
+            &sentences,
+            &production_catalog,
+            &sort_catalog,
+        ))
         .collect::<Vec<_>>();
+    diagnostics.sort();
+    Ok(diagnostics)
+}
+
+/// Run all implemented structural checks across a resolved definition.
+pub fn check_definition(definition: &ResolvedDefinition) -> Result<Vec<Diagnostic>, Error> {
+    check_definition_with_options(definition, StructuralCheckOptions::default())
+}
+
+pub fn check_definition_with_options(
+    definition: &ResolvedDefinition,
+    options: StructuralCheckOptions,
+) -> Result<Vec<Diagnostic>, Error> {
+    let mut diagnostics = Vec::new();
+    for (module, _) in definition.modules() {
+        diagnostics.extend(check_module_with_options(definition, module, options)?);
+    }
+    diagnostics.extend(check_duplicate_klabels(definition));
+    diagnostics.extend(check_function_rule_attributes(definition));
     diagnostics.sort();
     Ok(diagnostics)
 }
