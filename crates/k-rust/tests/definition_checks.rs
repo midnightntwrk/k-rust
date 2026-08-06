@@ -4,9 +4,10 @@ use k_rust::definition::{
     Associativity, Attributes, Definition, FlatImport, FlatModule, LOCATION_ATTRIBUTE,
     PartialOrder, ProductionCatalog, ProductionItem, SOURCE_ATTRIBUTE, Sentence, SortCatalog,
     StructuralCheckBackend, StructuralCheckOptions, check_anonymous_variables, check_associativity,
-    check_duplicate_labels, check_functions, check_k_terms, check_module,
-    check_module_with_options, check_rewrites, check_rhs_variables, check_sort_top_uniqueness,
-    check_syntax_groups, check_tokens, compute_priorities,
+    check_configuration_cells, check_duplicate_labels, check_functions, check_holes, check_k_terms,
+    check_module, check_module_with_options, check_rewrites, check_rhs_variables,
+    check_sort_top_uniqueness, check_streams, check_syntax_groups, check_tokens,
+    compute_priorities,
 };
 use k_rust::diagnostic::{DiagnosticCode, Severity};
 use k_rust::kast::{Label, Sort, Term};
@@ -874,6 +875,216 @@ fn module_runner_uses_visible_function_metadata() {
     assert_eq!(diagnostics[0].code, DiagnosticCode::IllegalFunctionOnLhs);
 }
 
+#[test]
+fn strictness_checks_positions_semicolons_and_k_nonterminals() {
+    let nullary = production(
+        Some("nullary"),
+        "Foo",
+        &[],
+        attrs(&[("strict", json!("1"))]),
+    );
+    let out_of_range = production(
+        Some("unary"),
+        "Foo",
+        &["Foo"],
+        attrs(&[("strict", json!("2"))]),
+    );
+    let bad_semicolons = production(
+        Some("aliases"),
+        "Foo",
+        &["Foo"],
+        attrs(&[("strict", json!("foo; bar; 1"))]),
+    );
+    let k_argument = production(Some("hot"), "Foo", &["K"], attrs(&[("strict", json!(""))]));
+    let safe_argument = production(
+        Some("safe"),
+        "Foo",
+        &["K", "KItem"],
+        attrs(&[("strict", json!("2"))]),
+    );
+    let java_trailing_separators = production(
+        Some("separator"),
+        "Foo",
+        &["K"],
+        attrs(&[("strict", json!(";"))]),
+    );
+    let diagnostics = check_holes(&[
+        &nullary,
+        &out_of_range,
+        &bad_semicolons,
+        &k_argument,
+        &safe_argument,
+        &java_trailing_separators,
+    ]);
+
+    assert_eq!(diagnostics.len(), 4);
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.message == "Cannot put a strict attribute on a production with no nonterminals"
+    }));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.message
+            == "Expecting a number between 1 and 1, but found 2 as a strict position in [2]"
+    }));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .starts_with("Invalid strict attribute containing invalid semicolons")
+    }));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.message == "Cannot heat a nonterminal of sort K. Did you mean KItem?"
+    }));
+}
+
+#[test]
+fn contexts_reject_holes_cast_to_k_only() {
+    let invalid = Sentence::Context {
+        body: Term::apply("#SemanticCastToK", vec![Term::variable("HOLE")]),
+        requires: truth(),
+        attributes: Attributes::default(),
+    };
+    let valid = Sentence::Context {
+        body: Term::apply("#SemanticCastToKItem", vec![Term::variable("HOLE")]),
+        requires: truth(),
+        attributes: Attributes::default(),
+    };
+    let diagnostics = check_holes(&[&invalid, &valid]);
+
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, DiagnosticCode::InvalidHole);
+}
+
+#[test]
+fn stream_cells_require_list_contents_and_valid_shape() {
+    let valid = cell_production(
+        "validStream",
+        "ValidStreamCell",
+        ProductionItem::NonTerminal {
+            sort: Sort::new("MyList"),
+            name: None,
+        },
+        attrs(&[("cell", json!("")), ("stream", json!("stdin"))]),
+    );
+    let wrong_sort = cell_production(
+        "badStream",
+        "BadStreamCell",
+        ProductionItem::NonTerminal {
+            sort: Sort::new("Int"),
+            name: None,
+        },
+        attrs(&[("cell", json!("")), ("stream", json!("stdout"))]),
+    );
+    let malformed = cell_production(
+        "malformedStream",
+        "MalformedStreamCell",
+        ProductionItem::Terminal("contents".into()),
+        attrs(&[("cell", json!("")), ("stream", json!("stderr"))]),
+    );
+    let subsorts = PartialOrder::new([(Sort::new("MyList"), Sort::new("List"))]).unwrap();
+    let diagnostics = check_streams(&[&valid, &wrong_sort, &malformed], &subsorts);
+
+    assert_eq!(diagnostics.len(), 2);
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.message == "Wrong sort in streaming cell. Expected List, but found Int."
+    }));
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.message == "Illegal arguments for stream cell." })
+    );
+}
+
+#[test]
+fn configuration_cells_detect_duplicates_and_unsupported_bags() {
+    let child = cell_production(
+        "kCell",
+        "KCell",
+        ProductionItem::NonTerminal {
+            sort: Sort::new("K"),
+            name: None,
+        },
+        attrs(&[("cell", json!(""))]),
+    );
+    let first = cell_production(
+        "topCell",
+        "TopCell",
+        ProductionItem::NonTerminal {
+            sort: Sort::new("KCell"),
+            name: None,
+        },
+        attrs(&[("cell", json!(""))]),
+    );
+    let duplicate = cell_production(
+        "otherCell",
+        "OtherCell",
+        ProductionItem::NonTerminal {
+            sort: Sort::new("KCell"),
+            name: None,
+        },
+        attrs(&[("cell", json!(""))]),
+    );
+    let bag = cell_production(
+        "bagCell",
+        "BagCell",
+        ProductionItem::NonTerminal {
+            sort: Sort::new("Int"),
+            name: None,
+        },
+        attrs(&[("cell", json!("")), ("multiplicity", json!("*"))]),
+    );
+    let set = cell_production(
+        "setCell",
+        "SetCell",
+        ProductionItem::NonTerminal {
+            sort: Sort::new("Int"),
+            name: None,
+        },
+        attrs(&[
+            ("cell", json!("")),
+            ("multiplicity", json!("*")),
+            ("type", json!("Set")),
+        ]),
+    );
+    let production_catalog =
+        ProductionCatalog::from_visible([&child, &first, &duplicate, &bag, &set]);
+    let diagnostics =
+        check_configuration_cells(&[&first, &duplicate, &bag, &set], &production_catalog);
+
+    assert_eq!(diagnostics.len(), 2);
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == DiagnosticCode::DuplicateConfigurationCell
+            && diagnostic.message == "Cell kCell found twice in configuration."
+    }));
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.code == DiagnosticCode::UnsupportedCellBag })
+    );
+}
+
+#[test]
+fn module_runner_includes_production_shape_checks() {
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&Definition {
+        main_module: "MAIN".into(),
+        modules: vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: vec![production(
+                Some("hot"),
+                "Foo",
+                &["K"],
+                attrs(&[("strict", json!(""))]),
+            )],
+            attributes: Attributes::default(),
+        }],
+        attributes: Attributes::default(),
+    })
+    .unwrap();
+    let diagnostics = check_module(&resolved, resolved.main_module_id()).unwrap();
+
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, DiagnosticCode::InvalidHole);
+}
+
 fn function_diagnostics(
     sentences: &[&Sentence],
     productions: &[&Sentence],
@@ -881,6 +1092,25 @@ fn function_diagnostics(
     let production_catalog = ProductionCatalog::from_visible(productions.iter().copied());
     let sort_catalog = SortCatalog::from_visible(productions.iter().copied());
     check_functions(sentences, &production_catalog, &sort_catalog)
+}
+
+fn cell_production(
+    label: &str,
+    sort: &str,
+    contents: ProductionItem,
+    attributes: Attributes,
+) -> Sentence {
+    Sentence::Production {
+        label: Some(Label::new(label)),
+        parameters: Vec::new(),
+        sort: Sort::new(sort),
+        items: vec![
+            ProductionItem::Terminal(format!("<{label}>")),
+            contents,
+            ProductionItem::Terminal(format!("</{label}>")),
+        ],
+        attributes,
+    }
 }
 
 fn rule_with_body(body: Term) -> Sentence {

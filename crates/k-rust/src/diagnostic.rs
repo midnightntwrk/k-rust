@@ -11,18 +11,23 @@ pub enum Severity {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticCode {
     DuplicateSentenceLabel,
+    DuplicateConfigurationCell,
     InvalidAnonymousVariable,
     InvalidAsPattern,
     InvalidAssociativity,
     InvalidExistentialVariable,
     InvalidFunctionPattern,
+    InvalidHole,
     InvalidRewrite,
+    InvalidStreamCell,
+    InvalidStrictness,
     IllegalFunctionOnLhs,
     MultipleTopSorts,
     InvalidTokenProduction,
     UnusedVariable,
     UnboundVariable,
     UnsupportedExistentialVariable,
+    UnsupportedCellBag,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]

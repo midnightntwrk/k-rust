@@ -10,10 +10,12 @@ use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{Label, Sort, Term};
 
 mod functions;
+mod production_shapes;
 mod rhs_variables;
 mod term_position;
 
 pub use functions::check_functions;
+pub use production_shapes::{check_configuration_cells, check_holes, check_streams};
 pub use rhs_variables::{StructuralCheckBackend, StructuralCheckOptions, check_rhs_variables};
 
 const ALLOWED_TOKEN_ATTRIBUTES: [&str; 3] = ["function", "token", "bracket"];
@@ -70,6 +72,9 @@ pub fn check_module_with_options(
         .chain(check_syntax_groups(&sentences, &priorities))
         .chain(check_associativity(&sentences, &subsorts))
         .chain(check_sort_top_uniqueness(&sentences, &subsorts))
+        .chain(check_holes(&sentences))
+        .chain(check_streams(&sentences, &subsorts))
+        .chain(check_configuration_cells(&sentences, &production_catalog))
         .chain(check_tokens(
             &sentences,
             sort_catalog.token_sorts(),
