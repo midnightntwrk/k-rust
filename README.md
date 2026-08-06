@@ -26,6 +26,8 @@ Reusable KAST traversal now supports Java-compatible `CheckK`, `CheckRewrite`, a
 variables, and anonymous-variable usage.
 Position-aware variable analysis ports `CheckRHSVariables`, including ML binders, semantic casts,
 pattern/value positions, `unboundVariables`, and explicit symbolic/Haskell policy options.
+The same shared positional traversal now powers `CheckFunctions`, using visible production
+metadata and Java's special collection-hook matching behavior.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -273,9 +275,9 @@ specialized parser/layout views and the remaining frontend validation checks. Pr
 and rule catalogs plus subsort, overload, and syntax-priority partial orders are implemented,
 including Scala's distinct explicit-group and legacy same-label overload mechanisms and exact
 associativity tag pairs. The dependency-light structural checks now include label, syntax-group,
-associativity, sort-top, token, K term, rewrite, anonymous-variable, and RHS-variable validation
-backed by reusable position-aware KAST traversal. This remains a reviewed design boundary because
-every downstream pass inherits its bugs — especially its iteration order.
+associativity, sort-top, token, K term, rewrite, anonymous-variable, RHS-variable, and function-LHS
+validation backed by reusable position-aware KAST traversal. This remains a reviewed design
+boundary because every downstream pass inherits its bugs — especially its iteration order.
 
 ### Phase 3 — massively parallel fan-out (~14k LOC, the bulk)
 The ~60 compile passes and ~20 checks. Each is `Module → Module`, pure, independently

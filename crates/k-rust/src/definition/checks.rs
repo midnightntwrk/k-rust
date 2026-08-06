@@ -9,8 +9,11 @@ use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{Label, Sort, Term};
 
+mod functions;
 mod rhs_variables;
+mod term_position;
 
+pub use functions::check_functions;
 pub use rhs_variables::{StructuralCheckBackend, StructuralCheckOptions, check_rhs_variables};
 
 const ALLOWED_TOKEN_ATTRIBUTES: [&str; 3] = ["function", "token", "bracket"];
@@ -76,6 +79,11 @@ pub fn check_module_with_options(
         .chain(check_rewrites(&sentences))
         .chain(check_anonymous_variables(&sentences))
         .chain(check_rhs_variables(&sentences, options))
+        .chain(check_functions(
+            &sentences,
+            &production_catalog,
+            &sort_catalog,
+        ))
         .collect::<Vec<_>>();
     diagnostics.sort();
     Ok(diagnostics)

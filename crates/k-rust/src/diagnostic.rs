@@ -17,6 +17,7 @@ pub enum DiagnosticCode {
     InvalidExistentialVariable,
     InvalidFunctionPattern,
     InvalidRewrite,
+    IllegalFunctionOnLhs,
     MultipleTopSorts,
     InvalidTokenProduction,
     UnusedVariable,

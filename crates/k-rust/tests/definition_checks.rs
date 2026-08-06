@@ -2,10 +2,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::definition::{
     Associativity, Attributes, Definition, FlatImport, FlatModule, LOCATION_ATTRIBUTE,
-    PartialOrder, ProductionItem, SOURCE_ATTRIBUTE, Sentence, StructuralCheckBackend,
-    StructuralCheckOptions, check_anonymous_variables, check_associativity, check_duplicate_labels,
-    check_k_terms, check_module, check_module_with_options, check_rewrites, check_rhs_variables,
-    check_sort_top_uniqueness, check_syntax_groups, check_tokens, compute_priorities,
+    PartialOrder, ProductionCatalog, ProductionItem, SOURCE_ATTRIBUTE, Sentence, SortCatalog,
+    StructuralCheckBackend, StructuralCheckOptions, check_anonymous_variables, check_associativity,
+    check_duplicate_labels, check_functions, check_k_terms, check_module,
+    check_module_with_options, check_rewrites, check_rhs_variables, check_sort_top_uniqueness,
+    check_syntax_groups, check_tokens, compute_priorities,
 };
 use k_rust::diagnostic::{DiagnosticCode, Severity};
 use k_rust::kast::{Label, Sort, Term};
@@ -683,6 +684,203 @@ fn module_runner_options_control_existential_policy() {
             diagnostic.code == DiagnosticCode::UnsupportedExistentialVariable
         })
     );
+}
+
+#[test]
+fn functions_are_allowed_at_top_and_on_rhs_but_not_nested_on_lhs() {
+    let function = production(
+        Some("f"),
+        "Int",
+        &["Int"],
+        attrs(&[("function", json!(""))]),
+    );
+    let wrapper = production(Some("wrap"), "Int", &["Int"], Attributes::default());
+    let nested = rule_with_body(rewrite(
+        Term::apply("wrap", vec![Term::apply("f", vec![token("0")])]),
+        token("1"),
+    ));
+    let top = rule_with_body(rewrite(Term::apply("f", vec![token("0")]), token("1")));
+    let rhs = rule_with_body(rewrite(
+        Term::apply("wrap", vec![token("0")]),
+        Term::apply("f", vec![token("1")]),
+    ));
+    let diagnostics = function_diagnostics(&[&nested, &top, &rhs], &[&function, &wrapper]);
+
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, DiagnosticCode::IllegalFunctionOnLhs);
+    assert!(diagnostics[0].message.contains("function symbol f"));
+}
+
+#[test]
+fn simplification_rules_and_internal_labels_are_exempt() {
+    let function = production(
+        Some("f"),
+        "Int",
+        &["Int"],
+        attrs(&[("function", json!(""))]),
+    );
+    let predicate = production(
+        Some("isInt"),
+        "Bool",
+        &["Int"],
+        attrs(&[("function", json!(""))]),
+    );
+    let wrapper = production(Some("wrap"), "Int", &["Int"], Attributes::default());
+    let simplification = Sentence::Rule {
+        body: rewrite(
+            Term::apply("wrap", vec![Term::apply("f", vec![token("0")])]),
+            token("1"),
+        ),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[("simplification", json!(""))]),
+    };
+    let internal = rule_with_body(rewrite(
+        Term::apply("wrap", vec![Term::apply("isInt", vec![token("0")])]),
+        token("1"),
+    ));
+
+    assert!(
+        function_diagnostics(
+            &[&simplification, &internal],
+            &[&function, &predicate, &wrapper]
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn collection_hooks_visit_only_java_matching_positions() {
+    let function = production(
+        Some("f"),
+        "Int",
+        &["Int"],
+        attrs(&[("function", json!(""))]),
+    );
+    let map_element = production(
+        Some("mapElement"),
+        "Map",
+        &["Int", "Int"],
+        attrs(&[("function", json!("")), ("hook", json!("MAP.element"))]),
+    );
+    let set_element = production(
+        Some("setElement"),
+        "Set",
+        &["Int"],
+        attrs(&[("function", json!("")), ("hook", json!("SET.element"))]),
+    );
+    let list_update = production(
+        Some("listUpdate"),
+        "List",
+        &["List", "Int", "Int"],
+        attrs(&[("function", json!("")), ("hook", json!("LIST.update"))]),
+    );
+    let map_rule = rule_with_body(rewrite(
+        Term::apply(
+            "mapElement",
+            vec![
+                Term::apply("f", vec![token("0")]),
+                Term::apply("f", vec![token("1")]),
+            ],
+        ),
+        token("2"),
+    ));
+    let set_rule = rule_with_body(rewrite(
+        Term::apply("setElement", vec![Term::apply("f", vec![token("0")])]),
+        token("1"),
+    ));
+    let list_rule = rule_with_body(rewrite(
+        Term::apply(
+            "listUpdate",
+            vec![
+                Term::apply("f", vec![token("0")]),
+                Term::apply("f", vec![token("1")]),
+                Term::apply("f", vec![token("2")]),
+            ],
+        ),
+        token("3"),
+    ));
+    let diagnostics = function_diagnostics(
+        &[&map_rule, &set_rule, &list_rule],
+        &[&function, &map_element, &set_element, &list_update],
+    );
+
+    assert_eq!(diagnostics.len(), 3);
+    assert!(
+        diagnostics
+            .iter()
+            .all(|diagnostic| { diagnostic.code == DiagnosticCode::IllegalFunctionOnLhs })
+    );
+}
+
+#[test]
+fn with_config_preserves_java_top_level_state() {
+    let function = production(
+        Some("f"),
+        "Int",
+        &["Int"],
+        attrs(&[("function", json!(""))]),
+    );
+    let sentence = rule_with_body(Term::apply(
+        "#withConfig",
+        vec![
+            Term::apply("f", vec![token("0")]),
+            Term::apply("f", vec![token("1")]),
+        ],
+    ));
+    let diagnostics = function_diagnostics(&[&sentence], &[&function]);
+
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, DiagnosticCode::IllegalFunctionOnLhs);
+}
+
+#[test]
+fn module_runner_uses_visible_function_metadata() {
+    let base = FlatModule {
+        name: "BASE".into(),
+        imports: Vec::new(),
+        local_sentences: vec![
+            production(
+                Some("f"),
+                "Int",
+                &["Int"],
+                attrs(&[("function", json!(""))]),
+            ),
+            production(Some("wrap"), "Int", &["Int"], Attributes::default()),
+        ],
+        attributes: Attributes::default(),
+    };
+    let main = FlatModule {
+        name: "MAIN".into(),
+        imports: vec![FlatImport {
+            name: "BASE".into(),
+            public: true,
+        }],
+        local_sentences: vec![rule_with_body(rewrite(
+            Term::apply("wrap", vec![Term::apply("f", vec![token("0")])]),
+            token("1"),
+        ))],
+        attributes: Attributes::default(),
+    };
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&Definition {
+        main_module: "MAIN".into(),
+        modules: vec![main, base],
+        attributes: Attributes::default(),
+    })
+    .unwrap();
+    let diagnostics = check_module(&resolved, resolved.main_module_id()).unwrap();
+
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, DiagnosticCode::IllegalFunctionOnLhs);
+}
+
+fn function_diagnostics(
+    sentences: &[&Sentence],
+    productions: &[&Sentence],
+) -> Vec<k_rust::diagnostic::Diagnostic> {
+    let production_catalog = ProductionCatalog::from_visible(productions.iter().copied());
+    let sort_catalog = SortCatalog::from_visible(productions.iter().copied());
+    check_functions(sentences, &production_catalog, &sort_catalog)
 }
 
 fn rule_with_body(body: Term) -> Sentence {

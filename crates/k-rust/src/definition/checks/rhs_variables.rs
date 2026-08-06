@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 
 use super::Sentence;
+use super::term_position::{TermPosition, positioned_children};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{Label, Sort, Term};
 
@@ -73,31 +74,6 @@ impl VariableKey {
             sort: sort.cloned(),
         }
     }
-}
-
-#[derive(Clone, Copy)]
-struct TermPosition {
-    lhs: bool,
-    rhs: bool,
-}
-
-impl TermPosition {
-    const BODY: Self = Self {
-        lhs: true,
-        rhs: true,
-    };
-    const CONDITION: Self = Self {
-        lhs: false,
-        rhs: true,
-    };
-    const LHS: Self = Self {
-        lhs: true,
-        rhs: false,
-    };
-    const RHS: Self = Self {
-        lhs: false,
-        rhs: true,
-    };
 }
 
 fn check_rule_variables(
@@ -424,45 +400,4 @@ fn unbound_variable_names(sentence: &Sentence) -> BTreeSet<String> {
 
 fn is_anonymous(name: &str) -> bool {
     matches!(name, "_" | "?_" | "!_" | "@_")
-}
-
-fn positioned_children(term: &Term, position: TermPosition) -> Vec<(&Term, TermPosition)> {
-    match term {
-        Term::Rewrite { left, right } => vec![
-            (
-                left,
-                TermPosition {
-                    lhs: position.lhs,
-                    rhs: false,
-                },
-            ),
-            (right, TermPosition::RHS),
-        ],
-        Term::As { pattern, alias } => vec![(pattern, position), (alias, position)],
-        Term::Sequence(items) => items.iter().map(|item| (item, position)).collect(),
-        Term::Apply { label, arguments } if label.name == "#fun2" && arguments.len() >= 2 => {
-            let mut children = vec![
-                (&arguments[0], TermPosition::BODY),
-                (&arguments[1], position),
-            ];
-            children.extend(arguments[2..].iter().map(|argument| (argument, position)));
-            children
-        }
-        Term::Apply { label, arguments }
-            if matches!(label.name.as_str(), "#fun3" | "#let") && arguments.len() >= 3 =>
-        {
-            let mut children = vec![
-                (&arguments[0], TermPosition::LHS),
-                (&arguments[1], TermPosition::RHS),
-                (&arguments[2], position),
-            ];
-            children.extend(arguments[3..].iter().map(|argument| (argument, position)));
-            children
-        }
-        Term::Apply { arguments, .. } => arguments
-            .iter()
-            .map(|argument| (argument, position))
-            .collect(),
-        Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => Vec::new(),
-    }
 }
