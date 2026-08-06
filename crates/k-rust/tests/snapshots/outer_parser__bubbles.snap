@@ -1,0 +1,201 @@
+---
+source: crates/k-rust/tests/outer_parser.rs
+expression: parsed
+---
+SourceFile {
+    source: "bubbles.k",
+    requires: [],
+    modules: [
+        Module {
+            name: "RULES",
+            attributes: [],
+            imports: [],
+            sentences: [
+                Bubble(
+                    Bubble {
+                        kind: Rule,
+                        content: "X + 0 => X",
+                        label: Some(
+                            "identity",
+                        ),
+                        attributes: [
+                            Attribute {
+                                key: "simplification",
+                                value: None,
+                            },
+                        ],
+                        content_span: Span {
+                            start: Position {
+                                offset: 32,
+                                line: 2,
+                                column: 20,
+                            },
+                            end: Position {
+                                offset: 43,
+                                line: 2,
+                                column: 31,
+                            },
+                        },
+                        span: Span {
+                            start: Position {
+                                offset: 15,
+                                line: 2,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 59,
+                                line: 2,
+                                column: 47,
+                            },
+                        },
+                    },
+                ),
+                Bubble(
+                    Bubble {
+                        kind: Claim,
+                        content: "<k> P => Q </k> requires true",
+                        label: None,
+                        attributes: [
+                            Attribute {
+                                key: "trusted",
+                                value: None,
+                            },
+                        ],
+                        content_span: Span {
+                            start: Position {
+                                offset: 68,
+                                line: 3,
+                                column: 9,
+                            },
+                            end: Position {
+                                offset: 98,
+                                line: 3,
+                                column: 39,
+                            },
+                        },
+                        span: Span {
+                            start: Position {
+                                offset: 62,
+                                line: 3,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 107,
+                                line: 3,
+                                column: 48,
+                            },
+                        },
+                    },
+                ),
+                Bubble(
+                    Bubble {
+                        kind: Context,
+                        content: "HOLE + X",
+                        label: None,
+                        attributes: [],
+                        content_span: Span {
+                            start: Position {
+                                offset: 118,
+                                line: 4,
+                                column: 11,
+                            },
+                            end: Position {
+                                offset: 126,
+                                line: 4,
+                                column: 19,
+                            },
+                        },
+                        span: Span {
+                            start: Position {
+                                offset: 110,
+                                line: 4,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 126,
+                                line: 4,
+                                column: 19,
+                            },
+                        },
+                    },
+                ),
+                Bubble(
+                    Bubble {
+                        kind: ContextAlias,
+                        content: "HERE [X] = HOLE",
+                        label: None,
+                        attributes: [],
+                        content_span: Span {
+                            start: Position {
+                                offset: 143,
+                                line: 5,
+                                column: 17,
+                            },
+                            end: Position {
+                                offset: 158,
+                                line: 5,
+                                column: 32,
+                            },
+                        },
+                        span: Span {
+                            start: Position {
+                                offset: 129,
+                                line: 5,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 158,
+                                line: 5,
+                                column: 32,
+                            },
+                        },
+                    },
+                ),
+                Bubble(
+                    Bubble {
+                        kind: Configuration,
+                        content: "<k> $PGM:Exp </k>",
+                        label: None,
+                        attributes: [],
+                        content_span: Span {
+                            start: Position {
+                                offset: 175,
+                                line: 6,
+                                column: 17,
+                            },
+                            end: Position {
+                                offset: 192,
+                                line: 6,
+                                column: 34,
+                            },
+                        },
+                        span: Span {
+                            start: Position {
+                                offset: 161,
+                                line: 6,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 192,
+                                line: 6,
+                                column: 34,
+                            },
+                        },
+                    },
+                ),
+            ],
+            span: Span {
+                start: Position {
+                    offset: 0,
+                    line: 1,
+                    column: 1,
+                },
+                end: Position {
+                    offset: 202,
+                    line: 7,
+                    column: 10,
+                },
+            },
+        },
+    ],
+}

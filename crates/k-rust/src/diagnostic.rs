@@ -22,6 +22,7 @@ pub enum DiagnosticCode {
     InvalidExistentialVariable,
     InvalidFunctionPattern,
     InvalidHole,
+    InvalidListDeclaration,
     InvalidRegex,
     InvalidRewrite,
     InvalidSmtLemma,
@@ -71,6 +72,21 @@ impl Diagnostic {
         attributes: &Attributes,
     ) -> Self {
         Self::at(Severity::Warning, code, message, attributes)
+    }
+
+    pub fn error_at_location(
+        code: DiagnosticCode,
+        message: impl Into<String>,
+        source: impl Into<String>,
+        location: Location,
+    ) -> Self {
+        Self {
+            severity: Severity::Error,
+            code,
+            message: message.into(),
+            source: Some(source.into()),
+            location: Some(location),
+        }
     }
 
     fn new(

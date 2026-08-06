@@ -1,0 +1,123 @@
+---
+source: crates/k-rust/tests/outer_parser.rs
+expression: parsed
+---
+SourceFile {
+    source: "trivia.k",
+    requires: [],
+    modules: [
+        Module {
+            name: "TRIVIA",
+            attributes: [],
+            imports: [],
+            sentences: [
+                Syntax(
+                    SyntaxDeclaration {
+                        parameters: [],
+                        sort: Sort {
+                            name: "Text",
+                            parameters: [],
+                        },
+                        body: Productions(
+                            [
+                                PriorityBlock {
+                                    associativity: Unspecified,
+                                    productions: [
+                                        Production {
+                                            items: [
+                                                Terminal(
+                                                    "line\n\"quoted\"",
+                                                ),
+                                            ],
+                                            attributes: [],
+                                            span: Span {
+                                                start: Position {
+                                                    offset: 69,
+                                                    line: 3,
+                                                    column: 19,
+                                                },
+                                                end: Position {
+                                                    offset: 87,
+                                                    line: 3,
+                                                    column: 37,
+                                                },
+                                            },
+                                        },
+                                    ],
+                                    span: Span {
+                                        start: Position {
+                                            offset: 69,
+                                            line: 3,
+                                            column: 19,
+                                        },
+                                        end: Position {
+                                            offset: 110,
+                                            line: 4,
+                                            column: 3,
+                                        },
+                                    },
+                                },
+                            ],
+                        ),
+                        span: Span {
+                            start: Position {
+                                offset: 53,
+                                line: 3,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 110,
+                                line: 4,
+                                column: 3,
+                            },
+                        },
+                    },
+                ),
+                Bubble(
+                    Bubble {
+                        kind: Rule,
+                        content: "X /* inside the bubble */ => X",
+                        label: None,
+                        attributes: [],
+                        content_span: Span {
+                            start: Position {
+                                offset: 115,
+                                line: 4,
+                                column: 8,
+                            },
+                            end: Position {
+                                offset: 145,
+                                line: 4,
+                                column: 38,
+                            },
+                        },
+                        span: Span {
+                            start: Position {
+                                offset: 110,
+                                line: 4,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 145,
+                                line: 4,
+                                column: 38,
+                            },
+                        },
+                    },
+                ),
+            ],
+            span: Span {
+                start: Position {
+                    offset: 16,
+                    line: 2,
+                    column: 1,
+                },
+                end: Position {
+                    offset: 155,
+                    line: 5,
+                    column: 10,
+                },
+            },
+        },
+    ],
+}

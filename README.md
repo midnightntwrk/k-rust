@@ -42,6 +42,9 @@ The definition layer also has a structured, Unicode-safe K-regex AST, recursive-
 anchor-preserving printer, and an explicitly Java-compatible printer retaining the pinned
 frontend's asymmetric-anchor bug. `CheckRegex` validation covers lexical references and cycles,
 named-syntax anchors, character and repetition ranges, and the frontend's Unicode restrictions.
+The first unlowered outer-syntax layer now preserves source spans, modules, imports, syntax
+declarations, user lists, priorities, associativity, lexical declarations, and rule-like bubbles;
+the Java-compatible `CheckListDecl` runs against this source-shaped AST before flattening.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -59,8 +62,8 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
   checker does not guess from sentence-level metadata.
 - Port `CheckDeprecated` after terms retain their resolved-production attributes; sentence-level
   production catalogs cannot identify which overloaded production a parsed application used.
-- Port the pre-flattening `CheckListDecl` with the outer-syntax AST, because compiled productions
-  no longer preserve inline-list syntax.
+- Complete differential coverage of the JavaCC outer grammar, including its lexical edge cases,
+  before treating the new source parser as a drop-in replacement.
 - Add presentation adapters for diagnostics after the portable diagnostic model stabilizes. A
   renderer such as `miette` may be useful for a future native CLI, but it does not belong in the
   WASM-compatible core yet.

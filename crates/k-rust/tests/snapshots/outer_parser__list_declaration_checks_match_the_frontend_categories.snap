@@ -1,0 +1,54 @@
+---
+source: crates/k-rust/tests/outer_parser.rs
+expression: check_list_declarations(&parsed)
+---
+[
+    Diagnostic {
+        severity: Error,
+        code: InvalidListDeclaration,
+        message: "K can not be extended to be a list sort.",
+        source: Some(
+            "lists.k",
+        ),
+        location: Some(
+            Location {
+                start_line: 2,
+                start_column: 16,
+                end_line: 2,
+                end_column: 30,
+            },
+        ),
+    },
+    Diagnostic {
+        severity: Error,
+        code: InvalidListDeclaration,
+        message: "Circular lists are not allowed.",
+        source: Some(
+            "lists.k",
+        ),
+        location: Some(
+            Location {
+                start_line: 3,
+                start_column: 19,
+                end_line: 3,
+                end_column: 34,
+            },
+        ),
+    },
+    Diagnostic {
+        severity: Error,
+        code: InvalidListDeclaration,
+        message: "Inline list declarations are not allowed.",
+        source: Some(
+            "lists.k",
+        ),
+        location: Some(
+            Location {
+                start_line: 4,
+                start_column: 19,
+                end_line: 4,
+                end_column: 41,
+            },
+        ),
+    },
+]

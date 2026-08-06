@@ -1,0 +1,107 @@
+---
+source: crates/k-rust/tests/outer_parser.rs
+expression: parsed
+---
+SourceFile {
+    source: "modules_and_imports.k",
+    requires: [
+        Require {
+            path: "domains.md",
+            span: Span {
+                start: Position {
+                    offset: 0,
+                    line: 1,
+                    column: 1,
+                },
+                end: Position {
+                    offset: 21,
+                    line: 1,
+                    column: 22,
+                },
+            },
+        },
+    ],
+    modules: [
+        Module {
+            name: "COLLECTIONS",
+            attributes: [
+                Attribute {
+                    key: "main",
+                    value: None,
+                },
+            ],
+            imports: [
+                Import {
+                    module: "BOOL",
+                    public: true,
+                    span: Span {
+                        start: Position {
+                            offset: 51,
+                            line: 4,
+                            column: 3,
+                        },
+                        end: Position {
+                            offset: 70,
+                            line: 4,
+                            column: 22,
+                        },
+                    },
+                },
+                Import {
+                    module: "MAP",
+                    public: false,
+                    span: Span {
+                        start: Position {
+                            offset: 73,
+                            line: 5,
+                            column: 3,
+                        },
+                        end: Position {
+                            offset: 92,
+                            line: 5,
+                            column: 22,
+                        },
+                    },
+                },
+            ],
+            sentences: [
+                Syntax(
+                    SyntaxDeclaration {
+                        parameters: [],
+                        sort: Sort {
+                            name: "Exp",
+                            parameters: [],
+                        },
+                        body: Sort(
+                            [],
+                        ),
+                        span: Span {
+                            start: Position {
+                                offset: 95,
+                                line: 6,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 106,
+                                line: 7,
+                                column: 1,
+                            },
+                        },
+                    },
+                ),
+            ],
+            span: Span {
+                start: Position {
+                    offset: 23,
+                    line: 3,
+                    column: 1,
+                },
+                end: Position {
+                    offset: 115,
+                    line: 7,
+                    column: 10,
+                },
+            },
+        },
+    ],
+}
