@@ -145,7 +145,7 @@ fn indexes_label_and_sort_heads_without_losing_parameters() {
         [ProductionId(0), ProductionId(2)]
     );
     assert_eq!(
-        catalog.productions_for_sort(&SortHead::new("Box")),
+        catalog.productions_for_sort(&SortHead::new("Box", 1)),
         [ProductionId(0), ProductionId(2)]
     );
     assert_eq!(catalog.defined_labels().count(), 3);
@@ -155,6 +155,34 @@ fn indexes_label_and_sort_heads_without_losing_parameters() {
     );
     assert_eq!(
         catalog.token_productions_for(&Sort::new("Int")),
+        [ProductionId(1)]
+    );
+}
+
+#[test]
+fn sort_index_keeps_equal_names_with_different_arities_separate() {
+    let nullary = production(
+        Some(Label::new("emptyBox")),
+        Vec::new(),
+        Sort::new("Box"),
+        Vec::new(),
+        Attributes::default(),
+    );
+    let unary = production(
+        Some(Label::new("boxed")),
+        Vec::new(),
+        Sort::with_parameters("Box", vec![Sort::new("Int")]),
+        Vec::new(),
+        Attributes::default(),
+    );
+    let catalog = k_rust::definition::ProductionCatalog::from_visible([&nullary, &unary]);
+
+    assert_eq!(
+        catalog.productions_for_sort(&SortHead::nullary("Box")),
+        [ProductionId(0)]
+    );
+    assert_eq!(
+        catalog.productions_for_sort(&SortHead::new("Box", 1)),
         [ProductionId(1)]
     );
 }

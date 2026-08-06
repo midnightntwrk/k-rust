@@ -46,27 +46,52 @@ impl std::fmt::Display for LabelHead {
 }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct SortHead(String);
+pub struct SortHead {
+    name: String,
+    parameters: usize,
+}
 
 impl SortHead {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
+    pub fn new(name: impl Into<String>, parameters: usize) -> Self {
+        Self {
+            name: name.into(),
+            parameters,
+        }
+    }
+
+    pub fn nullary(name: impl Into<String>) -> Self {
+        Self::new(name, 0)
     }
 
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.name
+    }
+
+    pub fn parameters(&self) -> usize {
+        self.parameters
     }
 }
 
 impl From<&Sort> for SortHead {
     fn from(sort: &Sort) -> Self {
-        Self(sort.name.clone())
+        Self::new(sort.name.clone(), sort.parameters.len())
     }
 }
 
 impl std::fmt::Display for SortHead {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(formatter)
+        formatter.write_str(&self.name)?;
+        if self.parameters != 0 {
+            formatter.write_str("{")?;
+            for parameter in 0..self.parameters {
+                if parameter != 0 {
+                    formatter.write_str(",")?;
+                }
+                write!(formatter, "S{parameter}")?;
+            }
+            formatter.write_str("}")?;
+        }
+        Ok(())
     }
 }
 

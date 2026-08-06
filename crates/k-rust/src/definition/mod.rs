@@ -7,6 +7,7 @@ pub mod ordering;
 pub mod partial_order;
 pub mod relations;
 pub mod resolve;
+pub mod sort_catalog;
 
 pub use ast::{
     Associativity, Attributes, Definition, FlatImport, FlatModule, Location, ProductionItem,
@@ -23,3 +24,4 @@ pub use relations::{
     compute_overloads, compute_priorities, compute_subsorts,
 };
 pub use resolve::{Error as ResolveError, ImportRef, ModuleId, ResolvedDefinition, ResolvedModule};
+pub use sort_catalog::SortCatalog;

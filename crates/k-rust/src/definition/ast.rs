@@ -51,6 +51,30 @@ impl Attributes {
         self.entries.is_empty()
     }
 
+    /// Merge attributes using Scala `Att.mergeAttributes` semantics.
+    ///
+    /// Equal key/value entries survive deduplication. If one key has multiple
+    /// distinct values, every value for that key is omitted from the result.
+    pub fn merge<'a>(attributes: impl IntoIterator<Item = &'a Self>) -> Self {
+        let mut values = BTreeMap::<String, Vec<Value>>::new();
+        for attributes in attributes {
+            for (key, value) in attributes.entries() {
+                let candidates = values.entry(key.clone()).or_default();
+                if !candidates.contains(value) {
+                    candidates.push(value.clone());
+                }
+            }
+        }
+        Self::new(
+            values
+                .into_iter()
+                .filter_map(|(key, mut values)| {
+                    (values.len() == 1).then(|| (key, values.pop().expect("length was one")))
+                })
+                .collect(),
+        )
+    }
+
     pub fn source(&self) -> Option<&str> {
         self.get_str(SOURCE_ATTRIBUTE)
     }
