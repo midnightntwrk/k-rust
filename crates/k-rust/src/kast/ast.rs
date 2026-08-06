@@ -100,6 +100,30 @@ impl Term {
         }
         Self::Sequence(flattened)
     }
+
+    /// Visit this term and its descendants in deterministic pre-order.
+    pub fn visit_preorder(&self, visitor: &mut impl FnMut(&Self)) {
+        visitor(self);
+        match self {
+            Self::Rewrite { left, right } => {
+                left.visit_preorder(visitor);
+                right.visit_preorder(visitor);
+            }
+            Self::As { pattern, alias } => {
+                pattern.visit_preorder(visitor);
+                alias.visit_preorder(visitor);
+            }
+            Self::Sequence(items)
+            | Self::Apply {
+                arguments: items, ..
+            } => {
+                for item in items {
+                    item.visit_preorder(visitor);
+                }
+            }
+            Self::InjectedLabel(_) | Self::Variable { .. } | Self::Token { .. } => {}
+        }
+    }
 }
 
 impl Display for Sort {

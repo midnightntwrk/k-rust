@@ -21,11 +21,29 @@ Production label metadata and stable rule/claim/context catalogs cover merged la
 result sorts, fresh generators, macros, locality, ordering, and Scala's `#withConfig` grouping.
 A renderer-independent diagnostic model and the first Java-compatible structural checks cover
 duplicate labels, syntax groups, associativity, multiple top sorts, and token productions.
+Reusable KAST traversal now supports Java-compatible `CheckK`, `CheckRewrite`, and
+`CheckAnonymous` validation for `#as`, rewrite placement, function contexts, existential
+variables, and anonymous-variable usage.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
 third parties would realistically want to extract (KORE parsing, KAST parsing, …)?
 Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
+
+## TODOs
+
+- Preserve source and location attributes on nested KAST terms. Diagnostics emitted for nested
+  terms currently use the containing sentence's source span; exact term-level spans are deferred
+  until the lossless representation and parser can carry them end to end.
+- Add presentation adapters for diagnostics after the portable diagnostic model stabilizes. A
+  renderer such as `miette` may be useful for a future native CLI, but it does not belong in the
+  WASM-compatible core yet.
+- Port the remaining Java structural checks, followed by specialized parser/layout views and the
+  compilation passes.
+- Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.
+- Revisit package splitting only if compile times, dependency boundaries, or release needs justify
+  moving beyond the current single-crate workspace.
+- Measure and port both sort-inference paths, including the Z3 fallback described in §6.9.
 
 **Provenance.** All figures below were measured directly against these trees, not recalled:
 
@@ -251,8 +269,9 @@ import-graph resolution, and Scala-compatible sentence ordering are implemented.
 specialized parser/layout views and the remaining frontend validation checks. Production, sort,
 and rule catalogs plus subsort, overload, and syntax-priority partial orders are implemented,
 including Scala's distinct explicit-group and legacy same-label overload mechanisms and exact
-associativity tag pairs. The first structural checks and their renderer-independent diagnostics
-are also implemented. This remains a reviewed design boundary because every downstream pass
+associativity tag pairs. The dependency-light structural checks now include label, syntax-group,
+associativity, sort-top, token, K term, rewrite, and anonymous-variable validation backed by
+reusable KAST traversal. This remains a reviewed design boundary because every downstream pass
 inherits its bugs — especially its iteration order.
 
 ### Phase 3 — massively parallel fan-out (~14k LOC, the bulk)
