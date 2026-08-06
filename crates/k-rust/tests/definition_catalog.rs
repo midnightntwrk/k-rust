@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 
 use k_rust::definition::{
-    Attributes, Definition, FlatImport, FlatModule, LabelHead, ProductionId, ProductionItem,
-    ProductionSignature, ResolvedDefinition, Sentence, SortHead, sentence_equivalent,
+    Attributes, Definition, FlatImport, FlatModule, FreshGeneratorError, LabelHead, ProductionId,
+    ProductionItem, ProductionSignature, ResolvedDefinition, Sentence, SortHead,
+    sentence_equivalent,
 };
 use k_rust::kast::{Label, Sort};
 use serde_json::Value;
@@ -278,4 +279,122 @@ fn overloads_and_catalog_share_production_ids() {
             overloads.production(id)
         ));
     }
+}
+
+#[test]
+fn merges_label_attributes_and_selects_result_sort_deterministically() {
+    let attributes = |conflict: &str| {
+        Attributes::new(BTreeMap::from([
+            ("agreed".into(), Value::String("same".into())),
+            ("conflict".into(), Value::String(conflict.into())),
+        ]))
+    };
+    let first = production(
+        Some(Label::new("f")),
+        Vec::new(),
+        Sort::new("First"),
+        Vec::new(),
+        attributes("left"),
+    );
+    let second = production(
+        Some(Label::new("f")),
+        Vec::new(),
+        Sort::new("Second"),
+        Vec::new(),
+        attributes("right"),
+    );
+    let catalog = k_rust::definition::ProductionCatalog::from_visible([&first, &second]);
+    let merged = catalog.attributes_for(&LabelHead::new("f")).unwrap();
+
+    assert_eq!(merged.get_str("agreed"), Some("same"));
+    assert_eq!(merged.get("conflict"), None);
+    assert_eq!(
+        catalog.result_sort_for(&LabelHead::new("f")),
+        Some(&Sort::new("First"))
+    );
+}
+
+#[test]
+fn derives_macro_and_fresh_generator_labels() {
+    let macro_production = production(
+        Some(Label::new("macroLabel")),
+        Vec::new(),
+        Sort::new("K"),
+        Vec::new(),
+        attrs(&["macro"]),
+    );
+    let unlabeled_macro = production(
+        None,
+        Vec::new(),
+        Sort::new("K"),
+        Vec::new(),
+        attrs(&["alias-rec"]),
+    );
+    let fresh = production(
+        Some(Label::new("freshInt")),
+        Vec::new(),
+        Sort::new("Int"),
+        Vec::new(),
+        attrs(&["freshGenerator"]),
+    );
+    let catalog = k_rust::definition::ProductionCatalog::from_visible([
+        &macro_production,
+        &unlabeled_macro,
+        &fresh,
+    ]);
+
+    assert_eq!(
+        catalog.macro_labels(),
+        &[Label::new(""), Label::new("macroLabel")]
+            .into_iter()
+            .collect()
+    );
+    assert_eq!(
+        catalog.fresh_generators().unwrap(),
+        BTreeMap::from([(Sort::new("Int"), Label::new("freshInt"))])
+    );
+}
+
+#[test]
+fn fresh_generators_reject_missing_and_multiple_labels() {
+    let unlabeled = production(
+        None,
+        Vec::new(),
+        Sort::new("Int"),
+        Vec::new(),
+        attrs(&["freshGenerator"]),
+    );
+    let catalog = k_rust::definition::ProductionCatalog::from_visible([&unlabeled]);
+    assert_eq!(
+        catalog.fresh_generators().unwrap_err(),
+        FreshGeneratorError::MissingLabel {
+            production: ProductionId(0),
+            sort: Sort::new("Int"),
+        }
+    );
+
+    let first = production(
+        Some(Label::new("freshOne")),
+        Vec::new(),
+        Sort::new("Int"),
+        Vec::new(),
+        attrs(&["freshGenerator"]),
+    );
+    let second = production(
+        Some(Label::new("freshTwo")),
+        Vec::new(),
+        Sort::new("Int"),
+        Vec::new(),
+        attrs(&["freshGenerator"]),
+    );
+    let catalog = k_rust::definition::ProductionCatalog::from_visible([&first, &second]);
+    assert_eq!(
+        catalog.fresh_generators().unwrap_err(),
+        FreshGeneratorError::MultipleGenerators {
+            sort: Sort::new("Int"),
+            labels: [Label::new("freshOne"), Label::new("freshTwo")]
+                .into_iter()
+                .collect(),
+        }
+    );
 }

@@ -7,13 +7,16 @@ pub mod ordering;
 pub mod partial_order;
 pub mod relations;
 pub mod resolve;
+pub mod rule_catalog;
 pub mod sort_catalog;
 
 pub use ast::{
     Associativity, Attributes, Definition, FlatImport, FlatModule, Location, ProductionItem,
     Sentence,
 };
-pub use catalog::{LabelHead, ProductionCatalog, ProductionId, ProductionSignature, SortHead};
+pub use catalog::{
+    FreshGeneratorError, LabelHead, ProductionCatalog, ProductionId, ProductionSignature, SortHead,
+};
 pub use ordering::{
     Error as OrderingError, compare_attributes, compare_sentences, compare_terms,
     sentence_equivalent, sort_sentences,
@@ -24,4 +27,5 @@ pub use relations::{
     compute_overloads, compute_priorities, compute_subsorts,
 };
 pub use resolve::{Error as ResolveError, ImportRef, ModuleId, ResolvedDefinition, ResolvedModule};
+pub use rule_catalog::{ClaimId, ContextId, RuleCatalog, RuleId, match_rule_label};
 pub use sort_catalog::SortCatalog;

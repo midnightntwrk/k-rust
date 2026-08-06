@@ -2,12 +2,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::ast::{ProductionItem, Sentence};
+use super::ast::{Attributes, ProductionItem, Sentence};
 use super::ordering::{compare_sentences, sentence_equivalent};
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::kast::{Label, Sort};
 
 const FUNCTION_ATTRIBUTE: &str = "function";
+const FRESH_GENERATOR_ATTRIBUTE: &str = "freshGenerator";
+const MACRO_ATTRIBUTES: [&str; 4] = ["macro", "macro-rec", "alias", "alias-rec"];
 const TOKEN_ATTRIBUTE: &str = "token";
 
 /// A production identity scoped to one [`ProductionCatalog`].
@@ -101,6 +103,42 @@ pub struct ProductionSignature {
     pub result: Sort,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FreshGeneratorError {
+    MissingLabel {
+        production: ProductionId,
+        sort: Sort,
+    },
+    MultipleGenerators {
+        sort: Sort,
+        labels: BTreeSet<Label>,
+    },
+}
+
+impl std::fmt::Display for FreshGeneratorError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingLabel { production, sort } => {
+                write!(
+                    formatter,
+                    "{production} is an unlabeled fresh generator for sort {sort}"
+                )
+            }
+            Self::MultipleGenerators { sort, labels } => write!(
+                formatter,
+                "found more than one fresh generator for sort {sort}: {}",
+                labels
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        }
+    }
+}
+
+impl std::error::Error for FreshGeneratorError {}
+
 /// All production views derived from one module's visible sentence set.
 ///
 /// IDs follow deterministic dependency-first sentence order. Scala-same
@@ -115,6 +153,9 @@ pub struct ProductionCatalog<'a> {
     token_by_sort: BTreeMap<Sort, Vec<ProductionId>>,
     function_labels: BTreeSet<LabelHead>,
     signatures: BTreeMap<LabelHead, BTreeSet<ProductionSignature>>,
+    attributes_by_label: BTreeMap<LabelHead, Attributes>,
+    result_sort_by_label: BTreeMap<LabelHead, Sort>,
+    macro_labels: BTreeSet<Label>,
 }
 
 impl<'a> ProductionCatalog<'a> {
@@ -164,6 +205,9 @@ impl<'a> ProductionCatalog<'a> {
             token_by_sort: BTreeMap::new(),
             function_labels: BTreeSet::new(),
             signatures: BTreeMap::new(),
+            attributes_by_label: BTreeMap::new(),
+            result_sort_by_label: BTreeMap::new(),
+            macro_labels: BTreeSet::new(),
         };
         catalog.build_indexes();
         catalog
@@ -270,6 +314,64 @@ impl<'a> ProductionCatalog<'a> {
         self.signatures.get(label)
     }
 
+    pub fn attributes_by_label(&self) -> &BTreeMap<LabelHead, Attributes> {
+        &self.attributes_by_label
+    }
+
+    pub fn attributes_for(&self, label: &LabelHead) -> Option<&Attributes> {
+        self.attributes_by_label.get(label)
+    }
+
+    /// Scala's `sortFor`, made deterministic by selecting the first stable ID.
+    pub fn result_sort_by_label(&self) -> &BTreeMap<LabelHead, Sort> {
+        &self.result_sort_by_label
+    }
+
+    pub fn result_sort_for(&self, label: &LabelHead) -> Option<&Sort> {
+        self.result_sort_by_label.get(label)
+    }
+
+    pub fn macro_labels(&self) -> &BTreeSet<Label> {
+        &self.macro_labels
+    }
+
+    pub fn fresh_generators(&self) -> Result<BTreeMap<Sort, Label>, FreshGeneratorError> {
+        let mut grouped = BTreeMap::<Sort, BTreeSet<Label>>::new();
+        for (id, production) in self.productions() {
+            let Sentence::Production {
+                label,
+                sort,
+                attributes,
+                ..
+            } = production
+            else {
+                unreachable!()
+            };
+            if attributes.get(FRESH_GENERATOR_ATTRIBUTE).is_none() {
+                continue;
+            }
+            let Some(label) = label else {
+                return Err(FreshGeneratorError::MissingLabel {
+                    production: id,
+                    sort: sort.clone(),
+                });
+            };
+            grouped
+                .entry(sort.clone())
+                .or_default()
+                .insert(label.clone());
+        }
+        grouped
+            .into_iter()
+            .map(|(sort, labels)| {
+                if labels.len() != 1 {
+                    return Err(FreshGeneratorError::MultipleGenerators { sort, labels });
+                }
+                Ok((sort, labels.into_iter().next().expect("length was one")))
+            })
+            .collect()
+    }
+
     fn build_indexes(&mut self) {
         for id in self.ids().collect::<Vec<_>>() {
             let Sentence::Production {
@@ -288,6 +390,10 @@ impl<'a> ProductionCatalog<'a> {
                 .push(id);
             if attributes.get(TOKEN_ATTRIBUTE).is_some() {
                 self.token_by_sort.entry(sort.clone()).or_default().push(id);
+            }
+            if is_macro(attributes) {
+                self.macro_labels
+                    .insert(label.clone().unwrap_or_else(|| Label::new("")));
             }
             let Some(label) = label else {
                 continue;
@@ -314,6 +420,17 @@ impl<'a> ProductionCatalog<'a> {
                     });
             }
         }
+
+        for (head, ids) in &self.by_label {
+            self.attributes_by_label.insert(
+                head.clone(),
+                Attributes::merge(ids.iter().map(|id| self.production(*id).attributes())),
+            );
+            let Sentence::Production { sort, .. } = self.production(ids[0]) else {
+                unreachable!()
+            };
+            self.result_sort_by_label.insert(head.clone(), sort.clone());
+        }
     }
 }
 
@@ -331,4 +448,10 @@ fn production_label(sentence: &Sentence) -> Option<&Label> {
         return None;
     };
     label.as_ref()
+}
+
+pub(crate) fn is_macro(attributes: &Attributes) -> bool {
+    MACRO_ATTRIBUTES
+        .iter()
+        .any(|attribute| attributes.get(attribute).is_some())
 }
