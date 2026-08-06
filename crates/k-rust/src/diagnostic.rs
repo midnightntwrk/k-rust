@@ -22,6 +22,7 @@ pub enum DiagnosticCode {
     InvalidExistentialVariable,
     InvalidFunctionPattern,
     InvalidHole,
+    InvalidRegex,
     InvalidRewrite,
     InvalidSmtLemma,
     InvalidStreamCell,

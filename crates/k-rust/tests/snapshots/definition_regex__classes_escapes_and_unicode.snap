@@ -1,0 +1,22 @@
+---
+source: crates/k-rust/tests/definition_regex.rs
+expression: "regex :: parse(\"[^\\\\n\\\\-🙂]\").unwrap()"
+---
+Regex {
+    start_line: false,
+    body: CharClass {
+        negated: true,
+        members: [
+            Char(
+                '\n',
+            ),
+            Char(
+                '-',
+            ),
+            Char(
+                '🙂',
+            ),
+        ],
+    },
+    end_line: false,
+}

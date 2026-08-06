@@ -1,0 +1,9 @@
+---
+source: crates/k-rust/tests/definition_regex.rs
+expression: "regex :: parse(\"{lowercase}\").unwrap_err()"
+---
+ParseError {
+    index: 10,
+    message: "Lexical identifier {lowercase} is invalid. Identifiers should match the regular expression \"#?[A-Z][a-zA-Z0-9]*\".",
+    input: "{lowercase}",
+}

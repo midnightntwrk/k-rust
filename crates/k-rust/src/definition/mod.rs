@@ -6,6 +6,7 @@ pub mod checks;
 pub mod json;
 pub mod ordering;
 pub mod partial_order;
+pub mod regex;
 pub mod relations;
 pub mod resolve;
 pub mod rule_catalog;
@@ -23,15 +24,16 @@ pub use checks::{
     check_associativity, check_attribute_semantics, check_attributes, check_configuration_cells,
     check_definition, check_definition_with_options, check_duplicate_klabels,
     check_duplicate_labels, check_function_rule_attributes, check_functions, check_holes,
-    check_k_terms, check_klabels, check_module, check_module_with_options, check_rewrites,
-    check_rhs_variables, check_smt_lemmas, check_sort_top_uniqueness, check_streams,
-    check_syntax_groups, check_tokens,
+    check_k_terms, check_klabels, check_module, check_module_with_options, check_regexes,
+    check_rewrites, check_rhs_variables, check_smt_lemmas, check_sort_top_uniqueness,
+    check_streams, check_syntax_groups, check_tokens,
 };
 pub use ordering::{
     Error as OrderingError, compare_attributes, compare_sentences, compare_terms,
     sentence_equivalent, sort_sentences,
 };
 pub use partial_order::{Cycle as PartialOrderCycle, PartialOrder};
+pub use regex::{CharClass as RegexCharClass, ParseError as RegexParseError, Regex, RegexBody};
 pub use relations::{
     AssociativityRelations, Error as RelationError, OverloadOrder, compute_associativities,
     compute_overloads, compute_priorities, compute_subsorts,

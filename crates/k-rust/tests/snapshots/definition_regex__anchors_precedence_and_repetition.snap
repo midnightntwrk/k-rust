@@ -1,0 +1,35 @@
+---
+source: crates/k-rust/tests/definition_regex.rs
+expression: "regex :: parse(\"^({Digit}|[a-f])+x{2,4}$\").unwrap()"
+---
+Regex {
+    start_line: true,
+    body: Concat(
+        [
+            OneOrMore(
+                Union {
+                    left: Named(
+                        "Digit",
+                    ),
+                    right: CharClass {
+                        negated: false,
+                        members: [
+                            Range {
+                                start: 'a',
+                                end: 'f',
+                            },
+                        ],
+                    },
+                },
+            ),
+            Range {
+                body: Char(
+                    'x',
+                ),
+                at_least: 2,
+                at_most: 4,
+            },
+        ],
+    ),
+    end_line: true,
+}

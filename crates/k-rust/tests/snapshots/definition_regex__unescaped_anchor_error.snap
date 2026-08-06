@@ -1,0 +1,9 @@
+---
+source: crates/k-rust/tests/definition_regex.rs
+expression: "regex :: parse(\"a$b\").unwrap_err()"
+---
+ParseError {
+    index: 1,
+    message: "Unexpected token '$'. Did you mean '\\$'?",
+    input: "a$b",
+}

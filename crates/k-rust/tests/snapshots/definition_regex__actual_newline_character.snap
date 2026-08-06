@@ -1,0 +1,21 @@
+---
+source: crates/k-rust/tests/definition_regex.rs
+expression: "regex :: parse(indoc!(\"\n        a\n        b\n        \").trim()).unwrap()"
+---
+Regex {
+    start_line: false,
+    body: Concat(
+        [
+            Char(
+                'a',
+            ),
+            Char(
+                '\n',
+            ),
+            Char(
+                'b',
+            ),
+        ],
+    ),
+    end_line: false,
+}

@@ -1,0 +1,9 @@
+---
+source: crates/k-rust/tests/definition_regex.rs
+expression: "regex :: parse(\"\").unwrap_err()"
+---
+ParseError {
+    index: 0,
+    message: "Cannot be empty.",
+    input: "",
+}

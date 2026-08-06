@@ -38,6 +38,10 @@ A canonical attribute registry now validates recognized attributes and their per
 sentence kinds. Java-compatible attribute semantics cover rule-mode conflicts, hooked-sort
 constructors, binders, format/color strings, symbol migration, overload restrictions, bracket
 productions, deprecation warnings, and SMT-lemma symbols.
+The definition layer also has a structured, Unicode-safe K-regex AST, recursive-descent parser,
+anchor-preserving printer, and an explicitly Java-compatible printer retaining the pinned
+frontend's asymmetric-anchor bug. `CheckRegex` validation covers lexical references and cycles,
+named-syntax anchors, character and repetition ranges, and the frontend's Unicode restrictions.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -55,10 +59,8 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
   checker does not guess from sentence-level metadata.
 - Port `CheckDeprecated` after terms retain their resolved-production attributes; sentence-level
   production catalogs cannot identify which overloaded production a parsed application used.
-- Introduce a structured K-regex AST and parser before porting `CheckRegex`; the flat definition
-  model currently preserves regex source strings losslessly but cannot inspect ranges, anchors, or
-  lexical-reference cycles. Port the pre-flattening `CheckListDecl` with the outer-syntax AST,
-  because compiled productions no longer preserve inline-list syntax.
+- Port the pre-flattening `CheckListDecl` with the outer-syntax AST, because compiled productions
+  no longer preserve inline-list syntax.
 - Add presentation adapters for diagnostics after the portable diagnostic model stabilizes. A
   renderer such as `miette` may be useful for a future native CLI, but it does not belong in the
   WASM-compatible core yet.

@@ -13,6 +13,7 @@ mod attributes;
 mod functions;
 mod labels;
 mod production_shapes;
+mod regexes;
 mod rhs_variables;
 mod smt_lemmas;
 mod term_position;
@@ -21,6 +22,7 @@ pub use attributes::{check_attribute_semantics, check_attributes};
 pub use functions::check_functions;
 pub use labels::{check_duplicate_klabels, check_function_rule_attributes, check_klabels};
 pub use production_shapes::{check_configuration_cells, check_holes, check_streams};
+pub use regexes::check_regexes;
 pub use rhs_variables::{StructuralCheckBackend, StructuralCheckOptions, check_rhs_variables};
 pub use smt_lemmas::check_smt_lemmas;
 
@@ -107,6 +109,7 @@ pub fn check_module_with_options(
             &sort_catalog,
         ))
         .chain(check_smt_lemmas(&sentences, &production_catalog))
+        .chain(check_regexes(&sentences, &definition.sentences(module)))
         .collect::<Vec<_>>();
     diagnostics.sort();
     Ok(diagnostics)

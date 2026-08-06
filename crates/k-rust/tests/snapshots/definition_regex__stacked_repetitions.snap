@@ -1,0 +1,27 @@
+---
+source: crates/k-rust/tests/definition_regex.rs
+expression: "regex :: parse(\"a?*+{2}{3,}{4,5}\").unwrap()"
+---
+Regex {
+    start_line: false,
+    body: Range {
+        body: AtLeast {
+            body: Exactly {
+                body: OneOrMore(
+                    ZeroOrMore(
+                        ZeroOrOne(
+                            Char(
+                                'a',
+                            ),
+                        ),
+                    ),
+                ),
+                count: 2,
+            },
+            count: 3,
+        },
+        at_least: 4,
+        at_most: 5,
+    },
+    end_line: false,
+}

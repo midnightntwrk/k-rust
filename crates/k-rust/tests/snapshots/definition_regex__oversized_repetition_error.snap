@@ -1,0 +1,9 @@
+---
+source: crates/k-rust/tests/definition_regex.rs
+expression: "regex :: parse(\"a{999999999999}\").unwrap_err()"
+---
+ParseError {
+    index: 2,
+    message: "Repetition count is too large.",
+    input: "a{999999999999}",
+}
