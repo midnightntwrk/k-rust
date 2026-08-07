@@ -1,0 +1,24 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+expression: rules
+---
+[
+    SentenceSummary {
+        kind: "rule",
+        body: "`<top>`(#noDots(.KList),#cells(`<k>`(#noDots(.KList),X=>#token(\"1\",\"Int\"),#dots(.KList)),`<counter>`(#noDots(.KList),N=>`_+__MAIN_Int_Int_Int`(N,#token(\"1\",\"Int\")),#noDots(.KList))),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "#withConfig(X=>#token(\"1\",\"Int\"),`<counter>`(#noDots(.KList),N,#noDots(.KList)))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+]

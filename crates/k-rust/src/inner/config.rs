@@ -187,7 +187,7 @@ fn configuration_grammar(
     Ok(grammar)
 }
 
-fn add_k_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {
+pub(super) fn add_k_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {
     add_subsort(grammar, "K", Sort::new("KItem"))?;
     add_subsort(grammar, "KItem", Sort::new("Bag"))?;
     add_subsort(grammar, "KItem", Sort::new("KConfigVar"))?;
@@ -354,7 +354,11 @@ fn add_config_cells(grammar: &mut Grammar) -> Result<(), ParseError> {
     add_subsort(grammar, "Bag", Sort::new("Cell"))
 }
 
-fn add_subsort(grammar: &mut Grammar, result: &str, child: Sort) -> Result<(), ParseError> {
+pub(super) fn add_subsort(
+    grammar: &mut Grammar,
+    result: &str,
+    child: Sort,
+) -> Result<(), ParseError> {
     grammar.add(
         Sort::new(result),
         vec![ProductionItem::NonTerminal {
@@ -367,7 +371,7 @@ fn add_subsort(grammar: &mut Grammar, result: &str, child: Sort) -> Result<(), P
     )
 }
 
-fn add_semantic_cast(grammar: &mut Grammar, sort: Sort) -> Result<(), ParseError> {
+pub(super) fn add_semantic_cast(grammar: &mut Grammar, sort: Sort) -> Result<(), ParseError> {
     grammar.add(
         sort.clone(),
         vec![
@@ -380,14 +384,14 @@ fn add_semantic_cast(grammar: &mut Grammar, sort: Sort) -> Result<(), ParseError
     )
 }
 
-fn nonterminal(sort: &str) -> ProductionItem {
+pub(super) fn nonterminal(sort: &str) -> ProductionItem {
     ProductionItem::NonTerminal {
         sort: Sort::new(sort),
         name: None,
     }
 }
 
-fn truth() -> Term {
+pub(super) fn truth() -> Term {
     Term::Token {
         token: "true".into(),
         sort: Sort::new("Bool"),

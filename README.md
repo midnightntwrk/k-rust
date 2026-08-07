@@ -64,6 +64,11 @@ properties, imported user syntax, configuration variables, semantic casts, and `
 Dependency-ordered configuration expansion now generates ordinary, optional, and collection cell
 syntax, fragments, initializers, Map helpers, and exit-code rules, and resolves external cells
 against imported generated initializers before returning a loaded definition.
+The loader then derives a `RULE-CELLS` grammar from visible user and generated syntax and replaces
+unambiguous rule, claim, context, and context-alias bubbles with structured KAST. This first slice
+supports rewrite bodies, semantic casts, user-defined conditions, optional cell dots, nested cell
+bags, and `#withConfig`; genuinely ambiguous forests remain explicit errors until the canonical
+disambiguation stack is ported.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -93,8 +98,8 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
   auto-imported prelude policy alongside the future command-line frontend.
 - Complete Java `RuleGrammarGenerator` parity: concretize every parametric production, reproduce
   scanner token precedence and automatic follow restrictions exactly, and port the priority,
-  associativity, overload, list, cast, and type-inference disambiguation passes before using the
-  chart parser for arbitrary rule, claim, context, and alias bubbles.
+  associativity, overload, list, cast, prefer/avoid, and type-inference disambiguation passes so
+  ambiguous rule, claim, context, and alias bubbles resolve canonically instead of being rejected.
 - Revisit package splitting only if compile times, dependency boundaries, or release needs justify
   moving beyond the current single-crate workspace.
 - Measure and port both sort-inference paths, including the Z3 fallback described in §6.9.

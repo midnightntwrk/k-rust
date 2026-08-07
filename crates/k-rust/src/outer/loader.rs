@@ -8,7 +8,7 @@ use crate::{
         expand_configurations,
     },
     diagnostic::Diagnostic,
-    inner::{ConfigError, resolve_configuration_bubbles},
+    inner::{ConfigError, RuleError, resolve_configuration_bubbles, resolve_rule_bubbles},
 };
 
 use super::{ParseError, SourceFile, Span, lower::lower_files, parse};
@@ -75,6 +75,7 @@ pub enum LoadError {
     DefinitionResolution(ResolveError),
     Configuration(ConfigError),
     ConfigurationExpansion(ConfigurationError),
+    RuleParsing(RuleError),
 }
 
 impl fmt::Display for LoadError {
@@ -113,6 +114,7 @@ impl fmt::Display for LoadError {
             Self::DefinitionResolution(error) => error.fmt(formatter),
             Self::Configuration(error) => error.fmt(formatter),
             Self::ConfigurationExpansion(error) => error.fmt(formatter),
+            Self::RuleParsing(error) => error.fmt(formatter),
         }
     }
 }
@@ -151,6 +153,7 @@ pub fn load(
         resolve_configuration_bubbles(&definition).map_err(LoadError::Configuration)?;
     let definition =
         expand_configurations(&definition).map_err(LoadError::ConfigurationExpansion)?;
+    let definition = resolve_rule_bubbles(&definition).map_err(LoadError::RuleParsing)?;
     let resolved =
         ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
     Ok(LoadedDefinition {
