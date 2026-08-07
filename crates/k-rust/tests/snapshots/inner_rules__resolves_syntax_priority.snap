@@ -1,0 +1,15 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+expression: sentences
+---
+[
+    SentenceSummary {
+        kind: "rule",
+        body: "plus(#token(\"a\",\"Id\"),times(#token(\"b\",\"Id\"),#token(\"c\",\"Id\")))=>plus(times(#token(\"c\",\"Id\"),#token(\"b\",\"Id\")),#token(\"a\",\"Id\"))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+]

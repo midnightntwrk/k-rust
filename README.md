@@ -65,10 +65,13 @@ Dependency-ordered configuration expansion now generates ordinary, optional, and
 syntax, fragments, initializers, Map helpers, and exit-code rules, and resolves external cells
 against imported generated initializers before returning a loaded definition.
 The loader then derives a `RULE-CELLS` grammar from visible user and generated syntax and replaces
-unambiguous rule, claim, context, and context-alias bubbles with structured KAST. This first slice
-supports rewrite bodies, semantic casts, user-defined conditions, optional cell dots, nested cell
-bags, and `#withConfig`; genuinely ambiguous forests remain explicit errors until the canonical
-disambiguation stack is ported.
+rule, claim, context, and context-alias bubbles with structured KAST. The chart parser retains a
+private production-bearing concrete forest until Scala-compatible syntax-priority and left-,
+right-, or non-associativity filters select a tree, including bracket shielding and
+`applyPriority`; only then does it lower to the public KAST model. This slice supports rewrite
+bodies, semantic casts, user-defined conditions, optional cell dots, nested cell bags, and
+`#withConfig`; forests that remain genuinely ambiguous are explicit errors pending the remaining
+canonical disambiguation passes.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -97,9 +100,9 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
 - Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
   auto-imported prelude policy alongside the future command-line frontend.
 - Complete Java `RuleGrammarGenerator` parity: concretize every parametric production, reproduce
-  scanner token precedence and automatic follow restrictions exactly, and port the priority,
-  associativity, overload, list, cast, prefer/avoid, and type-inference disambiguation passes so
-  ambiguous rule, claim, context, and alias bubbles resolve canonically instead of being rejected.
+  scanner token precedence and automatic follow restrictions exactly, and port the overload,
+  record-production, list, cast, prefer/avoid, and type-inference disambiguation passes so the
+  remaining ambiguous rule, claim, context, and alias bubbles resolve canonically.
 - Revisit package splitting only if compile times, dependency boundaries, or release needs justify
   moving beyond the current single-crate workspace.
 - Measure and port both sort-inference paths, including the Z3 fallback described in §6.9.

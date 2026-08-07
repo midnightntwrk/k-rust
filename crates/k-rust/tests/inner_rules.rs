@@ -53,6 +53,23 @@ fn lowered(source: &str) -> k_rust::definition::Definition {
     k_rust::outer::lower(&parsed, "MAIN").unwrap()
 }
 
+macro_rules! rule_snapshot {
+    ($name:ident, $source:expr) => {
+        #[test]
+        fn $name() {
+            let resolved = resolve_rule_bubbles(&lowered(indoc!($source))).unwrap();
+            let sentences = resolved
+                .main_module()
+                .unwrap()
+                .local_sentences
+                .iter()
+                .filter_map(sentence_summary)
+                .collect::<Vec<_>>();
+            insta::assert_debug_snapshot!(sentences);
+        }
+    };
+}
+
 #[test]
 fn parses_rule_claim_context_and_alias_bubbles() {
     let definition = lowered(indoc! {r#"
@@ -164,3 +181,44 @@ fn preserves_genuine_ambiguity_until_disambiguation_is_ported() {
         "{error:?}"
     );
 }
+
+rule_snapshot!(
+    resolves_syntax_priority,
+    r#"
+        module MAIN
+          syntax Id ::= r"[a-z]" [token]
+          syntax Exp ::= Id
+          syntax Exp ::= Exp "*" Exp [symbol(times)]
+                       > Exp "+" Exp [symbol(plus)]
+          rule a + b * c => c * b + a
+        endmodule
+    "#
+);
+
+rule_snapshot!(
+    resolves_left_and_right_associativity,
+    r#"
+        module MAIN
+          syntax Id ::= r"[a-z]" [token]
+          syntax LeftExp ::= Id
+          syntax LeftExp ::= left: LeftExp "+" LeftExp [symbol(leftPlus)]
+          syntax RightExp ::= Id
+          syntax RightExp ::= right: RightExp "^" RightExp [symbol(rightPow)]
+          rule a + b + c => a + b + c
+          rule a ^ b ^ c => a ^ b ^ c
+        endmodule
+    "#
+);
+
+rule_snapshot!(
+    brackets_shield_associativity,
+    r#"
+        module MAIN
+          syntax Id ::= r"[a-z]" [token]
+          syntax Exp ::= Id
+          syntax Exp ::= "(" Exp ")" [bracket]
+          syntax Exp ::= left: Exp "+" Exp [symbol(plus)]
+          rule a + (b + c) => (a + b) + c
+        endmodule
+    "#
+);

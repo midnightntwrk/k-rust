@@ -1,0 +1,11 @@
+---
+source: crates/k-rust/tests/inner_parser.rs
+expression: "grammar.parse(&Sort::new(\"Exp\"), \"a < b < c\")"
+---
+Err(
+    Associativity {
+        parent: "lessThan",
+        child: "lessThan",
+        side: "left",
+    },
+)

@@ -1,4 +1,4 @@
-use k_rust::definition::{Attributes, ProductionItem, Sentence};
+use k_rust::definition::{Associativity, Attributes, ProductionItem, Sentence};
 use k_rust::inner::{Grammar, ParseError};
 use k_rust::kast::{Label, Sort, Term};
 
@@ -178,5 +178,129 @@ fn bounds_cyclic_parse_forests() {
     assert_eq!(
         grammar.parse(&Sort::new("Start"), "x"),
         Err(ParseError::TooManyParses { limit: 64 })
+    );
+}
+
+#[test]
+fn rejects_non_associative_nesting() {
+    let mut token_attributes = Attributes::default();
+    token_attributes.insert("token", serde_json::json!(""));
+    let sentences = vec![
+        production(
+            "Id",
+            vec![ProductionItem::regex("[a-z]")],
+            None,
+            token_attributes,
+        ),
+        production("Exp", vec![nonterminal("Id")], None, Attributes::default()),
+        production(
+            "Exp",
+            vec![
+                nonterminal("Exp"),
+                ProductionItem::Terminal("<".into()),
+                nonterminal("Exp"),
+            ],
+            Some("lessThan"),
+            Attributes::default(),
+        ),
+        Sentence::SyntaxAssociativity {
+            associativity: Associativity::NonAssoc,
+            tags: vec!["lessThan".into()],
+            attributes: Attributes::default(),
+        },
+    ];
+    let grammar = Grammar::from_sentences(&sentences).unwrap();
+
+    insta::assert_debug_snapshot!(grammar.parse(&Sort::new("Exp"), "a < b < c"));
+}
+
+#[test]
+fn apply_priority_checks_only_selected_arguments() {
+    let mut token_attributes = Attributes::default();
+    token_attributes.insert("token", serde_json::json!(""));
+    let mut apply_priority = Attributes::default();
+    apply_priority.insert("applyPriority", serde_json::json!("2"));
+    let sentences = vec![
+        production(
+            "Exp",
+            vec![ProductionItem::regex("[a-z]")],
+            None,
+            token_attributes,
+        ),
+        production(
+            "Exp",
+            vec![
+                nonterminal("Exp"),
+                ProductionItem::Terminal("+".into()),
+                nonterminal("Exp"),
+            ],
+            Some("plus"),
+            Attributes::default(),
+        ),
+        production(
+            "Exp",
+            vec![
+                ProductionItem::Terminal("f(".into()),
+                nonterminal("Exp"),
+                ProductionItem::Terminal(",".into()),
+                nonterminal("Exp"),
+                ProductionItem::Terminal(",".into()),
+                nonterminal("Exp"),
+                ProductionItem::Terminal(")".into()),
+            ],
+            Some("f"),
+            apply_priority,
+        ),
+        Sentence::SyntaxPriority {
+            priorities: vec![vec!["f".into()], vec!["plus".into()]],
+            attributes: Attributes::default(),
+        },
+    ];
+    let grammar = Grammar::from_sentences(&sentences).unwrap();
+
+    assert!(
+        grammar
+            .parse(&Sort::new("Exp"), "f(a + b, c, a + b)")
+            .is_ok()
+    );
+    insta::assert_debug_snapshot!(grammar.parse(&Sort::new("Exp"), "f(a, b + c, a)"));
+}
+
+#[test]
+fn filters_associativity_before_the_forest_limit() {
+    let mut token_attributes = Attributes::default();
+    token_attributes.insert("token", serde_json::json!(""));
+    let sentences = vec![
+        production(
+            "Exp",
+            vec![ProductionItem::regex("[a-z]")],
+            None,
+            token_attributes,
+        ),
+        production(
+            "Exp",
+            vec![
+                nonterminal("Exp"),
+                ProductionItem::Terminal("+".into()),
+                nonterminal("Exp"),
+            ],
+            Some("plus"),
+            Attributes::default(),
+        ),
+        Sentence::SyntaxAssociativity {
+            associativity: Associativity::Left,
+            tags: vec!["plus".into()],
+            attributes: Attributes::default(),
+        },
+    ];
+    let grammar = Grammar::from_sentences(&sentences).unwrap();
+
+    assert!(
+        grammar
+            .parse(
+                &Sort::new("Exp"),
+                "a + b + c + d + e + f + g + h + i + j + k + l",
+            )
+            .is_ok()
     );
 }

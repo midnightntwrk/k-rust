@@ -59,8 +59,8 @@ impl std::error::Error for RuleError {}
 /// Replace local rule, claim, context, and context-alias bubbles with KAST sentences.
 ///
 /// This is the syntax-only first slice of Java's non-configuration bubble
-/// resolution. Inputs whose parse forest remains genuinely ambiguous are
-/// rejected until the corresponding disambiguation passes are ported.
+/// resolution. Priority and associativity filter the concrete parse forest;
+/// inputs that remain genuinely ambiguous are reported explicitly.
 pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleError> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(RuleError::Definition)?;
     let mut transformed = definition.clone();
@@ -290,7 +290,7 @@ fn add_rule_k_syntax(
         true,
     )?;
     for sort in concrete_sorts {
-        grammar.add(
+        grammar.add_bracket(
             sort.clone(),
             vec![
                 ProductionItem::Terminal("(".into()),
@@ -300,9 +300,6 @@ fn add_rule_k_syntax(
                 },
                 ProductionItem::Terminal(")".into()),
             ],
-            None,
-            false,
-            true,
         )?;
     }
     grammar.add(

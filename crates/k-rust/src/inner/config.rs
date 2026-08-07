@@ -17,7 +17,7 @@ pub enum ConfigError {
         module: String,
         source: Option<String>,
         location: Option<Location>,
-        error: ParseError,
+        error: Box<ParseError>,
     },
     IllegalRequires {
         module: String,
@@ -67,7 +67,7 @@ pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definiti
                 module: module.name.clone(),
                 source: module.attributes.source().map(str::to_owned),
                 location: module.attributes.location(),
-                error,
+                error: Box::new(error),
             })?;
 
         for sentence in &mut module.local_sentences {
@@ -104,7 +104,7 @@ fn bubble_error(module: &str, attributes: &Attributes, error: ParseError) -> Con
         module: module.to_owned(),
         source: attributes.source().map(str::to_owned),
         location: attributes.location(),
-        error,
+        error: Box::new(error),
     }
 }
 

@@ -1,12 +1,19 @@
 //! A portable chart parser over lowered K productions.
 
+mod disambiguation;
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
 use regex::Regex as CompiledRegex;
 
-use crate::definition::{ProductionItem, Regex as KRegex, RegexBody, Sentence, parse_regex};
+use crate::definition::{
+    AssociativityRelations, PartialOrder, ProductionItem, Regex as KRegex, RegexBody, Sentence,
+    compute_associativities, compute_priorities, parse_regex,
+};
 use crate::kast::{Label, Sort, Term};
+
+use self::disambiguation::parse_apply_priority;
 
 const MAX_DERIVATIONS_PER_STATE: usize = 64;
 
@@ -25,6 +32,22 @@ pub enum ParseError {
     },
     TooManyParses {
         limit: usize,
+    },
+    CircularPriorities {
+        path: Vec<String>,
+    },
+    InvalidApplyPriority {
+        value: String,
+        position: String,
+    },
+    Priority {
+        parent: String,
+        child: String,
+    },
+    Associativity {
+        parent: String,
+        child: String,
+        side: &'static str,
     },
 }
 
@@ -45,6 +68,29 @@ impl fmt::Display for ParseError {
             Self::TooManyParses { limit } => write!(
                 formatter,
                 "parse forest exceeded the per-state limit of {limit} derivations"
+            ),
+            Self::CircularPriorities { path } => {
+                write!(
+                    formatter,
+                    "illegal circular syntax priority: {}",
+                    path.join(" > ")
+                )
+            }
+            Self::InvalidApplyPriority { value, position } => write!(
+                formatter,
+                "invalid applyPriority value {position:?} in {value:?}"
+            ),
+            Self::Priority { parent, child } => write!(
+                formatter,
+                "cannot use {child} as an immediate child of {parent} because of syntax priority"
+            ),
+            Self::Associativity {
+                parent,
+                child,
+                side,
+            } => write!(
+                formatter,
+                "cannot use {child} as the immediate {side} child of {parent} because of associativity"
             ),
         }
     }
@@ -81,13 +127,48 @@ struct Production {
     label: Option<Label>,
     token: bool,
     transparent: bool,
+    bracket: bool,
+    syntactic_subsort: bool,
+    parse_label: Option<String>,
+    apply_priority: Option<BTreeSet<usize>>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ProductionOptions<'a> {
+    token: bool,
+    transparent: bool,
+    bracket: bool,
+    bracket_label: Option<&'a str>,
+    apply_priority: Option<&'a str>,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum ParsedTerm {
+    Production {
+        production: usize,
+        children: Vec<ParsedTerm>,
+    },
+    Term(Term),
 }
 
 /// A reusable inner grammar derived from visible, non-parametric productions.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Grammar {
     productions: Vec<Production>,
     by_result: BTreeMap<Sort, Vec<usize>>,
+    priorities: PartialOrder<String>,
+    associativities: AssociativityRelations,
+}
+
+impl Default for Grammar {
+    fn default() -> Self {
+        Self {
+            productions: Vec::new(),
+            by_result: BTreeMap::new(),
+            priorities: PartialOrder::new([]).expect("an empty relation is acyclic"),
+            associativities: AssociativityRelations::default(),
+        }
+    }
 }
 
 impl Grammar {
@@ -110,7 +191,14 @@ impl Grammar {
                     })
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
-        let mut grammar = Self::default();
+        let priorities = compute_priorities(sentences.iter().copied())
+            .map_err(|cycle| ParseError::CircularPriorities { path: cycle.path })?;
+        let associativities = compute_associativities(sentences.iter().copied());
+        let mut grammar = Self {
+            priorities,
+            associativities,
+            ..Self::default()
+        };
         for sentence in sentences {
             let Sentence::Production {
                 label,
@@ -131,8 +219,13 @@ impl Grammar {
                 sort.clone(),
                 items,
                 label.clone(),
-                attributes.get("token").is_some(),
-                attributes.get("bracket").is_some(),
+                ProductionOptions {
+                    token: attributes.get("token").is_some(),
+                    transparent: attributes.get("bracket").is_some(),
+                    bracket: attributes.get("bracket").is_some(),
+                    bracket_label: attributes.get_str("bracketLabel"),
+                    apply_priority: attributes.get_str("applyPriority"),
+                },
                 &lexical,
             )?;
         }
@@ -154,6 +247,7 @@ impl Grammar {
                 [Vec::new()],
             )?;
         }
+        let mut first_violation = None;
 
         for position in start_position..=input.len() {
             while let Some(state) = charts[position].agenda.pop_front() {
@@ -182,14 +276,17 @@ impl Grammar {
 
                         // Aycock/Horspool nullable fix: a completed nullable
                         // production may have been processed before this caller.
-                        let completed = completed_nodes(
+                        let (completed, violation) = completed_nodes(
                             &charts[position],
-                            &self.productions,
+                            self,
                             sort,
                             position,
                             position,
                             input,
                         );
+                        if first_violation.is_none() {
+                            first_violation = violation;
+                        }
                         if !completed.is_empty() {
                             let advanced = append_nodes(&derivations, &completed);
                             charts[position].add(
@@ -215,8 +312,21 @@ impl Grammar {
                     None => {
                         let nodes = derivations
                             .iter()
-                            .map(|children| {
-                                build_term(production, children, input, state.origin, position)
+                            .filter_map(|children| {
+                                let term = build_parsed_term(
+                                    state.production,
+                                    production,
+                                    children,
+                                    input,
+                                    state.origin,
+                                    position,
+                                );
+                                if let Some(error) = self.priority_violation(&term) {
+                                    first_violation.get_or_insert(error);
+                                    None
+                                } else {
+                                    Some(term)
+                                }
                             })
                             .collect::<BTreeSet<_>>();
                         let callers = charts[state.origin]
@@ -253,18 +363,30 @@ impl Grammar {
             if skip_layout(input, position) != input.len() {
                 continue;
             }
-            parses.extend(completed_nodes(
-                chart,
-                &self.productions,
-                start,
-                start_position,
-                position,
-                input,
-            ));
+            let (completed, violation) =
+                completed_nodes(chart, self, start, start_position, position, input);
+            parses.extend(completed);
+            if first_violation.is_none() {
+                first_violation = violation;
+            }
         }
-        match parses.len() {
-            0 => Err(self.no_parse(&charts)),
-            1 => Ok(parses.pop_first().expect("length was one")),
+        if parses.is_empty() {
+            return Err(first_violation.unwrap_or_else(|| self.no_parse(&charts)));
+        }
+        let mut parsed = BTreeSet::new();
+        for term in parses {
+            if let Some(error) = self.priority_violation(&term) {
+                first_violation.get_or_insert(error);
+            } else {
+                parsed.insert(self.lower(term));
+            }
+        }
+        match parsed.len() {
+            0 => Err(first_violation.unwrap_or_else(|| ParseError::NoParse {
+                position: input.len(),
+                expected: vec!["an expression respecting priority and associativity".into()],
+            })),
+            1 => Ok(parsed.pop_first().expect("length was one")),
             parses => Err(ParseError::Ambiguous { parses }),
         }
     }
@@ -280,6 +402,26 @@ impl Grammar {
         self.add_production(result, &items, label, token, transparent)
     }
 
+    pub(crate) fn add_bracket(
+        &mut self,
+        result: Sort,
+        items: Vec<ProductionItem>,
+    ) -> Result<(), ParseError> {
+        let bracket_label = format!("#bracket:{result}");
+        self.add_production_with_lexical(
+            result,
+            &items,
+            None,
+            ProductionOptions {
+                transparent: true,
+                bracket: true,
+                bracket_label: Some(&bracket_label),
+                ..ProductionOptions::default()
+            },
+            &BTreeMap::new(),
+        )
+    }
+
     fn add_production(
         &mut self,
         result: Sort,
@@ -288,7 +430,17 @@ impl Grammar {
         token: bool,
         transparent: bool,
     ) -> Result<(), ParseError> {
-        self.add_production_with_lexical(result, items, label, token, transparent, &BTreeMap::new())
+        self.add_production_with_lexical(
+            result,
+            items,
+            label,
+            ProductionOptions {
+                token,
+                transparent,
+                ..ProductionOptions::default()
+            },
+            &BTreeMap::new(),
+        )
     }
 
     fn add_production_with_lexical(
@@ -296,8 +448,7 @@ impl Grammar {
         result: Sort,
         items: &[ProductionItem],
         label: Option<Label>,
-        token: bool,
-        transparent: bool,
+        options: ProductionOptions<'_>,
         lexical: &BTreeMap<String, KRegex>,
     ) -> Result<(), ParseError> {
         let items = items
@@ -306,12 +457,32 @@ impl Grammar {
             .map(|item| compile_item(item, lexical))
             .collect::<Result<Vec<_>, _>>()?;
         let index = self.productions.len();
+        let syntactic_subsort = label.is_none()
+            && !options.bracket
+            && matches!(items.as_slice(), [Item::NonTerminal(_)]);
+        let parse_label = label
+            .as_ref()
+            .map(|label| label.name.clone())
+            .or_else(|| options.bracket_label.map(str::to_owned))
+            .or_else(|| {
+                options
+                    .bracket
+                    .then(|| format!("#bracket:{result}:{index}"))
+            });
+        let apply_priority = options
+            .apply_priority
+            .map(parse_apply_priority)
+            .transpose()?;
         self.productions.push(Production {
             result: result.clone(),
             items,
             label,
-            token,
-            transparent,
+            token: options.token,
+            transparent: options.transparent,
+            bracket: options.bracket,
+            syntactic_subsort,
+            parse_label,
+            apply_priority,
         });
         self.by_result.entry(result).or_default().push(index);
         Ok(())
@@ -477,7 +648,7 @@ struct State {
 
 #[derive(Clone, Debug, Default)]
 struct Chart {
-    states: BTreeMap<State, BTreeSet<Vec<Term>>>,
+    states: BTreeMap<State, BTreeSet<Vec<ParsedTerm>>>,
     agenda: VecDeque<State>,
 }
 
@@ -485,7 +656,7 @@ impl Chart {
     fn add(
         &mut self,
         state: State,
-        derivations: impl IntoIterator<Item = Vec<Term>>,
+        derivations: impl IntoIterator<Item = Vec<ParsedTerm>>,
     ) -> Result<bool, ParseError> {
         let stored = self.states.entry(state).or_default();
         let old_len = stored.len();
@@ -507,31 +678,42 @@ impl Chart {
 
 fn completed_nodes(
     chart: &Chart,
-    productions: &[Production],
+    grammar: &Grammar,
     sort: &Sort,
     origin: usize,
     end: usize,
     input: &str,
-) -> BTreeSet<Term> {
-    chart
-        .states
-        .iter()
-        .filter(|(state, _)| {
-            let production = &productions[state.production];
-            state.origin == origin
-                && state.dot == production.items.len()
-                && &production.result == sort
-        })
-        .flat_map(|(state, derivations)| {
-            let production = &productions[state.production];
-            derivations
-                .iter()
-                .map(move |children| build_term(production, children, input, state.origin, end))
-        })
-        .collect()
+) -> (BTreeSet<ParsedTerm>, Option<ParseError>) {
+    let mut nodes = BTreeSet::new();
+    let mut first_violation = None;
+    for (state, derivations) in chart.states.iter().filter(|(state, _)| {
+        let production = &grammar.productions[state.production];
+        state.origin == origin && state.dot == production.items.len() && &production.result == sort
+    }) {
+        let production = &grammar.productions[state.production];
+        for children in derivations {
+            let term = build_parsed_term(
+                state.production,
+                production,
+                children,
+                input,
+                state.origin,
+                end,
+            );
+            if let Some(error) = grammar.priority_violation(&term) {
+                first_violation.get_or_insert(error);
+            } else {
+                nodes.insert(term);
+            }
+        }
+    }
+    (nodes, first_violation)
 }
 
-fn append_nodes(derivations: &BTreeSet<Vec<Term>>, nodes: &BTreeSet<Term>) -> BTreeSet<Vec<Term>> {
+fn append_nodes(
+    derivations: &BTreeSet<Vec<ParsedTerm>>,
+    nodes: &BTreeSet<ParsedTerm>,
+) -> BTreeSet<Vec<ParsedTerm>> {
     derivations
         .iter()
         .flat_map(|derivation| {
@@ -580,25 +762,39 @@ fn match_item(item: &Item, input: &str, position: usize) -> Vec<usize> {
     }
 }
 
-fn build_term(
+fn build_parsed_term(
+    production_index: usize,
     production: &Production,
-    children: &[Term],
+    children: &[ParsedTerm],
     input: &str,
     start: usize,
     end: usize,
-) -> Term {
+) -> ParsedTerm {
     if production.token {
         if production.result.name == "#KVariable" {
-            return Term::Variable {
+            return ParsedTerm::Term(Term::Variable {
                 name: input[start..end].to_owned(),
                 sort: None,
-            };
+            });
         }
-        return Term::Token {
+        return ParsedTerm::Term(Term::Token {
             token: input[start..end].to_owned(),
             sort: production.result.clone(),
-        };
+        });
     }
+    if !production.bracket
+        && (production.transparent || production.label.is_none())
+        && let [child] = children
+    {
+        return child.clone();
+    }
+    ParsedTerm::Production {
+        production: production_index,
+        children: children.to_vec(),
+    }
+}
+
+fn lower_term(production: &Production, children: &[Term]) -> Term {
     if production.transparent || production.label.is_none() && children.len() == 1 {
         return children[0].clone();
     }

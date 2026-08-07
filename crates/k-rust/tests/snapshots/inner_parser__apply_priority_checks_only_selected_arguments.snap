@@ -1,0 +1,10 @@
+---
+source: crates/k-rust/tests/inner_parser.rs
+expression: "grammar.parse(&Sort::new(\"Exp\"), \"f(a, b + c, a)\")"
+---
+Err(
+    Priority {
+        parent: "f",
+        child: "plus",
+    },
+)
