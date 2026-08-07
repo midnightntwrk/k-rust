@@ -1,0 +1,23 @@
+---
+source: crates/k-rust/tests/definition_configuration.rs
+expression: modules
+---
+[
+    (
+        "BASE",
+        [
+            "production Int ::= r\"[0-9]+\" label=- [token=\"\"]",
+            "production SharedCell ::= \"<shared>\" Int \"</shared>\" label=<shared> [cell=\"\", cellName=\"shared\", format=\"%1%i%n%2%d%n%3\"]",
+            "production SharedCell ::= \"initSharedCell\" label=initSharedCell [function=\"\", initializer=\"\", total=\"\"]",
+            "rule initSharedCell(.KList)=>`<shared>`(#noDots(.KList),#token(\"0\",\"Int\"),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
+        ],
+    ),
+    (
+        "MAIN",
+        [
+            "production TopCell ::= \"<top>\" SharedCell \"</top>\" label=<top> [cell=\"\", cellName=\"top\", format=\"%1%i%n%2%d%n%3\"]",
+            "production TopCell ::= \"initTopCell\" label=initTopCell [function=\"\", initializer=\"\", total=\"\"]",
+            "rule initTopCell(.KList)=>`<top>`(#noDots(.KList),initSharedCell(.KList),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
+        ],
+    ),
+]

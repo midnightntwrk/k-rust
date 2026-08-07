@@ -1,0 +1,31 @@
+---
+source: crates/k-rust/tests/definition_configuration.rs
+expression: sentence_summary(&expanded.main_module().unwrap().local_sentences)
+---
+[
+    "production Int ::= r\"[0-9]+\" label=- [token=\"\"]",
+    "syntax ThreadCellBag [cellCollection=\"\", hook=\"BAG.Bag\"]",
+    "production KCellOpt ::= KCell label=- []",
+    "production OptCellOpt ::= OptCell label=- []",
+    "production ThreadCellBag ::= ThreadCell label=- []",
+    "production OptCell ::= \".OptCell\" label=.OptCell []",
+    "production ThreadCellBag ::= \".ThreadCellBag\" label=.ThreadCellBag [function=\"\", hook=\"BAG.unit\"]",
+    "production KCell ::= \"<k>\" K \"</k>\" label=<k> [cell=\"\", cellName=\"k\", format=\"%1%i%n%2%d%n%3\", maincell=\"\"]",
+    "production OptCell ::= \"<opt>\" Int \"</opt>\" label=<opt> [cell=\"\", cellName=\"opt\", format=\"%1%i%n%2%d%n%3\", multiplicity=\"?\", unit=\".OptCell\"]",
+    "production ThreadCell ::= \"<thread>\" KCell OptCell \"</thread>\" label=<thread> [cell=\"\", cellName=\"thread\", format=\"%1%i%n%2%n%3%d%n%4\", multiplicity=\"*\"]",
+    "production ThreadCellFragment ::= \"<thread>-fragment\" KCellOpt OptCellOpt \"</thread>-fragment\" label=<thread>-fragment [cellFragment={\"name\":\"ThreadCell\",\"node\":\"KSort\",\"params\":[]}]",
+    "production ThreadsCell ::= \"<threads>\" ThreadCellBag \"</threads>\" label=<threads> [cell=\"\", cellName=\"threads\", format=\"%1%i%n%2%d%n%3\"]",
+    "production ThreadsCellFragment ::= \"<threads>-fragment\" ThreadCellBag \"</threads>-fragment\" label=<threads>-fragment [cellFragment={\"name\":\"ThreadsCell\",\"node\":\"KSort\",\"params\":[]}]",
+    "production ThreadCellBag ::= \"ThreadCellBagItem\" \"(\" ThreadCell \")\" label=ThreadCellBagItem [format=\"%3\", function=\"\", hook=\"BAG.element\"]",
+    "production ThreadCellBag ::= ThreadCellBag ThreadCellBag label=_ThreadCellBag_ [assoc=\"\", avoid=\"\", bag=\"\", cellCollection=\"\", comm=\"\", element=\"ThreadCellBagItem\", function=\"\", hook=\"BAG.concat\", unit=\".ThreadCellBag\", wrapElement=\"<thread>\"]",
+    "production KCell ::= \"initKCell\" \"(\" Map \")\" label=initKCell [function=\"\", initializer=\"\"]",
+    "production OptCell ::= \"initOptCell\" label=initOptCell [function=\"\", initializer=\"\", total=\"\"]",
+    "production ThreadCellBag ::= \"initThreadCell\" \"(\" Map \")\" label=initThreadCell [function=\"\", initializer=\"\"]",
+    "production ThreadsCell ::= \"initThreadsCell\" \"(\" Map \")\" label=initThreadsCell [function=\"\", initializer=\"\"]",
+    "production KCellOpt ::= \"noKCell\" label=noKCell [cellOptAbsent={\"name\":\"KCell\",\"node\":\"KSort\",\"params\":[]}]",
+    "production OptCellOpt ::= \"noOptCell\" label=noOptCell [cellOptAbsent={\"name\":\"OptCell\",\"node\":\"KSort\",\"params\":[]}]",
+    "rule initKCell(Init)=>`<k>`(#noDots(.KList),#SemanticCastToInt(`project:Int`(`Map:lookup`(Init,#token(\"$PGM\",\"KConfigVar\")))),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
+    "rule initOptCell(.KList)=>`<opt>`(#noDots(.KList),#token(\"0\",\"Int\"),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
+    "rule initThreadCell(Init)=>`<thread>`(#noDots(.KList),#cells(initKCell(Init),#cells(.KList)),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
+    "rule initThreadsCell(Init)=>`<threads>`(#noDots(.KList),initThreadCell(Init),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"false\",\"Bool\") [initializer=\"\"]",
+]

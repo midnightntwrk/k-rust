@@ -1,0 +1,19 @@
+---
+source: crates/k-rust/tests/definition_configuration.rs
+expression: expand_configurations(& definition).unwrap_err()
+---
+Invalid {
+    module: "MAIN",
+    source: Some(
+        "configuration.k",
+    ),
+    location: Some(
+        Location {
+            start_line: 3,
+            start_column: 1,
+            end_line: 3,
+            end_column: 55,
+        },
+    ),
+    message: "unexpected type for multiplicity * cell <k>: Queue; expected Set, Bag, List, or Map",
+}

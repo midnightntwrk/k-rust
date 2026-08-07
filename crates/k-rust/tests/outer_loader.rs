@@ -189,7 +189,7 @@ fn applies_imported_sort_synonyms_after_resolving_the_source_graph() {
 }
 
 #[test]
-fn resolves_configuration_bubbles_with_visible_user_syntax() {
+fn parses_and_expands_configurations_with_visible_user_syntax() {
     let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
     let loaded = load(
         ResolvedSource::new(
@@ -206,23 +206,22 @@ fn resolves_configuration_bubbles_with_visible_user_syntax() {
     )
     .unwrap();
 
-    let configuration = loaded
-        .definition
-        .main_module()
-        .unwrap()
-        .local_sentences
-        .iter()
-        .find(|sentence| matches!(sentence, Sentence::Configuration { .. }))
-        .unwrap();
-    insta::assert_debug_snapshot!(configuration);
+    let sentences = &loaded.definition.main_module().unwrap().local_sentences;
     assert!(
-        loaded
-            .resolved
-            .main_module()
-            .local_sentences
+        !sentences
             .iter()
             .any(|sentence| matches!(sentence, Sentence::Configuration { .. }))
     );
+    let labels = sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label), ..
+            } => Some(label.name.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    insta::assert_debug_snapshot!(labels);
 }
 
 macro_rules! load_error_snapshot {

@@ -61,6 +61,9 @@ default layout, regex restrictions, named lexical references, parse-forest shari
 ambiguity/resource errors. The loader uses it with the implicit `CONFIG-CELLS` and K bridges to
 replace configuration bubbles with structured KAST, covering nested and external cells, cell
 properties, imported user syntax, configuration variables, semantic casts, and `ensures` clauses.
+Dependency-ordered configuration expansion now generates ordinary, optional, and collection cell
+syntax, fragments, initializers, Map helpers, and exit-code rules, and resolves external cells
+against imported generated initializers before returning a loaded definition.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -92,8 +95,6 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
   scanner token precedence and automatic follow restrictions exactly, and port the priority,
   associativity, overload, list, cast, and type-inference disambiguation passes before using the
   chart parser for arbitrary rule, claim, context, and alias bubbles.
-- Port `GenerateSentencesFromConfigDecl`; configuration declarations are now parsed into structured
-  KAST but are not yet expanded into cell productions and initializer rules.
 - Revisit package splitting only if compile times, dependency boundaries, or release needs justify
   moving beyond the current single-crate workspace.
 - Measure and port both sort-inference paths, including the Z3 fallback described in §6.9.

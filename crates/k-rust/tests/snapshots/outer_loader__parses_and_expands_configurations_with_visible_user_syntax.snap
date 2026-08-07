@@ -1,0 +1,15 @@
+---
+source: crates/k-rust/tests/outer_loader.rs
+expression: labels
+---
+[
+    "<counter>",
+    "<k>",
+    "<top>",
+    "<top>-fragment",
+    "initCounterCell",
+    "initKCell",
+    "initTopCell",
+    "noCounterCell",
+    "noKCell",
+]

@@ -3,7 +3,10 @@
 use std::{collections::BTreeMap, error::Error, fmt};
 
 use crate::{
-    definition::{Definition, ResolveError, ResolvedDefinition, apply_sort_synonyms},
+    definition::{
+        ConfigurationError, Definition, ResolveError, ResolvedDefinition, apply_sort_synonyms,
+        expand_configurations,
+    },
     diagnostic::Diagnostic,
     inner::{ConfigError, resolve_configuration_bubbles},
 };
@@ -71,6 +74,7 @@ pub enum LoadError {
     SourceDiagnostics(Vec<Diagnostic>),
     DefinitionResolution(ResolveError),
     Configuration(ConfigError),
+    ConfigurationExpansion(ConfigurationError),
 }
 
 impl fmt::Display for LoadError {
@@ -108,6 +112,7 @@ impl fmt::Display for LoadError {
             }
             Self::DefinitionResolution(error) => error.fmt(formatter),
             Self::Configuration(error) => error.fmt(formatter),
+            Self::ConfigurationExpansion(error) => error.fmt(formatter),
         }
     }
 }
@@ -144,6 +149,8 @@ pub fn load(
     let definition = apply_sort_synonyms(&definition).map_err(LoadError::DefinitionResolution)?;
     let definition =
         resolve_configuration_bubbles(&definition).map_err(LoadError::Configuration)?;
+    let definition =
+        expand_configurations(&definition).map_err(LoadError::ConfigurationExpansion)?;
     let resolved =
         ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
     Ok(LoadedDefinition {

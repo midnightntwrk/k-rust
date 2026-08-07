@@ -539,6 +539,10 @@ fn sentence_target(sentence: &Sentence) -> Target {
     }
 }
 
+pub(crate) fn is_builtin_attribute(key: &str) -> bool {
+    builtin_allowed_targets(key).is_some()
+}
+
 fn builtin_allowed_targets(key: &str) -> Option<u16> {
     let allowed = match key {
         "group" | "label" => ALL_SENTENCES,

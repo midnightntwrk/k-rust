@@ -1,0 +1,21 @@
+---
+source: crates/k-rust/tests/definition_configuration.rs
+expression: sentence_summary(&expanded.main_module().unwrap().local_sentences)
+---
+[
+    "production Int ::= r\"[0-9]+\" label=- [token=\"\"]",
+    "production LeftCellOpt ::= LeftCell label=- []",
+    "production RightCellOpt ::= RightCell label=- []",
+    "production GeneratedTopCell ::= \"<generatedTop>\" LeftCell RightCell \"</generatedTop>\" label=<generatedTop> [cell=\"\", cellName=\"generatedTop\", format=\"%1%i%n%2%n%3%d%n%4\"]",
+    "production GeneratedTopCellFragment ::= \"<generatedTop>-fragment\" LeftCellOpt RightCellOpt \"</generatedTop>-fragment\" label=<generatedTop>-fragment [cellFragment={\"name\":\"GeneratedTopCell\",\"node\":\"KSort\",\"params\":[]}]",
+    "production LeftCell ::= \"<left>\" Int \"</left>\" label=<left> [cell=\"\", cellName=\"left\", format=\"%1%i%n%2%d%n%3\"]",
+    "production RightCell ::= \"<right>\" Int \"</right>\" label=<right> [cell=\"\", cellName=\"right\", format=\"%1%i%n%2%d%n%3\"]",
+    "production GeneratedTopCell ::= \"initGeneratedTopCell\" label=initGeneratedTopCell [function=\"\", initializer=\"\", total=\"\"]",
+    "production LeftCell ::= \"initLeftCell\" label=initLeftCell [function=\"\", initializer=\"\", total=\"\"]",
+    "production RightCell ::= \"initRightCell\" label=initRightCell [function=\"\", initializer=\"\", total=\"\"]",
+    "production LeftCellOpt ::= \"noLeftCell\" label=noLeftCell [cellOptAbsent={\"name\":\"LeftCell\",\"node\":\"KSort\",\"params\":[]}]",
+    "production RightCellOpt ::= \"noRightCell\" label=noRightCell [cellOptAbsent={\"name\":\"RightCell\",\"node\":\"KSort\",\"params\":[]}]",
+    "rule initGeneratedTopCell(.KList)=>`<generatedTop>`(#noDots(.KList),#cells(initLeftCell(.KList),initRightCell(.KList)),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
+    "rule initLeftCell(.KList)=>`<left>`(#noDots(.KList),#token(\"0\",\"Int\"),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
+    "rule initRightCell(.KList)=>`<right>`(#noDots(.KList),#token(\"1\",\"Int\"),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
+]

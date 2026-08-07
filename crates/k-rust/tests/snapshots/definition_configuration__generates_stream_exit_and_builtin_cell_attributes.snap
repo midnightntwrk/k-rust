@@ -1,0 +1,24 @@
+---
+source: crates/k-rust/tests/definition_configuration.rs
+expression: sentence_summary(&expanded.main_module().unwrap().local_sentences)
+---
+[
+    "production Int ::= r\"[0-9]+\" label=- [token=\"\"]",
+    "syntax GeneratedTopCell []",
+    "production OutCellOpt ::= OutCell label=- []",
+    "production StatusCellOpt ::= StatusCell label=- []",
+    "production OutCell ::= \"<out>\" Int \"</out>\" label=<out> [cell=\"\", cellName=\"out\", format=\"%1%i%n%2%d%n%3\", stream=\"stdout\"]",
+    "production StatusCell ::= \"<status>\" Int \"</status>\" label=<status> [cell=\"\", cellName=\"status\", exit=\"\", format=\"%1%i%n%2%d%n%3\", unused=\"\"]",
+    "production TopCell ::= \"<top>\" OutCell StatusCell \"</top>\" label=<top> [cell=\"\", cellName=\"top\", format=\"%1%i%n%2%n%3%d%n%4\"]",
+    "production TopCellFragment ::= \"<top>-fragment\" OutCellOpt StatusCellOpt \"</top>-fragment\" label=<top>-fragment [cellFragment={\"name\":\"TopCell\",\"node\":\"KSort\",\"params\":[]}]",
+    "production Int ::= \"getExitCode\" \"(\" GeneratedTopCell \")\" label=getExitCode [function=\"\"]",
+    "production OutCell ::= \"initOutCell\" \"(\" Map \")\" label=initOutCell [function=\"\", initializer=\"\"]",
+    "production StatusCell ::= \"initStatusCell\" label=initStatusCell [function=\"\", initializer=\"\", total=\"\"]",
+    "production TopCell ::= \"initTopCell\" label=initTopCell [function=\"\", initializer=\"\", total=\"\"]",
+    "production OutCellOpt ::= \"noOutCell\" label=noOutCell [cellOptAbsent={\"name\":\"OutCell\",\"node\":\"KSort\",\"params\":[]}]",
+    "production StatusCellOpt ::= \"noStatusCell\" label=noStatusCell [cellOptAbsent={\"name\":\"StatusCell\",\"node\":\"KSort\",\"params\":[]}]",
+    "rule getExitCode(`<generatedTop>`(#dots(.KList),`<status>`(#noDots(.KList),Exit,#noDots(.KList)),#dots(.KList)))=>Exit requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") []",
+    "rule initOutCell(Init)=>`<out>`(#noDots(.KList),#token(\"0\",\"Int\"),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
+    "rule initStatusCell(.KList)=>`<status>`(#noDots(.KList),#token(\"0\",\"Int\"),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
+    "rule initTopCell(.KList)=>`<top>`(#noDots(.KList),#cells(initOutCell(Init),initStatusCell(.KList)),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
+]

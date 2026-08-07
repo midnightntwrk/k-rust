@@ -18,6 +18,7 @@ mod rhs_variables;
 mod smt_lemmas;
 mod term_position;
 
+pub(crate) use attributes::is_builtin_attribute;
 pub use attributes::{check_attribute_semantics, check_attributes};
 pub use functions::check_functions;
 pub use labels::{check_duplicate_klabels, check_function_rule_attributes, check_klabels};
