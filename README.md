@@ -55,7 +55,12 @@ resolver, deduplicates canonical source identities, reports require cycles with 
 paths, lowers all files with one global production-tag index, and hands the result to the existing
 deterministic module-import resolver. Production result and nonterminal sorts are then normalized
 through each module's visible sort-synonym map at the same boundary as the Java frontend. This
-keeps filesystem and URL policy outside the WASM-compatible frontend core.
+keeps filesystem and URL policy outside the WASM-compatible frontend core. A reusable portable
+chart parser now consumes visible lowered productions, including left recursion, nullable rules,
+default layout, regex restrictions, named lexical references, parse-forest sharing, and explicit
+ambiguity/resource errors. The loader uses it with the implicit `CONFIG-CELLS` and K bridges to
+replace configuration bubbles with structured KAST, covering nested and external cells, cell
+properties, imported user syntax, configuration variables, semantic casts, and `ensures` clauses.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -83,6 +88,12 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
 - Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.
 - Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
   auto-imported prelude policy alongside the future command-line frontend.
+- Complete Java `RuleGrammarGenerator` parity: concretize every parametric production, reproduce
+  scanner token precedence and automatic follow restrictions exactly, and port the priority,
+  associativity, overload, list, cast, and type-inference disambiguation passes before using the
+  chart parser for arbitrary rule, claim, context, and alias bubbles.
+- Port `GenerateSentencesFromConfigDecl`; configuration declarations are now parsed into structured
+  KAST but are not yet expanded into cell productions and initializer rules.
 - Revisit package splitting only if compile times, dependency boundaries, or release needs justify
   moving beyond the current single-crate workspace.
 - Measure and port both sort-inference paths, including the Z3 fallback described in §6.9.

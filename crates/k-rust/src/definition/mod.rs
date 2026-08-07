@@ -34,7 +34,10 @@ pub use ordering::{
     sentence_equivalent, sort_sentences,
 };
 pub use partial_order::{Cycle as PartialOrderCycle, PartialOrder};
-pub use regex::{CharClass as RegexCharClass, ParseError as RegexParseError, Regex, RegexBody};
+pub use regex::{
+    CharClass as RegexCharClass, ParseError as RegexParseError, Regex, RegexBody,
+    parse as parse_regex,
+};
 pub use relations::{
     AssociativityRelations, Error as RelationError, OverloadOrder, compute_associativities,
     compute_overloads, compute_priorities, compute_subsorts,

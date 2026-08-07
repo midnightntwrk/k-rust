@@ -1,0 +1,36 @@
+---
+source: crates/k-rust/tests/outer_loader.rs
+expression: error
+---
+Configuration(
+    Parse {
+        module: "MAIN",
+        source: Some(
+            "main.k",
+        ),
+        location: Some(
+            Location {
+                start_line: 2,
+                start_column: 3,
+                end_line: 2,
+                end_column: 29,
+            },
+        ),
+        error: NoParse {
+            position: 4,
+            expected: [
+                "\".Bag\"",
+                "\".K\"",
+                "\"<\"",
+                "#KVariable",
+                "Bag",
+                "Cell",
+                "K",
+                "KConfigVar",
+                "KItem",
+                "r\"(?:!|\\\\?|@)?(?:[A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"",
+                "r\"\\\\$[A-Z][A-Za-z0-9'_]*\"",
+            ],
+        },
+    },
+)

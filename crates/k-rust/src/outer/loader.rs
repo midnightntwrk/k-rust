@@ -5,6 +5,7 @@ use std::{collections::BTreeMap, error::Error, fmt};
 use crate::{
     definition::{Definition, ResolveError, ResolvedDefinition, apply_sort_synonyms},
     diagnostic::Diagnostic,
+    inner::{ConfigError, resolve_configuration_bubbles},
 };
 
 use super::{ParseError, SourceFile, Span, lower::lower_files, parse};
@@ -69,6 +70,7 @@ pub enum LoadError {
     },
     SourceDiagnostics(Vec<Diagnostic>),
     DefinitionResolution(ResolveError),
+    Configuration(ConfigError),
 }
 
 impl fmt::Display for LoadError {
@@ -105,6 +107,7 @@ impl fmt::Display for LoadError {
                 )
             }
             Self::DefinitionResolution(error) => error.fmt(formatter),
+            Self::Configuration(error) => error.fmt(formatter),
         }
     }
 }
@@ -139,6 +142,8 @@ pub fn load(
     let definition =
         lower_files(&loader.files, main_module).map_err(LoadError::SourceDiagnostics)?;
     let definition = apply_sort_synonyms(&definition).map_err(LoadError::DefinitionResolution)?;
+    let definition =
+        resolve_configuration_bubbles(&definition).map_err(LoadError::Configuration)?;
     let resolved =
         ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
     Ok(LoadedDefinition {

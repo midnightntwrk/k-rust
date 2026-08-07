@@ -188,6 +188,43 @@ fn applies_imported_sort_synonyms_after_resolving_the_source_graph() {
     assert_eq!(sort, &k_rust::kast::Sort::new("Exp"));
 }
 
+#[test]
+fn resolves_configuration_bubbles_with_visible_user_syntax() {
+    let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+    let loaded = load(
+        ResolvedSource::new(
+            "main.k",
+            indoc! {r#"
+                module MAIN
+                  syntax Int ::= r"[0-9]+" [token]
+                  configuration <top><k> $PGM:Int </k><counter> 0 </counter></top>
+                endmodule
+            "#},
+        ),
+        "MAIN",
+        &mut resolver,
+    )
+    .unwrap();
+
+    let configuration = loaded
+        .definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find(|sentence| matches!(sentence, Sentence::Configuration { .. }))
+        .unwrap();
+    insta::assert_debug_snapshot!(configuration);
+    assert!(
+        loaded
+            .resolved
+            .main_module()
+            .local_sentences
+            .iter()
+            .any(|sentence| matches!(sentence, Sentence::Configuration { .. }))
+    );
+}
+
 macro_rules! load_error_snapshot {
     ($name:ident, $entry:expr, $sources:expr, $main:expr) => {
         #[test]
@@ -243,6 +280,17 @@ load_error_snapshot!(
 load_error_snapshot!(
     missing_imported_module,
     "module MAIN imports ABSENT endmodule",
+    [],
+    "MAIN"
+);
+
+load_error_snapshot!(
+    malformed_configuration,
+    indoc! {r#"
+        module MAIN
+          configuration <k> @@@ </k>
+        endmodule
+    "#},
     [],
     "MAIN"
 );

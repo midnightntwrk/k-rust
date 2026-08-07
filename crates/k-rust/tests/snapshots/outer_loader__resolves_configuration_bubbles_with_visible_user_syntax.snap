@@ -1,0 +1,143 @@
+---
+source: crates/k-rust/tests/outer_loader.rs
+expression: configuration
+---
+Configuration {
+    body: Apply {
+        label: Label {
+            name: "#configCell",
+            parameters: [],
+        },
+        arguments: [
+            Token {
+                token: "top",
+                sort: Sort {
+                    name: "#CellName",
+                    parameters: [],
+                },
+            },
+            Apply {
+                label: Label {
+                    name: "#cellPropertyListTerminator",
+                    parameters: [],
+                },
+                arguments: [],
+            },
+            Apply {
+                label: Label {
+                    name: "#cells",
+                    parameters: [],
+                },
+                arguments: [
+                    Apply {
+                        label: Label {
+                            name: "#configCell",
+                            parameters: [],
+                        },
+                        arguments: [
+                            Token {
+                                token: "k",
+                                sort: Sort {
+                                    name: "#CellName",
+                                    parameters: [],
+                                },
+                            },
+                            Apply {
+                                label: Label {
+                                    name: "#cellPropertyListTerminator",
+                                    parameters: [],
+                                },
+                                arguments: [],
+                            },
+                            Apply {
+                                label: Label {
+                                    name: "#SemanticCastToInt",
+                                    parameters: [],
+                                },
+                                arguments: [
+                                    Token {
+                                        token: "$PGM",
+                                        sort: Sort {
+                                            name: "KConfigVar",
+                                            parameters: [],
+                                        },
+                                    },
+                                ],
+                            },
+                            Token {
+                                token: "k",
+                                sort: Sort {
+                                    name: "#CellName",
+                                    parameters: [],
+                                },
+                            },
+                        ],
+                    },
+                    Apply {
+                        label: Label {
+                            name: "#configCell",
+                            parameters: [],
+                        },
+                        arguments: [
+                            Token {
+                                token: "counter",
+                                sort: Sort {
+                                    name: "#CellName",
+                                    parameters: [],
+                                },
+                            },
+                            Apply {
+                                label: Label {
+                                    name: "#cellPropertyListTerminator",
+                                    parameters: [],
+                                },
+                                arguments: [],
+                            },
+                            Token {
+                                token: "0",
+                                sort: Sort {
+                                    name: "Int",
+                                    parameters: [],
+                                },
+                            },
+                            Token {
+                                token: "counter",
+                                sort: Sort {
+                                    name: "#CellName",
+                                    parameters: [],
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+            Token {
+                token: "top",
+                sort: Sort {
+                    name: "#CellName",
+                    parameters: [],
+                },
+            },
+        ],
+    },
+    ensures: Token {
+        token: "true",
+        sort: Sort {
+            name: "Bool",
+            parameters: [],
+        },
+    },
+    attributes: Attributes {
+        entries: {
+            "contentStartColumn": Number(17),
+            "contentStartLine": Number(3),
+            "org.kframework.attributes.Location": Array [
+                Number(3),
+                Number(3),
+                Number(3),
+                Number(67),
+            ],
+            "org.kframework.attributes.Source": String("main.k"),
+        },
+    },
+}
