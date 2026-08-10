@@ -1,0 +1,51 @@
+---
+source: crates/k-rust/tests/inner_parser.rs
+expression: parsed
+---
+[
+    Ok(
+        Apply {
+            label: Label {
+                name: "longTerminal",
+                parameters: [],
+            },
+            arguments: [],
+        },
+    ),
+    Ok(
+        Apply {
+            label: Label {
+                name: "keyword",
+                parameters: [],
+            },
+            arguments: [],
+        },
+    ),
+    Ok(
+        Apply {
+            label: Label {
+                name: "pair",
+                parameters: [],
+            },
+            arguments: [],
+        },
+    ),
+    Ok(
+        Apply {
+            label: Label {
+                name: "longer",
+                parameters: [],
+            },
+            arguments: [],
+        },
+    ),
+    Ok(
+        Apply {
+            label: Label {
+                name: "longestAlternative",
+                parameters: [],
+            },
+            arguments: [],
+        },
+    ),
+]

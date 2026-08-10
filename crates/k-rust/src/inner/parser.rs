@@ -4,11 +4,10 @@ mod disambiguation;
 mod inference;
 mod parametric;
 mod record;
+mod scanner;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
-
-use regex::Regex as CompiledRegex;
 
 use crate::definition::{
     AssociativityRelations, Attributes, PartialOrder, ProductionItem, Regex as KRegex, RegexBody,
@@ -17,6 +16,7 @@ use crate::definition::{
 use crate::kast::{Label, Sort, Term};
 
 use self::disambiguation::parse_apply_priority;
+use self::scanner::{Item, Scanner, compile_item};
 
 const MAX_DERIVATIONS_PER_STATE: usize = 64;
 
@@ -25,6 +25,12 @@ pub enum ParseError {
     InvalidRegex {
         regex: String,
         message: String,
+    },
+    InvalidTokenPrecedence {
+        value: String,
+    },
+    InconsistentTokenPrecedence {
+        token: String,
     },
     NoParse {
         position: usize,
@@ -69,6 +75,12 @@ impl fmt::Display for ParseError {
         match self {
             Self::InvalidRegex { regex, message } => {
                 write!(formatter, "invalid terminal regex {regex:?}: {message}")
+            }
+            Self::InvalidTokenPrecedence { value } => {
+                write!(formatter, "invalid token precedence {value:?}")
+            }
+            Self::InconsistentTokenPrecedence { token } => {
+                write!(formatter, "inconsistent token precedence for {token}")
             }
             Self::NoParse { position, expected } => {
                 write!(formatter, "could not parse input at byte {position}")?;
@@ -116,28 +128,6 @@ impl fmt::Display for ParseError {
 }
 
 impl std::error::Error for ParseError {}
-
-#[derive(Clone, Debug)]
-enum Item {
-    NonTerminal(Sort),
-    Terminal(String),
-    Regex {
-        source: String,
-        pattern: CompiledRegex,
-        precede: Option<CompiledRegex>,
-        follow: Option<CompiledRegex>,
-    },
-}
-
-impl Item {
-    fn description(&self) -> String {
-        match self {
-            Self::NonTerminal(sort) => sort.to_string(),
-            Self::Terminal(terminal) => format!("{terminal:?}"),
-            Self::Regex { source, .. } => format!("r{source:?}"),
-        }
-    }
-}
 
 #[derive(Clone, Debug)]
 struct Production {
@@ -193,6 +183,7 @@ struct ProductionOptions<'a> {
     apply_priority: Option<&'a str>,
     function: bool,
     macro_like: bool,
+    precedence: Option<&'a str>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -213,6 +204,7 @@ enum ParsedTerm {
 pub struct Grammar {
     productions: Vec<Production>,
     by_result: BTreeMap<Sort, Vec<usize>>,
+    scanner: Scanner,
     priorities: PartialOrder<String>,
     associativities: AssociativityRelations,
     subsort_relations: BTreeSet<(Sort, Sort)>,
@@ -223,6 +215,7 @@ impl Default for Grammar {
         Self {
             productions: Vec::new(),
             by_result: BTreeMap::new(),
+            scanner: Scanner::default(),
             priorities: PartialOrder::new([]).expect("an empty relation is acyclic"),
             associativities: AssociativityRelations::default(),
             subsort_relations: BTreeSet::new(),
@@ -288,6 +281,7 @@ impl Grammar {
                     macro_like: ["macro", "macro-rec", "alias", "alias-rec"]
                         .iter()
                         .any(|key| attributes.get(key).is_some()),
+                    precedence: attributes.get_str("prec"),
                 },
                 &lexical,
             )?;
@@ -313,6 +307,7 @@ impl Grammar {
         let mut charts = (0..=input.len())
             .map(|_| Chart::default())
             .collect::<Vec<_>>();
+        let mut scanner_cache = vec![None; input.len() + 1];
         let start_position = skip_layout(input, 0);
         for production in self.productions_for(start) {
             charts[start_position].add(
@@ -376,7 +371,12 @@ impl Grammar {
                         }
                     }
                     Some(item) => {
-                        for end in match_item(item, input, position) {
+                        for end in self.scanner.matches(
+                            item,
+                            input,
+                            position,
+                            &mut scanner_cache[position],
+                        ) {
                             charts[end].add(
                                 State {
                                     dot: state.dot + 1,
@@ -550,11 +550,16 @@ impl Grammar {
                 ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
             })
             .collect();
-        let items = items
+        let mut compiled_items = Vec::new();
+        for item in items
             .iter()
             .filter(|item| !matches!(item, ProductionItem::Terminal(value) if value.is_empty()))
-            .map(|item| compile_item(item, lexical))
-            .collect::<Result<Vec<_>, _>>()?;
+        {
+            let item = compile_item(item, lexical)?;
+            self.scanner.register(&item, options.precedence)?;
+            compiled_items.push(item);
+        }
+        let items = compiled_items;
         let index = self.productions.len();
         let syntactic_subsort = label.is_none()
             && !options.bracket
@@ -619,48 +624,6 @@ impl Grammar {
             .collect();
         ParseError::NoParse { position, expected }
     }
-}
-
-fn compile_item(
-    item: &ProductionItem,
-    lexical: &BTreeMap<String, KRegex>,
-) -> Result<Item, ParseError> {
-    match item {
-        ProductionItem::NonTerminal { sort, .. } => Ok(Item::NonTerminal(sort.clone())),
-        ProductionItem::Terminal(terminal) => Ok(Item::Terminal(terminal.clone())),
-        ProductionItem::RegexTerminal {
-            precede_regex,
-            regex,
-            follow_regex,
-        } => Ok(Item::Regex {
-            source: regex.clone(),
-            pattern: compile_regex(&expand_regex(regex, lexical)?, true)?,
-            precede: precede_regex
-                .as_deref()
-                .map(|regex| {
-                    expand_regex(regex, lexical).and_then(|regex| compile_regex(&regex, false))
-                })
-                .transpose()?,
-            follow: follow_regex
-                .as_deref()
-                .map(|regex| {
-                    expand_regex(regex, lexical).and_then(|regex| compile_regex(&regex, true))
-                })
-                .transpose()?,
-        }),
-    }
-}
-
-fn compile_regex(source: &str, start: bool) -> Result<CompiledRegex, ParseError> {
-    let pattern = if start {
-        format!(r"\A(?:{source})")
-    } else {
-        format!(r"(?:{source})\z")
-    };
-    CompiledRegex::new(&pattern).map_err(|error| ParseError::InvalidRegex {
-        regex: source.to_owned(),
-        message: error.to_string(),
-    })
 }
 
 fn expand_regex(source: &str, lexical: &BTreeMap<String, KRegex>) -> Result<String, ParseError> {
@@ -833,41 +796,6 @@ fn append_nodes(
         })
         .take(MAX_DERIVATIONS_PER_STATE + 1)
         .collect()
-}
-
-fn match_item(item: &Item, input: &str, position: usize) -> Vec<usize> {
-    match item {
-        Item::Terminal(terminal) => input[position..]
-            .starts_with(terminal)
-            .then_some(position + terminal.len())
-            .into_iter()
-            .collect(),
-        Item::Regex {
-            pattern,
-            precede,
-            follow,
-            ..
-        } => {
-            if precede
-                .as_ref()
-                .is_some_and(|restriction| restriction.is_match(&input[..position]))
-            {
-                return Vec::new();
-            }
-            let Some(found) = pattern.find(&input[position..]) else {
-                return Vec::new();
-            };
-            let end = position + found.end();
-            if follow
-                .as_ref()
-                .is_some_and(|restriction| restriction.is_match(&input[end..]))
-            {
-                return Vec::new();
-            }
-            vec![end]
-        }
-        Item::NonTerminal(_) => Vec::new(),
-    }
 }
 
 fn build_parsed_term(

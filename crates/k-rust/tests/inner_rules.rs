@@ -232,6 +232,19 @@ rule_snapshot!(
 );
 
 rule_snapshot!(
+    resolves_prefix_terminals_with_the_global_scanner,
+    r#"
+        module MAIN
+          syntax Id ::= r"[a-z]" [token]
+          syntax Exp ::= Id
+          syntax Exp ::= Exp "==" Exp [symbol(eq)]
+          syntax Exp ::= Exp "==K" Exp [symbol(eqK)]
+          rule a ==K b => a == b
+        endmodule
+    "#
+);
+
+rule_snapshot!(
     resolves_left_and_right_associativity,
     r#"
         module MAIN

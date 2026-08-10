@@ -231,13 +231,15 @@ pub(super) fn add_k_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {
     )?;
     add_semantic_cast(grammar, Sort::new("K"))?;
     add_semantic_cast(grammar, Sort::new("KItem"))?;
-    grammar.add(
-        Sort::new("Bool"),
-        vec![ProductionItem::regex("true|false")],
-        None,
-        true,
-        false,
-    )?;
+    for value in ["true", "false"] {
+        grammar.add(
+            Sort::new("Bool"),
+            vec![ProductionItem::Terminal(value.into())],
+            None,
+            true,
+            false,
+        )?;
+    }
     add_subsort(grammar, "Bool", Sort::new("#KVariable"))?;
     add_subsort(grammar, "Bool", Sort::new("KConfigVar"))?;
     add_semantic_cast(grammar, Sort::new("Bool"))?;

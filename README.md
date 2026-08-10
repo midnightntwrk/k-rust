@@ -58,7 +58,10 @@ through each module's visible sort-synonym map at the same boundary as the Java 
 keeps filesystem and URL policy outside the WASM-compatible frontend core. A reusable portable
 chart parser now consumes visible lowered productions, including left recursion, nullable rules,
 default layout, regex restrictions, named lexical references, parse-forest sharing, and explicit
-ambiguity/resource errors. The loader uses it with the implicit `CONFIG-CELLS` and K bridges to
+ambiguity/resource errors. Its portable global scanner matches Scala/flex winner semantics across
+literal and regex terminals: longest match first, then `[prec]`, with literals winning equal-length
+default-precedence ties; regex alternations also retain their longest match. The loader uses it with
+the implicit `CONFIG-CELLS` and K bridges to
 replace configuration bubbles with structured KAST, covering nested and external cells, cell
 properties, imported user syntax, configuration variables, semantic casts, and `ensures` clauses.
 Dependency-ordered configuration expansion now generates ordinary, optional, and collection cell
@@ -111,10 +114,9 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
 - Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.
 - Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
   auto-imported prelude policy alongside the future command-line frontend.
-- Complete Java `RuleGrammarGenerator` parity: reproduce scanner token precedence and automatic
-  follow restrictions exactly, and port the overload, list, cast, prefer/avoid, and remaining
-  type-inference disambiguation passes so ambiguous rule, claim, context, and alias bubbles resolve
-  canonically.
+- Complete Java `RuleGrammarGenerator` parity: reproduce module-defined layout scanning and exact
+  scanner diagnostics, and port the overload, list, cast, prefer/avoid, and remaining type-inference
+  disambiguation passes so ambiguous rule, claim, context, and alias bubbles resolve canonically.
 - Revisit package splitting only if compile times, dependency boundaries, or release needs justify
   moving beyond the current single-crate workspace.
 - Measure how often real definitions require the Z3 sort-inference fallback, then port that

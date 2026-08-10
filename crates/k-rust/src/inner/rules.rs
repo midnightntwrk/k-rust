@@ -240,9 +240,30 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
             _ => None,
         })
         .collect::<BTreeSet<_>>();
+    let klabel_terminals = visible
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label),
+                items,
+                ..
+            } if items.iter().any(
+                |item| matches!(item, ProductionItem::Terminal(value) if value == &label.name),
+            ) =>
+            {
+                Some(label.name.clone())
+            }
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
 
     add_k_syntax(&mut grammar)?;
-    add_rule_k_syntax(&mut grammar, &concrete_sorts, &bracket_sorts)?;
+    add_rule_k_syntax(
+        &mut grammar,
+        &concrete_sorts,
+        &bracket_sorts,
+        &klabel_terminals,
+    )?;
     add_rule_cells(&mut grammar, &visible)?;
 
     for sort in concrete_sorts {
@@ -285,6 +306,7 @@ fn add_rule_k_syntax(
     grammar: &mut Grammar,
     concrete_sorts: &BTreeSet<Sort>,
     bracket_sorts: &BTreeSet<Sort>,
+    klabel_terminals: &BTreeSet<String>,
 ) -> Result<(), ParseError> {
     add_subsort(grammar, "KBott", Sort::new("#KVariable"))?;
     add_subsort(grammar, "KBott", Sort::new("KConfigVar"))?;
@@ -298,6 +320,15 @@ fn add_rule_k_syntax(
         true,
         false,
     )?;
+    for label in klabel_terminals {
+        grammar.add(
+            Sort::new("KLabel"),
+            vec![ProductionItem::Terminal(label.clone())],
+            None,
+            true,
+            false,
+        )?;
+    }
     grammar.add(
         Sort::new("KList"),
         vec![nonterminal("K")],

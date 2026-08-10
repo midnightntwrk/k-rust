@@ -24,6 +24,12 @@ fn nonterminal(sort: &str) -> ProductionItem {
     }
 }
 
+fn precedence(value: &str) -> Attributes {
+    let mut attributes = Attributes::default();
+    attributes.insert("prec", serde_json::json!(value));
+    attributes
+}
+
 #[test]
 fn parses_recursive_grammars_tokens_subsorts_and_layout() {
     let mut token_attributes = Attributes::default();
@@ -155,6 +161,125 @@ fn expands_named_lexical_references() {
             sort: Sort::new("Int"),
         }
     );
+}
+
+#[test]
+fn matches_scala_global_scanner_winner_rules() {
+    let cases = [
+        (
+            vec![
+                production(
+                    "Start",
+                    vec![
+                        ProductionItem::Terminal("=".into()),
+                        ProductionItem::Terminal("=".into()),
+                    ],
+                    Some("split"),
+                    Attributes::default(),
+                ),
+                production(
+                    "Start",
+                    vec![ProductionItem::Terminal("==".into())],
+                    Some("longTerminal"),
+                    Attributes::default(),
+                ),
+            ],
+            "==",
+        ),
+        (
+            vec![
+                production(
+                    "Start",
+                    vec![ProductionItem::regex("[a-z]+")],
+                    Some("identifier"),
+                    Attributes::default(),
+                ),
+                production(
+                    "Start",
+                    vec![ProductionItem::Terminal("if".into())],
+                    Some("keyword"),
+                    Attributes::default(),
+                ),
+            ],
+            "if",
+        ),
+        (
+            vec![
+                production(
+                    "Start",
+                    vec![ProductionItem::regex("[a-z]+")],
+                    Some("word"),
+                    precedence("1"),
+                ),
+                production(
+                    "Start",
+                    vec![ProductionItem::regex("[a-z]{2}")],
+                    Some("pair"),
+                    precedence("2"),
+                ),
+            ],
+            "ab",
+        ),
+        (
+            vec![
+                production(
+                    "Start",
+                    vec![ProductionItem::regex("[a-z]{2}")],
+                    Some("highPrecedence"),
+                    precedence("99"),
+                ),
+                production(
+                    "Start",
+                    vec![ProductionItem::regex("[a-z]{3}")],
+                    Some("longer"),
+                    precedence("0"),
+                ),
+            ],
+            "abc",
+        ),
+        (
+            vec![production(
+                "Start",
+                vec![ProductionItem::regex("a|ab")],
+                Some("longestAlternative"),
+                Attributes::default(),
+            )],
+            "ab",
+        ),
+    ];
+    let parsed = cases
+        .into_iter()
+        .map(|(sentences, input)| {
+            Grammar::from_sentences(&sentences)
+                .unwrap()
+                .parse(&Sort::new("Start"), input)
+        })
+        .collect::<Vec<_>>();
+
+    insta::assert_debug_snapshot!(parsed);
+}
+
+#[test]
+fn rejects_inconsistent_scanner_precedence() {
+    let sentences = vec![
+        production(
+            "First",
+            vec![ProductionItem::regex("[a-z]+")],
+            Some("first"),
+            precedence("1"),
+        ),
+        production(
+            "Second",
+            vec![ProductionItem::regex("[a-z]+")],
+            Some("second"),
+            precedence("2"),
+        ),
+    ];
+
+    assert!(matches!(
+        Grammar::from_sentences(&sentences),
+        Err(ParseError::InconsistentTokenPrecedence { .. })
+    ));
 }
 
 #[test]

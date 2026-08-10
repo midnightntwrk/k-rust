@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 petgraph.workspace = true
 regex.workspace = true
+regex-automata.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

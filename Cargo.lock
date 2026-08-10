@@ -185,6 +185,7 @@ dependencies = [
  "petgraph",
  "proptest",
  "regex",
+ "regex-automata",
  "serde",
  "serde_json",
 ]
