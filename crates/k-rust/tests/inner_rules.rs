@@ -182,6 +182,42 @@ fn preserves_genuine_ambiguity_until_disambiguation_is_ported() {
     );
 }
 
+#[test]
+fn builds_parametric_parse_forests_before_reaching_the_z3_boundary() {
+    for source in [
+        indoc! {r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              syntax Box ::= "box(" Int ")" [symbol(box)]
+              syntax {S} S ::= "same(" S ")" [symbol(same)]
+              rule box(same(1)) => box(1)
+            endmodule
+        "#},
+        indoc! {r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              syntax {S} Int ::= "take(" S ")" [symbol(take)]
+              rule take(1) => 1
+            endmodule
+        "#},
+    ] {
+        let error = resolve_rule_bubbles(&lowered(source)).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                RuleError::Parse(ref error)
+                    if matches!(&error.error, ParseError::Ambiguous { parses } if *parses > 0)
+                        || matches!(
+                            &error.error,
+                            ParseError::SortInference { message }
+                                if message.contains("parametric productions")
+                        )
+            ),
+            "{error:?}"
+        );
+    }
+}
+
 rule_snapshot!(
     resolves_syntax_priority,
     r#"

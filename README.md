@@ -78,9 +78,12 @@ inference path now checks unambiguous non-parametric trees, infers the tightest 
 named and anonymous variables, inserts semantic casts, and enforces the non-widening rule for
 `anywhere`, simplification, function, and macro rewrites. Forests that remain genuinely ambiguous
 or use parametric productions are explicit errors at the same boundary where Scala falls back to
-the still-unported Z3 inferencer. Scala-compatible record productions are generated for prefix
-syntax, collapsed back to positional applications before disambiguation, and fill omitted named or
-unnamed fields with collision-free anonymous variables.
+the still-unported Z3 inferencer. Before that boundary, all four Scala
+`RuleGrammarGenerator` cases concretize parametric productions for Earley parsing, preserve the
+original production and substitution, and add concrete-to-placeholder bridges such as
+`MInt{K} ::= MInt{8}`. Scala-compatible record productions are generated for prefix syntax,
+collapsed back to positional applications before disambiguation, and fill omitted named or unnamed
+fields with collision-free anonymous variables.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -108,14 +111,15 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
 - Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.
 - Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
   auto-imported prelude policy alongside the future command-line frontend.
-- Complete Java `RuleGrammarGenerator` parity: concretize every parametric production, reproduce
-  scanner token precedence and automatic follow restrictions exactly, and port the overload, list,
-  cast, prefer/avoid, and remaining type-inference disambiguation passes so ambiguous rule, claim,
-  context, and alias bubbles resolve canonically.
+- Complete Java `RuleGrammarGenerator` parity: reproduce scanner token precedence and automatic
+  follow restrictions exactly, and port the overload, list, cast, prefer/avoid, and remaining
+  type-inference disambiguation passes so ambiguous rule, claim, context, and alias bubbles resolve
+  canonically.
 - Revisit package splitting only if compile times, dependency boundaries, or release needs justify
   moving beyond the current single-crate workspace.
 - Measure how often real definitions require the Z3 sort-inference fallback, then port that
-  ambiguity/parametric path described in §6.9.
+  ambiguity/parametric path described in §6.9 behind an optional native-only `z3-inference`
+  feature; keep the portable parser and default library WASM-compatible.
 
 **Provenance.** All figures below were measured directly against these trees, not recalled:
 
@@ -552,11 +556,14 @@ Large, tedious, non-parallelisable-by-inspection surface. Needs a scope decision
 `ParseInModule.java:417` gates on `SortInferencer.isSupported(...)` (newer,
 Hindley-Milner-ish, 591 LOC) and falls back to the Z3-backed `TypeInferencer` (1,072 LOC).
 `k-rust` now implements the newer portable path for the same supported subset: unambiguous trees
-without parametric sorts. It preserves Scala's fallback boundary instead of guessing when a tree
-needs the older algorithm. With native `kompile` the remaining path can keep shelling out to Z3,
-so this is a straight port rather than a design decision. **But measure what fraction of the
-corpus takes each path** — if the Z3 fallback is common it constrains any future attempt to make
-`kompile` WASM-capable, and it makes output dependent on Z3's model choice across solver versions.
+whose surviving productions are non-parametric. The parsing grammar still concretizes all four
+parametric production cases exactly where Scala does and retains the original production link for
+the future fallback. It preserves Scala's fallback boundary instead of guessing when a tree needs
+the older algorithm. The remaining path is planned behind an optional native-only `z3-inference`
+feature using the Rust Z3 bindings; the portable core stays WASM-compatible. **But measure what
+fraction of the corpus takes each path** — if the Z3 fallback is common it constrains any future
+attempt to make `kompile` WASM-capable, and it makes output dependent on Z3's model choice across
+solver versions.
 
 ---
 

@@ -75,7 +75,8 @@ impl Grammar {
                 children,
             } => {
                 let production = &self.productions[*production];
-                production.result.parameters.is_empty()
+                production.parametric_origin.is_none()
+                    && production.result.parameters.is_empty()
                     && production.items.iter().all(|item| {
                         !matches!(item, Item::NonTerminal(sort) if !sort.parameters.is_empty())
                     })

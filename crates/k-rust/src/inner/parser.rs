@@ -2,6 +2,7 @@
 
 mod disambiguation;
 mod inference;
+mod parametric;
 mod record;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -10,8 +11,8 @@ use std::fmt;
 use regex::Regex as CompiledRegex;
 
 use crate::definition::{
-    AssociativityRelations, PartialOrder, ProductionItem, Regex as KRegex, RegexBody, Sentence,
-    compute_associativities, compute_priorities, parse_regex,
+    AssociativityRelations, Attributes, PartialOrder, ProductionItem, Regex as KRegex, RegexBody,
+    Sentence, compute_associativities, compute_priorities, parse_regex,
 };
 use crate::kast::{Label, Sort, Term};
 
@@ -153,6 +154,17 @@ struct Production {
     macro_like: bool,
     field_names: Vec<Option<String>>,
     record: Option<RecordProduction>,
+    parametric_origin: Option<ParametricOrigin>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ParametricOrigin {
+    label: Option<Label>,
+    parameters: Vec<Sort>,
+    result: Sort,
+    items: Vec<ProductionItem>,
+    attributes: Attributes,
+    substitution: BTreeMap<Sort, Sort>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -193,7 +205,10 @@ enum ParsedTerm {
     Ambiguity(BTreeSet<ParsedTerm>),
 }
 
-/// A reusable inner grammar derived from visible, non-parametric productions.
+/// A reusable inner grammar derived from visible productions.
+///
+/// Parametric productions are concretized for parsing while retaining a link to
+/// their original form for sort inference.
 #[derive(Clone, Debug)]
 pub struct Grammar {
     productions: Vec<Production>,
@@ -243,14 +258,14 @@ impl Grammar {
             associativities,
             ..Self::default()
         };
-        for sentence in sentences {
+        for sentence in &sentences {
             let Sentence::Production {
                 label,
                 parameters,
                 sort,
                 items,
                 attributes,
-            } = sentence
+            } = *sentence
             else {
                 continue;
             };
@@ -277,6 +292,7 @@ impl Grammar {
                 &lexical,
             )?;
         }
+        grammar.add_parametric_productions(&sentences, &lexical)?;
         let original_productions = grammar.productions.len();
         for production in 0..original_productions {
             grammar.add_record_productions(production)?;
@@ -574,6 +590,7 @@ impl Grammar {
             macro_like: options.macro_like,
             field_names,
             record: None,
+            parametric_origin: None,
         });
         self.by_result.entry(result).or_default().push(index);
         Ok(())
