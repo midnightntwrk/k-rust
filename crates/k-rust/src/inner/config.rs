@@ -184,7 +184,7 @@ fn configuration_grammar(
             add_subsort(&mut grammar, "KItem", sort.clone())?;
             add_subsort(&mut grammar, sort.name.as_str(), Sort::new("KConfigVar"))?;
             add_subsort(&mut grammar, sort.name.as_str(), Sort::new("#KVariable"))?;
-            add_semantic_cast(&mut grammar, sort)?;
+            add_casts(&mut grammar, Sort::new("K"), sort.clone(), sort)?;
         }
     }
 
@@ -229,8 +229,25 @@ pub(super) fn add_k_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {
         false,
         false,
     )?;
-    add_semantic_cast(grammar, Sort::new("K"))?;
-    add_semantic_cast(grammar, Sort::new("KItem"))?;
+    add_casts(grammar, Sort::new("K"), Sort::new("K"), Sort::new("K"))?;
+    add_casts(
+        grammar,
+        Sort::new("K"),
+        Sort::new("KItem"),
+        Sort::new("KItem"),
+    )?;
+    add_casts(
+        grammar,
+        Sort::new("KLabel"),
+        Sort::new("KLabel"),
+        Sort::new("KLabel"),
+    )?;
+    add_casts(
+        grammar,
+        Sort::new("KList"),
+        Sort::new("KList"),
+        Sort::new("KList"),
+    )?;
     for value in ["true", "false"] {
         grammar.add(
             Sort::new("Bool"),
@@ -242,7 +259,12 @@ pub(super) fn add_k_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {
     }
     add_subsort(grammar, "Bool", Sort::new("#KVariable"))?;
     add_subsort(grammar, "Bool", Sort::new("KConfigVar"))?;
-    add_semantic_cast(grammar, Sort::new("Bool"))?;
+    add_casts(
+        grammar,
+        Sort::new("K"),
+        Sort::new("Bool"),
+        Sort::new("Bool"),
+    )?;
     grammar.add(
         Sort::new("#RuleContent"),
         vec![nonterminal("#RuleBody")],
@@ -381,17 +403,65 @@ pub(super) fn add_subsort(
     )
 }
 
-pub(super) fn add_semantic_cast(grammar: &mut Grammar, sort: Sort) -> Result<(), ParseError> {
+pub(super) fn add_casts(
+    grammar: &mut Grammar,
+    inner_sort: Sort,
+    cast_sort: Sort,
+    label_sort: Sort,
+) -> Result<(), ParseError> {
     grammar.add(
-        sort.clone(),
+        cast_sort.clone(),
         vec![
             ProductionItem::NonTerminal {
-                sort: sort.clone(),
+                sort: label_sort.clone(),
                 name: None,
             },
-            ProductionItem::Terminal(format!(":{sort}")),
+            ProductionItem::Terminal(format!("::{cast_sort}")),
         ],
-        Some(Label::new(format!("#SemanticCastTo{}", sort.name))),
+        Some(Label::new("#SyntacticCast")),
+        false,
+        false,
+    )?;
+    grammar.add(
+        cast_sort.clone(),
+        vec![
+            ProductionItem::Terminal("{".into()),
+            ProductionItem::NonTerminal {
+                sort: label_sort.clone(),
+                name: None,
+            },
+            ProductionItem::Terminal("}".into()),
+            ProductionItem::Terminal(format!("::{cast_sort}")),
+        ],
+        Some(Label::new("#SyntacticCastBraced")),
+        false,
+        false,
+    )?;
+    grammar.add(
+        label_sort.clone(),
+        vec![
+            ProductionItem::NonTerminal {
+                sort: label_sort.clone(),
+                name: None,
+            },
+            ProductionItem::Terminal(format!(":{cast_sort}")),
+        ],
+        Some(Label::new(format!("#SemanticCastTo{label_sort}"))),
+        false,
+        false,
+    )?;
+    grammar.add(
+        label_sort,
+        vec![
+            ProductionItem::Terminal("{".into()),
+            ProductionItem::NonTerminal {
+                sort: inner_sort,
+                name: None,
+            },
+            ProductionItem::Terminal("}".into()),
+            ProductionItem::Terminal(format!(":>{cast_sort}")),
+        ],
+        Some(Label::new("#OuterCast")),
         false,
         false,
     )

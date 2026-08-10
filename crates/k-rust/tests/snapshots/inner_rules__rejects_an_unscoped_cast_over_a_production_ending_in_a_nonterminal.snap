@@ -1,0 +1,25 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+expression: error
+---
+Parse(
+    RuleParseError {
+        module: "MAIN",
+        sentence_type: "rule",
+        source: Some(
+            "rules.k",
+        ),
+        location: Some(
+            Location {
+                start_line: 5,
+                start_column: 3,
+                end_line: 5,
+                end_column: 23,
+            },
+        ),
+        error: CastPriority {
+            cast: "#SyntacticCast",
+            child: "f",
+        },
+    },
+)

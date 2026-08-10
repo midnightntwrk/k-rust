@@ -67,6 +67,10 @@ pub enum ParseError {
         child: String,
         side: &'static str,
     },
+    CastPriority {
+        cast: String,
+        child: String,
+    },
     UnknownApplication {
         label: String,
         arity: usize,
@@ -150,6 +154,10 @@ impl fmt::Display for ParseError {
             } => write!(
                 formatter,
                 "cannot use {child} as the immediate {side} child of {parent} because of associativity"
+            ),
+            Self::CastPriority { cast, child } => write!(
+                formatter,
+                "{child} is not allowed to be an immediate child of {cast}; use parentheses around the child to set the cast's scope"
             ),
             Self::UnknownApplication { label, arity } => write!(
                 formatter,
@@ -555,7 +563,8 @@ impl Grammar {
                         Err(ParseError::Ambiguous { parses })
                     } else {
                         let listed = self.add_empty_lists(filtered, start)?;
-                        Ok(self.lower(listed))
+                        let cleaned = self.remove_brackets_and_syntactic_casts(listed);
+                        Ok(self.lower(cleaned))
                     }
                 }
             }

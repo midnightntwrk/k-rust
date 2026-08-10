@@ -96,7 +96,10 @@ Z3 still stop at that unported boundary before ambiguity overload filtering can 
 Lowered `userList` pairs are recognized by the inner grammar, temporary singleton-list subsorts
 participate in inference, and the post-disambiguation pass reconstructs canonical recursive list
 applications and terminators. This includes left- and right-associative lists and unique-least-sort
-diagnostics for overloaded list constructors and terminators.
+diagnostics for overloaded list constructors and terminators. The derived rule grammar also emits
+Scala's complete syntactic, braced syntactic, semantic, and outer cast matrix. Cast-specific scope
+filtering rejects unparenthesized greedy children, and final tree cleanup removes brackets and
+syntactic casts while preserving semantic and outer casts in public KAST.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -125,8 +128,8 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
 - Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
   auto-imported prelude policy alongside the future command-line frontend.
 - Complete Java `RuleGrammarGenerator` parity: reproduce module-defined layout scanning and exact
-  scanner diagnostics, and port the remaining cast and type-inference
-  disambiguation passes so ambiguous rule, claim, context, and alias bubbles resolve canonically;
+  scanner diagnostics, and port the remaining type-inference disambiguation so ambiguous rule,
+  claim, context, and alias bubbles resolve canonically;
   connect the existing post-inference overload and `prefer`/`avoid` selectors to the future Z3
   result.
 - Revisit package splitting only if compile times, dependency boundaries, or release needs justify

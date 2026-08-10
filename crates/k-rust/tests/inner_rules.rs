@@ -299,6 +299,39 @@ rule_snapshot!(
 );
 
 rule_snapshot!(
+    parses_and_cleans_all_cast_forms,
+    r#"
+        module MAIN
+          syntax Id ::= r"[a-z]" [token]
+          syntax Exp ::= Id
+          rule X::Exp => {X}::Exp
+          rule X:Exp => {X}:>Exp
+          rule a::Exp => {a}::Exp
+        endmodule
+    "#
+);
+
+#[test]
+fn rejects_an_unscoped_cast_over_a_production_ending_in_a_nonterminal() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Atom ::= r"[a-z]" [token]
+          syntax Other ::= Atom
+          syntax Exp ::= "f" Other [symbol(f)]
+          rule f a::Exp => f a
+        endmodule
+    "#});
+    let error = resolve_rule_bubbles(&definition).unwrap_err();
+    assert!(matches!(
+        error,
+        RuleError::Parse(ref error)
+            if matches!(error.error, ParseError::CastPriority { .. })
+    ));
+
+    insta::assert_debug_snapshot!(error);
+}
+
+rule_snapshot!(
     resolves_generic_k_applications,
     r#"
         module MAIN

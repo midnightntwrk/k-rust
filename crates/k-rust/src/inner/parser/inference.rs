@@ -249,17 +249,18 @@ impl<'a> Solver<'a> {
                         child_sorts.len()
                     )));
                 }
-                for (child, expected) in child_sorts.iter().cloned().zip(expected) {
-                    self.constrain(child, SortRef::Concrete(expected.clone()))?;
+                for (child, expected) in child_sorts.iter().cloned().zip(expected.iter()) {
+                    self.constrain(child, SortRef::Concrete((*expected).clone()))?;
                 }
                 if production.label.as_ref().is_some_and(|label| {
                     matches!(
                         label.name.as_str(),
                         "#SyntacticCast" | "#SyntacticCastBraced"
                     )
-                }) && let Some(child) = child_sorts.first().cloned()
+                }) && let Some(child) = expected.first()
                 {
                     let cast = SortRef::Concrete(production.result.clone());
+                    let child = SortRef::Concrete((*child).clone());
                     self.constrain(cast.clone(), child.clone())?;
                     self.constrain(child, cast)?;
                 }

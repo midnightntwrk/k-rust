@@ -9,7 +9,7 @@ use crate::definition::{
 };
 use crate::kast::{Label, Sort, Term};
 
-use super::config::{add_k_syntax, add_semantic_cast, add_subsort, nonterminal, truth};
+use super::config::{add_casts, add_k_syntax, add_subsort, nonterminal, truth};
 use super::parser::{Grammar, ParseError};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -270,7 +270,7 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
         if sort.name != "Bool" {
             add_subsort(&mut grammar, "KItem", sort.clone())?;
             grammar.add(sort.clone(), vec![nonterminal("KBott")], None, false, true)?;
-            add_semantic_cast(&mut grammar, sort.clone())?;
+            add_casts(&mut grammar, Sort::new("K"), sort.clone(), sort.clone())?;
         }
         add_rule_sort(&mut grammar, &sort)?;
     }

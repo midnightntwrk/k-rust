@@ -88,6 +88,14 @@ impl Grammar {
         else {
             return None;
         };
+        if (parent_label == "#SyntacticCast" || parent_label.starts_with("#SemanticCastTo"))
+            && matches!(child.items.last(), Some(Item::NonTerminal(_)))
+        {
+            return Some(ParseError::CastPriority {
+                cast: parent_label.clone(),
+                child: child_label.clone(),
+            });
+        }
         if self.priorities.less_than(parent_label, child_label) {
             return Some(ParseError::Priority {
                 parent: parent_label.clone(),
@@ -137,6 +145,42 @@ impl Grammar {
             }
             ParsedTerm::Ambiguity(_) => {
                 unreachable!("ambiguities are rejected before lowering to KAST")
+            }
+        }
+    }
+
+    /// Remove the concrete grouping nodes discarded by Scala's final
+    /// `RemoveBracketVisitor`, while retaining semantic and outer casts.
+    pub(super) fn remove_brackets_and_syntactic_casts(&self, term: ParsedTerm) -> ParsedTerm {
+        match term {
+            ParsedTerm::Term(_) => term,
+            ParsedTerm::Ambiguity(alternatives) => ParsedTerm::Ambiguity(
+                alternatives
+                    .into_iter()
+                    .map(|alternative| self.remove_brackets_and_syntactic_casts(alternative))
+                    .collect(),
+            ),
+            ParsedTerm::Production {
+                production,
+                mut children,
+            } => {
+                let descriptor = &self.productions[production];
+                let syntactic_cast = descriptor.label.as_ref().is_some_and(|label| {
+                    matches!(
+                        label.name.as_str(),
+                        "#SyntacticCast" | "#SyntacticCastBraced"
+                    )
+                });
+                if (descriptor.bracket || syntactic_cast) && children.len() == 1 {
+                    return self.remove_brackets_and_syntactic_casts(children.remove(0));
+                }
+                ParsedTerm::Production {
+                    production,
+                    children: children
+                        .into_iter()
+                        .map(|child| self.remove_brackets_and_syntactic_casts(child))
+                        .collect(),
+                }
             }
         }
     }
