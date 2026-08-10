@@ -212,6 +212,9 @@ impl Grammar {
                     .map(|term| self.collapse_records(term, names, next))
                     .collect::<Result<_, _>>()?,
             }),
+            ParsedTerm::InstantiatedProduction { .. } => {
+                unreachable!("record productions collapse before sort inference")
+            }
         }
     }
 
@@ -352,6 +355,9 @@ fn collect_variable_names(term: &ParsedTerm, names: &mut BTreeSet<String>) {
             for child in children {
                 collect_variable_names(child, names);
             }
+        }
+        ParsedTerm::InstantiatedProduction { .. } => {
+            unreachable!("record variables are collected before sort inference")
         }
         ParsedTerm::Ambiguity(alternatives) => {
             for alternative in alternatives {

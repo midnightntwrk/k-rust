@@ -220,7 +220,7 @@ fn substitute_item(item: &ProductionItem, substitution: &BTreeMap<Sort, Sort>) -
     }
 }
 
-fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Sort, Sort>) -> Sort {
+pub(super) fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Sort, Sort>) -> Sort {
     substitution.get(sort).cloned().unwrap_or_else(|| Sort {
         name: sort.name.clone(),
         parameters: sort
@@ -279,7 +279,7 @@ mod tests {
         let sentences = vec![
             syntax_sort(Vec::new(), Sort::new("Int")),
             syntax_sort(vec![w.clone()], mint_w.clone()),
-            syntax_sort(Vec::new(), mint_8),
+            syntax_sort(Vec::new(), mint_8.clone()),
             terminal(Sort::new("Int"), "i"),
             terminal(Sort::new("K"), "k"),
             terminal(Sort::with_parameters("MInt", vec![Sort::new("8")]), "m"),
@@ -308,6 +308,16 @@ mod tests {
                 "case4",
                 vec![nonterminal(s)],
             ),
+            Sentence::Production {
+                label: Some(Label::new("#SemanticCastToMInt{8}")),
+                parameters: Vec::new(),
+                sort: mint_8.clone(),
+                items: vec![
+                    nonterminal(mint_8),
+                    ProductionItem::Terminal(":MInt{8}".into()),
+                ],
+                attributes: Attributes::default(),
+            },
         ];
 
         let grammar = Grammar::from_sentences(&sentences).unwrap();
@@ -347,29 +357,35 @@ mod tests {
                 )
         }));
 
-        for (sort, input, needs_z3) in [
-            (Sort::new("Int"), "case1(i,k)", true),
+        let z3_cases = [
+            (Sort::new("Int"), "case1(i,k)"),
             (
                 Sort::with_parameters("MInt", vec![Sort::new("8")]),
                 "case2(m,m)",
-                true,
             ),
-            (Sort::new("KItem"), "i", false),
-            (Sort::new("Int"), "case4(k)", true),
-        ] {
-            let result = grammar.parse(&sort, input);
-            if needs_z3 {
-                assert!(
-                    matches!(result, Err(ParseError::SortInference { .. })),
-                    "{sort} should parse {input:?} and stop at the Z3 boundary: {result:?}"
-                );
-            } else {
-                assert!(
-                    result.is_ok(),
-                    "the generated parametric subsort should parse {input:?}: {result:?}"
-                );
-            }
-        }
+            (Sort::new("Int"), "case4(k)"),
+        ];
+        #[cfg(feature = "z3-inference")]
+        insta::assert_debug_snapshot!(
+            "z3_infers_all_parametric_cases",
+            z3_cases
+                .iter()
+                .map(|(sort, input)| grammar.parse(sort, input))
+                .collect::<Vec<_>>()
+        );
+        #[cfg(not(feature = "z3-inference"))]
+        assert!(z3_cases.iter().all(|(sort, input)| matches!(
+            grammar.parse(sort, input),
+            Err(ParseError::Z3InferenceRequired {
+                parametric_sorts: true,
+                ..
+            })
+        )));
+
+        assert!(
+            grammar.parse(&Sort::new("KItem"), "i").is_ok(),
+            "the generated parametric subsort should remain portable"
+        );
     }
 
     fn syntax_sort(parameters: Vec<Sort>, sort: Sort) -> Sentence {

@@ -1,13 +1,13 @@
 # k-rust — feasibility study: porting the K frontend to Rust
 
 **Status:** investigation notes plus an implementation in progress. The single `k-rust` crate
-now contains a WASM-compatible KORE AST, lexer, parser, string codec, compact/pretty printer,
+now contains a portable KORE AST, lexer, parser, string codec, compact/pretty printer,
 lossless KORE JSON v1 codec, Scala-compatible ordering and explicit KAST normalization,
 snapshot tests, property tests,
 and upstream-derived text and JSON fixtures. The user-facing KAST term model now includes
 KAST JSON v4, textual parsing/printing, and context-free KORE conversion. The portable
 definition layer now includes the flat Scala-faithful sentence/module model and lossless
-compiled-definition KAST JSON v4 interchange. Deterministic, WASM-compatible module-import
+compiled-definition KAST JSON v4 interchange. Deterministic, portable module-import
 resolution uses `petgraph`, preserves visibility, and reports complete import cycles. Resolved
 sentence identity and ordering reproduce Scala's explicit rules, including its deliberate gaps
 and its unusual `Production` equality/ordering divergence. A deterministic `petgraph`-backed
@@ -79,9 +79,12 @@ factors shared alternatives into their differing child and lifts top-level rewri
 above `#RuleContent`, matching Scala's preparation for sort inference. The portable, non-Z3
 inference path now checks unambiguous non-parametric trees, infers the tightest compatible sort for
 named and anonymous variables, inserts semantic casts, and enforces the non-widening rule for
-`anywhere`, simplification, function, and macro rewrites. Forests that remain genuinely ambiguous
-or use parametric productions are explicit errors at the same boundary where Scala falls back to
-the still-unported Z3 inferencer. Before that boundary, all four Scala
+`anywhere`, simplification, function, and macro rewrites. The default `z3-inference` feature uses
+the vendored Rust Z3 binding for ambiguous and parametric forests: it encodes structural sorts,
+semantic and syntactic subsorts, casts, rewrite constraints, Scala's grouped sort preferences,
+maximal models, and production-parameter substitution. Builds with `--no-default-features` retain
+the portable subset and return a structured `Z3InferenceRequired` error at that boundary; this is
+also the supported WASM configuration. Before inference, all four Scala
 `RuleGrammarGenerator` cases concretize parametric productions for Earley parsing, preserve the
 original production and substitution, and add concrete-to-placeholder bridges such as
 `MInt{K} ::= MInt{8}`. Scala-compatible record productions are generated for prefix syntax,
@@ -91,8 +94,7 @@ push-down pass, while production metadata and the post-inference selector preser
 and `avoid` behavior, including multiple preferred alternatives and the all-avoided case. Ambiguous
 forests also retain stable production IDs from the definition catalog, and the post-inference
 pipeline resolves overloaded terminators to a unique least production before removing less-specific
-ambiguity alternatives and applying `prefer`/`avoid`, matching Scala's ordering. Forests that need
-Z3 still stop at that unported boundary before ambiguity overload filtering can run end to end.
+ambiguity alternatives and applying `prefer`/`avoid`, matching Scala's ordering.
 Lowered `userList` pairs are recognized by the inner grammar, temporary singleton-list subsorts
 participate in inference, and the post-disambiguation pass reconstructs canonical recursive list
 applications and terminators. This includes left- and right-associative lists and unique-least-sort
@@ -109,6 +111,22 @@ grammar construction instead of stalling the parser.
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
 third parties would realistically want to extract (KORE parsing, KAST parsing, …)?
 Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
+
+## Build modes
+
+Native builds enable `z3-inference` by default. The dependency uses the Z3 crate's `vendored`
+feature, so users do not need to install a `z3` executable or system library:
+
+```console
+cargo build --workspace
+```
+
+The portable library subset, including WebAssembly builds, explicitly disables default features:
+
+```console
+cargo build --workspace --no-default-features
+cargo build --workspace --target wasm32-unknown-unknown --no-default-features
+```
 
 ## TODOs
 
@@ -131,16 +149,13 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
 - Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.
 - Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
   auto-imported prelude policy alongside the future command-line frontend.
-- Complete Java `RuleGrammarGenerator` parity: reproduce exact scanner diagnostics and port the
-  remaining type-inference disambiguation so ambiguous rule,
-  claim, context, and alias bubbles resolve canonically;
-  connect the existing post-inference overload and `prefer`/`avoid` selectors to the future Z3
-  result.
+- Complete Java `RuleGrammarGenerator` parity: reproduce exact scanner diagnostics and broaden
+  differential coverage for ambiguous and parametric sort inference across rules, claims,
+  contexts, and aliases.
 - Revisit package splitting only if compile times, dependency boundaries, or release needs justify
   moving beyond the current single-crate workspace.
-- Measure how often real definitions require the Z3 sort-inference fallback, then port that
-  ambiguity/parametric path described in §6.9 behind an optional native-only `z3-inference`
-  feature; keep the portable parser and default library WASM-compatible.
+- Measure how often real definitions require the default Z3 sort-inference path and expand the
+  corpus used to compare its models and diagnostics with the pinned Scala frontend.
 
 **Provenance.** All figures below were measured directly against these trees, not recalled:
 
@@ -159,8 +174,8 @@ Re-measure everything if the pinned commits move.
 1. **Volume is not the problem.** The entire frontend is ~44k LOC. The extractable
    library core is ~2.5k. This is small.
 2. **The hard problems initially identified were WASM-induced, not inherent.**
-   Restricting WASM to the library layer (and leaving `kompile` native) means `flex`,
-   Z3, and MPFR can keep being subprocesses / C bindings exactly as they are today.
+   Restricting WASM to the explicitly portable feature set (and leaving `kompile` native) means
+   `flex`, Z3, and MPFR can remain native dependencies where needed.
    That removes all three research-flavoured blockers.
 3. **The KORE parser is not in the `k` repo.** It is a separate ~2.5k-line artifact
    (`scala-kore`). It is also the most portable, best-oracled, most independently-useful
@@ -322,7 +337,8 @@ Two properties make this the right internal cut:
 - **The most-used code becomes the most-tested code**, because the native `kompile` module
   exercises the portable modules on every run.
 
-**Enforce the boundary mechanically.** CI builds `k-rust` for `wasm32-unknown-unknown`.
+**Enforce the boundary mechanically.** CI builds `k-rust` with `--no-default-features` for
+`wasm32-unknown-unknown`, while native builds exercise the default Z3-backed frontend.
 Native-only modules and the CLI must be target-gated when they arrive. It is very easy for an
 agent to reach for `std::fs` or `std::process` in portable definition code — source-location
 handling and `requires` path resolution both tempt it — and silently cost the project its WASM
@@ -573,18 +589,18 @@ Order-sensitive; corpus under-covers it (§5.4). Unchanged by the WASM scoping d
 ### 6.8 Diagnostic fidelity
 Large, tedious, non-parallelisable-by-inspection surface. Needs a scope decision (§8).
 
-### 6.9 Sort inference — *portable path implemented; Z3 fallback deferred*
+### 6.9 Sort inference — *portable path and native Z3 fallback implemented*
 `ParseInModule.java:417` gates on `SortInferencer.isSupported(...)` (newer,
 Hindley-Milner-ish, 591 LOC) and falls back to the Z3-backed `TypeInferencer` (1,072 LOC).
-`k-rust` now implements the newer portable path for the same supported subset: unambiguous trees
-whose surviving productions are non-parametric. The parsing grammar still concretizes all four
-parametric production cases exactly where Scala does and retains the original production link for
-the future fallback. It preserves Scala's fallback boundary instead of guessing when a tree needs
-the older algorithm. The remaining path is planned behind an optional native-only `z3-inference`
-feature using the Rust Z3 bindings; the portable core stays WASM-compatible. **But measure what
-fraction of the corpus takes each path** — if the Z3 fallback is common it constrains any future
-attempt to make `kompile` WASM-capable, and it makes output dependent on Z3's model choice across
-solver versions.
+`k-rust` implements the newer portable path for the same supported subset: unambiguous trees whose
+surviving productions are non-parametric. The parsing grammar concretizes all four parametric
+production cases exactly where Scala does and retains the original production link. For the
+fallback, the default `z3-inference` feature uses the Rust Z3 crate with vendored Z3 and mirrors
+Scala's structural sort constraints, grouped preferences, maximal-model filtering, ambiguity
+pruning, and parametric-label reconstruction. No external `z3` executable is required. Consumers
+that need a portable or WASM build opt out with `--no-default-features`; unsupported forests then
+produce `Z3InferenceRequired` rather than silently diverging. Corpus-level differential testing
+remains important because solver model choices and diagnostics can vary across Z3 versions.
 
 ---
 
@@ -667,5 +683,5 @@ the fact that K already specifies its canonical ordering in code.
       toolchain version.
 - [ ] Stand up the Java instrumentation fork (§5.5) and decide how it will be maintained.
 - [ ] Measure the portable `SortInferencer` vs `TypeInferencer` (Z3) split across the corpus and
-      port the Z3 fallback (§6.9).
+      compare the native fallback against Scala across real definitions (§6.9).
 - [ ] Answer the scope questions in §8.

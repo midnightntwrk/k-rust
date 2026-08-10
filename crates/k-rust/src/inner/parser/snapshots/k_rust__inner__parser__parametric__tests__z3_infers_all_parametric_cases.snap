@@ -1,0 +1,102 @@
+---
+source: crates/k-rust/src/inner/parser/parametric.rs
+expression: "z3_cases.iter().map(|(sort, input)|\ngrammar.parse(sort, input)).collect::<Vec<_>>()"
+---
+[
+    Ok(
+        Apply {
+            label: Label {
+                name: "case1",
+                parameters: [
+                    Sort {
+                        name: "Int",
+                        parameters: [],
+                    },
+                    Sort {
+                        name: "K",
+                        parameters: [],
+                    },
+                ],
+            },
+            arguments: [
+                Apply {
+                    label: Label {
+                        name: "i",
+                        parameters: [],
+                    },
+                    arguments: [],
+                },
+                Apply {
+                    label: Label {
+                        name: "k",
+                        parameters: [],
+                    },
+                    arguments: [],
+                },
+            ],
+        },
+    ),
+    Ok(
+        Apply {
+            label: Label {
+                name: "#SemanticCastToMInt{8}",
+                parameters: [],
+            },
+            arguments: [
+                Apply {
+                    label: Label {
+                        name: "case2",
+                        parameters: [
+                            Sort {
+                                name: "8",
+                                parameters: [],
+                            },
+                            Sort {
+                                name: "K",
+                                parameters: [],
+                            },
+                        ],
+                    },
+                    arguments: [
+                        Apply {
+                            label: Label {
+                                name: "m",
+                                parameters: [],
+                            },
+                            arguments: [],
+                        },
+                        Apply {
+                            label: Label {
+                                name: "m",
+                                parameters: [],
+                            },
+                            arguments: [],
+                        },
+                    ],
+                },
+            ],
+        },
+    ),
+    Ok(
+        Apply {
+            label: Label {
+                name: "case4",
+                parameters: [
+                    Sort {
+                        name: "K",
+                        parameters: [],
+                    },
+                ],
+            },
+            arguments: [
+                Apply {
+                    label: Label {
+                        name: "k",
+                        parameters: [],
+                    },
+                    arguments: [],
+                },
+            ],
+        },
+    ),
+]

@@ -173,22 +173,29 @@ fn preserves_genuine_ambiguity_until_disambiguation_is_ported() {
         endmodule
     "#});
     let error = resolve_rule_bubbles(&definition).unwrap_err();
-    assert!(
-        matches!(
-            error,
-            RuleError::Parse(ref error)
-                if matches!(error.error, ParseError::Ambiguous { .. })
-        ),
-        "{error:?}"
+    #[cfg(feature = "z3-inference")]
+    let expected = matches!(
+        error,
+        RuleError::Parse(ref error) if matches!(error.error, ParseError::Ambiguous { .. })
     );
+    #[cfg(not(feature = "z3-inference"))]
+    let expected = matches!(
+        error,
+        RuleError::Parse(ref error)
+            if matches!(
+                error.error,
+                ParseError::Z3InferenceRequired { ambiguity: true, .. }
+            )
+    );
+    assert!(expected, "{error:?}");
 }
 
 #[test]
 fn preserves_prefer_and_avoid_until_post_inference_disambiguation() {
-    let errors = ["prefer", "avoid"]
+    let sources = ["prefer", "avoid"]
         .into_iter()
         .map(|attribute| {
-            let source = format!(
+            format!(
                 r#"module MAIN
 syntax Int ::= r"[0-9]+" [token]
 syntax Exp ::= Int
@@ -196,21 +203,45 @@ syntax Exp ::= Exp "+" Exp [symbol(plus), {attribute}]
 syntax Exp ::= Exp "*" Exp [symbol(times)]
 rule 1 + 2 * 3 => 1
 endmodule"#
-            );
-            resolve_rule_bubbles(&lowered(&source)).unwrap_err()
+            )
         })
         .collect::<Vec<_>>();
-    assert!(errors.iter().all(|error| matches!(
-        error,
-        RuleError::Parse(error) if matches!(error.error, ParseError::Ambiguous { .. })
+    #[cfg(feature = "z3-inference")]
+    insta::assert_debug_snapshot!(
+        "prefer_and_avoid_after_z3",
+        sources
+            .iter()
+            .map(|source| {
+                resolve_rule_bubbles(&lowered(source)).map(|definition| {
+                    definition
+                        .main_module()
+                        .unwrap()
+                        .local_sentences
+                        .iter()
+                        .filter_map(sentence_summary)
+                        .map(|summary| summary.body)
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>()
+    );
+    #[cfg(not(feature = "z3-inference"))]
+    assert!(sources.iter().all(|source| matches!(
+        resolve_rule_bubbles(&lowered(source)),
+        Err(RuleError::Parse(ref error))
+            if matches!(
+                error.error,
+                ParseError::Z3InferenceRequired {
+                    ambiguity: true,
+                    ..
+                }
+            )
     )));
-
-    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
-fn builds_parametric_parse_forests_before_reaching_the_z3_boundary() {
-    for source in [
+fn resolves_parametric_parse_forests_with_z3_or_reports_the_portable_boundary() {
+    let sources = [
         indoc! {r#"
             module MAIN
               syntax Int ::= r"[0-9]+" [token]
@@ -226,22 +257,80 @@ fn builds_parametric_parse_forests_before_reaching_the_z3_boundary() {
               rule take(1) => 1
             endmodule
         "#},
-    ] {
-        let error = resolve_rule_bubbles(&lowered(source)).unwrap_err();
-        assert!(
-            matches!(
-                error,
-                RuleError::Parse(ref error)
-                    if matches!(&error.error, ParseError::Ambiguous { parses } if *parses > 0)
-                        || matches!(
-                            &error.error,
-                            ParseError::SortInference { message }
-                                if message.contains("parametric productions")
-                        )
-            ),
-            "{error:?}"
-        );
-    }
+    ];
+    #[cfg(feature = "z3-inference")]
+    insta::assert_debug_snapshot!(
+        "resolves_parametric_rules_with_z3",
+        sources
+            .iter()
+            .map(|source| {
+                resolve_rule_bubbles(&lowered(source)).map(|definition| {
+                    definition
+                        .main_module()
+                        .unwrap()
+                        .local_sentences
+                        .iter()
+                        .filter_map(sentence_summary)
+                        .map(|summary| format!("{summary:?}"))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>()
+    );
+    #[cfg(not(feature = "z3-inference"))]
+    assert!(sources.iter().all(|source| matches!(
+        resolve_rule_bubbles(&lowered(source)),
+        Err(RuleError::Parse(ref error))
+            if matches!(
+                error.error,
+                ParseError::Z3InferenceRequired {
+                    parametric_sorts: true,
+                    ..
+                } | ParseError::Ambiguous { .. }
+            )
+    )));
+}
+
+#[cfg(feature = "z3-inference")]
+rule_snapshot!(
+    z3_prunes_ill_typed_ambiguity_branches,
+    r#"
+        module MAIN
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+          syntax Exp ::= "f(" A ")" [symbol(fa)]
+                       | "f(" B ")" [symbol(fb)]
+          syntax Pair ::= "pair(" Exp "," A ")" [symbol(pair)]
+          rule pair(f(X), X) => pair(f(a), a)
+        endmodule
+    "#
+);
+
+#[cfg(not(feature = "z3-inference"))]
+#[test]
+fn portable_build_reports_ambiguity_that_requires_z3() {
+    let error = resolve_rule_bubbles(&lowered(indoc! {r#"
+        module MAIN
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+          syntax Exp ::= "f(" A ")" [symbol(fa)]
+                       | "f(" B ")" [symbol(fb)]
+          syntax Pair ::= "pair(" Exp "," A ")" [symbol(pair)]
+          rule pair(f(X), X) => pair(f(a), a)
+        endmodule
+    "#}))
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        RuleError::Parse(ref error)
+            if matches!(
+                error.error,
+                ParseError::Z3InferenceRequired {
+                    ambiguity: true,
+                    ..
+                }
+            )
+    ));
 }
 
 rule_snapshot!(
@@ -559,14 +648,22 @@ fn preserves_overloaded_generic_applications_for_sort_inference() {
         endmodule
     "#});
     let error = resolve_rule_bubbles(&definition).unwrap_err();
-    assert!(
-        matches!(
-            error,
-            RuleError::Parse(ref error)
-                if matches!(error.error, ParseError::Ambiguous { parses: 2 })
-        ),
-        "{error:?}"
+    #[cfg(feature = "z3-inference")]
+    let expected = matches!(
+        error,
+        RuleError::Parse(ref error)
+            if matches!(error.error, ParseError::Ambiguous { parses: 2 })
     );
+    #[cfg(not(feature = "z3-inference"))]
+    let expected = matches!(
+        error,
+        RuleError::Parse(ref error)
+            if matches!(
+                error.error,
+                ParseError::Z3InferenceRequired { ambiguity: true, .. }
+            )
+    );
+    assert!(expected, "{error:?}");
 }
 
 #[test]

@@ -41,9 +41,16 @@ impl Grammar {
         explicitly_anywhere: bool,
     ) -> Result<ParsedTerm, ParseError> {
         if !self.sort_inference_supported(&term) {
-            return Err(inference_error(
-                "portable sort inference does not yet support parametric productions; the Z3 fallback is not ported",
-            ));
+            #[cfg(feature = "z3-inference")]
+            return self.infer_sorts_z3(term, top_sort, explicitly_anywhere);
+            #[cfg(not(feature = "z3-inference"))]
+            {
+                let (ambiguity, parametric_sorts) = self.z3_reasons(&term);
+                return Err(ParseError::Z3InferenceRequired {
+                    ambiguity,
+                    parametric_sorts,
+                });
+            }
         }
         let order = PartialOrder::new(self.subsort_relations.iter().cloned()).map_err(|cycle| {
             inference_error(format!(
@@ -84,10 +91,49 @@ impl Grammar {
                         .iter()
                         .all(|child| self.sort_inference_supported(child))
             }
+            ParsedTerm::InstantiatedProduction { .. } => {
+                unreachable!("instantiated productions are created by Z3 inference")
+            }
         }
     }
 
-    fn lhs_is_function_or_macro(&self, term: &ParsedTerm) -> bool {
+    #[cfg(not(feature = "z3-inference"))]
+    fn z3_reasons(&self, term: &ParsedTerm) -> (bool, bool) {
+        match term {
+            ParsedTerm::Ambiguity(alternatives) => {
+                alternatives
+                    .iter()
+                    .fold((true, false), |(ambiguity, parametric), alternative| {
+                        let (_, child_parametric) = self.z3_reasons(alternative);
+                        (ambiguity, parametric || child_parametric)
+                    })
+            }
+            ParsedTerm::Production {
+                production,
+                children,
+            } => {
+                let descriptor = &self.productions[*production];
+                let local = descriptor.parametric_origin.is_some()
+                    || !descriptor.result.parameters.is_empty()
+                    || descriptor.items.iter().any(
+                        |item| matches!(item, Item::NonTerminal(sort) if !sort.parameters.is_empty()),
+                    );
+                children
+                    .iter()
+                    .fold((false, local), |(ambiguity, parametric), child| {
+                        let (child_ambiguity, child_parametric) = self.z3_reasons(child);
+                        (ambiguity || child_ambiguity, parametric || child_parametric)
+                    })
+            }
+            ParsedTerm::Term(Term::Token { sort, .. }) => (false, !sort.parameters.is_empty()),
+            ParsedTerm::Term(_) => (false, false),
+            ParsedTerm::InstantiatedProduction { .. } => {
+                unreachable!("Z3 inference reasons are computed before inference")
+            }
+        }
+    }
+
+    pub(super) fn lhs_is_function_or_macro(&self, term: &ParsedTerm) -> bool {
         let Some(rewrite) = self.top_rewrite(term) else {
             return false;
         };
@@ -194,6 +240,9 @@ impl Grammar {
                         .collect::<Result<_, _>>()?,
                 })
             }
+            ParsedTerm::InstantiatedProduction { .. } => {
+                unreachable!("portable inference cannot create instantiated productions")
+            }
         }
     }
 }
@@ -275,6 +324,9 @@ impl<'a> Solver<'a> {
                     self.constrain(child_sorts[1].clone(), SortRef::Concrete(lhs_sort))?;
                 }
                 Ok(SortRef::Concrete(production.result.clone()))
+            }
+            ParsedTerm::InstantiatedProduction { .. } => {
+                unreachable!("instantiated productions are created after constraint solving")
             }
         }
     }
@@ -424,6 +476,9 @@ fn strip_brackets<'a>(grammar: &Grammar, mut term: &'a ParsedTerm) -> &'a Parsed
 fn declared_sort(grammar: &Grammar, term: &ParsedTerm) -> Sort {
     match term {
         ParsedTerm::Production { production, .. } => {
+            grammar.productions[*production].result.clone()
+        }
+        ParsedTerm::InstantiatedProduction { production, .. } => {
             grammar.productions[*production].result.clone()
         }
         ParsedTerm::Term(Term::Token { sort, .. }) => sort.clone(),

@@ -18,6 +18,9 @@ impl Grammar {
                     .find_map(|alternative| self.priority_violation(alternative)),
                 ParsedTerm::Term(_) => None,
                 ParsedTerm::Production { .. } => unreachable!(),
+                ParsedTerm::InstantiatedProduction { .. } => {
+                    unreachable!("instantiated productions are created after priority filtering")
+                }
             };
         };
         let parent = &self.productions[*production];
@@ -143,6 +146,22 @@ impl Grammar {
                     .collect::<Vec<_>>();
                 lower_term(production, &children)
             }
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+            } => {
+                let production = &self.productions[production];
+                let children = children
+                    .into_iter()
+                    .map(|child| self.lower(child))
+                    .collect::<Vec<_>>();
+                let mut instantiated = production.clone();
+                if let Some(label) = &mut instantiated.label {
+                    label.parameters = parameters;
+                }
+                lower_term(&instantiated, &children)
+            }
             ParsedTerm::Ambiguity(_) => {
                 unreachable!("ambiguities are rejected before lowering to KAST")
             }
@@ -176,6 +195,30 @@ impl Grammar {
                 }
                 ParsedTerm::Production {
                     production,
+                    children: children
+                        .into_iter()
+                        .map(|child| self.remove_brackets_and_syntactic_casts(child))
+                        .collect(),
+                }
+            }
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                mut children,
+            } => {
+                let descriptor = &self.productions[production];
+                let syntactic_cast = descriptor.label.as_ref().is_some_and(|label| {
+                    matches!(
+                        label.name.as_str(),
+                        "#SyntacticCast" | "#SyntacticCastBraced"
+                    )
+                });
+                if (descriptor.bracket || syntactic_cast) && children.len() == 1 {
+                    return self.remove_brackets_and_syntactic_casts(children.remove(0));
+                }
+                ParsedTerm::InstantiatedProduction {
+                    production,
+                    parameters,
                     children: children
                         .into_iter()
                         .map(|child| self.remove_brackets_and_syntactic_casts(child))
@@ -257,6 +300,9 @@ impl Grammar {
                     _ => Ok(ParsedTerm::Ambiguity(candidates)),
                 }
             }
+            ParsedTerm::InstantiatedProduction { .. } => {
+                unreachable!("applications are resolved before sort inference")
+            }
         }
     }
 
@@ -300,6 +346,9 @@ impl Grammar {
                 _ => vec![vec![term.clone()]],
             },
             ParsedTerm::Term(_) => vec![vec![term.clone()]],
+            ParsedTerm::InstantiatedProduction { .. } => {
+                unreachable!("K lists are flattened before sort inference")
+            }
         };
         if flattened.len() > super::MAX_DERIVATIONS_PER_STATE {
             Err(ParseError::TooManyParses {
@@ -324,6 +373,18 @@ impl Grammar {
                     .map(|child| self.factor_ambiguities(child))
                     .collect(),
             },
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+            } => ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children: children
+                    .into_iter()
+                    .map(|child| self.factor_ambiguities(child))
+                    .collect(),
+            },
             ParsedTerm::Ambiguity(alternatives) => {
                 let mut alternatives = alternatives
                     .into_iter()
@@ -331,6 +392,66 @@ impl Grammar {
                     .collect::<BTreeSet<_>>();
                 if alternatives.len() == 1 {
                     return alternatives.pop_first().expect("length was one");
+                }
+                if let Some(ParsedTerm::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                }) = alternatives.first()
+                {
+                    let production = *production;
+                    let parameters = parameters.clone();
+                    let children = children.clone();
+                    if !alternatives.iter().all(|alternative| {
+                        matches!(
+                            alternative,
+                            ParsedTerm::InstantiatedProduction {
+                                production: candidate,
+                                parameters: candidate_parameters,
+                                children: candidate_children,
+                            } if *candidate == production
+                                && candidate_parameters == &parameters
+                                && candidate_children.len() == children.len()
+                        )
+                    }) {
+                        return ParsedTerm::Ambiguity(alternatives);
+                    }
+                    let differing = (0..children.len())
+                        .filter(|index| {
+                            alternatives.iter().any(|alternative| {
+                                let ParsedTerm::InstantiatedProduction {
+                                    children: candidate_children,
+                                    ..
+                                } = alternative
+                                else {
+                                    unreachable!()
+                                };
+                                candidate_children[*index] != children[*index]
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    let [index] = differing.as_slice() else {
+                        return ParsedTerm::Ambiguity(alternatives);
+                    };
+                    let mut factored_children = children;
+                    let child_alternatives = alternatives
+                        .into_iter()
+                        .map(|alternative| {
+                            let ParsedTerm::InstantiatedProduction { mut children, .. } =
+                                alternative
+                            else {
+                                unreachable!()
+                            };
+                            children.remove(*index)
+                        })
+                        .collect();
+                    factored_children[*index] =
+                        self.factor_ambiguities(ParsedTerm::Ambiguity(child_alternatives));
+                    return ParsedTerm::InstantiatedProduction {
+                        production,
+                        parameters,
+                        children: factored_children,
+                    };
                 }
                 let Some(ParsedTerm::Production {
                     production,
@@ -469,6 +590,18 @@ impl Grammar {
                     children,
                 })
             }
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+            } => Ok(ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children: children
+                    .into_iter()
+                    .map(|child| self.resolve_overloaded_terminators(child))
+                    .collect::<Result<_, _>>()?,
+            }),
         }
     }
 
@@ -482,6 +615,18 @@ impl Grammar {
                 children,
             } => ParsedTerm::Production {
                 production,
+                children: children
+                    .into_iter()
+                    .map(|child| self.filter_overloads_prefer_avoid(child))
+                    .collect(),
+            },
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+            } => ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
                 children: children
                     .into_iter()
                     .map(|child| self.filter_overloads_prefer_avoid(child))
@@ -541,8 +686,10 @@ impl Grammar {
         let Some(productions) = alternatives
             .iter()
             .map(|alternative| {
-                let ParsedTerm::Production { production, .. } = alternative else {
-                    return None;
+                let production = match alternative {
+                    ParsedTerm::Production { production, .. }
+                    | ParsedTerm::InstantiatedProduction { production, .. } => production,
+                    ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => return None,
                 };
                 self.productions[*production].source_production
             })
@@ -554,8 +701,12 @@ impl Grammar {
         alternatives
             .into_iter()
             .filter(|alternative| {
-                let ParsedTerm::Production { production, .. } = alternative else {
-                    unreachable!("non-production alternatives were returned above")
+                let production = match alternative {
+                    ParsedTerm::Production { production, .. }
+                    | ParsedTerm::InstantiatedProduction { production, .. } => production,
+                    ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => {
+                        unreachable!("non-production alternatives were returned above")
+                    }
                 };
                 self.productions[*production]
                     .source_production
@@ -565,11 +716,11 @@ impl Grammar {
     }
 
     fn is_preferred(&self, term: &ParsedTerm) -> bool {
-        matches!(term, ParsedTerm::Production { production, .. } if self.productions[*production].prefer)
+        matches!(term, ParsedTerm::Production { production, .. } | ParsedTerm::InstantiatedProduction { production, .. } if self.productions[*production].prefer)
     }
 
     fn is_avoided(&self, term: &ParsedTerm) -> bool {
-        matches!(term, ParsedTerm::Production { production, .. } if self.productions[*production].avoid)
+        matches!(term, ParsedTerm::Production { production, .. } | ParsedTerm::InstantiatedProduction { production, .. } if self.productions[*production].avoid)
     }
 
     /// Lift ambiguity in a top-level rewrite LHS above its `#RuleContent` wrapper.
@@ -674,6 +825,11 @@ impl Grammar {
         match term {
             ParsedTerm::Term(_) => 1,
             ParsedTerm::Production { children, .. } => {
+                children.iter().fold(1usize, |count, child| {
+                    count.saturating_mul(Self::ambiguity_count(child))
+                })
+            }
+            ParsedTerm::InstantiatedProduction { children, .. } => {
                 children.iter().fold(1usize, |count, child| {
                     count.saturating_mul(Self::ambiguity_count(child))
                 })
@@ -800,6 +956,29 @@ mod tests {
                     .map_or("<unlabeled>", |label| label.name.as_str());
                 format!(
                     "{label}({})",
+                    children
+                        .iter()
+                        .map(|child| render(grammar, child))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+            } => {
+                let label = grammar.productions[*production]
+                    .label
+                    .as_ref()
+                    .map_or("<unlabeled>", |label| label.name.as_str());
+                format!(
+                    "{label}{{{}}}({})",
+                    parameters
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", "),
                     children
                         .iter()
                         .map(|child| render(grammar, child))

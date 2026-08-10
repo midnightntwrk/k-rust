@@ -6,6 +6,8 @@ mod lists;
 mod parametric;
 mod record;
 mod scanner;
+#[cfg(feature = "z3-inference")]
+mod z3_inference;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
@@ -79,6 +81,10 @@ pub enum ParseError {
     },
     SortInference {
         message: String,
+    },
+    Z3InferenceRequired {
+        ambiguity: bool,
+        parametric_sorts: bool,
     },
     RecordProduction {
         message: String,
@@ -171,6 +177,19 @@ impl fmt::Display for ParseError {
                 "could not find a production for K label {label:?} with arity {arity}"
             ),
             Self::SortInference { message } => formatter.write_str(message),
+            Self::Z3InferenceRequired {
+                ambiguity,
+                parametric_sorts,
+            } => {
+                formatter.write_str("this term requires native Z3 sort inference")?;
+                match (*ambiguity, *parametric_sorts) {
+                    (true, true) => formatter
+                        .write_str(" because its parse is ambiguous and contains parametric sorts"),
+                    (true, false) => formatter.write_str(" because its parse is ambiguous"),
+                    (false, true) => formatter.write_str(" because it contains parametric sorts"),
+                    (false, false) => Ok(()),
+                }
+            }
             Self::RecordProduction { message } => formatter.write_str(message),
             Self::OverloadedTerminator { possible_sorts } => write!(
                 formatter,
@@ -268,6 +287,12 @@ enum ParsedTerm {
         production: usize,
         children: Vec<ParsedTerm>,
     },
+    #[cfg_attr(not(feature = "z3-inference"), allow(dead_code))]
+    InstantiatedProduction {
+        production: usize,
+        parameters: Vec<Sort>,
+        children: Vec<ParsedTerm>,
+    },
     Term(Term),
     Ambiguity(BTreeSet<ParsedTerm>),
 }
@@ -285,6 +310,7 @@ pub struct Grammar {
     priorities: PartialOrder<String>,
     associativities: AssociativityRelations,
     subsort_relations: BTreeSet<(Sort, Sort)>,
+    syntactic_subsort_relations: BTreeSet<(Sort, Sort)>,
     overloads: PartialOrder<ProductionId>,
     user_lists: BTreeMap<Sort, UserList>,
 }
@@ -299,6 +325,7 @@ impl Default for Grammar {
             priorities: PartialOrder::new([]).expect("an empty relation is acyclic"),
             associativities: AssociativityRelations::default(),
             subsort_relations: BTreeSet::new(),
+            syntactic_subsort_relations: BTreeSet::new(),
             overloads: PartialOrder::new([]).expect("an empty relation is acyclic"),
             user_lists: BTreeMap::new(),
         }
@@ -591,21 +618,16 @@ impl Grammar {
                 let forest = self.push_top_lhs_ambiguity_up(
                     self.factor_ambiguities(ParsedTerm::Ambiguity(parsed)),
                 );
-                let parses = Grammar::ambiguity_count(&forest);
+                let inferred = self.infer_sorts(forest, start, is_anywhere)?;
+                let resolved = self.resolve_overloaded_terminators(inferred)?;
+                let filtered = self.filter_overloads_prefer_avoid(resolved);
+                let parses = Grammar::ambiguity_count(&filtered);
                 if parses > 1 {
                     Err(ParseError::Ambiguous { parses })
                 } else {
-                    let inferred = self.infer_sorts(forest, start, is_anywhere)?;
-                    let resolved = self.resolve_overloaded_terminators(inferred)?;
-                    let filtered = self.filter_overloads_prefer_avoid(resolved);
-                    let parses = Grammar::ambiguity_count(&filtered);
-                    if parses > 1 {
-                        Err(ParseError::Ambiguous { parses })
-                    } else {
-                        let listed = self.add_empty_lists(filtered, start)?;
-                        let cleaned = self.remove_brackets_and_syntactic_casts(listed);
-                        Ok(self.lower(cleaned))
-                    }
+                    let listed = self.add_empty_lists(filtered, start)?;
+                    let cleaned = self.remove_brackets_and_syntactic_casts(listed);
+                    Ok(self.lower(cleaned))
                 }
             }
         }
@@ -712,6 +734,12 @@ impl Grammar {
             .transpose()?;
         if syntactic_subsort && let [Item::NonTerminal(child)] = items.as_slice() {
             self.subsort_relations
+                .insert((child.clone(), result.clone()));
+        }
+        if !options.bracket
+            && let [Item::NonTerminal(child)] = items.as_slice()
+        {
+            self.syntactic_subsort_relations
                 .insert((child.clone(), result.clone()));
         }
         self.productions.push(Production {

@@ -3,12 +3,17 @@ name = "k-rust"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["z3-inference"]
+z3-inference = ["dep:z3"]
+
 [dependencies]
 petgraph.workspace = true
 regex.workspace = true
 regex-automata.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+z3 = { workspace = true, optional = true }
 
 [dev-dependencies]
 indoc.workspace = true

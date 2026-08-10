@@ -1,4 +1,5 @@
 target/
+.z3-trace
 
 # ignore some references
 evm-semantics/

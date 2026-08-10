@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::definition::{PartialOrder, ProductionItem};
 use crate::kast::{Sort, Term};
 
+use super::parametric::substitute_sort;
 use super::{Grammar, Item, ParseError, ParsedTerm};
 
 #[derive(Clone, Debug)]
@@ -163,6 +164,59 @@ impl Grammar {
                     children,
                 })
             }
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+            } => {
+                let descriptor = &self.productions[production];
+                let expected_children = descriptor
+                    .parametric_origin
+                    .as_ref()
+                    .map(|origin| {
+                        let substitution = origin
+                            .parameters
+                            .iter()
+                            .cloned()
+                            .zip(parameters.iter().cloned())
+                            .collect::<BTreeMap<_, _>>();
+                        origin
+                            .items
+                            .iter()
+                            .filter_map(|item| match item {
+                                ProductionItem::NonTerminal { sort, .. } => {
+                                    Some(substitute_sort(sort, &substitution))
+                                }
+                                ProductionItem::Terminal(_)
+                                | ProductionItem::RegexTerminal { .. } => None,
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_else(|| {
+                        nonterminal_sorts(descriptor).into_iter().cloned().collect()
+                    });
+                if expected_children.len() != children.len() {
+                    return Err(list_error(format!(
+                        "production {:?} has {} nonterminals but its parse node has {} children",
+                        descriptor.parse_label,
+                        expected_children.len(),
+                        children.len()
+                    )));
+                }
+                let children = children
+                    .into_iter()
+                    .zip(&expected_children)
+                    .map(|(child, expected_child)| {
+                        let child = self.wrap_list_child(child, expected_child, subsorts)?;
+                        self.add_empty_lists_with_order(child, expected_child, subsorts)
+                    })
+                    .collect::<Result<_, _>>()?;
+                Ok(ParsedTerm::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                })
+            }
         }
     }
 
@@ -250,6 +304,9 @@ fn nonterminal_sorts(production: &super::Production) -> Vec<&Sort> {
 fn parsed_sort(grammar: &Grammar, term: &ParsedTerm) -> Sort {
     match term {
         ParsedTerm::Production { production, .. } => {
+            grammar.productions[*production].result.clone()
+        }
+        ParsedTerm::InstantiatedProduction { production, .. } => {
             grammar.productions[*production].result.clone()
         }
         ParsedTerm::Term(Term::Token { sort, .. }) => sort.clone(),

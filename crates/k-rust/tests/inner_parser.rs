@@ -210,9 +210,18 @@ fn reports_real_tree_ambiguity() {
     ];
     let grammar = Grammar::from_sentences(&sentences).unwrap();
 
+    #[cfg(feature = "z3-inference")]
     assert_eq!(
         grammar.parse(&Sort::new("Start"), "x"),
         Err(ParseError::Ambiguous { parses: 2 })
+    );
+    #[cfg(not(feature = "z3-inference"))]
+    assert_eq!(
+        grammar.parse(&Sort::new("Start"), "x"),
+        Err(ParseError::Z3InferenceRequired {
+            ambiguity: true,
+            parametric_sorts: false,
+        })
     );
 }
 
