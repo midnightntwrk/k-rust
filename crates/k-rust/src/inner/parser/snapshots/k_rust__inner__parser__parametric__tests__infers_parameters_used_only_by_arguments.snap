@@ -1,0 +1,26 @@
+---
+source: crates/k-rust/src/inner/parser/parametric.rs
+description: "K term parsed as Int:\n\ncase4(k)\n"
+---
+Ok(
+    Apply {
+        label: Label {
+            name: "case4",
+            parameters: [
+                Sort {
+                    name: "K",
+                    parameters: [],
+                },
+            ],
+        },
+        arguments: [
+            Apply {
+                label: Label {
+                    name: "k",
+                    parameters: [],
+                },
+                arguments: [],
+            },
+        ],
+    },
+)

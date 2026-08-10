@@ -266,8 +266,24 @@ fn is_parser_sort(sort: &Sort) -> bool {
 mod tests {
     use super::*;
 
-    #[test]
-    fn concretizes_all_four_scala_cases() {
+    #[cfg(feature = "z3-inference")]
+    macro_rules! assert_parametric_parse_snapshot {
+        ($grammar:expr, $sort:expr, $code:expr) => {{
+            let source = indoc::indoc! { $code };
+            let expected_sort = $sort;
+            let parsed = $grammar.parse(&expected_sort, source);
+
+            insta::with_settings!({
+                description => format!("K term parsed as {expected_sort}:\n\n{source}"),
+                omit_expression => true,
+                prepend_module_to_snapshot => true,
+            }, {
+                insta::assert_debug_snapshot!(parsed);
+            });
+        }};
+    }
+
+    fn parametric_grammar() -> Grammar {
         let p = Sort::new("P");
         let r = Sort::new("R");
         let s = Sort::new("S");
@@ -319,8 +335,12 @@ mod tests {
                 attributes: Attributes::default(),
             },
         ];
+        Grammar::from_sentences(&sentences).unwrap()
+    }
 
-        let grammar = Grammar::from_sentences(&sentences).unwrap();
+    #[test]
+    fn concretizes_all_parametric_production_shapes() {
+        let grammar = parametric_grammar();
         let summary = grammar
             .productions
             .iter()
@@ -357,35 +377,67 @@ mod tests {
                 )
         }));
 
-        let z3_cases = [
-            (Sort::new("Int"), "case1(i,k)"),
-            (
-                Sort::with_parameters("MInt", vec![Sort::new("8")]),
-                "case2(m,m)",
-            ),
-            (Sort::new("Int"), "case4(k)"),
-        ];
-        #[cfg(feature = "z3-inference")]
-        insta::assert_debug_snapshot!(
-            "z3_infers_all_parametric_cases",
-            z3_cases
-                .iter()
-                .map(|(sort, input)| grammar.parse(sort, input))
-                .collect::<Vec<_>>()
-        );
-        #[cfg(not(feature = "z3-inference"))]
-        assert!(z3_cases.iter().all(|(sort, input)| matches!(
-            grammar.parse(sort, input),
-            Err(ParseError::Z3InferenceRequired {
-                parametric_sorts: true,
-                ..
-            })
-        )));
-
         assert!(
             grammar.parse(&Sort::new("KItem"), "i").is_ok(),
             "the generated parametric subsort should remain portable"
         );
+    }
+
+    #[test]
+    fn infers_parameters_when_result_is_a_formal_parameter() {
+        let grammar = parametric_grammar();
+        #[cfg(feature = "z3-inference")]
+        assert_parametric_parse_snapshot!(
+            grammar,
+            Sort::new("Int"),
+            r#"
+            case1(i,k)
+        "#
+        );
+        #[cfg(not(feature = "z3-inference"))]
+        assert_z3_required(grammar.parse(&Sort::new("Int"), "case1(i,k)"));
+    }
+
+    #[test]
+    fn infers_parameters_in_a_parameterized_result_sort() {
+        let grammar = parametric_grammar();
+        let expected = Sort::with_parameters("MInt", vec![Sort::new("8")]);
+        #[cfg(feature = "z3-inference")]
+        assert_parametric_parse_snapshot!(
+            grammar,
+            expected.clone(),
+            r#"
+            case2(m,m)
+        "#
+        );
+        #[cfg(not(feature = "z3-inference"))]
+        assert_z3_required(grammar.parse(&expected, "case2(m,m)"));
+    }
+
+    #[test]
+    fn infers_parameters_used_only_by_arguments() {
+        let grammar = parametric_grammar();
+        #[cfg(feature = "z3-inference")]
+        assert_parametric_parse_snapshot!(
+            grammar,
+            Sort::new("Int"),
+            r#"
+            case4(k)
+        "#
+        );
+        #[cfg(not(feature = "z3-inference"))]
+        assert_z3_required(grammar.parse(&Sort::new("Int"), "case4(k)"));
+    }
+
+    #[cfg(not(feature = "z3-inference"))]
+    fn assert_z3_required(result: Result<crate::kast::Term, ParseError>) {
+        assert!(matches!(
+            result,
+            Err(ParseError::Z3InferenceRequired {
+                parametric_sorts: true,
+                ..
+            })
+        ));
     }
 
     fn syntax_sort(parameters: Vec<Sort>, sort: Sort) -> Sentence {

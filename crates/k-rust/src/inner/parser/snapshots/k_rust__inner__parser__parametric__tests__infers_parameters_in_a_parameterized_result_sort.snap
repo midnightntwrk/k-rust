@@ -1,0 +1,45 @@
+---
+source: crates/k-rust/src/inner/parser/parametric.rs
+description: "K term parsed as MInt{8}:\n\ncase2(m,m)\n"
+---
+Ok(
+    Apply {
+        label: Label {
+            name: "#SemanticCastToMInt{8}",
+            parameters: [],
+        },
+        arguments: [
+            Apply {
+                label: Label {
+                    name: "case2",
+                    parameters: [
+                        Sort {
+                            name: "8",
+                            parameters: [],
+                        },
+                        Sort {
+                            name: "K",
+                            parameters: [],
+                        },
+                    ],
+                },
+                arguments: [
+                    Apply {
+                        label: Label {
+                            name: "m",
+                            parameters: [],
+                        },
+                        arguments: [],
+                    },
+                    Apply {
+                        label: Label {
+                            name: "m",
+                            parameters: [],
+                        },
+                        arguments: [],
+                    },
+                ],
+            },
+        ],
+    },
+)
