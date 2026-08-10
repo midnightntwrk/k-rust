@@ -10,6 +10,67 @@ use crate::kast::Sort;
 
 use super::{ParseError, expand_regex};
 
+const DEFAULT_LAYOUT: [&str; 3] = [
+    r"/[*]([^*]|([*]+([^*/])))*[*]+/",
+    r"//[^\n\r]*",
+    r"[ \n\r\t]",
+];
+
+#[derive(Clone, Debug)]
+pub(super) struct Layout {
+    pattern: Option<LongestRegex>,
+}
+
+impl Default for Layout {
+    fn default() -> Self {
+        Self::compile(DEFAULT_LAYOUT)
+            .expect("the built-in DEFAULT-LAYOUT regular expressions must be valid")
+    }
+}
+
+impl Layout {
+    pub(super) fn disabled() -> Self {
+        Self { pattern: None }
+    }
+
+    pub(super) fn compile(
+        sources: impl IntoIterator<Item = impl AsRef<str>>,
+    ) -> Result<Self, ParseError> {
+        let sources = sources
+            .into_iter()
+            .map(|source| source.as_ref().to_owned())
+            .collect::<Vec<_>>();
+        if sources.is_empty() {
+            return Ok(Self::disabled());
+        }
+        let source = sources
+            .iter()
+            .map(|source| format!("(?:{source})"))
+            .collect::<Vec<_>>()
+            .join("|");
+        let pattern = compile_longest_regex(&source)?;
+        if pattern.find("").is_some_and(|matched| matched.is_empty()) {
+            return Err(ParseError::EmptyLayout);
+        }
+        Ok(Self {
+            pattern: Some(pattern),
+        })
+    }
+
+    pub(super) fn skip(&self, input: &str, mut position: usize) -> usize {
+        let Some(pattern) = &self.pattern else {
+            return position;
+        };
+        while let Some(matched) = pattern.find(&input[position..]) {
+            if matched.is_empty() {
+                break;
+            }
+            position += matched.end();
+        }
+        position
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) enum Item {
     NonTerminal(Sort),

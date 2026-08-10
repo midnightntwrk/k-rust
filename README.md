@@ -100,6 +100,10 @@ diagnostics for overloaded list constructors and terminators. The derived rule g
 Scala's complete syntactic, braced syntactic, semantic, and outer cast matrix. Cast-specific scope
 filtering rejects unparenthesized greedy children, and final tree cleanup removes brackets and
 syntactic casts while preserving semantic and outer casts in public KAST.
+The portable scanner also reproduces Scala's layout selection: visible `#Layout` regex productions
+override `DEFAULT-LAYOUT`, lexical references are expanded, and an explicit production-free
+`#Layout` declaration disables layout. Invalid shapes and empty-matching layout regexes fail during
+grammar construction instead of stalling the parser.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -127,8 +131,8 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
 - Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.
 - Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
   auto-imported prelude policy alongside the future command-line frontend.
-- Complete Java `RuleGrammarGenerator` parity: reproduce module-defined layout scanning and exact
-  scanner diagnostics, and port the remaining type-inference disambiguation so ambiguous rule,
+- Complete Java `RuleGrammarGenerator` parity: reproduce exact scanner diagnostics and port the
+  remaining type-inference disambiguation so ambiguous rule,
   claim, context, and alias bubbles resolve canonically;
   connect the existing post-inference overload and `prefer`/`avoid` selectors to the future Z3
   result.

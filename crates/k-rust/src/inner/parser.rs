@@ -19,7 +19,7 @@ use crate::kast::{Label, Sort, Term};
 
 use self::disambiguation::parse_apply_priority;
 use self::lists::UserList;
-use self::scanner::{Item, Scanner, compile_item};
+use self::scanner::{Item, Layout, Scanner, compile_item};
 
 const MAX_DERIVATIONS_PER_STATE: usize = 64;
 
@@ -35,6 +35,8 @@ pub enum ParseError {
     InconsistentTokenPrecedence {
         token: String,
     },
+    InvalidLayoutProduction,
+    EmptyLayout,
     NoParse {
         position: usize,
         expected: Vec<String>,
@@ -103,6 +105,11 @@ impl fmt::Display for ParseError {
             }
             Self::InconsistentTokenPrecedence { token } => {
                 write!(formatter, "inconsistent token precedence for {token}")
+            }
+            Self::InvalidLayoutProduction => formatter
+                .write_str("productions of sort `#Layout` must contain exactly one regex terminal"),
+            Self::EmptyLayout => {
+                formatter.write_str("a `#Layout` regular expression must not match empty input")
             }
             Self::NoParse { position, expected } => {
                 write!(formatter, "could not parse input at byte {position}")?;
@@ -274,6 +281,7 @@ pub struct Grammar {
     productions: Vec<Production>,
     by_result: BTreeMap<Sort, Vec<usize>>,
     scanner: Scanner,
+    layout: Layout,
     priorities: PartialOrder<String>,
     associativities: AssociativityRelations,
     subsort_relations: BTreeSet<(Sort, Sort)>,
@@ -287,6 +295,7 @@ impl Default for Grammar {
             productions: Vec::new(),
             by_result: BTreeMap::new(),
             scanner: Scanner::default(),
+            layout: Layout::default(),
             priorities: PartialOrder::new([]).expect("an empty relation is acyclic"),
             associativities: AssociativityRelations::default(),
             subsort_relations: BTreeSet::new(),
@@ -316,6 +325,29 @@ impl Grammar {
                     })
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
+        let layout_declared = sentences.iter().any(|sentence| match sentence {
+            Sentence::SyntaxSort { sort, .. } | Sentence::Production { sort, .. } => {
+                sort.name == "#Layout"
+            }
+            _ => false,
+        });
+        let layout_sources = sentences
+            .iter()
+            .filter_map(|sentence| match sentence {
+                Sentence::Production { sort, items, .. } if sort.name == "#Layout" => Some(items),
+                _ => None,
+            })
+            .map(|items| match items.as_slice() {
+                [
+                    ProductionItem::RegexTerminal {
+                        precede_regex: None,
+                        regex,
+                        follow_regex: None,
+                    },
+                ] => expand_regex(regex, &lexical),
+                _ => Err(ParseError::InvalidLayoutProduction),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let priorities = compute_priorities(sentences.iter().copied())
             .map_err(|cycle| ParseError::CircularPriorities { path: cycle.path })?;
         let associativities = compute_associativities(sentences.iter().copied());
@@ -324,6 +356,11 @@ impl Grammar {
         let overloads = compute_overloads(sentences.iter().copied(), &semantic_subsorts)
             .map_err(|cycle| ParseError::CircularOverloads { path: cycle.path })?;
         let mut grammar = Self {
+            layout: if layout_declared {
+                Layout::compile(&layout_sources)?
+            } else {
+                Layout::default()
+            },
             priorities,
             associativities,
             overloads: overloads.order().clone(),
@@ -340,6 +377,9 @@ impl Grammar {
             else {
                 continue;
             };
+            if sort.name == "#Layout" {
+                continue;
+            }
             // RuleGrammarGenerator concretizes these before Earley parsing. The
             // configuration grammar adds the concrete bridge productions it needs.
             if !parameters.is_empty() {
@@ -391,7 +431,7 @@ impl Grammar {
             .map(|_| Chart::default())
             .collect::<Vec<_>>();
         let mut scanner_cache = vec![None; input.len() + 1];
-        let start_position = skip_layout(input, 0);
+        let start_position = self.layout.skip(input, 0);
         for production in self.productions_for(start) {
             charts[start_position].add(
                 State {
@@ -410,7 +450,7 @@ impl Grammar {
                     continue;
                 };
                 let production = &self.productions[state.production];
-                let canonical = skip_layout(input, position);
+                let canonical = self.layout.skip(input, position);
                 if state.dot < production.items.len() && canonical != position {
                     charts[canonical].add(state, derivations)?;
                     continue;
@@ -520,7 +560,7 @@ impl Grammar {
             if chart.states.is_empty() {
                 continue;
             }
-            if skip_layout(input, position) != input.len() {
+            if self.layout.skip(input, position) != input.len() {
                 continue;
             }
             let (completed, violation) =
@@ -957,33 +997,5 @@ fn lower_term(production: &Production, children: &[Term]) -> Term {
             label,
             arguments: children.to_vec(),
         },
-    }
-}
-
-fn skip_layout(input: &str, mut position: usize) -> usize {
-    loop {
-        let before = position;
-        while let Some(character) = input[position..].chars().next() {
-            if !matches!(character, ' ' | '\n' | '\r' | '\t') {
-                break;
-            }
-            position += character.len_utf8();
-        }
-        if input[position..].starts_with("//") {
-            position += 2;
-            while let Some(character) = input[position..].chars().next() {
-                if matches!(character, '\n' | '\r') {
-                    break;
-                }
-                position += character.len_utf8();
-            }
-        } else if input[position..].starts_with("/*")
-            && let Some(end) = input[position + 2..].find("*/")
-        {
-            position += 2 + end + 2;
-        }
-        if position == before {
-            return position;
-        }
     }
 }

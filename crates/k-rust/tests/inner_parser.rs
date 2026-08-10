@@ -30,6 +30,14 @@ fn precedence(value: &str) -> Attributes {
     attributes
 }
 
+fn syntax_sort(sort: &str) -> Sentence {
+    Sentence::SyntaxSort {
+        parameters: vec![],
+        sort: Sort::new(sort),
+        attributes: Attributes::default(),
+    }
+}
+
 #[test]
 fn parses_recursive_grammars_tokens_subsorts_and_layout() {
     let mut token_attributes = Attributes::default();
@@ -85,6 +93,79 @@ fn parses_recursive_grammars_tokens_subsorts_and_layout() {
             ],
         )
     );
+}
+
+#[test]
+fn matches_scala_module_defined_layout_selection() {
+    let start = production(
+        "Start",
+        vec![ProductionItem::Terminal("x".into())],
+        Some("x"),
+        Attributes::default(),
+    );
+    let default = Grammar::from_sentences([&start]).unwrap();
+
+    let custom_sentences = [
+        start.clone(),
+        Sentence::SyntaxLexical {
+            name: "Gap".into(),
+            regex: "[ _]".into(),
+            attributes: Attributes::default(),
+        },
+        production(
+            "#Layout",
+            vec![ProductionItem::regex("{Gap}+")],
+            None,
+            Attributes::default(),
+        ),
+        production(
+            "#Layout",
+            vec![ProductionItem::regex("~+")],
+            None,
+            Attributes::default(),
+        ),
+    ];
+    let custom = Grammar::from_sentences(&custom_sentences).unwrap();
+
+    let disabled_sentences = [start.clone(), syntax_sort("#Layout")];
+    let disabled = Grammar::from_sentences(&disabled_sentences).unwrap();
+
+    let results = [
+        default.parse(&Sort::new("Start"), " /* default */ x // tail"),
+        custom.parse(&Sort::new("Start"), "~~ _ x~~~"),
+        custom.parse(&Sort::new("Start"), "/* not custom */ x"),
+        disabled.parse(&Sort::new("Start"), "x"),
+        disabled.parse(&Sort::new("Start"), " x"),
+    ];
+
+    insta::assert_debug_snapshot!(results);
+}
+
+#[test]
+fn rejects_invalid_or_empty_layout_productions() {
+    let invalid = [
+        syntax_sort("#Layout"),
+        production(
+            "#Layout",
+            vec![ProductionItem::Terminal(" ".into())],
+            None,
+            Attributes::default(),
+        ),
+    ];
+    let empty = [
+        syntax_sort("#Layout"),
+        production(
+            "#Layout",
+            vec![ProductionItem::regex("a*")],
+            None,
+            Attributes::default(),
+        ),
+    ];
+
+    insta::assert_debug_snapshot!([
+        Grammar::from_sentences(&invalid).unwrap_err(),
+        Grammar::from_sentences(&empty).unwrap_err(),
+    ]);
 }
 
 #[test]

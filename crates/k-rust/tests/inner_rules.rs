@@ -311,6 +311,21 @@ rule_snapshot!(
     "#
 );
 
+rule_snapshot!(
+    uses_layout_from_an_imported_module,
+    r#"
+        module CUSTOM-LAYOUT
+          syntax #Layout ::= r"(~+)" | r"([ \n\r\t])"
+        endmodule
+
+        module MAIN
+          imports CUSTOM-LAYOUT
+          syntax Exp ::= "x" [klabel(x)]
+          rule ~~ x ~~~ => x
+        endmodule
+    "#
+);
+
 #[test]
 fn rejects_an_unscoped_cast_over_a_production_ending_in_a_nonterminal() {
     let definition = lowered(indoc! {r#"
