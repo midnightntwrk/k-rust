@@ -222,3 +222,63 @@ rule_snapshot!(
         endmodule
     "#
 );
+
+rule_snapshot!(
+    resolves_generic_k_applications,
+    r#"
+        module MAIN
+          syntax Id ::= r"[a-z]" [token]
+          syntax Exp ::= Id
+          syntax Exp ::= "zero" [symbol(zero)]
+          syntax Exp ::= Exp "+" Exp [symbol(_+_)]
+          syntax Exp ::= "tri" Exp Exp Exp [symbol(tri)]
+          rule `_+_`(`_+_`(a, b), c) => zero(.KList)
+          rule tri(a, b, c) => tri a b c
+        endmodule
+    "#
+);
+
+#[test]
+fn reports_unknown_generic_k_applications() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Id ::= r"[a-z]" [token]
+          syntax Exp ::= Id
+          rule missing(a) => a
+        endmodule
+    "#});
+    let error = resolve_rule_bubbles(&definition).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            RuleError::Parse(ref error)
+                if matches!(
+                    error.error,
+                    ParseError::UnknownApplication { ref label, arity: 1 } if label == "missing"
+                )
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn preserves_overloaded_generic_applications_for_sort_inference() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+          syntax A ::= "pa" A [symbol(pick)]
+          syntax B ::= "pb" B [symbol(pick)]
+          rule pick(a) => a
+        endmodule
+    "#});
+    let error = resolve_rule_bubbles(&definition).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            RuleError::Parse(ref error)
+                if matches!(error.error, ParseError::Ambiguous { parses: 2 })
+        ),
+        "{error:?}"
+    );
+}

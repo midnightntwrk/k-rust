@@ -70,8 +70,12 @@ private production-bearing concrete forest until Scala-compatible syntax-priorit
 right-, or non-associativity filters select a tree, including bracket shielding and
 `applyPriority`; only then does it lower to the public KAST model. This slice supports rewrite
 bodies, semantic casts, user-defined conditions, optional cell dots, nested cell bags, and
-`#withConfig`; forests that remain genuinely ambiguous are explicit errors pending the remaining
-canonical disambiguation passes.
+`#withConfig`. Generic `KLabel(KList)` applications are resolved to visible productions by label
+and arity, with quoted labels, nullary `.KList`, and associative argument lists. The private forest
+factors shared alternatives into their differing child and lifts top-level rewrite-LHS ambiguity
+above `#RuleContent`, matching Scala's preparation for sort inference. Forests that remain
+genuinely ambiguous are explicit errors pending that inference and the remaining canonical
+disambiguation passes.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces

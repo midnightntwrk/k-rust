@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use super::{Grammar, Item, ParseError, ParsedTerm, Production, lower_term};
-use crate::kast::Term;
+use crate::kast::{Term, string};
 
 impl Grammar {
     pub(super) fn priority_violation(&self, term: &ParsedTerm) -> Option<ParseError> {
@@ -12,7 +12,13 @@ impl Grammar {
             children,
         } = term
         else {
-            return None;
+            return match term {
+                ParsedTerm::Ambiguity(alternatives) => alternatives
+                    .iter()
+                    .find_map(|alternative| self.priority_violation(alternative)),
+                ParsedTerm::Term(_) => None,
+                ParsedTerm::Production { .. } => unreachable!(),
+            };
         };
         let parent = &self.productions[*production];
         if parent.syntactic_subsort {
@@ -121,7 +127,349 @@ impl Grammar {
                     .collect::<Vec<_>>();
                 lower_term(production, &children)
             }
+            ParsedTerm::Ambiguity(_) => {
+                unreachable!("ambiguities are rejected before lowering to KAST")
+            }
         }
+    }
+
+    /// Resolve `#KApply` nodes to every visible production with the same label and arity.
+    pub(super) fn resolve_applications(&self, term: ParsedTerm) -> Result<ParsedTerm, ParseError> {
+        match term {
+            ParsedTerm::Term(_) => Ok(term),
+            ParsedTerm::Ambiguity(alternatives) => alternatives
+                .into_iter()
+                .map(|alternative| self.resolve_applications(alternative))
+                .collect::<Result<BTreeSet<_>, _>>()
+                .map(ParsedTerm::Ambiguity),
+            ParsedTerm::Production {
+                production,
+                children,
+            } => {
+                let children = children
+                    .into_iter()
+                    .map(|child| self.resolve_applications(child))
+                    .collect::<Result<Vec<_>, _>>()?;
+                if self.productions[production]
+                    .label
+                    .as_ref()
+                    .map(|label| label.name.as_str())
+                    != Some("#KApply")
+                {
+                    return Ok(ParsedTerm::Production {
+                        production,
+                        children,
+                    });
+                }
+                let [label, arguments] = children.as_slice() else {
+                    return Err(ParseError::UnknownApplication {
+                        label: "<malformed>".into(),
+                        arity: children.len().saturating_sub(1),
+                    });
+                };
+                let label = klabel_name(label).ok_or_else(|| ParseError::UnknownApplication {
+                    label: "<malformed>".into(),
+                    arity: 0,
+                })?;
+                let argument_lists = self.flatten_klist(arguments)?;
+                let arities = argument_lists.iter().map(Vec::len).collect::<BTreeSet<_>>();
+                let mut candidates = BTreeSet::new();
+                for arguments in argument_lists {
+                    for (candidate, candidate_production) in self.productions.iter().enumerate() {
+                        if candidate != production
+                            && candidate_production
+                                .label
+                                .as_ref()
+                                .is_some_and(|candidate_label| candidate_label.name == label)
+                            && production_arity(candidate_production) == arguments.len()
+                        {
+                            candidates.insert(ParsedTerm::Production {
+                                production: candidate,
+                                children: arguments.clone(),
+                            });
+                            if candidates.len() > super::MAX_DERIVATIONS_PER_STATE {
+                                return Err(ParseError::TooManyParses {
+                                    limit: super::MAX_DERIVATIONS_PER_STATE,
+                                });
+                            }
+                        }
+                    }
+                }
+                match candidates.len() {
+                    0 => Err(ParseError::UnknownApplication {
+                        label,
+                        arity: arities.first().copied().unwrap_or(0),
+                    }),
+                    1 => Ok(candidates.pop_first().expect("length was one")),
+                    _ => Ok(ParsedTerm::Ambiguity(candidates)),
+                }
+            }
+        }
+    }
+
+    fn flatten_klist(&self, term: &ParsedTerm) -> Result<Vec<Vec<ParsedTerm>>, ParseError> {
+        let flattened = match term {
+            ParsedTerm::Ambiguity(alternatives) => {
+                let mut flattened = Vec::new();
+                for alternative in alternatives {
+                    flattened.extend(self.flatten_klist(alternative)?);
+                    if flattened.len() > super::MAX_DERIVATIONS_PER_STATE {
+                        return Err(ParseError::TooManyParses {
+                            limit: super::MAX_DERIVATIONS_PER_STATE,
+                        });
+                    }
+                }
+                flattened
+            }
+            ParsedTerm::Production {
+                production,
+                children,
+            } => match self.productions[*production]
+                .label
+                .as_ref()
+                .map(|label| label.name.as_str())
+            {
+                Some("#EmptyKList") => vec![Vec::new()],
+                Some("#KList") if children.len() == 2 => {
+                    let left = self.flatten_klist(&children[0])?;
+                    let right = self.flatten_klist(&children[1])?;
+                    left.into_iter()
+                        .flat_map(|left| {
+                            right.iter().map(move |right| {
+                                let mut combined = left.clone();
+                                combined.extend(right.iter().cloned());
+                                combined
+                            })
+                        })
+                        .take(super::MAX_DERIVATIONS_PER_STATE + 1)
+                        .collect()
+                }
+                _ => vec![vec![term.clone()]],
+            },
+            ParsedTerm::Term(_) => vec![vec![term.clone()]],
+        };
+        if flattened.len() > super::MAX_DERIVATIONS_PER_STATE {
+            Err(ParseError::TooManyParses {
+                limit: super::MAX_DERIVATIONS_PER_STATE,
+            })
+        } else {
+            Ok(flattened)
+        }
+    }
+
+    /// Factor alternatives with a shared production into one differing child.
+    pub(super) fn factor_ambiguities(&self, term: ParsedTerm) -> ParsedTerm {
+        match term {
+            ParsedTerm::Term(_) => term,
+            ParsedTerm::Production {
+                production,
+                children,
+            } => ParsedTerm::Production {
+                production,
+                children: children
+                    .into_iter()
+                    .map(|child| self.factor_ambiguities(child))
+                    .collect(),
+            },
+            ParsedTerm::Ambiguity(alternatives) => {
+                let mut alternatives = alternatives
+                    .into_iter()
+                    .map(|alternative| self.factor_ambiguities(alternative))
+                    .collect::<BTreeSet<_>>();
+                if alternatives.len() == 1 {
+                    return alternatives.pop_first().expect("length was one");
+                }
+                let Some(ParsedTerm::Production {
+                    production,
+                    children,
+                }) = alternatives.first()
+                else {
+                    return ParsedTerm::Ambiguity(alternatives);
+                };
+                let production = *production;
+                let children = children.clone();
+                if !alternatives.iter().all(|alternative| {
+                    matches!(
+                        alternative,
+                        ParsedTerm::Production {
+                            production: candidate,
+                            children: candidate_children,
+                        } if *candidate == production && candidate_children.len() == children.len()
+                    )
+                }) {
+                    return ParsedTerm::Ambiguity(alternatives);
+                }
+                let differing = (0..children.len())
+                    .filter(|index| {
+                        alternatives.iter().any(|alternative| {
+                            let ParsedTerm::Production {
+                                children: candidate_children,
+                                ..
+                            } = alternative
+                            else {
+                                unreachable!()
+                            };
+                            candidate_children[*index] != children[*index]
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                let [index] = differing.as_slice() else {
+                    return ParsedTerm::Ambiguity(alternatives);
+                };
+                let mut factored_children = children;
+                let child_alternatives = alternatives
+                    .into_iter()
+                    .map(|alternative| {
+                        let ParsedTerm::Production { mut children, .. } = alternative else {
+                            unreachable!()
+                        };
+                        children.remove(*index)
+                    })
+                    .collect();
+                factored_children[*index] =
+                    self.factor_ambiguities(ParsedTerm::Ambiguity(child_alternatives));
+                ParsedTerm::Production {
+                    production,
+                    children: factored_children,
+                }
+            }
+        }
+    }
+
+    /// Lift ambiguity in a top-level rewrite LHS above its `#RuleContent` wrapper.
+    pub(super) fn push_top_lhs_ambiguity_up(&self, term: ParsedTerm) -> ParsedTerm {
+        if let ParsedTerm::Ambiguity(alternatives) = term {
+            let lifted = alternatives
+                .into_iter()
+                .map(|alternative| self.push_top_lhs_ambiguity_up(alternative))
+                .flat_map(|alternative| match alternative {
+                    ParsedTerm::Ambiguity(nested) => nested,
+                    alternative => BTreeSet::from([alternative]),
+                })
+                .collect();
+            return ParsedTerm::Ambiguity(lifted);
+        }
+        let ParsedTerm::Production {
+            production,
+            mut children,
+        } = term
+        else {
+            return term;
+        };
+        if self.productions[production].result.name != "#RuleContent" || children.is_empty() {
+            return ParsedTerm::Production {
+                production,
+                children,
+            };
+        }
+        let bodies = self.expand_rule_body_lhs(children.remove(0));
+        if bodies.len() == 1 {
+            children.insert(0, bodies.into_iter().next().expect("length was one"));
+            return ParsedTerm::Production {
+                production,
+                children,
+            };
+        }
+        ParsedTerm::Ambiguity(
+            bodies
+                .into_iter()
+                .map(|body| {
+                    let mut alternative_children = children.clone();
+                    alternative_children.insert(0, body);
+                    ParsedTerm::Production {
+                        production,
+                        children: alternative_children,
+                    }
+                })
+                .collect(),
+        )
+    }
+
+    fn expand_rule_body_lhs(&self, body: ParsedTerm) -> BTreeSet<ParsedTerm> {
+        let ParsedTerm::Production {
+            production,
+            mut children,
+        } = body
+        else {
+            return BTreeSet::from([body]);
+        };
+        let label = self.productions[production]
+            .label
+            .as_ref()
+            .map(|label| label.name.as_str());
+        if label == Some("#withConfig") && !children.is_empty() {
+            let expanded = self.expand_rule_body_lhs(children.remove(0));
+            return expanded
+                .into_iter()
+                .map(|child| {
+                    let mut alternative_children = children.clone();
+                    alternative_children.insert(0, child);
+                    ParsedTerm::Production {
+                        production,
+                        children: alternative_children,
+                    }
+                })
+                .collect();
+        }
+        if label != Some("#KRewrite") || children.len() != 2 {
+            return BTreeSet::from([ParsedTerm::Production {
+                production,
+                children,
+            }]);
+        }
+        let left = children.remove(0);
+        let right = children.remove(0);
+        match left {
+            ParsedTerm::Ambiguity(alternatives) => alternatives
+                .into_iter()
+                .map(|left| ParsedTerm::Production {
+                    production,
+                    children: vec![left, right.clone()],
+                })
+                .collect(),
+            left => BTreeSet::from([ParsedTerm::Production {
+                production,
+                children: vec![left, right],
+            }]),
+        }
+    }
+
+    pub(super) fn ambiguity_count(term: &ParsedTerm) -> usize {
+        match term {
+            ParsedTerm::Term(_) => 1,
+            ParsedTerm::Production { children, .. } => {
+                children.iter().fold(1usize, |count, child| {
+                    count.saturating_mul(Self::ambiguity_count(child))
+                })
+            }
+            ParsedTerm::Ambiguity(alternatives) => {
+                alternatives.iter().fold(0usize, |count, item| {
+                    count.saturating_add(Self::ambiguity_count(item))
+                })
+            }
+        }
+    }
+}
+
+fn production_arity(production: &Production) -> usize {
+    production
+        .items
+        .iter()
+        .filter(|item| matches!(item, Item::NonTerminal(_)))
+        .count()
+}
+
+fn klabel_name(term: &ParsedTerm) -> Option<String> {
+    let ParsedTerm::Term(Term::Token { token, sort }) = term else {
+        return None;
+    };
+    if sort.name != "KLabel" {
+        return None;
+    }
+    if token.starts_with('`') {
+        string::unquote_label(token).ok()
+    } else {
+        Some(token.clone())
     }
 }
 
@@ -145,4 +493,89 @@ pub(super) fn parse_apply_priority(source: &str) -> Result<BTreeSet<usize>, Pars
                 })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::definition::ProductionItem;
+    use crate::kast::{Label, Sort};
+
+    fn nonterminal(sort: &str) -> ProductionItem {
+        ProductionItem::NonTerminal {
+            sort: Sort::new(sort),
+            name: None,
+        }
+    }
+
+    fn add_production(
+        grammar: &mut Grammar,
+        result: &str,
+        arguments: &[&str],
+        label: &str,
+    ) -> usize {
+        let index = grammar.productions.len();
+        grammar
+            .add(
+                Sort::new(result),
+                arguments.iter().map(|sort| nonterminal(sort)).collect(),
+                Some(Label::new(label)),
+                false,
+                false,
+            )
+            .unwrap();
+        index
+    }
+
+    fn variable(name: &str) -> ParsedTerm {
+        ParsedTerm::Term(Term::variable(name))
+    }
+
+    #[test]
+    fn factors_a_shared_production_into_the_differing_child() {
+        let mut grammar = Grammar::default();
+        let pair = add_production(&mut grammar, "Exp", &["Exp", "Exp"], "pair");
+        let alternatives = BTreeSet::from([
+            ParsedTerm::Production {
+                production: pair,
+                children: vec![variable("A"), variable("C")],
+            },
+            ParsedTerm::Production {
+                production: pair,
+                children: vec![variable("B"), variable("C")],
+            },
+        ]);
+
+        let factored = grammar.factor_ambiguities(ParsedTerm::Ambiguity(alternatives));
+        let ParsedTerm::Production { children, .. } = factored else {
+            panic!("expected the shared production to be factored")
+        };
+        assert!(matches!(children[0], ParsedTerm::Ambiguity(ref items) if items.len() == 2));
+        assert_eq!(children[1], variable("C"));
+    }
+
+    #[test]
+    fn lifts_top_level_rewrite_lhs_ambiguity_above_rule_content() {
+        let mut grammar = Grammar::default();
+        let rewrite = add_production(&mut grammar, "#RuleExp", &["Exp", "Exp"], "#KRewrite");
+        let rule = add_production(
+            &mut grammar,
+            "#RuleContent",
+            &["#RuleExp"],
+            "#ruleNoConditions",
+        );
+        let root = ParsedTerm::Production {
+            production: rule,
+            children: vec![ParsedTerm::Production {
+                production: rewrite,
+                children: vec![
+                    ParsedTerm::Ambiguity(BTreeSet::from([variable("A"), variable("B")])),
+                    variable("C"),
+                ],
+            }],
+        };
+
+        let lifted = grammar.push_top_lhs_ambiguity_up(root);
+        assert!(matches!(lifted, ParsedTerm::Ambiguity(ref items) if items.len() == 2));
+    }
 }

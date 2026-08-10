@@ -221,9 +221,18 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
         .collect::<Vec<_>>();
     let mut grammar = Grammar::from_sentences(parsing_sentences.iter())?;
     let concrete_sorts = concrete_sorts(&visible);
+    let bracket_sorts = visible
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                sort, attributes, ..
+            } if attributes.get("bracket").is_some() => Some(sort.clone()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
 
     add_k_syntax(&mut grammar)?;
-    add_rule_k_syntax(&mut grammar, &concrete_sorts)?;
+    add_rule_k_syntax(&mut grammar, &concrete_sorts, &bracket_sorts)?;
     add_rule_cells(&mut grammar, &visible)?;
 
     for sort in concrete_sorts {
@@ -263,10 +272,58 @@ fn concrete_sorts(sentences: &[&Sentence]) -> BTreeSet<Sort> {
 fn add_rule_k_syntax(
     grammar: &mut Grammar,
     concrete_sorts: &BTreeSet<Sort>,
+    bracket_sorts: &BTreeSet<Sort>,
 ) -> Result<(), ParseError> {
     add_subsort(grammar, "KBott", Sort::new("#KVariable"))?;
     add_subsort(grammar, "KBott", Sort::new("KConfigVar"))?;
     add_subsort(grammar, "KItem", Sort::new("KBott"))?;
+    grammar.add(
+        Sort::new("KLabel"),
+        vec![ProductionItem::regex(
+            r"`(?:\\`|\\\\|[^`\\\n\r])+`|[a-z][a-zA-Z0-9]*|#[a-z][a-zA-Z0-9]*",
+        )],
+        None,
+        true,
+        false,
+    )?;
+    grammar.add(
+        Sort::new("KList"),
+        vec![nonterminal("K")],
+        None,
+        false,
+        true,
+    )?;
+    grammar.add(
+        Sort::new("KList"),
+        vec![ProductionItem::Terminal(".KList".into())],
+        Some(Label::new("#EmptyKList")),
+        false,
+        false,
+    )?;
+    grammar.add(
+        Sort::new("KList"),
+        vec![
+            nonterminal("KList"),
+            ProductionItem::Terminal(",".into()),
+            nonterminal("KList"),
+        ],
+        Some(Label::new("#KList")),
+        false,
+        false,
+    )?;
+    grammar.add_left_associative("#KList");
+    grammar.add(
+        Sort::new("KBott"),
+        vec![
+            nonterminal("KLabel"),
+            ProductionItem::Terminal("(".into()),
+            nonterminal("KList"),
+            ProductionItem::Terminal(")".into()),
+        ],
+        Some(Label::new("#KApply")),
+        false,
+        false,
+    )?;
     grammar.add(
         Sort::new("K"),
         vec![
@@ -290,6 +347,9 @@ fn add_rule_k_syntax(
         true,
     )?;
     for sort in concrete_sorts {
+        if bracket_sorts.contains(sort) {
+            continue;
+        }
         grammar.add_bracket(
             sort.clone(),
             vec![

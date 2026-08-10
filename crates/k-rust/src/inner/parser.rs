@@ -49,6 +49,10 @@ pub enum ParseError {
         child: String,
         side: &'static str,
     },
+    UnknownApplication {
+        label: String,
+        arity: usize,
+    },
 }
 
 impl fmt::Display for ParseError {
@@ -91,6 +95,10 @@ impl fmt::Display for ParseError {
             } => write!(
                 formatter,
                 "cannot use {child} as the immediate {side} child of {parent} because of associativity"
+            ),
+            Self::UnknownApplication { label, arity } => write!(
+                formatter,
+                "could not find a production for K label {label:?} with arity {arity}"
             ),
         }
     }
@@ -149,6 +157,7 @@ enum ParsedTerm {
         children: Vec<ParsedTerm>,
     },
     Term(Term),
+    Ambiguity(BTreeSet<ParsedTerm>),
 }
 
 /// A reusable inner grammar derived from visible, non-parametric productions.
@@ -378,7 +387,7 @@ impl Grammar {
             if let Some(error) = self.priority_violation(&term) {
                 first_violation.get_or_insert(error);
             } else {
-                parsed.insert(self.lower(term));
+                parsed.insert(self.resolve_applications(term)?);
             }
         }
         match parsed.len() {
@@ -386,8 +395,17 @@ impl Grammar {
                 position: input.len(),
                 expected: vec!["an expression respecting priority and associativity".into()],
             })),
-            1 => Ok(parsed.pop_first().expect("length was one")),
-            parses => Err(ParseError::Ambiguous { parses }),
+            _ => {
+                let forest = self.push_top_lhs_ambiguity_up(
+                    self.factor_ambiguities(ParsedTerm::Ambiguity(parsed)),
+                );
+                let parses = Grammar::ambiguity_count(&forest);
+                if parses > 1 {
+                    Err(ParseError::Ambiguous { parses })
+                } else {
+                    Ok(self.lower(forest))
+                }
+            }
         }
     }
 
@@ -420,6 +438,11 @@ impl Grammar {
             },
             &BTreeMap::new(),
         )
+    }
+
+    pub(crate) fn add_left_associative(&mut self, label: impl Into<String>) {
+        let label = label.into();
+        self.associativities.left.insert((label.clone(), label));
     }
 
     fn add_production(
