@@ -78,7 +78,9 @@ inference path now checks unambiguous non-parametric trees, infers the tightest 
 named and anonymous variables, inserts semantic casts, and enforces the non-widening rule for
 `anywhere`, simplification, function, and macro rewrites. Forests that remain genuinely ambiguous
 or use parametric productions are explicit errors at the same boundary where Scala falls back to
-the still-unported Z3 inferencer.
+the still-unported Z3 inferencer. Scala-compatible record productions are generated for prefix
+syntax, collapsed back to positional applications before disambiguation, and fill omitted named or
+unnamed fields with collision-free anonymous variables.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -107,9 +109,9 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
 - Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
   auto-imported prelude policy alongside the future command-line frontend.
 - Complete Java `RuleGrammarGenerator` parity: concretize every parametric production, reproduce
-  scanner token precedence and automatic follow restrictions exactly, and port the overload,
-  record-production, list, cast, prefer/avoid, and type-inference disambiguation passes so the
-  remaining ambiguous rule, claim, context, and alias bubbles resolve canonically.
+  scanner token precedence and automatic follow restrictions exactly, and port the overload, list,
+  cast, prefer/avoid, and remaining type-inference disambiguation passes so ambiguous rule, claim,
+  context, and alias bubbles resolve canonically.
 - Revisit package splitting only if compile times, dependency boundaries, or release needs justify
   moving beyond the current single-crate workspace.
 - Measure how often real definitions require the Z3 sort-inference fallback, then port that

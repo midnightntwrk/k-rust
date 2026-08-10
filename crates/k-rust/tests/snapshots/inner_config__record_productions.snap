@@ -1,0 +1,72 @@
+---
+source: crates/k-rust/tests/inner_config.rs
+expression: "&transformed.main_module().unwrap().local_sentences[2]"
+---
+Configuration {
+    body: Apply {
+        label: Label {
+            name: "#configCell",
+            parameters: [],
+        },
+        arguments: [
+            Token {
+                token: "k",
+                sort: Sort {
+                    name: "#CellName",
+                    parameters: [],
+                },
+            },
+            Apply {
+                label: Label {
+                    name: "#cellPropertyListTerminator",
+                    parameters: [],
+                },
+                arguments: [],
+            },
+            Apply {
+                label: Label {
+                    name: "pair",
+                    parameters: [],
+                },
+                arguments: [
+                    Token {
+                        token: "1",
+                        sort: Sort {
+                            name: "Int",
+                            parameters: [],
+                        },
+                    },
+                    Apply {
+                        label: Label {
+                            name: "#SemanticCastToInt",
+                            parameters: [],
+                        },
+                        arguments: [
+                            Variable {
+                                name: "_right0",
+                                sort: None,
+                            },
+                        ],
+                    },
+                ],
+            },
+            Token {
+                token: "k",
+                sort: Sort {
+                    name: "#CellName",
+                    parameters: [],
+                },
+            },
+        ],
+    },
+    ensures: Token {
+        token: "true",
+        sort: Sort {
+            name: "Bool",
+            parameters: [],
+        },
+    },
+    attributes: Attributes {
+        entries: {},
+    },
+}

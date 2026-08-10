@@ -21,6 +21,14 @@ impl Grammar {
             };
         };
         let parent = &self.productions[*production];
+        // Scala collapses generated record syntax before priority filtering.
+        // Ignore the wrapper's borrowed label here; the positional production
+        // is checked after `collapse_record_productions` reconstructs it.
+        if parent.record.is_some() {
+            return children
+                .iter()
+                .find_map(|child| self.priority_violation(child));
+        }
         if parent.syntactic_subsort {
             return children
                 .iter()
@@ -177,6 +185,7 @@ impl Grammar {
                 for arguments in argument_lists {
                     for (candidate, candidate_production) in self.productions.iter().enumerate() {
                         if candidate != production
+                            && candidate_production.record.is_none()
                             && candidate_production
                                 .label
                                 .as_ref()

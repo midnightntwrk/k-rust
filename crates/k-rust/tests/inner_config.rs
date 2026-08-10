@@ -74,6 +74,40 @@ fn parses_chained_casts_and_empty_bags() {
 }
 
 #[test]
+fn parses_record_productions_in_configurations() {
+    let mut input = definition("<k> pair(... left: 1) </k>");
+    input.modules[0].local_sentences.insert(
+        1,
+        Sentence::Production {
+            label: Some(Label::new("pair")),
+            parameters: vec![],
+            sort: Sort::new("Pair"),
+            items: vec![
+                ProductionItem::Terminal("pair".into()),
+                ProductionItem::Terminal("(".into()),
+                ProductionItem::NonTerminal {
+                    sort: Sort::new("Int"),
+                    name: Some("left".into()),
+                },
+                ProductionItem::Terminal(",".into()),
+                ProductionItem::NonTerminal {
+                    sort: Sort::new("Int"),
+                    name: Some("right".into()),
+                },
+                ProductionItem::Terminal(")".into()),
+            ],
+            attributes: Attributes::default(),
+        },
+    );
+    let transformed = resolve_configuration_bubbles(&input).unwrap();
+
+    insta::assert_debug_snapshot!(
+        "record_productions",
+        &transformed.main_module().unwrap().local_sentences[2]
+    );
+}
+
+#[test]
 fn rejects_requires_clauses_after_parsing_them() {
     assert!(matches!(
         resolve_configuration_bubbles(&definition("<k> 0 </k> requires true")),

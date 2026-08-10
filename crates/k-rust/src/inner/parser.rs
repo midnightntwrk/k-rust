@@ -2,6 +2,7 @@
 
 mod disambiguation;
 mod inference;
+mod record;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
@@ -57,6 +58,9 @@ pub enum ParseError {
     SortInference {
         message: String,
     },
+    RecordProduction {
+        message: String,
+    },
 }
 
 impl fmt::Display for ParseError {
@@ -105,6 +109,7 @@ impl fmt::Display for ParseError {
                 "could not find a production for K label {label:?} with arity {arity}"
             ),
             Self::SortInference { message } => formatter.write_str(message),
+            Self::RecordProduction { message } => formatter.write_str(message),
         }
     }
 }
@@ -146,6 +151,25 @@ struct Production {
     apply_priority: Option<BTreeSet<usize>>,
     function: bool,
     macro_like: bool,
+    field_names: Vec<Option<String>>,
+    record: Option<RecordProduction>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct RecordProduction {
+    original: usize,
+    kind: RecordProductionKind,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum RecordProductionKind {
+    Zero,
+    One(String),
+    Main,
+    Empty,
+    Subsort,
+    Repeat,
+    Item(String),
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -252,6 +276,10 @@ impl Grammar {
                 },
                 &lexical,
             )?;
+        }
+        let original_productions = grammar.productions.len();
+        for production in 0..original_productions {
+            grammar.add_record_productions(production)?;
         }
         Ok(grammar)
     }
@@ -408,6 +436,7 @@ impl Grammar {
         }
         let mut parsed = BTreeSet::new();
         for term in parses {
+            let term = self.collapse_record_productions(term)?;
             if let Some(error) = self.priority_violation(&term) {
                 first_violation.get_or_insert(error);
             } else {
@@ -498,6 +527,13 @@ impl Grammar {
         options: ProductionOptions<'_>,
         lexical: &BTreeMap<String, KRegex>,
     ) -> Result<(), ParseError> {
+        let field_names = items
+            .iter()
+            .filter_map(|item| match item {
+                ProductionItem::NonTerminal { name, .. } => Some(name.clone()),
+                ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
+            })
+            .collect();
         let items = items
             .iter()
             .filter(|item| !matches!(item, ProductionItem::Terminal(value) if value.is_empty()))
@@ -536,6 +572,8 @@ impl Grammar {
             apply_priority,
             function: options.function,
             macro_like: options.macro_like,
+            field_names,
+            record: None,
         });
         self.by_result.entry(result).or_default().push(index);
         Ok(())
@@ -835,7 +873,8 @@ fn build_parsed_term(
             sort: production.result.clone(),
         });
     }
-    if !production.bracket
+    if production.record.is_none()
+        && !production.bracket
         && (production.transparent || production.label.is_none())
         && let [child] = children
     {

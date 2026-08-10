@@ -1,0 +1,24 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+expression: sentences
+---
+[
+    SentenceSummary {
+        kind: "rule",
+        body: "pair(#token(\"1\",\"Int\"),#token(\"2\",\"Int\"))=>pair(#token(\"3\",\"Int\"),#SemanticCastToInt(_right0))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "pair(#token(\"4\",\"Int\"),#SemanticCastToInt(_right0))=>pair(#token(\"5\",\"Int\"),#SemanticCastToInt(_right1))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+]

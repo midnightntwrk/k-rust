@@ -272,6 +272,56 @@ rule_snapshot!(
     "#
 );
 
+rule_snapshot!(
+    collapses_record_productions_and_fills_omitted_fields,
+    r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Pair ::= "pair" "(" left: Int "," right: Int ")" [symbol(pair)]
+          rule pair(... right: 2, left: 1) => pair(... left: 3)
+          rule pair(... left: 4) => pair(... left: 5)
+        endmodule
+    "#
+);
+
+rule_snapshot!(
+    collapses_single_and_unnamed_record_productions,
+    r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Box ::= "box" "(" value: Int ")" [symbol(box)]
+          syntax Pair ::= "pair" "(" Int "," Int ")" [symbol(pair)]
+          rule box(... value: 1) => box(...)
+          rule `box`(2) => box(... value: 2)
+          rule pair(...) => pair(...)
+        endmodule
+    "#
+);
+
+#[test]
+fn rejects_duplicate_record_production_keys() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Pair ::= "pair" "(" left: Int "," right: Int ")" [symbol(pair)]
+          rule pair(... left: 1, left: 2) => pair(...)
+        endmodule
+    "#});
+    let error = resolve_rule_bubbles(&definition).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            RuleError::Parse(ref error)
+                if matches!(
+                    error.error,
+                    ParseError::RecordProduction { ref message }
+                        if message == "Duplicate record production key: left"
+                )
+        ),
+        "{error:?}"
+    );
+}
+
 #[test]
 fn rejects_incompatible_variable_sort_bounds() {
     let definition = lowered(indoc! {r#"
