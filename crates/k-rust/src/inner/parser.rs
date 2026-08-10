@@ -1,6 +1,7 @@
 //! A portable chart parser over lowered K productions.
 
 mod disambiguation;
+mod inference;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
@@ -53,6 +54,9 @@ pub enum ParseError {
         label: String,
         arity: usize,
     },
+    SortInference {
+        message: String,
+    },
 }
 
 impl fmt::Display for ParseError {
@@ -100,6 +104,7 @@ impl fmt::Display for ParseError {
                 formatter,
                 "could not find a production for K label {label:?} with arity {arity}"
             ),
+            Self::SortInference { message } => formatter.write_str(message),
         }
     }
 }
@@ -139,6 +144,8 @@ struct Production {
     syntactic_subsort: bool,
     parse_label: Option<String>,
     apply_priority: Option<BTreeSet<usize>>,
+    function: bool,
+    macro_like: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -148,6 +155,8 @@ struct ProductionOptions<'a> {
     bracket: bool,
     bracket_label: Option<&'a str>,
     apply_priority: Option<&'a str>,
+    function: bool,
+    macro_like: bool,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -167,6 +176,7 @@ pub struct Grammar {
     by_result: BTreeMap<Sort, Vec<usize>>,
     priorities: PartialOrder<String>,
     associativities: AssociativityRelations,
+    subsort_relations: BTreeSet<(Sort, Sort)>,
 }
 
 impl Default for Grammar {
@@ -176,6 +186,7 @@ impl Default for Grammar {
             by_result: BTreeMap::new(),
             priorities: PartialOrder::new([]).expect("an empty relation is acyclic"),
             associativities: AssociativityRelations::default(),
+            subsort_relations: BTreeSet::new(),
         }
     }
 }
@@ -234,6 +245,10 @@ impl Grammar {
                     bracket: attributes.get("bracket").is_some(),
                     bracket_label: attributes.get_str("bracketLabel"),
                     apply_priority: attributes.get_str("applyPriority"),
+                    function: attributes.get("function").is_some(),
+                    macro_like: ["macro", "macro-rec", "alias", "alias-rec"]
+                        .iter()
+                        .any(|key| attributes.get(key).is_some()),
                 },
                 &lexical,
             )?;
@@ -242,6 +257,15 @@ impl Grammar {
     }
 
     pub fn parse(&self, start: &Sort, input: &str) -> Result<Term, ParseError> {
+        self.parse_with_context(start, input, false)
+    }
+
+    pub(crate) fn parse_with_context(
+        &self,
+        start: &Sort,
+        input: &str,
+        is_anywhere: bool,
+    ) -> Result<Term, ParseError> {
         let mut charts = (0..=input.len())
             .map(|_| Chart::default())
             .collect::<Vec<_>>();
@@ -403,7 +427,7 @@ impl Grammar {
                 if parses > 1 {
                     Err(ParseError::Ambiguous { parses })
                 } else {
-                    Ok(self.lower(forest))
+                    Ok(self.lower(self.infer_sorts(forest, start, is_anywhere)?))
                 }
             }
         }
@@ -496,6 +520,10 @@ impl Grammar {
             .apply_priority
             .map(parse_apply_priority)
             .transpose()?;
+        if syntactic_subsort && let [Item::NonTerminal(child)] = items.as_slice() {
+            self.subsort_relations
+                .insert((child.clone(), result.clone()));
+        }
         self.productions.push(Production {
             result: result.clone(),
             items,
@@ -506,6 +534,8 @@ impl Grammar {
             syntactic_subsort,
             parse_label,
             apply_priority,
+            function: options.function,
+            macro_like: options.macro_like,
         });
         self.by_result.entry(result).or_default().push(index);
         Ok(())

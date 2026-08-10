@@ -6,7 +6,7 @@ expression: sentences
     SentenceSummary {
         kind: "rule",
         body: "`_+__MAIN_Exp_Exp_Exp`(#SemanticCastToExp(X),#token(\"0\",\"Int\"))=>#SemanticCastToExp(X)",
-        requires: "`_==__MAIN_Bool_Exp_Exp`(X,#token(\"0\",\"Int\"))",
+        requires: "`_==__MAIN_Bool_Exp_Exp`(#SemanticCastToExp(X),#token(\"0\",\"Int\"))",
         ensures: Some(
             "#token(\"false\",\"Bool\")",
         ),
@@ -19,20 +19,20 @@ expression: sentences
         body: "`_+__MAIN_Exp_Exp_Exp`(#SemanticCastToExp(X),#token(\"0\",\"Int\"))=>#SemanticCastToExp(X)",
         requires: "#token(\"true\",\"Bool\")",
         ensures: Some(
-            "`_==__MAIN_Bool_Exp_Exp`(X,#token(\"0\",\"Int\"))",
+            "`_==__MAIN_Bool_Exp_Exp`(#SemanticCastToExp(X),#token(\"0\",\"Int\"))",
         ),
         label: None,
     },
     SentenceSummary {
         kind: "context",
-        body: "`_+__MAIN_Exp_Exp_Exp`(HOLE,#token(\"0\",\"Int\"))",
+        body: "`_+__MAIN_Exp_Exp_Exp`(#SemanticCastToExp(HOLE),#token(\"0\",\"Int\"))",
         requires: "#token(\"true\",\"Bool\")",
         ensures: None,
         label: None,
     },
     SentenceSummary {
         kind: "alias",
-        body: "`_+__MAIN_Exp_Exp_Exp`(X,#token(\"0\",\"Int\"))=>X",
+        body: "`_+__MAIN_Exp_Exp_Exp`(#SemanticCastToExp(X),#token(\"0\",\"Int\"))=>#SemanticCastToExp(X)",
         requires: "#token(\"true\",\"Bool\")",
         ensures: None,
         label: Some(

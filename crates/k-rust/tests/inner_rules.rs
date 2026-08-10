@@ -238,6 +238,119 @@ rule_snapshot!(
     "#
 );
 
+rule_snapshot!(
+    infers_the_tightest_shared_variable_sort,
+    r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= Int
+          syntax Pair ::= "pair(" Exp "," Int ")" [symbol(pair)]
+          rule pair(X, X) => pair(X, X)
+        endmodule
+    "#
+);
+
+rule_snapshot!(
+    infers_anonymous_variable_occurrences_independently,
+    r#"
+        module MAIN
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+          syntax Pair ::= "pair(" A "," B ")" [symbol(pair)]
+          rule pair(_, _) => pair(_, _)
+        endmodule
+    "#
+);
+
+rule_snapshot!(
+    infers_boolean_condition_variables_from_builtin_rule_syntax,
+    r#"
+        module MAIN
+          syntax A ::= "a" [symbol(a)]
+          rule a => a requires B
+        endmodule
+    "#
+);
+
+#[test]
+fn rejects_incompatible_variable_sort_bounds() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+          syntax Pair ::= "pair(" A "," B ")" [symbol(pair)]
+          rule pair(X, X) => pair(X, X)
+        endmodule
+    "#});
+    let error = resolve_rule_bubbles(&definition).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            RuleError::Parse(ref error)
+                if matches!(error.error, ParseError::SortInference { .. })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn anywhere_rules_cannot_widen_the_rewrite_sort() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Small ::= "small" [symbol(small)]
+          syntax Big ::= Small
+          syntax Big ::= "big" [symbol(big)]
+          rule small => big [anywhere]
+        endmodule
+    "#});
+    let error = resolve_rule_bubbles(&definition).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            RuleError::Parse(ref error)
+                if matches!(error.error, ParseError::SortInference { .. })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn ordinary_rules_may_widen_the_rewrite_sort() {
+    let resolved = resolve_rule_bubbles(&lowered(indoc! {r#"
+        module MAIN
+          syntax Small ::= "small" [symbol(small)]
+          syntax Big ::= Small
+          syntax Big ::= "big" [symbol(big)]
+          rule small => big
+        endmodule
+    "#}))
+    .unwrap();
+    assert!(resolved.main_module().unwrap().local_sentences.iter().any(
+        |sentence| matches!(sentence, Sentence::Rule { body, .. } if body.to_string() == "small(.KList)=>big(.KList)")
+    ));
+}
+
+#[test]
+fn function_rules_cannot_widen_the_rewrite_sort() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Small ::= "small" [symbol(small), function]
+          syntax Big ::= Small
+          syntax Big ::= "big" [symbol(big)]
+          rule small => big
+        endmodule
+    "#});
+    let error = resolve_rule_bubbles(&definition).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            RuleError::Parse(ref error)
+                if matches!(error.error, ParseError::SortInference { .. })
+        ),
+        "{error:?}"
+    );
+}
+
 #[test]
 fn reports_unknown_generic_k_applications() {
     let definition = lowered(indoc! {r#"

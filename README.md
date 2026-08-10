@@ -73,9 +73,12 @@ bodies, semantic casts, user-defined conditions, optional cell dots, nested cell
 `#withConfig`. Generic `KLabel(KList)` applications are resolved to visible productions by label
 and arity, with quoted labels, nullary `.KList`, and associative argument lists. The private forest
 factors shared alternatives into their differing child and lifts top-level rewrite-LHS ambiguity
-above `#RuleContent`, matching Scala's preparation for sort inference. Forests that remain
-genuinely ambiguous are explicit errors pending that inference and the remaining canonical
-disambiguation passes.
+above `#RuleContent`, matching Scala's preparation for sort inference. The portable, non-Z3
+inference path now checks unambiguous non-parametric trees, infers the tightest compatible sort for
+named and anonymous variables, inserts semantic casts, and enforces the non-widening rule for
+`anywhere`, simplification, function, and macro rewrites. Forests that remain genuinely ambiguous
+or use parametric productions are explicit errors at the same boundary where Scala falls back to
+the still-unported Z3 inferencer.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -109,7 +112,8 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
   remaining ambiguous rule, claim, context, and alias bubbles resolve canonically.
 - Revisit package splitting only if compile times, dependency boundaries, or release needs justify
   moving beyond the current single-crate workspace.
-- Measure and port both sort-inference paths, including the Z3 fallback described in §6.9.
+- Measure how often real definitions require the Z3 sort-inference fallback, then port that
+  ambiguity/parametric path described in §6.9.
 
 **Provenance.** All figures below were measured directly against these trees, not recalled:
 
@@ -542,13 +546,15 @@ Order-sensitive; corpus under-covers it (§5.4). Unchanged by the WASM scoping d
 ### 6.8 Diagnostic fidelity
 Large, tedious, non-parallelisable-by-inspection surface. Needs a scope decision (§8).
 
-### 6.9 Sort inference — *deferred, not solved*
+### 6.9 Sort inference — *portable path implemented; Z3 fallback deferred*
 `ParseInModule.java:417` gates on `SortInferencer.isSupported(...)` (newer,
 Hindley-Milner-ish, 591 LOC) and falls back to the Z3-backed `TypeInferencer` (1,072 LOC).
-With native `kompile` you keep shelling out to Z3, so this is a straight port rather than a
-design decision. **But measure what fraction of the corpus takes each path** — if the Z3
-fallback is common it constrains any future attempt to make `kompile` WASM-capable, and it
-makes output dependent on Z3's model choice across solver versions.
+`k-rust` now implements the newer portable path for the same supported subset: unambiguous trees
+without parametric sorts. It preserves Scala's fallback boundary instead of guessing when a tree
+needs the older algorithm. With native `kompile` the remaining path can keep shelling out to Z3,
+so this is a straight port rather than a design decision. **But measure what fraction of the
+corpus takes each path** — if the Z3 fallback is common it constrains any future attempt to make
+`kompile` WASM-capable, and it makes output dependent on Z3's model choice across solver versions.
 
 ---
 
@@ -630,5 +636,6 @@ the fact that K already specifies its canonical ordering in code.
       `evm-semantics` / `wasm-semantics` / the 229 in-repo tests, archive outputs, pin the
       toolchain version.
 - [ ] Stand up the Java instrumentation fork (§5.5) and decide how it will be maintained.
-- [ ] Measure the `SortInferencer` vs `TypeInferencer` (Z3) split across the corpus (§6.9).
+- [ ] Measure the portable `SortInferencer` vs `TypeInferencer` (Z3) split across the corpus and
+      port the Z3 fallback (§6.9).
 - [ ] Answer the scope questions in §8.

@@ -94,8 +94,18 @@ pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleE
             if !is_rule_sentence_type(sentence_type) {
                 continue;
             }
+            let is_anywhere = [
+                "anywhere",
+                "simplification",
+                "macro",
+                "macro-rec",
+                "alias",
+                "alias-rec",
+            ]
+            .iter()
+            .any(|key| attributes.get(key).is_some());
             let parsed = grammar
-                .parse(&Sort::new("#RuleContent"), contents)
+                .parse_with_context(&Sort::new("#RuleContent"), contents, is_anywhere)
                 .map_err(|error| bubble_error(&module.name, sentence_type, attributes, error))?;
             *sentence = up_sentence(&module.name, sentence_type, parsed, attributes.clone())?;
         }
@@ -236,9 +246,11 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
     add_rule_cells(&mut grammar, &visible)?;
 
     for sort in concrete_sorts {
-        add_subsort(&mut grammar, "KItem", sort.clone())?;
-        grammar.add(sort.clone(), vec![nonterminal("KBott")], None, false, true)?;
-        add_semantic_cast(&mut grammar, sort.clone())?;
+        if sort.name != "Bool" {
+            add_subsort(&mut grammar, "KItem", sort.clone())?;
+            grammar.add(sort.clone(), vec![nonterminal("KBott")], None, false, true)?;
+            add_semantic_cast(&mut grammar, sort.clone())?;
+        }
         add_rule_sort(&mut grammar, &sort)?;
     }
 

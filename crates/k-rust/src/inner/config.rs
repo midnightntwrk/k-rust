@@ -180,8 +180,12 @@ fn configuration_grammar(
         ) && !sort.name.starts_with('#')
     });
     for sort in concrete_sorts {
-        add_subsort(&mut grammar, "KItem", sort.clone())?;
-        add_semantic_cast(&mut grammar, sort)?;
+        if sort.name != "Bool" {
+            add_subsort(&mut grammar, "KItem", sort.clone())?;
+            add_subsort(&mut grammar, sort.name.as_str(), Sort::new("KConfigVar"))?;
+            add_subsort(&mut grammar, sort.name.as_str(), Sort::new("#KVariable"))?;
+            add_semantic_cast(&mut grammar, sort)?;
+        }
     }
 
     Ok(grammar)
@@ -190,6 +194,7 @@ fn configuration_grammar(
 pub(super) fn add_k_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {
     add_subsort(grammar, "K", Sort::new("KItem"))?;
     add_subsort(grammar, "KItem", Sort::new("Bag"))?;
+    add_subsort(grammar, "KItem", Sort::new("Bool"))?;
     add_subsort(grammar, "KItem", Sort::new("KConfigVar"))?;
     add_subsort(grammar, "KItem", Sort::new("#KVariable"))?;
     add_subsort(grammar, "#RuleBody", Sort::new("K"))?;
@@ -233,6 +238,9 @@ pub(super) fn add_k_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {
         true,
         false,
     )?;
+    add_subsort(grammar, "Bool", Sort::new("#KVariable"))?;
+    add_subsort(grammar, "Bool", Sort::new("KConfigVar"))?;
+    add_semantic_cast(grammar, Sort::new("Bool"))?;
     grammar.add(
         Sort::new("#RuleContent"),
         vec![nonterminal("#RuleBody")],
@@ -375,7 +383,10 @@ pub(super) fn add_semantic_cast(grammar: &mut Grammar, sort: Sort) -> Result<(),
     grammar.add(
         sort.clone(),
         vec![
-            nonterminal("K"),
+            ProductionItem::NonTerminal {
+                sort: sort.clone(),
+                name: None,
+            },
             ProductionItem::Terminal(format!(":{sort}")),
         ],
         Some(Label::new(format!("#SemanticCastTo{}", sort.name))),
