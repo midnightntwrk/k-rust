@@ -86,7 +86,10 @@ the still-unported Z3 inferencer. Before that boundary, all four Scala
 original production and substitution, and add concrete-to-placeholder bridges such as
 `MInt{K} ::= MInt{8}`. Scala-compatible record productions are generated for prefix syntax,
 collapsed back to positional applications before disambiguation, and fill omitted named or unnamed
-fields with collision-free anonymous variables.
+fields with collision-free anonymous variables. Ambiguity factoring matches Scala's pre-inference
+push-down pass, while production metadata and the post-inference selector preserve exact `prefer`
+and `avoid` behavior, including multiple preferred alternatives and the all-avoided case. Ambiguous
+forests still stop for the unported Z3 fallback before that selector can run end to end.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -115,8 +118,9 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
 - Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
   auto-imported prelude policy alongside the future command-line frontend.
 - Complete Java `RuleGrammarGenerator` parity: reproduce module-defined layout scanning and exact
-  scanner diagnostics, and port the overload, list, cast, prefer/avoid, and remaining type-inference
-  disambiguation passes so ambiguous rule, claim, context, and alias bubbles resolve canonically.
+  scanner diagnostics, and port the overload, list, cast, and remaining type-inference
+  disambiguation passes so ambiguous rule, claim, context, and alias bubbles resolve canonically;
+  connect the existing post-inference `prefer`/`avoid` selector to the future Z3 result.
 - Revisit package splitting only if compile times, dependency boundaries, or release needs justify
   moving beyond the current single-crate workspace.
 - Measure how often real definitions require the Z3 sort-inference fallback, then port that

@@ -231,6 +231,8 @@ fn production_options(attributes: &Attributes) -> ProductionOptions<'_> {
         macro_like: ["macro", "macro-rec", "alias", "alias-rec"]
             .iter()
             .any(|key| attributes.get(key).is_some()),
+        prefer: attributes.get("prefer").is_some(),
+        avoid: attributes.get("avoid").is_some(),
         precedence: attributes.get_str("prec"),
     }
 }

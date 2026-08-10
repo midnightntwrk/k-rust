@@ -142,6 +142,8 @@ struct Production {
     apply_priority: Option<BTreeSet<usize>>,
     function: bool,
     macro_like: bool,
+    prefer: bool,
+    avoid: bool,
     field_names: Vec<Option<String>>,
     record: Option<RecordProduction>,
     parametric_origin: Option<ParametricOrigin>,
@@ -183,6 +185,8 @@ struct ProductionOptions<'a> {
     apply_priority: Option<&'a str>,
     function: bool,
     macro_like: bool,
+    prefer: bool,
+    avoid: bool,
     precedence: Option<&'a str>,
 }
 
@@ -281,6 +285,8 @@ impl Grammar {
                     macro_like: ["macro", "macro-rec", "alias", "alias-rec"]
                         .iter()
                         .any(|key| attributes.get(key).is_some()),
+                    prefer: attributes.get("prefer").is_some(),
+                    avoid: attributes.get("avoid").is_some(),
                     precedence: attributes.get_str("prec"),
                 },
                 &lexical,
@@ -472,7 +478,14 @@ impl Grammar {
                 if parses > 1 {
                     Err(ParseError::Ambiguous { parses })
                 } else {
-                    Ok(self.lower(self.infer_sorts(forest, start, is_anywhere)?))
+                    let inferred = self.infer_sorts(forest, start, is_anywhere)?;
+                    let filtered = self.filter_prefer_avoid(inferred);
+                    let parses = Grammar::ambiguity_count(&filtered);
+                    if parses > 1 {
+                        Err(ParseError::Ambiguous { parses })
+                    } else {
+                        Ok(self.lower(filtered))
+                    }
                 }
             }
         }
@@ -593,6 +606,8 @@ impl Grammar {
             apply_priority,
             function: options.function,
             macro_like: options.macro_like,
+            prefer: options.prefer,
+            avoid: options.avoid,
             field_names,
             record: None,
             parametric_origin: None,

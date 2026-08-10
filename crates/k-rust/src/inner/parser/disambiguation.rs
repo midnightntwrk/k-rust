@@ -345,6 +345,71 @@ impl Grammar {
         }
     }
 
+    /// Apply Scala's post-inference `prefer`/`avoid` selection, then push any
+    /// surviving shared-production ambiguity into its one differing child.
+    pub(super) fn filter_prefer_avoid(&self, term: ParsedTerm) -> ParsedTerm {
+        match term {
+            ParsedTerm::Term(_) => term,
+            ParsedTerm::Production {
+                production,
+                children,
+            } => ParsedTerm::Production {
+                production,
+                children: children
+                    .into_iter()
+                    .map(|child| self.filter_prefer_avoid(child))
+                    .collect(),
+            },
+            ParsedTerm::Ambiguity(mut alternatives) => {
+                if alternatives.len() == 1 {
+                    return self
+                        .filter_prefer_avoid(alternatives.pop_first().expect("length was one"));
+                }
+
+                let preferred = alternatives
+                    .iter()
+                    .filter(|alternative| self.is_preferred(alternative))
+                    .cloned()
+                    .collect::<BTreeSet<_>>();
+                if !preferred.is_empty() {
+                    alternatives = preferred;
+                } else {
+                    let retained = alternatives
+                        .iter()
+                        .filter(|alternative| !self.is_avoided(alternative))
+                        .cloned()
+                        .collect::<BTreeSet<_>>();
+                    if !retained.is_empty() {
+                        alternatives = retained;
+                    }
+                }
+
+                let alternatives = alternatives
+                    .into_iter()
+                    .map(|alternative| self.filter_prefer_avoid(alternative))
+                    .collect::<BTreeSet<_>>();
+                if alternatives.len() == 1 {
+                    return alternatives.into_iter().next().expect("length was one");
+                }
+                let ambiguity = ParsedTerm::Ambiguity(alternatives);
+                let factored = self.factor_ambiguities(ambiguity.clone());
+                if factored == ambiguity {
+                    ambiguity
+                } else {
+                    self.filter_prefer_avoid(factored)
+                }
+            }
+        }
+    }
+
+    fn is_preferred(&self, term: &ParsedTerm) -> bool {
+        matches!(term, ParsedTerm::Production { production, .. } if self.productions[*production].prefer)
+    }
+
+    fn is_avoided(&self, term: &ParsedTerm) -> bool {
+        matches!(term, ParsedTerm::Production { production, .. } if self.productions[*production].avoid)
+    }
+
     /// Lift ambiguity in a top-level rewrite LHS above its `#RuleContent` wrapper.
     pub(super) fn push_top_lhs_ambiguity_up(&self, term: ParsedTerm) -> ParsedTerm {
         if let ParsedTerm::Ambiguity(alternatives) = term {
@@ -540,6 +605,37 @@ mod tests {
         ParsedTerm::Term(Term::variable(name))
     }
 
+    fn render(grammar: &Grammar, term: &ParsedTerm) -> String {
+        match term {
+            ParsedTerm::Term(term) => term.to_string(),
+            ParsedTerm::Production {
+                production,
+                children,
+            } => {
+                let label = grammar.productions[*production]
+                    .label
+                    .as_ref()
+                    .map_or("<unlabeled>", |label| label.name.as_str());
+                format!(
+                    "{label}({})",
+                    children
+                        .iter()
+                        .map(|child| render(grammar, child))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+            ParsedTerm::Ambiguity(alternatives) => format!(
+                "amb{{{}}}",
+                alternatives
+                    .iter()
+                    .map(|alternative| render(grammar, alternative))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        }
+    }
+
     #[test]
     fn factors_a_shared_production_into_the_differing_child() {
         let mut grammar = Grammar::default();
@@ -586,5 +682,66 @@ mod tests {
 
         let lifted = grammar.push_top_lhs_ambiguity_up(root);
         assert!(matches!(lifted, ParsedTerm::Ambiguity(ref items) if items.len() == 2));
+    }
+
+    #[test]
+    fn applies_prefer_and_avoid_only_at_ambiguity_roots() {
+        let mut grammar = Grammar::default();
+        let preferred = add_production(&mut grammar, "Exp", &[], "preferred");
+        let ordinary = add_production(&mut grammar, "Exp", &[], "ordinary");
+        let avoided = add_production(&mut grammar, "Exp", &[], "avoided");
+        let also_avoided = add_production(&mut grammar, "Exp", &[], "alsoAvoided");
+        grammar.productions[preferred].prefer = true;
+        grammar.productions[avoided].avoid = true;
+        grammar.productions[also_avoided].avoid = true;
+
+        let alternative = |production| ParsedTerm::Production {
+            production,
+            children: Vec::new(),
+        };
+        let selected = grammar.filter_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
+            alternative(preferred),
+            alternative(ordinary),
+            alternative(avoided),
+        ])));
+        assert_eq!(selected, alternative(preferred));
+
+        let without_prefer = grammar.filter_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
+            alternative(ordinary),
+            alternative(avoided),
+        ])));
+        assert_eq!(without_prefer, alternative(ordinary));
+
+        let all_avoided = grammar.filter_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
+            alternative(avoided),
+            alternative(also_avoided),
+        ])));
+        assert!(matches!(all_avoided, ParsedTerm::Ambiguity(ref items) if items.len() == 2));
+
+        let wrapper = add_production(&mut grammar, "Exp", &["Exp"], "wrapper");
+        let nested = grammar.filter_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
+            ParsedTerm::Production {
+                production: wrapper,
+                children: vec![alternative(preferred)],
+            },
+            ParsedTerm::Production {
+                production: wrapper,
+                children: vec![alternative(ordinary)],
+            },
+        ])));
+        assert_eq!(
+            nested,
+            ParsedTerm::Production {
+                production: wrapper,
+                children: vec![alternative(preferred)],
+            }
+        );
+
+        insta::assert_debug_snapshot!(vec![
+            render(&grammar, &selected),
+            render(&grammar, &without_prefer),
+            render(&grammar, &all_avoided),
+            render(&grammar, &nested),
+        ]);
     }
 }

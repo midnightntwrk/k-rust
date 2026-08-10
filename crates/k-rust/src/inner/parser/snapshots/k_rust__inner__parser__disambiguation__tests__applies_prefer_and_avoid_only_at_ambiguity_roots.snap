@@ -1,0 +1,10 @@
+---
+source: crates/k-rust/src/inner/parser/disambiguation.rs
+expression: "vec![render(&grammar, &selected), render(&grammar, &without_prefer),\nrender(&grammar, &all_avoided), render(&grammar, &nested),]"
+---
+[
+    "preferred()",
+    "ordinary()",
+    "amb{avoided(), alsoAvoided()}",
+    "wrapper(preferred())",
+]

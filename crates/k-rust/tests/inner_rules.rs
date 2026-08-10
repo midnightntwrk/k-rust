@@ -183,6 +183,31 @@ fn preserves_genuine_ambiguity_until_disambiguation_is_ported() {
 }
 
 #[test]
+fn preserves_prefer_and_avoid_until_post_inference_disambiguation() {
+    let errors = ["prefer", "avoid"]
+        .into_iter()
+        .map(|attribute| {
+            let source = format!(
+                r#"module MAIN
+syntax Int ::= r"[0-9]+" [token]
+syntax Exp ::= Int
+syntax Exp ::= Exp "+" Exp [symbol(plus), {attribute}]
+syntax Exp ::= Exp "*" Exp [symbol(times)]
+rule 1 + 2 * 3 => 1
+endmodule"#
+            );
+            resolve_rule_bubbles(&lowered(&source)).unwrap_err()
+        })
+        .collect::<Vec<_>>();
+    assert!(errors.iter().all(|error| matches!(
+        error,
+        RuleError::Parse(error) if matches!(error.error, ParseError::Ambiguous { .. })
+    )));
+
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn builds_parametric_parse_forests_before_reaching_the_z3_boundary() {
     for source in [
         indoc! {r#"
