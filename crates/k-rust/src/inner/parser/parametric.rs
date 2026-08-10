@@ -245,6 +245,7 @@ fn production_options(attributes: &Attributes) -> ProductionOptions<'_> {
         prefer: attributes.get("prefer").is_some(),
         avoid: attributes.get("avoid").is_some(),
         source_production: None,
+        user_list: attributes.get("userList").is_some(),
         precedence: attributes.get_str("prec"),
     }
 }

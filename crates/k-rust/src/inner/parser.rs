@@ -2,6 +2,7 @@
 
 mod disambiguation;
 mod inference;
+mod lists;
 mod parametric;
 mod record;
 mod scanner;
@@ -17,6 +18,7 @@ use crate::definition::{
 use crate::kast::{Label, Sort, Term};
 
 use self::disambiguation::parse_apply_priority;
+use self::lists::UserList;
 use self::scanner::{Item, Scanner, compile_item};
 
 const MAX_DERIVATIONS_PER_STATE: usize = 64;
@@ -76,6 +78,12 @@ pub enum ParseError {
         message: String,
     },
     OverloadedTerminator {
+        possible_sorts: Vec<Sort>,
+    },
+    UserList {
+        message: String,
+    },
+    ListTerminator {
         possible_sorts: Vec<Sort>,
     },
 }
@@ -158,6 +166,16 @@ impl fmt::Display for ParseError {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
+            Self::UserList { message } => formatter.write_str(message),
+            Self::ListTerminator { possible_sorts } => write!(
+                formatter,
+                "list terminator for overloaded term does not have a least sort; possible sorts: {}",
+                possible_sorts
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         }
     }
 }
@@ -180,6 +198,7 @@ struct Production {
     prefer: bool,
     avoid: bool,
     source_production: Option<ProductionId>,
+    user_list: bool,
     field_names: Vec<Option<String>>,
     record: Option<RecordProduction>,
     parametric_origin: Option<ParametricOrigin>,
@@ -224,6 +243,7 @@ struct ProductionOptions<'a> {
     prefer: bool,
     avoid: bool,
     source_production: Option<ProductionId>,
+    user_list: bool,
     precedence: Option<&'a str>,
 }
 
@@ -250,6 +270,7 @@ pub struct Grammar {
     associativities: AssociativityRelations,
     subsort_relations: BTreeSet<(Sort, Sort)>,
     overloads: PartialOrder<ProductionId>,
+    user_lists: BTreeMap<Sort, UserList>,
 }
 
 impl Default for Grammar {
@@ -262,6 +283,7 @@ impl Default for Grammar {
             associativities: AssociativityRelations::default(),
             subsort_relations: BTreeSet::new(),
             overloads: PartialOrder::new([]).expect("an empty relation is acyclic"),
+            user_lists: BTreeMap::new(),
         }
     }
 }
@@ -332,12 +354,14 @@ impl Grammar {
                     prefer: attributes.get("prefer").is_some(),
                     avoid: attributes.get("avoid").is_some(),
                     source_production: source_production(&overloads, sentence),
+                    user_list: attributes.get("userList").is_some(),
                     precedence: attributes.get_str("prec"),
                 },
                 &lexical,
             )?;
         }
         grammar.add_parametric_productions(&sentences, &lexical, &overloads)?;
+        grammar.initialize_user_lists()?;
         let original_productions = grammar.productions.len();
         for production in 0..original_productions {
             grammar.add_record_productions(production)?;
@@ -530,7 +554,8 @@ impl Grammar {
                     if parses > 1 {
                         Err(ParseError::Ambiguous { parses })
                     } else {
-                        Ok(self.lower(filtered))
+                        let listed = self.add_empty_lists(filtered, start)?;
+                        Ok(self.lower(listed))
                     }
                 }
             }
@@ -655,6 +680,7 @@ impl Grammar {
             prefer: options.prefer,
             avoid: options.avoid,
             source_production: options.source_production,
+            user_list: options.user_list,
             field_names,
             record: None,
             parametric_origin: None,

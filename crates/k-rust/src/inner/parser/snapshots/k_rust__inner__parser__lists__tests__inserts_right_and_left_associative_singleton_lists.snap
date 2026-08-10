@@ -1,0 +1,10 @@
+---
+source: crates/k-rust/src/inner/parser/lists.rs
+expression: terms
+---
+[
+    "box(cons(a(.KList),nil(.KList)))",
+    "box(cons(a(.KList),cons(a(.KList),nil(.KList))))",
+    "box(nil(.KList))",
+    "box(cons(nil(.KList),a(.KList)))",
+]

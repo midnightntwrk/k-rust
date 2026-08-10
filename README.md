@@ -93,6 +93,10 @@ forests also retain stable production IDs from the definition catalog, and the p
 pipeline resolves overloaded terminators to a unique least production before removing less-specific
 ambiguity alternatives and applying `prefer`/`avoid`, matching Scala's ordering. Forests that need
 Z3 still stop at that unported boundary before ambiguity overload filtering can run end to end.
+Lowered `userList` pairs are recognized by the inner grammar, temporary singleton-list subsorts
+participate in inference, and the post-disambiguation pass reconstructs canonical recursive list
+applications and terminators. This includes left- and right-associative lists and unique-least-sort
+diagnostics for overloaded list constructors and terminators.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -121,7 +125,7 @@ Backends (LLVM, Haskell) are explicitly out of scope — they stay as they are.
 - Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
   auto-imported prelude policy alongside the future command-line frontend.
 - Complete Java `RuleGrammarGenerator` parity: reproduce module-defined layout scanning and exact
-  scanner diagnostics, and port the list, cast, and remaining type-inference
+  scanner diagnostics, and port the remaining cast and type-inference
   disambiguation passes so ambiguous rule, claim, context, and alias bubbles resolve canonically;
   connect the existing post-inference overload and `prefer`/`avoid` selectors to the future Z3
   result.

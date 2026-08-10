@@ -549,3 +549,28 @@ fn reports_overloaded_terminators_without_a_unique_least_sort() {
 
     insta::assert_debug_snapshot!(error);
 }
+
+#[test]
+fn reconstructs_implicit_user_lists_after_sort_inference() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Id ::= r"[a-z]" [token]
+          syntax Ids ::= List{Id, ","} [symbol(ids)]
+          syntax Wrapped ::= "wrap" Ids [symbol(wrap)]
+          rule wrap a => wrap a,b
+        endmodule
+    "#});
+    let resolved = resolve_rule_bubbles(&definition).unwrap();
+    let bodies = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    insta::assert_debug_snapshot!(bodies);
+}

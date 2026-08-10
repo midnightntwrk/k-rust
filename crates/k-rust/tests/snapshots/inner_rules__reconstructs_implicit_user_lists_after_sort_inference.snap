@@ -1,0 +1,7 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+expression: bodies
+---
+[
+    "wrap(ids(#token(\"a\",\"Id\"),`.List{\"ids\"}`(.KList)))=>wrap(ids(#token(\"a\",\"Id\"),ids(#token(\"b\",\"Id\"),`.List{\"ids\"}`(.KList))))",
+]

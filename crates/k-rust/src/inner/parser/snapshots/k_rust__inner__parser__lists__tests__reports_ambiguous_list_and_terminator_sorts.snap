@@ -1,0 +1,30 @@
+---
+source: crates/k-rust/src/inner/parser/lists.rs
+expression: "(list_error, terminator_error)"
+---
+(
+    OverloadedTerminator {
+        possible_sorts: [
+            Sort {
+                name: "Firsts",
+                parameters: [],
+            },
+            Sort {
+                name: "Seconds",
+                parameters: [],
+            },
+        ],
+    },
+    ListTerminator {
+        possible_sorts: [
+            Sort {
+                name: "Firsts",
+                parameters: [],
+            },
+            Sort {
+                name: "Seconds",
+                parameters: [],
+            },
+        ],
+    },
+)
