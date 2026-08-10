@@ -3,16 +3,19 @@
 use std::collections::BTreeMap;
 
 use crate::definition::regex::Regex as KRegex;
-use crate::definition::{Attributes, ProductionItem, Sentence, SortCatalog, SortHead};
+use crate::definition::{
+    Attributes, OverloadOrder, ProductionItem, Sentence, SortCatalog, SortHead,
+};
 use crate::kast::{Label, Sort};
 
-use super::{Grammar, ParametricOrigin, ParseError, ProductionOptions};
+use super::{Grammar, ParametricOrigin, ParseError, ProductionOptions, source_production};
 
 impl Grammar {
     pub(super) fn add_parametric_productions(
         &mut self,
         sentences: &[&Sentence],
         lexical: &BTreeMap<String, KRegex>,
+        overloads: &OverloadOrder<'_>,
     ) -> Result<(), ParseError> {
         let catalog = SortCatalog::from_visible(sentences.iter().copied());
         let mut all_sorts = catalog
@@ -66,6 +69,7 @@ impl Grammar {
                         attributes,
                         substitution,
                         lexical,
+                        source_production(overloads, sentence),
                     )?;
                 }
             } else if !sort.parameters.is_empty() {
@@ -93,6 +97,7 @@ impl Grammar {
                         attributes,
                         substitution,
                         lexical,
+                        source_production(overloads, sentence),
                     )?;
                 }
             } else if is_syntactic_subsort(label, items) {
@@ -111,6 +116,7 @@ impl Grammar {
                         attributes,
                         substitution,
                         lexical,
+                        source_production(overloads, sentence),
                     )?;
                 }
             } else {
@@ -128,6 +134,7 @@ impl Grammar {
                     attributes,
                     substitution,
                     lexical,
+                    source_production(overloads, sentence),
                 )?;
             }
         }
@@ -163,6 +170,7 @@ impl Grammar {
         attributes: &Attributes,
         substitution: BTreeMap<Sort, Sort>,
         lexical: &BTreeMap<String, KRegex>,
+        source_production: Option<crate::definition::ProductionId>,
     ) -> Result<(), ParseError> {
         let concrete_result = substitute_sort(result, &substitution);
         let concrete_items = items
@@ -175,7 +183,10 @@ impl Grammar {
             concrete_result,
             &concrete_items,
             concrete_label,
-            production_options(attributes),
+            ProductionOptions {
+                source_production,
+                ..production_options(attributes)
+            },
             lexical,
         )?;
         self.productions[index].parametric_origin = Some(ParametricOrigin {
@@ -233,6 +244,7 @@ fn production_options(attributes: &Attributes) -> ProductionOptions<'_> {
             .any(|key| attributes.get(key).is_some()),
         prefer: attributes.get("prefer").is_some(),
         avoid: attributes.get("avoid").is_some(),
+        source_production: None,
         precedence: attributes.get_str("prec"),
     }
 }

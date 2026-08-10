@@ -1,6 +1,7 @@
 use indoc::indoc;
 use k_rust::definition::Sentence;
 use k_rust::inner::{ParseError, RuleError, resolve_rule_bubbles};
+use k_rust::kast::Sort;
 use k_rust::outer::{ResolvedSource, load};
 
 #[derive(Debug)]
@@ -518,4 +519,33 @@ fn preserves_overloaded_generic_applications_for_sort_inference() {
         ),
         "{error:?}"
     );
+}
+
+#[test]
+fn reports_overloaded_terminators_without_a_unique_least_sort() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax First ::= "first" [symbol(unit)]
+          syntax Second ::= "second" [symbol(unit)]
+          syntax General ::= First
+                           | Second
+                           | "general" [symbol(unit)]
+          rule general => general
+        endmodule
+    "#});
+    let error = resolve_rule_bubbles(&definition).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            RuleError::Parse(ref error)
+                if matches!(
+                    error.error,
+                    ParseError::OverloadedTerminator { ref possible_sorts }
+                        if possible_sorts == &[Sort::new("First"), Sort::new("Second")]
+                )
+        ),
+        "{error:?}"
+    );
+
+    insta::assert_debug_snapshot!(error);
 }

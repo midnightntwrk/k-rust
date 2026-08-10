@@ -1,0 +1,33 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+expression: error
+---
+Parse(
+    RuleParseError {
+        module: "MAIN",
+        sentence_type: "rule",
+        source: Some(
+            "rules.k",
+        ),
+        location: Some(
+            Location {
+                start_line: 7,
+                start_column: 3,
+                end_line: 7,
+                end_column: 26,
+            },
+        ),
+        error: OverloadedTerminator {
+            possible_sorts: [
+                Sort {
+                    name: "First",
+                    parameters: [],
+                },
+                Sort {
+                    name: "Second",
+                    parameters: [],
+                },
+            ],
+        },
+    },
+)

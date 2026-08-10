@@ -10,8 +10,9 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
 use crate::definition::{
-    AssociativityRelations, Attributes, PartialOrder, ProductionItem, Regex as KRegex, RegexBody,
-    Sentence, compute_associativities, compute_priorities, parse_regex,
+    AssociativityRelations, Attributes, OverloadOrder, PartialOrder, ProductionId, ProductionItem,
+    Regex as KRegex, RegexBody, Sentence, compute_associativities, compute_overloads,
+    compute_priorities, compute_subsorts, parse_regex, sentence_equivalent,
 };
 use crate::kast::{Label, Sort, Term};
 
@@ -45,6 +46,12 @@ pub enum ParseError {
     CircularPriorities {
         path: Vec<String>,
     },
+    CircularSubsorts {
+        path: Vec<Sort>,
+    },
+    CircularOverloads {
+        path: Vec<ProductionId>,
+    },
     InvalidApplyPriority {
         value: String,
         position: String,
@@ -67,6 +74,9 @@ pub enum ParseError {
     },
     RecordProduction {
         message: String,
+    },
+    OverloadedTerminator {
+        possible_sorts: Vec<Sort>,
     },
 }
 
@@ -101,6 +111,22 @@ impl fmt::Display for ParseError {
                     path.join(" > ")
                 )
             }
+            Self::CircularSubsorts { path } => write!(
+                formatter,
+                "illegal circular subsort relation: {}",
+                path.iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(" < ")
+            ),
+            Self::CircularOverloads { path } => write!(
+                formatter,
+                "illegal circular overload relation: {}",
+                path.iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(" < ")
+            ),
             Self::InvalidApplyPriority { value, position } => write!(
                 formatter,
                 "invalid applyPriority value {position:?} in {value:?}"
@@ -123,6 +149,15 @@ impl fmt::Display for ParseError {
             ),
             Self::SortInference { message } => formatter.write_str(message),
             Self::RecordProduction { message } => formatter.write_str(message),
+            Self::OverloadedTerminator { possible_sorts } => write!(
+                formatter,
+                "overloaded term does not have a least sort; possible sorts: {}",
+                possible_sorts
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         }
     }
 }
@@ -144,6 +179,7 @@ struct Production {
     macro_like: bool,
     prefer: bool,
     avoid: bool,
+    source_production: Option<ProductionId>,
     field_names: Vec<Option<String>>,
     record: Option<RecordProduction>,
     parametric_origin: Option<ParametricOrigin>,
@@ -187,6 +223,7 @@ struct ProductionOptions<'a> {
     macro_like: bool,
     prefer: bool,
     avoid: bool,
+    source_production: Option<ProductionId>,
     precedence: Option<&'a str>,
 }
 
@@ -212,6 +249,7 @@ pub struct Grammar {
     priorities: PartialOrder<String>,
     associativities: AssociativityRelations,
     subsort_relations: BTreeSet<(Sort, Sort)>,
+    overloads: PartialOrder<ProductionId>,
 }
 
 impl Default for Grammar {
@@ -223,6 +261,7 @@ impl Default for Grammar {
             priorities: PartialOrder::new([]).expect("an empty relation is acyclic"),
             associativities: AssociativityRelations::default(),
             subsort_relations: BTreeSet::new(),
+            overloads: PartialOrder::new([]).expect("an empty relation is acyclic"),
         }
     }
 }
@@ -250,9 +289,14 @@ impl Grammar {
         let priorities = compute_priorities(sentences.iter().copied())
             .map_err(|cycle| ParseError::CircularPriorities { path: cycle.path })?;
         let associativities = compute_associativities(sentences.iter().copied());
+        let semantic_subsorts = compute_subsorts(sentences.iter().copied(), false)
+            .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
+        let overloads = compute_overloads(sentences.iter().copied(), &semantic_subsorts)
+            .map_err(|cycle| ParseError::CircularOverloads { path: cycle.path })?;
         let mut grammar = Self {
             priorities,
             associativities,
+            overloads: overloads.order().clone(),
             ..Self::default()
         };
         for sentence in &sentences {
@@ -287,12 +331,13 @@ impl Grammar {
                         .any(|key| attributes.get(key).is_some()),
                     prefer: attributes.get("prefer").is_some(),
                     avoid: attributes.get("avoid").is_some(),
+                    source_production: source_production(&overloads, sentence),
                     precedence: attributes.get_str("prec"),
                 },
                 &lexical,
             )?;
         }
-        grammar.add_parametric_productions(&sentences, &lexical)?;
+        grammar.add_parametric_productions(&sentences, &lexical, &overloads)?;
         let original_productions = grammar.productions.len();
         for production in 0..original_productions {
             grammar.add_record_productions(production)?;
@@ -479,7 +524,8 @@ impl Grammar {
                     Err(ParseError::Ambiguous { parses })
                 } else {
                     let inferred = self.infer_sorts(forest, start, is_anywhere)?;
-                    let filtered = self.filter_prefer_avoid(inferred);
+                    let resolved = self.resolve_overloaded_terminators(inferred)?;
+                    let filtered = self.filter_overloads_prefer_avoid(resolved);
                     let parses = Grammar::ambiguity_count(&filtered);
                     if parses > 1 {
                         Err(ParseError::Ambiguous { parses })
@@ -608,6 +654,7 @@ impl Grammar {
             macro_like: options.macro_like,
             prefer: options.prefer,
             avoid: options.avoid,
+            source_production: options.source_production,
             field_names,
             record: None,
             parametric_origin: None,
@@ -639,6 +686,12 @@ impl Grammar {
             .collect();
         ParseError::NoParse { position, expected }
     }
+}
+
+fn source_production(overloads: &OverloadOrder<'_>, sentence: &Sentence) -> Option<ProductionId> {
+    overloads
+        .productions()
+        .find_map(|(id, candidate)| sentence_equivalent(candidate, sentence).then_some(id))
 }
 
 fn expand_regex(source: &str, lexical: &BTreeMap<String, KRegex>) -> Result<String, ParseError> {

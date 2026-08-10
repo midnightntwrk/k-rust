@@ -345,9 +345,92 @@ impl Grammar {
         }
     }
 
-    /// Apply Scala's post-inference `prefer`/`avoid` selection, then push any
-    /// surviving shared-production ambiguity into its one differing child.
-    pub(super) fn filter_prefer_avoid(&self, term: ParsedTerm) -> ParsedTerm {
+    /// Resolve a nullary overloaded production to the unique least production
+    /// with the same label, matching Scala's post-inference terminator pass.
+    pub(super) fn resolve_overloaded_terminators(
+        &self,
+        term: ParsedTerm,
+    ) -> Result<ParsedTerm, ParseError> {
+        match term {
+            ParsedTerm::Term(_) => Ok(term),
+            ParsedTerm::Ambiguity(alternatives) => Ok(ParsedTerm::Ambiguity(
+                alternatives
+                    .into_iter()
+                    .map(|alternative| self.resolve_overloaded_terminators(alternative))
+                    .collect::<Result<_, _>>()?,
+            )),
+            ParsedTerm::Production {
+                production,
+                children,
+            } => {
+                let children = children
+                    .into_iter()
+                    .map(|child| self.resolve_overloaded_terminators(child))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let current = &self.productions[production];
+                let Some(source) = current.source_production else {
+                    return Ok(ParsedTerm::Production {
+                        production,
+                        children,
+                    });
+                };
+                if !children.is_empty() || !self.overloads.contains(&source) {
+                    return Ok(ParsedTerm::Production {
+                        production,
+                        children,
+                    });
+                }
+
+                let candidates = self
+                    .productions
+                    .iter()
+                    .filter_map(|candidate| {
+                        let candidate_source = candidate.source_production?;
+                        (candidate.label == current.label
+                            && production_arity(candidate) == 0
+                            && self.overloads.less_than_eq(&candidate_source, &source))
+                        .then_some(candidate_source)
+                    })
+                    .collect::<BTreeSet<_>>();
+                let least = self.overloads.minimal(candidates.iter());
+                if least.len() != 1 {
+                    let possible_sorts = self
+                        .productions
+                        .iter()
+                        .filter(|candidate| {
+                            candidate
+                                .source_production
+                                .is_some_and(|candidate| least.contains(&candidate))
+                        })
+                        .map(|candidate| candidate.result.clone())
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .collect();
+                    return Err(ParseError::OverloadedTerminator { possible_sorts });
+                }
+                let selected = *least.first().expect("length was checked above");
+                let selected = self
+                    .productions
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, candidate)| {
+                        (candidate.source_production == Some(selected)
+                            && candidate.label == current.label
+                            && production_arity(candidate) == 0)
+                            .then_some(index)
+                    })
+                    .expect("a least source production came from a parser production");
+                Ok(ParsedTerm::Production {
+                    production: selected,
+                    children,
+                })
+            }
+        }
+    }
+
+    /// Apply Scala's post-inference overload and `prefer`/`avoid` selection,
+    /// then push shared-production ambiguity into its one differing child.
+    pub(super) fn filter_overloads_prefer_avoid(&self, term: ParsedTerm) -> ParsedTerm {
         match term {
             ParsedTerm::Term(_) => term,
             ParsedTerm::Production {
@@ -357,13 +440,21 @@ impl Grammar {
                 production,
                 children: children
                     .into_iter()
-                    .map(|child| self.filter_prefer_avoid(child))
+                    .map(|child| self.filter_overloads_prefer_avoid(child))
                     .collect(),
             },
             ParsedTerm::Ambiguity(mut alternatives) => {
                 if alternatives.len() == 1 {
-                    return self
-                        .filter_prefer_avoid(alternatives.pop_first().expect("length was one"));
+                    return self.filter_overloads_prefer_avoid(
+                        alternatives.pop_first().expect("length was one"),
+                    );
+                }
+
+                alternatives = self.remove_overloads(alternatives);
+                if alternatives.len() == 1 {
+                    return self.filter_overloads_prefer_avoid(
+                        alternatives.pop_first().expect("length was one"),
+                    );
                 }
 
                 let preferred = alternatives
@@ -386,7 +477,7 @@ impl Grammar {
 
                 let alternatives = alternatives
                     .into_iter()
-                    .map(|alternative| self.filter_prefer_avoid(alternative))
+                    .map(|alternative| self.filter_overloads_prefer_avoid(alternative))
                     .collect::<BTreeSet<_>>();
                 if alternatives.len() == 1 {
                     return alternatives.into_iter().next().expect("length was one");
@@ -396,10 +487,37 @@ impl Grammar {
                 if factored == ambiguity {
                     ambiguity
                 } else {
-                    self.filter_prefer_avoid(factored)
+                    self.filter_overloads_prefer_avoid(factored)
                 }
             }
         }
+    }
+
+    fn remove_overloads(&self, alternatives: BTreeSet<ParsedTerm>) -> BTreeSet<ParsedTerm> {
+        let Some(productions) = alternatives
+            .iter()
+            .map(|alternative| {
+                let ParsedTerm::Production { production, .. } = alternative else {
+                    return None;
+                };
+                self.productions[*production].source_production
+            })
+            .collect::<Option<BTreeSet<_>>>()
+        else {
+            return alternatives;
+        };
+        let minimal = self.overloads.minimal(productions.iter());
+        alternatives
+            .into_iter()
+            .filter(|alternative| {
+                let ParsedTerm::Production { production, .. } = alternative else {
+                    unreachable!("non-production alternatives were returned above")
+                };
+                self.productions[*production]
+                    .source_production
+                    .is_some_and(|production| minimal.contains(&production))
+            })
+            .collect()
     }
 
     fn is_preferred(&self, term: &ParsedTerm) -> bool {
@@ -572,7 +690,7 @@ pub(super) fn parse_apply_priority(source: &str) -> Result<BTreeSet<usize>, Pars
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::definition::ProductionItem;
+    use crate::definition::{PartialOrder, ProductionId, ProductionItem, Sentence};
     use crate::kast::{Label, Sort};
 
     fn nonterminal(sort: &str) -> ProductionItem {
@@ -603,6 +721,26 @@ mod tests {
 
     fn variable(name: &str) -> ParsedTerm {
         ParsedTerm::Term(Term::variable(name))
+    }
+
+    fn terminal_production(result: &str, terminal: &str, label: &str) -> Sentence {
+        Sentence::Production {
+            label: Some(Label::new(label)),
+            parameters: Vec::new(),
+            sort: Sort::new(result),
+            items: vec![ProductionItem::Terminal(terminal.into())],
+            attributes: Default::default(),
+        }
+    }
+
+    fn subsort(result: &str, child: &str) -> Sentence {
+        Sentence::Production {
+            label: None,
+            parameters: Vec::new(),
+            sort: Sort::new(result),
+            items: vec![nonterminal(child)],
+            attributes: Default::default(),
+        }
     }
 
     fn render(grammar: &Grammar, term: &ParsedTerm) -> String {
@@ -699,36 +837,40 @@ mod tests {
             production,
             children: Vec::new(),
         };
-        let selected = grammar.filter_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
-            alternative(preferred),
-            alternative(ordinary),
-            alternative(avoided),
-        ])));
+        let selected =
+            grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
+                alternative(preferred),
+                alternative(ordinary),
+                alternative(avoided),
+            ])));
         assert_eq!(selected, alternative(preferred));
 
-        let without_prefer = grammar.filter_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
-            alternative(ordinary),
-            alternative(avoided),
-        ])));
+        let without_prefer =
+            grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
+                alternative(ordinary),
+                alternative(avoided),
+            ])));
         assert_eq!(without_prefer, alternative(ordinary));
 
-        let all_avoided = grammar.filter_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
-            alternative(avoided),
-            alternative(also_avoided),
-        ])));
+        let all_avoided =
+            grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
+                alternative(avoided),
+                alternative(also_avoided),
+            ])));
         assert!(matches!(all_avoided, ParsedTerm::Ambiguity(ref items) if items.len() == 2));
 
         let wrapper = add_production(&mut grammar, "Exp", &["Exp"], "wrapper");
-        let nested = grammar.filter_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
-            ParsedTerm::Production {
-                production: wrapper,
-                children: vec![alternative(preferred)],
-            },
-            ParsedTerm::Production {
-                production: wrapper,
-                children: vec![alternative(ordinary)],
-            },
-        ])));
+        let nested =
+            grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
+                ParsedTerm::Production {
+                    production: wrapper,
+                    children: vec![alternative(preferred)],
+                },
+                ParsedTerm::Production {
+                    production: wrapper,
+                    children: vec![alternative(ordinary)],
+                },
+            ])));
         assert_eq!(
             nested,
             ParsedTerm::Production {
@@ -743,5 +885,86 @@ mod tests {
             render(&grammar, &all_avoided),
             render(&grammar, &nested),
         ]);
+    }
+
+    #[test]
+    fn removes_overloads_before_applying_prefer_and_avoid() {
+        let mut grammar = Grammar::default();
+        let specific = add_production(&mut grammar, "Small", &[], "pick");
+        let general = add_production(&mut grammar, "Large", &[], "pick");
+        grammar.productions[specific].source_production = Some(ProductionId(0));
+        grammar.productions[general].source_production = Some(ProductionId(1));
+        grammar.productions[general].prefer = true;
+        grammar.overloads = PartialOrder::new([(ProductionId(0), ProductionId(1))]).unwrap();
+
+        let alternative = |production| ParsedTerm::Production {
+            production,
+            children: Vec::new(),
+        };
+        let filtered =
+            grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
+                alternative(specific),
+                alternative(general),
+            ])));
+
+        assert_eq!(filtered, alternative(specific));
+        insta::assert_snapshot!(render(&grammar, &filtered));
+    }
+
+    #[test]
+    fn resolves_overloaded_terminators_and_rejects_incomparable_minima() {
+        let sentences = [
+            terminal_production("Small", "small", "unit"),
+            subsort("Large", "Small"),
+            terminal_production("Large", "large", "unit"),
+        ];
+        let grammar = Grammar::from_sentences(&sentences).unwrap();
+        let source = |result: &str| {
+            grammar
+                .productions
+                .iter()
+                .enumerate()
+                .find_map(|(index, production)| {
+                    (production.result.name == result
+                        && production
+                            .label
+                            .as_ref()
+                            .is_some_and(|label| label.name == "unit"))
+                    .then_some(index)
+                })
+                .unwrap()
+        };
+        let resolved = grammar
+            .resolve_overloaded_terminators(ParsedTerm::Production {
+                production: source("Large"),
+                children: Vec::new(),
+            })
+            .unwrap();
+        assert_eq!(render(&grammar, &resolved), "unit()");
+        let ParsedTerm::Production { production, .. } = resolved else {
+            unreachable!()
+        };
+        assert_eq!(grammar.productions[production].result.name, "Small");
+
+        let mut ambiguous = Grammar::default();
+        let first = add_production(&mut ambiguous, "First", &[], "unit");
+        let second = add_production(&mut ambiguous, "Second", &[], "unit");
+        let general = add_production(&mut ambiguous, "General", &[], "unit");
+        for (index, source) in [first, second, general].into_iter().enumerate() {
+            ambiguous.productions[source].source_production = Some(ProductionId(index));
+        }
+        ambiguous.overloads = PartialOrder::new([
+            (ProductionId(0), ProductionId(2)),
+            (ProductionId(1), ProductionId(2)),
+        ])
+        .unwrap();
+        let error = ambiguous
+            .resolve_overloaded_terminators(ParsedTerm::Production {
+                production: general,
+                children: Vec::new(),
+            })
+            .unwrap_err();
+
+        insta::assert_debug_snapshot!((grammar.productions[production].result.clone(), error));
     }
 }

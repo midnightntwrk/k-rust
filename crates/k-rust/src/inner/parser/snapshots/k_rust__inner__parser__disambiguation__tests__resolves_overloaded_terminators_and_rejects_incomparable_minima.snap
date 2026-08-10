@@ -1,0 +1,22 @@
+---
+source: crates/k-rust/src/inner/parser/disambiguation.rs
+expression: "(grammar.productions[production].result.clone(), error)"
+---
+(
+    Sort {
+        name: "Small",
+        parameters: [],
+    },
+    OverloadedTerminator {
+        possible_sorts: [
+            Sort {
+                name: "First",
+                parameters: [],
+            },
+            Sort {
+                name: "Second",
+                parameters: [],
+            },
+        ],
+    },
+)
