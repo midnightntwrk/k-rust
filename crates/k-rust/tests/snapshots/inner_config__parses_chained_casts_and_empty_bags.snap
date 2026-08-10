@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/inner_config.rs
-expression: "&transformed.main_module().unwrap().local_sentences[1]"
+description: "Configuration bubble:\n\n<top><k> $PGM:Int:K </k><cells> .Bag </cells></top>"
 ---
 Configuration {
     body: Apply {

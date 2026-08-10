@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/definition_regex.rs
-expression: "regex :: parse(\"^({Digit}|[a-f])+x{2,4}$\").unwrap()"
+description: "K regex:\n\n^({Digit}|[a-f])+x{2,4}$"
 ---
 Regex {
     start_line: true,

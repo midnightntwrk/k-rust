@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/inner_rules.rs
-expression: sentences
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Int\n  syntax Exp ::= Exp \"+\" Exp [klabel(_+_)]\n  syntax Bool ::= Exp \"==\" Exp [klabel(_==_)]\n\n  rule [plus-zero]: X:Exp + 0 => X:Exp requires X == 0 ensures false\n  claim X:Exp + 0 => X:Exp ensures X == 0\n  context HOLE + 0 requires true\n  context alias [simplify-zero]: X + 0 => X requires true\nendmodule\n"
 ---
 [
     SentenceSummary {

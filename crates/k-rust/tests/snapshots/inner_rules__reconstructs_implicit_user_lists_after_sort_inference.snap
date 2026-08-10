@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/inner_rules.rs
-expression: bodies
+description: "K definition:\n\nmodule MAIN\n  syntax Id ::= r\"[a-z]\" [token]\n  syntax Ids ::= List{Id, \",\"} [symbol(ids)]\n  syntax Wrapped ::= \"wrap\" Ids [symbol(wrap)]\n  rule wrap a => wrap a,b\nendmodule\n"
 ---
 [
     "wrap(ids(#token(\"a\",\"Id\"),`.List{\"ids\"}`(.KList)))=>wrap(ids(#token(\"a\",\"Id\"),ids(#token(\"b\",\"Id\"),`.List{\"ids\"}`(.KList))))",

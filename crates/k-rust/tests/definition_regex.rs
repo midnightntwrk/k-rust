@@ -14,7 +14,15 @@ macro_rules! regex_snapshot {
     ($name:ident, $source:expr) => {
         #[test]
         fn $name() {
-            insta::assert_debug_snapshot!(regex::parse($source).unwrap());
+            let source = $source;
+            let parsed = regex::parse(source).unwrap();
+            insta::with_settings!({
+                description => format!("K regex:\n\n{source}"),
+                omit_expression => true,
+                prepend_module_to_snapshot => true,
+            }, {
+                insta::assert_debug_snapshot!(parsed);
+            });
         }
     };
 }
@@ -23,7 +31,15 @@ macro_rules! regex_error_snapshot {
     ($name:ident, $source:expr) => {
         #[test]
         fn $name() {
-            insta::assert_debug_snapshot!(regex::parse($source).unwrap_err());
+            let source = $source;
+            let error = regex::parse(source).unwrap_err();
+            insta::with_settings!({
+                description => format!("Invalid K regex:\n\n{source}"),
+                omit_expression => true,
+                prepend_module_to_snapshot => true,
+            }, {
+                insta::assert_debug_snapshot!(error);
+            });
         }
     };
 }

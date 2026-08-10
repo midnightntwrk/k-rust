@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/inner_rules.rs
-expression: sentences
+description: "K definition:\n\nmodule MAIN\n  syntax A ::= \"a\" [symbol(a)]\n  syntax B ::= \"b\" [symbol(b)]\n  syntax Exp ::= \"f(\" A \")\" [symbol(fa)]\n               | \"f(\" B \")\" [symbol(fb)]\n  syntax Pair ::= \"pair(\" Exp \",\" A \")\" [symbol(pair)]\n  rule pair(f(X), X) => pair(f(a), a)\nendmodule\n"
 ---
 [
     SentenceSummary {

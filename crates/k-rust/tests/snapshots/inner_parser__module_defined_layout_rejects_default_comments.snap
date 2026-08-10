@@ -1,0 +1,12 @@
+---
+source: crates/k-rust/tests/inner_parser.rs
+description: "Input parsed as Start:\n\n/* not custom */ x"
+---
+Err(
+    NoParse {
+        position: 0,
+        expected: [
+            "\"x\"",
+        ],
+    },
+)

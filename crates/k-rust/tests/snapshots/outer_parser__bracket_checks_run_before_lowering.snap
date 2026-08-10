@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/outer_parser.rs
-expression: diagnostics
+description: "K source:\n\nmodule BRACKETS\n  syntax Exp ::= \"(\" Int \")\" [bracket]\n             | \"[\" Exp Exp \"]\" [bracket]\n             | \"{\" Exp \"}\" [bracket]\nendmodule\n"
 ---
 [
     Diagnostic {

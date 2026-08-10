@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/outer_parser.rs
-expression: parsed
+description: "K source:\n\nrequires \"domains.md\"\n\nmodule OUTER-CORPUS\n  imports public INT\n\n  syntax Program ::= Set | List\n  syntax Pair ::= pair(left: Int, right: Int) [symbol(pair)]\n  syntax Exp ::= Int\n               > left: Exp \"+\" Exp [symbol(_+_)]\n               | \"(\" Exp \")\" [bracket]\n  syntax Exps ::= List{Exp, \",\"} [symbol(_,_), terminator-symbol(.Exps)]\n  syntax Ints ::= NeList{Int, \",\"}\n  syntax Exp ::= Exp \"or\" Exp [klabel(_or_)]\n  syntax priority _or_ > _+_\n\n  rule [identity]: X + 0 => X [simplification]\nendmodule\n"
 ---
 SourceFile {
     source: "record-and-list.k",

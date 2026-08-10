@@ -2,12 +2,27 @@ use indoc::indoc;
 use k_rust::outer::{check_brackets, check_list_declarations, lower, parse};
 use proptest::prelude::*;
 
+macro_rules! assert_outer_value_snapshot {
+    ($source:expr, $value:expr) => {{
+        let source = $source;
+        let value = $value;
+        insta::with_settings!({
+            description => format!("K source:\n\n{source}"),
+            omit_expression => true,
+            prepend_module_to_snapshot => true,
+        }, {
+            insta::assert_debug_snapshot!(value);
+        });
+    }};
+}
+
 macro_rules! outer_snapshot {
     ($name:ident, $source:expr) => {
         #[test]
         fn $name() {
-            let parsed = parse(concat!(stringify!($name), ".k"), $source).unwrap();
-            insta::assert_debug_snapshot!(parsed);
+            let source = $source;
+            let parsed = parse(concat!(stringify!($name), ".k"), source).unwrap();
+            assert_outer_value_snapshot!(source, parsed);
         }
     };
 }
@@ -58,37 +73,31 @@ outer_snapshot!(
 
 #[test]
 fn list_declaration_checks_match_the_frontend_categories() {
-    let parsed = parse(
-        "lists.k",
-        indoc! {r#"
+    let source = indoc! {r#"
         module LISTS
           syntax K ::= List{Exp, ","}
           syntax Loop ::= List{Loop, ","}
           syntax Exps ::= "[" List{Exp, ","} "]"
           syntax Good ::= NeList{Exp, ","}
         endmodule
-    "#},
-    )
-    .unwrap();
+    "#};
+    let parsed = parse("lists.k", source).unwrap();
 
-    insta::assert_debug_snapshot!(check_list_declarations(&parsed));
+    assert_outer_value_snapshot!(source, check_list_declarations(&parsed));
 }
 
 #[test]
 fn comments_and_escaped_literals_are_lexed_without_losing_spans() {
-    let parsed = parse(
-        "trivia.k",
-        indoc! {r#"
+    let source = indoc! {r#"
         // file comment
         module TRIVIA /* module comment */
           syntax Text ::= "line\n\"quoted\"" // sentence comment
           rule X /* inside the bubble */ => X
         endmodule
-    "#},
-    )
-    .unwrap();
+    "#};
+    let parsed = parse("trivia.k", source).unwrap();
 
-    insta::assert_debug_snapshot!(parsed);
+    assert_outer_value_snapshot!(source, parsed);
 }
 
 #[test]
@@ -96,29 +105,38 @@ fn pinned_outer_corpus_families_parse_and_lower() {
     let source = include_str!("fixtures/outer/record-and-list.k");
     let parsed = parse("record-and-list.k", source).unwrap();
 
-    insta::assert_debug_snapshot!("pinned_outer_corpus", parsed);
-    insta::assert_debug_snapshot!(
-        "pinned_outer_lowering",
-        lower(&parsed, "OUTER-CORPUS").unwrap()
-    );
+    insta::with_settings!({
+        description => format!("K source:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!("pinned_outer_corpus", parsed);
+    });
+    insta::with_settings!({
+        description => format!("K source:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(
+            "pinned_outer_lowering",
+            lower(&parsed, "OUTER-CORPUS").unwrap()
+        );
+    });
 }
 
 #[test]
 fn bracket_checks_run_before_lowering() {
-    let parsed = parse(
-        "brackets.k",
-        indoc! {r#"
-            module BRACKETS
-              syntax Exp ::= "(" Int ")" [bracket]
-                         | "[" Exp Exp "]" [bracket]
-                         | "{" Exp "}" [bracket]
-            endmodule
-        "#},
-    )
-    .unwrap();
+    let source = indoc! {r#"
+        module BRACKETS
+          syntax Exp ::= "(" Int ")" [bracket]
+                     | "[" Exp Exp "]" [bracket]
+                     | "{" Exp "}" [bracket]
+        endmodule
+    "#};
+    let parsed = parse("brackets.k", source).unwrap();
 
     let diagnostics = check_brackets(&parsed);
-    insta::assert_debug_snapshot!(diagnostics);
+    assert_outer_value_snapshot!(source, diagnostics);
     assert!(lower(&parsed, "BRACKETS").is_err());
 }
 

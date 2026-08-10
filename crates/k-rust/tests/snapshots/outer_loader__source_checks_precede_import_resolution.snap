@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/outer_loader.rs
-expression: error
+description: "main.k:\n\nmodule MAIN\n  syntax Exp ::= \"(\" Int \")\" [bracket]\nendmodule\n"
 ---
 SourceDiagnostics(
     [

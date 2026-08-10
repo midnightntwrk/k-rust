@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/definition_regex.rs
-expression: "regex :: parse(\"a{999999999999}\").unwrap_err()"
+description: "Invalid K regex:\n\na{999999999999}"
 ---
 ParseError {
     index: 2,

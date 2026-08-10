@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/inner_rules.rs
-expression: error
+description: "K definition:\n\nmodule MAIN\n  syntax First ::= \"first\" [symbol(unit)]\n  syntax Second ::= \"second\" [symbol(unit)]\n  syntax General ::= First\n                   | Second\n                   | \"general\" [symbol(unit)]\n  rule general => general\nendmodule\n"
 ---
 Parse(
     RuleParseError {

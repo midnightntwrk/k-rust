@@ -56,7 +56,7 @@ fn production(sort: &str, attributes: Attributes) -> Sentence {
 }
 
 #[test]
-fn sentence_kind_order_matches_scala() {
+fn sorts_sentence_kinds_in_canonical_order() {
     let mut sentences = vec![
         Sentence::Bubble {
             sentence_type: "rule".into(),
@@ -113,13 +113,21 @@ fn sentence_kind_order_matches_scala() {
     ];
 
     sort_sentences(&mut sentences).unwrap();
-    insta::assert_snapshot!(
-        "scala_sentence_kind_order",
-        sentences
-            .iter()
-            .map(sentence_name)
-            .collect::<Vec<_>>()
-            .join("\n")
+    assert_eq!(
+        sentences.iter().map(sentence_name).collect::<Vec<_>>(),
+        vec![
+            "KSyntaxSort",
+            "KSortSynonym",
+            "KSyntaxLexical",
+            "KProduction",
+            "KSyntaxAssociativity",
+            "KSyntaxPriority",
+            "KContextAlias",
+            "KContext",
+            "KRule",
+            "KClaim",
+            "KBubble",
+        ]
     );
 }
 

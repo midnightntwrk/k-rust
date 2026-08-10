@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/inner_rules.rs
-expression: rules
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Int ::= Int \"+\" Int [klabel(_+Int_)]\n  configuration <top><k> 0 </k><counter> 0 </counter></top>\n  rule <top>\n    <k> X => 1 ... </k>\n    <counter> N => N + 1 </counter>\n  </top>\n  rule [[ X => 1 ]] <counter> N </counter>\nendmodule\n"
 ---
 [
     SentenceSummary {

@@ -1,8 +1,0 @@
----
-source: crates/k-rust/tests/inner_parser.rs
-expression: "[Grammar::from_sentences(&invalid).unwrap_err(),\nGrammar::from_sentences(&empty).unwrap_err(),]"
----
-[
-    InvalidLayoutProduction,
-    EmptyLayout,
-]

@@ -1102,12 +1102,13 @@ mod tests {
             }
         );
 
-        insta::assert_debug_snapshot!(vec![
-            render(&grammar, &selected),
-            render(&grammar, &without_prefer),
+        assert_eq!(render(&grammar, &selected), "preferred()");
+        assert_eq!(render(&grammar, &without_prefer), "ordinary()");
+        assert_eq!(
             render(&grammar, &all_avoided),
-            render(&grammar, &nested),
-        ]);
+            "amb{avoided(), alsoAvoided()}"
+        );
+        assert_eq!(render(&grammar, &nested), "wrapper(preferred())");
     }
 
     #[test]
@@ -1131,7 +1132,7 @@ mod tests {
             ])));
 
         assert_eq!(filtered, alternative(specific));
-        insta::assert_snapshot!(render(&grammar, &filtered));
+        assert_eq!(render(&grammar, &filtered), "pick()");
     }
 
     #[test]
@@ -1188,6 +1189,12 @@ mod tests {
             })
             .unwrap_err();
 
-        insta::assert_debug_snapshot!((grammar.productions[production].result.clone(), error));
+        assert_eq!(grammar.productions[production].result, Sort::new("Small"));
+        assert_eq!(
+            error,
+            ParseError::OverloadedTerminator {
+                possible_sorts: vec![Sort::new("First"), Sort::new("Second")],
+            }
+        );
     }
 }

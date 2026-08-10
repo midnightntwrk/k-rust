@@ -1,6 +1,5 @@
 ---
 source: crates/k-rust/src/kore/parser/pattern.rs
-assertion_line: 446
 description: "KORE pattern:\n\n\\left-assoc{}(Lbl'Unds'Map'Unds{}(a{}(), b{}(), c{}()))\n"
 ---
 AssociativeApplication {

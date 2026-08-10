@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/definition_configuration.rs
-expression: modules
+description: "base.k:\n\nmodule BASE\n  syntax Int ::= r\"[0-9]+\" [token]\n  configuration <shared> 0 </shared>\nendmodule\n\n\nmain.k:\n\nrequires \"base.k\"\nmodule MAIN\n  imports BASE\n  configuration <top><shared/></top>\nendmodule\n"
 ---
 [
     (

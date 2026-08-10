@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/outer_parser.rs
-expression: parsed
+description: "K source:\n\nmodule SYNTAX\n  syntax {S} List{S}\n  syntax NonEmpty = List\n  syntax Id ::= r\"[a-zA-Z][a-zA-Z0-9]*\" [token]\n  syntax Exps ::= List{Exp, \",\"} [klabel(exps)]\n  syntax Exp ::= left: Exp \"+\" Exp [left, klabel(_+_)]\n               | name:Id\n               > \"(\" Exp \")\" [bracket]\n  syntax priority _*_ > _+_ _-_\n  syntax left _+_ _-_\n  syntax lexical Identifier = r\"[a-z]+\" [prec(1)]\nendmodule\n"
 ---
 SourceFile {
     source: "syntax_declarations.k",

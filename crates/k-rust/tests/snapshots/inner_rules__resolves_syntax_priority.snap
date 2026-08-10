@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/inner_rules.rs
-expression: sentences
+description: "K definition:\n\nmodule MAIN\n  syntax Id ::= r\"[a-z]\" [token]\n  syntax Exp ::= Id\n  syntax Exp ::= Exp \"*\" Exp [symbol(times)]\n               > Exp \"+\" Exp [symbol(plus)]\n  rule a + b * c => c * b + a\nendmodule\n"
 ---
 [
     SentenceSummary {

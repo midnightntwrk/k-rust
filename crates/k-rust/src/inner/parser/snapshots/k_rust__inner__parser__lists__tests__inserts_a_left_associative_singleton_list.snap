@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/src/inner/parser/lists.rs
+description: box a
+---
+box(cons(nil(.KList),a(.KList)))

@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/definition_configuration.rs
-expression: expand_configurations(& definition).unwrap_err()
+description: "K definition:\n\nmodule MAIN\nsyntax Int ::= r\"[0-9]+\" [token]\nconfiguration <k multiplicity=\"*\" type=\"Queue\"> 0 </k>\nendmodule"
 ---
 Invalid {
     module: "MAIN",

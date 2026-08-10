@@ -72,9 +72,23 @@ fn sentence_summary(sentences: &[Sentence]) -> Vec<String> {
         .collect()
 }
 
+macro_rules! assert_configuration_snapshot {
+    ($source:expr, $value:expr) => {{
+        let source = $source;
+        let value = $value;
+        insta::with_settings!({
+            description => format!("K definition:\n\n{source}"),
+            omit_expression => true,
+            prepend_module_to_snapshot => true,
+        }, {
+            insta::assert_debug_snapshot!(value);
+        });
+    }};
+}
+
 #[test]
 fn generates_java_cell_fragment_collection_and_initializer_families() {
-    let definition = parsed(indoc! {r#"
+    let source = indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
           configuration
@@ -86,7 +100,8 @@ fn generates_java_cell_fragment_collection_and_initializer_families() {
             </threads>
           ensures false
         endmodule
-    "#});
+    "#};
+    let definition = parsed(source);
     let expanded = expand_configurations(&definition).unwrap();
 
     assert!(
@@ -97,14 +112,15 @@ fn generates_java_cell_fragment_collection_and_initializer_families() {
             .iter()
             .any(|sentence| matches!(sentence, Sentence::Configuration { .. }))
     );
-    insta::assert_debug_snapshot!(sentence_summary(
-        &expanded.main_module().unwrap().local_sentences
-    ));
+    assert_configuration_snapshot!(
+        source,
+        sentence_summary(&expanded.main_module().unwrap().local_sentences)
+    );
 }
 
 #[test]
 fn generates_map_set_and_list_cell_collections() {
-    let definition = parsed(indoc! {r#"
+    let source = indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
           configuration <top>
@@ -113,22 +129,25 @@ fn generates_map_set_and_list_cell_collections() {
             <queue multiplicity="*" type="List"><item> 0 </item></queue>
           </top>
         endmodule
-    "#});
+    "#};
+    let definition = parsed(source);
     let expanded = expand_configurations(&definition).unwrap();
 
-    insta::assert_debug_snapshot!(sentence_summary(
-        &expanded.main_module().unwrap().local_sentences
-    ));
+    assert_configuration_snapshot!(
+        source,
+        sentence_summary(&expanded.main_module().unwrap().local_sentences)
+    );
 }
 
 #[test]
 fn wraps_multiple_top_level_cells_in_generated_top() {
-    let definition = parsed(indoc! {r#"
+    let source = indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
           configuration <left> 0 </left> <right> 1 </right>
         endmodule
-    "#});
+    "#};
+    let definition = parsed(source);
     let expanded = expand_configurations(&definition).unwrap();
 
     assert!(
@@ -143,14 +162,15 @@ fn wraps_multiple_top_level_cells_in_generated_top() {
                     if label.name == "<generatedTop>"
             ))
     );
-    insta::assert_debug_snapshot!(sentence_summary(
-        &expanded.main_module().unwrap().local_sentences
-    ));
+    assert_configuration_snapshot!(
+        source,
+        sentence_summary(&expanded.main_module().unwrap().local_sentences)
+    );
 }
 
 #[test]
 fn generates_stream_exit_and_builtin_cell_attributes() {
-    let definition = parsed(indoc! {r#"
+    let source = indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
           configuration <top>
@@ -158,39 +178,37 @@ fn generates_stream_exit_and_builtin_cell_attributes() {
             <status exit="" unused=""> 0 </status>
           </top>
         endmodule
-    "#});
+    "#};
+    let definition = parsed(source);
     let expanded = expand_configurations(&definition).unwrap();
 
-    insta::assert_debug_snapshot!(sentence_summary(
-        &expanded.main_module().unwrap().local_sentences
-    ));
+    assert_configuration_snapshot!(
+        source,
+        sentence_summary(&expanded.main_module().unwrap().local_sentences)
+    );
 }
 
 #[test]
 fn resolves_external_cells_against_dependency_first_generated_initializers() {
+    let base_source = indoc! {r#"
+        module BASE
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <shared> 0 </shared>
+        endmodule
+    "#};
+    let main_source = indoc! {r#"
+        requires "base.k"
+        module MAIN
+          imports BASE
+          configuration <top><shared/></top>
+        endmodule
+    "#};
     let mut resolver = |_: &str, required: &str| match required {
-        "base.k" => Ok(ResolvedSource::new(
-            "base.k",
-            indoc! {r#"
-                module BASE
-                  syntax Int ::= r"[0-9]+" [token]
-                  configuration <shared> 0 </shared>
-                endmodule
-            "#},
-        )),
+        "base.k" => Ok(ResolvedSource::new("base.k", base_source)),
         _ => Err("not found".to_owned()),
     };
     let loaded = load(
-        ResolvedSource::new(
-            "main.k",
-            indoc! {r#"
-                requires "base.k"
-                module MAIN
-                  imports BASE
-                  configuration <top><shared/></top>
-                endmodule
-            "#},
-        ),
+        ResolvedSource::new("main.k", main_source),
         "MAIN",
         &mut resolver,
     )
@@ -206,19 +224,33 @@ fn resolves_external_cells_against_dependency_first_generated_initializers() {
             )
         })
         .collect::<Vec<_>>();
-    insta::assert_debug_snapshot!(modules);
+    insta::with_settings!({
+        description => format!("base.k:\n\n{base_source}\n\nmain.k:\n\n{main_source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(modules);
+    });
 }
 
 macro_rules! expansion_error {
     ($name:ident, $configuration:literal) => {
         #[test]
         fn $name() {
-            let definition = parsed(concat!(
+            let source = concat!(
                 "module MAIN\nsyntax Int ::= r\"[0-9]+\" [token]\nconfiguration ",
                 $configuration,
                 "\nendmodule"
-            ));
-            insta::assert_debug_snapshot!(expand_configurations(&definition).unwrap_err());
+            );
+            let definition = parsed(source);
+            let error = expand_configurations(&definition).unwrap_err();
+            insta::with_settings!({
+                description => format!("K definition:\n\n{source}"),
+                omit_expression => true,
+                prepend_module_to_snapshot => true,
+            }, {
+                insta::assert_debug_snapshot!(error);
+            });
         }
     };
 }

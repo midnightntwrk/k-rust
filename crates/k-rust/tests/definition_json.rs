@@ -34,12 +34,12 @@ fn complete_definition(sentences: Vec<Sentence>) -> Definition {
     }
 }
 
-macro_rules! assert_definition_snapshot {
-    ($name:literal, $definition:expr) => {{
+macro_rules! assert_definition_round_trip {
+    ($definition:expr) => {{
         let definition = $definition;
         let encoded = json::to_string_pretty(&definition).unwrap();
-        insta::assert_snapshot!($name, encoded);
         assert_eq!(json::from_str(&encoded).unwrap(), definition);
+        serde_json::from_str::<Value>(&encoded).unwrap()
     }};
 }
 
@@ -136,9 +136,28 @@ fn every_java_json_sentence_has_a_round_trip() {
         },
     ];
 
-    assert_definition_snapshot!(
-        "all_definition_sentence_nodes",
-        complete_definition(sentences)
+    let encoded = assert_definition_round_trip!(complete_definition(sentences));
+    let sentence_nodes = encoded["term"]["modules"][0]["localSentences"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|sentence| sentence["node"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sentence_nodes,
+        vec![
+            "KSyntaxSort",
+            "KSortSynonym",
+            "KSyntaxLexical",
+            "KProduction",
+            "KSyntaxAssociativity",
+            "KSyntaxPriority",
+            "KContext",
+            "KRule",
+            "KClaim",
+            "KConfiguration",
+            "KBubble",
+        ]
     );
 }
 

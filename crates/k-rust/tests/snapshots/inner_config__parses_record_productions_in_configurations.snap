@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/inner_config.rs
-expression: "&transformed.main_module().unwrap().local_sentences[2]"
+description: "Configuration bubble:\n\n<k> pair(... left: 1) </k>"
 ---
 Configuration {
     body: Apply {

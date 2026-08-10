@@ -3,6 +3,20 @@ use k_rust::inner::{ConfigError, resolve_configuration_bubbles};
 use k_rust::kast::{Label, Sort};
 use proptest::prelude::*;
 
+macro_rules! assert_config_snapshot {
+    ($source:expr, $value:expr) => {{
+        let source = $source;
+        let value = &$value;
+        insta::with_settings!({
+            description => format!("Configuration bubble:\n\n{source}"),
+            omit_expression => true,
+            prepend_module_to_snapshot => true,
+        }, {
+            insta::assert_debug_snapshot!(value);
+        });
+    }};
+}
+
 fn definition(contents: &str) -> Definition {
     let mut token_attributes = Attributes::default();
     token_attributes.insert("token", serde_json::json!(""));
@@ -33,12 +47,11 @@ fn definition(contents: &str) -> Definition {
 
 #[test]
 fn parses_nested_cells_properties_casts_and_ensures() {
-    let transformed = resolve_configuration_bubbles(&definition(
-        r#"<top multiplicity="1"><k> $PGM:Int </k><counter> 0 </counter></top> ensures true"#,
-    ))
-    .unwrap();
+    let source =
+        r#"<top multiplicity="1"><k> $PGM:Int </k><counter> 0 </counter></top> ensures true"#;
+    let transformed = resolve_configuration_bubbles(&definition(source)).unwrap();
 
-    insta::assert_debug_snapshot!(transformed);
+    assert_config_snapshot!(source, transformed);
     assert!(matches!(
         transformed.main_module().unwrap().local_sentences[1],
         Sentence::Configuration { .. }
@@ -62,20 +75,19 @@ fn preserves_external_cells() {
 
 #[test]
 fn parses_chained_casts_and_empty_bags() {
-    let transformed = resolve_configuration_bubbles(&definition(
-        "<top><k> $PGM:Int:K </k><cells> .Bag </cells></top>",
-    ))
-    .unwrap();
+    let source = "<top><k> $PGM:Int:K </k><cells> .Bag </cells></top>";
+    let transformed = resolve_configuration_bubbles(&definition(source)).unwrap();
 
-    insta::assert_debug_snapshot!(
-        "chained_casts_and_empty_bags",
+    assert_config_snapshot!(
+        source,
         &transformed.main_module().unwrap().local_sentences[1]
     );
 }
 
 #[test]
 fn parses_record_productions_in_configurations() {
-    let mut input = definition("<k> pair(... left: 1) </k>");
+    let source = "<k> pair(... left: 1) </k>";
+    let mut input = definition(source);
     input.modules[0].local_sentences.insert(
         1,
         Sentence::Production {
@@ -101,8 +113,8 @@ fn parses_record_productions_in_configurations() {
     );
     let transformed = resolve_configuration_bubbles(&input).unwrap();
 
-    insta::assert_debug_snapshot!(
-        "record_productions",
+    assert_config_snapshot!(
+        source,
         &transformed.main_module().unwrap().local_sentences[2]
     );
 }

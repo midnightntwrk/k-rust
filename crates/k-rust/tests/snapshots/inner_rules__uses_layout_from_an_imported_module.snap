@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/inner_rules.rs
-expression: sentences
+description: "K definition:\n\nmodule CUSTOM-LAYOUT\n  syntax #Layout ::= r\"(~+)\" | r\"([ \\n\\r\\t])\"\nendmodule\n\nmodule MAIN\n  imports CUSTOM-LAYOUT\n  syntax Exp ::= \"x\" [klabel(x)]\n  rule ~~ x ~~~ => x\nendmodule\n"
 ---
 [
     SentenceSummary {

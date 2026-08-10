@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/definition_configuration.rs
-expression: sentence_summary(&expanded.main_module().unwrap().local_sentences)
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  configuration <top>\n    <out stream=\"stdout\"> 0 </out>\n    <status exit=\"\" unused=\"\"> 0 </status>\n  </top>\nendmodule\n"
 ---
 [
     "production Int ::= r\"[0-9]+\" label=- [token=\"\"]",

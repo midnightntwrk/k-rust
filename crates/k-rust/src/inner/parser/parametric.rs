@@ -367,7 +367,19 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        insta::assert_debug_snapshot!(summary);
+        assert_eq!(
+            summary.iter().map(String::as_str).collect::<Vec<_>>(),
+            vec![
+                "Int ::= \"case1(\" Int \",\" K \")\" [P=Int, R=K] from 2 parameter(s)",
+                "K ::= \"case1(\" K \",\" K \")\" [P=K, R=K] from 2 parameter(s)",
+                "KItem ::= \"case1(\" KItem \",\" K \")\" [P=KItem, R=K] from 2 parameter(s)",
+                "MInt{8} ::= \"case1(\" MInt{8} \",\" K \")\" [P=MInt{8}, R=K] from 2 parameter(s)",
+                "MInt{8} ::= \"case2(\" MInt{8} \",\" MInt{K} \")\" [W=8, X=K] from 2 parameter(s)",
+                "KItem ::= Int [S=Int] from 1 parameter(s)",
+                "KItem ::= MInt{8} [S=MInt{8}] from 1 parameter(s)",
+                "Int ::= \"case4(\" K \")\" [S=K] from 1 parameter(s)",
+            ]
+        );
         assert!(grammar.productions.iter().any(|production| {
             production.result == Sort::with_parameters("MInt", vec![Sort::new("K")])
                 && matches!(

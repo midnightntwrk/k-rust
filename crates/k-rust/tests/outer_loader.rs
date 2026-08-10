@@ -44,6 +44,16 @@ fn loads_diamond_requires_dependency_first_and_resolves_global_tags() {
             "#},
         ),
     ]);
+    let main_source = indoc! {r#"
+        requires "b.k"
+        requires "c.k"
+        module MAIN
+          imports B
+          imports C
+          syntax Exp ::= "bar" [symbol(bar)]
+          syntax priority foo > bar
+        endmodule
+    "#};
     let mut resolver = |_: &str, required: &str| {
         sources
             .get(required)
@@ -51,19 +61,7 @@ fn loads_diamond_requires_dependency_first_and_resolves_global_tags() {
             .ok_or_else(|| "not found".to_owned())
     };
     let loaded = load(
-        ResolvedSource::new(
-            "main.k",
-            indoc! {r#"
-                requires "b.k"
-                requires "c.k"
-                module MAIN
-                  imports B
-                  imports C
-                  syntax Exp ::= "bar" [symbol(bar)]
-                  syntax priority foo > bar
-                endmodule
-            "#},
-        ),
+        ResolvedSource::new("main.k", main_source),
         "MAIN",
         &mut resolver,
     )
@@ -100,7 +98,13 @@ fn loads_diamond_requires_dependency_first_and_resolves_global_tags() {
             })
             .collect(),
     };
-    insta::assert_debug_snapshot!(summary);
+    insta::with_settings!({
+        description => format!("main.k:\n\n{main_source}\n\nRequired sources:\n\n{sources:#?}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(summary);
+    });
 }
 
 #[test]
@@ -190,21 +194,14 @@ fn applies_imported_sort_synonyms_after_resolving_the_source_graph() {
 
 #[test]
 fn parses_and_expands_configurations_with_visible_user_syntax() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <top><k> $PGM:Int </k><counter> 0 </counter></top>
+        endmodule
+    "#};
     let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
-    let loaded = load(
-        ResolvedSource::new(
-            "main.k",
-            indoc! {r#"
-                module MAIN
-                  syntax Int ::= r"[0-9]+" [token]
-                  configuration <top><k> $PGM:Int </k><counter> 0 </counter></top>
-                endmodule
-            "#},
-        ),
-        "MAIN",
-        &mut resolver,
-    )
-    .unwrap();
+    let loaded = load(ResolvedSource::new("main.k", source), "MAIN", &mut resolver).unwrap();
 
     let sentences = &loaded.definition.main_module().unwrap().local_sentences;
     assert!(
@@ -221,13 +218,21 @@ fn parses_and_expands_configurations_with_visible_user_syntax() {
             _ => None,
         })
         .collect::<Vec<_>>();
-    insta::assert_debug_snapshot!(labels);
+    insta::with_settings!({
+        description => format!("main.k:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(labels);
+    });
 }
 
 macro_rules! load_error_snapshot {
     ($name:ident, $entry:expr, $sources:expr, $main:expr) => {
         #[test]
         fn $name() {
+            let entry = $entry;
+            let main = $main;
             let sources: BTreeMap<&str, &str> = BTreeMap::from($sources);
             let mut resolver = |_: &str, required: &str| {
                 sources
@@ -235,9 +240,16 @@ macro_rules! load_error_snapshot {
                     .map(|text| ResolvedSource::new(required, *text))
                     .ok_or_else(|| format!("{required} was not found"))
             };
-            let error =
-                load(ResolvedSource::new("main.k", $entry), $main, &mut resolver).unwrap_err();
-            insta::assert_debug_snapshot!(error);
+            let error = load(ResolvedSource::new("main.k", entry), main, &mut resolver).unwrap_err();
+            insta::with_settings!({
+                description => format!(
+                    "main.k:\n\n{entry}\n\nRequired sources:\n\n{sources:#?}\n\nMain module: {main}"
+                ),
+                omit_expression => true,
+                prepend_module_to_snapshot => true,
+            }, {
+                insta::assert_debug_snapshot!(error);
+            });
         }
     };
 }
@@ -296,22 +308,21 @@ load_error_snapshot!(
 
 #[test]
 fn source_checks_precede_import_resolution() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "(" Int ")" [bracket]
+        endmodule
+    "#};
     let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
-    let error = load(
-        ResolvedSource::new(
-            "main.k",
-            indoc! {r#"
-                module MAIN
-                  syntax Exp ::= "(" Int ")" [bracket]
-                endmodule
-            "#},
-        ),
-        "MAIN",
-        &mut resolver,
-    )
-    .unwrap_err();
+    let error = load(ResolvedSource::new("main.k", source), "MAIN", &mut resolver).unwrap_err();
     assert!(matches!(error, LoadError::SourceDiagnostics(_)));
-    insta::assert_debug_snapshot!(error);
+    insta::with_settings!({
+        description => format!("main.k:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(error);
+    });
 }
 
 proptest! {

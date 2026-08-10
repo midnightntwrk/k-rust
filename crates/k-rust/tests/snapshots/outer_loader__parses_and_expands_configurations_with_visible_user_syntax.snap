@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/outer_loader.rs
-expression: labels
+description: "main.k:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  configuration <top><k> $PGM:Int </k><counter> 0 </counter></top>\nendmodule\n"
 ---
 [
     "<counter>",

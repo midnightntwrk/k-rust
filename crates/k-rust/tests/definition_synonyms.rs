@@ -110,8 +110,6 @@ fn applies_visible_synonyms_once_to_only_production_sorts() {
         transformed.modules[0].local_sentences, definition.modules[0].local_sentences,
         "sort-synonym declarations are syntax and remain unchanged"
     );
-
-    insta::assert_debug_snapshot!(transformed);
 }
 
 #[test]

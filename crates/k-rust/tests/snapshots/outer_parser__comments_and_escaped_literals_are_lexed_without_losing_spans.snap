@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/outer_parser.rs
-expression: parsed
+description: "K source:\n\n// file comment\nmodule TRIVIA /* module comment */\n  syntax Text ::= \"line\\n\\\"quoted\\\"\" // sentence comment\n  rule X /* inside the bubble */ => X\nendmodule\n"
 ---
 SourceFile {
     source: "trivia.k",

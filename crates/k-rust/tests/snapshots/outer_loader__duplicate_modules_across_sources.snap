@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/outer_loader.rs
-expression: error
+description: "main.k:\n\nrequires \"other.k\"\nmodule SAME endmodule\n\n\nRequired sources:\n\n{\n    \"other.k\": \"module SAME endmodule\",\n}\n\nMain module: SAME"
 ---
 DuplicateModule {
     name: "SAME",

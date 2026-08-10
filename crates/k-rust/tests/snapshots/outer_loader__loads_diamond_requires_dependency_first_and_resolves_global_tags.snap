@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/outer_loader.rs
-expression: summary
+description: "main.k:\n\nrequires \"b.k\"\nrequires \"c.k\"\nmodule MAIN\n  imports B\n  imports C\n  syntax Exp ::= \"bar\" [symbol(bar)]\n  syntax priority foo > bar\nendmodule\n\n\nRequired sources:\n\n{\n    \"b.k\": \"requires \\\"d.k\\\"\\nmodule B\\n  imports D\\nendmodule\\n\",\n    \"c.k\": \"requires \\\"d.k\\\"\\nmodule C\\n  imports D\\nendmodule\\n\",\n    \"d.k\": \"module D\\n  syntax Exp ::= \\\"foo\\\" [klabel(foo)]\\nendmodule\\n\",\n}"
 ---
 LoadSummary {
     files: [

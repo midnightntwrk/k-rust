@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/inner_parser.rs
-expression: "grammar.parse(&Sort::new(\"Exp\"), \"f(a, b + c, a)\")"
+description: "Input parsed as Exp:\n\nf(a, b + c, a)"
 ---
 Err(
     Priority {

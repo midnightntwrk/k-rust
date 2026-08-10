@@ -1,0 +1,15 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Box ::= \"box(\" Int \")\" [symbol(box)]\n  syntax {S} S ::= \"same(\" S \")\" [symbol(same)]\n  rule box(same(1)) => box(1)\nendmodule\n"
+---
+[
+    SentenceSummary {
+        kind: "rule",
+        body: "box(same{Int}(#token(\"1\",\"Int\")))=>box(#token(\"1\",\"Int\"))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+]

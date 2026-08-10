@@ -1,0 +1,13 @@
+---
+source: crates/k-rust/tests/inner_parser.rs
+description: "Input parsed as Start:\n\nif"
+---
+Ok(
+    Apply {
+        label: Label {
+            name: "keyword",
+            parameters: [],
+        },
+        arguments: [],
+    },
+)

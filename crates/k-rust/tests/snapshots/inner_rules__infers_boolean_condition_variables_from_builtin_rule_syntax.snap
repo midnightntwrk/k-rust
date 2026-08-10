@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/inner_rules.rs
-expression: sentences
+description: "K definition:\n\nmodule MAIN\n  syntax A ::= \"a\" [symbol(a)]\n  rule a => a requires B\nendmodule\n"
 ---
 [
     SentenceSummary {

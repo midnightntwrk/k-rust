@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/inner_rules.rs
-expression: sentences
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Box ::= \"box\" \"(\" value: Int \")\" [symbol(box)]\n  syntax Pair ::= \"pair\" \"(\" Int \",\" Int \")\" [symbol(pair)]\n  rule box(... value: 1) => box(...)\n  rule `box`(2) => box(... value: 2)\n  rule pair(...) => pair(...)\nendmodule\n"
 ---
 [
     SentenceSummary {

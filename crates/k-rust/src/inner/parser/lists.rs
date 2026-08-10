@@ -330,6 +330,23 @@ mod tests {
     use crate::kast::Label;
     use serde_json::json;
 
+    macro_rules! assert_list_parse_snapshot {
+        ($grammar:expr, $source:expr) => {{
+            let source = indoc::indoc! { $source };
+            let parsed = $grammar
+                .parse(&Sort::new("Box"), source)
+                .expect("list term should parse")
+                .to_string();
+            insta::with_settings!({
+                description => source,
+                omit_expression => true,
+                prepend_module_to_snapshot => true,
+            }, {
+                insta::assert_snapshot!(parsed);
+            });
+        }};
+    }
+
     fn nonterminal(sort: &str) -> ProductionItem {
         ProductionItem::NonTerminal {
             sort: Sort::new(sort),
@@ -407,23 +424,27 @@ mod tests {
     }
 
     #[test]
-    fn inserts_right_and_left_associative_singleton_lists() {
-        let right = list_grammar(false);
-        let left = list_grammar(true);
-        let terms = vec![
-            right.parse(&Sort::new("Box"), "box a").unwrap().to_string(),
-            right
-                .parse(&Sort::new("Box"), "box a,a")
-                .unwrap()
-                .to_string(),
-            right
-                .parse(&Sort::new("Box"), "box .Exps")
-                .unwrap()
-                .to_string(),
-            left.parse(&Sort::new("Box"), "box a").unwrap().to_string(),
-        ];
+    fn inserts_a_right_associative_singleton_list() {
+        let grammar = list_grammar(false);
+        assert_list_parse_snapshot!(grammar, "box a");
+    }
 
-        insta::assert_debug_snapshot!(terms);
+    #[test]
+    fn reconstructs_a_right_associative_recursive_list() {
+        let grammar = list_grammar(false);
+        assert_list_parse_snapshot!(grammar, "box a,a");
+    }
+
+    #[test]
+    fn preserves_an_explicit_list_terminator() {
+        let grammar = list_grammar(false);
+        assert_list_parse_snapshot!(grammar, "box .Exps");
+    }
+
+    #[test]
+    fn inserts_a_left_associative_singleton_list() {
+        let grammar = list_grammar(true);
+        assert_list_parse_snapshot!(grammar, "box a");
     }
 
     #[test]
@@ -494,6 +515,17 @@ mod tests {
             .add_empty_lists(held_atom(&ambiguous_terminators), &Sort::new("Holder"))
             .unwrap_err();
 
-        insta::assert_debug_snapshot!((list_error, terminator_error));
+        assert_eq!(
+            list_error,
+            ParseError::OverloadedTerminator {
+                possible_sorts: vec![Sort::new("Firsts"), Sort::new("Seconds")],
+            }
+        );
+        assert_eq!(
+            terminator_error,
+            ParseError::ListTerminator {
+                possible_sorts: vec![Sort::new("Firsts"), Sort::new("Seconds")],
+            }
+        );
     }
 }

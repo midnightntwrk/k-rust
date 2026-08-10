@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/inner_rules.rs
-expression: error
+description: "K definition:\n\nmodule MAIN\n  syntax Atom ::= r\"[a-z]\" [token]\n  syntax Other ::= Atom\n  syntax Exp ::= \"f\" Other [symbol(f)]\n  rule f a::Exp => f a\nendmodule\n"
 ---
 Parse(
     RuleParseError {

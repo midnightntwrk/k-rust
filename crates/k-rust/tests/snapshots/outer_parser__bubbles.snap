@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/outer_parser.rs
-expression: parsed
+description: "K source:\n\nmodule RULES\n  rule [identity]: X + 0 => X [simplification]\n  claim <k> P => Q </k> requires true [trusted]\n  context HOLE + X\n  context alias HERE [X] = HOLE\n  configuration <k> $PGM:Exp </k>\nendmodule\n"
 ---
 SourceFile {
     source: "bubbles.k",

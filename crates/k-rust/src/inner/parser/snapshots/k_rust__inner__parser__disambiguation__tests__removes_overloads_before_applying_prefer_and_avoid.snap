@@ -1,5 +1,0 @@
----
-source: crates/k-rust/src/inner/parser/disambiguation.rs
-expression: "render(&grammar, &filtered)"
----
-pick()

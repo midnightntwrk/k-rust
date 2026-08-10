@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/inner_config.rs
-expression: transformed
+description: "Configuration bubble:\n\n<top multiplicity=\"1\"><k> $PGM:Int </k><counter> 0 </counter></top> ensures true"
 ---
 Definition {
     main_module: "MAIN",

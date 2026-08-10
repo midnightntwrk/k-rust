@@ -2,6 +2,21 @@ use k_rust::definition::{Associativity, Attributes, ProductionItem, Sentence};
 use k_rust::inner::{Grammar, ParseError};
 use k_rust::kast::{Label, Sort, Term};
 
+macro_rules! assert_inner_parse_snapshot {
+    ($grammar:expr, $sort:expr, $source:expr) => {{
+        let source = indoc::indoc! { $source };
+        let expected_sort = $sort;
+        let parsed = $grammar.parse(&expected_sort, source);
+        insta::with_settings!({
+            description => format!("Input parsed as {expected_sort}:\n\n{source}"),
+            omit_expression => true,
+            prepend_module_to_snapshot => true,
+        }, {
+            insta::assert_debug_snapshot!(parsed);
+        });
+    }};
+}
+
 fn production(
     result: &str,
     items: Vec<ProductionItem>,
@@ -95,18 +110,19 @@ fn parses_recursive_grammars_tokens_subsorts_and_layout() {
     );
 }
 
-#[test]
-fn matches_scala_module_defined_layout_selection() {
-    let start = production(
+fn layout_start_production() -> Sentence {
+    production(
         "Start",
         vec![ProductionItem::Terminal("x".into())],
         Some("x"),
         Attributes::default(),
-    );
-    let default = Grammar::from_sentences([&start]).unwrap();
+    )
+}
 
-    let custom_sentences = [
-        start.clone(),
+fn custom_layout_grammar() -> Grammar {
+    let start = layout_start_production();
+    Grammar::from_sentences(&[
+        start,
         Sentence::SyntaxLexical {
             name: "Gap".into(),
             regex: "[ _]".into(),
@@ -124,35 +140,61 @@ fn matches_scala_module_defined_layout_selection() {
             None,
             Attributes::default(),
         ),
-    ];
-    let custom = Grammar::from_sentences(&custom_sentences).unwrap();
+    ])
+    .unwrap()
+}
 
-    let disabled_sentences = [start.clone(), syntax_sort("#Layout")];
-    let disabled = Grammar::from_sentences(&disabled_sentences).unwrap();
-
-    let results = [
-        default.parse(&Sort::new("Start"), " /* default */ x // tail"),
-        custom.parse(&Sort::new("Start"), "~~ _ x~~~"),
-        custom.parse(&Sort::new("Start"), "/* not custom */ x"),
-        disabled.parse(&Sort::new("Start"), "x"),
-        disabled.parse(&Sort::new("Start"), " x"),
-    ];
-
-    insta::assert_debug_snapshot!(results);
+fn disabled_layout_grammar() -> Grammar {
+    Grammar::from_sentences(&[layout_start_production(), syntax_sort("#Layout")]).unwrap()
 }
 
 #[test]
-fn rejects_invalid_or_empty_layout_productions() {
-    let invalid = [
-        syntax_sort("#Layout"),
-        production(
-            "#Layout",
-            vec![ProductionItem::Terminal(" ".into())],
-            None,
-            Attributes::default(),
-        ),
-    ];
-    let empty = [
+fn uses_default_layout_when_layout_is_undeclared() {
+    let grammar = Grammar::from_sentences([&layout_start_production()]).unwrap();
+    assert_inner_parse_snapshot!(grammar, Sort::new("Start"), " /* default */ x // tail");
+}
+
+#[test]
+fn uses_module_defined_layout() {
+    let grammar = custom_layout_grammar();
+    assert_inner_parse_snapshot!(grammar, Sort::new("Start"), "~~ _ x~~~");
+}
+
+#[test]
+fn module_defined_layout_rejects_default_comments() {
+    let grammar = custom_layout_grammar();
+    assert_inner_parse_snapshot!(grammar, Sort::new("Start"), "/* not custom */ x");
+}
+
+#[test]
+fn production_free_layout_allows_adjacent_tokens() {
+    let grammar = disabled_layout_grammar();
+    assert_inner_parse_snapshot!(grammar, Sort::new("Start"), "x");
+}
+
+#[test]
+fn production_free_layout_rejects_whitespace() {
+    let grammar = disabled_layout_grammar();
+    assert_inner_parse_snapshot!(grammar, Sort::new("Start"), " x");
+}
+
+#[test]
+fn rejects_non_regex_layout_productions() {
+    let start = production(
+        "#Layout",
+        vec![ProductionItem::Terminal(" ".into())],
+        None,
+        Attributes::default(),
+    );
+    assert_eq!(
+        Grammar::from_sentences(&[syntax_sort("#Layout"), start]).unwrap_err(),
+        ParseError::InvalidLayoutProduction
+    );
+}
+
+#[test]
+fn rejects_empty_matching_layout_regexes() {
+    let sentences = [
         syntax_sort("#Layout"),
         production(
             "#Layout",
@@ -161,11 +203,10 @@ fn rejects_invalid_or_empty_layout_productions() {
             Attributes::default(),
         ),
     ];
-
-    insta::assert_debug_snapshot!([
-        Grammar::from_sentences(&invalid).unwrap_err(),
-        Grammar::from_sentences(&empty).unwrap_err(),
-    ]);
+    assert_eq!(
+        Grammar::from_sentences(&sentences).unwrap_err(),
+        ParseError::EmptyLayout
+    );
 }
 
 #[test]
@@ -254,99 +295,98 @@ fn expands_named_lexical_references() {
 }
 
 #[test]
-fn matches_scala_global_scanner_winner_rules() {
-    let cases = [
-        (
+fn scanner_prefers_the_longer_terminal() {
+    let grammar = Grammar::from_sentences(&[
+        production(
+            "Start",
             vec![
-                production(
-                    "Start",
-                    vec![
-                        ProductionItem::Terminal("=".into()),
-                        ProductionItem::Terminal("=".into()),
-                    ],
-                    Some("split"),
-                    Attributes::default(),
-                ),
-                production(
-                    "Start",
-                    vec![ProductionItem::Terminal("==".into())],
-                    Some("longTerminal"),
-                    Attributes::default(),
-                ),
+                ProductionItem::Terminal("=".into()),
+                ProductionItem::Terminal("=".into()),
             ],
-            "==",
+            Some("split"),
+            Attributes::default(),
         ),
-        (
-            vec![
-                production(
-                    "Start",
-                    vec![ProductionItem::regex("[a-z]+")],
-                    Some("identifier"),
-                    Attributes::default(),
-                ),
-                production(
-                    "Start",
-                    vec![ProductionItem::Terminal("if".into())],
-                    Some("keyword"),
-                    Attributes::default(),
-                ),
-            ],
-            "if",
+        production(
+            "Start",
+            vec![ProductionItem::Terminal("==".into())],
+            Some("longTerminal"),
+            Attributes::default(),
         ),
-        (
-            vec![
-                production(
-                    "Start",
-                    vec![ProductionItem::regex("[a-z]+")],
-                    Some("word"),
-                    precedence("1"),
-                ),
-                production(
-                    "Start",
-                    vec![ProductionItem::regex("[a-z]{2}")],
-                    Some("pair"),
-                    precedence("2"),
-                ),
-            ],
-            "ab",
-        ),
-        (
-            vec![
-                production(
-                    "Start",
-                    vec![ProductionItem::regex("[a-z]{2}")],
-                    Some("highPrecedence"),
-                    precedence("99"),
-                ),
-                production(
-                    "Start",
-                    vec![ProductionItem::regex("[a-z]{3}")],
-                    Some("longer"),
-                    precedence("0"),
-                ),
-            ],
-            "abc",
-        ),
-        (
-            vec![production(
-                "Start",
-                vec![ProductionItem::regex("a|ab")],
-                Some("longestAlternative"),
-                Attributes::default(),
-            )],
-            "ab",
-        ),
-    ];
-    let parsed = cases
-        .into_iter()
-        .map(|(sentences, input)| {
-            Grammar::from_sentences(&sentences)
-                .unwrap()
-                .parse(&Sort::new("Start"), input)
-        })
-        .collect::<Vec<_>>();
+    ])
+    .unwrap();
+    assert_inner_parse_snapshot!(grammar, Sort::new("Start"), "==");
+}
 
-    insta::assert_debug_snapshot!(parsed);
+#[test]
+fn scanner_prefers_a_literal_on_an_equal_length_match() {
+    let grammar = Grammar::from_sentences(&[
+        production(
+            "Start",
+            vec![ProductionItem::regex("[a-z]+")],
+            Some("identifier"),
+            Attributes::default(),
+        ),
+        production(
+            "Start",
+            vec![ProductionItem::Terminal("if".into())],
+            Some("keyword"),
+            Attributes::default(),
+        ),
+    ])
+    .unwrap();
+    assert_inner_parse_snapshot!(grammar, Sort::new("Start"), "if");
+}
+
+#[test]
+fn scanner_uses_precedence_to_break_equal_length_regex_ties() {
+    let grammar = Grammar::from_sentences(&[
+        production(
+            "Start",
+            vec![ProductionItem::regex("[a-z]+")],
+            Some("word"),
+            precedence("1"),
+        ),
+        production(
+            "Start",
+            vec![ProductionItem::regex("[a-z]{2}")],
+            Some("pair"),
+            precedence("2"),
+        ),
+    ])
+    .unwrap();
+    assert_inner_parse_snapshot!(grammar, Sort::new("Start"), "ab");
+}
+
+#[test]
+fn scanner_prefers_match_length_over_precedence() {
+    let grammar = Grammar::from_sentences(&[
+        production(
+            "Start",
+            vec![ProductionItem::regex("[a-z]{2}")],
+            Some("highPrecedence"),
+            precedence("99"),
+        ),
+        production(
+            "Start",
+            vec![ProductionItem::regex("[a-z]{3}")],
+            Some("longer"),
+            precedence("0"),
+        ),
+    ])
+    .unwrap();
+    assert_inner_parse_snapshot!(grammar, Sort::new("Start"), "abc");
+}
+
+#[test]
+fn scanner_uses_the_longest_regex_alternative() {
+    let grammar = Grammar::from_sentences(&[production(
+        "Start",
+        vec![ProductionItem::regex("a|ab")],
+        Some("longestAlternative"),
+        Attributes::default(),
+    )])
+    .unwrap();
+    assert_inner_parse_snapshot!(grammar, Sort::new("Start"), "ab");
 }
 
 #[test]
@@ -426,7 +466,7 @@ fn rejects_non_associative_nesting() {
     ];
     let grammar = Grammar::from_sentences(&sentences).unwrap();
 
-    insta::assert_debug_snapshot!(grammar.parse(&Sort::new("Exp"), "a < b < c"));
+    assert_inner_parse_snapshot!(grammar, Sort::new("Exp"), "a < b < c");
 }
 
 #[test]
@@ -478,7 +518,7 @@ fn apply_priority_checks_only_selected_arguments() {
             .parse(&Sort::new("Exp"), "f(a + b, c, a + b)")
             .is_ok()
     );
-    insta::assert_debug_snapshot!(grammar.parse(&Sort::new("Exp"), "f(a, b + c, a)"));
+    assert_inner_parse_snapshot!(grammar, Sort::new("Exp"), "f(a, b + c, a)");
 }
 
 #[test]

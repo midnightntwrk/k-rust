@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/inner_parser.rs
-expression: "grammar.parse(&Sort::new(\"Exp\"), \"a < b < c\")"
+description: "Input parsed as Exp:\n\na < b < c"
 ---
 Err(
     Associativity {

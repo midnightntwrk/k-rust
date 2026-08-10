@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/definition_regex.rs
-expression: "regex :: parse(\"[]\").unwrap_err()"
+description: "Invalid K regex:\n\n[]"
 ---
 ParseError {
     index: 2,

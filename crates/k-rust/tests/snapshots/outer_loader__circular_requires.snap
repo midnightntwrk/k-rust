@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/outer_loader.rs
-expression: error
+description: "main.k:\n\nrequires \"b.k\"\n\nRequired sources:\n\n{\n    \"b.k\": \"requires \\\"main.k\\\"\",\n    \"main.k\": \"requires \\\"b.k\\\"\",\n}\n\nMain module: MAIN"
 ---
 CircularRequires(
     [

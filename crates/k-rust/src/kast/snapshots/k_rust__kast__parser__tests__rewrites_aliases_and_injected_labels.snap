@@ -1,6 +1,5 @@
 ---
 source: crates/k-rust/src/kast/parser.rs
-assertion_line: 299
 description: "textual KAST:\n\n``foo(X) #as Y`` ~> #klabel(`_+_`)\n"
 ---
 Sequence(
@@ -31,4 +30,3 @@ Sequence(
         ),
     ],
 )
- 

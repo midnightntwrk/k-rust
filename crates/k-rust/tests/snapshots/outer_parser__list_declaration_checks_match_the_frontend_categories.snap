@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/outer_parser.rs
-expression: check_list_declarations(&parsed)
+description: "K source:\n\nmodule LISTS\n  syntax K ::= List{Exp, \",\"}\n  syntax Loop ::= List{Loop, \",\"}\n  syntax Exps ::= \"[\" List{Exp, \",\"} \"]\"\n  syntax Good ::= NeList{Exp, \",\"}\nendmodule\n"
 ---
 [
     Diagnostic {

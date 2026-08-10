@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/definition_regex.rs
-expression: "regex :: parse(\"({Upper}{Lower})+|x(yz)?\").unwrap()"
+description: "K regex:\n\n({Upper}{Lower})+|x(yz)?"
 ---
 Regex {
     start_line: false,

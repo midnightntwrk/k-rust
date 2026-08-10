@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/outer_loader.rs
-expression: error
+description: "main.k:\n\nrequires \"missing.k\"\n\nRequired sources:\n\n{}\n\nMain module: MAIN"
 ---
 ResolveRequire {
     source: "main.k",
