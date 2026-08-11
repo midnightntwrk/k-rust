@@ -143,9 +143,13 @@ impl<'a> Converter<'a> {
     }
 
     fn variable(&self, variable: &Variable) -> Result<Term, ConversionError> {
-        let encoded = variable.name.strip_prefix("Var").unwrap_or(&variable.name);
+        let (prefix, name) = variable
+            .name
+            .strip_prefix('@')
+            .map_or(("", variable.name.as_str()), |name| ("@", name));
+        let encoded = name.strip_prefix("Var").unwrap_or(name);
         Ok(Term::Variable {
-            name: decode_identifier(encoded)?,
+            name: format!("{prefix}{}", decode_identifier(encoded)?),
             sort: Some(self.sort(&variable.sort)?),
         })
     }
@@ -344,5 +348,17 @@ mod tests {
         let hooks = HashMap::from([("String".into(), "STRING.String".into())]);
         let term = Converter::new(&hooks).convert(&pattern).unwrap();
         assert_eq!(term.to_string(), r#"#token("\"hello\"","String")"#);
+    }
+
+    #[test]
+    fn preserves_set_variable_names() {
+        let pattern = parse_pattern("@VarX:SortSet{}").unwrap();
+        assert_eq!(
+            convert(&pattern).unwrap(),
+            crate::kast::Term::Variable {
+                name: "@X".into(),
+                sort: Some(crate::kast::Sort::new("Set")),
+            }
+        );
     }
 }

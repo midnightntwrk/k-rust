@@ -1,0 +1,14 @@
+---
+source: crates/k-rust/tests/term_to_kore.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Int\n\n  rule X:Exp ~> Y:Exp => Y:Exp ~> X:Exp\nendmodule\n"
+---
+\rewrites{SortK{}}(
+  kseq{}(
+    Lbl'Hash'SemanticCastToExp{}(VarX:SortK{}),
+    kseq{}(Lbl'Hash'SemanticCastToExp{}(VarY:SortK{}), dotk{}())
+  ),
+  kseq{}(
+    Lbl'Hash'SemanticCastToExp{}(VarY:SortK{}),
+    kseq{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortK{}), dotk{}())
+  )
+)

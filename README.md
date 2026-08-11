@@ -114,7 +114,11 @@ a future `k-rust kast` command. The first `ModuleToKORE` slice now emits determi
 sort and symbol declarations for a resolved module and its visible imports. It produces separate
 semantic and concrete-syntax views, including Java-compatible name encoding, parametric sorts,
 hooked declarations, collection metadata, source locations, formatting, priorities, and
-associativity; both views round-trip through the KORE parser in source-driven snapshot tests.
+associativity; both views round-trip through the KORE parser in source-driven snapshot tests. A
+resolved forward converter now translates public KAST terms into typed KORE patterns, covering
+variables, applications, domain values, rewrites, aliases, K sequences, ML connectives, semantic
+casts, and Java's identifier conventions. It reports the cases where overloaded-production
+metadata has been lost rather than selecting a declaration silently.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces

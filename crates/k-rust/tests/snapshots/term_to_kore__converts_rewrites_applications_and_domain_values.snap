@@ -1,0 +1,8 @@
+---
+source: crates/k-rust/tests/term_to_kore.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Int\n  syntax Exp ::= Exp \"+\" Exp [symbol(_+_)]\n\n  rule X:Exp + 0 => X:Exp\nendmodule\n"
+---
+\rewrites{SortExp{}}(
+  Lbl'UndsPlusUnds'{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortK{}), \dv{SortInt{}}("0")),
+  Lbl'Hash'SemanticCastToExp{}(VarX:SortK{})
+)

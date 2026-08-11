@@ -254,7 +254,7 @@ impl Parser<'_> {
     }
 }
 
-fn parse_sort_text(input: &str) -> Result<Sort, String> {
+pub(crate) fn parse_sort_text(input: &str) -> Result<Sort, String> {
     let mut parser = Parser { input, cursor: 0 };
     let sort = parser.sort().map_err(|error| error.to_string())?;
     parser.whitespace();
