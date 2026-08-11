@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/inner_programs.rs
+description: "K definition:\n\nmodule MAIN\n  syntax #Layout ::= r\"(;;[^\\\\n\\\\r]*)|([\\\\ \\\\n\\\\r\\\\t])\"\n  syntax Int ::= Int \"+\" Int [left, symbol(add)]\n               | r\"[0-9]+\" [token]\nendmodule\n\nProgram (Int):\n\n0 + 3 ;; comment"
+---
+add(#token("0","Int"),#token("3","Int"))

@@ -333,6 +333,28 @@ impl Default for Grammar {
 }
 
 impl Grammar {
+    pub(super) fn from_program_sentences<'a>(
+        sentences: impl IntoIterator<Item = &'a Sentence>,
+    ) -> Result<Self, ParseError> {
+        let mut sentences = sentences.into_iter().cloned().collect::<Vec<_>>();
+        for sentence in &mut sentences {
+            let Sentence::Production {
+                items, attributes, ..
+            } = sentence
+            else {
+                continue;
+            };
+            if attributes.get_str("userList") == Some("*")
+                && !items
+                    .iter()
+                    .any(|item| matches!(item, ProductionItem::NonTerminal { .. }))
+            {
+                items.clear();
+            }
+        }
+        Self::from_sentences(&sentences)
+    }
+
     pub fn from_sentences<'a>(
         sentences: impl IntoIterator<Item = &'a Sentence>,
     ) -> Result<Self, ParseError> {

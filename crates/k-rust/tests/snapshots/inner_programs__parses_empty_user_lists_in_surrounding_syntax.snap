@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/inner_programs.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= Int \"(\" Ints \")\" [symbol(call)]\n  syntax Ints ::= List{Int, \",\"} [symbol(ints)]\n  syntax Int ::= r\"[0-9]+\" [token]\nendmodule\n\nProgram (Exp):\n\n0()"
+---
+call(#token("0","Int"),`.List{"ints"}`(.KList))

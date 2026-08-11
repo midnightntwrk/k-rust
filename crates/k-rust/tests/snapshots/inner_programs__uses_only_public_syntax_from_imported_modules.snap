@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/inner_programs.rs
+description: "K definition:\n\nmodule BASE\n  syntax Exp ::= \"visible\" [symbol(visible)]\n  syntax Exp ::= \"hidden\" [private, symbol(hidden)]\nendmodule\n\nmodule MAIN\n  imports BASE\n  syntax Start ::= Exp [symbol(start)]\nendmodule\n\nProgram (Start):\n\nvisible"
+---
+start(visible(.KList))

@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/inner_programs.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= Exp \"+\" Exp [left, symbol(add)]\n               | r\"[0-9]+\" [token]\nendmodule\n\nProgram (Exp):\n\n1 + 2 + 3"
+---
+add(add(#token("1","Exp"),#token("2","Exp")),#token("3","Exp"))

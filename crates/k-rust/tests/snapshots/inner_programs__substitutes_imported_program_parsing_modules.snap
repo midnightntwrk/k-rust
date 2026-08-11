@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/inner_programs.rs
+description: "K definition:\n\nmodule BASE\n  syntax Exp ::= \"definition\" [symbol(definitionSyntax)]\nendmodule\n\nmodule BASE-PROGRAM-PARSING\n  syntax Exp ::= \"program\" [symbol(programSyntax)]\nendmodule\n\nmodule MAIN\n  imports BASE\n  syntax Start ::= Exp [symbol(start)]\nendmodule\n\nProgram (Start):\n\nprogram"
+---
+start(programSyntax(.KList))

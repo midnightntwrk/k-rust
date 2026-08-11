@@ -106,6 +106,11 @@ The portable scanner also reproduces Scala's layout selection: visible `#Layout`
 override `DEFAULT-LAYOUT`, lexical references are expanded, and an explicit production-free
 `#Layout` declaration disables layout. Invalid shapes and empty-matching layout regexes fail during
 grammar construction instead of stalling the parser.
+A reusable program parser now builds the concrete syntax visible from a selected module and start
+sort, applies Scala's imported `-PROGRAM-PARSING` companion-module substitution, respects public
+syntax signatures and module-defined layout, and gives ordinary user lists their implicit empty
+program terminators without making `NeList` empty. This is the portable library boundary needed by
+a future `k-rust kast` command.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
