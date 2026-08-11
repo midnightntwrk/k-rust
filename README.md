@@ -122,6 +122,11 @@ on every nested term: byte spans relative to the parsed source fragment and cata
 production identities. KAST equality, ordering, debug output, text, and JSON intentionally ignore
 that metadata, while KORE sort recovery uses it to distinguish overloaded productions. Terms built
 outside the parser still report ambiguity instead of selecting a declaration silently.
+The first `AddSortInjections` pass now uses those resolved productions to recover instantiated
+result and argument sorts, lift nested rewrites to the rule boundary, and insert explicit
+`inj{From,To}` applications. It covers variables and parser-generated casts, K/KItem sequence
+coercions, parametric and overloaded productions, and the Map/Set/List wrappers used by cell
+collections. Source-driven snapshots exercise both the transformed KAST and its typed KORE output.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -160,6 +165,8 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
   WASM-compatible core yet.
 - Finish the representation-dependent Java checks, followed by specialized parser/layout views and
   the compilation passes.
+- Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
+  concrete sort parameters normally supplied by parser inference.
 - Complete `ModuleToKORE` beyond declarations: emit axioms and claims, translate rule bodies and
   attributes, propagate impure-function dependencies, and reproduce Java's generated axioms.
 - Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.

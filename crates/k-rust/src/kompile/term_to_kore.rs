@@ -412,14 +412,25 @@ impl<'a> TermConverter<'a> {
                 .ok_or(TermConversionError::MissingSort("variable")),
             Term::Sequence(_) => Ok(Sort::new("K")),
             Term::Token { sort, .. } => Ok(sort.clone()),
-            Term::Apply { label, .. } => self.application_sort(term, label),
+            Term::Apply { label, arguments } => self.application_sort(term, label, arguments),
             Term::Annotated { .. } => unreachable!(),
         }
     }
 
-    fn application_sort(&self, term: &Term, label: &Label) -> Result<Sort, TermConversionError> {
+    fn application_sort(
+        &self,
+        term: &Term,
+        label: &Label,
+        arguments: &[Term],
+    ) -> Result<Sort, TermConversionError> {
         if let Some(sort) = semantic_cast_sort(label) {
             return Ok(sort);
+        }
+        if label.name == "#OuterCast" {
+            return arguments
+                .first()
+                .ok_or_else(|| invalid_sort(label))
+                .and_then(|argument| self.term_sort(argument));
         }
         match label.name.as_str() {
             "inj" => {

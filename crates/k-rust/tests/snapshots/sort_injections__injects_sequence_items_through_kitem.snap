@@ -1,0 +1,10 @@
+---
+source: crates/k-rust/tests/sort_injections.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n\n  rule 1 ~> 2 => 2 ~> 1\nendmodule\n"
+---
+[
+    InjectionSummary {
+        injected: "inj{Int,KItem}(#token(\"1\",\"Int\"))~>inj{Int,KItem}(#token(\"2\",\"Int\"))=>inj{Int,KItem}(#token(\"2\",\"Int\"))~>inj{Int,KItem}(#token(\"1\",\"Int\"))",
+        kore: "\\rewrites{SortK{}}(\n  kseq{}(\n    inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")),\n    kseq{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"2\")), dotk{}())\n  ),\n  kseq{}(\n    inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"2\")),\n    kseq{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), dotk{}())\n  )\n)",
+    },
+]

@@ -1,0 +1,10 @@
+---
+source: crates/k-rust/tests/sort_injections.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Entry ::= \"entry\" Int [symbol(entry)]\n  syntax Entries [hook(MAP.Map)]\n  syntax Entries ::= Entry\n                   | \"EntryItem\" \"(\" Int \",\" Entry \")\" [symbol(EntryItem), hook(MAP.element)]\n                   | Entries Entries [symbol(_Entries_), hook(MAP.concat), comm, element(EntryItem), wrapElement(entry)]\n  syntax Parent ::= \"parent\" Entries [symbol(parent)]\n\n  rule parent entry 1 => parent entry 2\nendmodule\n"
+---
+[
+    InjectionSummary {
+        injected: "parent(`EntryItem`(#token(\"1\",\"Int\"),entry(#token(\"1\",\"Int\"))))=>parent(`EntryItem`(#token(\"2\",\"Int\"),entry(#token(\"2\",\"Int\"))))",
+        kore: "\\rewrites{SortParent{}}(\n  Lblparent{}(LblEntryItem{}(\\dv{SortInt{}}(\"1\"), Lblentry{}(\\dv{SortInt{}}(\"1\")))),\n  Lblparent{}(LblEntryItem{}(\\dv{SortInt{}}(\"2\"), Lblentry{}(\\dv{SortInt{}}(\"2\"))))\n)",
+    },
+]

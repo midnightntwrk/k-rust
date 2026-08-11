@@ -1,0 +1,10 @@
+---
+source: crates/k-rust/tests/sort_injections.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Cell ::= \"cell\" [symbol(cell)]\n  syntax Cells [hook(SET.Set)]\n  syntax Cells ::= Cell\n                 | \"CellItem\" \"(\" Cell \")\" [symbol(CellItem), hook(SET.element)]\n                 | Cells Cells [symbol(_Cells_), hook(SET.concat), comm, idem, element(CellItem), wrapElement(cell)]\n  syntax Parent ::= \"parent\" Cells [symbol(parent)]\n\n  rule parent cell => parent cell\nendmodule\n"
+---
+[
+    InjectionSummary {
+        injected: "parent(`CellItem`(cell(.KList)))=>parent(`CellItem`(cell(.KList)))",
+        kore: "\\rewrites{SortParent{}}(\n  Lblparent{}(LblCellItem{}(Lblcell{}())),\n  Lblparent{}(LblCellItem{}(Lblcell{}()))\n)",
+    },
+]

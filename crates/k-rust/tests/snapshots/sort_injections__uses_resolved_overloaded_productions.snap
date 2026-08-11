@@ -1,0 +1,10 @@
+---
+source: crates/k-rust/tests/sort_injections.rs
+description: "K definition:\n\nmodule MAIN\n  syntax A ::= \"a\" [symbol(a)]\n  syntax B ::= \"b\" [symbol(b)]\n  syntax Result ::= \"left\" A [symbol(pick)]\n                  | \"right\" B [symbol(pick)]\n  syntax Value ::= A | B | Result\n  syntax Wrapper ::= \"wrap\" Value [symbol(wrap)]\n\n  rule wrap left a => wrap right b\nendmodule\n"
+---
+[
+    InjectionSummary {
+        injected: "wrap(inj{Result,Value}(pick(a(.KList))))=>wrap(inj{Result,Value}(pick(b(.KList))))",
+        kore: "\\rewrites{SortWrapper{}}(\n  Lblwrap{}(inj{SortResult{}, SortValue{}}(Lblpick{}(Lbla{}()))),\n  Lblwrap{}(inj{SortResult{}, SortValue{}}(Lblpick{}(Lblb{}())))\n)",
+    },
+]

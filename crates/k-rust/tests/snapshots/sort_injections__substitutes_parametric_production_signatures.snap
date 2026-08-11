@@ -1,0 +1,10 @@
+---
+source: crates/k-rust/tests/sort_injections.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Int\n  syntax Box ::= \"box(\" Exp \")\" [symbol(box)]\n  syntax {S} S ::= \"same(\" S \")\" [symbol(same)]\n\n  rule box(same(1)) => box(1)\nendmodule\n"
+---
+[
+    InjectionSummary {
+        injected: "box(same{Exp}(inj{Int,Exp}(#token(\"1\",\"Int\"))))=>box(inj{Int,Exp}(#token(\"1\",\"Int\")))",
+        kore: "\\rewrites{SortBox{}}(\n  Lblbox{}(Lblsame{SortExp{}}(inj{SortInt{}, SortExp{}}(\\dv{SortInt{}}(\"1\")))),\n  Lblbox{}(inj{SortInt{}, SortExp{}}(\\dv{SortInt{}}(\"1\")))\n)",
+    },
+]

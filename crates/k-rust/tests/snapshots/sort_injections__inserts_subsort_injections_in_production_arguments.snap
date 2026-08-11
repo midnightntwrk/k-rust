@@ -1,0 +1,10 @@
+---
+source: crates/k-rust/tests/sort_injections.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Int\n  syntax Stmt ::= \"print\" Exp [symbol(print)]\n\n  rule print 1 => print 2\nendmodule\n"
+---
+[
+    InjectionSummary {
+        injected: "print(inj{Int,Exp}(#token(\"1\",\"Int\")))=>print(inj{Int,Exp}(#token(\"2\",\"Int\")))",
+        kore: "\\rewrites{SortStmt{}}(\n  Lblprint{}(inj{SortInt{}, SortExp{}}(\\dv{SortInt{}}(\"1\"))),\n  Lblprint{}(inj{SortInt{}, SortExp{}}(\\dv{SortInt{}}(\"2\")))\n)",
+    },
+]

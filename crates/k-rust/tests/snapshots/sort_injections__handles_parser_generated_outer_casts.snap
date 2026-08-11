@@ -1,0 +1,10 @@
+---
+source: crates/k-rust/tests/sort_injections.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Id ::= r\"[a-z]\" [token]\n  syntax Exp ::= Id\n\n  rule X:Exp => {X}:>Exp\nendmodule\n"
+---
+[
+    InjectionSummary {
+        injected: "#SemanticCastToExp(X)=>#OuterCast(#SemanticCastToExp(X))",
+        kore: "\\rewrites{SortExp{}}(\n  Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),\n  Lbl'Hash'OuterCast{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))\n)",
+    },
+]

@@ -1,0 +1,10 @@
+---
+source: crates/k-rust/tests/sort_injections.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Int\n  syntax Exp ::= Exp \"+\" Exp [symbol(_+_)]\n\n  rule X:Exp + 0 => X:Exp\nendmodule\n"
+---
+[
+    InjectionSummary {
+        injected: "`_+_`(#SemanticCastToExp(X),inj{Int,Exp}(#token(\"0\",\"Int\")))=>#SemanticCastToExp(X)",
+        kore: "\\rewrites{SortExp{}}(\n  Lbl'UndsPlusUnds'{}(\n    Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),\n    inj{SortInt{}, SortExp{}}(\\dv{SortInt{}}(\"0\"))\n  ),\n  Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})\n)",
+    },
+]
