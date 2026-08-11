@@ -1,6 +1,7 @@
 use indoc::indoc;
 use k_rust::kompile::{
     declaration_modules, encode_kore_identifier, encode_kore_label, encode_kore_sort,
+    module_to_kore,
 };
 use k_rust::kore::parser::parse_module;
 use k_rust::kore::printer::Printer;
@@ -9,6 +10,11 @@ use k_rust::{kast, outer};
 fn lowered(source: &str, main_module: &str) -> k_rust::definition::Definition {
     let parsed = outer::parse("declarations.k", source).expect("definition should parse");
     outer::lower(&parsed, main_module).expect("definition should lower")
+}
+
+fn rules(source: &str, main_module: &str) -> k_rust::definition::Definition {
+    k_rust::inner::resolve_rule_bubbles(&lowered(source, main_module))
+        .expect("rule bubbles should resolve")
 }
 
 macro_rules! declaration_snapshot {
@@ -41,6 +47,36 @@ macro_rules! declaration_snapshot {
     };
 }
 
+macro_rules! module_snapshot {
+    ($name:ident, $source:expr, $module:expr) => {
+        #[test]
+        fn $name() {
+            let source = indoc!($source);
+            let modules = module_to_kore(&rules(source, $module), $module)
+                .expect("KORE modules should emit");
+            let printer = Printer::pretty(100);
+            let semantics = printer.print_module(&modules.semantics);
+            let syntax = printer.print_module(&modules.syntax);
+            assert_eq!(
+                parse_module(&semantics).expect("semantic module should reparse"),
+                modules.semantics,
+            );
+            assert_eq!(
+                parse_module(&syntax).expect("syntax module should reparse"),
+                modules.syntax,
+            );
+            let emitted = format!("// semantics\n{semantics}\n\n// syntax\n{syntax}");
+            insta::with_settings!({
+                description => format!("K definition:\n\n{source}"),
+                omit_expression => true,
+                prepend_module_to_snapshot => true,
+            }, {
+                insta::assert_snapshot!(emitted);
+            });
+        }
+    };
+}
+
 declaration_snapshot!(
     emits_sort_and_symbol_declarations,
     r#"
@@ -58,6 +94,48 @@ declaration_snapshot!(
     "#,
     "MAIN"
 );
+
+module_snapshot!(
+    emits_ordinary_rewrite_rules_and_claims,
+    r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= Int
+          syntax Exp ::= Exp "+" Exp [symbol(_+_)]
+          syntax Bool ::= Exp "==" Exp [function, symbol(eq)]
+          syntax GeneratedTopCell ::= "<top>" Exp "</top>" [symbol(top)]
+
+          rule <top> X:Exp + 0 </top> => <top> X:Exp </top>
+            requires X:Exp == 0
+            ensures X:Exp == 1
+            [label(step), priority(42)]
+
+          claim <top> X:Exp </top> => <top> ?Y:Exp </top>
+            ensures ?Y:Exp == X:Exp
+            [label(reachable)]
+
+          claim <top> X:Exp </top>
+            requires X:Exp == 0
+            [label(invariant)]
+        endmodule
+    "#,
+    "MAIN"
+);
+
+#[test]
+fn rejects_non_top_cell_semantic_rules() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          rule 0 => 1
+        endmodule
+    "#};
+    let error = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "ordinary semantic rules must rewrite GeneratedTopCell, found Int"
+    );
+}
 
 declaration_snapshot!(
     emits_visible_imported_declarations_in_scala_order,

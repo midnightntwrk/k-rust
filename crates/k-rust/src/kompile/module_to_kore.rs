@@ -11,10 +11,13 @@ use crate::definition::{
     ResolveError, ResolvedDefinition, SOURCE_ATTRIBUTE, Sentence, SortCatalog, SortHead,
     match_rule_label,
 };
-use crate::kast::{Label, Sort};
+use crate::kast::{Label, Sort, Term};
 use crate::kore::ast::{
-    Attributes, Module, Pattern, Sentence as KoreSentence, Sort as KoreSort, Symbol,
+    Attributes, Module, Pattern, Sentence as KoreSentence, Sort as KoreSort, Symbol, Variable,
 };
+
+use super::sort_injections::{SortInjectionError, SortInjector};
+use super::term_to_kore::{TermConversionError, TermConverter};
 
 const PROGRAM_BUILTIN_MODULE: &str = "K";
 const COLLECTION_HOOKS: [&str; 4] = ["SET.Set", "MAP.Map", "LIST.List", "RANGEMAP.RangeMap"];
@@ -121,6 +124,57 @@ pub enum DeclarationError {
     Relations(RelationError),
     CircularPriority(Vec<String>),
     InvalidCollectionSort { sort: String, message: String },
+}
+
+/// A failure while extending KORE declarations with semantic rules or claims.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ModuleToKoreError {
+    Declaration(DeclarationError),
+    SortInjection(SortInjectionError),
+    TermConversion(TermConversionError),
+    ExpectedRewrite { sentence: &'static str },
+    ExpectedGeneratedTopCell { actual: Sort },
+    UnsupportedRuleKind { kind: String },
+}
+
+impl fmt::Display for ModuleToKoreError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Declaration(error) => error.fmt(formatter),
+            Self::SortInjection(error) => error.fmt(formatter),
+            Self::TermConversion(error) => error.fmt(formatter),
+            Self::ExpectedRewrite { sentence } => {
+                write!(formatter, "cannot emit {sentence} without a rewrite body")
+            }
+            Self::ExpectedGeneratedTopCell { actual } => write!(
+                formatter,
+                "ordinary semantic rules must rewrite GeneratedTopCell, found {actual}"
+            ),
+            Self::UnsupportedRuleKind { kind } => {
+                write!(formatter, "KORE emission for {kind} is not implemented yet")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ModuleToKoreError {}
+
+impl From<DeclarationError> for ModuleToKoreError {
+    fn from(error: DeclarationError) -> Self {
+        Self::Declaration(error)
+    }
+}
+
+impl From<SortInjectionError> for ModuleToKoreError {
+    fn from(error: SortInjectionError) -> Self {
+        Self::SortInjection(error)
+    }
+}
+
+impl From<TermConversionError> for ModuleToKoreError {
+    fn from(error: TermConversionError) -> Self {
+        Self::TermConversion(error)
+    }
 }
 
 impl fmt::Display for DeclarationError {
@@ -280,6 +334,238 @@ pub fn declaration_modules_from_resolved(
             attributes: Attributes::default(),
         },
     })
+}
+
+/// Emit declarations plus the ordinary semantic rules and local claims of one module.
+///
+/// Function equations, simplification rules, macros, `owise`, and reachability modes have
+/// distinct Java encodings and are rejected until their dedicated branches are implemented.
+pub fn module_to_kore(
+    definition: &KDefinition,
+    module: &str,
+) -> Result<DeclarationModules, ModuleToKoreError> {
+    let resolved = ResolvedDefinition::resolve(definition).map_err(DeclarationError::Definition)?;
+    module_to_kore_from_resolved(&resolved, module)
+}
+
+/// Emit semantic rules while reusing an already-resolved definition.
+pub fn module_to_kore_from_resolved(
+    definition: &ResolvedDefinition,
+    module: &str,
+) -> Result<DeclarationModules, ModuleToKoreError> {
+    let mut modules = declaration_modules_from_resolved(definition, module)?;
+    let module_id = definition
+        .module_id(module)
+        .ok_or_else(|| DeclarationError::MissingModule(module.to_owned()))?;
+    let visible = definition.sentences(module_id);
+    let valued = valued_attributes(&visible);
+    let rules = definition.rule_catalog(module_id);
+    let productions = definition.production_catalog(module_id);
+    let injector = SortInjector::new(definition, module)?;
+    let converter = TermConverter::new(definition, module)?;
+
+    for (_, rule) in rules.sorted_rules() {
+        reject_specialized_rule(rule, &productions)?;
+        modules.semantics.sentences.push(emit_rule_or_claim(
+            rule, false, &valued, &injector, &converter,
+        )?);
+    }
+    for (_, claim) in rules.local_claims() {
+        reject_specialized_rule(claim, &productions)?;
+        modules.semantics.sentences.push(emit_rule_or_claim(
+            claim, true, &valued, &injector, &converter,
+        )?);
+    }
+    Ok(modules)
+}
+
+fn reject_specialized_rule(
+    sentence: &Sentence,
+    productions: &ProductionCatalog<'_>,
+) -> Result<(), ModuleToKoreError> {
+    for attribute in [
+        "macro",
+        "macro-rec",
+        "alias",
+        "alias-rec",
+        "simplification",
+        "anywhere",
+        "owise",
+        "one-path",
+        "all-path",
+    ] {
+        if sentence.attributes().get(attribute).is_some() {
+            return Err(ModuleToKoreError::UnsupportedRuleKind {
+                kind: format!("{attribute} rule or claim"),
+            });
+        }
+    }
+
+    let body = match sentence {
+        Sentence::Rule { body, .. } | Sentence::Claim { body, .. } => body,
+        _ => return Ok(()),
+    };
+    let left = match body.unannotated() {
+        Term::Rewrite { left, .. } => left,
+        _ => body,
+    };
+    let left = peel_alias(left);
+    if let Term::Apply { label, .. } = left.unannotated()
+        && productions
+            .function_labels()
+            .contains(&LabelHead::from(label))
+    {
+        return Err(ModuleToKoreError::UnsupportedRuleKind {
+            kind: format!("function equation for {}", label.name),
+        });
+    }
+    Ok(())
+}
+
+fn peel_alias(mut term: &Term) -> &Term {
+    while let Term::As { pattern, .. } = term.unannotated() {
+        term = pattern;
+    }
+    term
+}
+
+fn emit_rule_or_claim(
+    sentence: &Sentence,
+    claim: bool,
+    valued: &BTreeSet<String>,
+    injector: &SortInjector<'_>,
+    converter: &TermConverter<'_>,
+) -> Result<KoreSentence, ModuleToKoreError> {
+    let injected = injector.inject_sentence(sentence)?;
+    let (body, requires, ensures, attributes) = match &injected {
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            attributes,
+        }
+        | Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            attributes,
+        } => (body, requires, ensures, attributes),
+        _ => unreachable!("only rules and claims are emitted"),
+    };
+    let body_sort = injector.term_sort(body, None)?;
+    let (left, right) = match body.unannotated() {
+        Term::Rewrite { left, right } => (left.as_ref(), right.as_ref()),
+        _ if claim => (body, body),
+        _ => {
+            return Err(ModuleToKoreError::ExpectedRewrite { sentence: "rule" });
+        }
+    };
+    if !claim && body_sort != Sort::new("GeneratedTopCell") {
+        return Err(ModuleToKoreError::ExpectedGeneratedTopCell { actual: body_sort });
+    }
+    let result_sort = encode_kore_sort(&body_sort);
+    let existentials = existential_variables(right, ensures, converter)?;
+    let left = converter.convert(left)?;
+    let right = converter.convert(right)?;
+    let requires = side_condition(requires, &result_sort, converter)?;
+    let ensures = side_condition(ensures, &result_sort, converter)?;
+    let mut right = Pattern::And {
+        sort: result_sort.clone(),
+        arguments: vec![right, ensures],
+    };
+    for variable in existentials.into_iter().rev() {
+        right = Pattern::Exists {
+            sort: result_sort.clone(),
+            variable,
+            body: Box::new(right),
+        };
+    }
+    let pattern = if claim {
+        Pattern::Implies {
+            sort: result_sort.clone(),
+            left: Box::new(Pattern::And {
+                sort: result_sort,
+                arguments: vec![requires, left],
+            }),
+            right: Box::new(right),
+        }
+    } else {
+        Pattern::Rewrites {
+            sort: result_sort.clone(),
+            left: Box::new(Pattern::And {
+                sort: result_sort,
+                arguments: vec![left, requires],
+            }),
+            right: Box::new(right),
+        }
+    };
+    let attributes = emit_attributes(attributes.entries(), valued, &BTreeMap::new());
+    Ok(if claim {
+        KoreSentence::Claim {
+            parameters: Vec::new(),
+            pattern: Box::new(pattern),
+            attributes,
+        }
+    } else {
+        KoreSentence::Axiom {
+            parameters: Vec::new(),
+            pattern: Box::new(pattern),
+            attributes,
+        }
+    })
+}
+
+fn side_condition(
+    condition: &Term,
+    result_sort: &KoreSort,
+    converter: &TermConverter<'_>,
+) -> Result<Pattern, TermConversionError> {
+    if is_true(condition) {
+        return Ok(Pattern::Top {
+            sort: result_sort.clone(),
+        });
+    }
+    let bool_sort = encode_kore_sort(&Sort::new("Bool"));
+    Ok(Pattern::Equals {
+        operand_sort: bool_sort.clone(),
+        result_sort: result_sort.clone(),
+        left: Box::new(converter.convert(condition)?),
+        right: Box::new(Pattern::DomainValue {
+            sort: bool_sort,
+            value: "true".into(),
+        }),
+    })
+}
+
+fn is_true(term: &Term) -> bool {
+    matches!(
+        term.unannotated(),
+        Term::Token { token, sort } if token == "true" && sort == &Sort::new("Bool")
+    )
+}
+
+fn existential_variables(
+    right: &Term,
+    ensures: &Term,
+    converter: &TermConverter<'_>,
+) -> Result<Vec<Variable>, TermConversionError> {
+    let mut terms = BTreeMap::<String, Term>::new();
+    for root in [right, ensures] {
+        root.visit_preorder(&mut |term| {
+            if let Term::Variable { name, .. } = term.unannotated()
+                && name.starts_with('?')
+            {
+                terms.entry(name.clone()).or_insert_with(|| term.clone());
+            }
+        });
+    }
+    terms
+        .into_values()
+        .map(|term| match converter.convert(&term)? {
+            Pattern::Variable(variable) => Ok(variable),
+            _ => unreachable!("collected terms are variables"),
+        })
+        .collect()
 }
 
 fn sort_declarations(

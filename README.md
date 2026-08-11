@@ -127,6 +127,11 @@ result and argument sorts, lift nested rewrites to the rule boundary, and insert
 `inj{From,To}` applications. It covers variables and parser-generated casts, K/KItem sequence
 coercions, parametric and overloaded productions, and the Map/Set/List wrappers used by cell
 collections. Source-driven snapshots exercise both the transformed KAST and its typed KORE output.
+`ModuleToKORE` now connects those passes for ordinary semantics rules and local claims. It emits
+typed `axiom` rewrites and `claim` implications, lowers Boolean `requires`/`ensures` conditions,
+quantifies existential RHS variables, preserves rule attributes, and rejects specialized rule
+kinds until their distinct Java encodings are implemented. The complete semantic and syntax
+modules round-trip through the KORE parser in source-driven snapshot tests.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -167,8 +172,9 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
   the compilation passes.
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete sort parameters normally supplied by parser inference.
-- Complete `ModuleToKORE` beyond declarations: emit axioms and claims, translate rule bodies and
-  attributes, propagate impure-function dependencies, and reproduce Java's generated axioms.
+- Complete `ModuleToKORE` beyond ordinary rewrites and claims: emit function and simplification
+  equations, macros, `owise`, reachability modes and priority aliases; propagate impure-function
+  dependencies; and reproduce Java's generated axioms.
 - Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.
 - Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
   auto-imported prelude policy alongside the future command-line frontend.

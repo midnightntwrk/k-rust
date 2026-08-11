@@ -1,0 +1,170 @@
+---
+source: crates/k-rust/tests/module_to_kore.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Int\n  syntax Exp ::= Exp \"+\" Exp [symbol(_+_)]\n  syntax Bool ::= Exp \"==\" Exp [function, symbol(eq)]\n  syntax GeneratedTopCell ::= \"<top>\" Exp \"</top>\" [symbol(top)]\n\n  rule <top> X:Exp + 0 </top> => <top> X:Exp </top>\n    requires X:Exp == 0\n    ensures X:Exp == 1\n    [label(step), priority(42)]\n\n  claim <top> X:Exp </top> => <top> ?Y:Exp </top>\n    ensures ?Y:Exp == X:Exp\n    [label(reachable)]\n\n  claim <top> X:Exp </top>\n    requires X:Exp == 0\n    [label(invariant)]\nendmodule\n"
+---
+// semantics
+module MAIN
+  import K []
+  sort SortBool{} []
+  sort SortExp{} []
+  sort SortGeneratedTopCell{} []
+  sort SortInt{} [hasDomainValues{}()]
+  symbol Lbl'UndsPlusUnds'{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,43)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("_+_")
+  ]
+  symbol Lbleq{}(SortExp{}, SortExp{}) : SortBool{}
+  [
+    function{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,19,5,54)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("eq")
+  ]
+  symbol Lbltop{}(SortExp{}) : SortGeneratedTopCell{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,31,6,65)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("top")
+  ]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbltop{}(
+          Lbl'UndsPlusUnds'{}(
+            Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+            inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))
+          )
+        ),
+        \equals{SortBool{}, SortGeneratedTopCell{}}(
+          Lbleq{}(
+            Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+            inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))
+          ),
+          \dv{SortBool{}}("true")
+        )
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbltop{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
+        \equals{SortBool{}, SortGeneratedTopCell{}}(
+          Lbleq{}(
+            Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+            inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("1"))
+          ),
+          \dv{SortBool{}}("true")
+        )
+      )
+    )
+    [
+      label{}("step"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,3,11,32)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+      priority{}("42")
+    ]
+  claim{}
+    \implies{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        \top{SortGeneratedTopCell{}}(),
+        Lbltop{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
+      ),
+      \exists{SortGeneratedTopCell{}}(
+        Var'Ques'Y:SortExp{},
+        \and{SortGeneratedTopCell{}}(
+          Lbltop{}(Lbl'Hash'SemanticCastToExp{}(Var'Ques'Y:SortExp{})),
+          \equals{SortBool{}, SortGeneratedTopCell{}}(
+            Lbleq{}(
+              Lbl'Hash'SemanticCastToExp{}(Var'Ques'Y:SortExp{}),
+              Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})
+            ),
+            \dv{SortBool{}}("true")
+          )
+        )
+      )
+    )
+    [
+      label{}("reachable"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,3,15,23)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    ]
+  claim{}
+    \implies{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        \equals{SortBool{}, SortGeneratedTopCell{}}(
+          Lbleq{}(
+            Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+            inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))
+          ),
+          \dv{SortBool{}}("true")
+        ),
+        Lbltop{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbltop{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      label{}("invariant"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,3,19,23)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    ]
+endmodule [
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,20,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+]
+
+// syntax
+module MAIN
+  import K []
+  sort SortBool{} []
+  sort SortExp{} []
+  sort SortGeneratedTopCell{} []
+  sort SortInt{} [hasDomainValues{}()]
+  symbol Lbl'UndsPlusUnds'{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,43)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("_+_"),
+    terminals{}("010")
+  ]
+  symbol Lbleq{}(SortExp{}, SortExp{}) : SortBool{}
+  [
+    format{}(),
+    function{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,19,5,54)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("eq"),
+    terminals{}("010")
+  ]
+  symbol Lbltop{}(SortExp{}) : SortGeneratedTopCell{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,31,6,65)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("top"),
+    terminals{}("101")
+  ]
+endmodule []
