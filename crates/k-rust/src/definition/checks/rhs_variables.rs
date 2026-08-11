@@ -208,7 +208,7 @@ fn check_pattern_value(
     sentence: &Sentence,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    if let Term::Apply { label, .. } = term
+    if let Term::Apply { label, .. } = term.unannotated()
         && matches!(label.name.as_str(), "#fun2" | "#fun3" | "#let")
         && position.lhs
     {
@@ -233,7 +233,7 @@ fn gather_variables(
     sentence: &Sentence,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    if let Term::Variable { name, sort } = term {
+    if let Term::Variable { name, sort } = term.unannotated() {
         if position.lhs && !is_anonymous(name) || position.rhs && in_binder_lhs {
             bound.insert(VariableKey::new(name, sort.as_ref()));
         }
@@ -247,7 +247,7 @@ fn gather_variables(
         return;
     }
 
-    if let Term::Apply { label, arguments } = term
+    if let Term::Apply { label, arguments } = term.unannotated()
         && matches!(label.name.as_str(), "#Exists" | "#Forall")
         && arguments.len() >= 2
     {
@@ -330,7 +330,7 @@ fn compute_unbound(
     bound: &BTreeSet<VariableKey>,
     unbound: &mut BTreeSet<VariableKey>,
 ) {
-    if let Term::Variable { name, sort } = term {
+    if let Term::Variable { name, sort } = term.unannotated() {
         let variable = VariableKey::new(name, context_sort.or(sort.as_ref()));
         if position.rhs
             && !in_k_lhs
@@ -346,7 +346,7 @@ fn compute_unbound(
         return;
     }
 
-    if let Term::Apply { label, arguments } = term {
+    if let Term::Apply { label, arguments } = term.unannotated() {
         if matches!(label.name.as_str(), "_:=K_" | "_:/=K_") && arguments.len() >= 2 {
             compute_unbound(&arguments[0], position, true, context_sort, bound, unbound);
             compute_unbound(

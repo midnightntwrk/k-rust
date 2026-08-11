@@ -146,7 +146,7 @@ fn up_sentence(
     parsed: Term,
     attributes: Attributes,
 ) -> Result<Sentence, RuleError> {
-    let Term::Apply { label, arguments } = parsed else {
+    let Term::Apply { label, arguments } = parsed.into_unannotated() else {
         return Err(bubble_error(
             module,
             sentence_type,

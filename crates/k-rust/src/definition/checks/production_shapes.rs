@@ -231,10 +231,11 @@ fn nonterminal_count(items: &[ProductionItem]) -> usize {
 
 fn is_k_hole(term: &Term) -> bool {
     matches!(
-        term,
+        term.unannotated(),
         Term::Apply { label, arguments }
             if label.name == "#SemanticCastToK"
-                && matches!(arguments.as_slice(), [Term::Variable { name, .. }] if name == "HOLE")
+                && matches!(arguments.as_slice(), [argument]
+                    if matches!(argument.unannotated(), Term::Variable { name, .. } if name == "HOLE"))
     )
 }
 

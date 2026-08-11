@@ -131,6 +131,7 @@ impl Grammar {
             ParsedTerm::Production {
                 production,
                 children,
+                metadata,
             } => {
                 let descriptor = &self.productions[production];
                 let expected_children = nonterminal_sorts(descriptor);
@@ -162,12 +163,14 @@ impl Grammar {
                 Ok(ParsedTerm::Production {
                     production,
                     children,
+                    metadata,
                 })
             }
             ParsedTerm::InstantiatedProduction {
                 production,
                 parameters,
                 children,
+                metadata,
             } => {
                 let descriptor = &self.productions[production];
                 let expected_children = descriptor
@@ -215,6 +218,7 @@ impl Grammar {
                     production,
                     parameters,
                     children,
+                    metadata,
                 })
             }
         }
@@ -277,6 +281,7 @@ impl Grammar {
         let terminator = ParsedTerm::Production {
             production: self.user_lists[terminator_sort].terminator_production,
             children: Vec::new(),
+            metadata: super::TermMetadata::default(),
         };
         let children = if list.left_associative {
             vec![terminator, child]
@@ -286,6 +291,7 @@ impl Grammar {
         Ok(ParsedTerm::Production {
             production: list.list_production,
             children,
+            metadata: super::TermMetadata::default(),
         })
     }
 }
@@ -309,11 +315,14 @@ fn parsed_sort(grammar: &Grammar, term: &ParsedTerm) -> Sort {
         ParsedTerm::InstantiatedProduction { production, .. } => {
             grammar.productions[*production].result.clone()
         }
-        ParsedTerm::Term(Term::Token { sort, .. }) => sort.clone(),
-        ParsedTerm::Term(Term::Variable {
-            sort: Some(sort), ..
-        }) => sort.clone(),
-        ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => Sort::new("K"),
+        ParsedTerm::Term(term) => match term.unannotated() {
+            Term::Token { sort, .. }
+            | Term::Variable {
+                sort: Some(sort), ..
+            } => sort.clone(),
+            _ => Sort::new("K"),
+        },
+        ParsedTerm::Ambiguity(_) => Sort::new("K"),
     }
 }
 
@@ -327,7 +336,7 @@ fn list_error(message: impl Into<String>) -> ParseError {
 mod tests {
     use super::*;
     use crate::definition::{Attributes, Sentence};
-    use crate::kast::Label;
+    use crate::kast::{Label, TermMetadata};
     use serde_json::json;
 
     macro_rules! assert_list_parse_snapshot {
@@ -492,6 +501,7 @@ mod tests {
                 })
                 .unwrap(),
             children: Vec::new(),
+            metadata: TermMetadata::default(),
         };
         let held_atom = |grammar: &Grammar| ParsedTerm::Production {
             production: grammar
@@ -505,6 +515,7 @@ mod tests {
                 })
                 .unwrap(),
             children: vec![atom_term(grammar)],
+            metadata: TermMetadata::default(),
         };
         let list_error = ambiguous_lists
             .add_empty_lists(held_atom(&ambiguous_lists), &Sort::new("Holder"))

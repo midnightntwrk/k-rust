@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use crate::definition::{
-    Definition, LabelHead, PartialOrder, ProductionCatalog, ResolveError, ResolvedDefinition,
-    Sentence, SortCatalog, SortHead,
+    Definition, LabelHead, PartialOrder, ProductionCatalog, ProductionId, ResolveError,
+    ResolvedDefinition, Sentence, SortCatalog, SortHead,
 };
 use crate::kast::{self, Label, Sort, Term};
 use crate::kore::ast::{Pattern, Symbol, Variable, VariableKind};
@@ -23,6 +23,11 @@ pub enum TermConversionError {
     AmbiguousLabel {
         label: String,
         productions: usize,
+    },
+    InvalidResolvedProduction {
+        label: String,
+        production: usize,
+        message: String,
     },
     MissingSort(&'static str),
     IncompatibleSorts {
@@ -68,6 +73,14 @@ impl fmt::Display for TermConversionError {
             Self::AmbiguousLabel { label, productions } => write!(
                 formatter,
                 "cannot determine the sort of overloaded KLabel {label:?} from {productions} productions"
+            ),
+            Self::InvalidResolvedProduction {
+                label,
+                production,
+                message,
+            } => write!(
+                formatter,
+                "resolved production #{production} for KLabel {label:?} is invalid: {message}"
             ),
             Self::MissingSort(construct) => {
                 write!(formatter, "{construct} has no recoverable sort")
@@ -130,7 +143,7 @@ impl<'a> TermConverter<'a> {
     }
 
     fn pattern(&self, term: &Term) -> Result<Pattern, TermConversionError> {
-        match term {
+        match term.unannotated() {
             Term::InjectedLabel(_) => Err(TermConversionError::UnsupportedInjectedLabel),
             Term::Rewrite { left, right } => {
                 let sort = self.common_sort(&self.term_sort(left)?, &self.term_sort(right)?)?;
@@ -154,6 +167,7 @@ impl<'a> TermConverter<'a> {
                 sort: encode_kore_sort(sort),
                 value: self.token_value(token, sort)?,
             }),
+            Term::Annotated { .. } => unreachable!(),
         }
     }
 
@@ -260,7 +274,7 @@ impl<'a> TermConverter<'a> {
         arguments: &[Term],
     ) -> Result<Pattern, TermConversionError> {
         self.require_arity(label, arguments, 2)?;
-        let Term::Variable { name, sort } = &arguments[0] else {
+        let Term::Variable { name, sort } = arguments[0].unannotated() else {
             return Err(TermConversionError::InvalidBuiltin {
                 label: label.name.clone(),
                 message: "the first argument must be a variable".into(),
@@ -386,7 +400,7 @@ impl<'a> TermConverter<'a> {
     }
 
     fn term_sort(&self, term: &Term) -> Result<Sort, TermConversionError> {
-        match term {
+        match term.unannotated() {
             Term::InjectedLabel(_) => Err(TermConversionError::UnsupportedInjectedLabel),
             Term::Rewrite { left, right }
             | Term::As {
@@ -398,11 +412,12 @@ impl<'a> TermConverter<'a> {
                 .ok_or(TermConversionError::MissingSort("variable")),
             Term::Sequence(_) => Ok(Sort::new("K")),
             Term::Token { sort, .. } => Ok(sort.clone()),
-            Term::Apply { label, .. } => self.application_sort(label),
+            Term::Apply { label, .. } => self.application_sort(term, label),
+            Term::Annotated { .. } => unreachable!(),
         }
     }
 
-    fn application_sort(&self, label: &Label) -> Result<Sort, TermConversionError> {
+    fn application_sort(&self, term: &Term, label: &Label) -> Result<Sort, TermConversionError> {
         if let Some(sort) = semantic_cast_sort(label) {
             return Ok(sort);
         }
@@ -438,6 +453,40 @@ impl<'a> TermConverter<'a> {
             }
             _ => {}
         }
+        if let Some(resolved) = term.metadata().and_then(|metadata| metadata.production) {
+            if resolved.0 >= self.productions.len() {
+                return Err(TermConversionError::InvalidResolvedProduction {
+                    label: label.name.clone(),
+                    production: resolved.0,
+                    message: format!(
+                        "the active production catalog contains only {} productions",
+                        self.productions.len()
+                    ),
+                });
+            }
+            let production = self.productions.production(ProductionId(resolved.0));
+            let Sentence::Production {
+                label: production_label,
+                parameters,
+                sort,
+                ..
+            } = production
+            else {
+                unreachable!()
+            };
+            if production_label
+                .as_ref()
+                .is_none_or(|production_label| production_label.name != label.name)
+            {
+                return Err(TermConversionError::InvalidResolvedProduction {
+                    label: label.name.clone(),
+                    production: resolved.0,
+                    message: "the production belongs to a different KLabel".into(),
+                });
+            }
+            return Ok(production_result_sort(parameters, sort, label));
+        }
+
         let ids = self.productions.productions_for(&LabelHead::from(label));
         if ids.is_empty() {
             return Err(TermConversionError::UnknownLabel(label.name.clone()));
@@ -454,12 +503,7 @@ impl<'a> TermConverter<'a> {
         else {
             unreachable!()
         };
-        let substitution = parameters
-            .iter()
-            .cloned()
-            .zip(label.parameters.iter().cloned())
-            .collect::<BTreeMap<_, _>>();
-        Ok(substitute_sort(sort, &substitution))
+        Ok(production_result_sort(parameters, sort, label))
     }
 
     fn common_sort(&self, left: &Sort, right: &Sort) -> Result<Sort, TermConversionError> {
@@ -544,4 +588,13 @@ fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Sort, Sort>) -> Sort {
                 .collect(),
         )
     })
+}
+
+fn production_result_sort(parameters: &[Sort], sort: &Sort, label: &Label) -> Sort {
+    let substitution = parameters
+        .iter()
+        .cloned()
+        .zip(label.parameters.iter().cloned())
+        .collect::<BTreeMap<_, _>>();
+    substitute_sort(sort, &substitution)
 }

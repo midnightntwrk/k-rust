@@ -201,8 +201,8 @@ pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
                 && !named_anonymous
                 && !anonymous_variable_exempt(sentence, &name)
                 // Java suppresses this warning for generated variables, identified by
-                // missing term locations. Until terms retain spans, the sentence location
-                // is the closest conservative proxy available.
+                // missing term locations. Until retained relative spans are mapped back to
+                // absolute source locations, the sentence location is the closest proxy.
                 && sentence.attributes().location().is_some()
             {
                 diagnostics.push(Diagnostic::warning(
@@ -435,11 +435,11 @@ fn checked_terms(sentence: &Sentence) -> Vec<&Term> {
 }
 
 fn valid_as_alias(alias: &Term) -> bool {
-    match alias {
+    match alias.unannotated() {
         Term::Variable { .. } => true,
         Term::Apply { label, arguments }
             if label.name.starts_with("#SemanticCastTo")
-                && matches!(arguments.as_slice(), [Term::Variable { .. }]) =>
+                && matches!(arguments.as_slice(), [argument] if matches!(argument.unannotated(), Term::Variable { .. })) =>
         {
             true
         }
@@ -482,7 +482,7 @@ fn visit_rewrite_term(
     diagnostics: &mut Vec<Diagnostic>,
     sentence: &Sentence,
 ) {
-    match term {
+    match term.unannotated() {
         Term::Rewrite { left, right } => {
             let was_in_rewrite = state.in_rewrite;
             let was_in_rewrite_rhs = state.in_rewrite_rhs;
@@ -610,6 +610,7 @@ fn visit_rewrite_term(
             }
         }
         Term::InjectedLabel(_) | Term::Token { .. } => {}
+        Term::Annotated { .. } => unreachable!(),
     }
 }
 

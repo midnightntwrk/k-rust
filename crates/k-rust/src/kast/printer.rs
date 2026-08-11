@@ -27,7 +27,7 @@ impl Printer {
 }
 
 fn print_term(output: &mut String, term: &Term, precedence: u8, first_in_group: bool) {
-    match term {
+    match term.unannotated() {
         Term::Token { token, sort } => {
             output.push_str("#token(");
             output.push_str(&string::quote(token));
@@ -89,6 +89,7 @@ fn print_term(output: &mut String, term: &Term, precedence: u8, first_in_group: 
                 output.push_str("``");
             }
         }
+        Term::Annotated { .. } => unreachable!(),
     }
 }
 

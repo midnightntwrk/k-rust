@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/term_to_kore.rs
+description: "K definition:\n\nmodule MAIN\n  syntax A ::= \"a\" [symbol(a)]\n  syntax B ::= \"b\" [symbol(b)]\n  syntax Result ::= \"left\" A [symbol(pick)]\n                  | \"right\" B [symbol(pick)]\n\n  rule left a => left a\nendmodule\n"
+---
+\rewrites{SortResult{}}(Lblpick{}(Lbla{}()), Lblpick{}(Lbla{}()))

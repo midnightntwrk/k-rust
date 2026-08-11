@@ -113,7 +113,7 @@ fn up_configuration(
     parsed: Term,
     attributes: Attributes,
 ) -> Result<Sentence, ConfigError> {
-    let Term::Apply { label, arguments } = parsed else {
+    let Term::Apply { label, arguments } = parsed.into_unannotated() else {
         return Err(bubble_error(
             module,
             &attributes,

@@ -1,0 +1,79 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Int\n  syntax Exp ::= Exp \"+\" Exp [symbol(_+_)]\n\n  rule 1 + 2 => 3\nendmodule\n"
+---
+[
+    MetadataSummary {
+        term: "`_+_`(#token(\"1\",\"Int\"),#token(\"2\",\"Int\"))=>#token(\"3\",\"Int\")",
+        source: Some(
+            "1 + 2 => 3",
+        ),
+        span: Some(
+            TermSpan {
+                start: 0,
+                end: 10,
+            },
+        ),
+        production: None,
+    },
+    MetadataSummary {
+        term: "`_+_`(#token(\"1\",\"Int\"),#token(\"2\",\"Int\"))",
+        source: Some(
+            "1 + 2",
+        ),
+        span: Some(
+            TermSpan {
+                start: 0,
+                end: 5,
+            },
+        ),
+        production: Some(
+            2,
+        ),
+    },
+    MetadataSummary {
+        term: "#token(\"1\",\"Int\")",
+        source: Some(
+            "1",
+        ),
+        span: Some(
+            TermSpan {
+                start: 0,
+                end: 1,
+            },
+        ),
+        production: Some(
+            0,
+        ),
+    },
+    MetadataSummary {
+        term: "#token(\"2\",\"Int\")",
+        source: Some(
+            "2",
+        ),
+        span: Some(
+            TermSpan {
+                start: 4,
+                end: 5,
+            },
+        ),
+        production: Some(
+            0,
+        ),
+    },
+    MetadataSummary {
+        term: "#token(\"3\",\"Int\")",
+        source: Some(
+            "3",
+        ),
+        span: Some(
+            TermSpan {
+                start: 9,
+                end: 10,
+            },
+        ),
+        production: Some(
+            0,
+        ),
+    },
+]

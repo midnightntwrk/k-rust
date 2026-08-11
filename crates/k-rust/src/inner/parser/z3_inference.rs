@@ -192,30 +192,33 @@ impl<'a> Encoding<'a> {
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(or_all(&constraints))
             }
-            ParsedTerm::Term(Term::Variable { name, .. }) => {
-                let variable = self.term_variable(name, path);
-                Ok(match cast_context {
-                    CastContext::Strict => variable.eq(expected),
-                    CastContext::None | CastContext::Semantic => {
-                        self.less_than_eq(&variable, expected, false)?
-                    }
-                })
-            }
-            ParsedTerm::Term(Term::Token { sort, .. }) => {
-                let actual = self.sort_value(sort, &BTreeMap::new())?;
-                Ok(match cast_context {
-                    CastContext::Strict => actual.eq(expected),
-                    CastContext::None | CastContext::Semantic => {
-                        self.less_than_eq(&actual, expected, false)?
-                    }
-                })
-            }
-            ParsedTerm::Term(_) => Err(z3_error(
-                "unexpected lowered KAST node in the concrete parse forest",
-            )),
+            ParsedTerm::Term(term) => match term.unannotated() {
+                Term::Variable { name, .. } => {
+                    let variable = self.term_variable(name, path);
+                    Ok(match cast_context {
+                        CastContext::Strict => variable.eq(expected),
+                        CastContext::None | CastContext::Semantic => {
+                            self.less_than_eq(&variable, expected, false)?
+                        }
+                    })
+                }
+                Term::Token { sort, .. } => {
+                    let actual = self.sort_value(sort, &BTreeMap::new())?;
+                    Ok(match cast_context {
+                        CastContext::Strict => actual.eq(expected),
+                        CastContext::None | CastContext::Semantic => {
+                            self.less_than_eq(&actual, expected, false)?
+                        }
+                    })
+                }
+                _ => Err(z3_error(
+                    "unexpected lowered KAST node in the concrete parse forest",
+                )),
+            },
             ParsedTerm::Production {
                 production,
                 children,
+                ..
             } => {
                 let descriptor = &self.grammar.productions[*production];
                 let parameters = self.production_parameters(descriptor, path);
@@ -287,12 +290,14 @@ impl<'a> Encoding<'a> {
                 let parameters = self.production_parameters(descriptor, path);
                 self.sort_value(production_result(descriptor), &parameters)
             }
-            ParsedTerm::Term(Term::Token { sort, .. }) => self.sort_value(sort, &BTreeMap::new()),
-            ParsedTerm::Term(Term::Variable { name, .. }) => Ok(self.term_variable(name, path)),
+            ParsedTerm::Term(term) => match term.unannotated() {
+                Term::Token { sort, .. } => self.sort_value(sort, &BTreeMap::new()),
+                Term::Variable { name, .. } => Ok(self.term_variable(name, path)),
+                _ => Err(z3_error("cannot determine the sort of this KAST node")),
+            },
             ParsedTerm::Ambiguity(_) => Err(z3_error(
                 "cannot determine one declared sort for an ambiguous rewrite left-hand side",
             )),
-            ParsedTerm::Term(_) => Err(z3_error("cannot determine the sort of this KAST node")),
             ParsedTerm::InstantiatedProduction { .. } => {
                 unreachable!("actual sorts are requested before model substitution")
             }
@@ -636,7 +641,10 @@ impl<'a> Encoding<'a> {
                     _ => Ok(ParsedTerm::Ambiguity(retained)),
                 }
             }
-            ParsedTerm::Term(Term::Variable { ref name, .. }) => {
+            ParsedTerm::Term(ref leaf) if matches!(leaf.unannotated(), Term::Variable { .. }) => {
+                let Term::Variable { name, .. } = leaf.unannotated() else {
+                    unreachable!()
+                };
                 let key = if is_anonymous(name) {
                     format!("anonymous_{path}")
                 } else {
@@ -651,7 +659,10 @@ impl<'a> Encoding<'a> {
                 }
                 self.wrap_with_cast(term, inferred)
             }
-            ParsedTerm::Term(Term::Token { ref sort, .. }) => {
+            ParsedTerm::Term(ref leaf) if matches!(leaf.unannotated(), Term::Token { .. }) => {
+                let Term::Token { sort, .. } = leaf.unannotated() else {
+                    unreachable!()
+                };
                 self.check_sort(sort, expected, cast_context)?;
                 Ok(term)
             }
@@ -661,6 +672,7 @@ impl<'a> Encoding<'a> {
             ParsedTerm::Production {
                 production,
                 children,
+                metadata,
             } => {
                 let descriptor = &self.grammar.productions[production];
                 let parameter_values = descriptor
@@ -751,11 +763,13 @@ impl<'a> Encoding<'a> {
                         production,
                         parameters: inferred_parameters,
                         children,
+                        metadata,
                     }
                 } else {
                     ParsedTerm::Production {
                         production,
                         children,
+                        metadata,
                     }
                 };
                 if descriptor.parametric_origin.is_some()
@@ -824,6 +838,7 @@ impl<'a> Encoding<'a> {
         Ok(ParsedTerm::Production {
             production,
             children: vec![term],
+            metadata: super::TermMetadata::default(),
         })
     }
 }
@@ -912,19 +927,22 @@ fn declared_model_sort(
                 .unwrap_or_default();
             substitute_sort(production_result(descriptor), &parameters)
         }
-        ParsedTerm::Term(Term::Token { sort, .. }) => sort.clone(),
-        ParsedTerm::Term(Term::Variable { name, .. }) => {
-            let key = if is_anonymous(name) {
-                format!("anonymous_{path}")
-            } else {
-                format!("variable_{name}")
-            };
-            model.get(&key).cloned().unwrap_or_else(|| Sort::new("K"))
-        }
+        ParsedTerm::Term(term) => match term.unannotated() {
+            Term::Token { sort, .. } => sort.clone(),
+            Term::Variable { name, .. } => {
+                let key = if is_anonymous(name) {
+                    format!("anonymous_{path}")
+                } else {
+                    format!("variable_{name}")
+                };
+                model.get(&key).cloned().unwrap_or_else(|| Sort::new("K"))
+            }
+            _ => Sort::new("K"),
+        },
         ParsedTerm::InstantiatedProduction { production, .. } => {
             grammar.productions[*production].result.clone()
         }
-        ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => Sort::new("K"),
+        ParsedTerm::Ambiguity(_) => Sort::new("K"),
     }
 }
 
@@ -952,7 +970,11 @@ fn collect_term_sorts(
     ground: &mut BTreeSet<Sort>,
 ) {
     match term {
-        ParsedTerm::Term(Term::Token { sort, .. }) => collect_sort(sort, heads, ground),
+        ParsedTerm::Term(term) => {
+            if let Term::Token { sort, .. } = term.unannotated() {
+                collect_sort(sort, heads, ground);
+            }
+        }
         ParsedTerm::Production { children, .. }
         | ParsedTerm::InstantiatedProduction { children, .. } => {
             for child in children {
@@ -964,7 +986,6 @@ fn collect_term_sorts(
                 collect_term_sorts(alternative, heads, ground);
             }
         }
-        ParsedTerm::Term(_) => {}
     }
 }
 

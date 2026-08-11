@@ -117,8 +117,11 @@ hooked declarations, collection metadata, source locations, formatting, prioriti
 associativity; both views round-trip through the KORE parser in source-driven snapshot tests. A
 resolved forward converter now translates public KAST terms into typed KORE patterns, covering
 variables, applications, domain values, rewrites, aliases, K sequences, ML connectives, semantic
-casts, and Java's identifier conventions. It reports the cases where overloaded-production
-metadata has been lost rather than selecting a declaration silently.
+casts, and Java's identifier conventions. Inner-parser output retains transparent compiler metadata
+on every nested term: byte spans relative to the parsed source fragment and catalog-scoped resolved
+production identities. KAST equality, ordering, debug output, text, and JSON intentionally ignore
+that metadata, while KORE sort recovery uses it to distinguish overloaded productions. Terms built
+outside the parser still report ambiguity instead of selecting a declaration silently.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -143,15 +146,13 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
 
 ## TODOs
 
-- Preserve attributes on nested KAST terms, especially source locations and resolved production
-  metadata. Diagnostics emitted for nested terms currently use the containing sentence's span,
-  and semantic-cast sort context is recovered from its label; exact spans and parametric cast sorts
-  are deferred until the lossless representation and parser carry term attributes end to end.
+- Map retained inner-parser byte spans back to absolute source locations and preserve remaining
+  nested term attributes. Diagnostics for nested terms still use the containing sentence's span;
+  semantic-cast sort context is recovered from its label, and parametric cast sorts remain deferred.
 - Add Java-compatible unused-symbol warnings once nested term sources and include-directory
   provenance are available. Those warnings deliberately depend on both, so the current portable
   checker does not guess from sentence-level metadata.
-- Port `CheckDeprecated` after terms retain their resolved-production attributes; sentence-level
-  production catalogs cannot identify which overloaded production a parsed application used.
+- Port `CheckDeprecated` using the resolved-production identity now retained on parsed terms.
 - Add an AST-level differential oracle against the JavaCC outer parser and extend exact lexical
   error coverage before treating the new source parser as a drop-in replacement.
 - Add presentation adapters for diagnostics after the portable diagnostic model stabilizes. A

@@ -1,4 +1,4 @@
-use k_rust::kast::json;
+use k_rust::kast::{ResolvedProductionId, Term, TermMetadata, TermSpan, json};
 use serde_json::Value;
 
 #[test]
@@ -12,6 +12,20 @@ fn reference_kast_json_v4_terms_round_trip_structurally() {
         let encoded = json::to_string(&term).unwrap();
         assert_eq!(serde_json::from_str::<Value>(&encoded).unwrap(), envelope);
     }
+}
+
+#[test]
+fn encoding_ignores_compiler_metadata() {
+    let plain = Term::apply("f", vec![Term::variable("X")]);
+    let annotated = plain.clone().with_metadata(TermMetadata {
+        span: Some(TermSpan { start: 0, end: 4 }),
+        production: Some(ResolvedProductionId(3)),
+    });
+
+    assert_eq!(
+        json::to_string(&annotated).unwrap(),
+        json::to_string(&plain).unwrap()
+    );
 }
 
 #[test]

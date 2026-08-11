@@ -175,10 +175,10 @@ impl<'a> RuleCatalog<'a> {
         let Sentence::Rule { body, .. } = self.rule(rule) else {
             unreachable!()
         };
-        let Term::Rewrite { left, .. } = body else {
+        let Term::Rewrite { left, .. } = body.unannotated() else {
             return false;
         };
-        let Term::Apply { label, .. } = left.as_ref() else {
+        let Term::Apply { label, .. } = left.unannotated() else {
             return false;
         };
         productions.macro_labels().contains(label)
@@ -205,12 +205,20 @@ pub fn match_rule_label(rule: &Sentence) -> Label {
 }
 
 fn matched_term_label(term: &Term) -> Option<&Label> {
-    if let Term::Apply { label, arguments } = term {
+    if let Term::Apply { label, arguments } = term.unannotated() {
         if label.name == "#withConfig" {
             match arguments.first() {
-                Some(Term::Apply { label, .. }) => return Some(label),
-                Some(Term::Rewrite { left, .. }) => {
-                    if let Term::Apply { label, .. } = left.as_ref() {
+                Some(term) if matches!(term.unannotated(), Term::Apply { .. }) => {
+                    let Term::Apply { label, .. } = term.unannotated() else {
+                        unreachable!()
+                    };
+                    return Some(label);
+                }
+                Some(term) if matches!(term.unannotated(), Term::Rewrite { .. }) => {
+                    let Term::Rewrite { left, .. } = term.unannotated() else {
+                        unreachable!()
+                    };
+                    if let Term::Apply { label, .. } = left.unannotated() {
                         return Some(label);
                     }
                 }
@@ -219,8 +227,8 @@ fn matched_term_label(term: &Term) -> Option<&Label> {
         }
         return Some(label);
     }
-    if let Term::Rewrite { left, .. } = term
-        && let Term::Apply { label, .. } = left.as_ref()
+    if let Term::Rewrite { left, .. } = term.unannotated()
+        && let Term::Apply { label, .. } = left.unannotated()
     {
         return Some(label);
     }

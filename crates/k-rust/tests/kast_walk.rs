@@ -1,4 +1,4 @@
-use k_rust::kast::Term;
+use k_rust::kast::{ResolvedProductionId, Term, TermMetadata, TermSpan};
 
 #[test]
 fn preorder_walk_visits_every_term_in_source_order() {
@@ -20,8 +20,29 @@ fn preorder_walk_visits_every_term_in_source_order() {
             Term::Variable { name, .. } => name.clone(),
             Term::Apply { label, .. } => label.name.clone(),
             Term::InjectedLabel(_) | Term::Sequence(_) | Term::Token { .. } => "other".into(),
+            Term::Annotated { .. } => unreachable!("preorder traversal hides metadata wrappers"),
         });
     });
 
     assert_eq!(kinds, ["rewrite", "f", "X", "Y", "as", "Z", "A"]);
+}
+
+#[test]
+fn metadata_is_semantically_transparent_but_remains_inspectable() {
+    let plain = Term::apply("f", vec![Term::variable("X")]);
+    let annotated = plain.clone().with_metadata(TermMetadata {
+        span: Some(TermSpan { start: 2, end: 6 }),
+        production: Some(ResolvedProductionId(7)),
+    });
+
+    assert_eq!(annotated, plain);
+    assert_eq!(format!("{annotated:?}"), format!("{plain:?}"));
+    assert_eq!(annotated.to_string(), plain.to_string());
+    assert_eq!(
+        annotated.metadata(),
+        Some(&TermMetadata {
+            span: Some(TermSpan { start: 2, end: 6 }),
+            production: Some(ResolvedProductionId(7)),
+        })
+    );
 }

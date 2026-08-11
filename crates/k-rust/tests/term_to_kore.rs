@@ -1,7 +1,7 @@
 use indoc::indoc;
-use k_rust::definition::{Definition, Sentence};
+use k_rust::definition::{Definition, LabelHead, ResolvedDefinition, Sentence};
 use k_rust::inner::resolve_rule_bubbles;
-use k_rust::kast::{Label, Sort, Term};
+use k_rust::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata};
 use k_rust::kompile::{TermConverter, term_to_kore};
 use k_rust::kore::parser::parse_pattern;
 use k_rust::kore::printer::Printer;
@@ -75,6 +75,20 @@ term_snapshot!(
           syntax Exp ::= Int
 
           rule X:Exp ~> Y:Exp => Y:Exp ~> X:Exp
+        endmodule
+    "#
+);
+
+term_snapshot!(
+    converts_a_resolved_overloaded_application,
+    r#"
+        module MAIN
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+          syntax Result ::= "left" A [symbol(pick)]
+                          | "right" B [symbol(pick)]
+
+          rule left a => left a
         endmodule
     "#
 );
@@ -192,4 +206,35 @@ fn decodes_string_and_bytes_token_syntax() {
             expected
         );
     }
+}
+
+#[test]
+fn resolved_production_identity_disambiguates_application_sorts() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax A ::= "a" [symbol(choice)]
+          syntax B ::= "b" [symbol(choice)]
+        endmodule
+    "#});
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let module = resolved.module_id("MAIN").unwrap();
+    let catalog = resolved.production_catalog(module);
+    let production = catalog.productions_for(&LabelHead::new("choice"))[0];
+    let annotated = Term::apply("choice", vec![]).with_metadata(TermMetadata {
+        span: None,
+        production: Some(ResolvedProductionId(production.0)),
+    });
+    let term = Term::Rewrite {
+        left: Box::new(annotated.clone()),
+        right: Box::new(annotated),
+    };
+
+    let pattern = TermConverter::new(&resolved, "MAIN")
+        .unwrap()
+        .convert(&term)
+        .expect("selected production should recover the application sort");
+    assert!(matches!(
+        pattern,
+        k_rust::kore::ast::Pattern::Rewrites { .. }
+    ));
 }

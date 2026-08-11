@@ -67,7 +67,7 @@ fn preserves_external_cells() {
         panic!("expected configuration")
     };
     assert!(matches!(
-        body,
+        body.unannotated(),
         k_rust::kast::Term::Apply { label, arguments }
             if label == &Label::new("#externalCell") && arguments.len() == 1
     ));

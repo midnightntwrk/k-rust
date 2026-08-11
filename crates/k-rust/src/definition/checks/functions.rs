@@ -64,7 +64,7 @@ fn visit_term(
     sentence: &Sentence,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Term::Apply { label, arguments } = term else {
+    let Term::Apply { label, arguments } = term.unannotated() else {
         for (child, child_position) in positioned_children(term, position) {
             visit_term(
                 child,

@@ -31,7 +31,7 @@ pub(super) fn positioned_children(
     term: &Term,
     position: TermPosition,
 ) -> Vec<(&Term, TermPosition)> {
-    match term {
+    match term.unannotated() {
         Term::Rewrite { left, right } => vec![
             (
                 left,
@@ -68,5 +68,6 @@ pub(super) fn positioned_children(
             .map(|argument| (argument, position))
             .collect(),
         Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => Vec::new(),
+        Term::Annotated { .. } => unreachable!(),
     }
 }

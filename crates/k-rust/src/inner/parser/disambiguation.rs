@@ -10,6 +10,7 @@ impl Grammar {
         let ParsedTerm::Production {
             production,
             children,
+            ..
         } = term
         else {
             return match term {
@@ -138,20 +139,28 @@ impl Grammar {
             ParsedTerm::Production {
                 production,
                 children,
+                mut metadata,
             } => {
                 let production = &self.productions[production];
+                metadata.production = production
+                    .source_production
+                    .map(|production| crate::kast::ResolvedProductionId(production.0));
                 let children = children
                     .into_iter()
                     .map(|child| self.lower(child))
                     .collect::<Vec<_>>();
-                lower_term(production, &children)
+                lower_term(production, &children).with_metadata(metadata)
             }
             ParsedTerm::InstantiatedProduction {
                 production,
                 parameters,
                 children,
+                mut metadata,
             } => {
                 let production = &self.productions[production];
+                metadata.production = production
+                    .source_production
+                    .map(|production| crate::kast::ResolvedProductionId(production.0));
                 let children = children
                     .into_iter()
                     .map(|child| self.lower(child))
@@ -160,7 +169,7 @@ impl Grammar {
                 if let Some(label) = &mut instantiated.label {
                     label.parameters = parameters;
                 }
-                lower_term(&instantiated, &children)
+                lower_term(&instantiated, &children).with_metadata(metadata)
             }
             ParsedTerm::Ambiguity(_) => {
                 unreachable!("ambiguities are rejected before lowering to KAST")
@@ -182,6 +191,7 @@ impl Grammar {
             ParsedTerm::Production {
                 production,
                 mut children,
+                metadata,
             } => {
                 let descriptor = &self.productions[production];
                 let syntactic_cast = descriptor.label.as_ref().is_some_and(|label| {
@@ -195,6 +205,7 @@ impl Grammar {
                 }
                 ParsedTerm::Production {
                     production,
+                    metadata,
                     children: children
                         .into_iter()
                         .map(|child| self.remove_brackets_and_syntactic_casts(child))
@@ -205,6 +216,7 @@ impl Grammar {
                 production,
                 parameters,
                 mut children,
+                metadata,
             } => {
                 let descriptor = &self.productions[production];
                 let syntactic_cast = descriptor.label.as_ref().is_some_and(|label| {
@@ -219,6 +231,7 @@ impl Grammar {
                 ParsedTerm::InstantiatedProduction {
                     production,
                     parameters,
+                    metadata,
                     children: children
                         .into_iter()
                         .map(|child| self.remove_brackets_and_syntactic_casts(child))
@@ -240,6 +253,7 @@ impl Grammar {
             ParsedTerm::Production {
                 production,
                 children,
+                metadata,
             } => {
                 let children = children
                     .into_iter()
@@ -254,6 +268,7 @@ impl Grammar {
                     return Ok(ParsedTerm::Production {
                         production,
                         children,
+                        metadata,
                     });
                 }
                 let [label, arguments] = children.as_slice() else {
@@ -282,6 +297,7 @@ impl Grammar {
                             candidates.insert(ParsedTerm::Production {
                                 production: candidate,
                                 children: arguments.clone(),
+                                metadata: metadata.clone(),
                             });
                             if candidates.len() > super::MAX_DERIVATIONS_PER_STATE {
                                 return Err(ParseError::TooManyParses {
@@ -323,6 +339,7 @@ impl Grammar {
             ParsedTerm::Production {
                 production,
                 children,
+                ..
             } => match self.productions[*production]
                 .label
                 .as_ref()
@@ -366,8 +383,10 @@ impl Grammar {
             ParsedTerm::Production {
                 production,
                 children,
+                metadata,
             } => ParsedTerm::Production {
                 production,
+                metadata,
                 children: children
                     .into_iter()
                     .map(|child| self.factor_ambiguities(child))
@@ -377,9 +396,11 @@ impl Grammar {
                 production,
                 parameters,
                 children,
+                metadata,
             } => ParsedTerm::InstantiatedProduction {
                 production,
                 parameters,
+                metadata,
                 children: children
                     .into_iter()
                     .map(|child| self.factor_ambiguities(child))
@@ -397,11 +418,13 @@ impl Grammar {
                     production,
                     parameters,
                     children,
+                    metadata,
                 }) = alternatives.first()
                 {
                     let production = *production;
                     let parameters = parameters.clone();
                     let children = children.clone();
+                    let metadata = metadata.clone();
                     if !alternatives.iter().all(|alternative| {
                         matches!(
                             alternative,
@@ -409,6 +432,7 @@ impl Grammar {
                                 production: candidate,
                                 parameters: candidate_parameters,
                                 children: candidate_children,
+                                ..
                             } if *candidate == production
                                 && candidate_parameters == &parameters
                                 && candidate_children.len() == children.len()
@@ -451,23 +475,27 @@ impl Grammar {
                         production,
                         parameters,
                         children: factored_children,
+                        metadata,
                     };
                 }
                 let Some(ParsedTerm::Production {
                     production,
                     children,
+                    metadata,
                 }) = alternatives.first()
                 else {
                     return ParsedTerm::Ambiguity(alternatives);
                 };
                 let production = *production;
                 let children = children.clone();
+                let metadata = metadata.clone();
                 if !alternatives.iter().all(|alternative| {
                     matches!(
                         alternative,
                         ParsedTerm::Production {
                             production: candidate,
                             children: candidate_children,
+                            ..
                         } if *candidate == production && candidate_children.len() == children.len()
                     )
                 }) {
@@ -505,6 +533,7 @@ impl Grammar {
                 ParsedTerm::Production {
                     production,
                     children: factored_children,
+                    metadata,
                 }
             }
         }
@@ -527,6 +556,7 @@ impl Grammar {
             ParsedTerm::Production {
                 production,
                 children,
+                metadata,
             } => {
                 let children = children
                     .into_iter()
@@ -537,12 +567,14 @@ impl Grammar {
                     return Ok(ParsedTerm::Production {
                         production,
                         children,
+                        metadata,
                     });
                 };
                 if !children.is_empty() || !self.overloads.contains(&source) {
                     return Ok(ParsedTerm::Production {
                         production,
                         children,
+                        metadata,
                     });
                 }
 
@@ -588,15 +620,18 @@ impl Grammar {
                 Ok(ParsedTerm::Production {
                     production: selected,
                     children,
+                    metadata,
                 })
             }
             ParsedTerm::InstantiatedProduction {
                 production,
                 parameters,
                 children,
+                metadata,
             } => Ok(ParsedTerm::InstantiatedProduction {
                 production,
                 parameters,
+                metadata,
                 children: children
                     .into_iter()
                     .map(|child| self.resolve_overloaded_terminators(child))
@@ -613,8 +648,10 @@ impl Grammar {
             ParsedTerm::Production {
                 production,
                 children,
+                metadata,
             } => ParsedTerm::Production {
                 production,
+                metadata,
                 children: children
                     .into_iter()
                     .map(|child| self.filter_overloads_prefer_avoid(child))
@@ -624,9 +661,11 @@ impl Grammar {
                 production,
                 parameters,
                 children,
+                metadata,
             } => ParsedTerm::InstantiatedProduction {
                 production,
                 parameters,
+                metadata,
                 children: children
                     .into_iter()
                     .map(|child| self.filter_overloads_prefer_avoid(child))
@@ -739,6 +778,7 @@ impl Grammar {
         let ParsedTerm::Production {
             production,
             mut children,
+            metadata,
         } = term
         else {
             return term;
@@ -747,6 +787,7 @@ impl Grammar {
             return ParsedTerm::Production {
                 production,
                 children,
+                metadata,
             };
         }
         let bodies = self.expand_rule_body_lhs(children.remove(0));
@@ -755,6 +796,7 @@ impl Grammar {
             return ParsedTerm::Production {
                 production,
                 children,
+                metadata,
             };
         }
         ParsedTerm::Ambiguity(
@@ -766,6 +808,7 @@ impl Grammar {
                     ParsedTerm::Production {
                         production,
                         children: alternative_children,
+                        metadata: metadata.clone(),
                     }
                 })
                 .collect(),
@@ -776,6 +819,7 @@ impl Grammar {
         let ParsedTerm::Production {
             production,
             mut children,
+            metadata,
         } = body
         else {
             return BTreeSet::from([body]);
@@ -794,6 +838,7 @@ impl Grammar {
                     ParsedTerm::Production {
                         production,
                         children: alternative_children,
+                        metadata: metadata.clone(),
                     }
                 })
                 .collect();
@@ -802,6 +847,7 @@ impl Grammar {
             return BTreeSet::from([ParsedTerm::Production {
                 production,
                 children,
+                metadata,
             }]);
         }
         let left = children.remove(0);
@@ -812,11 +858,13 @@ impl Grammar {
                 .map(|left| ParsedTerm::Production {
                     production,
                     children: vec![left, right.clone()],
+                    metadata: metadata.clone(),
                 })
                 .collect(),
             left => BTreeSet::from([ParsedTerm::Production {
                 production,
                 children: vec![left, right],
+                metadata,
             }]),
         }
     }
@@ -852,7 +900,7 @@ fn production_arity(production: &Production) -> usize {
 }
 
 fn klabel_name(term: &ParsedTerm) -> Option<String> {
-    let ParsedTerm::Term(Term::Token { token, sort }) = term else {
+    let Term::Token { token, sort } = term.leaf()? else {
         return None;
     };
     if sort.name != "KLabel" {
@@ -949,6 +997,7 @@ mod tests {
             ParsedTerm::Production {
                 production,
                 children,
+                ..
             } => {
                 let label = grammar.productions[*production]
                     .label
@@ -967,6 +1016,7 @@ mod tests {
                 production,
                 parameters,
                 children,
+                ..
             } => {
                 let label = grammar.productions[*production]
                     .label
@@ -1005,10 +1055,12 @@ mod tests {
             ParsedTerm::Production {
                 production: pair,
                 children: vec![variable("A"), variable("C")],
+                metadata: Default::default(),
             },
             ParsedTerm::Production {
                 production: pair,
                 children: vec![variable("B"), variable("C")],
+                metadata: Default::default(),
             },
         ]);
 
@@ -1038,7 +1090,9 @@ mod tests {
                     ParsedTerm::Ambiguity(BTreeSet::from([variable("A"), variable("B")])),
                     variable("C"),
                 ],
+                metadata: Default::default(),
             }],
+            metadata: Default::default(),
         };
 
         let lifted = grammar.push_top_lhs_ambiguity_up(root);
@@ -1059,6 +1113,7 @@ mod tests {
         let alternative = |production| ParsedTerm::Production {
             production,
             children: Vec::new(),
+            metadata: Default::default(),
         };
         let selected =
             grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
@@ -1088,10 +1143,12 @@ mod tests {
                 ParsedTerm::Production {
                     production: wrapper,
                     children: vec![alternative(preferred)],
+                    metadata: Default::default(),
                 },
                 ParsedTerm::Production {
                     production: wrapper,
                     children: vec![alternative(ordinary)],
+                    metadata: Default::default(),
                 },
             ])));
         assert_eq!(
@@ -1099,6 +1156,7 @@ mod tests {
             ParsedTerm::Production {
                 production: wrapper,
                 children: vec![alternative(preferred)],
+                metadata: Default::default(),
             }
         );
 
@@ -1124,6 +1182,7 @@ mod tests {
         let alternative = |production| ParsedTerm::Production {
             production,
             children: Vec::new(),
+            metadata: Default::default(),
         };
         let filtered =
             grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
@@ -1162,6 +1221,7 @@ mod tests {
             .resolve_overloaded_terminators(ParsedTerm::Production {
                 production: source("Large"),
                 children: Vec::new(),
+                metadata: Default::default(),
             })
             .unwrap();
         assert_eq!(render(&grammar, &resolved), "unit()");
@@ -1186,6 +1246,7 @@ mod tests {
             .resolve_overloaded_terminators(ParsedTerm::Production {
                 production: general,
                 children: Vec::new(),
+                metadata: Default::default(),
             })
             .unwrap_err();
 

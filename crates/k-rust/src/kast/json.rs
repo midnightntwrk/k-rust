@@ -181,7 +181,7 @@ pub(crate) enum JsonTerm {
 
 impl From<&Term> for JsonTerm {
     fn from(term: &Term) -> Self {
-        match term {
+        match term.unannotated() {
             Term::Token { token, sort } => Self::KToken {
                 sort: sort.into(),
                 token: token.clone(),
@@ -210,6 +210,7 @@ impl From<&Term> for JsonTerm {
             Term::InjectedLabel(label) => Self::InjectedKLabel {
                 label: label.into(),
             },
+            Term::Annotated { .. } => unreachable!(),
         }
     }
 }

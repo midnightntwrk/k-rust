@@ -198,15 +198,19 @@ impl Grammar {
             ParsedTerm::Production {
                 production,
                 children,
+                metadata,
             } if self.productions[production].record.is_some() => {
-                let collapsed = self.collapse_record(production, children, names, next)?;
+                let collapsed =
+                    self.collapse_record(production, children, metadata, names, next)?;
                 self.collapse_records(collapsed, names, next)
             }
             ParsedTerm::Production {
                 production,
                 children,
+                metadata,
             } => Ok(ParsedTerm::Production {
                 production,
+                metadata,
                 children: children
                     .into_iter()
                     .map(|term| self.collapse_records(term, names, next))
@@ -222,6 +226,7 @@ impl Grammar {
         &self,
         production: usize,
         children: Vec<ParsedTerm>,
+        root_metadata: super::TermMetadata,
         names: &mut BTreeSet<String>,
         next: &mut usize,
     ) -> Result<ParsedTerm, ParseError> {
@@ -234,12 +239,14 @@ impl Grammar {
         let mut iterator = ParsedTerm::Production {
             production,
             children,
+            metadata: root_metadata.clone(),
         };
 
         loop {
             let ParsedTerm::Production {
                 production,
                 mut children,
+                ..
             } = iterator
             else {
                 return Err(record_error("malformed generated record production"));
@@ -299,6 +306,7 @@ impl Grammar {
         Ok(ParsedTerm::Production {
             production: original,
             children,
+            metadata: root_metadata,
         })
     }
 
@@ -310,6 +318,7 @@ impl Grammar {
         let ParsedTerm::Production {
             production,
             mut children,
+            ..
         } = term
         else {
             return Err(record_error("malformed generated record item"));
@@ -347,10 +356,11 @@ fn is_prefix_production(production: &super::Production) -> bool {
 
 fn collect_variable_names(term: &ParsedTerm, names: &mut BTreeSet<String>) {
     match term {
-        ParsedTerm::Term(Term::Variable { name, .. }) => {
-            names.insert(name.clone());
+        ParsedTerm::Term(term) => {
+            if let Term::Variable { name, .. } = term.unannotated() {
+                names.insert(name.clone());
+            }
         }
-        ParsedTerm::Term(_) => {}
         ParsedTerm::Production { children, .. } => {
             for child in children {
                 collect_variable_names(child, names);

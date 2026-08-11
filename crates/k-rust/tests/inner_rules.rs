@@ -1,7 +1,7 @@
 use indoc::indoc;
 use k_rust::definition::Sentence;
 use k_rust::inner::{ParseError, RuleError, resolve_rule_bubbles};
-use k_rust::kast::Sort;
+use k_rust::kast::{Sort, Term, TermSpan};
 use k_rust::outer::{ResolvedSource, load};
 
 #[derive(Debug)]
@@ -12,6 +12,48 @@ struct SentenceSummary<'a> {
     requires: String,
     ensures: Option<String>,
     label: Option<&'a str>,
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+struct MetadataSummary<'a> {
+    term: String,
+    source: Option<&'a str>,
+    span: Option<TermSpan>,
+    production: Option<usize>,
+}
+
+fn metadata_summary<'a>(term: &Term, source: &'a str, output: &mut Vec<MetadataSummary<'a>>) {
+    let metadata = term.metadata();
+    let span = metadata.and_then(|metadata| metadata.span);
+    output.push(MetadataSummary {
+        term: term.to_string(),
+        source: span.and_then(|span| source.get(span.start..span.end)),
+        span,
+        production: metadata
+            .and_then(|metadata| metadata.production)
+            .map(|production| production.0),
+    });
+    match term.unannotated() {
+        Term::Rewrite { left, right } => {
+            metadata_summary(left, source, output);
+            metadata_summary(right, source, output);
+        }
+        Term::As { pattern, alias } => {
+            metadata_summary(pattern, source, output);
+            metadata_summary(alias, source, output);
+        }
+        Term::Sequence(items)
+        | Term::Apply {
+            arguments: items, ..
+        } => {
+            for item in items {
+                metadata_summary(item, source, output);
+            }
+        }
+        Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => {}
+        Term::Annotated { .. } => unreachable!(),
+    }
 }
 
 fn sentence_summary(sentence: &Sentence) -> Option<SentenceSummary<'_>> {
@@ -83,6 +125,41 @@ macro_rules! rule_snapshot {
             assert_rule_resolution_snapshot!(source);
         }
     };
+}
+
+#[test]
+fn preserves_nested_term_spans_and_resolved_productions() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= Int
+          syntax Exp ::= Exp "+" Exp [symbol(_+_)]
+
+          rule 1 + 2 => 3
+        endmodule
+    "#};
+    let rule_source = "1 + 2 => 3";
+    let definition = resolve_rule_bubbles(&lowered(source)).unwrap();
+    let body = definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    let mut metadata = Vec::new();
+    metadata_summary(body, rule_source, &mut metadata);
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(metadata);
+    });
 }
 
 #[test]

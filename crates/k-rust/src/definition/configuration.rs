@@ -154,7 +154,7 @@ impl Generator<'_, '_> {
         term: &Term,
         ensures: Option<&Term>,
     ) -> Result<GeneratedNode, ConfigurationError> {
-        match term {
+        match term.unannotated() {
             Term::Apply { label, arguments } if label.name == "#configCell" => {
                 self.generate_cell(arguments, ensures)
             }
@@ -222,6 +222,7 @@ impl Generator<'_, '_> {
             Term::Rewrite { .. } | Term::As { .. } => {
                 Err(self.error("unexpected rewrite or as-pattern in configuration declaration"))
             }
+            Term::Annotated { .. } => unreachable!(),
         }
     }
 
@@ -781,7 +782,7 @@ impl Generator<'_, '_> {
 }
 
 fn parse_property_list(term: &Term, output: &mut Attributes) -> Result<(), String> {
-    match term {
+    match term.unannotated() {
         Term::Apply { label, arguments }
             if label.name == "#cellPropertyListTerminator" && arguments.is_empty() =>
         {
@@ -799,7 +800,7 @@ fn parse_property_list(term: &Term, output: &mut Attributes) -> Result<(), Strin
 }
 
 fn parse_property(term: &Term) -> Result<(String, String), String> {
-    let Term::Apply { label, arguments } = term else {
+    let Term::Apply { label, arguments } = term.unannotated() else {
         return Err("malformed cell property".into());
     };
     let [key, value] = arguments.as_slice() else {
@@ -812,7 +813,7 @@ fn parse_property(term: &Term) -> Result<(String, String), String> {
     if !is_builtin_attribute(key) {
         return Err(format!("unrecognized cell property {key:?}"));
     }
-    let Term::Token { token, sort } = value else {
+    let Term::Token { token, sort } = value.unannotated() else {
         return Err("malformed cell property value".into());
     };
     if sort.name != "KString" {
@@ -880,7 +881,7 @@ fn attribute_forbids_value(key: &str) -> bool {
 }
 
 fn expect_cell_name(term: &Term) -> Option<&str> {
-    match term {
+    match term.unannotated() {
         Term::Token { token, sort } if sort.name == CELL_NAME_SORT => Some(token),
         _ => None,
     }
@@ -888,11 +889,11 @@ fn expect_cell_name(term: &Term) -> Option<&str> {
 
 fn flatten_cells<'a>(terms: &'a [Term], output: &mut Vec<&'a Term>) {
     for term in terms {
-        match term {
+        match term.unannotated() {
             Term::Apply { label, arguments } if label.name == "#cells" => {
                 flatten_cells(arguments, output);
             }
-            term => output.push(term),
+            _ => output.push(term),
         }
     }
 }
@@ -939,7 +940,11 @@ fn has_configuration_or_regular_variable(term: &Term) -> bool {
 
 fn leaf_initializer(term: &Term) -> Term {
     fn transform(term: &Term, sort: Option<&Sort>) -> Term {
-        match term {
+        let replaces_source_node = matches!(
+            term.unannotated(),
+            Term::Token { sort, .. } if sort.name == CONFIG_VAR_SORT
+        );
+        let transformed = match term.unannotated() {
             Term::Token {
                 token,
                 sort: token_sort,
@@ -983,7 +988,16 @@ fn leaf_initializer(term: &Term) -> Term {
             Term::Sequence(items) => {
                 Term::Sequence(items.iter().map(|item| transform(item, sort)).collect())
             }
-            term => term.clone(),
+            _ => term.unannotated().clone(),
+        };
+        if let Some(metadata) = term.metadata() {
+            let mut metadata = metadata.clone();
+            if replaces_source_node {
+                metadata.production = None;
+            }
+            transformed.with_metadata(metadata)
+        } else {
+            transformed
         }
     }
     transform(term, None)

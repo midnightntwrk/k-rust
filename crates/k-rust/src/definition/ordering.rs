@@ -38,6 +38,8 @@ impl std::error::Error for Error {}
 
 /// Compare K terms using `org.kframework.kore.K.ord`.
 pub fn compare_terms(left: &Term, right: &Term) -> Ordering {
+    let left = left.unannotated();
+    let right = right.unannotated();
     let rank = |term: &Term| match term {
         Term::InjectedLabel(_) => 0,
         Term::Rewrite { .. } => 1,
@@ -46,6 +48,7 @@ pub fn compare_terms(left: &Term, right: &Term) -> Ordering {
         Term::Sequence(_) => 4,
         Term::Apply { .. } => 5,
         Term::Token { .. } => 6,
+        Term::Annotated { .. } => unreachable!(),
     };
 
     match rank(left).cmp(&rank(right)) {

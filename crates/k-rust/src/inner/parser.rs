@@ -17,7 +17,7 @@ use crate::definition::{
     Regex as KRegex, RegexBody, Sentence, compute_associativities, compute_overloads,
     compute_priorities, compute_subsorts, parse_regex, sentence_equivalent,
 };
-use crate::kast::{Label, Sort, Term};
+use crate::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan};
 
 use self::disambiguation::parse_apply_priority;
 use self::lists::UserList;
@@ -286,15 +286,26 @@ enum ParsedTerm {
     Production {
         production: usize,
         children: Vec<ParsedTerm>,
+        metadata: TermMetadata,
     },
     #[cfg_attr(not(feature = "z3-inference"), allow(dead_code))]
     InstantiatedProduction {
         production: usize,
         parameters: Vec<Sort>,
         children: Vec<ParsedTerm>,
+        metadata: TermMetadata,
     },
     Term(Term),
     Ambiguity(BTreeSet<ParsedTerm>),
+}
+
+impl ParsedTerm {
+    fn leaf(&self) -> Option<&Term> {
+        match self {
+            Self::Term(term) => Some(term.unannotated()),
+            _ => None,
+        }
+    }
 }
 
 /// A reusable inner grammar derived from visible productions.
@@ -1001,15 +1012,21 @@ fn build_parsed_term(
 ) -> ParsedTerm {
     if production.token {
         if production.result.name == "#KVariable" {
-            return ParsedTerm::Term(Term::Variable {
-                name: input[start..end].to_owned(),
-                sort: None,
-            });
+            return ParsedTerm::Term(
+                Term::Variable {
+                    name: input[start..end].to_owned(),
+                    sort: None,
+                }
+                .with_metadata(term_metadata(production, start, end)),
+            );
         }
-        return ParsedTerm::Term(Term::Token {
-            token: input[start..end].to_owned(),
-            sort: production.result.clone(),
-        });
+        return ParsedTerm::Term(
+            Term::Token {
+                token: input[start..end].to_owned(),
+                sort: production.result.clone(),
+            }
+            .with_metadata(term_metadata(production, start, end)),
+        );
     }
     if production.record.is_none()
         && !production.bracket
@@ -1021,6 +1038,16 @@ fn build_parsed_term(
     ParsedTerm::Production {
         production: production_index,
         children: children.to_vec(),
+        metadata: term_metadata(production, start, end),
+    }
+}
+
+fn term_metadata(production: &Production, start: usize, end: usize) -> TermMetadata {
+    TermMetadata {
+        span: Some(TermSpan { start, end }),
+        production: production
+            .source_production
+            .map(|production| ResolvedProductionId(production.0)),
     }
 }
 

@@ -75,11 +75,14 @@ impl Grammar {
     fn sort_inference_supported(&self, term: &ParsedTerm) -> bool {
         match term {
             ParsedTerm::Ambiguity(_) => false,
-            ParsedTerm::Term(Term::Token { sort, .. }) => sort.parameters.is_empty(),
-            ParsedTerm::Term(_) => true,
+            ParsedTerm::Term(term) => match term.unannotated() {
+                Term::Token { sort, .. } => sort.parameters.is_empty(),
+                _ => true,
+            },
             ParsedTerm::Production {
                 production,
                 children,
+                ..
             } => {
                 let production = &self.productions[*production];
                 production.parametric_origin.is_none()
@@ -111,6 +114,7 @@ impl Grammar {
             ParsedTerm::Production {
                 production,
                 children,
+                ..
             } => {
                 let descriptor = &self.productions[*production];
                 let local = descriptor.parametric_origin.is_some()
@@ -125,8 +129,10 @@ impl Grammar {
                         (ambiguity || child_ambiguity, parametric || child_parametric)
                     })
             }
-            ParsedTerm::Term(Term::Token { sort, .. }) => (false, !sort.parameters.is_empty()),
-            ParsedTerm::Term(_) => (false, false),
+            ParsedTerm::Term(term) => match term.unannotated() {
+                Term::Token { sort, .. } => (false, !sort.parameters.is_empty()),
+                _ => (false, false),
+            },
             ParsedTerm::InstantiatedProduction { .. } => {
                 unreachable!("Z3 inference reasons are computed before inference")
             }
@@ -150,6 +156,7 @@ impl Grammar {
             let ParsedTerm::Production {
                 production,
                 children,
+                ..
             } = term
             else {
                 return None;
@@ -185,7 +192,10 @@ impl Grammar {
         next_anonymous: &mut usize,
     ) -> Result<ParsedTerm, ParseError> {
         match term {
-            ParsedTerm::Term(Term::Variable { ref name, .. }) => {
+            ParsedTerm::Term(ref leaf) if matches!(leaf.unannotated(), Term::Variable { .. }) => {
+                let Term::Variable { name, .. } = leaf.unannotated() else {
+                    unreachable!()
+                };
                 let id = variable_id(name, next_anonymous);
                 if existing_cast {
                     return Ok(term);
@@ -211,6 +221,7 @@ impl Grammar {
                 Ok(ParsedTerm::Production {
                     production,
                     children: vec![term],
+                    metadata: super::TermMetadata::default(),
                 })
             }
             ParsedTerm::Term(_) => Ok(term),
@@ -220,6 +231,7 @@ impl Grammar {
             ParsedTerm::Production {
                 production,
                 children,
+                metadata,
             } => {
                 let is_cast = self.productions[production]
                     .label
@@ -227,6 +239,7 @@ impl Grammar {
                     .is_some_and(|label| label.name.starts_with("#SemanticCastTo"));
                 Ok(ParsedTerm::Production {
                     production,
+                    metadata,
                     children: children
                         .into_iter()
                         .map(|child| {
@@ -268,14 +281,17 @@ impl<'a> Solver<'a> {
             ParsedTerm::Ambiguity(_) => Err(inference_error(
                 "portable sort inference does not support ambiguous parse forests",
             )),
-            ParsedTerm::Term(Term::Variable { name, .. }) => self.variable(name),
-            ParsedTerm::Term(Term::Token { sort, .. }) => Ok(SortRef::Concrete(sort.clone())),
-            ParsedTerm::Term(_) => Err(inference_error(
-                "unexpected lowered KAST node in the concrete parse forest",
-            )),
+            ParsedTerm::Term(term) => match term.unannotated() {
+                Term::Variable { name, .. } => self.variable(name),
+                Term::Token { sort, .. } => Ok(SortRef::Concrete(sort.clone())),
+                _ => Err(inference_error(
+                    "unexpected lowered KAST node in the concrete parse forest",
+                )),
+            },
             ParsedTerm::Production {
                 production,
                 children,
+                ..
             } => {
                 let production = &grammar.productions[*production];
                 let child_sorts = children
@@ -463,6 +479,7 @@ fn strip_brackets<'a>(grammar: &Grammar, mut term: &'a ParsedTerm) -> &'a Parsed
     while let ParsedTerm::Production {
         production,
         children,
+        ..
     } = term
     {
         if !grammar.productions[*production].bracket || children.len() != 1 {
@@ -481,9 +498,11 @@ fn declared_sort(grammar: &Grammar, term: &ParsedTerm) -> Sort {
         ParsedTerm::InstantiatedProduction { production, .. } => {
             grammar.productions[*production].result.clone()
         }
-        ParsedTerm::Term(Term::Token { sort, .. }) => sort.clone(),
-        ParsedTerm::Term(Term::Variable { .. }) => Sort::new("K"),
-        ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => Sort::new("K"),
+        ParsedTerm::Term(term) => match term.unannotated() {
+            Term::Token { sort, .. } => sort.clone(),
+            _ => Sort::new("K"),
+        },
+        ParsedTerm::Ambiguity(_) => Sort::new("K"),
     }
 }
 
