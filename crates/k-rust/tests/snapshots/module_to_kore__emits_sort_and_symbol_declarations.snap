@@ -1,0 +1,145 @@
+---
+source: crates/k-rust/tests/module_to_kore.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int [hook(INT.Int)]\n  syntax Exp\n  syntax Bool\n\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Exp \"*\" Exp [left, symbol(_*_)]\n               > Exp \"+\" Exp [left, symbol(_+_)]\n               | \"box(\" value:Int \")\" [color(red), format(%1 %2 %3), symbol(box)]\n  syntax Bool ::= Exp \"==\" Exp [function, hook(KEQUAL.eq), symbol(eq), total]\nendmodule\n"
+---
+// semantics
+module MAIN
+  import K []
+  sort SortBool{}
+  [
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,6,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  ]
+  sort SortExp{}
+  [
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,3,4,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  ]
+  hooked-sort SortInt{}
+  [
+    hasDomainValues{}(),
+    hook{}("INT.Int"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,3,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  ]
+  symbol Lbl'UndsStarUnds'{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,49)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("_*_")
+  ]
+  symbol Lbl'UndsPlusUnds'{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,49)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("_+_")
+  ]
+  symbol Lblbox{}(SortInt{}) : SortExp{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,18,9,82)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("box")
+  ]
+  hooked-symbol Lbleq{}(SortExp{}, SortExp{}) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    hook{}("KEQUAL.eq"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,19,10,78)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("eq"),
+    total{}()
+  ]
+endmodule [
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,11,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+]
+
+// syntax
+module MAIN
+  import K []
+  sort SortBool{}
+  [
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,6,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  ]
+  sort SortExp{}
+  [
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,3,4,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  ]
+  hooked-sort SortInt{}
+  [
+    hasDomainValues{}(),
+    hook{}("INT.Int"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,3,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  ]
+  symbol Lbl'UndsStarUnds'{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    constructor{}(),
+    format{}("%1 %c*%r %2"),
+    functional{}(),
+    injective{}(),
+    left{}(Lbl'UndsStarUnds'{}()),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,49)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(Lbl'UndsPlusUnds'{}(), Lblbox{}()),
+    right{}(),
+    symbol'Kywd'{}("_*_"),
+    terminals{}("010")
+  ]
+  symbol Lbl'UndsPlusUnds'{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    constructor{}(),
+    format{}("%1 %c+%r %2"),
+    functional{}(),
+    injective{}(),
+    left{}(Lbl'UndsPlusUnds'{}()),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,49)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("_+_"),
+    terminals{}("010")
+  ]
+  symbol Lblbox{}(SortInt{}) : SortExp{}
+  [
+    colors{}("red,red"),
+    constructor{}(),
+    format{}("%cbox(%r %1 %c)%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,18,9,82)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("box"),
+    terminals{}("101")
+  ]
+  hooked-symbol Lbleq{}(SortExp{}, SortExp{}) : SortBool{}
+  [
+    format{}("%1 %c==%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("KEQUAL.eq"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,19,10,78)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("eq"),
+    terminals{}("010"),
+    total{}()
+  ]
+endmodule []

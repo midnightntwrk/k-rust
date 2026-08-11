@@ -1,0 +1,49 @@
+---
+source: crates/k-rust/tests/module_to_kore.rs
+description: "K definition:\n\nmodule MAIN\n  syntax {S} Box{S}\n  syntax {S} Box{S} ::= \"box(\" S \")\" [symbol(box)]\nendmodule\n"
+---
+// semantics
+module MAIN
+  import K []
+  sort SortBox{SortS0}
+  [
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,3,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  ]
+  symbol Lblbox{SortS}(SortS) : SortBox{SortS}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,25,3,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("box")
+  ]
+endmodule [
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,4,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+]
+
+// syntax
+module MAIN
+  import K []
+  sort SortBox{SortS0}
+  [
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,3,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  ]
+  symbol Lblbox{SortS}(SortS) : SortBox{SortS}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,25,3,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("box"),
+    terminals{}("101")
+  ]
+endmodule []

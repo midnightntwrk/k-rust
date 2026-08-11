@@ -1,0 +1,89 @@
+---
+source: crates/k-rust/tests/module_to_kore.rs
+description: "K definition:\n\nmodule BASE\n  syntax Atom ::= \"atom\" [symbol(atom)]\nendmodule\n\nmodule MAIN\n  imports BASE\n  syntax Result ::= \"wrap\" Atom [symbol(wrap)]\n  syntax Result ::= \"done\" [symbol(done)]\nendmodule\n"
+---
+// semantics
+module MAIN
+  import K []
+  sort SortAtom{} []
+  sort SortResult{} []
+  symbol Lblatom{}() : SortAtom{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,19,2,40)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("atom")
+  ]
+  symbol Lbldone{}() : SortResult{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,21,8,42)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("done")
+  ]
+  symbol Lblwrap{}(SortAtom{}) : SortResult{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,21,7,47)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("wrap")
+  ]
+endmodule [
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,1,9,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+]
+
+// syntax
+module MAIN
+  import K []
+  sort SortAtom{} []
+  sort SortResult{} []
+  symbol Lblatom{}() : SortAtom{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,19,2,40)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("atom"),
+    terminals{}("1")
+  ]
+  symbol Lbldone{}() : SortResult{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,21,8,42)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("done"),
+    terminals{}("1")
+  ]
+  symbol Lblwrap{}(SortAtom{}) : SortResult{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,21,7,47)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("wrap"),
+    terminals{}("10")
+  ]
+endmodule []

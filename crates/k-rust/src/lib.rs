@@ -4,5 +4,6 @@ pub mod definition;
 pub mod diagnostic;
 pub mod inner;
 pub mod kast;
+pub mod kompile;
 pub mod kore;
 pub mod outer;

@@ -1,0 +1,96 @@
+---
+source: crates/k-rust/tests/module_to_kore.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Map [hook(MAP.Map)]\n  syntax MapItem\n  syntax Map ::= \".Map\" [function, hook(MAP.unit), symbol(.Map), total]\n  syntax Map ::= Map Map [element(MapItem), symbol(_Map_), unit(.Map)]\nendmodule\n"
+---
+// semantics
+module MAIN
+  import K []
+  hooked-sort SortMap{}
+  [
+    concat{}(Lbl'Unds'Map'Unds'{}()),
+    element{}(LblMapItem{}()),
+    hook{}("MAP.Map"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,3,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    unit{}(Lbl'Stop'Map{}())
+  ]
+  sort SortMapItem{}
+  [
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,3,4,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  ]
+  hooked-symbol Lbl'Stop'Map{}() : SortMap{}
+  [
+    function{}(),
+    functional{}(),
+    hook{}("MAP.unit"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,72)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}(".Map"),
+    total{}()
+  ]
+  symbol Lbl'Unds'Map'Unds'{}(SortMap{}, SortMap{}) : SortMap{}
+  [
+    constructor{}(),
+    element{}(LblMapItem{}()),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,71)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("_Map_"),
+    unit{}(Lbl'Stop'Map{}())
+  ]
+endmodule [
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,6,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+]
+
+// syntax
+module MAIN
+  import K []
+  hooked-sort SortMap{}
+  [
+    concat{}(Lbl'Unds'Map'Unds'{}()),
+    element{}(LblMapItem{}()),
+    hook{}("MAP.Map"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,3,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    unit{}(Lbl'Stop'Map{}())
+  ]
+  sort SortMapItem{}
+  [
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,3,4,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  ]
+  hooked-symbol Lbl'Stop'Map{}() : SortMap{}
+  [
+    format{}(),
+    function{}(),
+    functional{}(),
+    hook{}("MAP.unit"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,72)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}(".Map"),
+    terminals{}("1"),
+    total{}()
+  ]
+  symbol Lbl'Unds'Map'Unds'{}(SortMap{}, SortMap{}) : SortMap{}
+  [
+    constructor{}(),
+    element{}(LblMapItem{}()),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,71)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("_Map_"),
+    terminals{}("00"),
+    unit{}(Lbl'Stop'Map{}())
+  ]
+endmodule []
