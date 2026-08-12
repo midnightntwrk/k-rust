@@ -365,8 +365,8 @@ pub fn declaration_modules_from_resolved(
 
 /// Emit declarations plus the ordinary semantic rules and local claims of one module.
 ///
-/// Macros, `owise`, and reachability modes have distinct Java encodings and are rejected until
-/// their dedicated branches are implemented.
+/// Macros and reachability modes have distinct Java encodings and are rejected until their
+/// dedicated branches are implemented.
 pub fn module_to_kore(
     definition: &KDefinition,
     module: &str,
@@ -390,8 +390,12 @@ pub fn module_to_kore_from_resolved(
     let productions = definition.production_catalog(module_id);
     let injector = SortInjector::new(definition, module)?;
     let converter = TermConverter::new(definition, module)?;
+    let sorted_rules = rules
+        .sorted_rules()
+        .map(|(_, rule)| rule)
+        .collect::<Vec<_>>();
 
-    for (_, rule) in rules.sorted_rules() {
+    for rule in &sorted_rules {
         reject_specialized_rule(rule)?;
         modules.semantics.sentences.push(emit_rule_or_claim(
             rule,
@@ -400,6 +404,7 @@ pub fn module_to_kore_from_resolved(
             &productions,
             &injector,
             &converter,
+            &sorted_rules,
         )?);
     }
     for (_, claim) in rules.local_claims() {
@@ -411,6 +416,7 @@ pub fn module_to_kore_from_resolved(
             &productions,
             &injector,
             &converter,
+            &sorted_rules,
         )?);
     }
     Ok(modules)
@@ -422,7 +428,6 @@ fn reject_specialized_rule(sentence: &Sentence) -> Result<(), ModuleToKoreError>
         "macro-rec",
         "alias",
         "alias-rec",
-        "owise",
         "one-path",
         "all-path",
     ] {
@@ -450,6 +455,7 @@ fn emit_rule_or_claim(
     productions: &ProductionCatalog<'_>,
     injector: &SortInjector<'_>,
     converter: &TermConverter<'_>,
+    sorted_rules: &[&Sentence],
 ) -> Result<KoreSentence, ModuleToKoreError> {
     let injected = injector.inject_sentence(sentence)?;
     let (body, requires, ensures, attributes) = match &injected {
@@ -484,7 +490,18 @@ fn emit_rule_or_claim(
     }
     if let Some(equation) = equation {
         return emit_equation(
-            equation, left, right, requires, ensures, attributes, claim, valued, converter,
+            equation,
+            left,
+            right,
+            requires,
+            ensures,
+            attributes,
+            claim,
+            valued,
+            converter,
+            productions,
+            injector,
+            sorted_rules,
         );
     }
     if !claim && body_sort != Sort::new("GeneratedTopCell") {
@@ -662,17 +679,41 @@ fn emit_equation(
     claim: bool,
     valued: &BTreeSet<String>,
     converter: &TermConverter<'_>,
+    productions: &ProductionCatalog<'_>,
+    injector: &SortInjector<'_>,
+    sorted_rules: &[&Sentence],
 ) -> Result<KoreSentence, ModuleToKoreError> {
     let parameters = equation_parameters(attributes);
     let converter = converter.with_sort_variables(parameters.iter().skip(1).cloned());
     let predicate_sort = KoreSort::Variable("R".into());
     let result_sort = converter.convert_sort(&equation.result_sort);
+    let avoid_variables = variable_names([left, requires]);
     let requires = side_condition(requires, &predicate_sort, &converter)?;
     let ensures = side_condition(ensures, &result_sort, &converter)?;
     let right = Pattern::And {
         sort: result_sort.clone(),
         arguments: vec![converter.convert(right)?, ensures],
     };
+    if attributes.get("owise").is_some() {
+        if claim {
+            return Err(ModuleToKoreError::UnsupportedRuleKind {
+                kind: "owise claim".into(),
+            });
+        }
+        return emit_owise_equation(
+            equation,
+            right,
+            requires,
+            attributes,
+            valued,
+            &converter,
+            productions,
+            injector,
+            sorted_rules,
+            parameters,
+            &avoid_variables,
+        );
+    }
     let equals = if equation.direct || claim {
         Pattern::Equals {
             operand_sort: result_sort,
@@ -748,6 +789,277 @@ fn emit_equation(
         valued,
         parameters,
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_owise_equation(
+    equation: EquationInfo<'_>,
+    right: Pattern,
+    requires: Pattern,
+    attributes: &KAttributes,
+    valued: &BTreeSet<String>,
+    converter: &TermConverter<'_>,
+    productions: &ProductionCatalog<'_>,
+    injector: &SortInjector<'_>,
+    sorted_rules: &[&Sentence],
+    parameters: Vec<String>,
+    avoid_variables: &BTreeSet<String>,
+) -> Result<KoreSentence, ModuleToKoreError> {
+    let predicate_sort = KoreSort::Variable("R".into());
+    let result_sort = converter.convert_sort(&equation.result_sort);
+    let variables = equation_variables(&equation, converter);
+    let own_matches = equation_matches(
+        &variables,
+        equation.children,
+        &equation.argument_sorts,
+        &predicate_sort,
+        converter,
+    )?;
+
+    let mut counter = 0;
+    let mut competitors = Vec::new();
+    for sentence in sorted_rules {
+        let injected = injector.inject_sentence(sentence)?;
+        let Sentence::Rule {
+            body,
+            requires: competitor_requires,
+            ensures: competitor_ensures,
+            ..
+        } = &injected
+        else {
+            continue;
+        };
+        let competitor_left = match body.unannotated() {
+            Term::Rewrite { left, .. } => left.as_ref(),
+            _ => body,
+        };
+        let Some(competitor) = equation_info(competitor_left, sentence.attributes(), productions)?
+        else {
+            continue;
+        };
+        if competitor.label != equation.label
+            || competitor.argument_sorts != equation.argument_sorts
+        {
+            continue;
+        }
+
+        let mut renames = BTreeMap::new();
+        // Java refreshes the complete rule before filtering ignored competitors, so unused
+        // RHS and condition variables still consume names from the shared `_GenN` counter.
+        let refreshed_body = refresh_variables(body, avoid_variables, &mut counter, &mut renames);
+        let refreshed_requires = refresh_variables(
+            competitor_requires,
+            avoid_variables,
+            &mut counter,
+            &mut renames,
+        );
+        let _refreshed_ensures = refresh_variables(
+            competitor_ensures,
+            avoid_variables,
+            &mut counter,
+            &mut renames,
+        );
+        if ignore_owise_competitor(sentence) {
+            continue;
+        }
+        let refreshed_left = match refreshed_body.unannotated() {
+            Term::Rewrite { left, .. } => left.as_ref(),
+            _ => &refreshed_body,
+        };
+        let Term::Apply {
+            arguments: competitor_children,
+            ..
+        } = peel_alias(refreshed_left).unannotated()
+        else {
+            return Err(ModuleToKoreError::UnsupportedRuleKind {
+                kind: "non-application function competitor for owise".into(),
+            });
+        };
+        let condition = side_condition(&refreshed_requires, &predicate_sort, converter)?;
+        let matches = equation_matches(
+            &variables,
+            competitor_children,
+            &equation.argument_sorts,
+            &predicate_sort,
+            converter,
+        )?;
+        let mut candidate = Pattern::And {
+            sort: predicate_sort.clone(),
+            arguments: vec![condition, matches],
+        };
+        let quantified = variable_terms([refreshed_left, &refreshed_requires]);
+        for term in quantified.into_values().rev() {
+            let Pattern::Variable(variable) = converter.convert(&term)? else {
+                unreachable!("collected terms are variables")
+            };
+            candidate = Pattern::Exists {
+                sort: predicate_sort.clone(),
+                variable,
+                body: Box::new(candidate),
+            };
+        }
+        competitors.push(candidate);
+    }
+
+    let mut any_competitor = Pattern::Bottom {
+        sort: predicate_sort.clone(),
+    };
+    for competitor in competitors.into_iter().rev() {
+        any_competitor = Pattern::Or {
+            sort: predicate_sort.clone(),
+            arguments: vec![competitor, any_competitor],
+        };
+    }
+    let negative_match = Pattern::Not {
+        sort: predicate_sort.clone(),
+        argument: Box::new(any_competitor),
+    };
+    let application = Pattern::Application {
+        symbol: converter.convert_label(equation.label),
+        arguments: variables.iter().cloned().map(Pattern::Variable).collect(),
+    };
+    equation_sentence(
+        false,
+        Pattern::Implies {
+            sort: predicate_sort.clone(),
+            left: Box::new(Pattern::And {
+                sort: predicate_sort.clone(),
+                arguments: vec![
+                    negative_match,
+                    Pattern::And {
+                        sort: predicate_sort.clone(),
+                        arguments: vec![requires, own_matches],
+                    },
+                ],
+            }),
+            right: Box::new(Pattern::Equals {
+                operand_sort: result_sort,
+                result_sort: predicate_sort,
+                left: Box::new(application),
+                right: Box::new(right),
+            }),
+        },
+        attributes,
+        valued,
+        parameters,
+    )
+}
+
+fn ignore_owise_competitor(sentence: &Sentence) -> bool {
+    ["owise", "simplification", "non-executable"]
+        .into_iter()
+        .any(|attribute| sentence.attributes().get(attribute).is_some())
+}
+
+fn equation_variables(equation: &EquationInfo<'_>, converter: &TermConverter<'_>) -> Vec<Variable> {
+    equation
+        .argument_sorts
+        .iter()
+        .enumerate()
+        .map(|(index, sort)| Variable {
+            kind: VariableKind::Element,
+            name: format!("X{index}"),
+            sort: converter.convert_sort(sort),
+        })
+        .collect()
+}
+
+fn equation_matches(
+    variables: &[Variable],
+    children: &[Term],
+    sorts: &[Sort],
+    predicate_sort: &KoreSort,
+    converter: &TermConverter<'_>,
+) -> Result<Pattern, TermConversionError> {
+    let mut matches = Pattern::Top {
+        sort: predicate_sort.clone(),
+    };
+    for ((variable, child), sort) in variables.iter().zip(children).zip(sorts).rev() {
+        matches = Pattern::And {
+            sort: predicate_sort.clone(),
+            arguments: vec![
+                Pattern::In {
+                    operand_sort: converter.convert_sort(sort),
+                    result_sort: predicate_sort.clone(),
+                    left: Box::new(Pattern::Variable(variable.clone())),
+                    right: Box::new(converter.convert(child)?),
+                },
+                matches,
+            ],
+        };
+    }
+    Ok(matches)
+}
+
+fn variable_names<'a>(roots: impl IntoIterator<Item = &'a Term>) -> BTreeSet<String> {
+    variable_terms(roots).into_keys().collect()
+}
+
+fn variable_terms<'a>(roots: impl IntoIterator<Item = &'a Term>) -> BTreeMap<String, Term> {
+    let mut variables = BTreeMap::new();
+    for root in roots {
+        root.visit_preorder(&mut |term| {
+            if let Term::Variable { name, .. } = term.unannotated() {
+                variables
+                    .entry(name.clone())
+                    .or_insert_with(|| term.clone());
+            }
+        });
+    }
+    variables
+}
+
+fn refresh_variables(
+    term: &Term,
+    avoid: &BTreeSet<String>,
+    counter: &mut usize,
+    renames: &mut BTreeMap<String, String>,
+) -> Term {
+    let refreshed = match term.unannotated() {
+        Term::Variable { name, sort } => {
+            let name = renames.entry(name.clone()).or_insert_with(|| {
+                loop {
+                    let candidate = format!("_Gen{counter}");
+                    *counter += 1;
+                    if !avoid.contains(&candidate) {
+                        break candidate;
+                    }
+                }
+            });
+            Term::Variable {
+                name: name.clone(),
+                sort: sort.clone(),
+            }
+        }
+        Term::Rewrite { left, right } => Term::Rewrite {
+            left: Box::new(refresh_variables(left, avoid, counter, renames)),
+            right: Box::new(refresh_variables(right, avoid, counter, renames)),
+        },
+        Term::As { pattern, alias } => Term::As {
+            pattern: Box::new(refresh_variables(pattern, avoid, counter, renames)),
+            alias: Box::new(refresh_variables(alias, avoid, counter, renames)),
+        },
+        Term::Sequence(items) => Term::Sequence(
+            items
+                .iter()
+                .map(|item| refresh_variables(item, avoid, counter, renames))
+                .collect(),
+        ),
+        Term::Apply { label, arguments } => Term::Apply {
+            label: label.clone(),
+            arguments: arguments
+                .iter()
+                .map(|argument| refresh_variables(argument, avoid, counter, renames))
+                .collect(),
+        },
+        Term::InjectedLabel(label) => Term::InjectedLabel(label.clone()),
+        Term::Token { token, sort } => Term::Token {
+            token: token.clone(),
+            sort: sort.clone(),
+        },
+        Term::Annotated { .. } => unreachable!(),
+    };
+    refreshed.with_metadata(term.metadata().cloned().unwrap_or_default())
 }
 
 fn equation_sentence(

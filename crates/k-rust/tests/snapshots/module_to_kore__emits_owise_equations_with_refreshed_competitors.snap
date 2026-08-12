@@ -1,0 +1,290 @@
+---
+source: crates/k-rust/tests/module_to_kore.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Int\n  syntax Exp ::= \"choose(\" Exp \",\" Exp \")\" [function, symbol(choose)]\n  syntax Bool ::= Exp \"==\" Exp [function, symbol(eq)]\n\n  rule choose(0, Y:Exp) => Y:Exp\n    [label(left-zero)]\n\n  rule choose(X:Exp, 0) => X:Exp\n    requires X:Exp == 1\n    [label(right-zero)]\n\n  rule choose(X:Exp, Y:Exp) => X:Exp\n    requires X:Exp == Y:Exp\n    [label(equal-arguments)]\n\n  rule choose(1, Z:Exp) => Z:Exp\n    [non-executable, label(ignored-non-executable)]\n\n  rule choose(A:Exp, B:Exp) => A:Exp\n    [simplification, label(ignored-simplification)]\n\n  rule choose(_Gen0:Exp, Y:Exp) => Y:Exp\n    requires _Gen0:Exp == Y:Exp\n    [owise, label(otherwise)]\nendmodule\n"
+---
+// semantics
+module MAIN
+  import K []
+  sort SortBool{} []
+  sort SortExp{} []
+  sort SortInt{} [hasDomainValues{}()]
+  symbol Lblchoose{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    function{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,70)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("choose")
+  ]
+  symbol Lbleq{}(SortExp{}, SortExp{}) : SortBool{}
+  [
+    function{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,19,5,54)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("eq")
+  ]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{SortExp{}, R}(
+        Lblchoose{}(
+          Lbl'Hash'SemanticCastToExp{}(VarA:SortExp{}),
+          Lbl'Hash'SemanticCastToExp{}(VarB:SortExp{})
+        ),
+        \and{SortExp{}}(Lbl'Hash'SemanticCastToExp{}(VarA:SortExp{}), \top{SortExp{}}())
+      )
+    )
+    [
+      label{}("ignored-simplification"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,22,52)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \equals{SortBool{}, R}(
+          Lbleq{}(
+            Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+            Lbl'Hash'SemanticCastToExp{}(VarY:SortExp{})
+          ),
+          \dv{SortBool{}}("true")
+        ),
+        \and{R}(
+          \in{SortExp{}, R}(X0:SortExp{}, Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
+          \and{R}(
+            \in{SortExp{}, R}(X1:SortExp{}, Lbl'Hash'SemanticCastToExp{}(VarY:SortExp{})),
+            \top{R}()
+          )
+        )
+      ),
+      \equals{SortExp{}, R}(
+        Lblchoose{}(X0:SortExp{}, X1:SortExp{}),
+        \and{SortExp{}}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}), \top{SortExp{}}())
+      )
+    )
+    [
+      label{}("equal-arguments"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,3,16,29)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \equals{SortBool{}, R}(
+          Lbleq{}(
+            Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+            inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("1"))
+          ),
+          \dv{SortBool{}}("true")
+        ),
+        \and{R}(
+          \in{SortExp{}, R}(X0:SortExp{}, Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
+          \and{R}(
+            \in{SortExp{}, R}(X1:SortExp{}, inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))),
+            \top{R}()
+          )
+        )
+      ),
+      \equals{SortExp{}, R}(
+        Lblchoose{}(X0:SortExp{}, X1:SortExp{}),
+        \and{SortExp{}}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}), \top{SortExp{}}())
+      )
+    )
+    [
+      label{}("right-zero"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,12,24)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen3:SortExp{},
+              \exists{R}(
+                Var'Unds'Gen4:SortExp{},
+                \and{R}(
+                  \equals{SortBool{}, R}(
+                    Lbleq{}(
+                      Lbl'Hash'SemanticCastToExp{}(Var'Unds'Gen3:SortExp{}),
+                      Lbl'Hash'SemanticCastToExp{}(Var'Unds'Gen4:SortExp{})
+                    ),
+                    \dv{SortBool{}}("true")
+                  ),
+                  \and{R}(
+                    \in{SortExp{}, R}(
+                      X0:SortExp{},
+                      Lbl'Hash'SemanticCastToExp{}(Var'Unds'Gen3:SortExp{})
+                    ),
+                    \and{R}(
+                      \in{SortExp{}, R}(
+                        X1:SortExp{},
+                        Lbl'Hash'SemanticCastToExp{}(Var'Unds'Gen4:SortExp{})
+                      ),
+                      \top{R}()
+                    )
+                  )
+                )
+              )
+            ),
+            \or{R}(
+              \exists{R}(
+                Var'Unds'Gen5:SortExp{},
+                \and{R}(
+                  \equals{SortBool{}, R}(
+                    Lbleq{}(
+                      Lbl'Hash'SemanticCastToExp{}(Var'Unds'Gen5:SortExp{}),
+                      inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("1"))
+                    ),
+                    \dv{SortBool{}}("true")
+                  ),
+                  \and{R}(
+                    \in{SortExp{}, R}(
+                      X0:SortExp{},
+                      Lbl'Hash'SemanticCastToExp{}(Var'Unds'Gen5:SortExp{})
+                    ),
+                    \and{R}(
+                      \in{SortExp{}, R}(
+                        X1:SortExp{},
+                        inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))
+                      ),
+                      \top{R}()
+                    )
+                  )
+                )
+              ),
+              \or{R}(
+                \exists{R}(
+                  Var'Unds'Gen8:SortExp{},
+                  \and{R}(
+                    \top{R}(),
+                    \and{R}(
+                      \in{SortExp{}, R}(
+                        X0:SortExp{},
+                        inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))
+                      ),
+                      \and{R}(
+                        \in{SortExp{}, R}(
+                          X1:SortExp{},
+                          Lbl'Hash'SemanticCastToExp{}(Var'Unds'Gen8:SortExp{})
+                        ),
+                        \top{R}()
+                      )
+                    )
+                  )
+                ),
+                \bottom{R}()
+              )
+            )
+          )
+        ),
+        \and{R}(
+          \equals{SortBool{}, R}(
+            Lbleq{}(
+              Lbl'Hash'SemanticCastToExp{}(Var'Unds'Gen0:SortExp{}),
+              Lbl'Hash'SemanticCastToExp{}(VarY:SortExp{})
+            ),
+            \dv{SortBool{}}("true")
+          ),
+          \and{R}(
+            \in{SortExp{}, R}(X0:SortExp{}, Lbl'Hash'SemanticCastToExp{}(Var'Unds'Gen0:SortExp{})),
+            \and{R}(
+              \in{SortExp{}, R}(X1:SortExp{}, Lbl'Hash'SemanticCastToExp{}(VarY:SortExp{})),
+              \top{R}()
+            )
+          )
+        )
+      ),
+      \equals{SortExp{}, R}(
+        Lblchoose{}(X0:SortExp{}, X1:SortExp{}),
+        \and{SortExp{}}(Lbl'Hash'SemanticCastToExp{}(VarY:SortExp{}), \top{SortExp{}}())
+      )
+    )
+    [
+      label{}("otherwise"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,3,26,30)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+      owise{}()
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortExp{}, R}(X0:SortExp{}, inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))),
+          \and{R}(
+            \in{SortExp{}, R}(X1:SortExp{}, Lbl'Hash'SemanticCastToExp{}(VarY:SortExp{})),
+            \top{R}()
+          )
+        )
+      ),
+      \equals{SortExp{}, R}(
+        Lblchoose{}(X0:SortExp{}, X1:SortExp{}),
+        \and{SortExp{}}(Lbl'Hash'SemanticCastToExp{}(VarY:SortExp{}), \top{SortExp{}}())
+      )
+    )
+    [
+      label{}("left-zero"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,8,23)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortExp{}, R}(X0:SortExp{}, inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("1"))),
+          \and{R}(
+            \in{SortExp{}, R}(X1:SortExp{}, Lbl'Hash'SemanticCastToExp{}(VarZ:SortExp{})),
+            \top{R}()
+          )
+        )
+      ),
+      \equals{SortExp{}, R}(
+        Lblchoose{}(X0:SortExp{}, X1:SortExp{}),
+        \and{SortExp{}}(Lbl'Hash'SemanticCastToExp{}(VarZ:SortExp{}), \top{SortExp{}}())
+      )
+    )
+    [
+      label{}("ignored-non-executable"),
+      non-executable{}(),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,3,19,52)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    ]
+endmodule [
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,27,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+]
+
+// syntax
+module MAIN
+  import K []
+  sort SortBool{} []
+  sort SortExp{} []
+  sort SortInt{} [hasDomainValues{}()]
+  symbol Lblchoose{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    format{}(),
+    function{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,70)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("choose"),
+    terminals{}("10101")
+  ]
+  symbol Lbleq{}(SortExp{}, SortExp{}) : SortBool{}
+  [
+    format{}(),
+    function{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,19,5,54)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("eq"),
+    terminals{}("010")
+  ]
+endmodule []

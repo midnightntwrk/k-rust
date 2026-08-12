@@ -151,6 +151,40 @@ module_snapshot!(
     "MAIN"
 );
 
+module_snapshot!(
+    emits_owise_equations_with_refreshed_competitors,
+    r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= Int
+          syntax Exp ::= "choose(" Exp "," Exp ")" [function, symbol(choose)]
+          syntax Bool ::= Exp "==" Exp [function, symbol(eq)]
+
+          rule choose(0, Y:Exp) => Y:Exp
+            [label(left-zero)]
+
+          rule choose(X:Exp, 0) => X:Exp
+            requires X:Exp == 1
+            [label(right-zero)]
+
+          rule choose(X:Exp, Y:Exp) => X:Exp
+            requires X:Exp == Y:Exp
+            [label(equal-arguments)]
+
+          rule choose(1, Z:Exp) => Z:Exp
+            [non-executable, label(ignored-non-executable)]
+
+          rule choose(A:Exp, B:Exp) => A:Exp
+            [simplification, label(ignored-simplification)]
+
+          rule choose(_Gen0:Exp, Y:Exp) => Y:Exp
+            requires _Gen0:Exp == Y:Exp
+            [owise, label(otherwise)]
+        endmodule
+    "#,
+    "MAIN"
+);
+
 #[test]
 fn rejects_non_top_cell_semantic_rules() {
     let source = indoc! {r#"
