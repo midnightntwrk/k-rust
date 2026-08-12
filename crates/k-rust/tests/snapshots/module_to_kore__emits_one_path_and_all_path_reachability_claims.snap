@@ -37,6 +37,25 @@ module MAIN
       \equals{SortGeneratedTopCell{}, R}(Val:SortGeneratedTopCell{}, Lbltop{}(K0:SortExp{}))
     )
     [functional{}()]
+  axiom{}
+    \implies{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(Lbltop{}(X0:SortExp{}), Lbltop{}(Y0:SortExp{})),
+      Lbltop{}(\and{SortExp{}}(X0:SortExp{}, Y0:SortExp{}))
+    )
+    [constructor{}()]
+  axiom{}
+    \or{SortExp{}}(
+      \exists{SortExp{}}(Val:SortInt{}, inj{SortInt{}, SortExp{}}(Val:SortInt{})),
+      \bottom{SortExp{}}()
+    )
+    [constructor{}()]
+  axiom{}
+    \or{SortGeneratedTopCell{}}(
+      \exists{SortGeneratedTopCell{}}(X0:SortExp{}, Lbltop{}(X0:SortExp{})),
+      \bottom{SortGeneratedTopCell{}}()
+    )
+    [constructor{}()]
+  axiom{} \or{SortInt{}}(\top{SortInt{}}(), \bottom{SortInt{}}()) [constructor{}()]
   claim{}
     \implies{SortGeneratedTopCell{}}(
       \and{SortGeneratedTopCell{}}(
@@ -153,12 +172,6 @@ module MAIN
       \equals{SortExp{}, R}(Val:SortExp{}, inj{SortInt{}, SortExp{}}(From:SortInt{}))
     )
     [subsort{SortInt{}, SortExp{}}()]
-  axiom{R}
-    \exists{R}(
-      Val:SortGeneratedTopCell{},
-      \equals{SortGeneratedTopCell{}, R}(Val:SortGeneratedTopCell{}, Lbltop{}(K0:SortExp{}))
-    )
-    [functional{}()]
 endmodule []
 
 // macros

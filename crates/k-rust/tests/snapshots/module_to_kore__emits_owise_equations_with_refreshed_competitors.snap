@@ -28,6 +28,13 @@ module MAIN
       \equals{SortExp{}, R}(Val:SortExp{}, inj{SortInt{}, SortExp{}}(From:SortInt{}))
     )
     [subsort{SortInt{}, SortExp{}}()]
+  axiom{}
+    \or{SortExp{}}(
+      \exists{SortExp{}}(Val:SortInt{}, inj{SortInt{}, SortExp{}}(Val:SortInt{})),
+      \bottom{SortExp{}}()
+    )
+    [constructor{}()]
+  axiom{} \or{SortInt{}}(\top{SortInt{}}(), \bottom{SortInt{}}()) [constructor{}()]
   axiom{R}
     \implies{R}(
       \top{R}(),

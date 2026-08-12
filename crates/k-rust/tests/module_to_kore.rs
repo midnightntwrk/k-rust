@@ -333,6 +333,39 @@ module_snapshot!(
     "MAIN"
 );
 
+module_snapshot!(
+    emits_constructor_no_confusion_axioms,
+    r#"
+        module MAIN
+          syntax Exp ::= "zero" [symbol(zero)]
+          syntax Exp ::= "one" [symbol(one)]
+          syntax Exp ::= "wrap(" Exp ")" [symbol(wrap)]
+          syntax Exp ::= "pair(" Exp "," Exp ")" [symbol(pair)]
+          syntax Exp ::= "evaluate(" Exp ")" [function, symbol(evaluate)]
+          syntax Exp ::= Exp "++" Exp [assoc, symbol(_++_)]
+        endmodule
+    "#,
+    "MAIN"
+);
+
+module_snapshot!(
+    emits_sort_no_junk_axioms,
+    r#"
+        module MAIN
+          syntax Atom ::= r"[a-z]+" [token]
+          syntax Exp ::= Atom
+          syntax Exp ::= "zero" [symbol(zero)]
+          syntax Exp ::= "pair(" Exp "," Exp ")" [symbol(pair)]
+          syntax Exp ::= "evaluate(" Exp ")" [function, symbol(evaluate)]
+          syntax Exp ::= "expand(" Exp ")" [macro, symbol(expand)]
+          syntax Empty
+          syntax TokenSort [token]
+          syntax K ::= Exp
+        endmodule
+    "#,
+    "MAIN"
+);
+
 #[test]
 fn rejects_non_binary_associative_productions() {
     let source = indoc! {r#"

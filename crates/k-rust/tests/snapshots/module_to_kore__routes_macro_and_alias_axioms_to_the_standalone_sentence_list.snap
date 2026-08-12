@@ -80,6 +80,15 @@ module MAIN
   axiom{R}
     \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lbldone{}(K0:SortExp{})))
     [functional{}()]
+  axiom{}
+    \implies{SortExp{}}(
+      \and{SortExp{}}(Lbldone{}(X0:SortExp{}), Lbldone{}(Y0:SortExp{})),
+      Lbldone{}(\and{SortExp{}}(X0:SortExp{}, Y0:SortExp{}))
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortExp{}}(\and{SortExp{}}(Lbldone{}(X0:SortExp{}), Lblplain{}(Y0:SortExp{})))
+    [constructor{}()]
   axiom{R}
     \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblmacro{}(K0:SortExp{})))
     [functional{}()]
@@ -89,6 +98,21 @@ module MAIN
   axiom{R}
     \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblplain{}(K0:SortExp{})))
     [functional{}()]
+  axiom{}
+    \implies{SortExp{}}(
+      \and{SortExp{}}(Lblplain{}(X0:SortExp{}), Lblplain{}(Y0:SortExp{})),
+      Lblplain{}(\and{SortExp{}}(X0:SortExp{}, Y0:SortExp{}))
+    )
+    [constructor{}()]
+  axiom{}
+    \or{SortExp{}}(
+      \exists{SortExp{}}(X0:SortExp{}, Lbldone{}(X0:SortExp{})),
+      \or{SortExp{}}(
+        \exists{SortExp{}}(X0:SortExp{}, Lblplain{}(X0:SortExp{})),
+        \bottom{SortExp{}}()
+      )
+    )
+    [constructor{}()]
   axiom{R}
     \implies{R}(
       \top{R}(),
@@ -211,24 +235,6 @@ module MAIN
     symbol'Kywd'{}("plain"),
     terminals{}("101")
   ]
-  axiom{R}
-    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblalias'Kywd'{}(K0:SortExp{})))
-    [functional{}()]
-  axiom{R}
-    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, LblaliasRec{}(K0:SortExp{})))
-    [functional{}()]
-  axiom{R}
-    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lbldone{}(K0:SortExp{})))
-    [functional{}()]
-  axiom{R}
-    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblmacro{}(K0:SortExp{})))
-    [functional{}()]
-  axiom{R}
-    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, LblmacroRec{}(K0:SortExp{})))
-    [functional{}()]
-  axiom{R}
-    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblplain{}(K0:SortExp{})))
-    [functional{}()]
 endmodule []
 
 // macros

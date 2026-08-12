@@ -1,0 +1,189 @@
+---
+source: crates/k-rust/tests/module_to_kore.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Atom ::= r\"[a-z]+\" [token]\n  syntax Exp ::= Atom\n  syntax Exp ::= \"zero\" [symbol(zero)]\n  syntax Exp ::= \"pair(\" Exp \",\" Exp \")\" [symbol(pair)]\n  syntax Exp ::= \"evaluate(\" Exp \")\" [function, symbol(evaluate)]\n  syntax Exp ::= \"expand(\" Exp \")\" [macro, symbol(expand)]\n  syntax Empty\n  syntax TokenSort [token]\n  syntax K ::= Exp\nendmodule\n"
+---
+// semantics
+module MAIN
+  import K []
+  sort SortAtom{} [hasDomainValues{}()]
+  sort SortEmpty{}
+  [
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,3,9,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  ]
+  sort SortExp{} []
+  sort SortTokenSort{}
+  [
+    hasDomainValues{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,3,10,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    token{}()
+  ]
+  symbol Lblevaluate{}(SortExp{}) : SortExp{}
+  [
+    function{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,18,6,66)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("evaluate")
+  ]
+  symbol Lblexpand{}(SortExp{}) : SortExp{}
+  [
+    functional{}(),
+    injective{}(),
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,59)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("expand")
+  ]
+  symbol Lblpair{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,56)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("pair")
+  ]
+  symbol Lblzero{}() : SortExp{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,39)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("zero")
+  ]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, inj{SortAtom{}, SortExp{}}(From:SortAtom{}))
+    )
+    [subsort{SortAtom{}, SortExp{}}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblexpand{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, Lblpair{}(K0:SortExp{}, K1:SortExp{}))
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortExp{}}(
+      \and{SortExp{}}(Lblpair{}(X0:SortExp{}, X1:SortExp{}), Lblpair{}(Y0:SortExp{}, Y1:SortExp{})),
+      Lblpair{}(
+        \and{SortExp{}}(X0:SortExp{}, Y0:SortExp{}),
+        \and{SortExp{}}(X1:SortExp{}, Y1:SortExp{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortExp{}}(\and{SortExp{}}(Lblpair{}(X0:SortExp{}, X1:SortExp{}), Lblzero{}()))
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblzero{}()))
+    [functional{}()]
+  axiom{} \or{SortAtom{}}(\top{SortAtom{}}(), \bottom{SortAtom{}}()) [constructor{}()]
+  axiom{}
+    \or{SortExp{}}(
+      \exists{SortExp{}}(
+        X0:SortExp{},
+        \exists{SortExp{}}(X1:SortExp{}, Lblpair{}(X0:SortExp{}, X1:SortExp{}))
+      ),
+      \or{SortExp{}}(
+        Lblzero{}(),
+        \or{SortExp{}}(
+          \exists{SortExp{}}(Val:SortAtom{}, inj{SortAtom{}, SortExp{}}(Val:SortAtom{})),
+          \bottom{SortExp{}}()
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \or{SortTokenSort{}}(\top{SortTokenSort{}}(), \bottom{SortTokenSort{}}())
+    [constructor{}()]
+endmodule [
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,11,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+]
+
+// syntax
+module MAIN
+  import K []
+  sort SortAtom{} [hasDomainValues{}()]
+  sort SortEmpty{}
+  [
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,3,9,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  ]
+  sort SortExp{} []
+  sort SortTokenSort{}
+  [
+    hasDomainValues{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,3,10,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    token{}()
+  ]
+  symbol Lblevaluate{}(SortExp{}) : SortExp{}
+  [
+    format{}(),
+    function{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,18,6,66)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("evaluate"),
+    terminals{}("101")
+  ]
+  symbol Lblexpand{}(SortExp{}) : SortExp{}
+  [
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,59)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("expand"),
+    terminals{}("101")
+  ]
+  symbol Lblpair{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,56)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("pair"),
+    terminals{}("10101")
+  ]
+  symbol Lblzero{}() : SortExp{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,39)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("zero"),
+    terminals{}("1")
+  ]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, inj{SortAtom{}, SortExp{}}(From:SortAtom{}))
+    )
+    [subsort{SortAtom{}, SortExp{}}()]
+endmodule []
+
+// macros

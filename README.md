@@ -147,6 +147,11 @@ in both module views. Production-ordered algebraic axioms cover associativity, i
 unit laws with Java's arity and sort constraints; commutativity remains deliberately disabled to
 match the reference generator. Functional witness axioms are emitted for constructors and total
 functions, including nullary and parametric symbols, while partial functions remain unconstrained.
+Constructor no-confusion axioms cover injectivity of individual constructors and disjointness of
+different constructors after Java's function, algebraic, macro, `anywhere`, overload, and builtin
+filters. Per-sort no-junk axioms enumerate constructor forms, token domains, and strict subsort
+injections while omitting empty sorts and the special injection closure for `K`. These generated
+semantic axioms stay out of the concrete-syntax module, which receives only coercion axioms.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -188,10 +193,9 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete sort parameters normally supplied by parser inference.
 - Complete `ModuleToKORE` beyond ordinary rewrites, reachability claims, equations, macro axioms,
-  transitive impure-function propagation, coercion axioms, algebraic axioms, and functional axioms:
-  emit legacy priority aliases and reproduce Java's no-confusion and no-junk axioms. Impurity
-  propagation follows function calls in rule bodies and side conditions, including calls to
-  non-macro `anywhere` labels, while treating sort injections as transparent.
+  transitive impure-function propagation, and the default generated axioms: emit optional legacy
+  priority aliases. Impurity propagation follows function calls in rule bodies and side conditions,
+  including calls to non-macro `anywhere` labels, while treating sort injections as transparent.
 - Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.
 - Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
   auto-imported prelude policy alongside the future command-line frontend.
