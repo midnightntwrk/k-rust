@@ -129,6 +129,27 @@ fn converts_ml_connectives_and_set_variables() {
 }
 
 #[test]
+fn converts_declared_sort_variables_without_concrete_sort_prefixes() {
+    let definition = lowered("module MAIN\nendmodule");
+    let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
+    let converter = TermConverter::new(&resolved, "MAIN")
+        .expect("converter should build")
+        .with_sort_variables(["Q0".into()]);
+    let variable = Term::Variable {
+        name: "X".into(),
+        sort: Some(Sort::new("Q0")),
+    };
+    assert_eq!(converter.convert_sort(&Sort::new("Q0")).to_string(), "Q0");
+    assert_eq!(
+        converter
+            .convert(&variable)
+            .expect("variable should convert")
+            .to_string(),
+        "VarX:Q0"
+    );
+}
+
+#[test]
 fn converts_sequences_using_item_sorts() {
     let definition = lowered("module MAIN\nendmodule");
     let term = Term::Sequence(vec![

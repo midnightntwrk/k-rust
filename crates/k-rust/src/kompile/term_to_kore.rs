@@ -1,6 +1,6 @@
 //! Conversion from user-facing K terms to backend-facing KORE patterns.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::definition::{
@@ -10,7 +10,7 @@ use crate::definition::{
 use crate::kast::{self, Label, Sort, Term};
 use crate::kore::ast::{Pattern, Symbol, Variable, VariableKind};
 
-use super::module_to_kore::{encode_kore_identifier, encode_kore_label, encode_kore_sort};
+use super::module_to_kore::{encode_kore_identifier, encode_kore_label};
 
 /// A failure to recover information required by KORE from the compact public KAST.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -118,6 +118,7 @@ pub struct TermConverter<'a> {
     productions: ProductionCatalog<'a>,
     sorts: SortCatalog<'a>,
     subsorts: PartialOrder<Sort>,
+    sort_variables: BTreeSet<String>,
 }
 
 impl<'a> TermConverter<'a> {
@@ -135,11 +136,33 @@ impl<'a> TermConverter<'a> {
             productions: definition.production_catalog(module),
             sorts: definition.sort_catalog(module),
             subsorts,
+            sort_variables: BTreeSet::new(),
         })
+    }
+
+    /// Treat the supplied K sort names as KORE sort variables during conversion.
+    pub fn with_sort_variables(&self, variables: impl IntoIterator<Item = String>) -> Self {
+        let mut converter = self.clone();
+        converter.sort_variables = variables.into_iter().collect();
+        converter
     }
 
     pub fn convert(&self, term: &Term) -> Result<Pattern, TermConversionError> {
         self.pattern(term)
+    }
+
+    pub fn convert_sort(&self, sort: &Sort) -> crate::kore::ast::Sort {
+        self.kore_sort(sort)
+    }
+
+    pub fn convert_label(&self, label: &Label) -> Symbol {
+        let mut symbol = encode_kore_label(label);
+        symbol.sort_parameters = label
+            .parameters
+            .iter()
+            .map(|sort| self.kore_sort(sort))
+            .collect();
+        symbol
     }
 
     fn pattern(&self, term: &Term) -> Result<Pattern, TermConversionError> {
@@ -148,7 +171,7 @@ impl<'a> TermConverter<'a> {
             Term::Rewrite { left, right } => {
                 let sort = self.common_sort(&self.term_sort(left)?, &self.term_sort(right)?)?;
                 Ok(Pattern::Rewrites {
-                    sort: encode_kore_sort(&sort),
+                    sort: self.kore_sort(&sort),
                     left: Box::new(self.pattern(left)?),
                     right: Box::new(self.pattern(right)?),
                 })
@@ -156,7 +179,7 @@ impl<'a> TermConverter<'a> {
             Term::As { pattern, alias } => {
                 let sort = self.common_sort(&self.term_sort(pattern)?, &self.term_sort(alias)?)?;
                 Ok(Pattern::And {
-                    sort: encode_kore_sort(&sort),
+                    sort: self.kore_sort(&sort),
                     arguments: vec![self.pattern(pattern)?, self.pattern(alias)?],
                 })
             }
@@ -164,7 +187,7 @@ impl<'a> TermConverter<'a> {
             Term::Sequence(items) => self.sequence(items),
             Term::Apply { label, arguments } => self.application(label, arguments),
             Term::Token { token, sort } => Ok(Pattern::DomainValue {
-                sort: encode_kore_sort(sort),
+                sort: self.kore_sort(sort),
                 value: self.token_value(token, sort)?,
             }),
             Term::Annotated { .. } => unreachable!(),
@@ -250,19 +273,27 @@ impl<'a> TermConverter<'a> {
             "#AG" => Ok(Pattern::Application {
                 symbol: Symbol {
                     name: "allPathGlobally".into(),
-                    sort_parameters: label.parameters.iter().map(encode_kore_sort).collect(),
+                    sort_parameters: label
+                        .parameters
+                        .iter()
+                        .map(|sort| self.kore_sort(sort))
+                        .collect(),
                 },
                 arguments: patterns()?,
             }),
             "weakExistsFinally" | "weakAlwaysFinally" => Ok(Pattern::Application {
                 symbol: Symbol {
                     name: label.name.clone(),
-                    sort_parameters: label.parameters.iter().map(encode_kore_sort).collect(),
+                    sort_parameters: label
+                        .parameters
+                        .iter()
+                        .map(|sort| self.kore_sort(sort))
+                        .collect(),
                 },
                 arguments: patterns()?,
             }),
             _ => Ok(Pattern::Application {
-                symbol: encode_kore_label(label),
+                symbol: self.convert_label(label),
                 arguments: patterns()?,
             }),
         }
@@ -306,7 +337,7 @@ impl<'a> TermConverter<'a> {
         label
             .parameters
             .get(index)
-            .map(encode_kore_sort)
+            .map(|sort| self.kore_sort(sort))
             .ok_or_else(|| TermConversionError::InvalidBuiltin {
                 label: label.name.clone(),
                 message: format!("missing sort parameter {}", index + 1),
@@ -370,7 +401,22 @@ impl<'a> TermConverter<'a> {
         Variable {
             kind,
             name,
-            sort: encode_kore_sort(sort.as_ref().unwrap_or(&Sort::new("K"))),
+            sort: self.kore_sort(sort.as_ref().unwrap_or(&Sort::new("K"))),
+        }
+    }
+
+    fn kore_sort(&self, sort: &Sort) -> crate::kore::ast::Sort {
+        if sort.parameters.is_empty() && self.sort_variables.contains(&sort.name) {
+            crate::kore::ast::Sort::Variable(sort.name.clone())
+        } else {
+            crate::kore::ast::Sort::Application {
+                name: format!("Sort{}", encode_kore_identifier(&sort.name)),
+                arguments: sort
+                    .parameters
+                    .iter()
+                    .map(|parameter| self.kore_sort(parameter))
+                    .collect(),
+            }
         }
     }
 

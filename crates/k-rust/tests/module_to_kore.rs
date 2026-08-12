@@ -122,6 +122,35 @@ module_snapshot!(
     "MAIN"
 );
 
+module_snapshot!(
+    emits_function_anywhere_and_simplification_equations,
+    r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= Int
+          syntax Exp ::= Exp "+" Exp [symbol(_+_)]
+          syntax Exp ::= "inc(" Exp ")" [function, symbol(inc)]
+          syntax Exp ::= "double(" Exp ")" [symbol(double)]
+          syntax Bool ::= Exp "==" Exp [function, symbol(eq)]
+
+          rule inc(X:Exp + 0) => X:Exp
+            requires X:Exp == 1
+            ensures X:Exp == 2
+            [label(eval-inc)]
+
+          rule X:Exp + 0 => X:Exp
+            [simplification, label(plus-zero)]
+
+          rule double(X:Exp + 0) => double(X:Exp)
+            [anywhere, label(double-zero)]
+
+          claim inc(X:Exp) => X:Exp
+            [label(inc-claim)]
+        endmodule
+    "#,
+    "MAIN"
+);
+
 #[test]
 fn rejects_non_top_cell_semantic_rules() {
     let source = indoc! {r#"
@@ -134,6 +163,23 @@ fn rejects_non_top_cell_semantic_rules() {
     assert_eq!(
         error.to_string(),
         "ordinary semantic rules must rewrite GeneratedTopCell, found Int"
+    );
+}
+
+#[test]
+fn rejects_existential_variables_in_equations() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= Int
+          syntax Exp ::= "inc(" Exp ")" [function, symbol(inc)]
+          rule inc(X:Exp) => ?Y:Exp
+        endmodule
+    "#};
+    let error = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "cannot encode equations with existential variables: ?Y"
     );
 }
 

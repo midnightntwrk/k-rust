@@ -7,13 +7,14 @@ use serde_json::Value;
 
 use crate::definition::{
     AssociativityRelations, Attributes as KAttributes, Definition as KDefinition,
-    LOCATION_ATTRIBUTE, LabelHead, PartialOrder, ProductionCatalog, ProductionItem, RelationError,
-    ResolveError, ResolvedDefinition, SOURCE_ATTRIBUTE, Sentence, SortCatalog, SortHead,
-    match_rule_label,
+    LOCATION_ATTRIBUTE, LabelHead, PartialOrder, ProductionCatalog, ProductionId, ProductionItem,
+    RelationError, ResolveError, ResolvedDefinition, SOURCE_ATTRIBUTE, Sentence, SortCatalog,
+    SortHead, match_rule_label,
 };
-use crate::kast::{Label, Sort, Term};
+use crate::kast::{Label, ResolvedProductionId, Sort, Term};
 use crate::kore::ast::{
     Attributes, Module, Pattern, Sentence as KoreSentence, Sort as KoreSort, Symbol, Variable,
+    VariableKind,
 };
 
 use super::sort_injections::{SortInjectionError, SortInjector};
@@ -134,6 +135,10 @@ pub enum ModuleToKoreError {
     TermConversion(TermConversionError),
     ExpectedRewrite { sentence: &'static str },
     ExpectedGeneratedTopCell { actual: Sort },
+    MissingEquationProduction { label: String },
+    AmbiguousEquationProduction { label: String, productions: usize },
+    InvalidEquationProduction { production: usize, message: String },
+    EquationExistentials { variables: Vec<String> },
     UnsupportedRuleKind { kind: String },
 }
 
@@ -149,6 +154,28 @@ impl fmt::Display for ModuleToKoreError {
             Self::ExpectedGeneratedTopCell { actual } => write!(
                 formatter,
                 "ordinary semantic rules must rewrite GeneratedTopCell, found {actual}"
+            ),
+            Self::MissingEquationProduction { label } => {
+                write!(
+                    formatter,
+                    "cannot find the production for equation label {label:?}"
+                )
+            }
+            Self::AmbiguousEquationProduction { label, productions } => write!(
+                formatter,
+                "cannot select one of {productions} productions for equation label {label:?}"
+            ),
+            Self::InvalidEquationProduction {
+                production,
+                message,
+            } => write!(
+                formatter,
+                "cannot use production #{production} for equation emission: {message}"
+            ),
+            Self::EquationExistentials { variables } => write!(
+                formatter,
+                "cannot encode equations with existential variables: {}",
+                variables.join(", ")
             ),
             Self::UnsupportedRuleKind { kind } => {
                 write!(formatter, "KORE emission for {kind} is not implemented yet")
@@ -338,8 +365,8 @@ pub fn declaration_modules_from_resolved(
 
 /// Emit declarations plus the ordinary semantic rules and local claims of one module.
 ///
-/// Function equations, simplification rules, macros, `owise`, and reachability modes have
-/// distinct Java encodings and are rejected until their dedicated branches are implemented.
+/// Macros, `owise`, and reachability modes have distinct Java encodings and are rejected until
+/// their dedicated branches are implemented.
 pub fn module_to_kore(
     definition: &KDefinition,
     module: &str,
@@ -365,31 +392,36 @@ pub fn module_to_kore_from_resolved(
     let converter = TermConverter::new(definition, module)?;
 
     for (_, rule) in rules.sorted_rules() {
-        reject_specialized_rule(rule, &productions)?;
+        reject_specialized_rule(rule)?;
         modules.semantics.sentences.push(emit_rule_or_claim(
-            rule, false, &valued, &injector, &converter,
+            rule,
+            false,
+            &valued,
+            &productions,
+            &injector,
+            &converter,
         )?);
     }
     for (_, claim) in rules.local_claims() {
-        reject_specialized_rule(claim, &productions)?;
+        reject_specialized_rule(claim)?;
         modules.semantics.sentences.push(emit_rule_or_claim(
-            claim, true, &valued, &injector, &converter,
+            claim,
+            true,
+            &valued,
+            &productions,
+            &injector,
+            &converter,
         )?);
     }
     Ok(modules)
 }
 
-fn reject_specialized_rule(
-    sentence: &Sentence,
-    productions: &ProductionCatalog<'_>,
-) -> Result<(), ModuleToKoreError> {
+fn reject_specialized_rule(sentence: &Sentence) -> Result<(), ModuleToKoreError> {
     for attribute in [
         "macro",
         "macro-rec",
         "alias",
         "alias-rec",
-        "simplification",
-        "anywhere",
         "owise",
         "one-path",
         "all-path",
@@ -401,24 +433,6 @@ fn reject_specialized_rule(
         }
     }
 
-    let body = match sentence {
-        Sentence::Rule { body, .. } | Sentence::Claim { body, .. } => body,
-        _ => return Ok(()),
-    };
-    let left = match body.unannotated() {
-        Term::Rewrite { left, .. } => left,
-        _ => body,
-    };
-    let left = peel_alias(left);
-    if let Term::Apply { label, .. } = left.unannotated()
-        && productions
-            .function_labels()
-            .contains(&LabelHead::from(label))
-    {
-        return Err(ModuleToKoreError::UnsupportedRuleKind {
-            kind: format!("function equation for {}", label.name),
-        });
-    }
     Ok(())
 }
 
@@ -433,6 +447,7 @@ fn emit_rule_or_claim(
     sentence: &Sentence,
     claim: bool,
     valued: &BTreeSet<String>,
+    productions: &ProductionCatalog<'_>,
     injector: &SortInjector<'_>,
     converter: &TermConverter<'_>,
 ) -> Result<KoreSentence, ModuleToKoreError> {
@@ -460,11 +475,22 @@ fn emit_rule_or_claim(
             return Err(ModuleToKoreError::ExpectedRewrite { sentence: "rule" });
         }
     };
+    let existentials = existential_variables(right, ensures, converter)?;
+    let equation = equation_info(left, attributes, productions)?;
+    if equation.is_some() && !existentials.is_empty() {
+        return Err(ModuleToKoreError::EquationExistentials {
+            variables: existential_names(right, ensures),
+        });
+    }
+    if let Some(equation) = equation {
+        return emit_equation(
+            equation, left, right, requires, ensures, attributes, claim, valued, converter,
+        );
+    }
     if !claim && body_sort != Sort::new("GeneratedTopCell") {
         return Err(ModuleToKoreError::ExpectedGeneratedTopCell { actual: body_sort });
     }
     let result_sort = encode_kore_sort(&body_sort);
-    let existentials = existential_variables(right, ensures, converter)?;
     let left = converter.convert(left)?;
     let right = converter.convert(right)?;
     let requires = side_condition(requires, &result_sort, converter)?;
@@ -512,6 +538,269 @@ fn emit_rule_or_claim(
             pattern: Box::new(pattern),
             attributes,
         }
+    })
+}
+
+#[derive(Clone, Debug)]
+struct EquationInfo<'a> {
+    label: &'a Label,
+    children: &'a [Term],
+    argument_sorts: Vec<Sort>,
+    result_sort: Sort,
+    direct: bool,
+}
+
+fn equation_info<'a>(
+    left: &'a Term,
+    attributes: &KAttributes,
+    productions: &ProductionCatalog<'_>,
+) -> Result<Option<EquationInfo<'a>>, ModuleToKoreError> {
+    let application = peel_alias(left);
+    let Term::Apply { label, arguments } = application.unannotated() else {
+        return Ok(None);
+    };
+    let production = resolve_equation_production(application, label, productions)?;
+    let Sentence::Production {
+        parameters,
+        sort,
+        items,
+        attributes: production_attributes,
+        ..
+    } = production
+    else {
+        unreachable!("production catalogs contain productions")
+    };
+    let simplification = attributes.get("simplification").is_some();
+    let anywhere = attributes.get("anywhere").is_some();
+    if production_attributes.get("function").is_none() && !simplification && !anywhere {
+        return Ok(None);
+    }
+    let substitution = parameters
+        .iter()
+        .cloned()
+        .zip(label.parameters.iter().cloned())
+        .collect::<BTreeMap<_, _>>();
+    let argument_sorts = items
+        .iter()
+        .filter_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => {
+                Some(substitute_equation_sort(sort, &substitution))
+            }
+            ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
+        })
+        .collect::<Vec<_>>();
+    if argument_sorts.len() != arguments.len() {
+        return Err(ModuleToKoreError::InvalidEquationProduction {
+            production: application
+                .metadata()
+                .and_then(|metadata| metadata.production)
+                .map_or(0, |id| id.0),
+            message: format!(
+                "expected {} arguments but the equation has {}",
+                argument_sorts.len(),
+                arguments.len()
+            ),
+        });
+    }
+    Ok(Some(EquationInfo {
+        label,
+        children: arguments,
+        argument_sorts,
+        result_sort: substitute_equation_sort(sort, &substitution),
+        direct: simplification,
+    }))
+}
+
+fn resolve_equation_production<'a>(
+    application: &Term,
+    label: &Label,
+    productions: &ProductionCatalog<'a>,
+) -> Result<&'a Sentence, ModuleToKoreError> {
+    if let Some(ResolvedProductionId(index)) = application
+        .metadata()
+        .and_then(|metadata| metadata.production)
+    {
+        if index >= productions.len() {
+            return Err(ModuleToKoreError::InvalidEquationProduction {
+                production: index,
+                message: "the resolved production is outside this module's catalog".into(),
+            });
+        }
+        let production = productions.production(ProductionId(index));
+        if !matches!(
+            production,
+            Sentence::Production { label: Some(candidate), .. } if candidate.name == label.name
+        ) {
+            return Err(ModuleToKoreError::InvalidEquationProduction {
+                production: index,
+                message: format!("its label does not match {:?}", label.name),
+            });
+        }
+        return Ok(production);
+    }
+    let candidates = productions.productions_for(&LabelHead::from(label));
+    match candidates {
+        [] => Err(ModuleToKoreError::MissingEquationProduction {
+            label: label.name.clone(),
+        }),
+        [id] => Ok(productions.production(*id)),
+        candidates => Err(ModuleToKoreError::AmbiguousEquationProduction {
+            label: label.name.clone(),
+            productions: candidates.len(),
+        }),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_equation(
+    equation: EquationInfo<'_>,
+    left: &Term,
+    right: &Term,
+    requires: &Term,
+    ensures: &Term,
+    attributes: &KAttributes,
+    claim: bool,
+    valued: &BTreeSet<String>,
+    converter: &TermConverter<'_>,
+) -> Result<KoreSentence, ModuleToKoreError> {
+    let parameters = equation_parameters(attributes);
+    let converter = converter.with_sort_variables(parameters.iter().skip(1).cloned());
+    let predicate_sort = KoreSort::Variable("R".into());
+    let result_sort = converter.convert_sort(&equation.result_sort);
+    let requires = side_condition(requires, &predicate_sort, &converter)?;
+    let ensures = side_condition(ensures, &result_sort, &converter)?;
+    let right = Pattern::And {
+        sort: result_sort.clone(),
+        arguments: vec![converter.convert(right)?, ensures],
+    };
+    let equals = if equation.direct || claim {
+        Pattern::Equals {
+            operand_sort: result_sort,
+            result_sort: predicate_sort.clone(),
+            left: Box::new(converter.convert(left)?),
+            right: Box::new(right),
+        }
+    } else {
+        let variables = equation
+            .argument_sorts
+            .iter()
+            .enumerate()
+            .map(|(index, sort)| Variable {
+                kind: VariableKind::Element,
+                name: format!("X{index}"),
+                sort: converter.convert_sort(sort),
+            })
+            .collect::<Vec<_>>();
+        let application = Pattern::Application {
+            symbol: converter.convert_label(equation.label),
+            arguments: variables.iter().cloned().map(Pattern::Variable).collect(),
+        };
+        let mut matches = Pattern::Top {
+            sort: predicate_sort.clone(),
+        };
+        for ((variable, child), sort) in variables
+            .iter()
+            .zip(equation.children)
+            .zip(&equation.argument_sorts)
+            .rev()
+        {
+            matches = Pattern::And {
+                sort: predicate_sort.clone(),
+                arguments: vec![
+                    Pattern::In {
+                        operand_sort: converter.convert_sort(sort),
+                        result_sort: predicate_sort.clone(),
+                        left: Box::new(Pattern::Variable(variable.clone())),
+                        right: Box::new(converter.convert(child)?),
+                    },
+                    matches,
+                ],
+            };
+        }
+        return equation_sentence(
+            claim,
+            Pattern::Implies {
+                sort: predicate_sort.clone(),
+                left: Box::new(Pattern::And {
+                    sort: predicate_sort.clone(),
+                    arguments: vec![requires, matches],
+                }),
+                right: Box::new(Pattern::Equals {
+                    operand_sort: result_sort,
+                    result_sort: predicate_sort,
+                    left: Box::new(application),
+                    right: Box::new(right),
+                }),
+            },
+            attributes,
+            valued,
+            parameters,
+        );
+    };
+    equation_sentence(
+        claim,
+        Pattern::Implies {
+            sort: predicate_sort,
+            left: Box::new(requires),
+            right: Box::new(equals),
+        },
+        attributes,
+        valued,
+        parameters,
+    )
+}
+
+fn equation_sentence(
+    claim: bool,
+    pattern: Pattern,
+    attributes: &KAttributes,
+    valued: &BTreeSet<String>,
+    parameters: Vec<String>,
+) -> Result<KoreSentence, ModuleToKoreError> {
+    let attributes = emit_attributes(attributes.entries(), valued, &BTreeMap::new());
+    Ok(if claim {
+        KoreSentence::Claim {
+            parameters,
+            pattern: Box::new(pattern),
+            attributes,
+        }
+    } else {
+        KoreSentence::Axiom {
+            parameters,
+            pattern: Box::new(pattern),
+            attributes,
+        }
+    })
+}
+
+fn equation_parameters(attributes: &KAttributes) -> Vec<String> {
+    let mut parameters = vec!["R".into()];
+    let Some(sort_parameters) = attributes
+        .get("sortParams")
+        .and_then(Value::as_object)
+        .and_then(|sort| sort.get("params"))
+        .and_then(Value::as_array)
+    else {
+        return parameters;
+    };
+    parameters.extend(sort_parameters.iter().filter_map(|sort| {
+        sort.as_object()
+            .and_then(|sort| sort.get("name"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    }));
+    parameters
+}
+
+fn substitute_equation_sort(sort: &Sort, substitution: &BTreeMap<Sort, Sort>) -> Sort {
+    substitution.get(sort).cloned().unwrap_or_else(|| {
+        Sort::with_parameters(
+            &sort.name,
+            sort.parameters
+                .iter()
+                .map(|parameter| substitute_equation_sort(parameter, substitution))
+                .collect(),
+        )
     })
 }
 
@@ -566,6 +855,20 @@ fn existential_variables(
             _ => unreachable!("collected terms are variables"),
         })
         .collect()
+}
+
+fn existential_names(right: &Term, ensures: &Term) -> Vec<String> {
+    let mut names = BTreeSet::new();
+    for root in [right, ensures] {
+        root.visit_preorder(&mut |term| {
+            if let Term::Variable { name, .. } = term.unannotated()
+                && name.starts_with('?')
+            {
+                names.insert(name.clone());
+            }
+        });
+    }
+    names.into_iter().collect()
 }
 
 fn sort_declarations(
@@ -915,6 +1218,9 @@ fn valued_attributes(sentences: &[&Sentence]) -> BTreeSet<String> {
     if valued.contains("token") {
         valued.remove("hasDomainValues");
     }
+    // Java uses this typed attribute to declare axiom sort variables, but emits the
+    // attribute marker itself without serializing its internal `KSort` value.
+    valued.remove("sortParams");
     valued
 }
 
@@ -1046,6 +1352,7 @@ fn should_emit(key: &str) -> bool {
             | "priorities"
             | "right"
             | "symbol-overload"
+            | "sortParams"
             | "terminals"
             | "UNIQUE_ID"
             | LOCATION_ATTRIBUTE
@@ -1190,4 +1497,52 @@ fn mnemonic(unit: u16) -> Option<&'static str> {
         0x7e => "Tild",
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn equation_sort_parameters_are_declared_but_not_serialized_as_attribute_values() {
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "sortParams".into(),
+            json!({
+                "node": "KSort",
+                "name": "#SortParam",
+                "params": [
+                    { "node": "KSort", "name": "Q0", "params": [] },
+                    { "node": "KSort", "name": "Q1", "params": [] }
+                ]
+            }),
+        );
+        let attributes = KAttributes::new(entries);
+        assert_eq!(equation_parameters(&attributes), ["R", "Q0", "Q1"]);
+
+        let truth = Term::Token {
+            token: "true".into(),
+            sort: Sort::new("Bool"),
+        };
+        let sentence = Sentence::Claim {
+            body: truth.clone(),
+            requires: truth.clone(),
+            ensures: truth,
+            attributes: attributes.clone(),
+        };
+        let valued = valued_attributes(&[&sentence]);
+        assert!(!valued.contains("sortParams"));
+        assert_eq!(
+            emit_attributes(attributes.entries(), &valued, &BTreeMap::new()),
+            Attributes(vec![Pattern::Application {
+                symbol: Symbol {
+                    name: "sortParams".into(),
+                    sort_parameters: Vec::new(),
+                },
+                arguments: Vec::new(),
+            }])
+        );
+    }
 }

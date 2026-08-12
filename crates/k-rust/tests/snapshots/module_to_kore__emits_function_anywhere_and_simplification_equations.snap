@@ -1,0 +1,205 @@
+---
+source: crates/k-rust/tests/module_to_kore.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Int\n  syntax Exp ::= Exp \"+\" Exp [symbol(_+_)]\n  syntax Exp ::= \"inc(\" Exp \")\" [function, symbol(inc)]\n  syntax Exp ::= \"double(\" Exp \")\" [symbol(double)]\n  syntax Bool ::= Exp \"==\" Exp [function, symbol(eq)]\n\n  rule inc(X:Exp + 0) => X:Exp\n    requires X:Exp == 1\n    ensures X:Exp == 2\n    [label(eval-inc)]\n\n  rule X:Exp + 0 => X:Exp\n    [simplification, label(plus-zero)]\n\n  rule double(X:Exp + 0) => double(X:Exp)\n    [anywhere, label(double-zero)]\n\n  claim inc(X:Exp) => X:Exp\n    [label(inc-claim)]\nendmodule\n"
+---
+// semantics
+module MAIN
+  import K []
+  sort SortBool{} []
+  sort SortExp{} []
+  sort SortInt{} [hasDomainValues{}()]
+  symbol Lbl'UndsPlusUnds'{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,43)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("_+_")
+  ]
+  symbol Lbldouble{}(SortExp{}) : SortExp{}
+  [
+    anywhere{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,18,6,52)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("double")
+  ]
+  symbol Lbleq{}(SortExp{}, SortExp{}) : SortBool{}
+  [
+    function{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,19,7,54)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("eq")
+  ]
+  symbol Lblinc{}(SortExp{}) : SortExp{}
+  [
+    function{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,56)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("inc")
+  ]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{SortExp{}, R}(
+        Lbl'UndsPlusUnds'{}(
+          Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+          inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))
+        ),
+        \and{SortExp{}}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}), \top{SortExp{}}())
+      )
+    )
+    [
+      label{}("plus-zero"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,3,15,39)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortExp{}, R}(
+            X0:SortExp{},
+            Lbl'UndsPlusUnds'{}(
+              Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+              inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortExp{}, R}(
+        Lbldouble{}(X0:SortExp{}),
+        \and{SortExp{}}(
+          Lbldouble{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
+          \top{SortExp{}}()
+        )
+      )
+    )
+    [
+      anywhere{}(),
+      label{}("double-zero"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,3,18,35)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \equals{SortBool{}, R}(
+          Lbleq{}(
+            Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+            inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("1"))
+          ),
+          \dv{SortBool{}}("true")
+        ),
+        \and{R}(
+          \in{SortExp{}, R}(
+            X0:SortExp{},
+            Lbl'UndsPlusUnds'{}(
+              Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+              inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortExp{}, R}(
+        Lblinc{}(X0:SortExp{}),
+        \and{SortExp{}}(
+          Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+          \equals{SortBool{}, SortExp{}}(
+            Lbleq{}(
+              Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+              inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("2"))
+            ),
+            \dv{SortBool{}}("true")
+          )
+        )
+      )
+    )
+    [
+      label{}("eval-inc"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,3,12,22)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    ]
+  claim{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{SortExp{}, R}(
+        Lblinc{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
+        \and{SortExp{}}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}), \top{SortExp{}}())
+      )
+    )
+    [
+      label{}("inc-claim"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,3,21,23)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    ]
+endmodule [
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,22,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+]
+
+// syntax
+module MAIN
+  import K []
+  sort SortBool{} []
+  sort SortExp{} []
+  sort SortInt{} [hasDomainValues{}()]
+  symbol Lbl'UndsPlusUnds'{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,43)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("_+_"),
+    terminals{}("010")
+  ]
+  symbol Lbldouble{}(SortExp{}) : SortExp{}
+  [
+    anywhere{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,18,6,52)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("double"),
+    terminals{}("101")
+  ]
+  symbol Lbleq{}(SortExp{}, SortExp{}) : SortBool{}
+  [
+    format{}(),
+    function{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,19,7,54)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("eq"),
+    terminals{}("010")
+  ]
+  symbol Lblinc{}(SortExp{}) : SortExp{}
+  [
+    format{}(),
+    function{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,56)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("inc"),
+    terminals{}("101")
+  ]
+endmodule []
