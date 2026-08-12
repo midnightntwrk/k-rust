@@ -25,6 +25,12 @@ module MAIN
     org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
     symbol'Kywd'{}("top")
   ]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, inj{SortInt{}, SortExp{}}(From:SortInt{}))
+    )
+    [subsort{SortInt{}, SortExp{}}()]
   claim{}
     \implies{SortGeneratedTopCell{}}(
       \and{SortGeneratedTopCell{}}(
@@ -135,6 +141,12 @@ module MAIN
     symbol'Kywd'{}("top"),
     terminals{}("101")
   ]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, inj{SortInt{}, SortExp{}}(From:SortInt{}))
+    )
+    [subsort{SortInt{}, SortExp{}}()]
 endmodule []
 
 // macros

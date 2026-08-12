@@ -41,6 +41,12 @@ module MAIN
     symbol'Kywd'{}("inc")
   ]
   axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, inj{SortInt{}, SortExp{}}(From:SortInt{}))
+    )
+    [subsort{SortInt{}, SortExp{}}()]
+  axiom{R}
     \implies{R}(
       \top{R}(),
       \equals{SortExp{}, R}(
@@ -202,6 +208,12 @@ module MAIN
     symbol'Kywd'{}("inc"),
     terminals{}("101")
   ]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, inj{SortInt{}, SortExp{}}(From:SortInt{}))
+    )
+    [subsort{SortInt{}, SortExp{}}()]
 endmodule []
 
 // macros

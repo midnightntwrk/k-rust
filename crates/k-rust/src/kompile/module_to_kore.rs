@@ -9,9 +9,9 @@ use serde_json::Value;
 
 use crate::definition::{
     AssociativityRelations, Attributes as KAttributes, Definition as KDefinition,
-    LOCATION_ATTRIBUTE, LabelHead, ModuleId, PartialOrder, ProductionCatalog, ProductionId,
-    ProductionItem, RelationError, ResolveError, ResolvedDefinition, SOURCE_ATTRIBUTE, Sentence,
-    SortCatalog, SortHead, match_rule_label,
+    LOCATION_ATTRIBUTE, LabelHead, ModuleId, OverloadOrder, PartialOrder, ProductionCatalog,
+    ProductionId, ProductionItem, RelationError, ResolveError, ResolvedDefinition,
+    SOURCE_ATTRIBUTE, Sentence, SortCatalog, SortHead, match_rule_label,
 };
 use crate::kast::{Label, ResolvedProductionId, Sort, Term};
 use crate::kore::ast::{
@@ -149,6 +149,7 @@ pub enum ModuleToKoreError {
     MissingEquationProduction { label: String },
     AmbiguousEquationProduction { label: String, productions: usize },
     InvalidEquationProduction { production: usize, message: String },
+    InvalidOverloadProduction { production: usize, message: String },
     EquationExistentials { variables: Vec<String> },
     UnsupportedRuleKind { kind: String },
 }
@@ -182,6 +183,13 @@ impl fmt::Display for ModuleToKoreError {
             } => write!(
                 formatter,
                 "cannot use production #{production} for equation emission: {message}"
+            ),
+            Self::InvalidOverloadProduction {
+                production,
+                message,
+            } => write!(
+                formatter,
+                "cannot use production #{production} for overload axiom emission: {message}"
             ),
             Self::EquationExistentials { variables } => write!(
                 formatter,
@@ -403,6 +411,9 @@ pub fn module_to_kore_from_resolved(
     let valued = valued_attributes(&visible);
     let rules = definition.rule_catalog(module_id);
     let productions = definition.production_catalog(module_id);
+    let overloads = definition
+        .overloads(module_id)
+        .map_err(DeclarationError::Relations)?;
     let injector = SortInjector::new(definition, module)?;
     let converter = TermConverter::new(definition, module)?;
     let default_reachability = reachability_mode(&definition.module(module_id).attributes);
@@ -410,6 +421,13 @@ pub fn module_to_kore_from_resolved(
         .sorted_rules()
         .map(|(_, rule)| propagate_macro_attribute(rule, &productions))
         .collect::<Vec<_>>();
+
+    let coercion_axioms = generated_coercion_axioms(&productions, &overloads)?;
+    modules
+        .semantics
+        .sentences
+        .extend(coercion_axioms.iter().cloned());
+    modules.syntax.sentences.extend(coercion_axioms);
 
     for rule in &sorted_rules {
         let emitted = emit_rule_or_claim(
@@ -446,6 +464,218 @@ pub fn module_to_kore_from_resolved(
         )?);
     }
     Ok(modules)
+}
+
+fn generated_coercion_axioms(
+    productions: &ProductionCatalog<'_>,
+    overloads: &OverloadOrder<'_>,
+) -> Result<Vec<KoreSentence>, ModuleToKoreError> {
+    let mut axioms = productions
+        .sorted_productions()
+        .filter_map(|(_, production)| subsort_axiom(production))
+        .collect::<Vec<_>>();
+
+    for (lesser, _) in overloads.catalog().sorted_productions() {
+        let Some(greater_productions) = overloads.order().relations_from(&lesser) else {
+            continue;
+        };
+        for (greater, _) in overloads.catalog().sorted_productions() {
+            if greater_productions.contains(&greater) {
+                axioms.push(overload_axiom(overloads, lesser, greater)?);
+            }
+        }
+    }
+    Ok(axioms)
+}
+
+fn subsort_axiom(production: &Sentence) -> Option<KoreSentence> {
+    let Sentence::Production {
+        label: None,
+        parameters,
+        sort,
+        items,
+        ..
+    } = production
+    else {
+        return None;
+    };
+    let [ProductionItem::NonTerminal { sort: subsort, .. }] = items.as_slice() else {
+        return None;
+    };
+    if sort.name == "K" {
+        return None;
+    }
+
+    let subsort = encode_kore_sort_with_formals(subsort, parameters);
+    let sort = encode_kore_sort_with_formals(sort, parameters);
+    let value = Variable {
+        kind: VariableKind::Element,
+        name: "Val".into(),
+        sort: sort.clone(),
+    };
+    let from = Variable {
+        kind: VariableKind::Element,
+        name: "From".into(),
+        sort: subsort.clone(),
+    };
+    let injection = Pattern::Application {
+        symbol: Symbol {
+            name: "inj".into(),
+            sort_parameters: vec![subsort.clone(), sort.clone()],
+        },
+        arguments: vec![Pattern::Variable(from)],
+    };
+    Some(KoreSentence::Axiom {
+        parameters: vec!["R".into()],
+        pattern: Box::new(Pattern::Exists {
+            sort: KoreSort::Variable("R".into()),
+            variable: value.clone(),
+            body: Box::new(Pattern::Equals {
+                operand_sort: sort.clone(),
+                result_sort: KoreSort::Variable("R".into()),
+                left: Box::new(Pattern::Variable(value)),
+                right: Box::new(injection),
+            }),
+        }),
+        attributes: Attributes(vec![Pattern::Application {
+            symbol: Symbol {
+                name: "subsort".into(),
+                sort_parameters: vec![subsort, sort],
+            },
+            arguments: Vec::new(),
+        }]),
+    })
+}
+
+fn overload_axiom(
+    overloads: &OverloadOrder<'_>,
+    lesser_id: ProductionId,
+    greater_id: ProductionId,
+) -> Result<KoreSentence, ModuleToKoreError> {
+    let lesser = overload_production(overloads, lesser_id)?;
+    let greater = overload_production(overloads, greater_id)?;
+    if lesser.arguments.len() != greater.arguments.len() {
+        return Err(ModuleToKoreError::InvalidOverloadProduction {
+            production: lesser_id.0,
+            message: format!(
+                "its arity {} does not match production #{} with arity {}",
+                lesser.arguments.len(),
+                greater_id.0,
+                greater.arguments.len()
+            ),
+        });
+    }
+
+    let variables = lesser
+        .arguments
+        .iter()
+        .enumerate()
+        .map(|(index, sort)| Variable {
+            kind: VariableKind::Element,
+            name: format!("K{index}"),
+            sort: sort.clone(),
+        })
+        .collect::<Vec<_>>();
+    let greater_arguments = variables
+        .iter()
+        .zip(&lesser.arguments)
+        .zip(&greater.arguments)
+        .map(|((variable, lesser_sort), greater_sort)| {
+            inject_if_needed(
+                Pattern::Variable(variable.clone()),
+                lesser_sort,
+                greater_sort,
+            )
+        })
+        .collect();
+    let lesser_application = Pattern::Application {
+        symbol: lesser.symbol.clone(),
+        arguments: variables.into_iter().map(Pattern::Variable).collect(),
+    };
+    let right = inject_if_needed(lesser_application, &lesser.result, &greater.result);
+    Ok(KoreSentence::Axiom {
+        parameters: vec!["R".into()],
+        pattern: Box::new(Pattern::Equals {
+            operand_sort: greater.result,
+            result_sort: KoreSort::Variable("R".into()),
+            left: Box::new(Pattern::Application {
+                symbol: greater.symbol.clone(),
+                arguments: greater_arguments,
+            }),
+            right: Box::new(right),
+        }),
+        attributes: Attributes(vec![Pattern::Application {
+            symbol: Symbol {
+                name: "symbol-overload".into(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: vec![
+                Pattern::Application {
+                    symbol: greater.symbol,
+                    arguments: Vec::new(),
+                },
+                Pattern::Application {
+                    symbol: lesser.symbol,
+                    arguments: Vec::new(),
+                },
+            ],
+        }]),
+    })
+}
+
+struct OverloadProduction {
+    symbol: Symbol,
+    arguments: Vec<KoreSort>,
+    result: KoreSort,
+}
+
+fn overload_production(
+    overloads: &OverloadOrder<'_>,
+    id: ProductionId,
+) -> Result<OverloadProduction, ModuleToKoreError> {
+    let Sentence::Production {
+        label,
+        parameters,
+        sort,
+        items,
+        ..
+    } = overloads.production(id)
+    else {
+        unreachable!("overload catalogs contain productions")
+    };
+    let Some(label) = label else {
+        return Err(ModuleToKoreError::InvalidOverloadProduction {
+            production: id.0,
+            message: "the production has no symbol label".into(),
+        });
+    };
+    Ok(OverloadProduction {
+        symbol: encode_kore_label_with_formals(label, parameters),
+        arguments: items
+            .iter()
+            .filter_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => {
+                    Some(encode_kore_sort_with_formals(sort, parameters))
+                }
+                ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
+            })
+            .collect(),
+        result: encode_kore_sort_with_formals(sort, parameters),
+    })
+}
+
+fn inject_if_needed(pattern: Pattern, from: &KoreSort, to: &KoreSort) -> Pattern {
+    if from == to {
+        pattern
+    } else {
+        Pattern::Application {
+            symbol: Symbol {
+                name: "inj".into(),
+                sort_parameters: vec![from.clone(), to.clone()],
+            },
+            arguments: vec![pattern],
+        }
+    }
 }
 
 fn reachability_mode(attributes: &KAttributes) -> Option<ReachabilityMode> {

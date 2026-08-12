@@ -277,6 +277,29 @@ module_snapshot!(
     "MAIN"
 );
 
+module_snapshot!(
+    emits_subsort_and_overload_axioms,
+    r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Number ::= Int
+          syntax Value ::= Number
+          syntax K ::= Value
+
+          syntax Int ::= "narrow(" Int ")" [overload(project), symbol(narrow)]
+          syntax Number ::= "wide(" Number ")" [overload(project), symbol(wide)]
+          syntax Value ::= "widest(" Value ")" [overload(project), symbol(widest)]
+
+          syntax Value ::= "asInt(" Int ")" [overload(view), symbol(asInt)]
+          syntax Value ::= "asNumber(" Number ")" [overload(view), symbol(asNumber)]
+
+          syntax Int ::= "fromInt(" Int ")" [overload(promote), symbol(fromInt)]
+          syntax Number ::= "fromNumber(" Int ")" [overload(promote), symbol(fromNumber)]
+        endmodule
+    "#,
+    "MAIN"
+);
+
 #[test]
 fn rejects_non_top_cell_semantic_rules() {
     let source = indoc! {r#"
