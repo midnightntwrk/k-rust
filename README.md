@@ -139,7 +139,9 @@ sequence. Macro, recursive-macro, alias, and recursive-alias rules are emitted a
 standalone `macros.kore` sentence list rather than the runtime semantics module. Production macro
 attributes propagate to their rules except for simplification rules, matching Java. The complete
 semantic and syntax modules and every standalone macro sentence round-trip through the KORE parser
-in source-driven snapshot tests.
+in source-driven snapshot tests. One-path and all-path reachability claims wrap their fully
+quantified RHS with `weakExistsFinally` and `weakAlwaysFinally`; claim attributes override the
+module-level default exactly as in Java.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -180,9 +182,9 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
   the compilation passes.
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete sort parameters normally supplied by parser inference.
-- Complete `ModuleToKORE` beyond ordinary rewrites, claims, equations, and macro axioms: emit
-  reachability modes and priority aliases; propagate impure-function dependencies; and reproduce
-  Java's generated axioms.
+- Complete `ModuleToKORE` beyond ordinary rewrites, reachability claims, equations, and macro
+  axioms: emit priority aliases, propagate impure-function dependencies, and reproduce Java's
+  generated axioms.
 - Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.
 - Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
   auto-imported prelude policy alongside the future command-line frontend.

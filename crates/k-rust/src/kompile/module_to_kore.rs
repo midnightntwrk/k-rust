@@ -73,6 +73,12 @@ pub struct DeclarationModules {
     pub macros: Vec<KoreSentence>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReachabilityMode {
+    OnePath,
+    AllPath,
+}
+
 #[derive(Clone, Debug, Default)]
 struct SyntaxRelations {
     priorities: BTreeMap<String, Vec<Pattern>>,
@@ -369,8 +375,8 @@ pub fn declaration_modules_from_resolved(
 
 /// Emit declarations plus the ordinary semantic rules and local claims of one module.
 ///
-/// Reachability modes have distinct Java encodings and are rejected until their dedicated branch
-/// is implemented. Macro and alias rules are routed to the standalone `macros.kore` sentence list.
+/// Reachability claims use Java's `weakExistsFinally` and `weakAlwaysFinally` wrappers. Macro and
+/// alias rules are routed to the standalone `macros.kore` sentence list.
 pub fn module_to_kore(
     definition: &KDefinition,
     module: &str,
@@ -394,13 +400,13 @@ pub fn module_to_kore_from_resolved(
     let productions = definition.production_catalog(module_id);
     let injector = SortInjector::new(definition, module)?;
     let converter = TermConverter::new(definition, module)?;
+    let default_reachability = reachability_mode(&definition.module(module_id).attributes);
     let sorted_rules = rules
         .sorted_rules()
         .map(|(_, rule)| propagate_macro_attribute(rule, &productions))
         .collect::<Vec<_>>();
 
     for rule in &sorted_rules {
-        reject_specialized_rule(rule)?;
         let emitted = emit_rule_or_claim(
             rule,
             false,
@@ -409,6 +415,7 @@ pub fn module_to_kore_from_resolved(
             &injector,
             &converter,
             &sorted_rules,
+            default_reachability,
         )?;
         if is_macro_rule(rule) {
             modules.macros.push(emitted);
@@ -417,7 +424,6 @@ pub fn module_to_kore_from_resolved(
         }
     }
     for (_, claim) in rules.local_claims() {
-        reject_specialized_rule(claim)?;
         if is_macro_rule(claim) {
             return Err(ModuleToKoreError::UnsupportedRuleKind {
                 kind: "macro claim".into(),
@@ -431,21 +437,20 @@ pub fn module_to_kore_from_resolved(
             &injector,
             &converter,
             &sorted_rules,
+            default_reachability,
         )?);
     }
     Ok(modules)
 }
 
-fn reject_specialized_rule(sentence: &Sentence) -> Result<(), ModuleToKoreError> {
-    for attribute in ["one-path", "all-path"] {
-        if sentence.attributes().get(attribute).is_some() {
-            return Err(ModuleToKoreError::UnsupportedRuleKind {
-                kind: format!("{attribute} rule or claim"),
-            });
-        }
+fn reachability_mode(attributes: &KAttributes) -> Option<ReachabilityMode> {
+    if attributes.get("one-path").is_some() {
+        Some(ReachabilityMode::OnePath)
+    } else if attributes.get("all-path").is_some() {
+        Some(ReachabilityMode::AllPath)
+    } else {
+        None
     }
-
-    Ok(())
 }
 
 fn is_macro_rule(sentence: &Sentence) -> bool {
@@ -508,6 +513,7 @@ fn peel_alias(mut term: &Term) -> &Term {
     term
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_rule_or_claim(
     sentence: &Sentence,
     claim: bool,
@@ -516,6 +522,7 @@ fn emit_rule_or_claim(
     injector: &SortInjector<'_>,
     converter: &TermConverter<'_>,
     sorted_rules: &[Sentence],
+    default_reachability: Option<ReachabilityMode>,
 ) -> Result<KoreSentence, ModuleToKoreError> {
     let injected = injector.inject_sentence(sentence)?;
     let (body, requires, ensures, attributes) = match &injected {
@@ -589,6 +596,19 @@ fn emit_rule_or_claim(
             sort: result_sort.clone(),
             variable,
             body: Box::new(right),
+        };
+    }
+    if let Some(mode) = reachability_mode(attributes).or(default_reachability) {
+        right = Pattern::Application {
+            symbol: Symbol {
+                name: match mode {
+                    ReachabilityMode::OnePath => "weakExistsFinally",
+                    ReachabilityMode::AllPath => "weakAlwaysFinally",
+                }
+                .into(),
+                sort_parameters: vec![result_sort.clone()],
+            },
+            arguments: vec![right],
         };
     }
     let pattern = if claim {
@@ -1713,6 +1733,7 @@ fn should_emit(key: &str) -> bool {
         key,
         "alias"
             | "alias-rec"
+            | "all-path"
             | "anywhere"
             | "assoc"
             | "binder"
@@ -1742,6 +1763,7 @@ fn should_emit(key: &str) -> bool {
             | "memo"
             | "non-executable"
             | "no-evaluators"
+            | "one-path"
             | "owise"
             | "preserves-definedness"
             | "priority"

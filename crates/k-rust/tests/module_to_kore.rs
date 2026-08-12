@@ -223,6 +223,30 @@ module_snapshot!(
     "MAIN"
 );
 
+module_snapshot!(
+    emits_one_path_and_all_path_reachability_claims,
+    r#"
+        module MAIN [all-path]
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= Int
+          syntax Bool ::= Exp "==" Exp [function, symbol(eq)]
+          syntax GeneratedTopCell ::= "<top>" Exp "</top>" [symbol(top)]
+
+          claim <top> X:Exp </top> => <top> ?Y:Exp </top>
+            requires X:Exp == 0
+            ensures ?Y:Exp == X:Exp
+            [one-path, label(one-step)]
+
+          claim <top> X:Exp </top> => <top> X:Exp </top>
+            [all-path, label(all-step)]
+
+          claim <top> X:Exp </top> => <top> X:Exp </top>
+            [label(module-default)]
+        endmodule
+    "#,
+    "MAIN"
+);
+
 #[test]
 fn rejects_non_top_cell_semantic_rules() {
     let source = indoc! {r#"
