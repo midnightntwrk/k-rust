@@ -1,0 +1,177 @@
+---
+source: crates/k-rust/tests/module_to_kore.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= \"zero\" [symbol(zero)]\n  syntax Exp ::= \"pair(\" Exp \",\" Exp \")\" [symbol(pair)]\n  syntax Exp ::= \"partial(\" Exp \")\" [function, symbol(partial)]\n  syntax Exp ::= \"total(\" Exp \")\" [function, symbol(total), total]\n\n  syntax {S} Box{S}\n  syntax {S} Box{S} ::= \"box(\" S \")\" [symbol(box)]\nendmodule\n"
+---
+// semantics
+module MAIN
+  import K []
+  sort SortBox{SortS0}
+  [
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,8,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  ]
+  sort SortExp{} []
+  symbol Lblbox{SortS}(SortS) : SortBox{SortS}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,25,8,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("box")
+  ]
+  symbol Lblpair{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,56)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("pair")
+  ]
+  symbol Lblpartial{}(SortExp{}) : SortExp{}
+  [
+    function{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,64)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("partial")
+  ]
+  symbol Lbltotal{}(SortExp{}) : SortExp{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,67)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("total"),
+    total{}()
+  ]
+  symbol Lblzero{}() : SortExp{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,39)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("zero")
+  ]
+  axiom{R, SortS}
+    \exists{R}(
+      Val:SortBox{SortS},
+      \equals{SortBox{SortS}, R}(Val:SortBox{SortS}, Lblbox{SortS}(K0:SortS))
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, Lblpair{}(K0:SortExp{}, K1:SortExp{}))
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lbltotal{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblzero{}()))
+    [functional{}()]
+endmodule [
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,9,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+]
+
+// syntax
+module MAIN
+  import K []
+  sort SortBox{SortS0}
+  [
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,8,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  ]
+  sort SortExp{} []
+  symbol Lblbox{SortS}(SortS) : SortBox{SortS}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,25,8,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("box"),
+    terminals{}("101")
+  ]
+  symbol Lblpair{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,56)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("pair"),
+    terminals{}("10101")
+  ]
+  symbol Lblpartial{}(SortExp{}) : SortExp{}
+  [
+    format{}(),
+    function{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,64)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("partial"),
+    terminals{}("101")
+  ]
+  symbol Lbltotal{}(SortExp{}) : SortExp{}
+  [
+    format{}(),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,67)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("total"),
+    terminals{}("101"),
+    total{}()
+  ]
+  symbol Lblzero{}() : SortExp{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,39)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("zero"),
+    terminals{}("1")
+  ]
+  axiom{R, SortS}
+    \exists{R}(
+      Val:SortBox{SortS},
+      \equals{SortBox{SortS}, R}(Val:SortBox{SortS}, Lblbox{SortS}(K0:SortS))
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, Lblpair{}(K0:SortExp{}, K1:SortExp{}))
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lbltotal{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblzero{}()))
+    [functional{}()]
+endmodule []
+
+// macros

@@ -98,6 +98,21 @@ module MAIN
     symbol'Kywd'{}("usesMacroAnywhere")
   ]
   axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lbldone{}()))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, LblimpureAnywhere{}(K0:SortExp{}))
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, LblmacroAnywhere{}(K0:SortExp{}))
+    )
+    [functional{}()]
+  axiom{R}
     \implies{R}(
       \and{R}(\top{R}(), \top{R}()),
       \equals{SortExp{}, R}(Lblclean{}(), \and{SortExp{}}(Lbldone{}(), \top{SortExp{}}()))
@@ -343,6 +358,21 @@ module MAIN
     symbol'Kywd'{}("usesMacroAnywhere"),
     terminals{}("1")
   ]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lbldone{}()))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, LblimpureAnywhere{}(K0:SortExp{}))
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, LblmacroAnywhere{}(K0:SortExp{}))
+    )
+    [functional{}()]
 endmodule []
 
 // macros

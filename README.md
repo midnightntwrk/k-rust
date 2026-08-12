@@ -145,7 +145,8 @@ module-level default exactly as in Java. Generated coercion axioms cover non-`K`
 and the complete transitive production-overload relation, including argument and result injections,
 in both module views. Production-ordered algebraic axioms cover associativity, idempotency, and both
 unit laws with Java's arity and sort constraints; commutativity remains deliberately disabled to
-match the reference generator.
+match the reference generator. Functional witness axioms are emitted for constructors and total
+functions, including nullary and parametric symbols, while partial functions remain unconstrained.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -187,8 +188,8 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete sort parameters normally supplied by parser inference.
 - Complete `ModuleToKORE` beyond ordinary rewrites, reachability claims, equations, macro axioms,
-  transitive impure-function propagation, coercion axioms, and algebraic axioms: emit legacy
-  priority aliases and reproduce Java's functional, no-confusion, and no-junk axioms. Impurity
+  transitive impure-function propagation, coercion axioms, algebraic axioms, and functional axioms:
+  emit legacy priority aliases and reproduce Java's no-confusion and no-junk axioms. Impurity
   propagation follows function calls in rule bodies and side conditions, including calls to
   non-macro `anywhere` labels, while treating sort injections as transparent.
 - Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.

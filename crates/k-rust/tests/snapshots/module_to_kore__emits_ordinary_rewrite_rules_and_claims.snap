@@ -40,6 +40,18 @@ module MAIN
       \equals{SortExp{}, R}(Val:SortExp{}, inj{SortInt{}, SortExp{}}(From:SortInt{}))
     )
     [subsort{SortInt{}, SortExp{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, Lbl'UndsPlusUnds'{}(K0:SortExp{}, K1:SortExp{}))
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortGeneratedTopCell{},
+      \equals{SortGeneratedTopCell{}, R}(Val:SortGeneratedTopCell{}, Lbltop{}(K0:SortExp{}))
+    )
+    [functional{}()]
   axiom{}
     \rewrites{SortGeneratedTopCell{}}(
       \and{SortGeneratedTopCell{}}(
@@ -179,6 +191,18 @@ module MAIN
       \equals{SortExp{}, R}(Val:SortExp{}, inj{SortInt{}, SortExp{}}(From:SortInt{}))
     )
     [subsort{SortInt{}, SortExp{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, Lbl'UndsPlusUnds'{}(K0:SortExp{}, K1:SortExp{}))
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortGeneratedTopCell{},
+      \equals{SortGeneratedTopCell{}, R}(Val:SortGeneratedTopCell{}, Lbltop{}(K0:SortExp{}))
+    )
+    [functional{}()]
 endmodule []
 
 // macros

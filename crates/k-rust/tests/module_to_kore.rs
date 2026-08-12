@@ -317,6 +317,22 @@ module_snapshot!(
     "MAIN"
 );
 
+module_snapshot!(
+    emits_functional_axioms,
+    r#"
+        module MAIN
+          syntax Exp ::= "zero" [symbol(zero)]
+          syntax Exp ::= "pair(" Exp "," Exp ")" [symbol(pair)]
+          syntax Exp ::= "partial(" Exp ")" [function, symbol(partial)]
+          syntax Exp ::= "total(" Exp ")" [function, symbol(total), total]
+
+          syntax {S} Box{S}
+          syntax {S} Box{S} ::= "box(" S ")" [symbol(box)]
+        endmodule
+    "#,
+    "MAIN"
+);
+
 #[test]
 fn rejects_non_binary_associative_productions() {
     let source = indoc! {r#"

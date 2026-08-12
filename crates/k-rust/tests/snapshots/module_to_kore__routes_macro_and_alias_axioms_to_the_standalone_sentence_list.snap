@@ -72,6 +72,24 @@ module MAIN
     symbol'Kywd'{}("plain")
   ]
   axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblalias'Kywd'{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, LblaliasRec{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lbldone{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblmacro{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, LblmacroRec{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblplain{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
     \implies{R}(
       \top{R}(),
       \equals{SortExp{}, R}(
@@ -193,6 +211,24 @@ module MAIN
     symbol'Kywd'{}("plain"),
     terminals{}("101")
   ]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblalias'Kywd'{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, LblaliasRec{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lbldone{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblmacro{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, LblmacroRec{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblplain{}(K0:SortExp{})))
+    [functional{}()]
 endmodule []
 
 // macros

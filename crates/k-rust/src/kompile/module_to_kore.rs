@@ -512,7 +512,13 @@ fn generated_axioms(
             axioms.push(axiom);
             continue;
         }
+        if is_builtin_production(production) {
+            continue;
+        }
         axioms.extend(algebraic_axioms(id, production, subsorts)?);
+        if let Some(axiom) = functional_axiom(production) {
+            axioms.push(axiom);
+        }
     }
 
     for (lesser, _) in overloads.catalog().sorted_productions() {
@@ -526,6 +532,69 @@ fn generated_axioms(
         }
     }
     Ok(axioms)
+}
+
+fn functional_axiom(production: &Sentence) -> Option<KoreSentence> {
+    let Sentence::Production {
+        label: Some(label),
+        parameters,
+        sort,
+        items,
+        attributes,
+    } = production
+    else {
+        return None;
+    };
+    if attributes.get("function").is_some() && attributes.get("total").is_none() {
+        return None;
+    }
+    let result_sort = encode_kore_sort_with_formals(sort, parameters);
+    let arguments = items
+        .iter()
+        .filter_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => {
+                Some(encode_kore_sort_with_formals(sort, parameters))
+            }
+            ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
+        })
+        .enumerate()
+        .map(|(index, sort)| {
+            Pattern::Variable(Variable {
+                kind: VariableKind::Element,
+                name: format!("K{index}"),
+                sort,
+            })
+        })
+        .collect();
+    let value = Variable {
+        kind: VariableKind::Element,
+        name: "Val".into(),
+        sort: result_sort.clone(),
+    };
+    Some(KoreSentence::Axiom {
+        parameters: generated_axiom_parameters(parameters),
+        pattern: Box::new(Pattern::Exists {
+            sort: KoreSort::Variable("R".into()),
+            variable: value.clone(),
+            body: Box::new(Pattern::Equals {
+                operand_sort: result_sort,
+                result_sort: KoreSort::Variable("R".into()),
+                left: Box::new(Pattern::Variable(value)),
+                right: Box::new(Pattern::Application {
+                    symbol: encode_kore_label_with_formals(label, parameters),
+                    arguments,
+                }),
+            }),
+        }),
+        attributes: marker_attribute("functional"),
+    })
+}
+
+fn is_builtin_production(production: &Sentence) -> bool {
+    matches!(
+        production,
+        Sentence::Production { label: Some(label), .. } if is_builtin_label(&label.name)
+    )
 }
 
 fn algebraic_axioms(

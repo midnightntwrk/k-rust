@@ -60,6 +60,12 @@ module MAIN
   axiom{R}
     \equals{SortExp{}, R}(Lbl'UndsPlusPlusUnds'{}(Lbl'Stop'Exp{}(), K:SortExp{}), K:SortExp{})
     [unit{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, Lbl'UndsTildUnds'{}(K0:SortExp{}, K1:SortExp{}))
+    )
+    [functional{}()]
   axiom{R, SortS}
     \equals{SortBox{SortS}, R}(
       Lblmerge{SortS}(Lblmerge{SortS}(K1:SortBox{SortS}, K2:SortBox{SortS}), K3:SortBox{SortS}),
@@ -72,6 +78,15 @@ module MAIN
       K:SortBox{SortS}
     )
     [idem{}()]
+  axiom{R, SortS}
+    \exists{R}(
+      Val:SortBox{SortS},
+      \equals{SortBox{SortS}, R}(
+        Val:SortBox{SortS},
+        Lblmerge{SortS}(K0:SortBox{SortS}, K1:SortBox{SortS})
+      )
+    )
+    [functional{}()]
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,10,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
@@ -158,6 +173,12 @@ module MAIN
   axiom{R}
     \equals{SortExp{}, R}(Lbl'UndsPlusPlusUnds'{}(Lbl'Stop'Exp{}(), K:SortExp{}), K:SortExp{})
     [unit{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, Lbl'UndsTildUnds'{}(K0:SortExp{}, K1:SortExp{}))
+    )
+    [functional{}()]
   axiom{R, SortS}
     \equals{SortBox{SortS}, R}(
       Lblmerge{SortS}(Lblmerge{SortS}(K1:SortBox{SortS}, K2:SortBox{SortS}), K3:SortBox{SortS}),
@@ -170,6 +191,15 @@ module MAIN
       K:SortBox{SortS}
     )
     [idem{}()]
+  axiom{R, SortS}
+    \exists{R}(
+      Val:SortBox{SortS},
+      \equals{SortBox{SortS}, R}(
+        Val:SortBox{SortS},
+        Lblmerge{SortS}(K0:SortBox{SortS}, K1:SortBox{SortS})
+      )
+    )
+    [functional{}()]
 endmodule []
 
 // macros
