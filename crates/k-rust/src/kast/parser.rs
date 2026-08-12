@@ -29,6 +29,17 @@ pub fn parse_term(input: &str) -> Result<Term, ParseError> {
     Ok(term)
 }
 
+/// Parse one textual K sort, including nested sort parameters.
+pub fn parse_sort(input: &str) -> Result<Sort, ParseError> {
+    let mut parser = Parser { input, cursor: 0 };
+    let sort = parser.sort()?;
+    parser.whitespace();
+    if parser.cursor != input.len() {
+        return Err(parser.error("unexpected trailing input"));
+    }
+    Ok(sort)
+}
+
 struct Parser<'a> {
     input: &'a str,
     cursor: usize,

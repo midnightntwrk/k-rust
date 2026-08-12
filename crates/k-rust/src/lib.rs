@@ -6,4 +6,6 @@ pub mod inner;
 pub mod kast;
 pub mod kompile;
 pub mod kore;
+#[cfg(feature = "cli")]
+pub mod native;
 pub mod outer;

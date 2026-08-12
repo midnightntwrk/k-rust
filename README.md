@@ -152,6 +152,13 @@ different constructors after Java's function, algebraic, macro, `anywhere`, over
 filters. Per-sort no-junk axioms enumerate constructor forms, token domains, and strict subsort
 injections while omitting empty sorts and the special injection closure for `K`. These generated
 semantic axioms stay out of the concrete-syntax module, which receives only coercion axioms.
+A native `krust` binary now provides the first end-to-end frontend entry points. `krust kast`
+loads recursive `requires`, checks the definition, parses concrete programs, and emits textual or
+KAST JSON v4 output. `krust kcompile` runs the same source pipeline through `ModuleToKORE` and
+writes parseable `definition.kore`, `syntaxDefinition.kore`, and `macros.kore` artifacts. Its
+filesystem resolver searches relative to the requiring file, then the working directory, then
+explicit `-I` lookup directories. The binary requires the default native feature set; portable and
+WebAssembly builds remain library-only.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -165,6 +172,14 @@ feature, so users do not need to install a `z3` executable or system library:
 
 ```console
 cargo build --workspace
+```
+
+The native frontend currently exposes these commands:
+
+```console
+krust kcompile definition.k --main-module MAIN --output-directory kompiled
+krust kast definition.k --module MAIN --sort Exp --expression '1 + 2'
+krust kast definition.k --module MAIN --sort Exp program.exp --output json
 ```
 
 The portable library subset, including WebAssembly builds, explicitly disables default features:
@@ -196,9 +211,10 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
   transitive impure-function propagation, and the default generated axioms: emit optional legacy
   priority aliases. Impurity propagation follows function calls in rule bodies and side conditions,
   including calls to non-macro `anywhere` labels, while treating sort injections as transparent.
-- Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.
-- Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
-  auto-imported prelude policy alongside the future command-line frontend.
+- Implement binary KORE and Markdown/literate-K input.
+- Add builtin-definition resolution and the auto-imported prelude policy to the native filesystem
+  resolver. Relative source, current-directory, and explicit lookup-directory resolution are in
+  place.
 - Complete Java `RuleGrammarGenerator` parity: reproduce exact scanner diagnostics and broaden
   differential coverage for ambiguous and parametric sort inference across rules, claims,
   contexts, and aliases.

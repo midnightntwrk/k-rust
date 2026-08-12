@@ -4,8 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["z3-inference"]
+default = ["cli", "z3-inference"]
+cli = ["z3-inference"]
 z3-inference = ["dep:z3"]
+
+[[bin]]
+name = "krust"
+path = "src/main.rs"
+required-features = ["cli"]
 
 [dependencies]
 petgraph.workspace = true
