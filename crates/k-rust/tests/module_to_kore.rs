@@ -247,6 +247,36 @@ module_snapshot!(
     "MAIN"
 );
 
+module_snapshot!(
+    propagates_impurity_through_function_dependencies,
+    r#"
+        module MAIN
+          syntax Exp ::= "done" [symbol(done)]
+          syntax Exp ::= "source" [function, impure, symbol(source)]
+          syntax Exp ::= "middle" [function, symbol(middle)]
+          syntax Exp ::= "top" [function, symbol(top)]
+          syntax Exp ::= "clean" [function, symbol(clean)]
+          syntax Exp ::= "guarded" [function, symbol(guarded)]
+          syntax Bool ::= "isDone(" Exp ")" [function, symbol(isDone)]
+          syntax Exp ::= "impureAnywhere(" Exp ")" [impure, symbol(impureAnywhere)]
+          syntax Exp ::= "usesAnywhere" [function, symbol(usesAnywhere)]
+          syntax Exp ::= "macroAnywhere(" Exp ")" [impure, symbol(macroAnywhere)]
+          syntax Exp ::= "usesMacroAnywhere" [function, symbol(usesMacroAnywhere)]
+
+          rule source => done
+          rule middle => source
+          rule top => middle
+          rule clean => done
+          rule guarded => done requires isDone(source)
+          rule impureAnywhere(X:Exp) => X:Exp [anywhere]
+          rule usesAnywhere => impureAnywhere(done)
+          rule macroAnywhere(X:Exp) => X:Exp [anywhere, macro]
+          rule usesMacroAnywhere => macroAnywhere(done)
+        endmodule
+    "#,
+    "MAIN"
+);
+
 #[test]
 fn rejects_non_top_cell_semantic_rules() {
     let source = indoc! {r#"

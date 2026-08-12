@@ -182,9 +182,10 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
   the compilation passes.
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete sort parameters normally supplied by parser inference.
-- Complete `ModuleToKORE` beyond ordinary rewrites, reachability claims, equations, and macro
-  axioms: emit priority aliases, propagate impure-function dependencies, and reproduce Java's
-  generated axioms.
+- Complete `ModuleToKORE` beyond ordinary rewrites, reachability claims, equations, macro axioms,
+  and transitive impure-function propagation: emit legacy priority aliases and reproduce Java's
+  generated axioms. Impurity propagation follows function calls in rule bodies and side conditions,
+  including calls to non-macro `anywhere` labels, while treating sort injections as transparent.
 - Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.
 - Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
   auto-imported prelude policy alongside the future command-line frontend.

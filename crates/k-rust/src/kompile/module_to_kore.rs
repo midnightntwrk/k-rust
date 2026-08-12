@@ -3,13 +3,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use petgraph::Direction::Incoming;
+use petgraph::graph::{DiGraph, NodeIndex};
 use serde_json::Value;
 
 use crate::definition::{
     AssociativityRelations, Attributes as KAttributes, Definition as KDefinition,
-    LOCATION_ATTRIBUTE, LabelHead, PartialOrder, ProductionCatalog, ProductionId, ProductionItem,
-    RelationError, ResolveError, ResolvedDefinition, SOURCE_ATTRIBUTE, Sentence, SortCatalog,
-    SortHead, match_rule_label,
+    LOCATION_ATTRIBUTE, LabelHead, ModuleId, PartialOrder, ProductionCatalog, ProductionId,
+    ProductionItem, RelationError, ResolveError, ResolvedDefinition, SOURCE_ATTRIBUTE, Sentence,
+    SortCatalog, SortHead, match_rule_label,
 };
 use crate::kast::{Label, ResolvedProductionId, Sort, Term};
 use crate::kore::ast::{
@@ -259,6 +261,7 @@ pub fn declaration_modules_from_resolved(
     let sorts = definition.sort_catalog(module_id);
     let productions = definition.production_catalog(module_id);
     let valued_attributes = valued_attributes(&visible);
+    let impure_labels = transitive_impure_labels(definition, module_id, &productions);
     let overloads = definition
         .overloads(module_id)
         .map_err(DeclarationError::Relations)?;
@@ -316,6 +319,7 @@ pub fn declaration_modules_from_resolved(
             &valued_attributes,
             &overloaded_greater,
             &anywhere_labels,
+            &impure_labels,
             false,
             items,
             &syntax_relations,
@@ -328,6 +332,7 @@ pub fn declaration_modules_from_resolved(
             &valued_attributes,
             &overloaded_greater,
             &anywhere_labels,
+            &impure_labels,
             true,
             items,
             &syntax_relations,
@@ -1304,6 +1309,103 @@ fn existential_names(right: &Term, ensures: &Term) -> Vec<String> {
     names.into_iter().collect()
 }
 
+fn transitive_impure_labels(
+    definition: &ResolvedDefinition,
+    module: ModuleId,
+    productions: &ProductionCatalog<'_>,
+) -> BTreeSet<String> {
+    let rules = definition.rule_catalog(module);
+    let function_labels = productions.function_labels();
+    let anywhere_labels = rules
+        .rules()
+        .filter(|(_, rule)| !is_macro_rule(rule))
+        .filter(|(_, rule)| rule.attributes().get("anywhere").is_some())
+        .filter_map(|(_, rule)| anywhere_lhs_label(rule))
+        .collect::<BTreeSet<_>>();
+
+    let mut graph = DiGraph::<LabelHead, ()>::new();
+    let mut nodes = BTreeMap::<LabelHead, NodeIndex>::new();
+    let node = |label: LabelHead,
+                graph: &mut DiGraph<LabelHead, ()>,
+                nodes: &mut BTreeMap<LabelHead, NodeIndex>| {
+        *nodes
+            .entry(label.clone())
+            .or_insert_with(|| graph.add_node(label))
+    };
+
+    for (_, rule) in rules.rules() {
+        let current = LabelHead::from(&match_rule_label(rule));
+        if !function_labels.contains(&current) {
+            continue;
+        }
+        let current_node = node(current, &mut graph, &mut nodes);
+        let Sentence::Rule { body, requires, .. } = rule else {
+            unreachable!("rule catalogs contain rules")
+        };
+        for root in [body, requires] {
+            root.visit_preorder(&mut |term| {
+                let Term::Apply { label, .. } = term.unannotated() else {
+                    return;
+                };
+                if label.name == "inj" {
+                    return;
+                }
+                let dependency = LabelHead::from(label);
+                if function_labels.contains(&dependency) || anywhere_labels.contains(&dependency) {
+                    let dependency_node = node(dependency, &mut graph, &mut nodes);
+                    graph.add_edge(current_node, dependency_node, ());
+                }
+            });
+        }
+    }
+
+    let mut impure = productions
+        .sorted_productions()
+        .filter_map(|(_, production)| match production {
+            Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } if attributes.get("impure").is_some() => Some(LabelHead::from(label)),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let mut pending = impure.iter().cloned().collect::<Vec<_>>();
+    while let Some(label) = pending.pop() {
+        let label_node = node(label, &mut graph, &mut nodes);
+        for predecessor in graph.neighbors_directed(label_node, Incoming) {
+            let predecessor = graph[predecessor].clone();
+            if impure.insert(predecessor.clone()) {
+                pending.push(predecessor);
+            }
+        }
+    }
+    impure
+        .into_iter()
+        .map(|label| label.as_str().to_owned())
+        .collect()
+}
+
+fn anywhere_lhs_label(rule: &Sentence) -> Option<LabelHead> {
+    let Sentence::Rule { body, .. } = rule else {
+        return None;
+    };
+    let left = match body.unannotated() {
+        Term::Rewrite { left, .. } => left.as_ref(),
+        _ => body,
+    };
+    let Term::Apply { label, arguments } = left.unannotated() else {
+        return None;
+    };
+    if label.name != "inj" {
+        return Some(LabelHead::from(label));
+    }
+    let Term::Apply { label, .. } = arguments.first()?.unannotated() else {
+        return None;
+    };
+    Some(LabelHead::from(label))
+}
+
 fn sort_declarations(
     sorts: &SortCatalog<'_>,
     productions: &ProductionCatalog<'_>,
@@ -1400,6 +1502,7 @@ fn symbol_attributes(
     valued: &BTreeSet<String>,
     overloaded_greater: &BTreeSet<crate::definition::ProductionId>,
     anywhere_labels: &BTreeSet<String>,
+    impure_labels: &BTreeSet<String>,
     with_syntax: bool,
     items: &[ProductionItem],
     syntax_relations: &SyntaxRelations,
@@ -1442,6 +1545,9 @@ fn symbol_attributes(
     }
     if anywhere {
         entries.insert("anywhere".into(), Value::String(String::new()));
+    }
+    if impure_labels.contains(&label.name) {
+        entries.insert("impure".into(), Value::String(String::new()));
     }
     if injective {
         entries.insert("injective".into(), Value::String(String::new()));
