@@ -19,6 +19,7 @@ pub enum DiagnosticCode {
     InvalidAsPattern,
     InvalidBracketProduction,
     InvalidAssociativity,
+    InvalidCommutativeSimplification,
     InvalidExistentialVariable,
     InvalidFunctionPattern,
     InvalidHole,

@@ -1,0 +1,38 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= Exp \"+\" Exp [comm, symbol(_+_)]\n  rule X:Exp + Y:Exp => Y:Exp + X:Exp [simplification, comm, label(commute)]\nendmodule\n"
+---
+[
+    (
+        "`_+_`(#SemanticCastToExp(Y),#SemanticCastToExp(X))=>`_+_`(#SemanticCastToExp(Y),#SemanticCastToExp(X))",
+        {
+            "contentStartColumn": Number(8),
+            "contentStartLine": Number(3),
+            "label": String("commute"),
+            "org.kframework.attributes.Location": Array [
+                Number(3),
+                Number(3),
+                Number(3),
+                Number(77),
+            ],
+            "org.kframework.attributes.Source": String("definition.k"),
+            "simplification": String(""),
+        },
+    ),
+    (
+        "`_+_`(#SemanticCastToExp(X),#SemanticCastToExp(Y))=>`_+_`(#SemanticCastToExp(Y),#SemanticCastToExp(X))",
+        {
+            "contentStartColumn": Number(8),
+            "contentStartLine": Number(3),
+            "label": String("commute"),
+            "org.kframework.attributes.Location": Array [
+                Number(3),
+                Number(3),
+                Number(3),
+                Number(77),
+            ],
+            "org.kframework.attributes.Source": String("definition.k"),
+            "simplification": String(""),
+        },
+    ),
+]

@@ -4,7 +4,7 @@ use std::{
     fs,
     path::PathBuf,
     process::Command,
-    time::{SystemTime, UNIX_EPOCH},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use k_rust::kore::parser::parse_definition;
@@ -15,6 +15,8 @@ requires "base.k"
 module MAIN
   imports BASE
   syntax Exp ::= Int
+  syntax Exp ::= Exp "+" Exp [comm, function, symbol(_+_)]
+  rule 1 + 2 => 2 + 1 [simplification, comm]
 endmodule
 "#;
 
@@ -25,11 +27,9 @@ endmodule
 "#;
 
 fn fixture() -> (PathBuf, PathBuf) {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("k-rust-cli-{nonce}"));
+    static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+    let nonce = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!("k-rust-cli-{}-{nonce}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     let definition = root.join("definition.k");
     fs::write(&definition, DEFINITION).unwrap();
@@ -117,6 +117,9 @@ fn kcompile_writes_parseable_kore_outputs() {
     for name in ["definition.kore", "syntaxDefinition.kore"] {
         let source = fs::read_to_string(output_directory.join(name)).unwrap();
         parse_definition(&source).unwrap_or_else(|error| panic!("{name}: {error}"));
+        if name == "definition.kore" {
+            assert_eq!(source.matches("simplification{}()").count(), 2);
+        }
     }
     assert!(
         fs::read_to_string(output_directory.join("macros.kore"))

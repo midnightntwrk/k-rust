@@ -158,7 +158,10 @@ KAST JSON v4 output. `krust kcompile` runs the same source pipeline through `Mod
 writes parseable `definition.kore`, `syntaxDefinition.kore`, and `macros.kore` artifacts. Its
 filesystem resolver searches relative to the requiring file, then the working directory, then
 explicit `-I` lookup directories. The binary requires the default native feature set; portable and
-WebAssembly builds remain library-only.
+WebAssembly builds remain library-only. The ordered backend pipeline now begins with Java's
+`ResolveComm`: commutative simplification rules are duplicated with swapped LHS arguments, their
+rule-level `comm` marker is removed, and mismatched non-commutative symbols are diagnosed before
+KORE generation.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces

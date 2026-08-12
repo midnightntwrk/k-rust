@@ -47,6 +47,10 @@ impl Attributes {
         self.entries.insert(key.into(), value)
     }
 
+    pub fn remove(&mut self, key: &str) -> Option<Value> {
+        self.entries.remove(key)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }

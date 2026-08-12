@@ -8,11 +8,11 @@ use std::{
 };
 
 use k_rust::{
-    definition::checks::check_definition,
+    definition::{ResolvedDefinition, checks::check_definition},
     diagnostic::{Diagnostic, Severity},
     inner::ProgramParser,
     kast::{json as kast_json, parser::parse_sort, printer::Printer as KastPrinter},
-    kompile::module_to_kore_from_resolved,
+    kompile::{module_to_kore_from_resolved, resolve_comm},
     kore::{
         ast::{Attributes, Definition as KoreDefinition},
         printer::Printer as KorePrinter,
@@ -151,7 +151,11 @@ fn load_definition(
 
 fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     let loaded = load_definition(&options.common)?;
-    let generated = module_to_kore_from_resolved(&loaded.resolved, &options.common.module)?;
+    let definition = resolve_comm(&loaded.definition).inspect_err(|error| {
+        emit_diagnostics(&error.diagnostics);
+    })?;
+    let resolved = ResolvedDefinition::resolve(&definition)?;
+    let generated = module_to_kore_from_resolved(&resolved, &options.common.module)?;
     fs::create_dir_all(&options.output_directory)?;
     let printer = KorePrinter::pretty(100);
     let semantics = KoreDefinition {
