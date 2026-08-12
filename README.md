@@ -135,8 +135,11 @@ functional claims use direct equalities. Equation sort parameters remain KORE so
 existentials are rejected as in Java. `owise` equations negate every applicable competing function
 rule using refreshed variables and nested `\exists`/`\or`/`\in` patterns; simplification, `owise`,
 and non-executable competitors are excluded only after refresh, preserving Java's generated-name
-sequence. The complete semantic and syntax modules round-trip through the KORE parser in
-source-driven snapshot tests.
+sequence. Macro, recursive-macro, alias, and recursive-alias rules are emitted as axioms in Java's
+standalone `macros.kore` sentence list rather than the runtime semantics module. Production macro
+attributes propagate to their rules except for simplification rules, matching Java. The complete
+semantic and syntax modules and every standalone macro sentence round-trip through the KORE parser
+in source-driven snapshot tests.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -177,7 +180,7 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
   the compilation passes.
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete sort parameters normally supplied by parser inference.
-- Complete `ModuleToKORE` beyond ordinary rewrites, claims, and equations: emit macros,
+- Complete `ModuleToKORE` beyond ordinary rewrites, claims, equations, and macro axioms: emit
   reachability modes and priority aliases; propagate impure-function dependencies; and reproduce
   Java's generated axioms.
 - Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.

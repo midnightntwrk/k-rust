@@ -168,3 +168,5 @@ module MAIN
     terminals{}("101")
   ]
 endmodule []
+
+// macros

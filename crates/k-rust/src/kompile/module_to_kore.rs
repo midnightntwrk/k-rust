@@ -60,14 +60,17 @@ const BUILTIN_LABELS: [&str; 14] = [
     "weakAlwaysFinally",
 ];
 
-/// The two declaration views produced by `ModuleToKORE`.
+/// The declaration views and standalone macro axioms produced by `ModuleToKORE`.
 ///
 /// `semantics` carries backend-facing symbol attributes. `syntax` carries the
-/// same declarations plus concrete-syntax formatting metadata.
+/// same declarations plus concrete-syntax formatting metadata. `macros` is the
+/// bare sentence list written to Java's `macros.kore`; it deliberately has no
+/// enclosing KORE module.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeclarationModules {
     pub semantics: Module,
     pub syntax: Module,
+    pub macros: Vec<KoreSentence>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -360,13 +363,14 @@ pub fn declaration_modules_from_resolved(
             sentences: syntax_sentences,
             attributes: Attributes::default(),
         },
+        macros: Vec::new(),
     })
 }
 
 /// Emit declarations plus the ordinary semantic rules and local claims of one module.
 ///
-/// Macros and reachability modes have distinct Java encodings and are rejected until their
-/// dedicated branches are implemented.
+/// Reachability modes have distinct Java encodings and are rejected until their dedicated branch
+/// is implemented. Macro and alias rules are routed to the standalone `macros.kore` sentence list.
 pub fn module_to_kore(
     definition: &KDefinition,
     module: &str,
@@ -392,12 +396,12 @@ pub fn module_to_kore_from_resolved(
     let converter = TermConverter::new(definition, module)?;
     let sorted_rules = rules
         .sorted_rules()
-        .map(|(_, rule)| rule)
+        .map(|(_, rule)| propagate_macro_attribute(rule, &productions))
         .collect::<Vec<_>>();
 
     for rule in &sorted_rules {
         reject_specialized_rule(rule)?;
-        modules.semantics.sentences.push(emit_rule_or_claim(
+        let emitted = emit_rule_or_claim(
             rule,
             false,
             &valued,
@@ -405,10 +409,20 @@ pub fn module_to_kore_from_resolved(
             &injector,
             &converter,
             &sorted_rules,
-        )?);
+        )?;
+        if is_macro_rule(rule) {
+            modules.macros.push(emitted);
+        } else {
+            modules.semantics.sentences.push(emitted);
+        }
     }
     for (_, claim) in rules.local_claims() {
         reject_specialized_rule(claim)?;
+        if is_macro_rule(claim) {
+            return Err(ModuleToKoreError::UnsupportedRuleKind {
+                kind: "macro claim".into(),
+            });
+        }
         modules.semantics.sentences.push(emit_rule_or_claim(
             claim,
             true,
@@ -423,14 +437,7 @@ pub fn module_to_kore_from_resolved(
 }
 
 fn reject_specialized_rule(sentence: &Sentence) -> Result<(), ModuleToKoreError> {
-    for attribute in [
-        "macro",
-        "macro-rec",
-        "alias",
-        "alias-rec",
-        "one-path",
-        "all-path",
-    ] {
+    for attribute in ["one-path", "all-path"] {
         if sentence.attributes().get(attribute).is_some() {
             return Err(ModuleToKoreError::UnsupportedRuleKind {
                 kind: format!("{attribute} rule or claim"),
@@ -439,6 +446,59 @@ fn reject_specialized_rule(sentence: &Sentence) -> Result<(), ModuleToKoreError>
     }
 
     Ok(())
+}
+
+fn is_macro_rule(sentence: &Sentence) -> bool {
+    ["macro", "macro-rec", "alias", "alias-rec"]
+        .iter()
+        .any(|attribute| sentence.attributes().get(attribute).is_some())
+}
+
+fn propagate_macro_attribute(sentence: &Sentence, productions: &ProductionCatalog<'_>) -> Sentence {
+    if is_macro_rule(sentence) || sentence.attributes().get("simplification").is_some() {
+        return sentence.clone();
+    }
+    let Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        attributes,
+    } = sentence
+    else {
+        return sentence.clone();
+    };
+    let left = match body.unannotated() {
+        Term::Rewrite { left, .. } => left.as_ref(),
+        _ => body,
+    };
+    let application = peel_alias(left);
+    let Term::Apply { label, .. } = application.unannotated() else {
+        return sentence.clone();
+    };
+    let Ok(production) = resolve_equation_production(application, label, productions) else {
+        return sentence.clone();
+    };
+    let Sentence::Production {
+        attributes: production_attributes,
+        ..
+    } = production
+    else {
+        unreachable!("production catalogs contain productions")
+    };
+    let Some(attribute) = ["macro", "macro-rec", "alias", "alias-rec"]
+        .into_iter()
+        .find(|attribute| production_attributes.get(attribute).is_some())
+    else {
+        return sentence.clone();
+    };
+    let mut attributes = attributes.clone();
+    attributes.insert(attribute, Value::String(String::new()));
+    Sentence::Rule {
+        body: body.clone(),
+        requires: requires.clone(),
+        ensures: ensures.clone(),
+        attributes,
+    }
 }
 
 fn peel_alias(mut term: &Term) -> &Term {
@@ -455,7 +515,7 @@ fn emit_rule_or_claim(
     productions: &ProductionCatalog<'_>,
     injector: &SortInjector<'_>,
     converter: &TermConverter<'_>,
-    sorted_rules: &[&Sentence],
+    sorted_rules: &[Sentence],
 ) -> Result<KoreSentence, ModuleToKoreError> {
     let injected = injector.inject_sentence(sentence)?;
     let (body, requires, ensures, attributes) = match &injected {
@@ -503,6 +563,14 @@ fn emit_rule_or_claim(
             injector,
             sorted_rules,
         );
+    }
+    if is_macro_rule(&injected) {
+        if !existentials.is_empty() {
+            return Err(ModuleToKoreError::EquationExistentials {
+                variables: existential_names(right, ensures),
+            });
+        }
+        return emit_macro_axiom(left, right, attributes, valued, injector, converter);
     }
     if !claim && body_sort != Sort::new("GeneratedTopCell") {
         return Err(ModuleToKoreError::ExpectedGeneratedTopCell { actual: body_sort });
@@ -556,6 +624,39 @@ fn emit_rule_or_claim(
             attributes,
         }
     })
+}
+
+fn emit_macro_axiom(
+    left: &Term,
+    right: &Term,
+    attributes: &KAttributes,
+    valued: &BTreeSet<String>,
+    injector: &SortInjector<'_>,
+    converter: &TermConverter<'_>,
+) -> Result<KoreSentence, ModuleToKoreError> {
+    let parameters = equation_parameters(attributes);
+    let converter = converter.with_sort_variables(parameters.iter().skip(1).cloned());
+    let result_sort = converter.convert_sort(&injector.term_sort(left, None)?);
+    let pattern = Pattern::Equals {
+        operand_sort: result_sort,
+        result_sort: KoreSort::Variable("R".into()),
+        left: Box::new(converter.convert(left)?),
+        right: Box::new(converter.convert(right)?),
+    };
+    let mut attributes = attributes.clone();
+    let priority = attributes
+        .get("priority")
+        .map(|value| attribute_value_string("priority", value))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| {
+            if attributes.get("owise").is_some() {
+                "200".into()
+            } else {
+                "50".into()
+            }
+        });
+    attributes.insert("priority", Value::String(priority));
+    equation_sentence(false, pattern, &attributes, valued, parameters)
 }
 
 #[derive(Clone, Debug)]
@@ -681,7 +782,7 @@ fn emit_equation(
     converter: &TermConverter<'_>,
     productions: &ProductionCatalog<'_>,
     injector: &SortInjector<'_>,
-    sorted_rules: &[&Sentence],
+    sorted_rules: &[Sentence],
 ) -> Result<KoreSentence, ModuleToKoreError> {
     let parameters = equation_parameters(attributes);
     let converter = converter.with_sort_variables(parameters.iter().skip(1).cloned());
@@ -801,7 +902,7 @@ fn emit_owise_equation(
     converter: &TermConverter<'_>,
     productions: &ProductionCatalog<'_>,
     injector: &SortInjector<'_>,
-    sorted_rules: &[&Sentence],
+    sorted_rules: &[Sentence],
     parameters: Vec<String>,
     avoid_variables: &BTreeSet<String>,
 ) -> Result<KoreSentence, ModuleToKoreError> {

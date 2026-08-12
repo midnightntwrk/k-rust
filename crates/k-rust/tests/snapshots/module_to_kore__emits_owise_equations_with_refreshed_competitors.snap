@@ -288,3 +288,5 @@ module MAIN
     terminals{}("010")
   ]
 endmodule []
+
+// macros

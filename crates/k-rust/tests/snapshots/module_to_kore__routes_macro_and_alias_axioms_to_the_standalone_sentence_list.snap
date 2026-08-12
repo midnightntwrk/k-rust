@@ -1,0 +1,277 @@
+---
+source: crates/k-rust/tests/module_to_kore.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= \"done(\" Exp \")\" [symbol(done)]\n  syntax Exp ::= \"plain(\" Exp \")\" [symbol(plain)]\n  syntax Exp ::= \"macro(\" Exp \")\" [macro, symbol(macro)]\n  syntax Exp ::= \"macroRec(\" Exp \")\" [macro-rec, symbol(macroRec)]\n  syntax Exp ::= \"alias(\" Exp \")\" [alias, symbol(alias)]\n  syntax Exp ::= \"aliasRec(\" Exp \")\" [alias-rec, symbol(aliasRec)]\n  syntax Exp ::= \"functionMacro(\" Exp \")\" [function, macro, symbol(functionMacro)]\n\n  rule macro(X:Exp) => done(X:Exp)\n  rule macroRec(X:Exp) => done(X:Exp)\n  rule alias(X:Exp) => done(X:Exp)\n  rule aliasRec(X:Exp) => done(X:Exp)\n  rule functionMacro(X:Exp) => done(X:Exp)\n  rule plain(X:Exp) => done(X:Exp) [macro, priority(17)]\n  rule macro(done(X:Exp)) => X:Exp [simplification]\nendmodule\n"
+---
+// semantics
+module MAIN
+  import K []
+  sort SortExp{} []
+  symbol Lblalias'Kywd'{}(SortExp{}) : SortExp{}
+  [
+    alias'Kywd'{}(),
+    functional{}(),
+    injective{}(),
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,18,6,57)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("alias")
+  ]
+  symbol LblaliasRec{}(SortExp{}) : SortExp{}
+  [
+    alias-rec{}(),
+    functional{}(),
+    injective{}(),
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,67)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("aliasRec")
+  ]
+  symbol Lbldone{}(SortExp{}) : SortExp{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,48)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("done")
+  ]
+  symbol LblfunctionMacro{}(SortExp{}) : SortExp{}
+  [
+    function{}(),
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,83)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("functionMacro")
+  ]
+  symbol Lblmacro{}(SortExp{}) : SortExp{}
+  [
+    functional{}(),
+    injective{}(),
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,57)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("macro")
+  ]
+  symbol LblmacroRec{}(SortExp{}) : SortExp{}
+  [
+    functional{}(),
+    injective{}(),
+    macro{}(),
+    macro-rec{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,67)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("macroRec")
+  ]
+  symbol Lblplain{}(SortExp{}) : SortExp{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    symbol'Kywd'{}("plain")
+  ]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{SortExp{}, R}(
+        Lblmacro{}(Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))),
+        \and{SortExp{}}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}), \top{SortExp{}}())
+      )
+    )
+    [
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,3,16,52)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+      simplification{}()
+    ]
+endmodule [
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,17,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+]
+
+// syntax
+module MAIN
+  import K []
+  sort SortExp{} []
+  symbol Lblalias'Kywd'{}(SortExp{}) : SortExp{}
+  [
+    alias'Kywd'{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,18,6,57)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("alias"),
+    terminals{}("101")
+  ]
+  symbol LblaliasRec{}(SortExp{}) : SortExp{}
+  [
+    alias-rec{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,67)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("aliasRec"),
+    terminals{}("101")
+  ]
+  symbol Lbldone{}(SortExp{}) : SortExp{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,48)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("done"),
+    terminals{}("101")
+  ]
+  symbol LblfunctionMacro{}(SortExp{}) : SortExp{}
+  [
+    format{}(),
+    function{}(),
+    left{}(),
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,83)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("functionMacro"),
+    terminals{}("101")
+  ]
+  symbol Lblmacro{}(SortExp{}) : SortExp{}
+  [
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,57)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("macro"),
+    terminals{}("101")
+  ]
+  symbol LblmacroRec{}(SortExp{}) : SortExp{}
+  [
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    macro{}(),
+    macro-rec{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,67)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("macroRec"),
+    terminals{}("101")
+  ]
+  symbol Lblplain{}(SortExp{}) : SortExp{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("plain"),
+    terminals{}("101")
+  ]
+endmodule []
+
+// macros
+axiom{R}
+  \equals{SortExp{}, R}(
+    Lblalias'Kywd'{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
+    Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
+  )
+  [
+    alias'Kywd'{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,3,12,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priority{}("50")
+  ]
+
+axiom{R}
+  \equals{SortExp{}, R}(
+    LblaliasRec{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
+    Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
+  )
+  [
+    alias-rec{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,3,13,38)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priority{}("50")
+  ]
+
+axiom{R}
+  \implies{R}(
+    \and{R}(
+      \top{R}(),
+      \and{R}(
+        \in{SortExp{}, R}(X0:SortExp{}, Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
+        \top{R}()
+      )
+    ),
+    \equals{SortExp{}, R}(
+      LblfunctionMacro{}(X0:SortExp{}),
+      \and{SortExp{}}(Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})), \top{SortExp{}}())
+    )
+  )
+  [
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,3,14,43)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  ]
+
+axiom{R}
+  \equals{SortExp{}, R}(
+    Lblmacro{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
+    Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
+  )
+  [
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,10,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priority{}("50")
+  ]
+
+axiom{R}
+  \equals{SortExp{}, R}(
+    LblmacroRec{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
+    Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
+  )
+  [
+    macro-rec{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,3,11,38)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priority{}("50")
+  ]
+
+axiom{R}
+  \equals{SortExp{}, R}(
+    Lblplain{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
+    Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
+  )
+  [
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,15,57)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    priority{}("17")
+  ]

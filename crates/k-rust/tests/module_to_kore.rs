@@ -3,7 +3,7 @@ use k_rust::kompile::{
     declaration_modules, encode_kore_identifier, encode_kore_label, encode_kore_sort,
     module_to_kore,
 };
-use k_rust::kore::parser::parse_module;
+use k_rust::kore::parser::{parse_module, parse_sentence};
 use k_rust::kore::printer::Printer;
 use k_rust::{kast, outer};
 
@@ -57,6 +57,12 @@ macro_rules! module_snapshot {
             let printer = Printer::pretty(100);
             let semantics = printer.print_module(&modules.semantics);
             let syntax = printer.print_module(&modules.syntax);
+            let macros = modules
+                .macros
+                .iter()
+                .map(|sentence| printer.print_sentence(sentence))
+                .collect::<Vec<_>>()
+                .join("\n\n");
             assert_eq!(
                 parse_module(&semantics).expect("semantic module should reparse"),
                 modules.semantics,
@@ -65,7 +71,15 @@ macro_rules! module_snapshot {
                 parse_module(&syntax).expect("syntax module should reparse"),
                 modules.syntax,
             );
-            let emitted = format!("// semantics\n{semantics}\n\n// syntax\n{syntax}");
+            for (source, sentence) in macros.split("\n\n").zip(&modules.macros) {
+                assert_eq!(
+                    parse_sentence(source).expect("macro sentence should reparse"),
+                    *sentence,
+                );
+            }
+            let emitted = format!(
+                "// semantics\n{semantics}\n\n// syntax\n{syntax}\n\n// macros\n{macros}"
+            );
             insta::with_settings!({
                 description => format!("K definition:\n\n{source}"),
                 omit_expression => true,
@@ -180,6 +194,30 @@ module_snapshot!(
           rule choose(_Gen0:Exp, Y:Exp) => Y:Exp
             requires _Gen0:Exp == Y:Exp
             [owise, label(otherwise)]
+        endmodule
+    "#,
+    "MAIN"
+);
+
+module_snapshot!(
+    routes_macro_and_alias_axioms_to_the_standalone_sentence_list,
+    r#"
+        module MAIN
+          syntax Exp ::= "done(" Exp ")" [symbol(done)]
+          syntax Exp ::= "plain(" Exp ")" [symbol(plain)]
+          syntax Exp ::= "macro(" Exp ")" [macro, symbol(macro)]
+          syntax Exp ::= "macroRec(" Exp ")" [macro-rec, symbol(macroRec)]
+          syntax Exp ::= "alias(" Exp ")" [alias, symbol(alias)]
+          syntax Exp ::= "aliasRec(" Exp ")" [alias-rec, symbol(aliasRec)]
+          syntax Exp ::= "functionMacro(" Exp ")" [function, macro, symbol(functionMacro)]
+
+          rule macro(X:Exp) => done(X:Exp)
+          rule macroRec(X:Exp) => done(X:Exp)
+          rule alias(X:Exp) => done(X:Exp)
+          rule aliasRec(X:Exp) => done(X:Exp)
+          rule functionMacro(X:Exp) => done(X:Exp)
+          rule plain(X:Exp) => done(X:Exp) [macro, priority(17)]
+          rule macro(done(X:Exp)) => X:Exp [simplification]
         endmodule
     "#,
     "MAIN"
