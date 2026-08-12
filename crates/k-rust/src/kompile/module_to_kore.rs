@@ -144,14 +144,38 @@ pub enum ModuleToKoreError {
     Declaration(DeclarationError),
     SortInjection(SortInjectionError),
     TermConversion(TermConversionError),
-    ExpectedRewrite { sentence: &'static str },
-    ExpectedGeneratedTopCell { actual: Sort },
-    MissingEquationProduction { label: String },
-    AmbiguousEquationProduction { label: String, productions: usize },
-    InvalidEquationProduction { production: usize, message: String },
-    InvalidOverloadProduction { production: usize, message: String },
-    EquationExistentials { variables: Vec<String> },
-    UnsupportedRuleKind { kind: String },
+    ExpectedRewrite {
+        sentence: &'static str,
+    },
+    ExpectedGeneratedTopCell {
+        actual: Sort,
+    },
+    MissingEquationProduction {
+        label: String,
+    },
+    AmbiguousEquationProduction {
+        label: String,
+        productions: usize,
+    },
+    InvalidEquationProduction {
+        production: usize,
+        message: String,
+    },
+    InvalidAlgebraicProduction {
+        production: usize,
+        attribute: &'static str,
+        message: String,
+    },
+    InvalidOverloadProduction {
+        production: usize,
+        message: String,
+    },
+    EquationExistentials {
+        variables: Vec<String>,
+    },
+    UnsupportedRuleKind {
+        kind: String,
+    },
 }
 
 impl fmt::Display for ModuleToKoreError {
@@ -183,6 +207,14 @@ impl fmt::Display for ModuleToKoreError {
             } => write!(
                 formatter,
                 "cannot use production #{production} for equation emission: {message}"
+            ),
+            Self::InvalidAlgebraicProduction {
+                production,
+                attribute,
+                message,
+            } => write!(
+                formatter,
+                "cannot emit {attribute} axiom for production #{production}: {message}"
             ),
             Self::InvalidOverloadProduction {
                 production,
@@ -414,6 +446,9 @@ pub fn module_to_kore_from_resolved(
     let overloads = definition
         .overloads(module_id)
         .map_err(DeclarationError::Relations)?;
+    let subsorts = definition
+        .subsorts(module_id)
+        .map_err(|error| DeclarationError::Relations(RelationError::CircularSubsort(error)))?;
     let injector = SortInjector::new(definition, module)?;
     let converter = TermConverter::new(definition, module)?;
     let default_reachability = reachability_mode(&definition.module(module_id).attributes);
@@ -422,12 +457,12 @@ pub fn module_to_kore_from_resolved(
         .map(|(_, rule)| propagate_macro_attribute(rule, &productions))
         .collect::<Vec<_>>();
 
-    let coercion_axioms = generated_coercion_axioms(&productions, &overloads)?;
+    let generated_axioms = generated_axioms(&productions, &overloads, &subsorts)?;
     modules
         .semantics
         .sentences
-        .extend(coercion_axioms.iter().cloned());
-    modules.syntax.sentences.extend(coercion_axioms);
+        .extend(generated_axioms.iter().cloned());
+    modules.syntax.sentences.extend(generated_axioms);
 
     for rule in &sorted_rules {
         let emitted = emit_rule_or_claim(
@@ -466,14 +501,19 @@ pub fn module_to_kore_from_resolved(
     Ok(modules)
 }
 
-fn generated_coercion_axioms(
+fn generated_axioms(
     productions: &ProductionCatalog<'_>,
     overloads: &OverloadOrder<'_>,
+    subsorts: &PartialOrder<Sort>,
 ) -> Result<Vec<KoreSentence>, ModuleToKoreError> {
-    let mut axioms = productions
-        .sorted_productions()
-        .filter_map(|(_, production)| subsort_axiom(production))
-        .collect::<Vec<_>>();
+    let mut axioms = Vec::new();
+    for (id, production) in productions.sorted_productions() {
+        if let Some(axiom) = subsort_axiom(production) {
+            axioms.push(axiom);
+            continue;
+        }
+        axioms.extend(algebraic_axioms(id, production, subsorts)?);
+    }
 
     for (lesser, _) in overloads.catalog().sorted_productions() {
         let Some(greater_productions) = overloads.order().relations_from(&lesser) else {
@@ -486,6 +526,223 @@ fn generated_coercion_axioms(
         }
     }
     Ok(axioms)
+}
+
+fn algebraic_axioms(
+    id: ProductionId,
+    production: &Sentence,
+    subsorts: &PartialOrder<Sort>,
+) -> Result<Vec<KoreSentence>, ModuleToKoreError> {
+    let Sentence::Production {
+        label,
+        parameters,
+        sort,
+        items,
+        attributes,
+    } = production
+    else {
+        unreachable!("production catalogs contain productions")
+    };
+    let assoc = attributes.get("assoc").is_some();
+    let idem = attributes.get("idem").is_some();
+    let unit = attributes
+        .get_str("unit")
+        .filter(|_| attributes.get("function").is_some());
+    if !assoc && !idem && unit.is_none() {
+        return Ok(Vec::new());
+    }
+    let Some(label) = label else {
+        return Err(invalid_algebraic(
+            id,
+            if assoc {
+                "assoc"
+            } else if idem {
+                "idem"
+            } else {
+                "unit"
+            },
+            "the production has no symbol label",
+        ));
+    };
+    let arguments = items
+        .iter()
+        .filter_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => Some(sort),
+            ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
+        })
+        .collect::<Vec<_>>();
+    let symbol = encode_kore_label_with_formals(label, parameters);
+    let result_sort = encode_kore_sort_with_formals(sort, parameters);
+    let axiom_parameters = generated_axiom_parameters(parameters);
+    let mut axioms = Vec::new();
+
+    if assoc {
+        if arguments.len() != 2 {
+            return Err(invalid_algebraic(
+                id,
+                "assoc",
+                format!("expected arity 2, found {}", arguments.len()),
+            ));
+        }
+        if !arguments
+            .iter()
+            .all(|argument| subsorts.less_than_eq(sort, argument))
+        {
+            return Err(invalid_algebraic(
+                id,
+                "assoc",
+                "the result sort must be a subsort of both argument sorts",
+            ));
+        }
+        let variables = ["K1", "K2", "K3"].map(|name| Variable {
+            kind: VariableKind::Element,
+            name: name.into(),
+            sort: result_sort.clone(),
+        });
+        let apply = |arguments| Pattern::Application {
+            symbol: symbol.clone(),
+            arguments,
+        };
+        axioms.push(KoreSentence::Axiom {
+            parameters: axiom_parameters.clone(),
+            pattern: Box::new(Pattern::Equals {
+                operand_sort: result_sort.clone(),
+                result_sort: KoreSort::Variable("R".into()),
+                left: Box::new(apply(vec![
+                    apply(vec![
+                        Pattern::Variable(variables[0].clone()),
+                        Pattern::Variable(variables[1].clone()),
+                    ]),
+                    Pattern::Variable(variables[2].clone()),
+                ])),
+                right: Box::new(apply(vec![
+                    Pattern::Variable(variables[0].clone()),
+                    apply(vec![
+                        Pattern::Variable(variables[1].clone()),
+                        Pattern::Variable(variables[2].clone()),
+                    ]),
+                ])),
+            }),
+            attributes: marker_attribute("assoc"),
+        });
+    }
+
+    if idem {
+        if arguments.len() != 2 {
+            return Err(invalid_algebraic(
+                id,
+                "idem",
+                format!("expected arity 2, found {}", arguments.len()),
+            ));
+        }
+        if arguments.iter().any(|argument| *argument != sort) {
+            return Err(invalid_algebraic(
+                id,
+                "idem",
+                "the result and both argument sorts must be equal",
+            ));
+        }
+        let variable = Variable {
+            kind: VariableKind::Element,
+            name: "K".into(),
+            sort: result_sort.clone(),
+        };
+        axioms.push(KoreSentence::Axiom {
+            parameters: axiom_parameters.clone(),
+            pattern: Box::new(Pattern::Equals {
+                operand_sort: result_sort.clone(),
+                result_sort: KoreSort::Variable("R".into()),
+                left: Box::new(Pattern::Application {
+                    symbol: symbol.clone(),
+                    arguments: vec![
+                        Pattern::Variable(variable.clone()),
+                        Pattern::Variable(variable.clone()),
+                    ],
+                }),
+                right: Box::new(Pattern::Variable(variable)),
+            }),
+            attributes: marker_attribute("idem"),
+        });
+    }
+
+    if let Some(unit) = unit {
+        if arguments.len() != 2 {
+            return Err(invalid_algebraic(
+                id,
+                "unit",
+                format!("expected arity 2, found {}", arguments.len()),
+            ));
+        }
+        if arguments.iter().any(|argument| *argument != sort) {
+            return Err(invalid_algebraic(
+                id,
+                "unit",
+                "the result and both argument sorts must be equal",
+            ));
+        }
+        let variable = Variable {
+            kind: VariableKind::Element,
+            name: "K".into(),
+            sort: result_sort.clone(),
+        };
+        let unit = Pattern::Application {
+            symbol: encode_kore_label(&Label::new(unit)),
+            arguments: Vec::new(),
+        };
+        for arguments in [
+            vec![Pattern::Variable(variable.clone()), unit.clone()],
+            vec![unit, Pattern::Variable(variable.clone())],
+        ] {
+            axioms.push(KoreSentence::Axiom {
+                parameters: axiom_parameters.clone(),
+                pattern: Box::new(Pattern::Equals {
+                    operand_sort: result_sort.clone(),
+                    result_sort: KoreSort::Variable("R".into()),
+                    left: Box::new(Pattern::Application {
+                        symbol: symbol.clone(),
+                        arguments,
+                    }),
+                    right: Box::new(Pattern::Variable(variable.clone())),
+                }),
+                attributes: marker_attribute("unit"),
+            });
+        }
+    }
+
+    Ok(axioms)
+}
+
+fn invalid_algebraic(
+    production: ProductionId,
+    attribute: &'static str,
+    message: impl Into<String>,
+) -> ModuleToKoreError {
+    ModuleToKoreError::InvalidAlgebraicProduction {
+        production: production.0,
+        attribute,
+        message: message.into(),
+    }
+}
+
+fn generated_axiom_parameters(parameters: &[Sort]) -> Vec<String> {
+    let mut names = vec!["R".into()];
+    names.extend(parameters.iter().map(|parameter| {
+        let KoreSort::Variable(name) = encode_kore_sort_with_formals(parameter, parameters) else {
+            unreachable!("production parameters encode as KORE sort variables")
+        };
+        name
+    }));
+    names
+}
+
+fn marker_attribute(name: &str) -> Attributes {
+    Attributes(vec![Pattern::Application {
+        symbol: Symbol {
+            name: name.into(),
+            sort_parameters: Vec::new(),
+        },
+        arguments: Vec::new(),
+    }])
 }
 
 fn subsort_axiom(production: &Sentence) -> Option<KoreSentence> {

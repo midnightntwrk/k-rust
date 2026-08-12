@@ -143,7 +143,9 @@ in source-driven snapshot tests. One-path and all-path reachability claims wrap 
 quantified RHS with `weakExistsFinally` and `weakAlwaysFinally`; claim attributes override the
 module-level default exactly as in Java. Generated coercion axioms cover non-`K` subsort injections
 and the complete transitive production-overload relation, including argument and result injections,
-in both module views.
+in both module views. Production-ordered algebraic axioms cover associativity, idempotency, and both
+unit laws with Java's arity and sort constraints; commutativity remains deliberately disabled to
+match the reference generator.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -185,10 +187,10 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete sort parameters normally supplied by parser inference.
 - Complete `ModuleToKORE` beyond ordinary rewrites, reachability claims, equations, macro axioms,
-  transitive impure-function propagation, and coercion axioms: emit legacy priority aliases and
-  reproduce Java's algebraic, functional, no-confusion, and no-junk axioms. Impurity propagation
-  follows function calls in rule bodies and side conditions, including calls to non-macro
-  `anywhere` labels, while treating sort injections as transparent.
+  transitive impure-function propagation, coercion axioms, and algebraic axioms: emit legacy
+  priority aliases and reproduce Java's functional, no-confusion, and no-junk axioms. Impurity
+  propagation follows function calls in rule bodies and side conditions, including calls to
+  non-macro `anywhere` labels, while treating sort injections as transparent.
 - Implement binary KORE, the native `k-rust` command-line frontend, and Markdown/literate-K input.
 - Add the native filesystem resolver's builtin/current-directory/lookup-directory precedence and
   auto-imported prelude policy alongside the future command-line frontend.

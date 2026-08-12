@@ -300,6 +300,99 @@ module_snapshot!(
     "MAIN"
 );
 
+module_snapshot!(
+    emits_algebraic_axioms,
+    r#"
+        module MAIN
+          syntax Exp ::= ".Exp" [function, symbol(.Exp)]
+          syntax Exp ::= Exp "++" Exp
+            [assoc, comm, function, idem, symbol(_++_), unit(.Exp)]
+          syntax Exp ::= Exp "~" Exp [symbol(_~_), unit(.Exp)]
+
+          syntax {S} Box{S}
+          syntax {S} Box{S} ::= Box{S} "merge" Box{S}
+            [assoc, idem, symbol(merge)]
+        endmodule
+    "#,
+    "MAIN"
+);
+
+#[test]
+fn rejects_non_binary_associative_productions() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "single(" Exp ")" [assoc, symbol(single)]
+        endmodule
+    "#};
+    let error = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "cannot emit assoc axiom for production #0: expected arity 2, found 1"
+    );
+}
+
+#[test]
+fn rejects_ill_sorted_associative_productions() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Small ::= "mix(" Small "," Large ")" [assoc, symbol(mix)]
+          syntax Large
+        endmodule
+    "#};
+    let error = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "cannot emit assoc axiom for production #0: the result sort must be a subsort of both argument sorts"
+    );
+}
+
+#[test]
+fn rejects_ill_sorted_idempotent_productions() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Small ::= "merge(" Small "," Large ")" [idem, symbol(merge)]
+          syntax Large
+        endmodule
+    "#};
+    let error = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "cannot emit idem axiom for production #0: the result and both argument sorts must be equal"
+    );
+}
+
+#[test]
+fn rejects_non_binary_function_units() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= ".Exp" [function, symbol(.Exp)]
+          syntax Exp ::= "wrap(" Exp ")" [function, symbol(wrap), unit(.Exp)]
+        endmodule
+    "#};
+    let error = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "cannot emit unit axiom for production #1: expected arity 2, found 1"
+    );
+}
+
+#[test]
+fn rejects_ill_sorted_function_units() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Small ::= ".Small" [function, symbol(.Small)]
+          syntax Small ::= Small "join" Large
+            [function, symbol(join), unit(.Small)]
+          syntax Large
+        endmodule
+    "#};
+    let error = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "cannot emit unit axiom for production #1: the result and both argument sorts must be equal"
+    );
+}
+
 #[test]
 fn rejects_non_top_cell_semantic_rules() {
     let source = indoc! {r#"
