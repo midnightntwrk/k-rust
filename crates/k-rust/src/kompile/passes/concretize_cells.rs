@@ -553,7 +553,7 @@ impl<'a> Concretizer<'a> {
                         sort: Some(child.value_sort.clone()),
                     }
                 } else {
-                    self.fresh_variable(Some(child.value_sort.clone()), "_CellFragment")
+                    self.fresh_variable(Some(child.value_sort.clone()), "_Gen")
                 };
                 split.insert(sort, term);
             }

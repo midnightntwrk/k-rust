@@ -494,6 +494,35 @@ rule_snapshot!(
     "#
 );
 
+#[cfg(feature = "z3-inference")]
+rule_snapshot!(
+    prefers_a_lifted_rewrite_over_a_nested_operator_interpretation,
+    r#"
+        module MAIN
+          syntax Key ::= "a" [symbol(a)]
+          syntax Value ::= "b" [symbol(b)] | "c" [symbol(c)]
+          syntax Pair ::= Key "|->" Value [symbol(pair)]
+          syntax Foo ::= "foo(" Pair ")" [symbol(foo)]
+          rule foo(a |-> b => a |-> c)
+        endmodule
+    "#
+);
+
+#[cfg(feature = "z3-inference")]
+rule_snapshot!(
+    scopes_rewrites_inside_local_functions_before_infix_operators,
+    r##"
+        module MAIN
+          syntax Type ::= "type" [symbol(type)]
+          syntax KItem ::= Type
+          syntax Map ::= KItem "|->" KItem [symbol(pair)]
+          syntax KItem ::= Map
+          syntax Foo ::= "foo(" Map ")" [symbol(foo)]
+          rule foo(type |-> type => type |-> #fun(T::Type => T |-> T)(type))
+        endmodule
+    "##
+);
+
 rule_snapshot!(
     parses_whitespace_between_an_unquoted_prefix_label_and_parenthesis,
     r#"

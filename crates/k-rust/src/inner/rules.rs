@@ -503,11 +503,16 @@ fn rule_sort(sort: &Sort) -> Sort {
 
 #[cfg(feature = "z3-inference")]
 fn add_builtin_rule_sentences(sentences: &mut Vec<Sentence>) {
-    let has_label = |name: &str| {
-        sentences.iter().any(|sentence| {
-            matches!(sentence, Sentence::Production { label: Some(label), .. } if label.name == name)
+    let labels = sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label), ..
+            } => Some(label.name.clone()),
+            _ => None,
         })
-    };
+        .collect::<BTreeSet<_>>();
+    let has_label = |name: &str| labels.contains(name);
     let has_rewrite = has_label("#KRewrite");
     let has_as = has_label("#KAs");
     let parameter = Sort::new("Sort");
@@ -544,11 +549,122 @@ fn add_builtin_rule_sentences(sentences: &mut Vec<Sentence>) {
                 },
                 ProductionItem::Terminal("#as".into()),
                 ProductionItem::NonTerminal {
-                    sort: parameter,
+                    sort: parameter.clone(),
                     name: None,
                 },
             ],
-            attributes: generated_attributes,
+            attributes: generated_attributes.clone(),
+        });
+    }
+    if !has_label("#fun2") {
+        let mut attributes = generated_attributes.clone();
+        attributes.insert("prefer", serde_json::Value::String(String::new()));
+        sentences.push(Sentence::Production {
+            label: Some(Label::with_parameters("#fun2", vec![parameter.clone()])),
+            parameters: vec![parameter.clone()],
+            sort: parameter.clone(),
+            items: vec![
+                ProductionItem::Terminal("#fun".into()),
+                ProductionItem::Terminal("(".into()),
+                ProductionItem::NonTerminal {
+                    sort: parameter.clone(),
+                    name: None,
+                },
+                ProductionItem::Terminal(")".into()),
+                ProductionItem::Terminal("(".into()),
+                ProductionItem::NonTerminal {
+                    sort: parameter.clone(),
+                    name: None,
+                },
+                ProductionItem::Terminal(")".into()),
+            ],
+            attributes,
+        });
+    }
+    let result_parameter = Sort::new("Sort1");
+    let argument_parameter = Sort::new("Sort2");
+    if !has_label("#fun3") {
+        sentences.push(Sentence::Production {
+            label: Some(Label::with_parameters(
+                "#fun3",
+                vec![result_parameter.clone(), argument_parameter.clone()],
+            )),
+            parameters: vec![result_parameter.clone(), argument_parameter.clone()],
+            sort: result_parameter.clone(),
+            items: vec![
+                ProductionItem::Terminal("#fun".into()),
+                ProductionItem::Terminal("(".into()),
+                ProductionItem::NonTerminal {
+                    sort: argument_parameter.clone(),
+                    name: None,
+                },
+                ProductionItem::Terminal("=>".into()),
+                ProductionItem::NonTerminal {
+                    sort: result_parameter.clone(),
+                    name: None,
+                },
+                ProductionItem::Terminal(")".into()),
+                ProductionItem::Terminal("(".into()),
+                ProductionItem::NonTerminal {
+                    sort: argument_parameter.clone(),
+                    name: None,
+                },
+                ProductionItem::Terminal(")".into()),
+            ],
+            attributes: generated_attributes.clone(),
+        });
+    }
+    if !has_label("#let") {
+        sentences.push(Sentence::Production {
+            label: Some(Label::with_parameters(
+                "#let",
+                vec![result_parameter.clone(), argument_parameter.clone()],
+            )),
+            parameters: vec![result_parameter.clone(), argument_parameter.clone()],
+            sort: result_parameter,
+            items: vec![
+                ProductionItem::Terminal("#let".into()),
+                ProductionItem::NonTerminal {
+                    sort: argument_parameter.clone(),
+                    name: None,
+                },
+                ProductionItem::Terminal("=".into()),
+                ProductionItem::NonTerminal {
+                    sort: argument_parameter,
+                    name: None,
+                },
+                ProductionItem::Terminal("#in".into()),
+                ProductionItem::NonTerminal {
+                    sort: Sort::new("Sort1"),
+                    name: None,
+                },
+            ],
+            attributes: generated_attributes.clone(),
+        });
+    }
+    for (label, terminal) in [("_:=K_", ":=K"), ("_:/=K_", ":/=K")] {
+        if has_label(label) {
+            continue;
+        }
+        let mut attributes = generated_attributes.clone();
+        attributes.insert("function", serde_json::Value::String(String::new()));
+        attributes.insert("total", serde_json::Value::String(String::new()));
+        sentences.push(Sentence::Production {
+            label: Some(Label::new(label)),
+            parameters: Vec::new(),
+            sort: Sort::new("Bool"),
+            items: vec![
+                ProductionItem::NonTerminal {
+                    sort: Sort::new("K"),
+                    name: None,
+                },
+                ProductionItem::Terminal(terminal.into()),
+                ProductionItem::NonTerminal {
+                    sort: Sort::new("K"),
+                    name: None,
+                },
+            ],
+            attributes,
         });
     }
     if !sentences.iter().any(|sentence| {

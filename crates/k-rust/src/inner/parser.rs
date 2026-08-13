@@ -615,7 +615,7 @@ impl Grammar {
                                 state.origin,
                                 position,
                             );
-                            match self.filter_priority(term) {
+                            match filter_or_defer_priority(self, term) {
                                 Ok(term) => {
                                     nodes.insert(term);
                                 }
@@ -668,49 +668,24 @@ impl Grammar {
         if parses.is_empty() {
             return Err(first_violation.unwrap_or_else(|| self.no_parse(&charts)));
         }
-        let mut parsed = BTreeSet::new();
-        for term in parses {
-            let term = self.collapse_record_productions(term)?;
-            match self.filter_priority(term) {
-                Ok(term) => {
-                    match self
-                        .resolve_applications(term)
-                        .and_then(|term| self.filter_priority(term))
-                    {
-                        Ok(term) => {
-                            parsed.insert(term);
-                        }
-                        Err(error) => {
-                            first_violation.get_or_insert(error);
-                        }
-                    }
-                }
-                Err(error) => {
-                    first_violation.get_or_insert(error);
-                }
-            }
-        }
-        match parsed.len() {
-            0 => Err(first_violation.unwrap_or_else(|| ParseError::NoParse {
-                position: input.len(),
-                expected: vec!["an expression respecting priority and associativity".into()],
-            })),
-            _ => {
-                let forest = self.push_top_lhs_ambiguity_up(
-                    self.factor_ambiguities(ParsedTerm::Ambiguity(parsed)),
-                );
-                let inferred = self.infer_sorts(forest, start, is_anywhere)?;
-                let resolved = self.resolve_overloaded_terminators(inferred)?;
-                let filtered = self.filter_overloads_prefer_avoid(resolved);
-                let parses = Grammar::ambiguity_count(&filtered);
-                if parses > 1 {
-                    Err(ParseError::Ambiguous { parses })
-                } else {
-                    let listed = self.add_empty_lists(filtered, start)?;
-                    let cleaned = self.remove_brackets_and_syntactic_casts(listed);
-                    Ok(self.lower(cleaned))
-                }
-            }
+        // Java applies `PriorityVisitor` to the packed root ambiguity. Its rewrite/sequence/let
+        // preference must therefore run before descending into losing alternatives; filtering
+        // each root independently incorrectly rejects inputs whose winning interpretation is a
+        // top-level rewrite (for example a rewrite inside a competing map-item parse).
+        let forest = self.collapse_record_productions(ParsedTerm::Ambiguity(parses))?;
+        let forest = self.filter_priority(forest)?;
+        let forest = self.resolve_applications(forest)?;
+        let forest = self.push_top_lhs_ambiguity_up(self.factor_ambiguities(forest));
+        let inferred = self.infer_sorts(forest, start, is_anywhere)?;
+        let resolved = self.resolve_overloaded_terminators(inferred)?;
+        let filtered = self.filter_overloads_prefer_avoid(resolved);
+        let parses = Grammar::ambiguity_count(&filtered);
+        if parses > 1 {
+            Err(ParseError::Ambiguous { parses })
+        } else {
+            let listed = self.add_empty_lists(filtered, start)?;
+            let cleaned = self.remove_brackets_and_syntactic_casts(listed);
+            Ok(self.lower(cleaned))
         }
     }
 
@@ -1129,7 +1104,7 @@ fn completed_nodes(
                 state.origin,
                 end,
             );
-            match grammar.filter_priority(term) {
+            match filter_or_defer_priority(grammar, term) {
                 Ok(term) => {
                     nodes.insert(term);
                 }
@@ -1140,6 +1115,22 @@ fn completed_nodes(
         }
     }
     (nodes, first_violation)
+}
+
+fn filter_or_defer_priority(grammar: &Grammar, term: ParsedTerm) -> Result<ParsedTerm, ParseError> {
+    match grammar.filter_priority(term.clone()) {
+        Ok(term) => Ok(term),
+        // A locally invalid nested rewrite/sequence/let may be the losing view of an ambiguity
+        // whose sibling has that operation at the root. Java retains the packed forest until its
+        // root-preference rule can select the sibling. Other priority and associativity failures
+        // are safe to prune eagerly, which keeps long associative chains bounded.
+        Err(ParseError::Scope { child, .. })
+            if matches!(child.as_str(), "#KRewrite" | "#KSequence" | "#let") =>
+        {
+            Ok(term)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn append_nodes(
@@ -1211,10 +1202,15 @@ fn lower_term(production: &Production, children: &[Term]) -> Term {
     if production.transparent || production.label.is_none() && children.len() == 1 {
         return children[0].clone();
     }
-    let label = production
+    let mut label = production
         .label
         .clone()
         .unwrap_or_else(|| Label::new("#anonymous"));
+    // Scala's `TreeNodesToKORE` does not preserve the parser-only outer-cast label. It lowers
+    // `{term}:>Sort` to the sort projection generated for the cast's result sort.
+    if label.name == "#OuterCast" {
+        label = Label::new(format!("project:{}", production.result));
+    }
     match (label.name.as_str(), children) {
         ("#EmptyK", []) => Term::Sequence(Vec::new()),
         ("#KSequence", items) => Term::sequence(items.iter().cloned()),

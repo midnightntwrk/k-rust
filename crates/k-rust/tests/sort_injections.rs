@@ -2,7 +2,7 @@ use indoc::indoc;
 use k_rust::definition::{Attributes, Definition, ResolvedDefinition, Sentence};
 use k_rust::inner::resolve_rule_bubbles;
 use k_rust::kast::{Label, Sort, Term, TermMetadata};
-use k_rust::kompile::{SortInjector, term_to_kore_from_resolved};
+use k_rust::kompile::{SortInjector, generate_sort_projections, term_to_kore_from_resolved};
 use k_rust::kore::printer::Printer;
 
 fn lowered(source: &str) -> Definition {
@@ -23,7 +23,8 @@ macro_rules! injection_snapshot {
         #[test]
         fn $name() {
             let source = indoc!($source);
-            let definition = lowered(source);
+            let definition = generate_sort_projections(&lowered(source))
+                .expect("sort projections should generate");
             let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
             let injector = SortInjector::new(&resolved, "MAIN").expect("injector should build");
             let summaries = definition
@@ -31,7 +32,10 @@ macro_rules! injection_snapshot {
                 .expect("main module should exist")
                 .local_sentences
                 .iter()
-                .filter(|sentence| matches!(sentence, Sentence::Rule { .. } | Sentence::Claim { .. }))
+                .filter(|sentence| {
+                    matches!(sentence, Sentence::Rule { .. } | Sentence::Claim { .. })
+                        && sentence.attributes().get("projection").is_none()
+                })
                 .map(|sentence| {
                     let injected = injector
                         .inject_sentence(sentence)

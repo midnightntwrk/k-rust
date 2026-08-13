@@ -14,7 +14,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Id ::= r\"[a-z]\" [token]\n
     },
     SentenceSummary {
         kind: "rule",
-        body: "#SemanticCastToExp(X)=>#OuterCast(#SemanticCastToExp(X))",
+        body: "#SemanticCastToExp(X)=>`project:Exp`(#SemanticCastToExp(X))",
         requires: "#token(\"true\",\"Bool\")",
         ensures: Some(
             "#token(\"true\",\"Bool\")",

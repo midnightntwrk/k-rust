@@ -4,7 +4,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Id ::= r\"[a-z]\" [token]\n
 ---
 [
     InjectionSummary {
-        injected: "#SemanticCastToExp(X)=>#OuterCast(#SemanticCastToExp(X))",
-        kore: "\\rewrites{SortExp{}}(\n  Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),\n  Lbl'Hash'OuterCast{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))\n)",
+        injected: "#SemanticCastToExp(X)=>`project:Exp`(inj{Exp,KItem}(#SemanticCastToExp(X)))",
+        kore: "\\rewrites{SortExp{}}(\n  Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),\n  Lblproject'Coln'Exp{}(\n    kseq{}(inj{SortExp{}, SortKItem{}}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})), dotk{}())\n  )\n)",
     },
 ]
