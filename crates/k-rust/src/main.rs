@@ -12,7 +12,7 @@ use k_rust::{
     diagnostic::{Diagnostic, Severity},
     inner::ProgramParser,
     kast::{json as kast_json, parser::parse_sort, printer::Printer as KastPrinter},
-    kompile::{module_to_kore_from_resolved, resolve_comm, resolve_io},
+    kompile::{module_to_kore_from_resolved, resolve_comm, resolve_fun, resolve_io},
     kore::{
         ast::{Attributes, Definition as KoreDefinition},
         printer::Printer as KorePrinter,
@@ -198,6 +198,9 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
         emit_diagnostics(&error.diagnostics);
     })?;
     let definition = resolve_io(&definition).inspect_err(|error| {
+        emit_diagnostics(&error.diagnostics);
+    })?;
+    let definition = resolve_fun(&definition).inspect_err(|error| {
         emit_diagnostics(&error.diagnostics);
     })?;
     let resolved = ResolvedDefinition::resolve(&definition)?;

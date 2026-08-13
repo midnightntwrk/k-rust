@@ -1,8 +1,8 @@
 use indoc::indoc;
 use k_rust::{
-    definition::{Attributes, Definition, FlatModule, Sentence},
+    definition::{Attributes, Definition, FlatModule, ProductionItem, Sentence},
     kast::{Label, Sort, Term, printer::Printer},
-    kompile::{resolve_comm, resolve_io},
+    kompile::{module_to_kore, resolve_comm, resolve_fun, resolve_io},
     outer::{ResolvedSource, load},
 };
 use serde_json::{Value, json};
@@ -284,4 +284,181 @@ fn rejects_unknown_stream_names() {
         error.diagnostics[0].message,
         "Make sure you give the correct stream names: stderr\nIt should be one of [stdin, stdout]"
     );
+}
+
+#[test]
+fn lowers_local_functions_with_closure_arguments_and_totality() {
+    let x = Term::Variable {
+        name: "X".into(),
+        sort: Some(Sort::new("Int")),
+    };
+    let y = Term::Variable {
+        name: "Y".into(),
+        sort: Some(Sort::new("Int")),
+    };
+    let local_function = application(
+        "#fun3",
+        vec![
+            x.clone(),
+            application("plus", vec![x, y.clone()]),
+            Term::Token {
+                token: "1".into(),
+                sort: Sort::new("Int"),
+            },
+        ],
+    );
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: Sort::new("Int"),
+                    attributes: Attributes::default(),
+                },
+                Sentence::Production {
+                    label: Some(Label::new("plus")),
+                    parameters: Vec::new(),
+                    sort: Sort::new("Int"),
+                    items: vec![
+                        ProductionItem::NonTerminal {
+                            sort: Sort::new("Int"),
+                            name: None,
+                        },
+                        ProductionItem::NonTerminal {
+                            sort: Sort::new("Int"),
+                            name: None,
+                        },
+                    ],
+                    attributes: Attributes::default(),
+                },
+                rule(local_function, Attributes::default()),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+
+    let resolved = resolve_fun(&definition).unwrap();
+    let sentences = &resolved.main_module().unwrap().local_sentences;
+    let lambda = sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label),
+                items,
+                attributes,
+                ..
+            } if label.name.starts_with("#lambda") => {
+                Some((label.clone(), items.clone(), attributes.clone()))
+            }
+            _ => None,
+        })
+        .expect("lambda production should be generated");
+    assert_eq!(lambda.0.name, "#lambda__");
+    assert_eq!(
+        lambda
+            .1
+            .iter()
+            .filter(|item| matches!(item, ProductionItem::NonTerminal { .. }))
+            .count(),
+        2,
+        "the argument and captured Y should be explicit parameters"
+    );
+    assert!(lambda.2.get("function").is_some());
+    assert!(lambda.2.get("total").is_some());
+
+    let rendered = sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        rendered
+            .iter()
+            .any(|body| body.contains("`#lambda__`(#token(\"1\",\"Int\"),Y)")),
+        "{rendered:#?}"
+    );
+    assert!(
+        rendered
+            .iter()
+            .any(|body| { body.contains("`#lambda__`(X,Y)=>plus(X,Y)") })
+    );
+}
+
+#[test]
+fn lowers_k_non_matching_to_a_negated_predicate_with_owise_rule() {
+    let pattern = rewrite(
+        Term::Variable {
+            name: "X".into(),
+            sort: Some(Sort::new("Int")),
+        },
+        bool_token_for_test(true),
+    );
+    let expression = Term::Token {
+        token: "0".into(),
+        sort: Sort::new("Int"),
+    };
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: Sort::new("Int"),
+                    attributes: Attributes::default(),
+                },
+                rule(
+                    application("_:/=K_", vec![pattern, expression]),
+                    Attributes::default(),
+                ),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+
+    let resolved = resolve_fun(&definition).unwrap();
+    let sentences = &resolved.main_module().unwrap().local_sentences;
+    assert!(sentences.iter().any(|sentence| {
+        matches!(sentence, Sentence::Rule { attributes, .. } if attributes.get("owise").is_some())
+    }));
+    let rendered = sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        rendered
+            .iter()
+            .any(|body| { body.contains("`notBool_`(`#lambda") }),
+        "{rendered:#?}"
+    );
+}
+
+fn bool_token_for_test(value: bool) -> Term {
+    Term::Token {
+        token: value.to_string(),
+        sort: Sort::new("Bool"),
+    }
+}
+
+#[test]
+fn rebases_parser_metadata_after_generating_lambda_productions() {
+    let source = indoc! {r##"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Int ::= "f(" Int ")" [function, symbol(f)]
+          syntax Int ::= "#fun" "(" Int "=>" Int ")" "(" Int ")" [symbol(#fun3)]
+          rule f(X:Int) => #fun(Y:Int => Y:Int)(X:Int)
+        endmodule
+    "##};
+    let transformed = resolve_fun(&parsed(source)).unwrap();
+
+    module_to_kore(&transformed, "MAIN")
+        .expect("surviving parser production metadata should use the expanded catalog");
 }

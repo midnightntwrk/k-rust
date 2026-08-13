@@ -550,7 +550,7 @@ impl<'a> SortInjector<'a> {
         }
     }
 
-    fn least_upper_bound(
+    pub(crate) fn least_upper_bound(
         &self,
         sorts: &[Sort],
         expected: Option<&Sort>,

@@ -3,18 +3,139 @@
 use std::fmt;
 
 use crate::{
-    definition::{Definition, LabelHead, ResolvedDefinition, Sentence},
+    definition::{
+        Definition, LabelHead, ProductionCatalog, ResolvedDefinition, Sentence, sentence_equivalent,
+    },
     diagnostic::{Diagnostic, DiagnosticCode},
-    kast::Term,
+    kast::{ResolvedProductionId, Term},
 };
 
+mod resolve_fun;
 mod resolve_io;
 
+pub use resolve_fun::{ResolveFunError, resolve_fun};
 pub use resolve_io::{ResolveIoError, resolve_io};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveCommError {
     pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Rebase parser production indexes after a pass adds or removes productions.
+///
+/// Parsed terms intentionally store compact catalog indexes. Compilation passes preserve those
+/// terms while changing the catalog around them, so every production-changing pass must translate
+/// surviving indexes before the next resolved-definition boundary.
+fn rebase_local_metadata(before: &Definition, mut after: Definition) -> Result<Definition, String> {
+    let before = ResolvedDefinition::resolve(before).map_err(|error| error.to_string())?;
+    let after_resolved = ResolvedDefinition::resolve(&after).map_err(|error| error.to_string())?;
+    for module in &mut after.modules {
+        let Some(before_module) = before.module_id(&module.name) else {
+            continue;
+        };
+        let Some(after_module) = after_resolved.module_id(&module.name) else {
+            continue;
+        };
+        let source = before.production_catalog(before_module);
+        let target = after_resolved.production_catalog(after_module);
+        for sentence in &mut module.local_sentences {
+            rebase_sentence(sentence, &source, &target)?;
+        }
+    }
+    Ok(after)
+}
+
+fn rebase_sentence(
+    sentence: &mut Sentence,
+    source: &ProductionCatalog<'_>,
+    target: &ProductionCatalog<'_>,
+) -> Result<(), String> {
+    let rebase = |term: &mut Term| {
+        let taken = std::mem::replace(term, Term::Sequence(Vec::new()));
+        *term = rebase_term(taken, source, target)?;
+        Ok::<_, String>(())
+    };
+    match sentence {
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        }
+        | Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            ..
+        } => {
+            rebase(body)?;
+            rebase(requires)?;
+            rebase(ensures)?;
+        }
+        Sentence::Context { body, requires, .. }
+        | Sentence::ContextAlias { body, requires, .. } => {
+            rebase(body)?;
+            rebase(requires)?;
+        }
+        Sentence::Configuration { body, ensures, .. } => {
+            rebase(body)?;
+            rebase(ensures)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn rebase_term(
+    term: Term,
+    source: &ProductionCatalog<'_>,
+    target: &ProductionCatalog<'_>,
+) -> Result<Term, String> {
+    let mut metadata = term.metadata().cloned().unwrap_or_default();
+    if let Some(ResolvedProductionId(index)) = metadata.production {
+        if index >= source.len() {
+            return Err(format!(
+                "production metadata #{index} exceeds source catalog length {}",
+                source.len()
+            ));
+        }
+        let production = source.production(crate::definition::ProductionId(index));
+        let rebased = target
+            .productions()
+            .find_map(|(id, candidate)| sentence_equivalent(production, candidate).then_some(id))
+            .ok_or_else(|| {
+                format!(
+                    "source production metadata #{index} has no equivalent in the transformed catalog"
+                )
+            })?;
+        metadata.production = Some(ResolvedProductionId(rebased.0));
+    }
+    let rebuilt = match term.into_unannotated() {
+        Term::Rewrite { left, right } => Term::Rewrite {
+            left: Box::new(rebase_term(*left, source, target)?),
+            right: Box::new(rebase_term(*right, source, target)?),
+        },
+        Term::As { pattern, alias } => Term::As {
+            pattern: Box::new(rebase_term(*pattern, source, target)?),
+            alias: Box::new(rebase_term(*alias, source, target)?),
+        },
+        Term::Sequence(items) => Term::Sequence(
+            items
+                .into_iter()
+                .map(|item| rebase_term(item, source, target))
+                .collect::<Result<_, _>>()?,
+        ),
+        Term::Apply { label, arguments } => Term::Apply {
+            label,
+            arguments: arguments
+                .into_iter()
+                .map(|argument| rebase_term(argument, source, target))
+                .collect::<Result<_, _>>()?,
+        },
+        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
+        Term::Annotated { .. } => unreachable!(),
+    };
+    Ok(rebuilt.with_metadata(metadata))
 }
 
 impl fmt::Display for ResolveCommError {

@@ -165,9 +165,13 @@ KORE generation. The second pass, `ResolveIO`, instantiates builtin stdin/stdout
 user-named stream cells, replaces their initializers, generates Java's supported stdin-unblocking
 rules, imports stream syntax and rules, and empties the template modules. Configuration generation
 now propagates map-taking initializers through parent cells, preventing unbound `Init` variables in
-nested stream configurations. The native `kcompile` command runs both passes in order. Markdown and
-literate-K sources preserve their original offsets while extracting
-fenced blocks selected by `--md-selector`. The native resolver can load K's implicit `prelude.md`
+nested stream configurations. Java's third pass, `ResolveFun`, now lowers `#fun2`, `#fun3`, `#let`,
+`:=K`, and `:/=K` into collision-free generated lambda productions and rules, including typed
+closure parameters, totality, predicate owise cases, nested local functions, and fresh anonymous
+variables. Production metadata is rebased whenever generated lambda syntax changes a module's
+catalog. The native `kcompile` command runs all three passes in order. Markdown and literate-K
+sources preserve their original offsets while extracting fenced blocks selected by
+`--md-selector`. The native resolver can load K's implicit `prelude.md`
 from `--builtin-directory` or `KRUST_BUILTIN_DIRECTORY`, translates historical builtin `.k`
 require names to their Markdown sources, imports `DEFAULT-CONFIGURATION` and `MAP` according to
 Java's policy, and now parses and validates the bundled prelude together with a real user
