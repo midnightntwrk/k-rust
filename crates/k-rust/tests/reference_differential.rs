@@ -14,6 +14,8 @@ fn emitted_kore_matches_the_reference_frontend() {
     let actual_source = fs::read_to_string(&actual_path).unwrap();
     let mut reference = parse_definition(&reference_source).unwrap();
     let mut actual = parse_definition(&actual_source).unwrap();
+    let raw_reference = reference.clone();
+    let raw_actual = actual.clone();
     strip_source_metadata(&mut reference);
     strip_source_metadata(&mut actual);
 
@@ -26,7 +28,9 @@ fn emitted_kore_matches_the_reference_frontend() {
         actual.modules.len(),
         "module count"
     );
-    for (reference, actual) in reference.modules.iter().zip(&actual.modules) {
+    for (module_index, (reference, actual)) in
+        reference.modules.iter().zip(&actual.modules).enumerate()
+    {
         assert_eq!(reference.name, actual.name, "module name");
         assert_eq!(
             reference.attributes, actual.attributes,
@@ -48,14 +52,26 @@ fn emitted_kore_matches_the_reference_frontend() {
         if reference_sentences != actual_sentences {
             let missing = count_differences(&reference_sentences, &actual_sentences);
             let extra = count_differences(&actual_sentences, &reference_sentences);
+            let missing_ids = difference_ids(
+                &missing,
+                &reference.sentences,
+                &raw_reference.modules[module_index].sentences,
+            );
+            let extra_ids = difference_ids(
+                &extra,
+                &actual.sentences,
+                &raw_actual.modules[module_index].sentences,
+            );
             panic!(
-                "{} sentence multiset differs: reference={}, actual={} ({}); missing={}, extra={}\n{}",
+                "{} sentence multiset differs: reference={}, actual={} ({}); missing={} {:?}, extra={} {:?}\n{}",
                 reference.name,
                 sentence_counts(&reference.sentences),
                 sentence_counts(&actual.sentences),
                 first_sentence_difference(&reference.sentences, &actual.sentences),
                 missing.len(),
+                missing_ids,
                 extra.len(),
+                extra_ids,
                 difference_context(
                     missing.first().map(String::as_str),
                     extra.first().map(String::as_str)
@@ -63,6 +79,43 @@ fn emitted_kore_matches_the_reference_frontend() {
             );
         }
     }
+}
+
+fn difference_ids(differences: &[String], stripped: &[Sentence], raw: &[Sentence]) -> Vec<String> {
+    differences
+        .iter()
+        .take(8)
+        .map(|difference| {
+            stripped
+                .iter()
+                .position(|sentence| canonical_sentence(sentence) == *difference)
+                .and_then(|index| sentence_identity(&raw[index]))
+                .unwrap_or_else(|| "<generated>".into())
+        })
+        .collect()
+}
+
+fn sentence_identity(sentence: &Sentence) -> Option<String> {
+    let attributes = match sentence {
+        Sentence::Import { attributes, .. }
+        | Sentence::SortDeclaration { attributes, .. }
+        | Sentence::SymbolDeclaration { attributes, .. }
+        | Sentence::AliasDeclaration { attributes, .. }
+        | Sentence::Axiom { attributes, .. }
+        | Sentence::Claim { attributes, .. } => attributes,
+    };
+    attributes.0.iter().find_map(|attribute| match attribute {
+        Pattern::Application { symbol, arguments }
+            if symbol.name == "UNIQUE'Unds'ID"
+                || symbol.name == "org'Stop'kframework'Stop'attributes'Stop'Source" =>
+        {
+            arguments.first().and_then(|argument| match argument {
+                Pattern::String(value) => Some(value.clone()),
+                _ => None,
+            })
+        }
+        _ => None,
+    })
 }
 
 fn canonical_sentence(sentence: &Sentence) -> String {

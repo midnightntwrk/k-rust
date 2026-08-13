@@ -4,7 +4,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
 ---
 [
     InjectionSummary {
-        injected: "box(same{Exp}(inj{Int,Exp}(#token(\"1\",\"Int\"))))=>box(inj{Int,Exp}(#token(\"1\",\"Int\")))",
-        kore: "\\rewrites{SortBox{}}(\n  Lblbox{}(Lblsame{SortExp{}}(inj{SortInt{}, SortExp{}}(\\dv{SortInt{}}(\"1\")))),\n  Lblbox{}(inj{SortInt{}, SortExp{}}(\\dv{SortInt{}}(\"1\")))\n)",
+        injected: "box(inj{Int,Exp}(same{Int}(#token(\"1\",\"Int\"))))=>box(inj{Int,Exp}(#token(\"1\",\"Int\")))",
+        kore: "\\rewrites{SortBox{}}(\n  Lblbox{}(inj{SortInt{}, SortExp{}}(Lblsame{SortInt{}}(\\dv{SortInt{}}(\"1\")))),\n  Lblbox{}(inj{SortInt{}, SortExp{}}(\\dv{SortInt{}}(\"1\")))\n)",
     },
 ]

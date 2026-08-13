@@ -43,6 +43,7 @@ pub use finalize::{add_cool_like_attributes, add_semantics_module, generate_sort
 pub use generate_sort_helpers::{generate_sort_predicate_syntax, generate_sort_projections};
 pub use guard_or_patterns::guard_or_patterns;
 pub use minimize_term_construction::minimize_term_construction;
+pub(crate) use number_sentences::number_sentence;
 pub use number_sentences::number_sentences;
 pub use propagate_macro::propagate_macro_attributes;
 pub use remove_unit::remove_unit;

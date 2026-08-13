@@ -1,7 +1,10 @@
 //! Production-aware insertion of explicit KORE subsort injections.
 
-use std::collections::BTreeMap;
+use std::cell::{Cell, RefCell};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+
+use serde_json::json;
 
 use crate::definition::{
     Definition, LabelHead, PartialOrder, ProductionCatalog, ProductionId, ResolveError,
@@ -12,6 +15,7 @@ use crate::kast::{Label, Sort, Term};
 const K_SORT: &str = "K";
 const K_ITEM_SORT: &str = "KItem";
 const BOOL_SORT: &str = "Bool";
+const SORT_PARAMETER: &str = "#SortParam";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SortInjectionError {
@@ -121,6 +125,8 @@ pub struct SortInjector<'a> {
     productions: ProductionCatalog<'a>,
     sorts: SortCatalog<'a>,
     subsorts: PartialOrder<Sort>,
+    next_sort_parameter: Cell<usize>,
+    used_sort_parameters: RefCell<BTreeSet<String>>,
 }
 
 impl<'a> SortInjector<'a> {
@@ -138,6 +144,8 @@ impl<'a> SortInjector<'a> {
             productions: definition.production_catalog(module),
             sorts: definition.sort_catalog(module),
             subsorts,
+            next_sort_parameter: Cell::new(0),
+            used_sort_parameters: RefCell::new(BTreeSet::new()),
         })
     }
 
@@ -154,29 +162,41 @@ impl<'a> SortInjector<'a> {
 
     /// Match Java's sentence boundary: rule/claim conditions are always `Bool`.
     pub fn inject_sentence(&self, sentence: &Sentence) -> Result<Sentence, SortInjectionError> {
+        self.next_sort_parameter.set(0);
+        self.used_sort_parameters.borrow_mut().clear();
         match sentence {
             Sentence::Rule {
                 body,
                 requires,
                 ensures,
                 attributes,
-            } => Ok(Sentence::Rule {
-                body: self.inject_rule_body(body)?,
-                requires: self.inject(requires, &Sort::new(BOOL_SORT))?,
-                ensures: self.inject(ensures, &Sort::new(BOOL_SORT))?,
-                attributes: attributes.clone(),
-            }),
+            } => {
+                let body = self.inject_rule_body(body)?;
+                let requires = self.inject(requires, &Sort::new(BOOL_SORT))?;
+                let ensures = self.inject(ensures, &Sort::new(BOOL_SORT))?;
+                Ok(Sentence::Rule {
+                    body,
+                    requires,
+                    ensures,
+                    attributes: self.sentence_attributes(attributes),
+                })
+            }
             Sentence::Claim {
                 body,
                 requires,
                 ensures,
                 attributes,
-            } => Ok(Sentence::Claim {
-                body: self.inject_rule_body(body)?,
-                requires: self.inject(requires, &Sort::new(BOOL_SORT))?,
-                ensures: self.inject(ensures, &Sort::new(BOOL_SORT))?,
-                attributes: attributes.clone(),
-            }),
+            } => {
+                let body = self.inject_rule_body(body)?;
+                let requires = self.inject(requires, &Sort::new(BOOL_SORT))?;
+                let ensures = self.inject(ensures, &Sort::new(BOOL_SORT))?;
+                Ok(Sentence::Claim {
+                    body,
+                    requires,
+                    ensures,
+                    attributes: self.sentence_attributes(attributes),
+                })
+            }
             _ => Ok(sentence.clone()),
         }
     }
@@ -190,7 +210,38 @@ impl<'a> SortInjector<'a> {
         } else {
             body.clone()
         };
-        self.inject_at_top(&body)
+        let top = self.fresh_sort_parameter();
+        let actual = self.term_sort(&body, Some(&top))?;
+        self.inject_with_position(&body, &actual, false)
+    }
+
+    fn sentence_attributes(
+        &self,
+        attributes: &crate::definition::Attributes,
+    ) -> crate::definition::Attributes {
+        let mut attributes = attributes.clone();
+        let parameters = self.used_sort_parameters.borrow();
+        if !parameters.is_empty() {
+            attributes.insert(
+                "sortParams",
+                json!({
+                    "node": "KSort",
+                    "name": "",
+                    "params": parameters.iter().map(|name| json!({
+                        "node": "KSort",
+                        "name": name,
+                        "params": [],
+                    })).collect::<Vec<_>>(),
+                }),
+            );
+        }
+        attributes
+    }
+
+    fn fresh_sort_parameter(&self) -> Sort {
+        let index = self.next_sort_parameter.get();
+        self.next_sort_parameter.set(index + 1);
+        Sort::with_parameters(SORT_PARAMETER, vec![Sort::new(format!("Q{index}"))])
     }
 
     pub fn term_sort(
@@ -247,6 +298,26 @@ impl<'a> SortInjector<'a> {
                     };
                     return self.term_sort(argument, expected);
                 }
+                if matches!(
+                    label.name.as_str(),
+                    "#Top"
+                        | "#Bottom"
+                        | "#And"
+                        | "#Or"
+                        | "#Not"
+                        | "#Implies"
+                        | "#Ceil"
+                        | "#Floor"
+                        | "#Equals"
+                        | "#Exists"
+                        | "#Forall"
+                        | "#AG"
+                        | "weakExistsFinally"
+                        | "weakAlwaysFinally"
+                ) && self.has_production(term, label)
+                {
+                    return Ok(self.signature(term, label, arguments, expected)?.result);
+                }
                 match label.name.as_str() {
                     "#Top" | "#Bottom" | "#And" | "#Or" | "#Not" | "#Implies" | "#AG"
                     | "weakExistsFinally" | "weakAlwaysFinally" => {
@@ -288,7 +359,7 @@ impl<'a> SortInjector<'a> {
                     "_:=K_" | "_:/=K_" => return Ok(Sort::new(BOOL_SORT)),
                     _ => {}
                 }
-                let signature = self.signature(term, label, arguments)?;
+                let signature = self.signature(term, label, arguments, expected)?;
                 Ok(signature.result)
             }
             Term::Annotated { .. } => unreachable!(),
@@ -418,6 +489,13 @@ impl<'a> SortInjector<'a> {
         actual: &Sort,
         is_lhs: bool,
     ) -> Result<Term, SortInjectionError> {
+        if actual.name == SORT_PARAMETER
+            && let Some(parameter) = actual.parameters.first()
+        {
+            self.used_sort_parameters
+                .borrow_mut()
+                .insert(parameter.name.clone());
+        }
         let rebuilt = match term.unannotated() {
             Term::Apply { label, .. } if label.name == "inj" => return Ok(term.clone()),
             Term::Apply { label, arguments }
@@ -436,7 +514,7 @@ impl<'a> SortInjector<'a> {
                 }
             }
             Term::Apply { label, arguments } => {
-                let signature = self.signature(term, label, arguments)?;
+                let signature = self.signature(term, label, arguments, Some(actual))?;
                 let arguments = arguments
                     .iter()
                     .zip(signature.arguments.iter())
@@ -496,6 +574,7 @@ impl<'a> SortInjector<'a> {
         term: &Term,
         label: &Label,
         arguments: &[Term],
+        expected: Option<&Sort>,
     ) -> Result<InstantiatedSignature, SortInjectionError> {
         let production = self.production(term, label)?;
         let Sentence::Production {
@@ -521,26 +600,96 @@ impl<'a> SortInjector<'a> {
                 actual: arguments.len(),
             });
         }
-        if parameters.len() != label.parameters.len() {
-            return Err(SortInjectionError::MissingParameters {
-                label: label.name.clone(),
-                expected: parameters.len(),
-                actual: label.parameters.len(),
+        let substitution = if parameters.is_empty() {
+            BTreeMap::new()
+        } else {
+            let expected = expected
+                .cloned()
+                .unwrap_or_else(|| self.fresh_sort_parameter());
+            let fresh = parameters
+                .iter()
+                .map(|parameter| {
+                    if parameter == sort {
+                        expected.clone()
+                    } else {
+                        self.fresh_sort_parameter()
+                    }
+                })
+                .collect::<Vec<_>>();
+            let fresh_substitution = parameters
+                .iter()
+                .cloned()
+                .zip(fresh.iter().cloned())
+                .collect::<BTreeMap<_, _>>();
+            let mut matches = BTreeMap::<Sort, Vec<Sort>>::new();
+            for ((declared, argument), fresh_expected) in argument_sorts.iter().zip(arguments).zip(
+                argument_sorts
+                    .iter()
+                    .map(|sort| substitute_sort(sort, &fresh_substitution)),
+            ) {
+                let actual = self.term_sort(argument, Some(&fresh_expected))?;
+                match_sort(parameters, declared, &actual, &mut matches);
+            }
+            let result_only_parameter = parameters.iter().any(|parameter| {
+                contains_sort(sort, parameter)
+                    && !argument_sorts
+                        .iter()
+                        .any(|argument| contains_sort(argument, parameter))
             });
-        }
-        let substitution = parameters
+            if result_only_parameter {
+                match_sort(parameters, sort, &expected, &mut matches);
+            }
+            parameters
+                .iter()
+                .cloned()
+                .zip(fresh)
+                .map(|(parameter, fallback)| {
+                    let inferred = matches
+                        .remove(&parameter)
+                        .map(|sorts| self.parametric_lub(&sorts, &fallback))
+                        .transpose()?
+                        .unwrap_or(fallback);
+                    Ok((parameter, inferred))
+                })
+                .collect::<Result<BTreeMap<_, _>, SortInjectionError>>()?
+        };
+        let instantiated_parameters = parameters
             .iter()
-            .cloned()
-            .zip(label.parameters.iter().cloned())
-            .collect::<BTreeMap<_, _>>();
+            .map(|parameter| substitute_sort(parameter, &substitution))
+            .collect::<Vec<_>>();
         Ok(InstantiatedSignature {
-            label: label.clone(),
+            label: Label::with_parameters(&label.name, instantiated_parameters),
             arguments: argument_sorts
                 .into_iter()
                 .map(|sort| substitute_sort(sort, &substitution))
                 .collect(),
             result: substitute_sort(sort, &substitution),
         })
+    }
+
+    fn has_production(&self, term: &Term, label: &Label) -> bool {
+        term.metadata()
+            .and_then(|metadata| metadata.production)
+            .is_some()
+            || !self
+                .productions
+                .productions_for(&LabelHead::from(label))
+                .is_empty()
+    }
+
+    fn parametric_lub(&self, sorts: &[Sort], fallback: &Sort) -> Result<Sort, SortInjectionError> {
+        let concrete = sorts
+            .iter()
+            .filter(|sort| sort.name != SORT_PARAMETER)
+            .cloned()
+            .collect::<Vec<_>>();
+        if concrete.is_empty() {
+            return Ok(sorts.first().cloned().unwrap_or_else(|| fallback.clone()));
+        }
+        self.least_upper_bound(
+            &concrete,
+            (fallback.name != SORT_PARAMETER).then_some(fallback),
+        )
     }
 
     fn production(&self, term: &Term, label: &Label) -> Result<&'a Sentence, SortInjectionError> {
@@ -607,14 +756,31 @@ impl<'a> SortInjector<'a> {
         sorts: &[Sort],
         expected: Option<&Sort>,
     ) -> Result<Sort, SortInjectionError> {
-        let mut unique = sorts.to_vec();
+        let mut unique = sorts
+            .iter()
+            .filter(|sort| sort.name != SORT_PARAMETER)
+            .cloned()
+            .collect::<Vec<_>>();
+        if unique.is_empty() {
+            return sorts
+                .first()
+                .cloned()
+                .or_else(|| expected.cloned())
+                .ok_or_else(|| SortInjectionError::IncompatibleSorts {
+                    sorts: Vec::new(),
+                    expected: expected.cloned(),
+                });
+        }
         unique.sort();
         unique.dedup();
         if let [sort] = unique.as_slice() {
             return Ok(sort.clone());
         }
         let mut bounds = self.subsorts.upper_bounds(&unique);
-        if let Some(expected) = expected {
+        if let Some(expected) = expected
+            && expected.name != SORT_PARAMETER
+            && expected.parameters.is_empty()
+        {
             bounds.retain(|bound| self.subsorts.less_than_eq(bound, expected));
         }
         let minima = self.subsorts.minimal(&bounds);
@@ -703,6 +869,34 @@ fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Sort, Sort>) -> Sort {
                 .collect(),
         )
     })
+}
+
+fn contains_sort(sort: &Sort, needle: &Sort) -> bool {
+    sort == needle
+        || sort
+            .parameters
+            .iter()
+            .any(|parameter| contains_sort(parameter, needle))
+}
+
+fn match_sort(
+    formal_parameters: &[Sort],
+    declared: &Sort,
+    actual: &Sort,
+    matches: &mut BTreeMap<Sort, Vec<Sort>>,
+) {
+    if formal_parameters.contains(declared) {
+        matches
+            .entry(declared.clone())
+            .or_default()
+            .push(actual.clone());
+        return;
+    }
+    if declared.name == actual.name && declared.parameters.len() == actual.parameters.len() {
+        for (declared, actual) in declared.parameters.iter().zip(&actual.parameters) {
+            match_sort(formal_parameters, declared, actual, matches);
+        }
+    }
 }
 
 fn has_rewrite(term: &Term) -> bool {

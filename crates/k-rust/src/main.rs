@@ -16,11 +16,11 @@ use k_rust::{
     inner::ProgramParser,
     kast::{json as kast_json, parser::parse_sort, printer::Printer as KastPrinter},
     kompile::{
-        add_cool_like_attributes, add_implicit_computation_cell, add_semantics_module,
-        add_sort_injections_to_definition, check_simplification_rules, concretize_cells,
-        constant_fold, expand_macros, generate_sort_predicate_rules,
+        ModuleToKoreOptions, add_cool_like_attributes, add_implicit_computation_cell,
+        add_semantics_module, add_sort_injections_to_definition, check_simplification_rules,
+        concretize_cells, constant_fold, expand_macros, generate_sort_predicate_rules,
         generate_sort_predicate_syntax, generate_sort_projections, guard_or_patterns,
-        minimize_term_construction, module_to_kore_from_resolved, number_sentences,
+        minimize_term_construction, module_to_kore_from_resolved_with_options, number_sentences,
         propagate_macro_attributes, remove_unit, resolve_anon_vars, resolve_comm,
         resolve_config_var, resolve_contexts, resolve_fresh_config_constants,
         resolve_fresh_constants, resolve_fun, resolve_function_with_config,
@@ -310,7 +310,13 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     let definition = remove_unit(&definition)?;
     let definition = minimize_term_construction(&definition)?;
     let resolved = ResolvedDefinition::resolve(&definition)?;
-    let generated = module_to_kore_from_resolved(&resolved, &options.common.module)?;
+    let generated = module_to_kore_from_resolved_with_options(
+        &resolved,
+        &options.common.module,
+        ModuleToKoreOptions {
+            generate_map_ceil_axioms: options.backend == CompilationBackend::Haskell,
+        },
+    )?;
     fs::create_dir_all(&options.output_directory)?;
     let printer = KorePrinter::pretty(100);
     let semantics = generated.semantics_definition();

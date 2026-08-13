@@ -410,7 +410,13 @@ impl<'a> TermConverter<'a> {
     }
 
     fn kore_sort(&self, sort: &Sort) -> crate::kore::ast::Sort {
-        if sort.parameters.is_empty() && self.sort_variables.contains(&sort.name) {
+        if sort.name == "#SortParam"
+            && let [parameter] = sort.parameters.as_slice()
+            && parameter.parameters.is_empty()
+            && self.sort_variables.contains(&parameter.name)
+        {
+            crate::kore::ast::Sort::Variable(parameter.name.clone())
+        } else if sort.parameters.is_empty() && self.sort_variables.contains(&sort.name) {
             crate::kore::ast::Sort::Variable(sort.name.clone())
         } else {
             crate::kore::ast::Sort::Application {

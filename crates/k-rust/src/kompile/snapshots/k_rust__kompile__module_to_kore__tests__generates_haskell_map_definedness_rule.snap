@@ -1,0 +1,234 @@
+---
+source: crates/k-rust/src/kompile/module_to_kore.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Bool\n  syntax Key\n  syntax Value\n  syntax Map\n  syntax Map ::= Key \"|->\" Value [function, hook(MAP.element), symbol(mapItem)]\n  syntax Map ::= Map Map [function, hook(MAP.concat), symbol(mapConcat)]\n  syntax Bool ::= Key \"in_keys\" Map [function, hook(MAP.in_keys), symbol(inKeys)]\nendmodule\n"
+---
+[
+    Rule {
+        body: Rewrite {
+            left: Apply {
+                label: Label {
+                    name: "#Ceil",
+                    parameters: [
+                        Sort {
+                            name: "Map",
+                            parameters: [],
+                        },
+                        Sort {
+                            name: "#SortParam",
+                            parameters: [
+                                Sort {
+                                    name: "Q",
+                                    parameters: [],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                arguments: [
+                    Apply {
+                        label: Label {
+                            name: "mapConcat",
+                            parameters: [],
+                        },
+                        arguments: [
+                            Apply {
+                                label: Label {
+                                    name: "mapItem",
+                                    parameters: [],
+                                },
+                                arguments: [
+                                    Variable {
+                                        name: "@K0",
+                                        sort: Some(
+                                            Sort {
+                                                name: "Key",
+                                                parameters: [],
+                                            },
+                                        ),
+                                    },
+                                    Variable {
+                                        name: "@K1",
+                                        sort: Some(
+                                            Sort {
+                                                name: "Value",
+                                                parameters: [],
+                                            },
+                                        ),
+                                    },
+                                ],
+                            },
+                            Variable {
+                                name: "@Rest",
+                                sort: Some(
+                                    Sort {
+                                        name: "Map",
+                                        parameters: [],
+                                    },
+                                ),
+                            },
+                        ],
+                    },
+                ],
+            },
+            right: Apply {
+                label: Label {
+                    name: "#And",
+                    parameters: [
+                        Sort {
+                            name: "#SortParam",
+                            parameters: [
+                                Sort {
+                                    name: "Q",
+                                    parameters: [],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                arguments: [
+                    Apply {
+                        label: Label {
+                            name: "#Equals",
+                            parameters: [
+                                Sort {
+                                    name: "Bool",
+                                    parameters: [],
+                                },
+                                Sort {
+                                    name: "#SortParam",
+                                    parameters: [
+                                        Sort {
+                                            name: "Q",
+                                            parameters: [],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                        arguments: [
+                            Apply {
+                                label: Label {
+                                    name: "inKeys",
+                                    parameters: [],
+                                },
+                                arguments: [
+                                    Variable {
+                                        name: "@K0",
+                                        sort: Some(
+                                            Sort {
+                                                name: "Key",
+                                                parameters: [],
+                                            },
+                                        ),
+                                    },
+                                    Variable {
+                                        name: "@Rest",
+                                        sort: Some(
+                                            Sort {
+                                                name: "Map",
+                                                parameters: [],
+                                            },
+                                        ),
+                                    },
+                                ],
+                            },
+                            Token {
+                                token: "false",
+                                sort: Sort {
+                                    name: "Bool",
+                                    parameters: [],
+                                },
+                            },
+                        ],
+                    },
+                    Apply {
+                        label: Label {
+                            name: "#And",
+                            parameters: [
+                                Sort {
+                                    name: "#SortParam",
+                                    parameters: [
+                                        Sort {
+                                            name: "Q",
+                                            parameters: [],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                        arguments: [
+                            Apply {
+                                label: Label {
+                                    name: "#Top",
+                                    parameters: [
+                                        Sort {
+                                            name: "#SortParam",
+                                            parameters: [
+                                                Sort {
+                                                    name: "Q",
+                                                    parameters: [],
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                                arguments: [],
+                            },
+                            Apply {
+                                label: Label {
+                                    name: "#Ceil",
+                                    parameters: [
+                                        Sort {
+                                            name: "Value",
+                                            parameters: [],
+                                        },
+                                        Sort {
+                                            name: "#SortParam",
+                                            parameters: [
+                                                Sort {
+                                                    name: "Q",
+                                                    parameters: [],
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                                arguments: [
+                                    Variable {
+                                        name: "@K1",
+                                        sort: Some(
+                                            Sort {
+                                                name: "Value",
+                                                parameters: [],
+                                            },
+                                        ),
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        },
+        requires: Token {
+            token: "true",
+            sort: Sort {
+                name: "Bool",
+                parameters: [],
+            },
+        },
+        ensures: Token {
+            token: "true",
+            sort: Sort {
+                name: "Bool",
+                parameters: [],
+            },
+        },
+        attributes: Attributes {
+            entries: {
+                "UNIQUE_ID": String("5520f5485a31e9ab8f5a1603bef90213bdff39b1cb30e35bfcf0fb6e0654fb35"),
+                "simplification": String(""),
+            },
+        },
+    },
+]

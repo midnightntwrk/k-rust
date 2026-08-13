@@ -5,7 +5,7 @@ use std::fmt;
 
 use petgraph::Direction::Incoming;
 use petgraph::graph::{DiGraph, NodeIndex};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::definition::{
     AssociativityRelations, Attributes as KAttributes, Definition as KDefinition,
@@ -19,6 +19,7 @@ use crate::kore::ast::{
     Sort as KoreSort, Symbol, Variable, VariableKind,
 };
 
+use super::passes::number_sentence;
 use super::sort_injections::{SortInjectionError, SortInjector};
 use super::term_to_kore::{TermConversionError, TermConverter};
 
@@ -74,6 +75,13 @@ pub struct DeclarationModules {
     pub syntax: Module,
     pub macros: Vec<KoreSentence>,
     pub definition_attributes: Attributes,
+}
+
+/// Backend-specific KORE generation switches.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ModuleToKoreOptions {
+    /// Generate Haskell backend definedness axioms for hooked maps.
+    pub generate_map_ceil_axioms: bool,
 }
 
 impl DeclarationModules {
@@ -207,6 +215,10 @@ pub enum ModuleToKoreError {
         production: usize,
         message: String,
     },
+    InvalidGeneratedMapAxiom {
+        production: usize,
+        message: String,
+    },
 }
 
 impl fmt::Display for ModuleToKoreError {
@@ -269,6 +281,13 @@ impl fmt::Display for ModuleToKoreError {
             } => write!(
                 formatter,
                 "cannot rebase production #{production} from imported module {module:?}: {message}"
+            ),
+            Self::InvalidGeneratedMapAxiom {
+                production,
+                message,
+            } => write!(
+                formatter,
+                "cannot generate MAP definedness axiom for production #{production}: {message}"
             ),
         }
     }
@@ -563,6 +582,15 @@ pub fn module_to_kore_from_resolved(
     definition: &ResolvedDefinition,
     module: &str,
 ) -> Result<DeclarationModules, ModuleToKoreError> {
+    module_to_kore_from_resolved_with_options(definition, module, ModuleToKoreOptions::default())
+}
+
+/// Emit semantic rules with backend-specific generated axioms.
+pub fn module_to_kore_from_resolved_with_options(
+    definition: &ResolvedDefinition,
+    module: &str,
+    options: ModuleToKoreOptions,
+) -> Result<DeclarationModules, ModuleToKoreError> {
     let mut modules = declaration_modules_from_resolved(definition, module)?;
     let module_id = definition
         .module_id(module)
@@ -581,7 +609,7 @@ pub fn module_to_kore_from_resolved(
     let injector = SortInjector::new(definition, module)?;
     let converter = TermConverter::new(definition, module)?;
     let default_reachability = reachability_mode(&definition.module(module_id).attributes);
-    let sorted_rules = rules
+    let mut sorted_rules = rules
         .sorted_rules()
         .map(|(_, rule)| {
             let owner = sentence_owner(definition, rule).unwrap_or(module_id);
@@ -589,6 +617,9 @@ pub fn module_to_kore_from_resolved(
             rebase_sentence_metadata(definition, owner, module_id, propagated)
         })
         .collect::<Result<Vec<_>, _>>()?;
+    if options.generate_map_ceil_axioms {
+        sorted_rules.extend(generate_map_ceil_rules(&productions)?);
+    }
     let constructors = constructor_productions(&productions, &overloads, &rules);
 
     let generated_axioms =
@@ -634,6 +665,171 @@ pub fn module_to_kore_from_resolved(
         )?);
     }
     Ok(modules)
+}
+
+fn generate_map_ceil_rules(
+    productions: &ProductionCatalog<'_>,
+) -> Result<Vec<Sentence>, ModuleToKoreError> {
+    let mut rules = Vec::new();
+    for (in_keys_id, production) in productions.sorted_productions() {
+        let Sentence::Production {
+            label: Some(in_keys_label),
+            items: in_keys_items,
+            attributes,
+            ..
+        } = production
+        else {
+            continue;
+        };
+        if attributes.get_str("hook") != Some("MAP.in_keys") {
+            continue;
+        }
+        let in_keys_sorts = nonterminal_sorts(in_keys_items);
+        let Some(map_sort) = in_keys_sorts.get(1).cloned() else {
+            return Err(ModuleToKoreError::InvalidGeneratedMapAxiom {
+                production: in_keys_id.0,
+                message: "MAP.in_keys must have a map as its second argument".into(),
+            });
+        };
+        let map_productions = productions.productions_for_sort(&SortHead::from(&map_sort));
+        let concat = hooked_production(productions, map_productions, "MAP.concat");
+        let element = hooked_production(productions, map_productions, "MAP.element");
+        let Some((concat_id, concat_label, _)) = concat else {
+            return Err(ModuleToKoreError::InvalidGeneratedMapAxiom {
+                production: in_keys_id.0,
+                message: format!("map sort {map_sort} has no MAP.concat production"),
+            });
+        };
+        let Some((element_id, element_label, element_sorts)) = element else {
+            return Err(ModuleToKoreError::InvalidGeneratedMapAxiom {
+                production: in_keys_id.0,
+                message: format!("map sort {map_sort} has no MAP.element production"),
+            });
+        };
+        if element_sorts.is_empty() {
+            return Err(ModuleToKoreError::InvalidGeneratedMapAxiom {
+                production: in_keys_id.0,
+                message: "MAP.element must have at least one argument".into(),
+            });
+        }
+
+        let sort_parameter = Sort::with_parameters("#SortParam", vec![Sort::new("Q")]);
+        let rest = typed_variable("@Rest", map_sort.clone());
+        let arguments = element_sorts
+            .iter()
+            .enumerate()
+            .map(|(index, sort)| typed_variable(format!("@K{index}"), sort.clone()))
+            .collect::<Vec<_>>();
+        let top = Term::Apply {
+            label: Label::with_parameters("#Top", vec![sort_parameter.clone()]),
+            arguments: Vec::new(),
+        };
+        let ceils =
+            arguments
+                .iter()
+                .zip(&element_sorts)
+                .skip(1)
+                .fold(top, |left, (argument, sort)| Term::Apply {
+                    label: Label::with_parameters("#And", vec![sort_parameter.clone()]),
+                    arguments: vec![
+                        left,
+                        Term::Apply {
+                            label: Label::with_parameters(
+                                "#Ceil",
+                                vec![sort.clone(), sort_parameter.clone()],
+                            ),
+                            arguments: vec![argument.clone()],
+                        },
+                    ],
+                });
+        let element = annotated_application(element_label, arguments.clone(), element_id);
+        let concat = annotated_application(concat_label, vec![element, rest.clone()], concat_id);
+        let left = Term::Apply {
+            label: Label::with_parameters("#Ceil", vec![map_sort.clone(), sort_parameter.clone()]),
+            arguments: vec![concat],
+        };
+        let in_keys = annotated_application(
+            in_keys_label.clone(),
+            vec![arguments[0].clone(), rest],
+            in_keys_id,
+        );
+        let equals = Term::Apply {
+            label: Label::with_parameters(
+                "#Equals",
+                vec![Sort::new("Bool"), sort_parameter.clone()],
+            ),
+            arguments: vec![in_keys, bool_token(false)],
+        };
+        let right = Term::Apply {
+            label: Label::with_parameters("#And", vec![sort_parameter]),
+            arguments: vec![equals, ceils],
+        };
+        let mut attributes = KAttributes::default();
+        attributes.insert("simplification", json!(""));
+        let mut rule = Sentence::Rule {
+            body: Term::Rewrite {
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+            requires: bool_token(true),
+            ensures: bool_token(true),
+            attributes,
+        };
+        number_sentence(&mut rule);
+        rules.push(rule);
+    }
+    Ok(rules)
+}
+
+fn nonterminal_sorts(items: &[ProductionItem]) -> Vec<Sort> {
+    items
+        .iter()
+        .filter_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
+            ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
+        })
+        .collect()
+}
+
+fn hooked_production(
+    productions: &ProductionCatalog<'_>,
+    candidates: &[ProductionId],
+    hook: &str,
+) -> Option<(ProductionId, Label, Vec<Sort>)> {
+    candidates.iter().find_map(|id| {
+        let Sentence::Production {
+            label: Some(label),
+            items,
+            attributes,
+            ..
+        } = productions.production(*id)
+        else {
+            return None;
+        };
+        (attributes.get_str("hook") == Some(hook))
+            .then(|| (*id, label.clone(), nonterminal_sorts(items)))
+    })
+}
+
+fn typed_variable(name: impl Into<String>, sort: Sort) -> Term {
+    Term::Variable {
+        name: name.into(),
+        sort: Some(sort),
+    }
+}
+
+fn annotated_application(label: Label, arguments: Vec<Term>, production: ProductionId) -> Term {
+    Term::Apply { label, arguments }.with_metadata(crate::kast::TermMetadata {
+        production: Some(ResolvedProductionId(production.0)),
+        ..crate::kast::TermMetadata::default()
+    })
+}
+
+fn bool_token(value: bool) -> Term {
+    Term::Token {
+        token: value.to_string(),
+        sort: Sort::new("Bool"),
+    }
 }
 
 fn sentence_owner(definition: &ResolvedDefinition, sentence: &Sentence) -> Option<ModuleId> {
@@ -2258,8 +2454,17 @@ fn emit_owise_equation(
             sort: predicate_sort.clone(),
             arguments: vec![condition, matches],
         };
-        let quantified = variable_terms([refreshed_left, &refreshed_requires]);
-        for term in quantified.into_values().rev() {
+        let mut quantified = variable_terms([refreshed_left, &refreshed_requires])
+            .into_values()
+            .collect::<Vec<_>>();
+        quantified.sort_by(|left, right| {
+            let key = |term: &Term| match term.unannotated() {
+                Term::Variable { name, sort } => (sort.clone(), name.clone()),
+                _ => unreachable!("variable_terms returns variables"),
+            };
+            key(left).cmp(&key(right))
+        });
+        for term in quantified.into_iter().rev() {
             let Pattern::Variable(variable) = converter.convert(&term)? else {
                 unreachable!("collected terms are variables")
             };
@@ -2438,7 +2643,8 @@ fn equation_sentence(
     valued: &BTreeSet<String>,
     parameters: Vec<String>,
 ) -> Result<KoreSentence, ModuleToKoreError> {
-    let attributes = emit_attributes(attributes.entries(), valued, &BTreeMap::new());
+    let overrides = variable_list_attribute_overrides(attributes, &pattern)?;
+    let attributes = emit_attributes(attributes.entries(), valued, &overrides);
     Ok(if claim {
         KoreSentence::Claim {
             parameters,
@@ -2452,6 +2658,82 @@ fn equation_sentence(
             attributes,
         }
     })
+}
+
+fn variable_list_attribute_overrides(
+    attributes: &KAttributes,
+    pattern: &Pattern,
+) -> Result<BTreeMap<String, Vec<Pattern>>, ModuleToKoreError> {
+    let mut variables = BTreeMap::new();
+    collect_pattern_variables(pattern, &mut variables);
+    ["concrete", "symbolic"]
+        .into_iter()
+        .filter_map(|key| attributes.get_str(key).map(|value| (key, value)))
+        .map(|(key, value)| {
+            let arguments = value
+                .split(',')
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(|name| {
+                    let encoded = encode_kore_identifier(name.trim_start_matches('@'));
+                    let candidates = [format!("Var{encoded}"), format!("@Var{encoded}")];
+                    candidates
+                        .iter()
+                        .find_map(|name| variables.get(name).cloned())
+                        .map(Pattern::Variable)
+                        .ok_or_else(|| ModuleToKoreError::UnsupportedRuleKind {
+                            kind: format!(
+                                "{key} attribute refers to missing free variable {name:?}"
+                            ),
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok((key.to_owned(), arguments))
+        })
+        .collect()
+}
+
+fn collect_pattern_variables(pattern: &Pattern, variables: &mut BTreeMap<String, Variable>) {
+    match pattern {
+        Pattern::Variable(variable) => {
+            variables
+                .entry(variable.name.clone())
+                .or_insert_with(|| variable.clone());
+        }
+        Pattern::Application { arguments, .. }
+        | Pattern::And { arguments, .. }
+        | Pattern::Or { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. } => {
+            for argument in arguments {
+                collect_pattern_variables(argument, variables);
+            }
+        }
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => collect_pattern_variables(argument, variables),
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. } => {
+            collect_pattern_variables(left, variables);
+            collect_pattern_variables(right, variables);
+        }
+        Pattern::Exists { variable, body, .. }
+        | Pattern::Forall { variable, body, .. }
+        | Pattern::Mu { variable, body }
+        | Pattern::Nu { variable, body } => {
+            variables
+                .entry(variable.name.clone())
+                .or_insert_with(|| variable.clone());
+            collect_pattern_variables(body, variables);
+        }
+        Pattern::String(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => {}
+    }
 }
 
 fn equation_parameters(attributes: &KAttributes) -> Vec<String> {
@@ -3000,8 +3282,7 @@ fn valued_attributes(sentences: &[&Sentence]) -> BTreeSet<String> {
     if valued.contains("token") {
         valued.remove("hasDomainValues");
     }
-    // Java uses this typed attribute to declare axiom sort variables, but emits the
-    // attribute marker itself without serializing its internal `KSort` value.
+    // Java uses this frontend-only typed attribute solely to declare axiom sort variables.
     valued.remove("sortParams");
     valued
 }
@@ -3141,7 +3422,6 @@ fn should_emit(key: &str) -> bool {
             | "priorities"
             | "right"
             | "symbol-overload"
-            | "sortParams"
             | "terminals"
             | "UNIQUE_ID"
             | LOCATION_ATTRIBUTE
@@ -3290,12 +3570,42 @@ fn mnemonic(unit: u16) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    use indoc::indoc;
     use serde_json::json;
 
     use super::*;
 
     #[test]
-    fn equation_sort_parameters_are_declared_but_not_serialized_as_attribute_values() {
+    fn generates_haskell_map_definedness_rule() {
+        let source = indoc! {r#"
+            module MAIN
+              syntax Bool
+              syntax Key
+              syntax Value
+              syntax Map
+              syntax Map ::= Key "|->" Value [function, hook(MAP.element), symbol(mapItem)]
+              syntax Map ::= Map Map [function, hook(MAP.concat), symbol(mapConcat)]
+              syntax Bool ::= Key "in_keys" Map [function, hook(MAP.in_keys), symbol(inKeys)]
+            endmodule
+        "#};
+        let parsed = crate::outer::parse("map.k", source).expect("definition should parse");
+        let definition = crate::outer::lower(&parsed, "MAIN").expect("definition should lower");
+        let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
+        let module = resolved.module_id("MAIN").unwrap();
+        let productions = resolved.production_catalog(module);
+        let rules = generate_map_ceil_rules(&productions).expect("MAP rule should generate");
+
+        insta::with_settings!({
+            description => format!("K definition:\n\n{source}"),
+            omit_expression => true,
+            prepend_module_to_snapshot => true,
+        }, {
+            insta::assert_debug_snapshot!(rules);
+        });
+    }
+
+    #[test]
+    fn equation_sort_parameters_are_declared_but_not_emitted_as_attributes() {
         let mut entries = BTreeMap::new();
         entries.insert(
             "sortParams".into(),
@@ -3325,13 +3635,7 @@ mod tests {
         assert!(!valued.contains("sortParams"));
         assert_eq!(
             emit_attributes(attributes.entries(), &valued, &BTreeMap::new()),
-            Attributes(vec![Pattern::Application {
-                symbol: Symbol {
-                    name: "sortParams".into(),
-                    sort_parameters: Vec::new(),
-                },
-                arguments: Vec::new(),
-            }])
+            Attributes::default()
         );
     }
 

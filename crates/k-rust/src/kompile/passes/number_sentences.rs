@@ -31,7 +31,7 @@ pub fn number_sentences(definition: &Definition) -> Definition {
     output
 }
 
-fn number_sentence(sentence: &mut Sentence) {
+pub(crate) fn number_sentence(sentence: &mut Sentence) {
     let (Sentence::Rule { attributes, .. } | Sentence::Claim { attributes, .. }) = sentence else {
         return;
     };
