@@ -165,6 +165,10 @@ impl<'a> TermConverter<'a> {
         symbol
     }
 
+    pub(crate) fn infer_sort(&self, term: &Term) -> Result<Sort, TermConversionError> {
+        self.term_sort(term)
+    }
+
     fn pattern(&self, term: &Term) -> Result<Pattern, TermConversionError> {
         match term.unannotated() {
             Term::InjectedLabel(_) => Err(TermConversionError::UnsupportedInjectedLabel),

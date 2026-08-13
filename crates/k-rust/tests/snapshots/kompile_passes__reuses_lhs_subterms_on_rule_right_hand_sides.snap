@@ -1,0 +1,8 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Bool [hook(BOOL.Bool)]\n  syntax Bool ::= r\"true|false\" [token]\n  syntax Exp ::= \"wrap(\" Bool \")\" [symbol(wrap)]\n  rule wrap(false) => wrap(false)\n  rule wrap(true) => wrap(true) [simplification]\nendmodule\n"
+---
+[
+    "wrap(#token(\"false\",\"Bool\") #as _Gen0)=>wrap(_Gen0)",
+    "wrap(#token(\"true\",\"Bool\"))=>wrap(#token(\"true\",\"Bool\"))",
+]

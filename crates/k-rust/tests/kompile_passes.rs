@@ -9,9 +9,9 @@ use k_rust::{
         add_cool_like_attributes, add_implicit_computation_cell, add_semantics_module,
         check_simplification_rules, concretize_cells, constant_fold, expand_macros,
         generate_sort_predicate_rules, generate_sort_predicate_syntax, generate_sort_projections,
-        guard_or_patterns, module_to_kore, number_sentences, propagate_macro_attributes,
-        resolve_anon_vars, resolve_comm, resolve_config_var, resolve_contexts,
-        resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
+        guard_or_patterns, minimize_term_construction, module_to_kore, number_sentences,
+        propagate_macro_attributes, resolve_anon_vars, resolve_comm, resolve_config_var,
+        resolve_contexts, resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
         resolve_function_with_config, resolve_heat_cool_attributes, resolve_io,
         resolve_semantic_casts, resolve_strict, subsort_kitem,
     },
@@ -2506,4 +2506,36 @@ fn rejects_invalid_context_shapes() {
         let error = resolve_contexts(&definition).unwrap_err();
         assert_eq!(error.diagnostics[0].message, expected);
     }
+}
+
+#[test]
+fn reuses_lhs_subterms_on_rule_right_hand_sides() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Bool [hook(BOOL.Bool)]
+          syntax Bool ::= r"true|false" [token]
+          syntax Exp ::= "wrap(" Bool ")" [symbol(wrap)]
+          rule wrap(false) => wrap(false)
+          rule wrap(true) => wrap(true) [simplification]
+        endmodule
+    "#};
+    let transformed = minimize_term_construction(&parsed(source)).unwrap();
+    let rules = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(rules);
+    });
 }
