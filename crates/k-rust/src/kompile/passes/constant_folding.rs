@@ -14,6 +14,10 @@ use crate::{
     kast::{Label, Sort, Term},
 };
 
+#[cfg(feature = "mpfr-folding")]
+#[path = "constant_folding_float.rs"]
+mod float;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConstantFoldingError {
     pub diagnostics: Vec<Diagnostic>,
@@ -213,6 +217,10 @@ impl<'a> Folder<'a> {
             .iter()
             .map(|(token, sort)| self.unwrap(token, sort))
             .collect::<Result<Vec<_>, _>>()?;
+        #[cfg(feature = "mpfr-folding")]
+        if let Some(result) = float::evaluate(hook, &values) {
+            return result;
+        }
         match hook {
             "BOOL.not" => unary_bool(&values, |a| !a),
             "BOOL.and" | "BOOL.andThen" => binary_bool(&values, |a, b| a && b),
@@ -303,7 +311,16 @@ impl<'a> Folder<'a> {
                 .map(Value::Int)
                 .map_err(|_| format!("invalid Int token {token:?}")),
             Some("STRING.String") => crate::kast::string::unquote(token).map(Value::String),
-            Some("FLOAT.Float") => Ok(Value::Float(token.to_owned())),
+            Some("FLOAT.Float") => {
+                #[cfg(feature = "mpfr-folding")]
+                {
+                    float::KFloat::parse(token).map(Value::Float)
+                }
+                #[cfg(not(feature = "mpfr-folding"))]
+                {
+                    Ok(Value::Float(token.to_owned()))
+                }
+            }
             _ => Ok(Value::String(token.to_owned())),
         }
     }
@@ -318,7 +335,11 @@ impl<'a> Folder<'a> {
             Value::Bool(value) => value.to_string(),
             Value::Int(value) => value.to_string(),
             Value::String(value) if string_sort => crate::kast::string::quote(&value),
-            Value::String(value) | Value::Float(value) => value,
+            Value::String(value) => value,
+            #[cfg(feature = "mpfr-folding")]
+            Value::Float(value) => value.token(),
+            #[cfg(not(feature = "mpfr-folding"))]
+            Value::Float(value) => value,
         }
     }
 }
@@ -328,6 +349,9 @@ enum Value {
     Bool(bool),
     Int(BigInt),
     String(String),
+    #[cfg(feature = "mpfr-folding")]
+    Float(float::KFloat),
+    #[cfg(not(feature = "mpfr-folding"))]
     Float(String),
 }
 

@@ -4,8 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["cli", "z3-inference"]
-cli = ["z3-inference"]
+default = ["cli"]
+cli = ["mpfr-folding", "z3-inference"]
+mpfr-folding = ["dep:gmp-mpfr-sys", "dep:rug"]
 z3-inference = ["dep:z3"]
 
 [[bin]]
@@ -14,11 +15,13 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [dependencies]
+gmp-mpfr-sys = { workspace = true, optional = true }
 num-bigint.workspace = true
 num-traits.workspace = true
 petgraph.workspace = true
 regex.workspace = true
 regex-automata.workspace = true
+rug = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 sha3.workspace = true

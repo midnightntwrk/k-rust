@@ -1,0 +1,9 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Float [hook(FLOAT.Float)]\n  syntax Int [hook(INT.Int)]\n  syntax Float ::= r\"([\\+\\-]?[0-9]+(\\\\.[0-9]*)?|\\\\.[0-9]+)([eE][\\+\\-]?[0-9]+)?([fFdD]|([pP][0-9]+[xX][0-9]+))?\" [token, prec(1)]\n  syntax Float ::= \"add(\" Float \",\" Float \")\" [function, hook(FLOAT.add), symbol(addFloat)]\n  syntax Int ::= \"exponent(\" Float \")\" [function, hook(FLOAT.exponent), symbol(floatExponent)]\n  syntax Float ::= \"floatResult\" [symbol(floatResult)]\n  syntax Int ::= \"intResult\" [symbol(intResult)]\n\n  rule floatResult => add(0.1, 0.2)\n  rule floatResult => add(3.4028235e38p24x8, 3.4028235e38p24x8)\n  rule intResult => exponent(1.40129846e-45p24x8)\nendmodule\n"
+---
+[
+    "floatResult(.KList)=>#token(\"3.0000000000000004e-01p53x11\",\"Float\")",
+    "floatResult(.KList)=>#token(\"Infinityp24x8\",\"Float\")",
+    "intResult(.KList)=>#token(\"-127\",\"Int\")",
+]

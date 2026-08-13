@@ -1002,7 +1002,7 @@ fn folds_pure_constants_only_on_rule_right_hand_sides_and_conditions() {
         module MAIN
           syntax Int [hook(INT.Int)]
           syntax Bool [hook(BOOL.Bool)]
-          syntax Int ::= r"-?[0-9]+" [token]
+          syntax Int ::= r"[\+\-]?[0-9]+" [token, prec(2)]
           syntax Bool ::= r"true|false" [token]
           syntax Int ::= "add(" Int "," Int ")" [function, hook(INT.add), symbol(add)]
           syntax Bool ::= "eq(" Int "," Int ")" [function, hook(INT.eq), symbol(eq)]
@@ -1025,6 +1025,46 @@ fn folds_pure_constants_only_on_rule_right_hand_sides_and_conditions() {
             _ => None,
         })
         .unwrap();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(output);
+    });
+}
+
+#[cfg(feature = "mpfr-folding")]
+#[test]
+fn folds_mpfr_float_constants_with_their_declared_contexts() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Float [hook(FLOAT.Float)]
+          syntax Int [hook(INT.Int)]
+          syntax Float ::= r"([\+\-]?[0-9]+(\\.[0-9]*)?|\\.[0-9]+)([eE][\+\-]?[0-9]+)?([fFdD]|([pP][0-9]+[xX][0-9]+))?" [token, prec(1)]
+          syntax Float ::= "add(" Float "," Float ")" [function, hook(FLOAT.add), symbol(addFloat)]
+          syntax Int ::= "exponent(" Float ")" [function, hook(FLOAT.exponent), symbol(floatExponent)]
+          syntax Float ::= "floatResult" [symbol(floatResult)]
+          syntax Int ::= "intResult" [symbol(intResult)]
+
+          rule floatResult => add(0.1, 0.2)
+          rule floatResult => add(3.4028235e38p24x8, 3.4028235e38p24x8)
+          rule intResult => exponent(1.40129846e-45p24x8)
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let transformed = constant_fold(&definition).unwrap();
+    let output = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
 
     insta::with_settings!({
         description => format!("K definition:\n\n{source}"),

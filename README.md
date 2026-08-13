@@ -185,8 +185,11 @@ declared main cells and generated-label conflict checks. Stable SHA3-256 sentenc
 Java's semantic-attribute filtering and alpha normalization. Heat/cool attributes become explicit
 result predicates, semantic casts become transparent compiler sort metadata, and every non-parser
 sort receives its backend `KItem` subsort. Rewrite-aware constant folding evaluates Java's pure
-Boolean, arbitrary-precision integer, and Unicode string hook families while leaving rule LHS terms
-untouched. Production macro kinds now propagate to non-simplification rules, matching-logic
+Boolean, arbitrary-precision integer, Unicode string, and MPFR-backed floating-point hook families
+while leaving rule LHS terms untouched. Native floats retain their declared precision and exponent
+range, IEEE subnormals, ties-to-even rounding, canonical K token spelling, and guarded
+`mpfr_printf` formatting; portable and WASM builds omit this native-only implementation. Production
+macro kinds now propagate to non-simplification rules, matching-logic
 disjunctions receive typed collision-free aliases, and initializer rules allocate stable integer
 constants for fresh configuration variables. Generated syntax now includes local-sort predicates,
 generic projections, and named record-field projections. Compile-time macro and alias rules are
@@ -260,8 +263,8 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
 - Add presentation adapters for diagnostics after the portable diagnostic model stabilizes. A
   renderer such as `miette` may be useful for a future native CLI, but it does not belong in the
   WASM-compatible core yet.
-- Complete MPFR-compatible folding for the `FLOAT` hook family. Then run the resulting definition
-  through `ModuleToKORE` and validate its artifacts with the Haskell backend.
+- Run definitions containing MPFR-folded `FLOAT` constants through `ModuleToKORE` and validate
+  their artifacts with the Haskell backend as part of the broader differential corpus.
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete sort parameters normally supplied by parser inference.
 - Complete `ModuleToKORE` beyond ordinary rewrites, reachability claims, equations, macro axioms,
