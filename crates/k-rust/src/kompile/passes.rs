@@ -12,6 +12,7 @@ use crate::{
 
 mod add_implicit_computation_cell;
 mod check_simplification;
+mod concretize_cells;
 mod constant_folding;
 mod expand_macros;
 mod generate_sort_helpers;
@@ -32,6 +33,7 @@ mod subsort_kitem;
 
 pub use add_implicit_computation_cell::add_implicit_computation_cell;
 pub use check_simplification::{CheckSimplificationError, check_simplification_rules};
+pub use concretize_cells::{ConcretizeCellsError, concretize_cells};
 pub use constant_folding::{ConstantFoldingError, constant_fold};
 pub use expand_macros::{ExpandMacrosError, expand_macros};
 pub use generate_sort_helpers::{generate_sort_predicate_syntax, generate_sort_projections};

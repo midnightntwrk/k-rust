@@ -1,9 +1,12 @@
 //! Java-compatible resolution of configuration cells marked with `stream`.
 
-use std::fmt;
+use std::{fmt, ops::Range};
 
 use crate::{
-    definition::{Definition, FlatImport, LabelHead, ResolvedDefinition, Sentence},
+    definition::{
+        Definition, FlatImport, LabelHead, ModuleId, ResolvedDefinition, Sentence,
+        sentence_equivalent,
+    },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
 };
@@ -33,6 +36,12 @@ struct StreamProduction {
     sentence: Sentence,
 }
 
+struct MetadataOrigin {
+    module: usize,
+    sentences: Range<usize>,
+    source: ModuleId,
+}
+
 /// Instantiate K's builtin `STDIN-STREAM` and `STDOUT-STREAM` modules for user stream cells.
 ///
 /// This is the second ordered KORE-backend pass. It replaces generated cell initializers with the
@@ -45,6 +54,7 @@ pub fn resolve_io(definition: &Definition) -> Result<Definition, ResolveIoError>
     })?;
     let mut output = definition.clone();
     let mut diagnostics = Vec::new();
+    let mut metadata_origins = Vec::new();
 
     for module_index in 0..output.modules.len() {
         let module_name = output.modules[module_index].name.clone();
@@ -64,6 +74,7 @@ pub fn resolve_io(definition: &Definition) -> Result<Definition, ResolveIoError>
             .iter()
             .any(|sentence| stream_name(sentence).is_some());
         let mut sentences = output.modules[module_index].local_sentences.clone();
+        let original_sentences = sentences.len();
 
         for stream in &streams {
             let Some(contents) = builtin_initializer_contents(definition, stream, &mut diagnostics)
@@ -79,15 +90,36 @@ pub fn resolve_io(definition: &Definition) -> Result<Definition, ResolveIoError>
         for stream in streams.iter().filter(|stream| stream.stream == "stdin") {
             let generated =
                 stdin_unblocking_rules(definition, stream, &sentences, &mut diagnostics);
+            let start = sentences.len();
             extend_unique(&mut sentences, generated);
+            metadata_origins.push(MetadataOrigin {
+                module: module_index,
+                sentences: start..sentences.len(),
+                source: module_id,
+            });
         }
 
         if local_has_stream {
             for stream in &streams {
                 let imported = stream_module_sentences(definition, stream, &mut diagnostics);
+                let start = sentences.len();
                 extend_unique(&mut sentences, imported);
+                let source_name = format!("{}-STREAM", stream.stream.to_uppercase());
+                if let Some(source) = resolved.module_id(&source_name) {
+                    metadata_origins.push(MetadataOrigin {
+                        module: module_index,
+                        sentences: start..sentences.len(),
+                        source,
+                    });
+                }
             }
         }
+
+        metadata_origins.push(MetadataOrigin {
+            module: module_index,
+            sentences: 0..original_sentences,
+            source: module_id,
+        });
 
         output.modules[module_index].local_sentences = sentences;
         for import in ["K-IO", "K-REFLECTION"] {
@@ -116,6 +148,35 @@ pub fn resolve_io(definition: &Definition) -> Result<Definition, ResolveIoError>
         if matches!(module.name.as_str(), "STDIN-STREAM" | "STDOUT-STREAM") {
             module.imports.clear();
             module.local_sentences.clear();
+        }
+    }
+
+    if diagnostics.is_empty() {
+        let target = match ResolvedDefinition::resolve(&output) {
+            Ok(target) => target,
+            Err(error) => {
+                diagnostics.push(plain_error(error.to_string()));
+                return Err(ResolveIoError { diagnostics });
+            }
+        };
+        for origin in metadata_origins {
+            let source = resolved.production_catalog(origin.source);
+            let target_name = output.modules[origin.module].name.clone();
+            let target_module = target
+                .module_id(&target_name)
+                .expect("resolved output contains every output module");
+            let target_catalog = target.production_catalog(target_module);
+            for sentence in &mut output.modules[origin.module].local_sentences[origin.sentences] {
+                if let Err(message) =
+                    super::rebase_sentence(sentence, &source, &target_catalog, &sentence_equivalent)
+                {
+                    diagnostics.push(plain_error(format!(
+                        "failed to rebase I/O metadata from {} into {}: {message}",
+                        resolved.module(origin.source).name,
+                        target_name,
+                    )));
+                }
+            }
         }
     }
 
@@ -205,7 +266,12 @@ fn builtin_initializer_contents(
     });
     let contents = matches.collect::<Vec<_>>();
     if contents.len() == 1 {
-        contents.into_iter().next()
+        contents.into_iter().next().map(|contents| {
+            contents
+                .into_iter()
+                .map(without_production_metadata)
+                .collect()
+        })
     } else {
         diagnostics.push(Diagnostic::error(
             DiagnosticCode::InvalidIoStream,
@@ -387,7 +453,7 @@ fn stdin_unblock_template(
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get_str("label") == Some("STDIN-STREAM.stdinUnblock") => {
-                Some(body.clone())
+                Some(without_production_metadata(body.clone()))
             }
             _ => None,
         })
@@ -583,7 +649,12 @@ fn drop_rhs_and_replace_cell(term: Term, cell_label: &str, replacement: &Term) -
 
 fn rename_label(term: Term, from: &str, to: &Label) -> Term {
     match term {
-        Term::Annotated { term, metadata } => rename_label(*term, from, to).with_metadata(metadata),
+        Term::Annotated { term, mut metadata } => {
+            if matches!(term.unannotated(), Term::Apply { label, .. } if label.name == from) {
+                metadata.production = None;
+            }
+            rename_label(*term, from, to).with_metadata(metadata)
+        }
         Term::Apply { label, arguments } => Term::Apply {
             label: if label.name == from {
                 to.clone()
@@ -609,6 +680,34 @@ fn rename_label(term: Term, from: &str, to: &Label) -> Term {
                 .map(|item| rename_label(item, from, to))
                 .collect(),
         ),
+        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
+    }
+}
+
+fn without_production_metadata(term: Term) -> Term {
+    match term {
+        Term::Annotated { term, mut metadata } => {
+            metadata.production = None;
+            without_production_metadata(*term).with_metadata(metadata)
+        }
+        Term::Apply { label, arguments } => Term::Apply {
+            label,
+            arguments: arguments
+                .into_iter()
+                .map(without_production_metadata)
+                .collect(),
+        },
+        Term::Rewrite { left, right } => Term::Rewrite {
+            left: Box::new(without_production_metadata(*left)),
+            right: Box::new(without_production_metadata(*right)),
+        },
+        Term::As { pattern, alias } => Term::As {
+            pattern: Box::new(without_production_metadata(*pattern)),
+            alias: Box::new(without_production_metadata(*alias)),
+        },
+        Term::Sequence(items) => {
+            Term::Sequence(items.into_iter().map(without_production_metadata).collect())
+        }
         leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
     }
 }

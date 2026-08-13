@@ -194,15 +194,19 @@ expanded child-first with Java-compatible priority, recursion, typed structural 
 collision-free RHS variables. Bare semantic rules and contexts are wrapped in the computation cell,
 fresh rule variables are lowered through per-sort generators backed by a generated counter cell,
 and the second sort-helper wave and simplification-rule checks run before the final KItem subsorts.
-The native pipeline runs the first twenty-four stages in Java order.
+Cell concretization then completes nested abstractions, inserts missing parents and the generated
+root, closes open leaf cells, orders fixed-arity children, and supplies optional and repeated-cell
+units. `ResolveIO` also rebases parser production identities across the stream syntax and imports it
+adds, so a bundled stdin-stream definition now reaches parseable backend KORE artifacts end to end.
+The native pipeline runs the first twenty-five stages in Java order.
 Markdown and literate-K sources preserve their original
 offsets while extracting fenced blocks selected by `--md-selector`. The native resolver can load K's implicit `prelude.md`
 from `--builtin-directory` or `KRUST_BUILTIN_DIRECTORY`, translates historical builtin `.k`
 require names to their Markdown sources, imports `DEFAULT-CONFIGURATION` and `MAP` according to
 Java's policy, and now parses and validates the bundled prelude together with a real user
 definition. Imported rules retain parser production identity when rebased into the selected main
-module's catalog. The next end-to-end boundary is the ordered backend transformation pipeline:
-temporary three-argument cell applications must be concretized before backend KORE emission.
+module's catalog. The remaining ordered backend work is the seven finalization stages after
+`concretizeCells`, followed by broader backend validation.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -251,8 +255,7 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
 - Add presentation adapters for diagnostics after the portable diagnostic model stabilizes. A
   renderer such as `miette` may be useful for a future native CLI, but it does not belong in the
   WASM-compatible core yet.
-- Port the remaining ordered Java KORE-backend transformations after the second `subsortKItem`,
-  including cell concretization and final sentence processing.
+- Port the seven remaining ordered Java KORE-backend finalization stages after `concretizeCells`.
   Complete MPFR-compatible folding for the `FLOAT` hook family. Then run the resulting definition
   through `ModuleToKORE` and validate its artifacts with the Haskell backend.
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the

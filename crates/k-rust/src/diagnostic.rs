@@ -21,6 +21,7 @@ pub enum DiagnosticCode {
     InvalidAssociativity,
     InvalidCommutativeSimplification,
     InvalidConstantFolding,
+    InvalidCellConcretization,
     InvalidContext,
     InvalidExistentialVariable,
     InvalidFunctionPattern,

@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Int\n  configuration\n    <top>\n      <k> 0 </k>\n      <state multiplicity=\"?\"> 1 </state>\n      <thread multiplicity=\"*\">\n        <id> 0 </id>\n      </thread>\n    </top>\n  rule <top>\n    <k> 0 => 1 </k>\n  </top>\nendmodule\n"
+---
+"`<generatedTop>`(`<top>`(`<k>`(#token(\"0\",\"Int\")=>#token(\"1\",\"Int\")),`.StateCell`(.KList),`.ThreadCellBag`(.KList)),_DotVar0)"

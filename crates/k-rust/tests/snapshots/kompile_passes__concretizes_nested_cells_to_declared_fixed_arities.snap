@@ -1,0 +1,8 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Int\n  configuration\n    <top>\n      <k> 0 </k>\n      <state> 1 </state>\n    </top>\n  rule <k> 0 => 1 ... </k>\n  rule <state> 1 => 2 </state>\nendmodule\n"
+---
+[
+    "`<generatedTop>`(`<top>`(`<k>`(``#token(\"0\",\"Int\")=>#token(\"1\",\"Int\")``~>_DotVar0),_DotVar1),_DotVar2)",
+    "`<generatedTop>`(`<top>`(_DotVar0,`<state>`(#token(\"1\",\"Int\")=>#token(\"2\",\"Int\"))),_DotVar1)",
+]

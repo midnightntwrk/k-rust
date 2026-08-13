@@ -1,17 +1,18 @@
 use indoc::indoc;
 use k_rust::{
     definition::{
-        Attributes, Definition, FlatModule, ProductionItem, ResolvedDefinition, Sentence,
+        Attributes, Definition, FlatModule, LabelHead, ProductionId, ProductionItem,
+        ResolvedDefinition, Sentence,
     },
-    kast::{Label, Sort, Term, printer::Printer},
+    kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, printer::Printer},
     kompile::{
-        add_implicit_computation_cell, check_simplification_rules, constant_fold, expand_macros,
-        generate_sort_predicate_syntax, generate_sort_projections, guard_or_patterns,
-        module_to_kore, number_sentences, propagate_macro_attributes, resolve_anon_vars,
-        resolve_comm, resolve_config_var, resolve_contexts, resolve_fresh_config_constants,
-        resolve_fresh_constants, resolve_fun, resolve_function_with_config,
-        resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts, resolve_strict,
-        subsort_kitem,
+        add_implicit_computation_cell, check_simplification_rules, concretize_cells, constant_fold,
+        expand_macros, generate_sort_predicate_syntax, generate_sort_projections,
+        guard_or_patterns, module_to_kore, number_sentences, propagate_macro_attributes,
+        resolve_anon_vars, resolve_comm, resolve_config_var, resolve_contexts,
+        resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
+        resolve_function_with_config, resolve_heat_cool_attributes, resolve_io,
+        resolve_semantic_casts, resolve_strict, subsort_kitem,
     },
     outer::{ResolvedSource, load},
 };
@@ -241,7 +242,37 @@ fn io_fixture(stream: &str) -> Definition {
 
 #[test]
 fn resolves_stream_initializers_unblocking_rules_and_builtin_sentences() {
-    let definition = resolve_io(&io_fixture("stdin")).unwrap();
+    let mut input = io_fixture("stdin");
+    input
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "K-IO")
+        .unwrap()
+        .local_sentences
+        .push(production("ioHelper", "KItem", Attributes::default()));
+    let resolved = ResolvedDefinition::resolve(&input).unwrap();
+    let main_id = resolved.module_id("MAIN").unwrap();
+    let catalog = resolved.production_catalog(main_id);
+    let cell = catalog.productions_for(&LabelHead::from(&Label::new("<in>")))[0];
+    let consume = input
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap()
+        .local_sentences
+        .iter_mut()
+        .find(|sentence| sentence.attributes().get_str("label") == Some("consume"))
+        .unwrap();
+    let Sentence::Rule { body, .. } = consume else {
+        unreachable!()
+    };
+    let taken = std::mem::replace(body, Term::Sequence(Vec::new()));
+    *body = taken.with_metadata(TermMetadata {
+        production: Some(ResolvedProductionId(cell.0)),
+        ..TermMetadata::default()
+    });
+
+    let definition = resolve_io(&input).unwrap();
     let main = definition.main_module().unwrap();
     let rendered = main
         .local_sentences
@@ -274,6 +305,24 @@ fn resolves_stream_initializers_unblocking_rules_and_builtin_sentences() {
     assert!(main.local_sentences.iter().any(|sentence| {
         matches!(sentence, Sentence::Production { sort, .. } if sort.name == "Stream")
     }));
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let catalog = resolved.production_catalog(resolved.module_id("MAIN").unwrap());
+    let consume = main
+        .local_sentences
+        .iter()
+        .find(|sentence| sentence.attributes().get_str("label") == Some("consume"))
+        .unwrap();
+    let Sentence::Rule { body, .. } = consume else {
+        unreachable!()
+    };
+    let rebased = body
+        .metadata()
+        .and_then(|metadata| metadata.production)
+        .unwrap();
+    assert!(matches!(
+        catalog.production(ProductionId(rebased.0)),
+        Sentence::Production { label: Some(label), .. } if label.name == "<in>"
+    ));
     for template in ["STDIN-STREAM", "STDOUT-STREAM"] {
         let module = definition
             .modules
@@ -1774,6 +1823,105 @@ fn simplification_rules_require_functional_heads() {
         error.diagnostics[0].message,
         "Simplification rules expect function/functional/mlOp symbols at the top of the left hand side term."
     );
+}
+
+#[test]
+fn concretizes_nested_cells_to_declared_fixed_arities() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= Int
+          configuration
+            <top>
+              <k> 0 </k>
+              <state> 1 </state>
+            </top>
+          rule <k> 0 => 1 ... </k>
+          rule <state> 1 => 2 </state>
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let output = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_none()
+                && (Printer::new().print_term(body).contains("#token(\"0\"")
+                    || Printer::new().print_term(body).contains("#token(\"2\"")) =>
+            {
+                Some(Printer::new().print_term(body))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        !output.iter().any(|body| body.contains("#dots")),
+        "{output:#?}"
+    );
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(output);
+    });
+}
+
+#[test]
+fn fills_absent_optional_and_repeated_cells_with_their_units() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= Int
+          configuration
+            <top>
+              <k> 0 </k>
+              <state multiplicity="?"> 1 </state>
+              <thread multiplicity="*">
+                <id> 0 </id>
+              </thread>
+            </top>
+          rule <top>
+            <k> 0 => 1 </k>
+          </top>
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let output = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_none()
+                && Printer::new().print_term(body).contains("#token(\"1\"") =>
+            {
+                Some(Printer::new().print_term(body))
+            }
+            _ => None,
+        })
+        .unwrap();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(output);
+    });
 }
 
 #[test]
