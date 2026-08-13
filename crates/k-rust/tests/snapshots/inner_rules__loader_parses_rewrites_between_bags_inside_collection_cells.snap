@@ -1,0 +1,78 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Stmt ::= insert(Int, Int)\n  configuration\n    <k> $PGM:Stmt </k>\n    <map>\n      <entry multiplicity=\"*\" type=\"Map\">\n        <key> .K </key>\n        <value> .K </value>\n      </entry>\n    </map>\n\n  rule\n    <k> insert(Key, Value) => .K ...</k>\n    <map>...\n      .Bag => <entry> <key> Key </key> <value> Value </value> </entry>\n    ...</map>\nendmodule\n"
+---
+[
+    SentenceSummary {
+        kind: "rule",
+        body: "#cells(`<k>`(#noDots(.KList),`insert(_,_)_MAIN_Stmt_Int_Int`(#SemanticCastToInt(Key),#SemanticCastToInt(Value))=>.K,#dots(.KList)),`<map>`(#dots(.KList),#cells(.KList)=>`<entry>`(#noDots(.KList),#cells(`<key>`(#noDots(.KList),#SemanticCastToInt(Key),#noDots(.KList)),`<value>`(#noDots(.KList),#SemanticCastToInt(Value),#noDots(.KList))),#noDots(.KList)),#dots(.KList)))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "`EntryCellMapKey`(`<entry>`(#noDots(.KList),Key,#dots(.KList)))=>Key",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "initEntryCell(.KList)=>`<entry>`(#noDots(.KList),#cells(initKeyCell(.KList),initValueCell(.KList)),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "initGeneratedTopCell(Init)=>`<generatedTop>`(#noDots(.KList),#cells(initKCell(Init),initMapCell(.KList)),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "initKCell(Init)=>`<k>`(#noDots(.KList),#SemanticCastToStmt(`project:Stmt`(`Map:lookup`(Init,#token(\"$PGM\",\"KConfigVar\")))),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "initKeyCell(.KList)=>`<key>`(#noDots(.KList),.K,#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "initMapCell(.KList)=>`<map>`(#noDots(.KList),#cells(.KList),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "initValueCell(.KList)=>`<value>`(#noDots(.KList),.K,#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+]

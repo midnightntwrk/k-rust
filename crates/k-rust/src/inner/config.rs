@@ -171,6 +171,7 @@ fn configuration_grammar(
         .collect::<std::collections::BTreeSet<_>>();
 
     add_config_cells(&mut grammar)?;
+    grammar.add_matching_terminal_tokens(Sort::new("#CellName"), is_cell_name)?;
     add_k_syntax(&mut grammar)?;
 
     concrete_sorts.retain(|sort| {
@@ -189,6 +190,14 @@ fn configuration_grammar(
     }
 
     Ok(grammar)
+}
+
+fn is_cell_name(value: &str) -> bool {
+    let mut characters = value.chars();
+    characters
+        .next()
+        .is_some_and(|character| character.is_ascii_alphabetic())
+        && characters.all(|character| character.is_ascii_alphanumeric() || character == '-')
 }
 
 pub(super) fn add_k_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {

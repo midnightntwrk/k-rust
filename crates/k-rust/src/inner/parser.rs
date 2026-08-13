@@ -725,6 +725,32 @@ impl Grammar {
         self.associativities.left.insert((label.clone(), label));
     }
 
+    pub(super) fn add_matching_terminal_tokens(
+        &mut self,
+        result: Sort,
+        predicate: impl Fn(&str) -> bool,
+    ) -> Result<(), ParseError> {
+        let terminals = self
+            .productions
+            .iter()
+            .flat_map(|production| &production.items)
+            .filter_map(|item| match item {
+                Item::Terminal(value) if predicate(value) => Some(value.clone()),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        for terminal in terminals {
+            self.add(
+                result.clone(),
+                vec![ProductionItem::Terminal(terminal)],
+                None,
+                true,
+                false,
+            )?;
+        }
+        Ok(())
+    }
+
     fn identify_productive_unary_cycles(&mut self) {
         let edges = self
             .productions

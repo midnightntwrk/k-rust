@@ -135,6 +135,28 @@ fn parses_record_productions_in_configurations() {
 }
 
 #[test]
+fn parses_literal_cell_names_that_are_also_user_terminals() {
+    let source = "<value> .K </value>";
+    let mut input = definition(source);
+    input.modules[0].local_sentences.insert(
+        1,
+        Sentence::Production {
+            label: Some(Label::new("value")),
+            parameters: vec![],
+            sort: Sort::new("Exp"),
+            items: vec![ProductionItem::Terminal("value".into())],
+            attributes: Attributes::default(),
+        },
+    );
+    let transformed = resolve_configuration_bubbles(&input).unwrap();
+
+    assert_config_snapshot!(
+        source,
+        &transformed.main_module().unwrap().local_sentences[2]
+    );
+}
+
+#[test]
 fn rejects_requires_clauses_after_parsing_them() {
     assert!(matches!(
         resolve_configuration_bubbles(&definition("<k> 0 </k> requires true")),

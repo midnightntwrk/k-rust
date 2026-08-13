@@ -237,6 +237,16 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
         }))
         .then(|| sort_predicate_production(sort))
     }));
+    if !parsing_sentences
+        .iter()
+        .any(|sentence| matches!(sentence, Sentence::SyntaxSort { sort, .. } if sort.name == "Bag"))
+    {
+        parsing_sentences.push(Sentence::SyntaxSort {
+            parameters: Vec::new(),
+            sort: Sort::new("Bag"),
+            attributes: Attributes::default(),
+        });
+    }
     #[cfg(feature = "z3-inference")]
     add_builtin_rule_sentences(&mut parsing_sentences);
     let source_catalog = resolved.production_catalog(module);
@@ -276,6 +286,8 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
         &klabel_terminals,
     )?;
     add_rule_cells(&mut grammar, &visible)?;
+    #[cfg(not(feature = "z3-inference"))]
+    add_rule_sort(&mut grammar, &Sort::new("Bag"))?;
 
     for sort in concrete_sorts {
         #[cfg(not(feature = "z3-inference"))]
@@ -751,7 +763,10 @@ fn add_rule_cells(grammar: &mut Grammar, sentences: &[&Sentence]) -> Result<(), 
                             name: None,
                         }
                     }
-                    _ => nonterminal("Bag"),
+                    _ => ProductionItem::NonTerminal {
+                        sort: rule_sort(&Sort::new("Bag")),
+                        name: None,
+                    },
                 };
                 grammar.add(
                     sort.clone(),

@@ -250,6 +250,53 @@ fn loader_parses_rules_against_generated_rule_cells() {
 }
 
 #[test]
+fn loader_parses_rewrites_between_bags_inside_collection_cells() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Stmt ::= insert(Int, Int)
+          configuration
+            <k> $PGM:Stmt </k>
+            <map>
+              <entry multiplicity="*" type="Map">
+                <key> .K </key>
+                <value> .K </value>
+              </entry>
+            </map>
+
+          rule
+            <k> insert(Key, Value) => .K ...</k>
+            <map>...
+              .Bag => <entry> <key> Key </key> <value> Value </value> </entry>
+            ...</map>
+        endmodule
+    "#};
+    let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+    let loaded = load(
+        ResolvedSource::new("collection-cells.k", source),
+        "MAIN",
+        &mut resolver,
+    )
+    .unwrap();
+    let rules = loaded
+        .definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(sentence_summary)
+        .collect::<Vec<_>>();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(rules);
+    });
+}
+
+#[test]
 fn rejects_ensures_on_contexts_and_aliases() {
     for source in [
         "module MAIN\ncontext HOLE ensures true\nendmodule",
