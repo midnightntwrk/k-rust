@@ -116,19 +116,14 @@ module MAIN
         X0:SortExp{},
         \exists{SortExp{}}(X1:SortExp{}, Lbl'UndsPlusPlusUnds'{}(X0:SortExp{}, X1:SortExp{}))
       ),
-      \or{SortExp{}}(
-        Lblone{}(),
-        \or{SortExp{}}(
-          \exists{SortExp{}}(
-            X0:SortExp{},
-            \exists{SortExp{}}(X1:SortExp{}, Lblpair{}(X0:SortExp{}, X1:SortExp{}))
-          ),
-          \or{SortExp{}}(
-            \exists{SortExp{}}(X0:SortExp{}, Lblwrap{}(X0:SortExp{})),
-            \or{SortExp{}}(Lblzero{}(), \bottom{SortExp{}}())
-          )
-        )
-      )
+      Lblone{}(),
+      \exists{SortExp{}}(
+        X0:SortExp{},
+        \exists{SortExp{}}(X1:SortExp{}, Lblpair{}(X0:SortExp{}, X1:SortExp{}))
+      ),
+      \exists{SortExp{}}(X0:SortExp{}, Lblwrap{}(X0:SortExp{})),
+      Lblzero{}(),
+      \bottom{SortExp{}}()
     )
     [constructor{}()]
 endmodule [

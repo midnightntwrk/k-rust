@@ -26,6 +26,7 @@ pub use passes::{
 };
 pub use sort_injections::{
     SortInjectionError, SortInjector, add_sort_injections, add_sort_injections_from_resolved,
+    add_sort_injections_to_definition,
 };
 pub use term_to_kore::{
     TermConversionError, TermConverter, term_to_kore, term_to_kore_from_resolved,

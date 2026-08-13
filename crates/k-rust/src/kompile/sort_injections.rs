@@ -198,7 +198,12 @@ impl<'a> SortInjector<'a> {
         term: &Term,
         expected: Option<&Sort>,
     ) -> Result<Sort, SortInjectionError> {
-        if let Some(sort) = term.metadata().and_then(|metadata| metadata.sort.clone()) {
+        // A semantic cast on an application records the intended overload/context, not a
+        // replacement for the selected production's result sort. In particular, `{P}:K` where
+        // `P:KItem` must still materialize the KItem-to-K sequence wrapper.
+        if !matches!(term.unannotated(), Term::Apply { .. })
+            && let Some(sort) = term.metadata().and_then(|metadata| metadata.sort.clone())
+        {
             return Ok(sort);
         }
         match term.unannotated() {
@@ -571,6 +576,22 @@ impl<'a> SortInjector<'a> {
             return Ok(production);
         }
         let ids = self.productions.productions_for(&LabelHead::from(label));
+        if ids.len() > 1
+            && let Some(sort) = term.metadata().and_then(|metadata| metadata.sort.as_ref())
+        {
+            let matching = ids
+                .iter()
+                .filter(|id| {
+                    matches!(
+                        self.productions.production(**id),
+                        Sentence::Production { sort: result, .. } if result == sort
+                    )
+                })
+                .collect::<Vec<_>>();
+            if let [id] = matching.as_slice() {
+                return Ok(self.productions.production(**id));
+            }
+        }
         match ids {
             [] => Err(SortInjectionError::UnknownLabel(label.name.clone())),
             [id] => Ok(self.productions.production(*id)),
@@ -623,6 +644,22 @@ pub fn add_sort_injections(
     let resolved =
         ResolvedDefinition::resolve(definition).map_err(SortInjectionError::Definition)?;
     add_sort_injections_from_resolved(&resolved, module, term)
+}
+
+/// Materialize sort injections across every rule and claim before final KORE lowering.
+pub fn add_sort_injections_to_definition(
+    definition: &Definition,
+) -> Result<Definition, SortInjectionError> {
+    let resolved =
+        ResolvedDefinition::resolve(definition).map_err(SortInjectionError::Definition)?;
+    let mut output = definition.clone();
+    for module in &mut output.modules {
+        let injector = SortInjector::new(&resolved, &module.name)?;
+        for sentence in &mut module.local_sentences {
+            *sentence = injector.inject_sentence(sentence)?;
+        }
+    }
+    Ok(output)
 }
 
 pub fn add_sort_injections_from_resolved(

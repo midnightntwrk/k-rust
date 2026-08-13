@@ -450,7 +450,9 @@ impl<'a> TermConverter<'a> {
     }
 
     fn term_sort(&self, term: &Term) -> Result<Sort, TermConversionError> {
-        if let Some(sort) = term.metadata().and_then(|metadata| metadata.sort.clone()) {
+        if !matches!(term.unannotated(), Term::Apply { .. })
+            && let Some(sort) = term.metadata().and_then(|metadata| metadata.sort.clone())
+        {
             return Ok(sort);
         }
         match term.unannotated() {
@@ -554,6 +556,31 @@ impl<'a> TermConverter<'a> {
         let ids = self.productions.productions_for(&LabelHead::from(label));
         if ids.is_empty() {
             return Err(TermConversionError::UnknownLabel(label.name.clone()));
+        }
+        if ids.len() != 1
+            && let Some(expected) = term.metadata().and_then(|metadata| metadata.sort.as_ref())
+        {
+            let matching = ids
+                .iter()
+                .filter_map(|id| {
+                    let Sentence::Production {
+                        parameters, sort, ..
+                    } = self.productions.production(*id)
+                    else {
+                        unreachable!()
+                    };
+                    (production_result_sort(parameters, sort, label) == *expected).then_some(*id)
+                })
+                .collect::<Vec<_>>();
+            if let [id] = matching.as_slice() {
+                let Sentence::Production {
+                    parameters, sort, ..
+                } = self.productions.production(*id)
+                else {
+                    unreachable!()
+                };
+                return Ok(production_result_sort(parameters, sort, label));
+            }
         }
         if ids.len() != 1 {
             return Err(TermConversionError::AmbiguousLabel {

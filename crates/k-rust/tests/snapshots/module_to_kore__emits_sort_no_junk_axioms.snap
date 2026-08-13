@@ -90,13 +90,9 @@ module MAIN
         X0:SortExp{},
         \exists{SortExp{}}(X1:SortExp{}, Lblpair{}(X0:SortExp{}, X1:SortExp{}))
       ),
-      \or{SortExp{}}(
-        Lblzero{}(),
-        \or{SortExp{}}(
-          \exists{SortExp{}}(Val:SortAtom{}, inj{SortAtom{}, SortExp{}}(Val:SortAtom{})),
-          \bottom{SortExp{}}()
-        )
-      )
+      Lblzero{}(),
+      \exists{SortExp{}}(Val:SortAtom{}, inj{SortAtom{}, SortExp{}}(Val:SortAtom{})),
+      \bottom{SortExp{}}()
     )
     [constructor{}()]
   axiom{}

@@ -1004,6 +1004,10 @@ fn leaf_initializer(term: &Term) -> Term {
             let mut metadata = metadata.clone();
             if replaces_source_node {
                 metadata.production = None;
+                // The replacement is a generated projection, not the source token/cast whose
+                // inferred sort this metadata described. Let the projection production determine
+                // its result sort during final sort-injection materialization.
+                metadata.sort = None;
             }
             transformed.with_metadata(metadata)
         } else {

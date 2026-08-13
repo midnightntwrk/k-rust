@@ -1091,15 +1091,13 @@ fn no_junk_axioms(
         if alternatives.is_empty() {
             continue;
         }
-        let mut pattern = Pattern::Bottom {
+        alternatives.push(Pattern::Bottom {
             sort: result_sort.clone(),
+        });
+        let pattern = Pattern::Or {
+            sort: result_sort.clone(),
+            arguments: alternatives,
         };
-        for alternative in alternatives.into_iter().rev() {
-            pattern = Pattern::Or {
-                sort: result_sort.clone(),
-                arguments: vec![alternative, pattern],
-            };
-        }
         axioms.push(KoreSentence::Axiom {
             parameters: Vec::new(),
             pattern: Box::new(pattern),
@@ -2274,15 +2272,13 @@ fn emit_owise_equation(
         competitors.push(candidate);
     }
 
-    let mut any_competitor = Pattern::Bottom {
+    competitors.push(Pattern::Bottom {
         sort: predicate_sort.clone(),
+    });
+    let any_competitor = Pattern::Or {
+        sort: predicate_sort.clone(),
+        arguments: competitors,
     };
-    for competitor in competitors.into_iter().rev() {
-        any_competitor = Pattern::Or {
-            sort: predicate_sort.clone(),
-            arguments: vec![competitor, any_competitor],
-        };
-    }
     let negative_match = Pattern::Not {
         sort: predicate_sort.clone(),
         argument: Box::new(any_competitor),

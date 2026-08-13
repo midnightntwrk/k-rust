@@ -76,10 +76,8 @@ module MAIN
         X0:SortExp{},
         \exists{SortExp{}}(X1:SortExp{}, Lbl'UndsPlusUnds'{}(X0:SortExp{}, X1:SortExp{}))
       ),
-      \or{SortExp{}}(
-        \exists{SortExp{}}(Val:SortInt{}, inj{SortInt{}, SortExp{}}(Val:SortInt{})),
-        \bottom{SortExp{}}()
-      )
+      \exists{SortExp{}}(Val:SortInt{}, inj{SortInt{}, SortExp{}}(Val:SortInt{})),
+      \bottom{SortExp{}}()
     )
     [constructor{}()]
   axiom{}

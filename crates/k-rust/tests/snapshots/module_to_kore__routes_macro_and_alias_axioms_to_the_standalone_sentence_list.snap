@@ -107,10 +107,8 @@ module MAIN
   axiom{}
     \or{SortExp{}}(
       \exists{SortExp{}}(X0:SortExp{}, Lbldone{}(X0:SortExp{})),
-      \or{SortExp{}}(
-        \exists{SortExp{}}(X0:SortExp{}, Lblplain{}(X0:SortExp{})),
-        \bottom{SortExp{}}()
-      )
+      \exists{SortExp{}}(X0:SortExp{}, Lblplain{}(X0:SortExp{})),
+      \bottom{SortExp{}}()
     )
     [constructor{}()]
   axiom{R}

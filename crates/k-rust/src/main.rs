@@ -17,14 +17,14 @@ use k_rust::{
     kast::{json as kast_json, parser::parse_sort, printer::Printer as KastPrinter},
     kompile::{
         add_cool_like_attributes, add_implicit_computation_cell, add_semantics_module,
-        check_simplification_rules, concretize_cells, constant_fold, expand_macros,
-        generate_sort_predicate_rules, generate_sort_predicate_syntax, generate_sort_projections,
-        guard_or_patterns, minimize_term_construction, module_to_kore_from_resolved,
-        number_sentences, propagate_macro_attributes, resolve_anon_vars, resolve_comm,
-        resolve_config_var, resolve_contexts, resolve_fresh_config_constants,
-        resolve_fresh_constants, resolve_fun, resolve_function_with_config,
-        resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts, resolve_strict,
-        subsort_kitem,
+        add_sort_injections_to_definition, check_simplification_rules, concretize_cells,
+        constant_fold, expand_macros, generate_sort_predicate_rules,
+        generate_sort_predicate_syntax, generate_sort_projections, guard_or_patterns,
+        minimize_term_construction, module_to_kore_from_resolved, number_sentences,
+        propagate_macro_attributes, resolve_anon_vars, resolve_comm, resolve_config_var,
+        resolve_contexts, resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
+        resolve_function_with_config, resolve_heat_cool_attributes, resolve_io,
+        resolve_semantic_casts, resolve_strict, subsort_kitem,
     },
     kore::printer::Printer as KorePrinter,
     native::FileResolver,
@@ -305,6 +305,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     let definition = add_cool_like_attributes(&definition);
     let definition = generate_sort_predicate_rules(&definition);
     let definition = number_sentences(&definition);
+    let definition = add_sort_injections_to_definition(&definition)?;
     let definition = minimize_term_construction(&definition)?;
     let resolved = ResolvedDefinition::resolve(&definition)?;
     let generated = module_to_kore_from_resolved(&resolved, &options.common.module)?;

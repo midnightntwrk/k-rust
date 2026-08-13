@@ -1,6 +1,7 @@
 use indoc::indoc;
 use k_rust::definition::{Attributes, ProductionItem, Sentence, expand_configurations};
 use k_rust::inner::{ConfigError, resolve_configuration_bubbles};
+use k_rust::kast::Term;
 use k_rust::outer::{ResolvedSource, load};
 
 fn parsed(source: &str) -> k_rust::definition::Definition {
@@ -116,6 +117,51 @@ fn generates_java_cell_fragment_collection_and_initializer_families() {
         source,
         sentence_summary(&expanded.main_module().unwrap().local_sentences)
     );
+}
+
+#[test]
+fn generated_configuration_projections_discard_replaced_source_sort_metadata() {
+    fn projection_metadata(term: &Term) -> Option<k_rust::kast::TermMetadata> {
+        if matches!(term.unannotated(), Term::Apply { label, .. } if label.name == "project:Int") {
+            return term.metadata().cloned();
+        }
+        match term.unannotated() {
+            Term::Rewrite { left, right } => {
+                projection_metadata(left).or_else(|| projection_metadata(right))
+            }
+            Term::As { pattern, alias } => {
+                projection_metadata(pattern).or_else(|| projection_metadata(alias))
+            }
+            Term::Apply { arguments, .. } | Term::Sequence(arguments) => {
+                arguments.iter().find_map(projection_metadata)
+            }
+            Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => None,
+            Term::Annotated { .. } => unreachable!(),
+        }
+    }
+
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <k> $PGM:Int </k>
+        endmodule
+    "#};
+    let expanded = expand_configurations(&parsed(source)).unwrap();
+    let rule_bodies = expanded
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        });
+    let metadata = rule_bodies
+        .filter_map(projection_metadata)
+        .next()
+        .expect("initializer should contain project:Int");
+    assert_eq!(metadata.production, None);
+    assert_eq!(metadata.sort, None);
 }
 
 #[test]

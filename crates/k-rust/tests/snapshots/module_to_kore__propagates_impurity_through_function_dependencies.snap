@@ -115,13 +115,9 @@ module MAIN
   axiom{}
     \or{SortExp{}}(
       Lbldone{}(),
-      \or{SortExp{}}(
-        \exists{SortExp{}}(X0:SortExp{}, LblimpureAnywhere{}(X0:SortExp{})),
-        \or{SortExp{}}(
-          \exists{SortExp{}}(X0:SortExp{}, LblmacroAnywhere{}(X0:SortExp{})),
-          \bottom{SortExp{}}()
-        )
-      )
+      \exists{SortExp{}}(X0:SortExp{}, LblimpureAnywhere{}(X0:SortExp{})),
+      \exists{SortExp{}}(X0:SortExp{}, LblmacroAnywhere{}(X0:SortExp{})),
+      \bottom{SortExp{}}()
     )
     [constructor{}()]
   axiom{R}

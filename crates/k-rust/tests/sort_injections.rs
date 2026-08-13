@@ -1,7 +1,7 @@
 use indoc::indoc;
 use k_rust::definition::{Attributes, Definition, ResolvedDefinition, Sentence};
 use k_rust::inner::resolve_rule_bubbles;
-use k_rust::kast::{Label, Sort, Term};
+use k_rust::kast::{Label, Sort, Term, TermMetadata};
 use k_rust::kompile::{SortInjector, term_to_kore_from_resolved};
 use k_rust::kore::printer::Printer;
 
@@ -233,5 +233,35 @@ fn kitem_to_k_uses_a_sequence_without_an_injection() {
         injected,
         Term::Sequence(ref items)
             if matches!(items.as_slice(), [Term::InjectedLabel(label)] if label.name == "label")
+    ));
+}
+
+#[test]
+fn application_cast_context_does_not_replace_its_production_sort() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax KItem ::= "project" [symbol(project)]
+          syntax Cell ::= "cell" K [symbol(cell)]
+        endmodule
+    "#});
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let projected = Term::apply("project", vec![]).with_metadata(TermMetadata {
+        sort: Some(Sort::new("K")),
+        ..TermMetadata::default()
+    });
+    let term = Term::apply("cell", vec![projected]);
+    let injected = SortInjector::new(&resolved, "MAIN")
+        .unwrap()
+        .inject_at_top(&term)
+        .unwrap();
+
+    let Term::Apply { arguments, .. } = injected.unannotated() else {
+        panic!("expected cell application");
+    };
+    assert!(matches!(
+        arguments.as_slice(),
+        [Term::Sequence(items)]
+            if matches!(items.as_slice(), [item]
+                if matches!(item.unannotated(), Term::Apply { label, .. } if label.name == "project"))
     ));
 }

@@ -140,46 +140,27 @@ module MAIN
   axiom{}
     \or{SortInt{}}(
       \top{SortInt{}}(),
-      \or{SortInt{}}(
-        \exists{SortInt{}}(X0:SortInt{}, LblfromInt{}(X0:SortInt{})),
-        \or{SortInt{}}(
-          \exists{SortInt{}}(X0:SortInt{}, Lblnarrow{}(X0:SortInt{})),
-          \bottom{SortInt{}}()
-        )
-      )
+      \exists{SortInt{}}(X0:SortInt{}, LblfromInt{}(X0:SortInt{})),
+      \exists{SortInt{}}(X0:SortInt{}, Lblnarrow{}(X0:SortInt{})),
+      \bottom{SortInt{}}()
     )
     [constructor{}()]
   axiom{}
     \or{SortNumber{}}(
       \exists{SortNumber{}}(X0:SortInt{}, LblfromNumber{}(X0:SortInt{})),
-      \or{SortNumber{}}(
-        \exists{SortNumber{}}(X0:SortNumber{}, Lblwide{}(X0:SortNumber{})),
-        \or{SortNumber{}}(
-          \exists{SortNumber{}}(Val:SortInt{}, inj{SortInt{}, SortNumber{}}(Val:SortInt{})),
-          \bottom{SortNumber{}}()
-        )
-      )
+      \exists{SortNumber{}}(X0:SortNumber{}, Lblwide{}(X0:SortNumber{})),
+      \exists{SortNumber{}}(Val:SortInt{}, inj{SortInt{}, SortNumber{}}(Val:SortInt{})),
+      \bottom{SortNumber{}}()
     )
     [constructor{}()]
   axiom{}
     \or{SortValue{}}(
       \exists{SortValue{}}(X0:SortInt{}, LblasInt{}(X0:SortInt{})),
-      \or{SortValue{}}(
-        \exists{SortValue{}}(X0:SortNumber{}, LblasNumber{}(X0:SortNumber{})),
-        \or{SortValue{}}(
-          \exists{SortValue{}}(X0:SortValue{}, Lblwidest{}(X0:SortValue{})),
-          \or{SortValue{}}(
-            \exists{SortValue{}}(Val:SortInt{}, inj{SortInt{}, SortValue{}}(Val:SortInt{})),
-            \or{SortValue{}}(
-              \exists{SortValue{}}(
-                Val:SortNumber{},
-                inj{SortNumber{}, SortValue{}}(Val:SortNumber{})
-              ),
-              \bottom{SortValue{}}()
-            )
-          )
-        )
-      )
+      \exists{SortValue{}}(X0:SortNumber{}, LblasNumber{}(X0:SortNumber{})),
+      \exists{SortValue{}}(X0:SortValue{}, Lblwidest{}(X0:SortValue{})),
+      \exists{SortValue{}}(Val:SortInt{}, inj{SortInt{}, SortValue{}}(Val:SortInt{})),
+      \exists{SortValue{}}(Val:SortNumber{}, inj{SortNumber{}, SortValue{}}(Val:SortNumber{})),
+      \bottom{SortValue{}}()
     )
     [constructor{}()]
   axiom{R}

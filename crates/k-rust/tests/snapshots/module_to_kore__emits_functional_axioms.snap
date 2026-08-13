@@ -96,7 +96,8 @@ module MAIN
         X0:SortExp{},
         \exists{SortExp{}}(X1:SortExp{}, Lblpair{}(X0:SortExp{}, X1:SortExp{}))
       ),
-      \or{SortExp{}}(Lblzero{}(), \bottom{SortExp{}}())
+      Lblzero{}(),
+      \bottom{SortExp{}}()
     )
     [constructor{}()]
 endmodule [
