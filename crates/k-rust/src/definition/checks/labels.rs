@@ -10,7 +10,7 @@ use crate::definition::{
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::Term;
 
-const FIXED_INTERNAL_LABELS: [&str; 12] = [
+const FIXED_INTERNAL_LABELS: [&str; 13] = [
     "#cells",
     "#dots",
     "#noDots",
@@ -19,6 +19,7 @@ const FIXED_INTERNAL_LABELS: [&str; 12] = [
     "#fun3",
     "#let",
     "#withConfig",
+    "#OuterCast",
     "<generatedTop>",
     "#SemanticCastToBag",
     "_:=K_",
@@ -69,7 +70,7 @@ pub fn check_klabels(
         .filter_map(|(_, production)| match production {
             Sentence::Production {
                 label: Some(label), ..
-            } => Some(label.clone()),
+            } => Some(LabelHead::from(label)),
             _ => None,
         })
         .collect::<BTreeSet<_>>();
@@ -82,7 +83,7 @@ pub fn check_klabels(
                     Term::Apply { label, .. } | Term::InjectedLabel(label) => label,
                     _ => return,
                 };
-                if !defined.contains(label) && !internal.contains(&label.name) {
+                if !defined.contains(&LabelHead::from(label)) && !internal.contains(&label.name) {
                     diagnostics.push(Diagnostic::error(
                         DiagnosticCode::UndefinedKLabel,
                         format!("Found klabel {} not defined in any production.", label.name),

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use crate::definition::regex::Regex as KRegex;
 use crate::definition::{
-    Attributes, OverloadOrder, ProductionItem, Sentence, SortCatalog, SortHead,
+    Attributes, ProductionCatalog, ProductionItem, Sentence, SortCatalog, SortHead,
 };
 use crate::kast::{Label, Sort};
 
@@ -15,7 +15,7 @@ impl Grammar {
         &mut self,
         sentences: &[&Sentence],
         lexical: &BTreeMap<String, KRegex>,
-        overloads: &OverloadOrder<'_>,
+        source_catalog: &ProductionCatalog<'_>,
     ) -> Result<(), ParseError> {
         let catalog = SortCatalog::from_visible(sentences.iter().copied());
         let mut all_sorts = catalog
@@ -46,6 +46,12 @@ impl Grammar {
                 continue;
             }
 
+            // All temporary concrete variants of this source production become the same original
+            // production reference in Java's Earley forest. The first variant is our canonical
+            // descriptor; its `ParametricOrigin` carries the actual source signature used by
+            // inference, so its concrete parse-time result is not semantically observable.
+            let term_production = self.productions.len();
+
             if parameters.contains(sort) {
                 // Case 1: `syntax {P, R} P ::= P "+" R`.
                 for concrete in &all_sorts {
@@ -69,7 +75,8 @@ impl Grammar {
                         attributes,
                         substitution,
                         lexical,
-                        source_production(overloads, sentence),
+                        source_production(source_catalog, sentence),
+                        term_production,
                     )?;
                 }
             } else if !sort.parameters.is_empty() {
@@ -97,7 +104,8 @@ impl Grammar {
                         attributes,
                         substitution,
                         lexical,
-                        source_production(overloads, sentence),
+                        source_production(source_catalog, sentence),
+                        term_production,
                     )?;
                 }
             } else if is_syntactic_subsort(label, items) {
@@ -116,7 +124,8 @@ impl Grammar {
                         attributes,
                         substitution,
                         lexical,
-                        source_production(overloads, sentence),
+                        source_production(source_catalog, sentence),
+                        term_production,
                     )?;
                 }
             } else {
@@ -134,7 +143,8 @@ impl Grammar {
                     attributes,
                     substitution,
                     lexical,
-                    source_production(overloads, sentence),
+                    source_production(source_catalog, sentence),
+                    term_production,
                 )?;
             }
         }
@@ -171,6 +181,7 @@ impl Grammar {
         substitution: BTreeMap<Sort, Sort>,
         lexical: &BTreeMap<String, KRegex>,
         source_production: Option<crate::definition::ProductionId>,
+        term_production: usize,
     ) -> Result<(), ParseError> {
         let concrete_result = substitute_sort(result, &substitution);
         let concrete_items = items
@@ -197,6 +208,7 @@ impl Grammar {
             attributes: attributes.clone(),
             substitution,
         });
+        self.productions[index].term_production = Some(term_production);
         Ok(())
     }
 }

@@ -607,6 +607,32 @@ fn semantic_casts_supply_variable_sort_context() {
 }
 
 #[test]
+fn semantic_casts_supply_bound_variable_sort_context() {
+    let cast = |name| Term::apply("#SemanticCastToInt", vec![Term::variable(name)]);
+    let sentence = rule_with_body(rewrite(cast("X"), cast("X")));
+
+    assert!(check_rhs_variables(&[&sentence], StructuralCheckOptions::default()).is_empty());
+}
+
+#[test]
+fn semantic_cast_context_does_not_override_nested_typed_variables() {
+    let init = Term::Variable {
+        name: "Init".into(),
+        sort: Some(Sort::new("Map")),
+    };
+    let rhs = Term::apply(
+        "#SemanticCastToK",
+        vec![Term::apply(
+            "project:KItem",
+            vec![Term::apply("Map:lookup", vec![init.clone(), token("$PGM")])],
+        )],
+    );
+    let sentence = rule_with_body(rewrite(init, rhs));
+
+    assert!(check_rhs_variables(&[&sentence], StructuralCheckOptions::default()).is_empty());
+}
+
+#[test]
 fn fun_in_pattern_and_in_k_special_cases_match_java() {
     let fun_pattern = rule_with_body(rewrite(
         Term::apply("#fun2", vec![rewrite(token("0"), token("1")), token("2")]),
@@ -1127,8 +1153,21 @@ fn rule_with_body(body: Term) -> Sentence {
 #[test]
 fn klabel_checks_use_visible_productions_and_internal_labels() {
     let defined = production(Some("defined"), "Int", &[], Attributes::default());
+    let parametric = Sentence::Production {
+        label: Some(Label::with_parameters("parametric", vec![Sort::new("S")])),
+        parameters: vec![Sort::new("S")],
+        sort: Sort::new("S"),
+        items: Vec::new(),
+        attributes: Attributes::default(),
+    };
     let missing = rule_with_body(rewrite(
-        Term::apply("defined", Vec::new()),
+        Term::Rewrite {
+            left: Box::new(Term::apply("defined", Vec::new())),
+            right: Box::new(Term::Apply {
+                label: Label::with_parameters("parametric", vec![Sort::new("Int")]),
+                arguments: Vec::new(),
+            }),
+        },
         Term::apply("missing", Vec::new()),
     ));
     let injected = rule_with_body(rewrite(
@@ -1141,8 +1180,8 @@ fn klabel_checks_use_visible_productions_and_internal_labels() {
         ensures: truth(),
         attributes: Attributes::default(),
     };
-    let productions = ProductionCatalog::from_visible([&defined]);
-    let sorts = SortCatalog::from_visible([&defined]);
+    let productions = ProductionCatalog::from_visible([&defined, &parametric]);
+    let sorts = SortCatalog::from_visible([&defined, &parametric]);
     let diagnostics = check_klabels(&[&missing, &injected, &claim], &productions, &sorts);
 
     assert_eq!(diagnostics.len(), 2);
@@ -1458,6 +1497,31 @@ fn attribute_registry_rejects_unknown_and_misplaced_attributes() {
     }));
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.message == "Label 'bad label`' cannot contain whitespace or backticks."
+    }));
+}
+
+#[test]
+fn format_checks_exempt_only_internal_layout_and_line_marker_sorts() {
+    let regex_item = ProductionItem::regex(".+");
+    let production = |sort: &str| Sentence::Production {
+        label: None,
+        parameters: Vec::new(),
+        sort: Sort::new(sort),
+        items: vec![regex_item.clone()],
+        attributes: Attributes::default(),
+    };
+    let diagnostics = |sentence: &Sentence| {
+        let productions = ProductionCatalog::from_visible([sentence]);
+        let sorts = SortCatalog::from_visible([sentence]);
+        check_attribute_semantics(&[sentence], &productions, &sorts)
+    };
+
+    assert!(diagnostics(&production("#Layout")).is_empty());
+    assert!(diagnostics(&production("#LineMarker")).is_empty());
+    assert!(diagnostics(&production("Layout")).iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .starts_with("Expected format attribute on production")
     }));
 }
 

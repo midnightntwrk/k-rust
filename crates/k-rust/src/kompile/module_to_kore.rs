@@ -11,7 +11,7 @@ use crate::definition::{
     AssociativityRelations, Attributes as KAttributes, Definition as KDefinition,
     LOCATION_ATTRIBUTE, LabelHead, ModuleId, OverloadOrder, PartialOrder, ProductionCatalog,
     ProductionId, ProductionItem, RelationError, ResolveError, ResolvedDefinition,
-    SOURCE_ATTRIBUTE, Sentence, SortCatalog, SortHead, match_rule_label,
+    SOURCE_ATTRIBUTE, Sentence, SortCatalog, SortHead, match_rule_label, sentence_equivalent,
 };
 use crate::kast::{Label, ResolvedProductionId, Sort, Term};
 use crate::kore::ast::{
@@ -176,6 +176,11 @@ pub enum ModuleToKoreError {
     UnsupportedRuleKind {
         kind: String,
     },
+    InvalidImportedProductionMetadata {
+        module: String,
+        production: usize,
+        message: String,
+    },
 }
 
 impl fmt::Display for ModuleToKoreError {
@@ -231,6 +236,14 @@ impl fmt::Display for ModuleToKoreError {
             Self::UnsupportedRuleKind { kind } => {
                 write!(formatter, "KORE emission for {kind} is not implemented yet")
             }
+            Self::InvalidImportedProductionMetadata {
+                module,
+                production,
+                message,
+            } => write!(
+                formatter,
+                "cannot rebase production #{production} from imported module {module:?}: {message}"
+            ),
         }
     }
 }
@@ -455,8 +468,12 @@ pub fn module_to_kore_from_resolved(
     let default_reachability = reachability_mode(&definition.module(module_id).attributes);
     let sorted_rules = rules
         .sorted_rules()
-        .map(|(_, rule)| propagate_macro_attribute(rule, &productions))
-        .collect::<Vec<_>>();
+        .map(|(_, rule)| {
+            let owner = sentence_owner(definition, rule).unwrap_or(module_id);
+            let propagated = propagate_macro_attribute(rule, &productions);
+            rebase_sentence_metadata(definition, owner, module_id, propagated)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let constructors = constructor_productions(&productions, &overloads, &rules);
 
     let generated_axioms =
@@ -502,6 +519,129 @@ pub fn module_to_kore_from_resolved(
         )?);
     }
     Ok(modules)
+}
+
+fn sentence_owner(definition: &ResolvedDefinition, sentence: &Sentence) -> Option<ModuleId> {
+    definition.modules().find_map(|(module, resolved)| {
+        resolved
+            .local_sentences
+            .iter()
+            .any(|candidate| std::ptr::eq(candidate, sentence))
+            .then_some(module)
+    })
+}
+
+fn rebase_sentence_metadata(
+    definition: &ResolvedDefinition,
+    source_module: ModuleId,
+    target_module: ModuleId,
+    sentence: Sentence,
+) -> Result<Sentence, ModuleToKoreError> {
+    if source_module == target_module {
+        return Ok(sentence);
+    }
+    let source = definition.production_catalog(source_module);
+    let target = definition.production_catalog(target_module);
+    let rebase = |term| rebase_term_metadata(term, definition, source_module, &source, &target);
+    match sentence {
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            attributes,
+        } => Ok(Sentence::Rule {
+            body: rebase(body)?,
+            requires: rebase(requires)?,
+            ensures: rebase(ensures)?,
+            attributes,
+        }),
+        sentence => Ok(sentence),
+    }
+}
+
+fn rebase_term_metadata(
+    term: Term,
+    definition: &ResolvedDefinition,
+    source_module: ModuleId,
+    source: &ProductionCatalog<'_>,
+    target: &ProductionCatalog<'_>,
+) -> Result<Term, ModuleToKoreError> {
+    let mut metadata = term.metadata().cloned().unwrap_or_default();
+    if let Some(ResolvedProductionId(index)) = metadata.production {
+        if index >= source.len() {
+            return Err(ModuleToKoreError::InvalidImportedProductionMetadata {
+                module: definition.module(source_module).name.clone(),
+                production: index,
+                message: format!(
+                    "the source catalog contains only {} productions",
+                    source.len()
+                ),
+            });
+        }
+        let production = source.production(ProductionId(index));
+        let target_id = target
+            .productions()
+            .find_map(|(id, candidate)| sentence_equivalent(production, candidate).then_some(id))
+            .ok_or_else(|| ModuleToKoreError::InvalidImportedProductionMetadata {
+                module: definition.module(source_module).name.clone(),
+                production: index,
+                message: "the production is not visible from the target module".into(),
+            })?;
+        metadata.production = Some(ResolvedProductionId(target_id.0));
+    }
+
+    let rebuilt = match term.into_unannotated() {
+        Term::Rewrite { left, right } => Term::Rewrite {
+            left: Box::new(rebase_term_metadata(
+                *left,
+                definition,
+                source_module,
+                source,
+                target,
+            )?),
+            right: Box::new(rebase_term_metadata(
+                *right,
+                definition,
+                source_module,
+                source,
+                target,
+            )?),
+        },
+        Term::As { pattern, alias } => Term::As {
+            pattern: Box::new(rebase_term_metadata(
+                *pattern,
+                definition,
+                source_module,
+                source,
+                target,
+            )?),
+            alias: Box::new(rebase_term_metadata(
+                *alias,
+                definition,
+                source_module,
+                source,
+                target,
+            )?),
+        },
+        Term::Sequence(items) => Term::Sequence(
+            items
+                .into_iter()
+                .map(|item| rebase_term_metadata(item, definition, source_module, source, target))
+                .collect::<Result<_, _>>()?,
+        ),
+        Term::Apply { label, arguments } => Term::Apply {
+            label,
+            arguments: arguments
+                .into_iter()
+                .map(|argument| {
+                    rebase_term_metadata(argument, definition, source_module, source, target)
+                })
+                .collect::<Result<_, _>>()?,
+        },
+        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
+        Term::Annotated { .. } => unreachable!(),
+    };
+    Ok(rebuilt.with_metadata(metadata))
 }
 
 struct GeneratedAxioms {

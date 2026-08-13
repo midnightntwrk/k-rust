@@ -4,13 +4,14 @@ use std::{collections::BTreeMap, error::Error, fmt};
 
 use crate::{
     definition::{
-        ConfigurationError, Definition, ResolveError, ResolvedDefinition, apply_sort_synonyms,
-        expand_configurations,
+        ConfigurationError, Definition, FlatImport, ResolveError, ResolvedDefinition, Sentence,
+        apply_sort_synonyms, expand_configurations,
     },
     diagnostic::Diagnostic,
     inner::{ConfigError, RuleError, resolve_configuration_bubbles, resolve_rule_bubbles},
 };
 
+use super::{MarkdownError, extract_fenced_k_code};
 use super::{ParseError, SourceFile, Span, lower::lower_files, parse};
 
 /// Source text returned by a host resolver.
@@ -29,6 +30,22 @@ impl ResolvedSource {
         Self {
             source: source.into(),
             text: text.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LoadOptions {
+    pub markdown_selector: String,
+    /// Additional roots loaded before the entry source, such as Java's implicit prelude.
+    pub implicit_sources: Vec<ResolvedSource>,
+}
+
+impl Default for LoadOptions {
+    fn default() -> Self {
+        Self {
+            markdown_selector: "k".into(),
+            implicit_sources: Vec::new(),
         }
     }
 }
@@ -55,6 +72,10 @@ where
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LoadError {
+    Markdown {
+        source: String,
+        error: MarkdownError,
+    },
     Parse {
         source: String,
         error: ParseError,
@@ -81,6 +102,12 @@ pub enum LoadError {
 impl fmt::Display for LoadError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Markdown { source, error } => {
+                write!(
+                    formatter,
+                    "failed to extract K code from {source:?}: {error}"
+                )
+            }
             Self::Parse { source, error } => {
                 write!(formatter, "failed to parse {source:?}: {error}")
             }
@@ -137,18 +164,32 @@ pub fn load(
     main_module: impl Into<String>,
     resolver: &mut impl SourceResolver,
 ) -> Result<LoadedDefinition, LoadError> {
+    load_with_options(entry, main_module, resolver, &LoadOptions::default())
+}
+
+pub fn load_with_options(
+    entry: ResolvedSource,
+    main_module: impl Into<String>,
+    resolver: &mut impl SourceResolver,
+    options: &LoadOptions,
+) -> Result<LoadedDefinition, LoadError> {
     let mut loader = Loader {
         resolver,
+        options,
         states: BTreeMap::new(),
         stack: Vec::new(),
         files: Vec::new(),
     };
+    for source in &options.implicit_sources {
+        loader.visit(source.clone())?;
+    }
     loader.visit(entry)?;
     validate_unique_modules(&loader.files)?;
 
     let definition =
         lower_files(&loader.files, main_module).map_err(LoadError::SourceDiagnostics)?;
     let definition = apply_sort_synonyms(&definition).map_err(LoadError::DefinitionResolution)?;
+    let definition = add_implicit_configuration_imports(definition)?;
     let definition =
         resolve_configuration_bubbles(&definition).map_err(LoadError::Configuration)?;
     let definition =
@@ -163,6 +204,57 @@ pub fn load(
     })
 }
 
+fn add_implicit_configuration_imports(mut definition: Definition) -> Result<Definition, LoadError> {
+    let has_default = definition
+        .modules
+        .iter()
+        .any(|module| module.name == "DEFAULT-CONFIGURATION");
+    let has_map = definition.modules.iter().any(|module| module.name == "MAP");
+
+    if has_default {
+        let resolved =
+            ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
+        let main = resolved.main_module_id();
+        let has_visible_configuration = resolved.sentences(main).iter().any(|sentence| {
+            matches!(sentence, Sentence::Bubble { sentence_type, .. } if sentence_type == "config")
+        });
+        if !has_visible_configuration {
+            let main = definition
+                .modules
+                .iter_mut()
+                .find(|module| module.name == definition.main_module)
+                .expect("the resolved main module exists");
+            if !main
+                .imports
+                .iter()
+                .any(|import| import.name == "DEFAULT-CONFIGURATION")
+            {
+                main.imports.push(FlatImport {
+                    name: "DEFAULT-CONFIGURATION".into(),
+                    public: true,
+                });
+            }
+        }
+    }
+
+    if has_map {
+        for module in &mut definition.modules {
+            let has_local_configuration = module.local_sentences.iter().any(|sentence| {
+                matches!(sentence, Sentence::Bubble { sentence_type, .. } if sentence_type == "config")
+            });
+            if has_local_configuration && !module.imports.iter().any(|import| import.name == "MAP")
+            {
+                module.imports.push(FlatImport {
+                    name: "MAP".into(),
+                    public: true,
+                });
+            }
+        }
+    }
+
+    Ok(definition)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum VisitState {
     Visiting,
@@ -171,6 +263,7 @@ enum VisitState {
 
 struct Loader<'a, R> {
     resolver: &'a mut R,
+    options: &'a LoadOptions,
     states: BTreeMap<String, VisitState>,
     stack: Vec<String>,
     files: Vec<SourceFile>,
@@ -187,11 +280,20 @@ impl<R: SourceResolver> Loader<'_, R> {
         self.states
             .insert(source.source.clone(), VisitState::Visiting);
         self.stack.push(source.source.clone());
-        let parsed =
-            parse(source.source.clone(), &source.text).map_err(|error| LoadError::Parse {
-                source: source.source.clone(),
-                error,
-            })?;
+        let text = if source.source.ends_with(".md") {
+            extract_fenced_k_code(&source.text, &self.options.markdown_selector).map_err(
+                |error| LoadError::Markdown {
+                    source: source.source.clone(),
+                    error,
+                },
+            )?
+        } else {
+            source.text
+        };
+        let parsed = parse(source.source.clone(), &text).map_err(|error| LoadError::Parse {
+            source: source.source.clone(),
+            error,
+        })?;
 
         for requirement in &parsed.requires {
             let required = self

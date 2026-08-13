@@ -10,6 +10,7 @@ use crate::outer::{ResolvedSource, SourceResolver};
 /// Filesystem-backed resolution for entry files and recursive `requires`.
 #[derive(Clone, Debug)]
 pub struct FileResolver {
+    builtin_directory: Option<PathBuf>,
     working_directory: PathBuf,
     lookup_directories: Vec<PathBuf>,
 }
@@ -20,6 +21,7 @@ impl FileResolver {
         lookup_directories: impl IntoIterator<Item = PathBuf>,
     ) -> Self {
         Self {
+            builtin_directory: None,
             working_directory: working_directory.into(),
             lookup_directories: lookup_directories.into_iter().collect(),
         }
@@ -35,6 +37,11 @@ impl FileResolver {
         self.read(path.as_ref())
     }
 
+    pub fn with_builtin_directory(mut self, directory: impl Into<PathBuf>) -> Self {
+        self.builtin_directory = Some(directory.into());
+        self
+    }
+
     fn read(&self, path: &Path) -> io::Result<ResolvedSource> {
         let canonical = fs::canonicalize(path)?;
         let text = fs::read_to_string(&canonical)?;
@@ -42,12 +49,21 @@ impl FileResolver {
     }
 
     fn candidates(&self, requiring_source: &str, required: &str) -> Vec<PathBuf> {
-        let required = Path::new(required);
+        let required = match required {
+            "ffi.k" | "json.k" | "rat.k" | "substitution.k" | "domains.k" | "kast.k" => {
+                PathBuf::from(required.strip_suffix(".k").unwrap()).with_extension("md")
+            }
+            _ => PathBuf::from(required),
+        };
+        let required = required.as_path();
         if required.is_absolute() {
             return vec![required.to_owned()];
         }
 
         let mut candidates = Vec::new();
+        if let Some(directory) = &self.builtin_directory {
+            candidates.push(directory.join(required));
+        }
         if let Some(parent) = Path::new(requiring_source).parent() {
             candidates.push(parent.join(required));
         }

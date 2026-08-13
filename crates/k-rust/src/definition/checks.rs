@@ -75,7 +75,6 @@ pub fn check_module_with_options(
     let production_catalog = definition.production_catalog(module);
     let rule_catalog = definition.rule_catalog(module);
     let macro_labels = rule_catalog.all_macro_labels(&production_catalog);
-
     let mut diagnostics = check_attributes(definition.module(module))
         .into_iter()
         .chain(check_duplicate_labels(&sentences))

@@ -18,15 +18,15 @@ use k_rust::{
         printer::Printer as KorePrinter,
     },
     native::FileResolver,
-    outer::load,
+    outer::{LoadOptions, SourceResolver, load_with_options},
 };
 
 const HELP: &str = "\
 Rust frontend for the K Framework
 
 Usage:
-  krust kcompile <definition.k> --main-module <MODULE> [--output-directory <DIR>] [-I <DIR>]...
-  krust kast <definition.k> --module <MODULE> --sort <SORT> [<program-file> | -e <PROGRAM>] [-I <DIR>]... [--output text|json]
+  krust kcompile <definition.k> --main-module <MODULE> [--output-directory <DIR>] [-I <DIR>]... [--md-selector <EXPR>] [--builtin-directory <DIR>] [--no-prelude]
+  krust kast <definition.k> --module <MODULE> --sort <SORT> [<program-file> | -e <PROGRAM>] [-I <DIR>]... [--output text|json] [--md-selector <EXPR>] [--builtin-directory <DIR>] [--no-prelude]
   krust help
 ";
 
@@ -60,6 +60,9 @@ struct CommonOptions {
     definition: PathBuf,
     module: String,
     includes: Vec<PathBuf>,
+    markdown_selector: String,
+    builtin_directory: Option<PathBuf>,
+    no_prelude: bool,
 }
 
 #[derive(Debug)]
@@ -90,6 +93,11 @@ fn parse_kcompile(arguments: Vec<OsString>) -> Result<KcompileOptions, Box<dyn E
         .value(&["-o", "--output-directory"])?
         .map_or_else(|| PathBuf::from("."), PathBuf::from);
     let includes = parser.repeated_paths(&["-I", "--include"])?;
+    let markdown_selector = parser
+        .value(&["--md-selector"])?
+        .unwrap_or_else(|| "k".into());
+    let builtin_directory = parser.value(&["--builtin-directory"])?.map(PathBuf::from);
+    let no_prelude = parser.flag(&["--no-prelude"]);
     let definition = parser.positional("definition file")?;
     parser.finish()?;
     Ok(KcompileOptions {
@@ -97,6 +105,9 @@ fn parse_kcompile(arguments: Vec<OsString>) -> Result<KcompileOptions, Box<dyn E
             definition: definition.into(),
             module,
             includes,
+            markdown_selector,
+            builtin_directory,
+            no_prelude,
         },
         output_directory,
     })
@@ -113,6 +124,11 @@ fn parse_kast(arguments: Vec<OsString>) -> Result<KastOptions, Box<dyn Error>> {
         Some(value) => return Err(format!("unsupported output format {value:?}").into()),
     };
     let includes = parser.repeated_paths(&["-I", "--include"])?;
+    let markdown_selector = parser
+        .value(&["--md-selector"])?
+        .unwrap_or_else(|| "k".into());
+    let builtin_directory = parser.value(&["--builtin-directory"])?.map(PathBuf::from);
+    let no_prelude = parser.flag(&["--no-prelude"]);
     let definition = parser.positional("definition file")?;
     let program_file = parser.optional_positional().map(PathBuf::from);
     parser.finish()?;
@@ -124,6 +140,9 @@ fn parse_kast(arguments: Vec<OsString>) -> Result<KastOptions, Box<dyn Error>> {
             definition: definition.into(),
             module,
             includes,
+            markdown_selector,
+            builtin_directory,
+            no_prelude,
         },
         sort,
         expression,
@@ -135,9 +154,33 @@ fn parse_kast(arguments: Vec<OsString>) -> Result<KastOptions, Box<dyn Error>> {
 fn load_definition(
     options: &CommonOptions,
 ) -> Result<k_rust::outer::LoadedDefinition, Box<dyn Error>> {
+    let builtin_directory = options
+        .builtin_directory
+        .clone()
+        .or_else(|| env::var_os("KRUST_BUILTIN_DIRECTORY").map(PathBuf::from));
     let mut resolver = FileResolver::from_current_directory(options.includes.clone())?;
+    if let Some(directory) = builtin_directory {
+        resolver = resolver.with_builtin_directory(directory);
+    }
     let entry = resolver.load_entry(&options.definition)?;
-    let loaded = load(entry, &options.module, &mut resolver)?;
+    let implicit_sources = if options.no_prelude {
+        Vec::new()
+    } else {
+        vec![
+            resolver
+                .resolve(&entry.source, "prelude.md")
+                .map_err(|message| io::Error::new(io::ErrorKind::NotFound, message))?,
+        ]
+    };
+    let loaded = load_with_options(
+        entry,
+        &options.module,
+        &mut resolver,
+        &LoadOptions {
+            markdown_selector: options.markdown_selector.clone(),
+            implicit_sources,
+        },
+    )?;
     let diagnostics = check_definition(&loaded.resolved)?;
     emit_diagnostics(&diagnostics);
     if diagnostics
@@ -268,6 +311,16 @@ impl Arguments {
     fn required_value(&mut self, names: &[&str]) -> Result<String, Box<dyn Error>> {
         self.value(names)?
             .ok_or_else(|| format!("{} is required", names.last().unwrap()).into())
+    }
+
+    fn flag(&mut self, names: &[&str]) -> bool {
+        for index in 0..self.values.len() {
+            if !self.used[index] && names.iter().any(|name| self.values[index] == *name) {
+                self.used[index] = true;
+                return true;
+            }
+        }
+        false
     }
 
     fn repeated_paths(&mut self, names: &[&str]) -> Result<Vec<PathBuf>, Box<dyn Error>> {

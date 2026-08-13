@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/outer_markdown.rs
+description: "Markdown source:\n\nprose before\n ```k\n requires \"base.md\"\n ```\n```{skip}\nmodule IGNORED endmodule\n```\n```{k enabled}\nmodule MAIN\n  imports BASE\nendmodule\n```\n"
+---
+" \n \n requires \"base.md\"\n \n\n  \n\n \nmodule MAIN\n  imports BASE\nendmodule\n\n"

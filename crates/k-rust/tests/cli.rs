@@ -52,6 +52,7 @@ fn kast_parses_a_program_as_text_and_json() {
             "Exp",
             "--expression",
             "42",
+            "--no-prelude",
         ])
         .output()
         .unwrap();
@@ -77,6 +78,7 @@ fn kast_parses_a_program_as_text_and_json() {
             "42",
             "--output",
             "json",
+            "--no-prelude",
         ])
         .output()
         .unwrap();
@@ -105,6 +107,7 @@ fn kcompile_writes_parseable_kore_outputs() {
             "MAIN",
             "--output-directory",
             output_directory.to_str().unwrap(),
+            "--no-prelude",
         ])
         .output()
         .unwrap();

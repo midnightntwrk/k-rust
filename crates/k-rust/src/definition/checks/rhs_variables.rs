@@ -102,6 +102,7 @@ fn check_rule_variables(
         body,
         TermPosition::BODY,
         false,
+        None,
         error_existential,
         &mut bound,
         sentence,
@@ -111,6 +112,7 @@ fn check_rule_variables(
         ensures,
         TermPosition::CONDITION,
         false,
+        None,
         error_existential,
         &mut bound,
         sentence,
@@ -120,6 +122,7 @@ fn check_rule_variables(
         requires,
         requires_position,
         false,
+        None,
         error_existential,
         &mut bound,
         sentence,
@@ -168,6 +171,7 @@ fn check_context_variables(
         body,
         TermPosition::BODY,
         false,
+        None,
         false,
         &mut bound,
         sentence,
@@ -177,6 +181,7 @@ fn check_context_variables(
         requires,
         TermPosition::CONDITION,
         false,
+        None,
         false,
         &mut bound,
         sentence,
@@ -228,6 +233,7 @@ fn gather_variables(
     term: &Term,
     position: TermPosition,
     in_binder_lhs: bool,
+    context_sort: Option<&Sort>,
     error_existential: bool,
     bound: &mut BTreeSet<VariableKey>,
     sentence: &Sentence,
@@ -235,7 +241,7 @@ fn gather_variables(
 ) {
     if let Term::Variable { name, sort } = term.unannotated() {
         if position.lhs && !is_anonymous(name) || position.rhs && in_binder_lhs {
-            bound.insert(VariableKey::new(name, sort.as_ref()));
+            bound.insert(VariableKey::new(name, context_sort.or(sort.as_ref())));
         }
         if error_existential && name.starts_with('?') {
             diagnostics.push(Diagnostic::error(
@@ -248,6 +254,35 @@ fn gather_variables(
     }
 
     if let Term::Apply { label, arguments } = term.unannotated()
+        && let Some(sort) = semantic_cast_sort(label)
+        && let Some(argument) = arguments.first()
+    {
+        gather_variables(
+            argument,
+            position,
+            in_binder_lhs,
+            Some(&sort),
+            error_existential,
+            bound,
+            sentence,
+            diagnostics,
+        );
+        for argument in &arguments[1..] {
+            gather_variables(
+                argument,
+                position,
+                in_binder_lhs,
+                context_sort,
+                error_existential,
+                bound,
+                sentence,
+                diagnostics,
+            );
+        }
+        return;
+    }
+
+    if let Term::Apply { label, arguments } = term.unannotated()
         && matches!(label.name.as_str(), "#Exists" | "#Forall")
         && arguments.len() >= 2
     {
@@ -255,6 +290,7 @@ fn gather_variables(
             &arguments[0],
             position,
             true,
+            context_sort,
             error_existential,
             bound,
             sentence,
@@ -264,6 +300,7 @@ fn gather_variables(
             &arguments[1],
             position,
             in_binder_lhs,
+            context_sort,
             error_existential,
             bound,
             sentence,
@@ -274,6 +311,7 @@ fn gather_variables(
                 argument,
                 position,
                 in_binder_lhs,
+                context_sort,
                 error_existential,
                 bound,
                 sentence,
@@ -288,6 +326,7 @@ fn gather_variables(
             child,
             child_position,
             in_binder_lhs,
+            None,
             error_existential,
             bound,
             sentence,
@@ -371,14 +410,7 @@ fn compute_unbound(
     }
 
     for (child, child_position) in positioned_children(term, position) {
-        compute_unbound(
-            child,
-            child_position,
-            in_k_lhs,
-            context_sort,
-            bound,
-            unbound,
-        );
+        compute_unbound(child, child_position, in_k_lhs, None, bound, unbound);
     }
 }
 

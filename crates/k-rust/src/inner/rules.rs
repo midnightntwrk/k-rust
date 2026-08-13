@@ -229,7 +229,13 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
         })
         .map(|sentence| (*sentence).clone())
         .collect::<Vec<_>>();
-    let mut grammar = Grammar::from_sentences(parsing_sentences.iter())?;
+    #[allow(unused_mut)]
+    let mut parsing_sentences = parsing_sentences;
+    #[cfg(feature = "z3-inference")]
+    add_builtin_rule_sentences(&mut parsing_sentences);
+    let source_catalog = resolved.production_catalog(module);
+    let mut grammar =
+        Grammar::from_sentences_with_catalog(parsing_sentences.iter(), &source_catalog)?;
     let concrete_sorts = concrete_sorts(&visible);
     let bracket_sorts = visible
         .iter()
@@ -267,12 +273,13 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
     add_rule_cells(&mut grammar, &visible)?;
 
     for sort in concrete_sorts {
+        #[cfg(not(feature = "z3-inference"))]
+        add_rule_sort(&mut grammar, &sort)?;
         if sort.name != "Bool" {
             add_subsort(&mut grammar, "KItem", sort.clone())?;
             grammar.add(sort.clone(), vec![nonterminal("KBott")], None, false, true)?;
             add_casts(&mut grammar, Sort::new("K"), sort.clone(), sort.clone())?;
         }
-        add_rule_sort(&mut grammar, &sort)?;
     }
 
     Ok(grammar)
@@ -378,11 +385,13 @@ fn add_rule_k_syntax(
         false,
         false,
     )?;
+    #[cfg(not(feature = "z3-inference"))]
     add_rule_sort(grammar, &Sort::new("K"))?;
+    let rule_body_sort = rule_sort(&Sort::new("K"));
     grammar.add(
         Sort::new("#RuleBody"),
         vec![ProductionItem::NonTerminal {
-            sort: rule_sort(&Sort::new("K")),
+            sort: rule_body_sort.clone(),
             name: None,
         }],
         None,
@@ -410,7 +419,7 @@ fn add_rule_k_syntax(
         vec![
             ProductionItem::Terminal("[[".into()),
             ProductionItem::NonTerminal {
-                sort: rule_sort(&Sort::new("K")),
+                sort: rule_body_sort,
                 name: None,
             },
             ProductionItem::Terminal("]]".into()),
@@ -422,6 +431,7 @@ fn add_rule_k_syntax(
     )
 }
 
+#[cfg(not(feature = "z3-inference"))]
 fn add_rule_sort(grammar: &mut Grammar, sort: &Sort) -> Result<(), ParseError> {
     let result = rule_sort(sort);
     let child = ProductionItem::NonTerminal {
@@ -430,19 +440,20 @@ fn add_rule_sort(grammar: &mut Grammar, sort: &Sort) -> Result<(), ParseError> {
     };
     grammar.add(result.clone(), vec![child.clone()], None, false, true)?;
     grammar.add(
-        result,
-        vec![child.clone(), ProductionItem::Terminal("=>".into()), child],
+        result.clone(),
+        vec![
+            child.clone(),
+            ProductionItem::Terminal("=>".into()),
+            child.clone(),
+        ],
         Some(Label::new("#KRewrite")),
         false,
         false,
     )?;
     grammar.add(
-        rule_sort(sort),
+        result,
         vec![
-            ProductionItem::NonTerminal {
-                sort: sort.clone(),
-                name: None,
-            },
+            child,
             ProductionItem::Terminal("#as".into()),
             nonterminal("#KVariable"),
         ],
@@ -452,8 +463,75 @@ fn add_rule_sort(grammar: &mut Grammar, sort: &Sort) -> Result<(), ParseError> {
     )
 }
 
+#[cfg(not(feature = "z3-inference"))]
 fn rule_sort(sort: &Sort) -> Sort {
     Sort::new(format!("#Rule{}", sort.name))
+}
+
+#[cfg(feature = "z3-inference")]
+fn rule_sort(sort: &Sort) -> Sort {
+    sort.clone()
+}
+
+#[cfg(feature = "z3-inference")]
+fn add_builtin_rule_sentences(sentences: &mut Vec<Sentence>) {
+    let has_label = |name: &str| {
+        sentences.iter().any(|sentence| {
+            matches!(sentence, Sentence::Production { label: Some(label), .. } if label.name == name)
+        })
+    };
+    let has_rewrite = has_label("#KRewrite");
+    let has_as = has_label("#KAs");
+    let parameter = Sort::new("Sort");
+    let mut generated_attributes = Attributes::default();
+    generated_attributes.insert("generatedRuleSyntax", serde_json::Value::Null);
+    if !has_rewrite {
+        sentences.push(Sentence::Production {
+            label: Some(Label::with_parameters("#KRewrite", vec![parameter.clone()])),
+            parameters: vec![parameter.clone()],
+            sort: parameter.clone(),
+            items: vec![
+                ProductionItem::NonTerminal {
+                    sort: parameter.clone(),
+                    name: None,
+                },
+                ProductionItem::Terminal("=>".into()),
+                ProductionItem::NonTerminal {
+                    sort: parameter.clone(),
+                    name: None,
+                },
+            ],
+            attributes: generated_attributes.clone(),
+        });
+    }
+    if !has_as {
+        sentences.push(Sentence::Production {
+            label: Some(Label::with_parameters("#KAs", vec![parameter.clone()])),
+            parameters: vec![parameter.clone()],
+            sort: parameter.clone(),
+            items: vec![
+                ProductionItem::NonTerminal {
+                    sort: parameter.clone(),
+                    name: None,
+                },
+                ProductionItem::Terminal("#as".into()),
+                ProductionItem::NonTerminal {
+                    sort: parameter,
+                    name: None,
+                },
+            ],
+            attributes: generated_attributes,
+        });
+    }
+    if !sentences.iter().any(|sentence| {
+        matches!(sentence, Sentence::SyntaxAssociativity { tags, .. } if tags.iter().any(|tag| tag == "#KRewrite"))
+    }) {
+        sentences.push(Sentence::SyntaxAssociativity {
+            associativity: crate::definition::Associativity::NonAssoc,
+            tags: vec!["#KRewrite".into()],
+            attributes: Attributes::default(),
+        });
+    }
 }
 
 fn add_rule_cells(grammar: &mut Grammar, sentences: &[&Sentence]) -> Result<(), ParseError> {

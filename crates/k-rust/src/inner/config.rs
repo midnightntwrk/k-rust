@@ -176,7 +176,7 @@ fn configuration_grammar(
     concrete_sorts.retain(|sort| {
         !matches!(
             sort.name.as_str(),
-            "K" | "KItem" | "KBott" | "Cell" | "Bag" | "#RuleBody" | "#RuleContent"
+            "K" | "KItem" | "KBott" | "KConfigVar" | "Cell" | "Bag" | "#RuleBody" | "#RuleContent"
         ) && !sort.name.starts_with('#')
     });
     for sort in concrete_sorts {
@@ -319,7 +319,9 @@ fn add_config_cells(grammar: &mut Grammar) -> Result<(), ParseError> {
     )?;
     grammar.add(
         Sort::new("KString"),
-        vec![ProductionItem::regex(r#""(?:[^"\\\n\r]|\\.)*""#)],
+        vec![ProductionItem::regex(
+            r#"[\"](([^\"\n\r\\])|([\\][nrtf\"\\])|([\\][x][0-9a-fA-F]{2})|([\\][u][0-9a-fA-F]{4})|([\\][U][0-9a-fA-F]{8}))*[\"]"#,
+        )],
         None,
         true,
         false,

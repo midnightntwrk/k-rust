@@ -71,6 +71,17 @@ outer_snapshot!(
 "#}
 );
 
+outer_snapshot!(
+    bubble_attributes_ignore_commented_brackets,
+    indoc! {r#"
+    module COMMENTS
+      rule X => X [simplification]
+      // rule Y => Y [anywhere]
+      /* rule Z => Z [macro] */
+    endmodule
+"#}
+);
+
 #[test]
 fn list_declaration_checks_match_the_frontend_categories() {
     let source = indoc! {r#"

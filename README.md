@@ -161,7 +161,14 @@ explicit `-I` lookup directories. The binary requires the default native feature
 WebAssembly builds remain library-only. The ordered backend pipeline now begins with Java's
 `ResolveComm`: commutative simplification rules are duplicated with swapped LHS arguments, their
 rule-level `comm` marker is removed, and mismatched non-commutative symbols are diagnosed before
-KORE generation.
+KORE generation. Markdown and literate-K sources preserve their original offsets while extracting
+fenced blocks selected by `--md-selector`. The native resolver can load K's implicit `prelude.md`
+from `--builtin-directory` or `KRUST_BUILTIN_DIRECTORY`, translates historical builtin `.k`
+require names to their Markdown sources, imports `DEFAULT-CONFIGURATION` and `MAP` according to
+Java's policy, and now parses and validates the bundled prelude together with a real user
+definition. Imported rules retain parser production identity when rebased into the selected main
+module's catalog. The next end-to-end boundary is the ordered backend transformation pipeline:
+temporary three-argument cell applications must be concretized before backend KORE emission.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -185,6 +192,10 @@ krust kast definition.k --module MAIN --sort Exp --expression '1 + 2'
 krust kast definition.k --module MAIN --sort Exp program.exp --output json
 ```
 
+Both native commands load `prelude.md` by default. Use `--builtin-directory`, set
+`KRUST_BUILTIN_DIRECTORY`, or pass `--no-prelude` for standalone definitions. Markdown files use
+fences selected by `--md-selector k` unless another selector is supplied.
+
 The portable library subset, including WebAssembly builds, explicitly disables default features:
 
 ```console
@@ -206,18 +217,21 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
 - Add presentation adapters for diagnostics after the portable diagnostic model stabilizes. A
   renderer such as `miette` may be useful for a future native CLI, but it does not belong in the
   WASM-compatible core yet.
-- Finish the representation-dependent Java checks, followed by specialized parser/layout views and
-  the compilation passes.
+- Port the remaining ordered Java KORE-backend transformations after `ResolveComm`, including
+  function/context/strictness normalization, macro expansion, generated sort helpers, cell
+  concretization, and final sentence processing. Then run the resulting definition through
+  `ModuleToKORE` and validate its artifacts with the Haskell backend.
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete sort parameters normally supplied by parser inference.
 - Complete `ModuleToKORE` beyond ordinary rewrites, reachability claims, equations, macro axioms,
   transitive impure-function propagation, and the default generated axioms: emit optional legacy
   priority aliases. Impurity propagation follows function calls in rule bodies and side conditions,
   including calls to non-macro `anywhere` labels, while treating sort injections as transparent.
-- Implement binary KORE and Markdown/literate-K input.
-- Add builtin-definition resolution and the auto-imported prelude policy to the native filesystem
-  resolver. Relative source, current-directory, and explicit lookup-directory resolution are in
-  place.
+- Implement binary KORE input. Markdown/literate-K input and selector-aware fence extraction are
+  now supported.
+- Package or discover K's builtin sources automatically for installed releases. Development builds
+  currently accept `--builtin-directory` or `KRUST_BUILTIN_DIRECTORY`; prelude resolution and
+  Java's implicit import policy are implemented.
 - Complete Java `RuleGrammarGenerator` parity: reproduce exact scanner diagnostics and broaden
   differential coverage for ambiguous and parametric sort inference across rules, claims,
   contexts, and aliases.

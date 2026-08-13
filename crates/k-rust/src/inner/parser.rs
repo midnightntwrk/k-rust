@@ -13,9 +13,9 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
 use crate::definition::{
-    AssociativityRelations, Attributes, OverloadOrder, PartialOrder, ProductionId, ProductionItem,
-    Regex as KRegex, RegexBody, Sentence, compute_associativities, compute_overloads,
-    compute_priorities, compute_subsorts, parse_regex, sentence_equivalent,
+    AssociativityRelations, Attributes, PartialOrder, ProductionCatalog, ProductionId,
+    ProductionItem, Regex as KRegex, RegexBody, Sentence, compute_associativities,
+    compute_overloads, compute_priorities, compute_subsorts, parse_regex, sentence_equivalent,
 };
 use crate::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan};
 
@@ -73,6 +73,10 @@ pub enum ParseError {
     },
     CastPriority {
         cast: String,
+        child: String,
+    },
+    Scope {
+        parent: String,
         child: String,
     },
     UnknownApplication {
@@ -172,6 +176,10 @@ impl fmt::Display for ParseError {
                 formatter,
                 "{child} is not allowed to be an immediate child of {cast}; use parentheses around the child to set the cast's scope"
             ),
+            Self::Scope { parent, child } => write!(
+                formatter,
+                "{child} is not allowed to be an immediate child of {parent}; use parentheses to set the operation's scope"
+            ),
             Self::UnknownApplication { label, arity } => write!(
                 formatter,
                 "could not find a production for K label {label:?} with arity {arity}"
@@ -236,6 +244,9 @@ struct Production {
     field_names: Vec<Option<String>>,
     record: Option<RecordProduction>,
     parametric_origin: Option<ParametricOrigin>,
+    /// Production identity retained in the parse forest after a temporary grammar production
+    /// recognizes its input. Java's Earley parser uses `originalPrd` for this same boundary.
+    term_production: Option<usize>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -324,6 +335,7 @@ pub struct Grammar {
     syntactic_subsort_relations: BTreeSet<(Sort, Sort)>,
     overloads: PartialOrder<ProductionId>,
     user_lists: BTreeMap<Sort, UserList>,
+    productive_unary_cycles: BTreeSet<usize>,
 }
 
 impl Default for Grammar {
@@ -339,6 +351,7 @@ impl Default for Grammar {
             syntactic_subsort_relations: BTreeSet::new(),
             overloads: PartialOrder::new([]).expect("an empty relation is acyclic"),
             user_lists: BTreeMap::new(),
+            productive_unary_cycles: BTreeSet::new(),
         }
     }
 }
@@ -370,6 +383,21 @@ impl Grammar {
         sentences: impl IntoIterator<Item = &'a Sentence>,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
+        Self::from_collected_sentences(sentences, None)
+    }
+
+    pub(crate) fn from_sentences_with_catalog<'a>(
+        sentences: impl IntoIterator<Item = &'a Sentence>,
+        source_catalog: &ProductionCatalog<'_>,
+    ) -> Result<Self, ParseError> {
+        let sentences = sentences.into_iter().collect::<Vec<_>>();
+        Self::from_collected_sentences(sentences, Some(source_catalog))
+    }
+
+    fn from_collected_sentences(
+        sentences: Vec<&Sentence>,
+        source_catalog: Option<&ProductionCatalog<'_>>,
+    ) -> Result<Self, ParseError> {
         let lexical = sentences
             .iter()
             .filter_map(|sentence| match sentence {
@@ -415,6 +443,7 @@ impl Grammar {
             .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
         let overloads = compute_overloads(sentences.iter().copied(), &semantic_subsorts)
             .map_err(|cycle| ParseError::CircularOverloads { path: cycle.path })?;
+        let source_catalog = source_catalog.unwrap_or_else(|| overloads.catalog());
         let mut grammar = Self {
             layout: if layout_declared {
                 Layout::compile(&layout_sources)?
@@ -461,19 +490,20 @@ impl Grammar {
                         .any(|key| attributes.get(key).is_some()),
                     prefer: attributes.get("prefer").is_some(),
                     avoid: attributes.get("avoid").is_some(),
-                    source_production: source_production(&overloads, sentence),
+                    source_production: source_production(source_catalog, sentence),
                     user_list: attributes.get("userList").is_some(),
                     precedence: attributes.get_str("prec"),
                 },
                 &lexical,
             )?;
         }
-        grammar.add_parametric_productions(&sentences, &lexical, &overloads)?;
+        grammar.add_parametric_productions(&sentences, &lexical, source_catalog)?;
         grammar.initialize_user_lists()?;
         let original_productions = grammar.productions.len();
         for production in 0..original_productions {
             grammar.add_record_productions(production)?;
         }
+        grammar.identify_productive_unary_cycles();
         Ok(grammar)
     }
 
@@ -570,25 +600,30 @@ impl Grammar {
                         }
                     }
                     None => {
-                        let nodes = derivations
-                            .iter()
-                            .filter_map(|children| {
-                                let term = build_parsed_term(
-                                    state.production,
-                                    production,
-                                    children,
-                                    input,
-                                    state.origin,
-                                    position,
-                                );
-                                if let Some(error) = self.priority_violation(&term) {
-                                    first_violation.get_or_insert(error);
-                                    None
-                                } else {
-                                    Some(term)
+                        if self.productive_unary_cycles.contains(&state.production) {
+                            return Err(ParseError::TooManyParses {
+                                limit: MAX_DERIVATIONS_PER_STATE,
+                            });
+                        }
+                        let mut nodes = BTreeSet::new();
+                        for children in &derivations {
+                            let term = build_parsed_term(
+                                state.production,
+                                production,
+                                children,
+                                input,
+                                state.origin,
+                                position,
+                            );
+                            match self.filter_priority(term) {
+                                Ok(term) => {
+                                    nodes.insert(term);
                                 }
-                            })
-                            .collect::<BTreeSet<_>>();
+                                Err(error) => {
+                                    first_violation.get_or_insert(error);
+                                }
+                            }
+                        }
                         let callers = charts[state.origin]
                             .states
                             .iter()
@@ -636,10 +671,23 @@ impl Grammar {
         let mut parsed = BTreeSet::new();
         for term in parses {
             let term = self.collapse_record_productions(term)?;
-            if let Some(error) = self.priority_violation(&term) {
-                first_violation.get_or_insert(error);
-            } else {
-                parsed.insert(self.resolve_applications(term)?);
+            match self.filter_priority(term) {
+                Ok(term) => {
+                    match self
+                        .resolve_applications(term)
+                        .and_then(|term| self.filter_priority(term))
+                    {
+                        Ok(term) => {
+                            parsed.insert(term);
+                        }
+                        Err(error) => {
+                            first_violation.get_or_insert(error);
+                        }
+                    }
+                }
+                Err(error) => {
+                    first_violation.get_or_insert(error);
+                }
             }
         }
         match parsed.len() {
@@ -702,6 +750,31 @@ impl Grammar {
         self.associativities.left.insert((label.clone(), label));
     }
 
+    fn identify_productive_unary_cycles(&mut self) {
+        let edges = self
+            .productions
+            .iter()
+            .filter_map(|production| match production.items.as_slice() {
+                [Item::NonTerminal(child)] => Some((production.result.clone(), child.clone())),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        self.productive_unary_cycles = self
+            .productions
+            .iter()
+            .enumerate()
+            .filter_map(|(index, production)| {
+                let [Item::NonTerminal(child)] = production.items.as_slice() else {
+                    return None;
+                };
+                (production.label.is_some()
+                    && !production.transparent
+                    && unary_reachable(child, &production.result, &edges))
+                .then_some(index)
+            })
+            .collect();
+    }
+
     fn add_production(
         &mut self,
         result: Sort,
@@ -749,9 +822,11 @@ impl Grammar {
         }
         let items = compiled_items;
         let index = self.productions.len();
-        let syntactic_subsort = label.is_none()
-            && !options.bracket
-            && matches!(items.as_slice(), [Item::NonTerminal(_)]);
+        // Java's `Production.isSyntacticSubsort` is purely shape-based; unlike `isSubsort`,
+        // it does not require the production to be unlabeled. Priority filtering uses the
+        // former, while the semantic subsort relation uses the latter.
+        let syntactic_subsort =
+            !options.bracket && matches!(items.as_slice(), [Item::NonTerminal(_)]);
         let parse_label = label
             .as_ref()
             .map(|label| label.name.clone())
@@ -765,7 +840,10 @@ impl Grammar {
             .apply_priority
             .map(parse_apply_priority)
             .transpose()?;
-        if syntactic_subsort && let [Item::NonTerminal(child)] = items.as_slice() {
+        if label.is_none()
+            && syntactic_subsort
+            && let [Item::NonTerminal(child)] = items.as_slice()
+        {
             self.subsort_relations
                 .insert((child.clone(), result.clone()));
         }
@@ -794,6 +872,7 @@ impl Grammar {
             field_names,
             record: None,
             parametric_origin: None,
+            term_production: None,
         });
         self.by_result.entry(result).or_default().push(index);
         Ok(())
@@ -824,8 +903,12 @@ impl Grammar {
     }
 }
 
-fn source_production(overloads: &OverloadOrder<'_>, sentence: &Sentence) -> Option<ProductionId> {
-    overloads
+fn source_production(catalog: &ProductionCatalog<'_>, sentence: &Sentence) -> Option<ProductionId> {
+    if matches!(sentence, Sentence::Production { attributes, .. } if attributes.get("generatedRuleSyntax").is_some())
+    {
+        return None;
+    }
+    catalog
         .productions()
         .find_map(|(id, candidate)| sentence_equivalent(candidate, sentence).then_some(id))
 }
@@ -934,21 +1017,92 @@ impl Chart {
         derivations: impl IntoIterator<Item = Vec<ParsedTerm>>,
     ) -> Result<bool, ParseError> {
         let stored = self.states.entry(state).or_default();
-        let old_len = stored.len();
+        let old = stored.clone();
         for derivation in derivations {
             stored.insert(derivation);
-            if stored.len() > MAX_DERIVATIONS_PER_STATE {
-                return Err(ParseError::TooManyParses {
-                    limit: MAX_DERIVATIONS_PER_STATE,
-                });
-            }
         }
-        let changed = stored.len() != old_len;
+        factor_derivations(stored);
+        if stored.len() > MAX_DERIVATIONS_PER_STATE {
+            return Err(ParseError::TooManyParses {
+                limit: MAX_DERIVATIONS_PER_STATE,
+            });
+        }
+        let changed = *stored != old;
         if changed {
             self.agenda.push_back(state);
         }
         Ok(changed)
     }
+}
+
+/// Pack derivations that differ at only one child position.
+///
+/// Earley completion revisits callers as a completed node gains alternatives. Without replacing
+/// the previously observed subset, a state retains `{a}`, `{a,b}`, `{a,b,c}`, and so on as
+/// distinct derivations. Those sets denote the same choice once the largest set is present. This
+/// fixed-point factoring preserves correlations between children while sharing every choice whose
+/// surrounding children are identical.
+fn factor_derivations(derivations: &mut BTreeSet<Vec<ParsedTerm>>) {
+    let width = derivations.first().map_or(0, Vec::len);
+    if derivations.len() < 2 || width == 0 {
+        return;
+    }
+
+    loop {
+        let before = derivations.len();
+        for index in 0..width {
+            let mut groups = BTreeMap::<Vec<ParsedTerm>, BTreeSet<ParsedTerm>>::new();
+            for derivation in std::mem::take(derivations) {
+                let mut key = derivation;
+                let node = key.remove(index);
+                groups.entry(key).or_default().insert(node);
+            }
+            for (mut key, nodes) in groups {
+                key.insert(index, pack_alternatives(nodes));
+                derivations.insert(key);
+            }
+        }
+        if derivations.len() == before {
+            break;
+        }
+    }
+}
+
+fn pack_alternatives(nodes: BTreeSet<ParsedTerm>) -> ParsedTerm {
+    let mut alternatives = BTreeSet::new();
+    for node in nodes {
+        match node {
+            ParsedTerm::Ambiguity(nested) => alternatives.extend(nested),
+            node => {
+                alternatives.insert(node);
+            }
+        }
+    }
+    if alternatives.len() == 1 {
+        alternatives.pop_first().expect("one alternative exists")
+    } else {
+        ParsedTerm::Ambiguity(alternatives)
+    }
+}
+
+fn unary_reachable(start: &Sort, target: &Sort, edges: &BTreeSet<(Sort, Sort)>) -> bool {
+    let mut pending = vec![start.clone()];
+    let mut visited = BTreeSet::new();
+    while let Some(sort) = pending.pop() {
+        if &sort == target {
+            return true;
+        }
+        if !visited.insert(sort.clone()) {
+            continue;
+        }
+        pending.extend(
+            edges
+                .iter()
+                .filter(|(from, _)| from == &sort)
+                .map(|(_, to)| to.clone()),
+        );
+    }
+    false
 }
 
 fn completed_nodes(
@@ -975,10 +1129,13 @@ fn completed_nodes(
                 state.origin,
                 end,
             );
-            if let Some(error) = grammar.priority_violation(&term) {
-                first_violation.get_or_insert(error);
-            } else {
-                nodes.insert(term);
+            match grammar.filter_priority(term) {
+                Ok(term) => {
+                    nodes.insert(term);
+                }
+                Err(error) => {
+                    first_violation.get_or_insert(error);
+                }
             }
         }
     }
@@ -989,16 +1146,14 @@ fn append_nodes(
     derivations: &BTreeSet<Vec<ParsedTerm>>,
     nodes: &BTreeSet<ParsedTerm>,
 ) -> BTreeSet<Vec<ParsedTerm>> {
+    let node = (!nodes.is_empty()).then(|| pack_alternatives(nodes.clone()));
     derivations
         .iter()
-        .flat_map(|derivation| {
-            nodes.iter().map(move |node| {
-                let mut combined = derivation.clone();
-                combined.push(node.clone());
-                combined
-            })
+        .filter_map(|derivation| {
+            let mut combined = derivation.clone();
+            combined.push(node.clone()?);
+            Some(combined)
         })
-        .take(MAX_DERIVATIONS_PER_STATE + 1)
         .collect()
 }
 
@@ -1036,7 +1191,7 @@ fn build_parsed_term(
         return child.clone();
     }
     ParsedTerm::Production {
-        production: production_index,
+        production: production.term_production.unwrap_or(production_index),
         children: children.to_vec(),
         metadata: term_metadata(production, start, end),
     }
@@ -1074,5 +1229,42 @@ fn lower_term(production: &Production, children: &[Term]) -> Term {
             label,
             arguments: children.to_vec(),
         },
+    }
+}
+
+#[cfg(test)]
+mod chart_tests {
+    use super::*;
+
+    #[test]
+    fn packs_growing_completed_node_alternatives_in_one_derivation() {
+        let state = State {
+            production: 0,
+            dot: 1,
+            origin: 0,
+        };
+        let mut chart = Chart::default();
+
+        for count in 1..=MAX_DERIVATIONS_PER_STATE + 1 {
+            let alternatives = (0..count)
+                .map(|index| {
+                    ParsedTerm::Term(Term::Variable {
+                        name: format!("V{index}"),
+                        sort: None,
+                    })
+                })
+                .collect();
+            chart
+                .add(state, [vec![ParsedTerm::Ambiguity(alternatives)]])
+                .expect("growing subsets should be packed, not counted as separate derivations");
+        }
+
+        let stored = &chart.states[&state];
+        assert_eq!(stored.len(), 1);
+        assert!(matches!(
+            &stored.first().expect("one derivation exists")[0],
+            ParsedTerm::Ambiguity(alternatives)
+                if alternatives.len() == MAX_DERIVATIONS_PER_STATE + 1
+        ));
     }
 }

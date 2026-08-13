@@ -6,70 +6,143 @@ use super::{Grammar, Item, ParseError, ParsedTerm, Production, lower_term};
 use crate::kast::{Term, string};
 
 impl Grammar {
-    pub(super) fn priority_violation(&self, term: &ParsedTerm) -> Option<ParseError> {
-        let ParsedTerm::Production {
-            production,
-            children,
-            ..
-        } = term
-        else {
-            return match term {
-                ParsedTerm::Ambiguity(alternatives) => alternatives
-                    .iter()
-                    .find_map(|alternative| self.priority_violation(alternative)),
-                ParsedTerm::Term(_) => None,
-                ParsedTerm::Production { .. } => unreachable!(),
-                ParsedTerm::InstantiatedProduction { .. } => {
-                    unreachable!("instantiated productions are created after priority filtering")
+    /// Apply priority and associativity to every packed ambiguity branch.
+    ///
+    /// Java's `SetsTransformerWithErrors` removes only the invalid alternatives beneath an
+    /// ambiguity. Treating a packed child as one opaque node either retained invalid associations
+    /// or discarded valid siblings, so this transformation performs the same branch-wise filter.
+    pub(super) fn filter_priority(&self, term: ParsedTerm) -> Result<ParsedTerm, ParseError> {
+        match term {
+            ParsedTerm::Term(_) => Ok(term),
+            ParsedTerm::Ambiguity(mut alternatives) => {
+                // Java's PriorityVisitor gives these three structural forms precedence over
+                // every other top-level interpretation, in this order. This is what makes
+                // `lhs => rhs #And condition` scope as a rewrite whose RHS contains `#And`
+                // instead of retaining the competing `#And(rewrite(lhs, rhs), condition)` tree.
+                for preferred in ["#KRewrite", "#KSequence", "#let"] {
+                    let matching = alternatives
+                        .iter()
+                        .filter(|alternative| self.top_parse_label(alternative) == Some(preferred))
+                        .cloned()
+                        .collect::<BTreeSet<_>>();
+                    if !matching.is_empty() {
+                        alternatives = matching;
+                    }
                 }
-            };
-        };
-        let parent = &self.productions[*production];
-        // Scala collapses generated record syntax before priority filtering.
-        // Ignore the wrapper's borrowed label here; the positional production
-        // is checked after `collapse_record_productions` reconstructs it.
-        if parent.record.is_some() {
-            return children
-                .iter()
-                .find_map(|child| self.priority_violation(child));
-        }
-        if parent.syntactic_subsort {
-            return children
-                .iter()
-                .find_map(|child| self.priority_violation(child));
-        }
-
-        let checked = parent.apply_priority.clone().unwrap_or_else(|| {
-            let mut positions = BTreeSet::new();
-            if matches!(parent.items.first(), Some(Item::NonTerminal(_))) {
-                positions.insert(1);
+                let mut retained = BTreeSet::new();
+                let mut first_error = None;
+                for alternative in alternatives {
+                    match self.filter_priority(alternative) {
+                        Ok(ParsedTerm::Ambiguity(nested)) => retained.extend(nested),
+                        Ok(alternative) => {
+                            retained.insert(alternative);
+                        }
+                        Err(error) => {
+                            first_error.get_or_insert(error);
+                        }
+                    }
+                }
+                match retained.len() {
+                    0 => Err(first_error.expect("an empty ambiguity had no valid alternative")),
+                    1 => Ok(retained.pop_first().expect("length was one")),
+                    _ => Ok(ParsedTerm::Ambiguity(retained)),
+                }
             }
-            if matches!(parent.items.last(), Some(Item::NonTerminal(_))) {
-                positions.insert(children.len());
-            }
-            positions
-        });
-        for position in checked {
-            let Some(child) = children.get(position.saturating_sub(1)) else {
-                continue;
-            };
-            let side =
-                if position == 1 && matches!(parent.items.first(), Some(Item::NonTerminal(_))) {
-                    Side::Left
-                } else if position == children.len()
-                    && matches!(parent.items.last(), Some(Item::NonTerminal(_)))
-                {
-                    Side::Right
+            ParsedTerm::Production {
+                production,
+                children,
+                metadata,
+            } => {
+                let descriptor = &self.productions[production];
+                let checked = if descriptor.record.is_some() || descriptor.syntactic_subsort {
+                    BTreeSet::new()
                 } else {
-                    Side::Middle
+                    descriptor.apply_priority.clone().unwrap_or_else(|| {
+                        let mut positions = BTreeSet::new();
+                        if matches!(descriptor.items.first(), Some(Item::NonTerminal(_))) {
+                            positions.insert(1);
+                        }
+                        if matches!(descriptor.items.last(), Some(Item::NonTerminal(_))) {
+                            positions.insert(children.len());
+                        }
+                        positions
+                    })
                 };
-            if let Some(error) = self.child_violation(parent, child, side) {
-                return Some(error);
+                let child_count = children.len();
+                let children = children
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, child)| {
+                        let position = index + 1;
+                        let side = checked.contains(&position).then(|| {
+                            if position == 1
+                                && matches!(descriptor.items.first(), Some(Item::NonTerminal(_)))
+                            {
+                                Side::Left
+                            } else if position == child_count
+                                && matches!(descriptor.items.last(), Some(Item::NonTerminal(_)))
+                            {
+                                Side::Right
+                            } else {
+                                Side::Middle
+                            }
+                        });
+                        self.filter_priority_child(descriptor, child, side)
+                    })
+                    .collect::<Result<_, _>>()?;
+                Ok(ParsedTerm::Production {
+                    production,
+                    children,
+                    metadata,
+                })
+            }
+            ParsedTerm::InstantiatedProduction { .. } => {
+                unreachable!("instantiated productions are created after priority filtering")
             }
         }
-        children
-            .iter()
-            .find_map(|child| self.priority_violation(child))
+    }
+
+    fn top_parse_label<'a>(&'a self, term: &'a ParsedTerm) -> Option<&'a str> {
+        let (ParsedTerm::Production { production, .. }
+        | ParsedTerm::InstantiatedProduction { production, .. }) = term
+        else {
+            return None;
+        };
+        self.productions[*production].parse_label.as_deref()
+    }
+
+    fn filter_priority_child(
+        &self,
+        parent: &Production,
+        child: ParsedTerm,
+        side: Option<Side>,
+    ) -> Result<ParsedTerm, ParseError> {
+        if let ParsedTerm::Ambiguity(alternatives) = child {
+            let mut retained = BTreeSet::new();
+            let mut first_error = None;
+            for alternative in alternatives {
+                match self.filter_priority_child(parent, alternative, side) {
+                    Ok(ParsedTerm::Ambiguity(nested)) => retained.extend(nested),
+                    Ok(alternative) => {
+                        retained.insert(alternative);
+                    }
+                    Err(error) => {
+                        first_error.get_or_insert(error);
+                    }
+                }
+            }
+            return match retained.len() {
+                0 => Err(first_error.expect("an empty ambiguity had no valid alternative")),
+                1 => Ok(retained.pop_first().expect("length was one")),
+                _ => Ok(ParsedTerm::Ambiguity(retained)),
+            };
+        }
+        if let Some(side) = side
+            && let Some(error) = self.child_violation(parent, &child, side)
+        {
+            return Err(error);
+        }
+        self.filter_priority(child)
     }
 
     fn child_violation(
@@ -85,13 +158,59 @@ impl Grammar {
             return None;
         };
         let child = &self.productions[*child];
-        if child.syntactic_subsort {
-            return None;
-        }
         let (Some(parent_label), Some(child_label)) = (&parent.parse_label, &child.parse_label)
         else {
             return None;
         };
+        let allowed_parent = |exceptions: &[&str]| {
+            parent.syntactic_subsort || exceptions.contains(&parent_label.as_str())
+        };
+        if child_label == "#KRewrite"
+            && !allowed_parent(&[
+                "#ruleRequires",
+                "#ruleEnsures",
+                "#ruleRequiresEnsures",
+                "#KRewrite",
+                "#withConfig",
+                "#KList",
+            ])
+        {
+            return Some(ParseError::Scope {
+                parent: parent_label.clone(),
+                child: child_label.clone(),
+            });
+        }
+        if child_label == "#KSequence"
+            && !allowed_parent(&[
+                "#ruleRequires",
+                "#ruleEnsures",
+                "#ruleRequiresEnsures",
+                "#KRewrite",
+                "#KSequence",
+                "#KList",
+            ])
+        {
+            return Some(ParseError::Scope {
+                parent: parent_label.clone(),
+                child: child_label.clone(),
+            });
+        }
+        if child_label == "#let"
+            && !allowed_parent(&[
+                "#ruleRequires",
+                "#ruleEnsures",
+                "#ruleRequiresEnsures",
+                "#KRewrite",
+                "#KSequence",
+                "#let",
+                "#KList",
+            ])
+        {
+            return Some(ParseError::Scope {
+                parent: parent_label.clone(),
+                child: child_label.clone(),
+            });
+        }
         if (parent_label == "#SyntacticCast" || parent_label.starts_with("#SemanticCastTo"))
             && matches!(child.items.last(), Some(Item::NonTerminal(_)))
         {
@@ -294,10 +413,16 @@ impl Grammar {
                                 .is_some_and(|candidate_label| candidate_label.name == label)
                             && production_arity(candidate_production) == arguments.len()
                         {
+                            let candidate =
+                                candidate_production.term_production.unwrap_or(candidate);
+                            let mut candidate_metadata = metadata.clone();
+                            candidate_metadata.production = self.productions[candidate]
+                                .source_production
+                                .map(|production| crate::kast::ResolvedProductionId(production.0));
                             candidates.insert(ParsedTerm::Production {
                                 production: candidate,
                                 children: arguments.clone(),
-                                metadata: metadata.clone(),
+                                metadata: candidate_metadata,
                             });
                             if candidates.len() > super::MAX_DERIVATIONS_PER_STATE {
                                 return Err(ParseError::TooManyParses {
@@ -407,10 +532,16 @@ impl Grammar {
                     .collect(),
             },
             ParsedTerm::Ambiguity(alternatives) => {
-                let mut alternatives = alternatives
-                    .into_iter()
-                    .map(|alternative| self.factor_ambiguities(alternative))
-                    .collect::<BTreeSet<_>>();
+                let mut flattened = BTreeSet::new();
+                for alternative in alternatives {
+                    match self.factor_ambiguities(alternative) {
+                        ParsedTerm::Ambiguity(nested) => flattened.extend(nested),
+                        alternative => {
+                            flattened.insert(alternative);
+                        }
+                    }
+                }
+                let mut alternatives = flattened;
                 if alternatives.len() == 1 {
                     return alternatives.pop_first().expect("length was one");
                 }
@@ -1070,6 +1201,20 @@ mod tests {
         };
         assert!(matches!(children[0], ParsedTerm::Ambiguity(ref items) if items.len() == 2));
         assert_eq!(children[1], variable("C"));
+    }
+
+    #[test]
+    fn flattens_nested_ambiguities_while_factoring() {
+        let grammar = Grammar::default();
+        let nested = ParsedTerm::Ambiguity(BTreeSet::from([
+            variable("A"),
+            ParsedTerm::Ambiguity(BTreeSet::from([variable("B"), variable("C")])),
+        ]));
+
+        let factored = grammar.factor_ambiguities(nested);
+
+        assert!(matches!(factored, ParsedTerm::Ambiguity(ref items) if items.len() == 3));
+        assert_eq!(render(&grammar, &factored), "amb{A, B, C}");
     }
 
     #[test]

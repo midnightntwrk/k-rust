@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use indoc::indoc;
 use k_rust::definition::Sentence;
-use k_rust::outer::{LoadError, ResolvedSource, load};
+use k_rust::outer::{LoadError, LoadOptions, ResolvedSource, load, load_with_options};
 use proptest::prelude::*;
 
 #[derive(Debug)]
@@ -225,6 +225,59 @@ fn parses_and_expands_configurations_with_visible_user_syntax() {
     }, {
         insta::assert_debug_snapshot!(labels);
     });
+}
+
+#[test]
+fn imports_the_default_configuration_and_map_module_implicitly() {
+    let implicit = indoc! {r#"
+        module MAP
+        endmodule
+
+        module DEFAULT-CONFIGURATION
+          configuration <k> $PGM:K </k>
+        endmodule
+    "#};
+    let entry = "module MAIN endmodule";
+    let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+    let loaded = load_with_options(
+        ResolvedSource::new("main.k", entry),
+        "MAIN",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![ResolvedSource::new("prelude.k", implicit)],
+            ..LoadOptions::default()
+        },
+    )
+    .expect("implicit configuration should load");
+
+    let main = loaded
+        .definition
+        .modules
+        .iter()
+        .find(|module| module.name == "MAIN")
+        .expect("main module should exist");
+    assert!(
+        main.imports
+            .iter()
+            .any(|import| { import.name == "DEFAULT-CONFIGURATION" && import.public })
+    );
+
+    let default_configuration = loaded
+        .definition
+        .modules
+        .iter()
+        .find(|module| module.name == "DEFAULT-CONFIGURATION")
+        .expect("default configuration module should exist");
+    assert!(
+        default_configuration
+            .imports
+            .iter()
+            .any(|import| import.name == "MAP" && import.public)
+    );
+    assert!(!default_configuration.local_sentences.iter().any(|sentence| {
+        matches!(sentence, Sentence::Configuration { .. })
+            || matches!(sentence, Sentence::Bubble { sentence_type, .. } if sentence_type == "config")
+    }));
 }
 
 macro_rules! load_error_snapshot {

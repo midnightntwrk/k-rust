@@ -1,0 +1,66 @@
+---
+source: crates/k-rust/tests/outer_parser.rs
+description: "K source:\n\nmodule COMMENTS\n  rule X => X [simplification]\n  // rule Y => Y [anywhere]\n  /* rule Z => Z [macro] */\nendmodule\n"
+---
+SourceFile {
+    source: "bubble_attributes_ignore_commented_brackets.k",
+    requires: [],
+    modules: [
+        Module {
+            name: "COMMENTS",
+            attributes: [],
+            imports: [],
+            sentences: [
+                Bubble(
+                    Bubble {
+                        kind: Rule,
+                        content: "X => X",
+                        label: None,
+                        attributes: [
+                            Attribute {
+                                key: "simplification",
+                                value: None,
+                            },
+                        ],
+                        content_span: Span {
+                            start: Position {
+                                offset: 23,
+                                line: 2,
+                                column: 8,
+                            },
+                            end: Position {
+                                offset: 30,
+                                line: 2,
+                                column: 15,
+                            },
+                        },
+                        span: Span {
+                            start: Position {
+                                offset: 18,
+                                line: 2,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 102,
+                                line: 4,
+                                column: 28,
+                            },
+                        },
+                    },
+                ),
+            ],
+            span: Span {
+                start: Position {
+                    offset: 0,
+                    line: 1,
+                    column: 1,
+                },
+                end: Position {
+                    offset: 112,
+                    line: 5,
+                    column: 10,
+                },
+            },
+        },
+    ],
+}

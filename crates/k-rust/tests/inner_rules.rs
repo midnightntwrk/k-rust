@@ -323,17 +323,24 @@ fn avoided_production_removes_its_ambiguity_branch() {
 
 #[cfg(not(feature = "z3-inference"))]
 fn assert_parametric_rule_requires_z3(source: &str) {
-    assert!(matches!(
-        resolve_rule_bubbles(&lowered(source)),
+    let result = resolve_rule_bubbles(&lowered(source));
+    assert!(
+        matches!(
+        result,
         Err(RuleError::Parse(ref error))
             if matches!(
                 error.error,
                 ParseError::Z3InferenceRequired {
+                    ambiguity: true,
+                    ..
+                } | ParseError::Z3InferenceRequired {
                     parametric_sorts: true,
                     ..
                 } | ParseError::Ambiguous { .. }
             )
-    ));
+        ),
+        "expected a parametric-inference boundary, found {result:?}"
+    );
 }
 
 #[test]
@@ -451,6 +458,17 @@ rule_snapshot!(
 );
 
 rule_snapshot!(
+    scopes_a_top_level_rewrite_over_boolean_connectives,
+    r##"
+        module MAIN
+          syntax Bool ::= "a" [symbol(a)]
+          syntax Bool ::= Bool "#And" Bool [symbol(#And), assoc, left]
+          rule a => a #And a
+        endmodule
+    "##
+);
+
+rule_snapshot!(
     brackets_shield_associativity,
     r#"
         module MAIN
@@ -469,9 +487,10 @@ rule_snapshot!(
         module MAIN
           syntax Id ::= r"[a-z]" [token]
           syntax Exp ::= Id
+          syntax Exp ::= "e" [symbol(e)]
           rule X::Exp => {X}::Exp
           rule X:Exp => {X}:>Exp
-          rule a::Exp => {a}::Exp
+          rule e::Exp => {e}::Exp
         endmodule
     "#
 );
@@ -719,9 +738,10 @@ fn reports_unknown_generic_k_applications() {
     );
 }
 
-#[test]
-fn preserves_overloaded_generic_applications_for_sort_inference() {
-    let definition = lowered(indoc! {r#"
+#[cfg(feature = "z3-inference")]
+rule_snapshot!(
+    z3_prunes_ill_typed_overloaded_generic_applications,
+    r#"
         module MAIN
           syntax A ::= "a" [symbol(a)]
           syntax B ::= "b" [symbol(b)]
@@ -729,24 +749,22 @@ fn preserves_overloaded_generic_applications_for_sort_inference() {
           syntax B ::= "pb" B [symbol(pick)]
           rule pick(a) => a
         endmodule
-    "#});
-    let error = resolve_rule_bubbles(&definition).unwrap_err();
-    #[cfg(feature = "z3-inference")]
-    let expected = matches!(
-        error,
-        RuleError::Parse(ref error)
-            if matches!(error.error, ParseError::Ambiguous { parses: 2 })
-    );
-    #[cfg(not(feature = "z3-inference"))]
-    let expected = matches!(
-        error,
-        RuleError::Parse(ref error)
-            if matches!(
-                error.error,
-                ParseError::Z3InferenceRequired { ambiguity: true, .. }
-            )
-    );
-    assert!(expected, "{error:?}");
+    "#
+);
+
+#[cfg(not(feature = "z3-inference"))]
+#[test]
+fn overloaded_generic_applications_require_z3_inference() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+          syntax A ::= "pa" A [symbol(pick)]
+          syntax B ::= "pb" B [symbol(pick)]
+          rule pick(a) => a
+        endmodule
+    "#};
+    assert_parametric_rule_requires_z3(source);
 }
 
 #[test]

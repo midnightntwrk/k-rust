@@ -15,6 +15,7 @@ enum CastContext {
     None,
     Semantic,
     Strict,
+    Parser,
 }
 
 struct Encoding<'a> {
@@ -40,7 +41,12 @@ impl Grammar {
         let anywhere = explicitly_anywhere || self.lhs_is_function_or_macro(&term);
         let mut encoding = Encoding::new(self, &term, top_sort, anywhere)?;
         let expected = encoding.sort_value(top_sort, &BTreeMap::new())?;
-        let constraint = encoding.constraint(&term, &expected, CastContext::None, "root")?;
+        let root_context = if is_parser_sort(top_sort) {
+            CastContext::Parser
+        } else {
+            CastContext::None
+        };
+        let constraint = encoding.constraint(&term, &expected, root_context, "root")?;
         if encoding.variables.is_empty() {
             return Ok(term);
         }
@@ -71,7 +77,7 @@ impl Grammar {
         let mut candidates = BTreeSet::new();
         let mut first_error = None;
         for model in models {
-            match encoding.apply_model(term.clone(), top_sort, CastContext::None, "root", &model) {
+            match encoding.apply_model(term.clone(), top_sort, root_context, "root", &model) {
                 Ok(candidate) => {
                     candidates.insert(candidate);
                 }
@@ -197,6 +203,7 @@ impl<'a> Encoding<'a> {
                     let variable = self.term_variable(name, path);
                     Ok(match cast_context {
                         CastContext::Strict => variable.eq(expected),
+                        CastContext::Parser => Bool::from_bool(true),
                         CastContext::None | CastContext::Semantic => {
                             self.less_than_eq(&variable, expected, false)?
                         }
@@ -206,6 +213,7 @@ impl<'a> Encoding<'a> {
                     let actual = self.sort_value(sort, &BTreeMap::new())?;
                     Ok(match cast_context {
                         CastContext::Strict => actual.eq(expected),
+                        CastContext::Parser => Bool::from_bool(true),
                         CastContext::None | CastContext::Semantic => {
                             self.less_than_eq(&actual, expected, false)?
                         }
@@ -225,7 +233,9 @@ impl<'a> Encoding<'a> {
                 let actual_sort = production_result(descriptor);
                 let actual = self.sort_value(actual_sort, &parameters)?;
                 let mut constraints = Vec::new();
-                if is_real_sort(actual_sort, parameters.keys()) {
+                if cast_context != CastContext::Parser
+                    && is_real_sort(actual_sort, parameters.keys())
+                {
                     let strict = cast_context == CastContext::Strict
                         || descriptor.parametric_origin.as_ref().is_some_and(|origin| {
                             origin
@@ -249,7 +259,6 @@ impl<'a> Encoding<'a> {
                         children.len()
                     )));
                 }
-                let child_context = cast_context_for(descriptor);
                 for (index, (child, child_sort)) in
                     children.iter().zip(expected_children).enumerate()
                 {
@@ -267,6 +276,10 @@ impl<'a> Encoding<'a> {
                         self.sort_value(production_result(descriptor), &parameters)?
                     } else {
                         self.sort_value(child_sort, &parameters)?
+                    };
+                    let child_context = match cast_context_for(descriptor) {
+                        CastContext::None if is_parser_sort(child_sort) => CastContext::Parser,
+                        context => context,
                     };
                     constraints.push(self.constraint(
                         child,
@@ -704,7 +717,6 @@ impl<'a> Encoding<'a> {
                     self.check_sort(&actual, expected, cast_context)?;
                 }
                 let expected_children = production_nonterminals(descriptor);
-                let child_context = cast_context_for(descriptor);
                 let anywhere_lhs_sort = (self.anywhere
                     && descriptor
                         .label
@@ -732,6 +744,10 @@ impl<'a> Encoding<'a> {
                             actual.clone()
                         } else {
                             substitute_sort(child_sort, &parameter_values)
+                        };
+                        let child_context = match cast_context_for(descriptor) {
+                            CastContext::None if is_parser_sort(child_sort) => CastContext::Parser,
+                            context => context,
                         };
                         self.apply_model(
                             child,
@@ -796,10 +812,12 @@ impl<'a> Encoding<'a> {
         expected: &Sort,
         context: CastContext,
     ) -> Result<(), ParseError> {
-        let valid = if context == CastContext::Strict {
-            actual == expected
-        } else {
-            actual == expected || self.semantic.less_than_eq(actual, expected)
+        let valid = match context {
+            CastContext::Parser => true,
+            CastContext::Strict => actual == expected,
+            CastContext::None | CastContext::Semantic => {
+                actual == expected || self.semantic.less_than_eq(actual, expected)
+            }
         };
         if valid {
             Ok(())

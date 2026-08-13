@@ -383,7 +383,7 @@ fn check_format(
         && !matches!(
             production,
             Sentence::Production { sort, .. }
-                if matches!(sort.name.as_str(), "Layout" | "LineMarker")
+                if matches!(sort.name.as_str(), "#Layout" | "#LineMarker")
         )
     {
         for _ in items

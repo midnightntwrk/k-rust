@@ -490,6 +490,34 @@ declaration_snapshot!(
     "MAIN"
 );
 
+#[test]
+fn rebases_imported_rule_productions_into_the_target_module_catalog() {
+    let source = indoc! {r#"
+        module BASE
+          syntax Int ::= r"[0-9]+" [token]
+          syntax GeneratedTopCell ::= "<top>" Int "</top>" [symbol(top)]
+          rule <top> 0 </top> => <top> 1 </top>
+        endmodule
+
+        module MAIN
+          imports BASE
+          syntax Extra ::= "extra" [symbol(extra)]
+        endmodule
+    "#};
+    let modules = module_to_kore(&rules(source, "MAIN"), "MAIN")
+        .expect("imported rule metadata should rebase before KORE emission");
+    let semantics = Printer::pretty(100).print_module(&modules.semantics);
+
+    assert_eq!(
+        parse_module(&semantics).expect("semantic module should reparse"),
+        modules.semantics
+    );
+    assert!(
+        semantics.contains("Lbltop") && semantics.contains("\\rewrites"),
+        "the imported rewrite should be emitted: {semantics}"
+    );
+}
+
 declaration_snapshot!(
     emits_parametric_declarations,
     r#"

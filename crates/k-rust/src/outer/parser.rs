@@ -387,7 +387,7 @@ impl<'a> Parser<'a> {
         raw: &str,
         raw_start: usize,
     ) -> Result<(String, Vec<Attribute>, usize), ParseError> {
-        for (index, _) in raw.match_indices('[').rev() {
+        for index in attribute_starts(raw).into_iter().rev() {
             let mut parser = self.subparser(raw_start + index, raw_start + raw.len());
             if let Ok(attributes) = parser.attributes() {
                 parser.skip_trivia()?;
@@ -861,6 +861,67 @@ impl<'a> Parser<'a> {
             position: self.position(self.offset),
         }
     }
+}
+
+/// Return `[` offsets which occur in code rather than strings or comments.
+///
+/// Bubble boundaries are intentionally permissive, so trailing comments remain in `raw`. Looking
+/// for attributes with a plain reverse substring search allowed a commented-out `[simplification]`
+/// to replace the real attributes of the preceding rule.
+fn attribute_starts(raw: &str) -> Vec<usize> {
+    #[derive(Clone, Copy)]
+    enum State {
+        Code,
+        String,
+        LineComment,
+        BlockComment,
+    }
+
+    let bytes = raw.as_bytes();
+    let mut state = State::Code;
+    let mut offsets = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        match state {
+            State::Code if bytes[index..].starts_with(b"//") => {
+                state = State::LineComment;
+                index += 2;
+            }
+            State::Code if bytes[index..].starts_with(b"/*") => {
+                state = State::BlockComment;
+                index += 2;
+            }
+            State::Code if bytes[index] == b'"' => {
+                state = State::String;
+                index += 1;
+            }
+            State::Code => {
+                if bytes[index] == b'[' {
+                    offsets.push(index);
+                }
+                index += 1;
+            }
+            State::String if bytes[index] == b'\\' => {
+                index += usize::min(2, bytes.len() - index);
+            }
+            State::String if bytes[index] == b'"' => {
+                state = State::Code;
+                index += 1;
+            }
+            State::String => index += 1,
+            State::LineComment if bytes[index] == b'\n' => {
+                state = State::Code;
+                index += 1;
+            }
+            State::LineComment => index += 1,
+            State::BlockComment if bytes[index..].starts_with(b"*/") => {
+                state = State::Code;
+                index += 2;
+            }
+            State::BlockComment => index += 1,
+        }
+    }
+    offsets
 }
 
 fn split_label(raw: &str) -> (Option<String>, &str) {

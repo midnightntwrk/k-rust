@@ -311,3 +311,25 @@ fn match_lexeme(item: &Item, input: &str, position: usize) -> Option<usize> {
         Item::NonTerminal(_) => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{definition::Sentence, outer};
+
+    use super::*;
+
+    #[test]
+    fn builtin_string_regex_matches_an_empty_quoted_string() {
+        let source = r#"module STRING-SYNTAX
+  syntax String ::= r"[\\\"](([^\\\"\\n\\r\\\\])|([\\\\][nrtf\\\"\\\\])|([\\\\][x][0-9a-fA-F]{2})|([\\\\][u][0-9a-fA-F]{4})|([\\\\][U][0-9a-fA-F]{8}))*[\\\"]" [token]
+endmodule"#;
+        let file = outer::parse("string.k", source).unwrap();
+        let definition = outer::lower(&file, "STRING-SYNTAX").unwrap();
+        let Sentence::Production { items, .. } = &definition.modules[0].local_sentences[0] else {
+            panic!("expected production")
+        };
+        let item = compile_item(&items[0], &BTreeMap::new()).unwrap();
+
+        assert_eq!(match_lexeme(&item, "\"\"", 0), Some(2));
+    }
+}

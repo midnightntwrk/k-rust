@@ -59,6 +59,21 @@ fn parses_nested_cells_properties_casts_and_ensures() {
 }
 
 #[test]
+fn declared_kconfigvar_does_not_create_a_reflexive_subsort_bridge() {
+    let mut input = definition("<k> $PGM:Int </k>");
+    input.modules[0].local_sentences.insert(
+        0,
+        Sentence::SyntaxSort {
+            parameters: vec![],
+            sort: Sort::new("KConfigVar"),
+            attributes: Attributes::default(),
+        },
+    );
+
+    resolve_configuration_bubbles(&input).unwrap();
+}
+
+#[test]
 fn preserves_external_cells() {
     let transformed = resolve_configuration_bubbles(&definition("<shared/>")).unwrap();
     let Sentence::Configuration { body, .. } =
