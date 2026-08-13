@@ -14,11 +14,11 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
     "production Int ::= \"getExitCode\" \"(\" GeneratedTopCell \")\" label=getExitCode [function=\"\"]",
     "production OutCell ::= \"initOutCell\" \"(\" Map \")\" label=initOutCell [function=\"\", initializer=\"\"]",
     "production StatusCell ::= \"initStatusCell\" label=initStatusCell [function=\"\", initializer=\"\", total=\"\"]",
-    "production TopCell ::= \"initTopCell\" label=initTopCell [function=\"\", initializer=\"\", total=\"\"]",
+    "production TopCell ::= \"initTopCell\" \"(\" Map \")\" label=initTopCell [function=\"\", initializer=\"\"]",
     "production OutCellOpt ::= \"noOutCell\" label=noOutCell [cellOptAbsent={\"name\":\"OutCell\",\"node\":\"KSort\",\"params\":[]}]",
     "production StatusCellOpt ::= \"noStatusCell\" label=noStatusCell [cellOptAbsent={\"name\":\"StatusCell\",\"node\":\"KSort\",\"params\":[]}]",
     "rule getExitCode(`<generatedTop>`(#dots(.KList),`<status>`(#noDots(.KList),Exit,#noDots(.KList)),#dots(.KList)))=>Exit requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") []",
     "rule initOutCell(Init)=>`<out>`(#noDots(.KList),#token(\"0\",\"Int\"),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
     "rule initStatusCell(.KList)=>`<status>`(#noDots(.KList),#token(\"0\",\"Int\"),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
-    "rule initTopCell(.KList)=>`<top>`(#noDots(.KList),#cells(initOutCell(Init),initStatusCell(.KList)),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
+    "rule initTopCell(Init)=>`<top>`(#noDots(.KList),#cells(initOutCell(Init),initStatusCell(.KList)),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
 ]

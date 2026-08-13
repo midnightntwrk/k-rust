@@ -132,6 +132,7 @@ struct GeneratedNode {
     child_sorts: Vec<Sort>,
     initializer: Term,
     leaf: bool,
+    initializer_takes_map: bool,
 }
 
 struct Generator<'a, 'catalog> {
@@ -178,27 +179,32 @@ impl Generator<'_, '_> {
                 flatten_cells(arguments, &mut cells);
                 let mut child_sorts = Vec::new();
                 let mut initializers = Vec::new();
+                let mut initializer_takes_map = false;
                 for cell in cells {
                     let generated = self.generate(cell, None)?;
                     child_sorts.extend(generated.child_sorts);
                     initializers.push(generated.initializer);
+                    initializer_takes_map |= generated.initializer_takes_map;
                 }
                 Ok(GeneratedNode {
                     child_sorts,
                     initializer: Term::apply("#cells", initializers),
                     leaf: false,
+                    initializer_takes_map,
                 })
             }
             Term::Token { sort, .. } => Ok(GeneratedNode {
                 child_sorts: vec![sort.clone()],
                 initializer: leaf_initializer(term),
                 leaf: true,
+                initializer_takes_map: has_configuration_or_regular_variable(term),
             }),
             Term::Sequence(_) | Term::Variable { .. } | Term::InjectedLabel(_) => {
                 Ok(GeneratedNode {
                     child_sorts: vec![Sort::new("K")],
                     initializer: leaf_initializer(term),
                     leaf: true,
+                    initializer_takes_map: has_configuration_or_regular_variable(term),
                 })
             }
             Term::Apply { label, .. } => {
@@ -217,6 +223,7 @@ impl Generator<'_, '_> {
                     child_sorts: vec![sort],
                     initializer: leaf_initializer(term),
                     leaf: true,
+                    initializer_takes_map: has_configuration_or_regular_variable(term),
                 })
             }
             Term::Rewrite { .. } | Term::As { .. } => {
@@ -267,14 +274,14 @@ impl Generator<'_, '_> {
                 unique.push(production);
             }
         }
-        let initializer = match unique.as_slice() {
+        let (initializer, initializer_takes_map) = match unique.as_slice() {
             [Sentence::Production { items, .. }] if items.len() == 1 => {
-                Some(Term::apply(init_label, vec![]))
+                (Some(Term::apply(init_label, vec![])), false)
             }
             [Sentence::Production { items, .. }] if items.len() == 4 => {
-                Some(Term::apply(init_label, vec![init_variable()]))
+                (Some(Term::apply(init_label, vec![init_variable()])), true)
             }
-            _ => None,
+            _ => (None, false),
         };
         let Some(initializer) = initializer else {
             return Err(self.error(format!(
@@ -285,6 +292,7 @@ impl Generator<'_, '_> {
             child_sorts: vec![sort],
             initializer,
             leaf: true,
+            initializer_takes_map,
         })
     }
 
@@ -316,7 +324,8 @@ impl Generator<'_, '_> {
         };
         let stream = properties.get("stream").is_some();
         let children = self.generate(contents, None)?;
-        let has_variables = has_configuration_or_regular_variable(contents)
+        let has_variables = children.initializer_takes_map
+            || has_configuration_or_regular_variable(contents)
             || contains_external_map_initializer(contents, self.catalog, self.generated);
         self.compute_cell(
             start,
@@ -464,6 +473,7 @@ impl Generator<'_, '_> {
             child_sorts: vec![parent_sort],
             initializer,
             leaf: false,
+            initializer_takes_map,
         })
     }
 

@@ -26,6 +26,7 @@ pub enum DiagnosticCode {
     InvalidListDeclaration,
     InvalidRegex,
     InvalidRewrite,
+    InvalidIoStream,
     InvalidSmtLemma,
     InvalidStreamCell,
     InvalidStrictness,

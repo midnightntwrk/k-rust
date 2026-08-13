@@ -1,10 +1,12 @@
 use indoc::indoc;
 use k_rust::{
-    definition::Sentence,
-    kast::printer::Printer,
-    kompile::resolve_comm,
+    definition::{Attributes, Definition, FlatModule, Sentence},
+    kast::{Label, Sort, Term, printer::Printer},
+    kompile::{resolve_comm, resolve_io},
     outer::{ResolvedSource, load},
 };
+use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
 fn parsed(source: &str) -> k_rust::definition::Definition {
     let mut resolver = |_: &str, required: &str| Err(format!("unexpected require {required}"));
@@ -64,5 +66,222 @@ fn rejects_rule_comm_when_the_lhs_symbol_is_not_commutative() {
     assert_eq!(
         error.diagnostics[0].message,
         "Used 'comm' attribute on simplification rule but _+_ is not comm."
+    );
+}
+
+fn attributes(entries: &[(&str, Value)]) -> Attributes {
+    Attributes::new(
+        entries
+            .iter()
+            .map(|(key, value)| ((*key).into(), value.clone()))
+            .collect::<BTreeMap<_, _>>(),
+    )
+}
+
+fn application(label: &str, arguments: Vec<Term>) -> Term {
+    Term::Apply {
+        label: Label::new(label),
+        arguments,
+    }
+}
+
+fn rewrite(left: Term, right: Term) -> Term {
+    Term::Rewrite {
+        left: Box::new(left),
+        right: Box::new(right),
+    }
+}
+
+fn truth() -> Term {
+    Term::Token {
+        token: "true".into(),
+        sort: Sort::new("Bool"),
+    }
+}
+
+fn rule(body: Term, attributes: Attributes) -> Sentence {
+    Sentence::Rule {
+        body,
+        requires: truth(),
+        ensures: truth(),
+        attributes,
+    }
+}
+
+fn production(label: &str, sort: &str, attributes: Attributes) -> Sentence {
+    Sentence::Production {
+        label: Some(Label::new(label)),
+        parameters: Vec::new(),
+        sort: Sort::new(sort),
+        items: Vec::new(),
+        attributes,
+    }
+}
+
+fn module(name: &str, sentences: Vec<Sentence>) -> FlatModule {
+    FlatModule {
+        name: name.into(),
+        imports: Vec::new(),
+        local_sentences: sentences,
+        attributes: Attributes::default(),
+    }
+}
+
+fn incomplete_cell(label: &str, body: Term) -> Term {
+    application(
+        label,
+        vec![
+            application("#noDots", Vec::new()),
+            body,
+            application("#dots", Vec::new()),
+        ],
+    )
+}
+
+fn io_fixture(stream: &str) -> Definition {
+    let builtin_init = rule(
+        rewrite(
+            application("initStdinCell", vec![Term::variable("Init")]),
+            incomplete_cell(
+                "<stdin>",
+                application("builtinInput", vec![Term::variable("Init")]),
+            ),
+        ),
+        attributes(&[("initializer", json!(""))]),
+    );
+    let unblock = rule(
+        incomplete_cell(
+            "<stdin>",
+            rewrite(
+                application(".List", Vec::new()),
+                application(
+                    "ListItem",
+                    vec![application(
+                        "#parseInput",
+                        vec![
+                            application("#SemanticCastToString", vec![Term::variable("?Sort")]),
+                            application(
+                                "#SemanticCastToString",
+                                vec![Term::variable("?Delimiters")],
+                            ),
+                        ],
+                    )],
+                ),
+            ),
+        ),
+        attributes(&[("label", json!("STDIN-STREAM.stdinUnblock"))]),
+    );
+    let stream_rule = rule(
+        incomplete_cell("<stdin>", application("builtinStep", Vec::new())),
+        attributes(&[("stream", json!(""))]),
+    );
+    let stdin = module(
+        "STDIN-STREAM",
+        vec![
+            builtin_init,
+            unblock,
+            stream_rule,
+            production("#buffer", "Stream", Attributes::default()),
+        ],
+    );
+
+    let user_init = rule(
+        rewrite(
+            application("initInCell", vec![Term::variable("Init")]),
+            incomplete_cell("<in>", application("oldInput", Vec::new())),
+        ),
+        attributes(&[("initializer", json!(""))]),
+    );
+    let consume = rule(
+        incomplete_cell(
+            "<in>",
+            rewrite(
+                application(
+                    "ListItem",
+                    vec![application(
+                        "#SemanticCastToInt",
+                        vec![Term::variable("Value")],
+                    )],
+                ),
+                application(".List", Vec::new()),
+            ),
+        ),
+        attributes(&[("label", json!("consume"))]),
+    );
+    let main = module(
+        "MAIN",
+        vec![
+            production("<in>", "InCell", attributes(&[("stream", json!(stream))])),
+            user_init,
+            consume,
+        ],
+    );
+    Definition {
+        main_module: "MAIN".into(),
+        modules: vec![
+            main,
+            stdin,
+            module("STDOUT-STREAM", Vec::new()),
+            module("K-IO", Vec::new()),
+            module("K-REFLECTION", Vec::new()),
+        ],
+        attributes: Attributes::default(),
+    }
+}
+
+#[test]
+fn resolves_stream_initializers_unblocking_rules_and_builtin_sentences() {
+    let definition = resolve_io(&io_fixture("stdin")).unwrap();
+    let main = definition.main_module().unwrap();
+    let rendered = main
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(main.imports.iter().any(|import| import.name == "K-IO"));
+    assert!(
+        main.imports
+            .iter()
+            .any(|import| import.name == "K-REFLECTION")
+    );
+    assert!(rendered.iter().any(|body| {
+        body.contains("initInCell") && body.contains("builtinInput") && !body.contains("oldInput")
+    }));
+    assert!(rendered.iter().any(|body| {
+        body.contains("#parseInput")
+            && body.contains("#token(\"\\\"Int\\\"\",\"String\")")
+            && body.contains("`<in>`")
+    }));
+    assert!(
+        rendered
+            .iter()
+            .any(|body| body.contains("builtinStep") && body.contains("`<in>`"))
+    );
+    assert!(main.local_sentences.iter().any(|sentence| {
+        matches!(sentence, Sentence::Production { sort, .. } if sort.name == "Stream")
+    }));
+    for template in ["STDIN-STREAM", "STDOUT-STREAM"] {
+        let module = definition
+            .modules
+            .iter()
+            .find(|module| module.name == template)
+            .unwrap();
+        assert!(module.imports.is_empty());
+        assert!(module.local_sentences.is_empty());
+    }
+}
+
+#[test]
+fn rejects_unknown_stream_names() {
+    let error = resolve_io(&io_fixture("stderr")).unwrap_err();
+
+    assert_eq!(error.diagnostics.len(), 1);
+    assert_eq!(
+        error.diagnostics[0].message,
+        "Make sure you give the correct stream names: stderr\nIt should be one of [stdin, stdout]"
     );
 }

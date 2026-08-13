@@ -161,7 +161,12 @@ explicit `-I` lookup directories. The binary requires the default native feature
 WebAssembly builds remain library-only. The ordered backend pipeline now begins with Java's
 `ResolveComm`: commutative simplification rules are duplicated with swapped LHS arguments, their
 rule-level `comm` marker is removed, and mismatched non-commutative symbols are diagnosed before
-KORE generation. Markdown and literate-K sources preserve their original offsets while extracting
+KORE generation. The second pass, `ResolveIO`, instantiates builtin stdin/stdout stream modules for
+user-named stream cells, replaces their initializers, generates Java's supported stdin-unblocking
+rules, imports stream syntax and rules, and empties the template modules. Configuration generation
+now propagates map-taking initializers through parent cells, preventing unbound `Init` variables in
+nested stream configurations. The native `kcompile` command runs both passes in order. Markdown and
+literate-K sources preserve their original offsets while extracting
 fenced blocks selected by `--md-selector`. The native resolver can load K's implicit `prelude.md`
 from `--builtin-directory` or `KRUST_BUILTIN_DIRECTORY`, translates historical builtin `.k`
 require names to their Markdown sources, imports `DEFAULT-CONFIGURATION` and `MAP` according to

@@ -8,6 +8,10 @@ use crate::{
     kast::Term,
 };
 
+mod resolve_io;
+
+pub use resolve_io::{ResolveIoError, resolve_io};
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveCommError {
     pub diagnostics: Vec<Diagnostic>,
