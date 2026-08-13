@@ -21,6 +21,7 @@ mod guard_or_patterns;
 mod minimize_term_construction;
 mod number_sentences;
 mod propagate_macro;
+mod remove_unit;
 mod resolve_anon_vars;
 mod resolve_contexts;
 mod resolve_fresh_config_constants;
@@ -44,6 +45,7 @@ pub use guard_or_patterns::guard_or_patterns;
 pub use minimize_term_construction::minimize_term_construction;
 pub use number_sentences::number_sentences;
 pub use propagate_macro::propagate_macro_attributes;
+pub use remove_unit::remove_unit;
 pub use resolve_anon_vars::resolve_anon_vars;
 pub use resolve_contexts::{ResolveContextsError, resolve_contexts};
 pub use resolve_fresh_config_constants::{

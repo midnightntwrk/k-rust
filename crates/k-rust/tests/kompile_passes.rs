@@ -10,10 +10,11 @@ use k_rust::{
         check_simplification_rules, concretize_cells, constant_fold, expand_macros,
         generate_sort_predicate_rules, generate_sort_predicate_syntax, generate_sort_projections,
         guard_or_patterns, minimize_term_construction, module_to_kore, number_sentences,
-        propagate_macro_attributes, resolve_anon_vars, resolve_comm, resolve_config_var,
-        resolve_contexts, resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
-        resolve_function_with_config, resolve_heat_cool_attributes, resolve_io,
-        resolve_semantic_casts, resolve_strict, subsort_kitem,
+        propagate_macro_attributes, remove_unit, resolve_anon_vars, resolve_comm,
+        resolve_config_var, resolve_contexts, resolve_fresh_config_constants,
+        resolve_fresh_constants, resolve_fun, resolve_function_with_config,
+        resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts, resolve_strict,
+        subsort_kitem,
     },
     outer::{ResolvedSource, load},
 };
@@ -2538,4 +2539,71 @@ fn reuses_lhs_subterms_on_rule_right_hand_sides() {
     }, {
         insta::assert_debug_snapshot!(rules);
     });
+}
+
+#[test]
+fn removes_associative_units_from_rules_only() {
+    let collection_attributes = attributes(&[("assoc", json!("")), ("unit", json!(".Items"))]);
+    let unit = || application(".Items", vec![]);
+    let concat = |left, right| application("_Items_", vec![left, right]);
+    let nested = concat(
+        concat(application("a", vec![]), unit()),
+        concat(unit(), application("b", vec![])),
+    );
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                production("_Items_", "Items", collection_attributes),
+                production(".Items", "Items", Attributes::default()),
+                production("a", "Items", Attributes::default()),
+                production("b", "Items", Attributes::default()),
+                rule(rewrite(nested.clone(), nested), Attributes::default()),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+
+    let transformed = remove_unit(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        Printer::new().print_term(body),
+        "`_Items_`(a(.KList),b(.KList))=>`_Items_`(a(.KList),b(.KList))"
+    );
+}
+
+#[test]
+fn preserves_optional_cell_units() {
+    let attributes = attributes(&[
+        ("assoc", json!("")),
+        ("unit", json!("noCell")),
+        ("cell", json!("")),
+        ("multiplicity", json!("?")),
+    ]);
+    let body = application("cells", vec![application("noCell", vec![])]);
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                production("cells", "Cell", attributes),
+                rule(body.clone(), Attributes::default()),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+
+    let transformed = remove_unit(&definition).unwrap();
+    let preserved = transformed.main_module().unwrap().local_sentences[1].clone();
+    assert!(matches!(preserved, Sentence::Rule { body: actual, .. } if actual == body));
 }

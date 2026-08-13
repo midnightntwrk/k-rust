@@ -265,3 +265,25 @@ fn application_cast_context_does_not_replace_its_production_sort() {
                 if matches!(item.unannotated(), Term::Apply { label, .. } if label.name == "project"))
     ));
 }
+
+#[test]
+fn flattens_nested_sequences_during_final_injection() {
+    let definition = lowered("module MAIN\nendmodule");
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let term = Term::Sequence(vec![
+        Term::Sequence(vec![Term::InjectedLabel(Label::new("first"))]),
+        Term::Variable {
+            name: "REST".into(),
+            sort: Some(Sort::new("K")),
+        },
+    ]);
+    let injected = SortInjector::new(&resolved, "MAIN")
+        .unwrap()
+        .inject(&term, &Sort::new("K"))
+        .unwrap();
+
+    assert!(matches!(
+        injected,
+        Term::Sequence(ref items) if items.len() == 2
+    ));
+}

@@ -475,7 +475,7 @@ impl<'a> SortInjector<'a> {
                         self.inject_with_position(item, &expected, is_lhs)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                Term::Sequence(items)
+                Term::sequence(items)
             }
             Term::InjectedLabel(label) => Term::InjectedLabel(label.clone()),
             Term::Variable { name, .. } => Term::Variable {
@@ -737,12 +737,7 @@ fn rewrite_projection(term: &Term, right: bool) -> Term {
         }
         Term::Sequence(items) => copy_metadata(
             term,
-            Term::Sequence(
-                items
-                    .iter()
-                    .map(|item| rewrite_projection(item, right))
-                    .collect(),
-            ),
+            Term::sequence(items.iter().map(|item| rewrite_projection(item, right))),
         ),
         Term::As { pattern, alias } => {
             if right {

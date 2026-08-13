@@ -33,15 +33,6 @@ fn emitted_kore_matches_the_reference_frontend() {
             "{} attributes",
             reference.name
         );
-        assert_eq!(
-            reference.sentences.len(),
-            actual.sentences.len(),
-            "{} sentence count: reference={}, actual={} ({})",
-            reference.name,
-            sentence_counts(&reference.sentences),
-            sentence_counts(&actual.sentences),
-            first_sentence_difference(&reference.sentences, &actual.sentences),
-        );
         let reference_sentences = reference
             .sentences
             .iter()
@@ -55,30 +46,40 @@ fn emitted_kore_matches_the_reference_frontend() {
         let reference_sentences = multiset(reference_sentences);
         let actual_sentences = multiset(actual_sentences);
         if reference_sentences != actual_sentences {
-            let missing = first_count_difference(&reference_sentences, &actual_sentences);
-            let extra = first_count_difference(&actual_sentences, &reference_sentences);
+            let missing = count_differences(&reference_sentences, &actual_sentences);
+            let extra = count_differences(&actual_sentences, &reference_sentences);
             panic!(
-                "{} sentence multiset differs\n{}",
+                "{} sentence multiset differs: reference={}, actual={} ({}); missing={}, extra={}\n{}",
                 reference.name,
-                difference_context(missing.as_deref(), extra.as_deref()),
+                sentence_counts(&reference.sentences),
+                sentence_counts(&actual.sentences),
+                first_sentence_difference(&reference.sentences, &actual.sentences),
+                missing.len(),
+                extra.len(),
+                difference_context(
+                    missing.first().map(String::as_str),
+                    extra.first().map(String::as_str)
+                ),
             );
         }
     }
 }
 
 fn canonical_sentence(sentence: &Sentence) -> String {
-    let source = format!("{sentence:?}");
-    let prefix = "Var'Unds'Gen";
-    let mut canonical = String::with_capacity(source.len());
-    let mut remaining = source.as_str();
-    while let Some(index) = remaining.find(prefix) {
-        canonical.push_str(&remaining[..index]);
-        canonical.push_str(prefix);
-        remaining = &remaining[index + prefix.len()..];
-        remaining = remaining.trim_start_matches(|character: char| character.is_ascii_digit());
+    let mut source = format!("{sentence:?}");
+    for prefix in ["Var'Unds'Gen", "Var'Unds'DotVar"] {
+        let mut canonical = String::with_capacity(source.len());
+        let mut remaining = source.as_str();
+        while let Some(index) = remaining.find(prefix) {
+            canonical.push_str(&remaining[..index]);
+            canonical.push_str(prefix);
+            remaining = &remaining[index + prefix.len()..];
+            remaining = remaining.trim_start_matches(|character: char| character.is_ascii_digit());
+        }
+        canonical.push_str(remaining);
+        source = canonical;
     }
-    canonical.push_str(remaining);
-    canonical
+    source
 }
 
 fn strip_source_metadata(definition: &mut Definition) {
@@ -119,13 +120,17 @@ fn multiset(values: Vec<String>) -> BTreeMap<String, usize> {
     counts
 }
 
-fn first_count_difference(
+fn count_differences(
     left: &BTreeMap<String, usize>,
     right: &BTreeMap<String, usize>,
-) -> Option<String> {
-    left.iter().find_map(|(sentence, left_count)| {
-        (right.get(sentence).copied().unwrap_or_default() < *left_count).then(|| sentence.clone())
-    })
+) -> Vec<String> {
+    left.iter()
+        .flat_map(|(sentence, left_count)| {
+            let difference =
+                left_count.saturating_sub(right.get(sentence).copied().unwrap_or_default());
+            std::iter::repeat_n(sentence.clone(), difference)
+        })
+        .collect()
 }
 
 fn difference_context(reference: Option<&str>, actual: Option<&str>) -> String {
