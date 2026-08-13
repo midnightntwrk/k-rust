@@ -319,13 +319,20 @@ pub(super) fn add_k_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {
 }
 
 fn add_config_cells(grammar: &mut Grammar) -> Result<(), ParseError> {
-    grammar.add(
+    grammar.add_token_with_precedence(
         Sort::new("#CellName"),
-        vec![ProductionItem::regex(r"[a-zA-Z][a-zA-Z0-9\-]*")],
-        None,
-        true,
-        false,
+        ProductionItem::regex(r"[a-zA-Z][a-zA-Z0-9\-]*"),
+        "1",
     )?;
+    // CONFIG-CELLS also admits the higher-precedence identifier tokens. In particular,
+    // `#UpperId` must beat `#KVariable` for names such as `<T>` in the global scanner.
+    for regex in [r"[a-z][a-zA-Z0-9]*", r"[A-Z][a-zA-Z0-9]*"] {
+        grammar.add_token_with_precedence(
+            Sort::new("#CellName"),
+            ProductionItem::regex(regex),
+            "2",
+        )?;
+    }
     grammar.add(
         Sort::new("KString"),
         vec![ProductionItem::regex(

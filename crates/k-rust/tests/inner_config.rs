@@ -157,6 +157,17 @@ fn parses_literal_cell_names_that_are_also_user_terminals() {
 }
 
 #[test]
+fn parses_uppercase_cell_names_without_treating_them_as_variables() {
+    let source = "<T><k> $PGM:Int </k></T>";
+    let transformed = resolve_configuration_bubbles(&definition(source)).unwrap();
+
+    assert_config_snapshot!(
+        source,
+        &transformed.main_module().unwrap().local_sentences[1]
+    );
+}
+
+#[test]
 fn rejects_requires_clauses_after_parsing_them() {
     assert!(matches!(
         resolve_configuration_bubbles(&definition("<k> 0 </k> requires true")),

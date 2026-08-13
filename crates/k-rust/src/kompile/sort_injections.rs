@@ -8,7 +8,7 @@ use serde_json::json;
 
 use crate::definition::{
     Definition, LabelHead, PartialOrder, ProductionCatalog, ProductionId, ResolveError,
-    ResolvedDefinition, Sentence, SortCatalog, SortHead,
+    ResolvedDefinition, Sentence, SortCatalog, SortHead, sentence_equivalent,
 };
 use crate::kast::{Label, Sort, Term};
 
@@ -31,6 +31,10 @@ pub enum SortInjectionError {
     InvalidResolvedProduction {
         label: String,
         production: usize,
+        message: String,
+    },
+    InvalidImportedMetadata {
+        module: String,
         message: String,
     },
     InvalidArity {
@@ -81,6 +85,10 @@ impl fmt::Display for SortInjectionError {
             } => write!(
                 formatter,
                 "resolved production #{production} for KLabel {label:?} is invalid: {message}"
+            ),
+            Self::InvalidImportedMetadata { module, message } => write!(
+                formatter,
+                "cannot rebase production metadata from module {module:?}: {message}"
             ),
             Self::InvalidArity {
                 label,
@@ -818,14 +826,137 @@ pub fn add_sort_injections_to_definition(
 ) -> Result<Definition, SortInjectionError> {
     let resolved =
         ResolvedDefinition::resolve(definition).map_err(SortInjectionError::Definition)?;
+    let target = resolved.main_module_id();
+    let target_modules = resolved
+        .transitive_imports(target)
+        .into_iter()
+        .chain(std::iter::once(target))
+        .collect::<BTreeSet<_>>();
+    let target_injector = SortInjector::new(&resolved, definition.main_module.as_str())?;
     let mut output = definition.clone();
     for module in &mut output.modules {
-        let injector = SortInjector::new(&resolved, &module.name)?;
+        let module_id = resolved
+            .module_id(&module.name)
+            .expect("resolved definition contains every source module");
+        let local_injector;
+        let injector = if target_modules.contains(&module_id) {
+            &target_injector
+        } else {
+            local_injector = SortInjector::new(&resolved, &module.name)?;
+            &local_injector
+        };
+        let source_catalog = resolved.production_catalog(module_id);
         for sentence in &mut module.local_sentences {
-            *sentence = injector.inject_sentence(sentence)?;
+            let mut input = sentence.clone();
+            if module_id != target && target_modules.contains(&module_id) {
+                super::passes::rebase_sentence(
+                    &mut input,
+                    &source_catalog,
+                    &target_injector.productions,
+                    &sentence_equivalent,
+                )
+                .map_err(|message| {
+                    SortInjectionError::InvalidImportedMetadata {
+                        module: module.name.clone(),
+                        message,
+                    }
+                })?;
+            }
+            let mut injected = injector.inject_sentence(&input)?;
+            if module_id != target && target_modules.contains(&module_id) {
+                localize_sentence_metadata(
+                    &mut injected,
+                    &target_injector.productions,
+                    &source_catalog,
+                );
+            }
+            *sentence = injected;
         }
     }
     Ok(output)
+}
+
+fn localize_sentence_metadata(
+    sentence: &mut Sentence,
+    source: &ProductionCatalog<'_>,
+    target: &ProductionCatalog<'_>,
+) {
+    let localize = |term: &mut Term| {
+        let taken = std::mem::replace(term, Term::Sequence(Vec::new()));
+        *term = localize_term_metadata(taken, source, target);
+    };
+    match sentence {
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        }
+        | Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            ..
+        } => {
+            localize(body);
+            localize(requires);
+            localize(ensures);
+        }
+        Sentence::Context { body, requires, .. }
+        | Sentence::ContextAlias { body, requires, .. } => {
+            localize(body);
+            localize(requires);
+        }
+        Sentence::Configuration { body, ensures, .. } => {
+            localize(body);
+            localize(ensures);
+        }
+        _ => {}
+    }
+}
+
+fn localize_term_metadata(
+    term: Term,
+    source: &ProductionCatalog<'_>,
+    target: &ProductionCatalog<'_>,
+) -> Term {
+    let mut metadata = term.metadata().cloned().unwrap_or_default();
+    if let Some(resolved) = metadata.production {
+        metadata.production = (resolved.0 < source.len())
+            .then(|| {
+                target.productions().find_map(|(id, candidate)| {
+                    sentence_equivalent(source.production(ProductionId(resolved.0)), candidate)
+                        .then_some(crate::kast::ResolvedProductionId(id.0))
+                })
+            })
+            .flatten();
+    }
+    let rebuilt = match term.into_unannotated() {
+        Term::Rewrite { left, right } => Term::Rewrite {
+            left: Box::new(localize_term_metadata(*left, source, target)),
+            right: Box::new(localize_term_metadata(*right, source, target)),
+        },
+        Term::As { pattern, alias } => Term::As {
+            pattern: Box::new(localize_term_metadata(*pattern, source, target)),
+            alias: Box::new(localize_term_metadata(*alias, source, target)),
+        },
+        Term::Sequence(items) => Term::Sequence(
+            items
+                .into_iter()
+                .map(|item| localize_term_metadata(item, source, target))
+                .collect(),
+        ),
+        Term::Apply { label, arguments } => Term::Apply {
+            label,
+            arguments: arguments
+                .into_iter()
+                .map(|argument| localize_term_metadata(argument, source, target))
+                .collect(),
+        },
+        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
+        Term::Annotated { .. } => unreachable!(),
+    };
+    rebuilt.with_metadata(metadata)
 }
 
 pub fn add_sort_injections_from_resolved(

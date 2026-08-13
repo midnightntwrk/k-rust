@@ -100,7 +100,7 @@ fn rebase_local_metadata_by(
     Ok(after)
 }
 
-fn rebase_sentence(
+pub(super) fn rebase_sentence(
     sentence: &mut Sentence,
     source: &ProductionCatalog<'_>,
     target: &ProductionCatalog<'_>,

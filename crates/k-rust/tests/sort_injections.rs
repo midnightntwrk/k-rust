@@ -1,8 +1,13 @@
 use indoc::indoc;
-use k_rust::definition::{Attributes, Definition, ResolvedDefinition, Sentence};
+use k_rust::definition::{
+    Attributes, Definition, FlatImport, FlatModule, ProductionItem, ResolvedDefinition, Sentence,
+};
 use k_rust::inner::resolve_rule_bubbles;
 use k_rust::kast::{Label, Sort, Term, TermMetadata};
-use k_rust::kompile::{SortInjector, generate_sort_projections, term_to_kore_from_resolved};
+use k_rust::kompile::{
+    SortInjector, add_sort_injections_to_definition, generate_sort_projections,
+    term_to_kore_from_resolved,
+};
 use k_rust::kore::printer::Printer;
 
 fn lowered(source: &str) -> Definition {
@@ -290,4 +295,56 @@ fn flattens_nested_sequences_during_final_injection() {
         injected,
         Term::Sequence(ref items) if items.len() == 2
     ));
+}
+
+#[test]
+fn definition_injection_uses_the_selected_modules_visible_syntax() {
+    let truth = Term::Token {
+        token: "true".into(),
+        sort: Sort::new("Bool"),
+    };
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![
+            FlatModule {
+                name: "BASE".into(),
+                imports: vec![],
+                local_sentences: vec![Sentence::Rule {
+                    body: Term::Rewrite {
+                        left: Box::new(Term::apply("consumerOnly", vec![])),
+                        right: Box::new(Term::apply("consumerOnly", vec![])),
+                    },
+                    requires: truth.clone(),
+                    ensures: truth,
+                    attributes: Attributes::default(),
+                }],
+                attributes: Attributes::default(),
+            },
+            FlatModule {
+                name: "MAIN".into(),
+                imports: vec![FlatImport {
+                    name: "BASE".into(),
+                    public: true,
+                }],
+                local_sentences: vec![Sentence::Production {
+                    label: Some(Label::new("consumerOnly")),
+                    parameters: vec![],
+                    sort: Sort::new("KItem"),
+                    items: Vec::<ProductionItem>::new(),
+                    attributes: Attributes::default(),
+                }],
+                attributes: Attributes::default(),
+            },
+        ],
+        attributes: Attributes::default(),
+    };
+
+    let injected = add_sort_injections_to_definition(&definition).unwrap();
+    let Sentence::Rule { body, .. } = &injected.modules[0].local_sentences[0] else {
+        panic!("expected imported rule");
+    };
+    assert_eq!(
+        body.to_string(),
+        "consumerOnly(.KList)=>consumerOnly(.KList)"
+    );
 }

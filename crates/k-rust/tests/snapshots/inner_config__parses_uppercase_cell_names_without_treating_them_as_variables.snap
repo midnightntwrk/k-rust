@@ -1,0 +1,89 @@
+---
+source: crates/k-rust/tests/inner_config.rs
+description: "Configuration bubble:\n\n<T><k> $PGM:Int </k></T>"
+---
+Configuration {
+    body: Apply {
+        label: Label {
+            name: "#configCell",
+            parameters: [],
+        },
+        arguments: [
+            Token {
+                token: "T",
+                sort: Sort {
+                    name: "#CellName",
+                    parameters: [],
+                },
+            },
+            Apply {
+                label: Label {
+                    name: "#cellPropertyListTerminator",
+                    parameters: [],
+                },
+                arguments: [],
+            },
+            Apply {
+                label: Label {
+                    name: "#configCell",
+                    parameters: [],
+                },
+                arguments: [
+                    Token {
+                        token: "k",
+                        sort: Sort {
+                            name: "#CellName",
+                            parameters: [],
+                        },
+                    },
+                    Apply {
+                        label: Label {
+                            name: "#cellPropertyListTerminator",
+                            parameters: [],
+                        },
+                        arguments: [],
+                    },
+                    Apply {
+                        label: Label {
+                            name: "#SemanticCastToInt",
+                            parameters: [],
+                        },
+                        arguments: [
+                            Token {
+                                token: "$PGM",
+                                sort: Sort {
+                                    name: "KConfigVar",
+                                    parameters: [],
+                                },
+                            },
+                        ],
+                    },
+                    Token {
+                        token: "k",
+                        sort: Sort {
+                            name: "#CellName",
+                            parameters: [],
+                        },
+                    },
+                ],
+            },
+            Token {
+                token: "T",
+                sort: Sort {
+                    name: "#CellName",
+                    parameters: [],
+                },
+            },
+        ],
+    },
+    ensures: Token {
+        token: "true",
+        sort: Sort {
+            name: "Bool",
+            parameters: [],
+        },
+    },
+    attributes: Attributes {
+        entries: {},
+    },
+}

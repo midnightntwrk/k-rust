@@ -700,6 +700,25 @@ impl Grammar {
         self.add_production(result, &items, label, token, transparent)
     }
 
+    pub(crate) fn add_token_with_precedence(
+        &mut self,
+        result: Sort,
+        item: ProductionItem,
+        precedence: &str,
+    ) -> Result<(), ParseError> {
+        self.add_production_with_lexical(
+            result,
+            &[item],
+            None,
+            ProductionOptions {
+                token: true,
+                precedence: Some(precedence),
+                ..ProductionOptions::default()
+            },
+            &BTreeMap::new(),
+        )
+    }
+
     pub(crate) fn add_bracket(
         &mut self,
         result: Sort,
