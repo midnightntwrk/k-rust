@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Foo ::= r\"[a-z]+\" [token]\n  syntax Exp ::= \"wrap(\" Foo \")\" [symbol(wrap)]\n  rule X:Foo => bar [macro]\n  rule wrap(foo) [label(subject)]\nendmodule\n"
+---
+"wrap(#token(\"bar\",\"Foo\"))"

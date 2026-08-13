@@ -30,6 +30,7 @@ pub enum DiagnosticCode {
     InvalidHole,
     InvalidHeatCool,
     InvalidListDeclaration,
+    InvalidMacroExpansion,
     InvalidRegex,
     InvalidRewrite,
     InvalidIoStream,

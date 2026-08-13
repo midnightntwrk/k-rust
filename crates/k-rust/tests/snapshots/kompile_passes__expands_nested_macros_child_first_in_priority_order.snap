@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= \"a\" [symbol(a)]\n               | \"b\" [symbol(b)]\n               | \"c\" [symbol(c)]\n               | \"m(\" Exp \")\" [macro, symbol(m)]\n               | \"n(\" Exp \")\" [macro-rec, symbol(n)]\n               | \"pair(\" Exp \",\" Exp \")\" [symbol(pair)]\n  rule m(X:Exp) => n(X:Exp) [priority(10)]\n  rule n(a) => b [priority(20)]\n  rule n(b) => c [owise]\n  rule pair(m(a), n(b)) => pair(n(a), m(b)) [label(subject)]\nendmodule\n"
+---
+"pair(b(.KList),c(.KList))=>pair(b(.KList),c(.KList))"

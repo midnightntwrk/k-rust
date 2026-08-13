@@ -11,6 +11,7 @@ use crate::{
 };
 
 mod constant_folding;
+mod expand_macros;
 mod generate_sort_helpers;
 mod guard_or_patterns;
 mod number_sentences;
@@ -27,6 +28,7 @@ mod resolve_strict;
 mod subsort_kitem;
 
 pub use constant_folding::{ConstantFoldingError, constant_fold};
+pub use expand_macros::{ExpandMacrosError, expand_macros};
 pub use generate_sort_helpers::{generate_sort_predicate_syntax, generate_sort_projections};
 pub use guard_or_patterns::guard_or_patterns;
 pub use number_sentences::number_sentences;

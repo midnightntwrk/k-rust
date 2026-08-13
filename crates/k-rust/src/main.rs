@@ -13,7 +13,7 @@ use k_rust::{
     inner::ProgramParser,
     kast::{json as kast_json, parser::parse_sort, printer::Printer as KastPrinter},
     kompile::{
-        constant_fold, generate_sort_predicate_syntax, generate_sort_projections,
+        constant_fold, expand_macros, generate_sort_predicate_syntax, generate_sort_projections,
         guard_or_patterns, module_to_kore_from_resolved, number_sentences,
         propagate_macro_attributes, resolve_anon_vars, resolve_comm, resolve_contexts,
         resolve_fresh_config_constants, resolve_fun, resolve_function_with_config,
@@ -237,6 +237,9 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
         })?;
     let definition = generate_sort_predicate_syntax(&definition)?;
     let definition = generate_sort_projections(&definition)?;
+    let definition = expand_macros(&definition).inspect_err(|error| {
+        emit_diagnostics(&error.diagnostics);
+    })?;
     let resolved = ResolvedDefinition::resolve(&definition)?;
     let generated = module_to_kore_from_resolved(&resolved, &options.common.module)?;
     fs::create_dir_all(&options.output_directory)?;

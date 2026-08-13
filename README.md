@@ -189,8 +189,10 @@ Boolean, arbitrary-precision integer, and Unicode string hook families while lea
 untouched. Production macro kinds now propagate to non-simplification rules, matching-logic
 disjunctions receive typed collision-free aliases, and initializer rules allocate stable integer
 constants for fresh configuration variables. Generated syntax now includes local-sort predicates,
-generic projections, and named record-field projections. The native pipeline runs these first
-seventeen stages in Java order. Markdown and literate-K sources preserve their original
+generic projections, and named record-field projections. Compile-time macro and alias rules are
+expanded child-first with Java-compatible priority, recursion, typed structural matching, and
+collision-free RHS variables. The native pipeline runs these first eighteen stages in Java order.
+Markdown and literate-K sources preserve their original
 offsets while extracting fenced blocks selected by `--md-selector`. The native resolver can load K's implicit `prelude.md`
 from `--builtin-directory` or `KRUST_BUILTIN_DIRECTORY`, translates historical builtin `.k`
 require names to their Markdown sources, imports `DEFAULT-CONFIGURATION` and `MAP` according to
@@ -246,8 +248,8 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
 - Add presentation adapters for diagnostics after the portable diagnostic model stabilizes. A
   renderer such as `miette` may be useful for a future native CLI, but it does not belong in the
   WASM-compatible core yet.
-- Port the remaining ordered Java KORE-backend transformations after `constantFolding`, including
-  macro expansion, generated sort helpers, cell concretization, and final sentence processing.
+- Port the remaining ordered Java KORE-backend transformations after `expandMacros`, including
+  implicit computation cells, fresh constants, cell concretization, and final sentence processing.
   Complete MPFR-compatible folding for the `FLOAT` hook family. Then run the resulting definition
   through `ModuleToKORE` and validate its artifacts with the Haskell backend.
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the

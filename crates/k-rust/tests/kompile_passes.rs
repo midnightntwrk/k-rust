@@ -5,7 +5,7 @@ use k_rust::{
     },
     kast::{Label, Sort, Term, printer::Printer},
     kompile::{
-        constant_fold, generate_sort_predicate_syntax, generate_sort_projections,
+        constant_fold, expand_macros, generate_sort_predicate_syntax, generate_sort_projections,
         guard_or_patterns, module_to_kore, number_sentences, propagate_macro_attributes,
         resolve_anon_vars, resolve_comm, resolve_config_var, resolve_contexts,
         resolve_fresh_config_constants, resolve_fun, resolve_function_with_config,
@@ -1366,6 +1366,177 @@ fn generated_sort_projections_are_idempotent() {
     let once = generate_sort_projections(&definition).unwrap();
     let twice = generate_sort_projections(&once).unwrap();
     assert_eq!(once, twice);
+}
+
+#[test]
+fn expands_nested_macros_child_first_in_priority_order() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "b" [symbol(b)]
+                       | "c" [symbol(c)]
+                       | "m(" Exp ")" [macro, symbol(m)]
+                       | "n(" Exp ")" [macro-rec, symbol(n)]
+                       | "pair(" Exp "," Exp ")" [symbol(pair)]
+          rule m(X:Exp) => n(X:Exp) [priority(10)]
+          rule n(a) => b [priority(20)]
+          rule n(b) => c [owise]
+          rule pair(m(a), n(b)) => pair(n(a), m(b)) [label(subject)]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let transformed = expand_macros(&definition).unwrap();
+    let output = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get_str("label") == Some("subject") => {
+                Some(Printer::new().print_term(body))
+            }
+            _ => None,
+        })
+        .next()
+        .unwrap();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(output);
+    });
+}
+
+#[test]
+fn macro_matching_reuses_repeated_variables_and_freshens_unbound_rhs_variables() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "b" [symbol(b)]
+                       | "same(" Exp "," Exp ")" [macro, symbol(same)]
+                       | "choose(" Exp ")" [macro, symbol(choose)]
+                       | "pair(" Exp "," Exp ")" [symbol(pair)]
+          rule same(X:Exp, X:Exp) => X:Exp
+          rule choose(X:Exp) => pair(X:Exp, Y:Exp)
+          rule pair(same(a, a), choose(a)) => pair(a, a) [label(subject)]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let transformed = expand_macros(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get_str("label") == Some("subject") => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    let printed = Printer::new().print_term(body);
+    assert!(printed.contains("pair(a(.KList),_Gen0)"), "{printed}");
+}
+
+#[test]
+fn reports_a_macro_symbol_when_repeated_variable_matching_fails() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "b" [symbol(b)]
+                       | "same(" Exp "," Exp ")" [macro, symbol(same)]
+          rule same(X:Exp, X:Exp) => X:Exp
+          rule same(a, b) [label(subject)]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let error = expand_macros(&definition).unwrap_err();
+    assert_eq!(
+        error.diagnostics[0].message,
+        "Rule contains macro symbol that was not expanded"
+    );
+}
+
+#[test]
+fn expands_sort_constrained_variable_macros_over_tokens() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Foo ::= r"[a-z]+" [token]
+          syntax Exp ::= "wrap(" Foo ")" [symbol(wrap)]
+          rule X:Foo => bar [macro]
+          rule wrap(foo) [label(subject)]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let transformed = expand_macros(&definition).unwrap();
+    let output = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get_str("label") == Some("subject") => {
+                Some(Printer::new().print_term(body))
+            }
+            _ => None,
+        })
+        .unwrap();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(output);
+    });
+}
+
+#[test]
+fn rejects_macro_side_conditions_and_invalid_priorities() {
+    let side_condition = indoc! {r#"
+        module MAIN
+          syntax Bool ::= "true" [token] | "false" [token]
+          syntax Exp ::= "a" [symbol(a)]
+                       | "m(" Exp ")" [macro, symbol(m)]
+          rule m(X:Exp) => X:Exp requires false
+          rule m(a) [label(subject)]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(side_condition));
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let error = expand_macros(&definition).unwrap_err();
+    assert!(
+        error
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message == "Cannot compute macros with side conditions.")
+    );
+
+    let invalid_priority = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "m(" Exp ")" [macro, symbol(m)]
+          rule m(X:Exp) => X:Exp [priority(not-an-integer)]
+          rule m(a) [label(subject)]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(invalid_priority));
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let error = expand_macros(&definition).unwrap_err();
+    assert_eq!(
+        error.diagnostics[0].message,
+        "Invalid value for priority attribute: not-an-integer. Must be an integer."
+    );
 }
 
 #[test]
