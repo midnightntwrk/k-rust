@@ -190,7 +190,7 @@ fn resolve_production(
                 module_name,
             )?;
             all_positions.extend(positions);
-        } else if components.len().is_multiple_of(2) {
+        } else if components.len() % 2 == 0 {
             for pair in components.chunks_exact(2) {
                 let aliases = resolve_aliases(pair[0].trim(), production, labeled)?;
                 let positions = parse_positions(pair[1].trim(), arity, attributes)?;

@@ -2,6 +2,13 @@
 name = "k-rust"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "A Rust implementation of the K Framework frontend"
+license = "BSD-3-Clause"
+repository = "https://github.com/midnightntwrk/k-rust"
+readme = "../../README.md"
+keywords = ["k-framework", "parser", "compiler", "kore", "semantics"]
+categories = ["compilers", "parser-implementations", "development-tools"]
 
 [features]
 default = ["cli"]

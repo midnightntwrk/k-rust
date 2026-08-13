@@ -1,0 +1,5 @@
+k-rust includes pinned K Framework builtin source files under
+`crates/k-rust/builtin/`. They were copied from runtimeverification/k commit
+4a46d1231473b599c699160132fd6e76a5c46406 and retain their original copyright
+notices. The K Framework is distributed under the BSD 3-Clause License included
+in this repository.

@@ -26,6 +26,20 @@ module BASE
 endmodule
 "#;
 
+#[test]
+fn reports_the_packaged_version() {
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("--version")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        format!("krust {}\n", env!("CARGO_PKG_VERSION"))
+    );
+}
+
 fn fixture() -> (PathBuf, PathBuf) {
     static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
     let nonce = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
@@ -92,6 +106,42 @@ fn kast_parses_a_program_as_text_and_json() {
     assert_eq!(value["version"], 4);
     assert_eq!(value["term"]["token"], "42");
 
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn installed_cli_uses_embedded_pinned_builtins_by_default() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        "module MAIN\n  imports DOMAINS\n  syntax Exp ::= Int\nendmodule\n",
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kast",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--sort",
+            "Exp",
+            "--expression",
+            "42",
+        ])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "#token(\"42\",\"Int\")\n"
+    );
     fs::remove_dir_all(root).unwrap();
 }
 

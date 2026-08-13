@@ -49,12 +49,7 @@ impl FileResolver {
     }
 
     fn candidates(&self, requiring_source: &str, required: &str) -> Vec<PathBuf> {
-        let required = match required {
-            "ffi.k" | "json.k" | "rat.k" | "substitution.k" | "domains.k" | "kast.k" => {
-                PathBuf::from(required.strip_suffix(".k").unwrap()).with_extension("md")
-            }
-            _ => PathBuf::from(required),
-        };
+        let required = PathBuf::from(builtin_source_name(required));
         let required = required.as_path();
         if required.is_absolute() {
             return vec![required.to_owned()];
@@ -94,6 +89,9 @@ impl SourceResolver for FileResolver {
                 }
             }
         }
+        if let Some(source) = embedded_builtin(required) {
+            return Ok(source);
+        }
         Err(format!(
             "not found; searched {}",
             candidates
@@ -103,6 +101,35 @@ impl SourceResolver for FileResolver {
                 .join(", ")
         ))
     }
+}
+
+fn builtin_source_name(required: &str) -> &str {
+    match required {
+        "ffi.k" => "ffi.md",
+        "json.k" => "json.md",
+        "rat.k" => "rat.md",
+        "substitution.k" => "substitution.md",
+        "domains.k" => "domains.md",
+        "kast.k" => "kast.md",
+        required => required,
+    }
+}
+
+fn embedded_builtin(required: &str) -> Option<ResolvedSource> {
+    let name = builtin_source_name(required);
+    let text = match name {
+        "domains.md" => include_str!("../builtin/domains.md"),
+        "ffi.md" => include_str!("../builtin/ffi.md"),
+        "json.md" => include_str!("../builtin/json.md"),
+        "kast.md" => include_str!("../builtin/kast.md"),
+        "prelude.md" => include_str!("../builtin/prelude.md"),
+        "rat.md" => include_str!("../builtin/rat.md"),
+        "substitution.md" => include_str!("../builtin/substitution.md"),
+        "timer.md" => include_str!("../builtin/timer.md"),
+        "unification.k" => include_str!("../builtin/unification.k"),
+        _ => return None,
+    };
+    Some(ResolvedSource::new(format!("krust-builtin://{name}"), text))
 }
 
 #[cfg(test)]
@@ -132,5 +159,19 @@ mod tests {
 
         assert_eq!(source.text, "local");
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn falls_back_to_the_embedded_pinned_builtins() {
+        let mut resolver = FileResolver::new(std::env::temp_dir(), []);
+        let prelude = resolver
+            .resolve("missing-definition.k", "prelude.md")
+            .unwrap();
+        let legacy_domains = resolver.resolve(&prelude.source, "domains.k").unwrap();
+
+        assert_eq!(prelude.source, "krust-builtin://prelude.md");
+        assert!(prelude.text.contains("requires \"kast.md\""));
+        assert_eq!(legacy_domains.source, "krust-builtin://domains.md");
+        assert!(legacy_domains.text.contains("module DOMAINS"));
     }
 }

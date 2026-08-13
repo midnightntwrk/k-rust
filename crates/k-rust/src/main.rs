@@ -38,6 +38,7 @@ Rust frontend for the K Framework
 Usage:
   krust kcompile <definition.k> --main-module <MODULE> [--backend llvm|haskell] [--output-directory <DIR>] [-I <DIR>]... [--md-selector <EXPR>] [--builtin-directory <DIR>] [--no-prelude]
   krust kast <definition.k> --module <MODULE> --sort <SORT> [<program-file> | -e <PROGRAM>] [-I <DIR>]... [--output text|json] [--md-selector <EXPR>] [--builtin-directory <DIR>] [--no-prelude]
+  krust --version
   krust help
 ";
 
@@ -60,6 +61,10 @@ fn run(arguments: Vec<OsString>) -> Result<(), Box<dyn Error>> {
         "kast" => kast(parse_kast(rest)?),
         "help" | "--help" | "-h" => {
             print!("{HELP}");
+            Ok(())
+        }
+        "version" | "--version" | "-V" => {
+            println!("krust {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         command => Err(format!("unknown command {command:?}\n\n{HELP}").into()),

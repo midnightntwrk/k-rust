@@ -167,7 +167,7 @@ fn strict_positions(
         }
         return Ok((1..=arity).collect());
     }
-    if components.len().is_multiple_of(2) {
+    if components.len() % 2 == 0 {
         let mut positions = Vec::new();
         for component in components.iter().skip(1).step_by(2) {
             positions.extend(parse_positions(component.trim(), arity, sentence)?);
