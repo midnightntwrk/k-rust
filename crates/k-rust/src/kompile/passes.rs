@@ -10,11 +10,15 @@ use crate::{
     kast::{ResolvedProductionId, Term},
 };
 
+mod resolve_anon_vars;
+mod resolve_contexts;
 mod resolve_fun;
 mod resolve_function_with_config;
 mod resolve_io;
 mod resolve_strict;
 
+pub use resolve_anon_vars::resolve_anon_vars;
+pub use resolve_contexts::{ResolveContextsError, resolve_contexts};
 pub use resolve_fun::{ResolveFunError, resolve_fun};
 pub use resolve_function_with_config::{
     ResolveFunctionWithConfigError, resolve_config_var, resolve_function_with_config,

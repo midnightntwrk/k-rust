@@ -178,7 +178,11 @@ and context-alias forms of
 `strict` and `seqstrict` into typed evaluation contexts, preserves sequential result guards,
 generates `hybrid` predicate rules, removes consumed context aliases, and supplies the private
 `BOOL` import used by generated conditions. The native `kcompile` command runs all five early passes
-in order. Markdown and literate-K sources preserve their original
+in order. Anonymous-variable resolution gives each `_`, `?_`, `!_`, and `@_` occurrence a
+collision-free sentence-local name. Context lowering then validates visible contexts and replaces
+them with collision-free freezer productions plus paired heat/cool rules, including insertion into
+declared main cells and generated-label conflict checks. The native pipeline runs these seven stages
+in Java order. Markdown and literate-K sources preserve their original
 offsets while extracting fenced blocks selected by `--md-selector`. The native resolver can load K's implicit `prelude.md`
 from `--builtin-directory` or `KRUST_BUILTIN_DIRECTORY`, translates historical builtin `.k`
 require names to their Markdown sources, imports `DEFAULT-CONFIGURATION` and `MAP` according to

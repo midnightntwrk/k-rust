@@ -20,6 +20,7 @@ pub enum DiagnosticCode {
     InvalidBracketProduction,
     InvalidAssociativity,
     InvalidCommutativeSimplification,
+    InvalidContext,
     InvalidExistentialVariable,
     InvalidFunctionPattern,
     InvalidFunctionConfiguration,

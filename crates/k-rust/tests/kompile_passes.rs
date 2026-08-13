@@ -5,8 +5,8 @@ use k_rust::{
     },
     kast::{Label, Sort, Term, printer::Printer},
     kompile::{
-        module_to_kore, resolve_comm, resolve_config_var, resolve_fun,
-        resolve_function_with_config, resolve_io, resolve_strict,
+        module_to_kore, resolve_anon_vars, resolve_comm, resolve_config_var, resolve_contexts,
+        resolve_fun, resolve_function_with_config, resolve_io, resolve_strict,
     },
     outer::{ResolvedSource, load},
 };
@@ -857,4 +857,213 @@ fn rejects_strictness_aliases_that_do_not_exist() {
         error.diagnostics[0].message,
         "Found rule label \"missing\" in strictness attribute which did not refer to any sentence."
     );
+}
+
+#[test]
+fn gives_anonymous_variables_collision_free_sentence_local_names() {
+    let first = Sentence::Rule {
+        body: application(
+            "pair",
+            vec![
+                Term::variable("_Gen0"),
+                Term::Variable {
+                    name: "_".into(),
+                    sort: Some(Sort::new("Exp")),
+                },
+                Term::variable("?_"),
+            ],
+        ),
+        requires: application("needs", vec![Term::variable("!_")]),
+        ensures: application("keeps", vec![Term::variable("@_")]),
+        attributes: Attributes::default(),
+    };
+    let second = rule(
+        application("other", vec![Term::variable("_")]),
+        Attributes::default(),
+    );
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module("MAIN", vec![first, second])],
+        attributes: Attributes::default(),
+    };
+
+    let transformed = resolve_anon_vars(&definition);
+    let rendered = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                ..
+            } => Some((
+                Printer::new().print_term(body),
+                Printer::new().print_term(requires),
+                Printer::new().print_term(ensures),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        rendered[0].0.contains("_Gen0,_Gen1,?_Gen2"),
+        "{rendered:#?}"
+    );
+    assert!(rendered[0].1.contains("!_Gen3"), "{rendered:#?}");
+    assert!(rendered[0].2.contains("@_Gen4"), "{rendered:#?}");
+    assert!(rendered[1].0.contains("_Gen0"), "{rendered:#?}");
+}
+
+#[test]
+fn lowers_contexts_to_freezer_heat_and_cool_rules() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "f(" Exp ")" [symbol(f)]
+          context f(HOLE)
+        endmodule
+    "#};
+    let transformed = resolve_contexts(&resolve_anon_vars(&parsed(source))).unwrap();
+    let main = transformed.main_module().unwrap();
+    assert!(
+        !main
+            .local_sentences
+            .iter()
+            .any(|sentence| matches!(sentence, Sentence::Context { .. }))
+    );
+    let generated = main
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label), ..
+            } if label.name.starts_with("#freezer") => Some(("freezer", label.name.clone(), None)),
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("heat").is_some() || attributes.get("cool").is_some() => Some((
+                if attributes.get("heat").is_some() {
+                    "heat"
+                } else {
+                    "cool"
+                },
+                Printer::new().print_term(body),
+                attributes.get_str("label").map(str::to_owned),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(generated);
+    });
+}
+
+#[test]
+fn inserts_context_rewrites_inside_the_main_cell() {
+    let context = Sentence::Context {
+        body: incomplete_cell(
+            "<k>",
+            application("f", vec![Term::variable("HOLE"), Term::variable("X")]),
+        ),
+        requires: truth(),
+        attributes: attributes(&[("label", json!("evaluate"))]),
+    };
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                Sentence::Production {
+                    label: Some(Label::new("<k>")),
+                    parameters: Vec::new(),
+                    sort: Sort::new("KCell"),
+                    items: vec![ProductionItem::NonTerminal {
+                        sort: Sort::new("K"),
+                        name: None,
+                    }],
+                    attributes: attributes(&[("maincell", json!(""))]),
+                },
+                context,
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+
+    let transformed = resolve_contexts(&definition).unwrap();
+    let rules = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("heat").is_some() || attributes.get("cool").is_some() => Some((
+                Printer::new().print_term(body),
+                attributes.get_str("label").unwrap().to_owned(),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(rules.len(), 2);
+    assert!(
+        rules
+            .iter()
+            .all(|(body, _)| body.starts_with("`<k>`(#noDots(.KList),")),
+        "{rules:#?}"
+    );
+    assert!(rules.iter().any(|(_, label)| label == "evaluate-heat"));
+    assert!(rules.iter().any(|(_, label)| label == "evaluate-cool"));
+}
+
+#[test]
+fn rejects_invalid_context_shapes() {
+    let cases = [
+        (
+            application("f", vec![Term::variable("X")]),
+            "Contexts must have at least one HOLE.",
+        ),
+        (
+            application(
+                "f",
+                vec![
+                    rewrite(Term::variable("HOLE"), Term::variable("X")),
+                    rewrite(Term::variable("HOLE"), Term::variable("Y")),
+                ],
+            ),
+            "Cannot compile a context with multiple rewrites.",
+        ),
+        (
+            application(
+                "f",
+                vec![
+                    Term::variable("HOLE"),
+                    rewrite(Term::variable("X"), Term::variable("Y")),
+                ],
+            ),
+            "Only the HOLE can be rewritten in a context definition",
+        ),
+    ];
+    for (body, expected) in cases {
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![module(
+                "MAIN",
+                vec![Sentence::Context {
+                    body,
+                    requires: truth(),
+                    attributes: Attributes::default(),
+                }],
+            )],
+            attributes: Attributes::default(),
+        };
+        let error = resolve_contexts(&definition).unwrap_err();
+        assert_eq!(error.diagnostics[0].message, expected);
+    }
 }
