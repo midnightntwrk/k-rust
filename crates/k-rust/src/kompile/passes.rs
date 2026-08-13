@@ -10,6 +10,8 @@ use crate::{
     kast::{ResolvedProductionId, Term},
 };
 
+mod add_implicit_computation_cell;
+mod check_simplification;
 mod constant_folding;
 mod expand_macros;
 mod generate_sort_helpers;
@@ -19,6 +21,7 @@ mod propagate_macro;
 mod resolve_anon_vars;
 mod resolve_contexts;
 mod resolve_fresh_config_constants;
+mod resolve_fresh_constants;
 mod resolve_fun;
 mod resolve_function_with_config;
 mod resolve_heat_cool;
@@ -27,6 +30,8 @@ mod resolve_semantic_casts;
 mod resolve_strict;
 mod subsort_kitem;
 
+pub use add_implicit_computation_cell::add_implicit_computation_cell;
+pub use check_simplification::{CheckSimplificationError, check_simplification_rules};
 pub use constant_folding::{ConstantFoldingError, constant_fold};
 pub use expand_macros::{ExpandMacrosError, expand_macros};
 pub use generate_sort_helpers::{generate_sort_predicate_syntax, generate_sort_projections};
@@ -38,6 +43,7 @@ pub use resolve_contexts::{ResolveContextsError, resolve_contexts};
 pub use resolve_fresh_config_constants::{
     ResolveFreshConfigConstantsError, resolve_fresh_config_constants,
 };
+pub use resolve_fresh_constants::{ResolveFreshConstantsError, resolve_fresh_constants};
 pub use resolve_fun::{ResolveFunError, resolve_fun};
 pub use resolve_function_with_config::{
     ResolveFunctionWithConfigError, resolve_config_var, resolve_function_with_config,

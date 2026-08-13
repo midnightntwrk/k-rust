@@ -1,0 +1,30 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Int\n               | \"f(\" Exp \")\" [function, symbol(f)]\n               | \"g(\" Exp \")\" [symbol(g)]\n  configuration <k> 0 </k>\n  rule 1 => 2 [label(bare)]\n  rule <k> 1 => 2 ... </k> [label(cell)]\n  rule f(1) => 2 [label(function)]\n  rule g(1) => 2 [anywhere, label(anywhere)]\n  rule g(2) => 1 [simplification, label(simplification)]\n  context g(HOLE) [label(context)]\nendmodule\n"
+---
+[
+    (
+        "bare",
+        "`<k>`(#noDots(.KList),#token(\"1\",\"Int\")=>#token(\"2\",\"Int\"),#dots(.KList))",
+    ),
+    (
+        "cell",
+        "`<k>`(#noDots(.KList),#token(\"1\",\"Int\")=>#token(\"2\",\"Int\"),#dots(.KList))",
+    ),
+    (
+        "function",
+        "f(#token(\"1\",\"Int\"))=>#token(\"2\",\"Int\")",
+    ),
+    (
+        "anywhere",
+        "g(#token(\"1\",\"Int\"))=>#token(\"2\",\"Int\")",
+    ),
+    (
+        "simplification",
+        "g(#token(\"2\",\"Int\"))=>#token(\"1\",\"Int\")",
+    ),
+    (
+        "context",
+        "`<k>`(#noDots(.KList),g(#SemanticCastToExp(HOLE)),#dots(.KList))",
+    ),
+]

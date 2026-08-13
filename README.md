@@ -191,7 +191,10 @@ disjunctions receive typed collision-free aliases, and initializer rules allocat
 constants for fresh configuration variables. Generated syntax now includes local-sort predicates,
 generic projections, and named record-field projections. Compile-time macro and alias rules are
 expanded child-first with Java-compatible priority, recursion, typed structural matching, and
-collision-free RHS variables. The native pipeline runs these first eighteen stages in Java order.
+collision-free RHS variables. Bare semantic rules and contexts are wrapped in the computation cell,
+fresh rule variables are lowered through per-sort generators backed by a generated counter cell,
+and the second sort-helper wave and simplification-rule checks run before the final KItem subsorts.
+The native pipeline runs the first twenty-four stages in Java order.
 Markdown and literate-K sources preserve their original
 offsets while extracting fenced blocks selected by `--md-selector`. The native resolver can load K's implicit `prelude.md`
 from `--builtin-directory` or `KRUST_BUILTIN_DIRECTORY`, translates historical builtin `.k`
@@ -248,8 +251,8 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
 - Add presentation adapters for diagnostics after the portable diagnostic model stabilizes. A
   renderer such as `miette` may be useful for a future native CLI, but it does not belong in the
   WASM-compatible core yet.
-- Port the remaining ordered Java KORE-backend transformations after `expandMacros`, including
-  implicit computation cells, fresh constants, cell concretization, and final sentence processing.
+- Port the remaining ordered Java KORE-backend transformations after the second `subsortKItem`,
+  including cell concretization and final sentence processing.
   Complete MPFR-compatible folding for the `FLOAT` hook family. Then run the resulting definition
   through `ModuleToKORE` and validate its artifacts with the Haskell backend.
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the

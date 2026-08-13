@@ -13,10 +13,11 @@ use k_rust::{
     inner::ProgramParser,
     kast::{json as kast_json, parser::parse_sort, printer::Printer as KastPrinter},
     kompile::{
-        constant_fold, expand_macros, generate_sort_predicate_syntax, generate_sort_projections,
-        guard_or_patterns, module_to_kore_from_resolved, number_sentences,
-        propagate_macro_attributes, resolve_anon_vars, resolve_comm, resolve_contexts,
-        resolve_fresh_config_constants, resolve_fun, resolve_function_with_config,
+        add_implicit_computation_cell, check_simplification_rules, constant_fold, expand_macros,
+        generate_sort_predicate_syntax, generate_sort_projections, guard_or_patterns,
+        module_to_kore_from_resolved, number_sentences, propagate_macro_attributes,
+        resolve_anon_vars, resolve_comm, resolve_contexts, resolve_fresh_config_constants,
+        resolve_fresh_constants, resolve_fun, resolve_function_with_config,
         resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts, resolve_strict,
         subsort_kitem,
     },
@@ -231,7 +232,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     })?;
     let definition = propagate_macro_attributes(&definition)?;
     let definition = guard_or_patterns(&definition)?;
-    let (definition, _fresh_config_count) = resolve_fresh_config_constants(&definition)
+    let (definition, fresh_config_count) = resolve_fresh_config_constants(&definition)
         .inspect_err(|error| {
             emit_diagnostics(&error.diagnostics);
         })?;
@@ -240,6 +241,17 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     let definition = expand_macros(&definition).inspect_err(|error| {
         emit_diagnostics(&error.diagnostics);
     })?;
+    let definition = add_implicit_computation_cell(&definition)?;
+    let definition =
+        resolve_fresh_constants(&definition, fresh_config_count).inspect_err(|error| {
+            emit_diagnostics(&error.diagnostics);
+        })?;
+    let definition = generate_sort_predicate_syntax(&definition)?;
+    let definition = generate_sort_projections(&definition)?;
+    let definition = check_simplification_rules(&definition).inspect_err(|error| {
+        emit_diagnostics(&error.diagnostics);
+    })?;
+    let definition = subsort_kitem(&definition)?;
     let resolved = ResolvedDefinition::resolve(&definition)?;
     let generated = module_to_kore_from_resolved(&resolved, &options.common.module)?;
     fs::create_dir_all(&options.output_directory)?;

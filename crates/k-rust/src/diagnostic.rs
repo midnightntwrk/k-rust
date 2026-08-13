@@ -36,6 +36,7 @@ pub enum DiagnosticCode {
     InvalidIoStream,
     InvalidSmtLemma,
     InvalidSemanticCast,
+    InvalidSimplification,
     InvalidStreamCell,
     InvalidStrictness,
     IllegalFunctionOnLhs,

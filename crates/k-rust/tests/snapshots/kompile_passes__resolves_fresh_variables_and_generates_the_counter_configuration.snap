@@ -1,0 +1,11 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Int | Id\n               | \"pair(\" Id \",\" Id \")\" [symbol(pair)]\n  syntax Id ::= r\"[a-z]+\" [token]\n              | \"freshId(\" Int \")\" [function, freshGenerator, symbol(freshId)]\n  configuration <k> 0 </k>\n  rule 0 => pair(!Y:Id, !X:Id) [label(fresh)]\nendmodule\n"
+---
+[
+    "rule #cells(`<k>`(#noDots(.KList),#token(\"0\",\"Int\")=>pair(freshId(`_+Int_`(#Fresh,#token(\"1\",\"Int\"))),freshId(`_+Int_`(#Fresh,#token(\"0\",\"Int\")))),#dots(.KList)),`<generatedCounter>`(#noDots(.KList),#Fresh=>`_+Int_`(#Fresh,#token(\"2\",\"Int\")),#noDots(.KList)))",
+    "production getGeneratedCounterCell : GeneratedCounterCell (4 items) format=None",
+    "production <generatedCounter> : GeneratedCounterCell (3 items) format=Some(\"%1%i%n%2%d%n%3\")",
+    "production <generatedTop> : GeneratedTopCell (4 items) format=Some(\"%2\")",
+    "initializer initGeneratedTopCell(.KList)=>`<generatedTop>`(#noDots(.KList),#cells(initKCell(.KList),initGeneratedCounterCell(.KList)),#noDots(.KList))",
+]

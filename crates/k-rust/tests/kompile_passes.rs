@@ -5,10 +5,11 @@ use k_rust::{
     },
     kast::{Label, Sort, Term, printer::Printer},
     kompile::{
-        constant_fold, expand_macros, generate_sort_predicate_syntax, generate_sort_projections,
-        guard_or_patterns, module_to_kore, number_sentences, propagate_macro_attributes,
-        resolve_anon_vars, resolve_comm, resolve_config_var, resolve_contexts,
-        resolve_fresh_config_constants, resolve_fun, resolve_function_with_config,
+        add_implicit_computation_cell, check_simplification_rules, constant_fold, expand_macros,
+        generate_sort_predicate_syntax, generate_sort_projections, guard_or_patterns,
+        module_to_kore, number_sentences, propagate_macro_attributes, resolve_anon_vars,
+        resolve_comm, resolve_config_var, resolve_contexts, resolve_fresh_config_constants,
+        resolve_fresh_constants, resolve_fun, resolve_function_with_config,
         resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts, resolve_strict,
         subsort_kitem,
     },
@@ -1536,6 +1537,242 @@ fn rejects_macro_side_conditions_and_invalid_priorities() {
     assert_eq!(
         error.diagnostics[0].message,
         "Invalid value for priority attribute: not-an-integer. Must be an integer."
+    );
+}
+
+#[test]
+fn wraps_cell_free_rules_and_contexts_in_the_main_computation_cell() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= Int
+                       | "f(" Exp ")" [function, symbol(f)]
+                       | "g(" Exp ")" [symbol(g)]
+          configuration <k> 0 </k>
+          rule 1 => 2 [label(bare)]
+          rule <k> 1 => 2 ... </k> [label(cell)]
+          rule f(1) => 2 [label(function)]
+          rule g(1) => 2 [anywhere, label(anywhere)]
+          rule g(2) => 1 [simplification, label(simplification)]
+          context g(HOLE) [label(context)]
+        endmodule
+    "#};
+    let transformed = add_implicit_computation_cell(&parsed(source)).unwrap();
+    let output = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            }
+            | Sentence::Context {
+                body, attributes, ..
+            } => attributes
+                .get_str("label")
+                .map(|label| (label.to_owned(), Printer::new().print_term(body))),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(output);
+    });
+}
+
+#[test]
+fn implicit_computation_cells_require_a_declared_main_cell_only_when_needed() {
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![rule(
+                rewrite(application("a", Vec::new()), application("b", Vec::new())),
+                Attributes::default(),
+            )],
+        )],
+        attributes: Attributes::default(),
+    };
+    assert_eq!(
+        add_implicit_computation_cell(&definition).unwrap_err(),
+        "No main cell found"
+    );
+
+    let skipped = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![rule(
+                application("a", Vec::new()),
+                attributes(&[("anywhere", json!(""))]),
+            )],
+        )],
+        attributes: Attributes::default(),
+    };
+    assert_eq!(add_implicit_computation_cell(&skipped).unwrap(), skipped);
+}
+
+#[test]
+fn resolves_fresh_variables_and_generates_the_counter_configuration() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= Int | Id
+                       | "pair(" Id "," Id ")" [symbol(pair)]
+          syntax Id ::= r"[a-z]+" [token]
+                      | "freshId(" Int ")" [function, freshGenerator, symbol(freshId)]
+          configuration <k> 0 </k>
+          rule 0 => pair(!Y:Id, !X:Id) [label(fresh)]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let transformed = resolve_fresh_constants(&definition, 7).unwrap();
+    let output = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label),
+                sort,
+                items,
+                attributes,
+                ..
+            } if matches!(
+                label.name.as_str(),
+                "<generatedTop>" | "<generatedCounter>" | "getGeneratedCounterCell"
+            ) =>
+            {
+                Some(format!(
+                    "production {} : {sort} ({} items) format={:?}",
+                    label.name,
+                    items.len(),
+                    attributes.get_str("format")
+                ))
+            }
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get_str("label") == Some("fresh") => {
+                Some(format!("rule {}", Printer::new().print_term(body)))
+            }
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_some()
+                && Printer::new()
+                    .print_term(body)
+                    .starts_with("initGeneratedTopCell") =>
+            {
+                Some(format!("initializer {}", Printer::new().print_term(body)))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(output);
+    });
+}
+
+#[test]
+fn reports_missing_generators_for_fresh_variables() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+          configuration <k> a </k>
+          rule a => !X:Exp [label(fresh)]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let error = resolve_fresh_constants(&definition, 0).unwrap_err();
+    assert!(
+        error
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.message == "No fresh generator defined for sort Exp" })
+    );
+}
+
+#[test]
+fn reports_fresh_variables_without_sorts() {
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                Sentence::Production {
+                    label: Some(Label::new("<generatedTop>")),
+                    parameters: Vec::new(),
+                    sort: Sort::new("GeneratedTopCell"),
+                    items: vec![
+                        ProductionItem::Terminal("<generatedTop>".into()),
+                        ProductionItem::NonTerminal {
+                            sort: Sort::new("K"),
+                            name: None,
+                        },
+                        ProductionItem::Terminal("</generatedTop>".into()),
+                    ],
+                    attributes: attributes(&[
+                        ("cell", json!("")),
+                        ("cellName", json!("generatedTop")),
+                    ]),
+                },
+                rule(
+                    rewrite(application("a", Vec::new()), Term::variable("!X")),
+                    Attributes::default(),
+                ),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+    let error = resolve_fresh_constants(&definition, 0).unwrap_err();
+    assert!(error.diagnostics.iter().any(|diagnostic| {
+        diagnostic.message == "Fresh constant used without a declared sort."
+    }));
+}
+
+#[test]
+fn simplification_rules_require_functional_heads() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "f(" Exp ")" [function, symbol(f)]
+                       | "w(" Exp ")" [functional, symbol(w)]
+                       | "m(" Exp ")" [mlOp, symbol(m)]
+                       | "c(" Exp ")" [symbol(c)]
+          rule f(a) => a [simplification, label(function)]
+          rule w(a) => a [simplification, label(functional)]
+          rule m(a) => a [simplification, label(ml)]
+        endmodule
+    "#};
+    assert_eq!(
+        check_simplification_rules(&parsed(source)).unwrap(),
+        parsed(source)
+    );
+
+    let invalid = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "c(" Exp ")" [symbol(c)]
+          rule c(a) => a [simplification, label(invalid)]
+        endmodule
+    "#};
+    let error = check_simplification_rules(&parsed(invalid)).unwrap_err();
+    assert_eq!(error.diagnostics.len(), 1);
+    assert_eq!(
+        error.diagnostics[0].message,
+        "Simplification rules expect function/functional/mlOp symbols at the top of the left hand side term."
     );
 }
 
