@@ -219,7 +219,8 @@ fn up_sentence(
 
 fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Grammar, ParseError> {
     let visible = resolved.sentences(module);
-    let parsing_sentences = visible
+    let concrete_sorts = concrete_sorts(&visible);
+    let mut parsing_sentences = visible
         .iter()
         .filter(|sentence| {
             !matches!(
@@ -229,14 +230,18 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
         })
         .map(|sentence| (*sentence).clone())
         .collect::<Vec<_>>();
-    #[allow(unused_mut)]
-    let mut parsing_sentences = parsing_sentences;
+    parsing_sentences.extend(concrete_sorts.iter().filter_map(|sort| {
+        let predicate = format!("is{sort}");
+        (!visible.iter().any(|sentence| {
+            matches!(sentence, Sentence::Production { label: Some(label), .. } if label.name == predicate)
+        }))
+        .then(|| sort_predicate_production(sort))
+    }));
     #[cfg(feature = "z3-inference")]
     add_builtin_rule_sentences(&mut parsing_sentences);
     let source_catalog = resolved.production_catalog(module);
     let mut grammar =
         Grammar::from_sentences_with_catalog(parsing_sentences.iter(), &source_catalog)?;
-    let concrete_sorts = concrete_sorts(&visible);
     let bracket_sorts = visible
         .iter()
         .filter_map(|sentence| match sentence {
@@ -283,6 +288,29 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
     }
 
     Ok(grammar)
+}
+
+fn sort_predicate_production(sort: &Sort) -> Sentence {
+    let label = Label::new(format!("is{sort}"));
+    let mut attributes = Attributes::default();
+    attributes.insert("function", serde_json::json!(""));
+    attributes.insert("total", serde_json::json!(""));
+    attributes.insert("generatedRuleSyntax", serde_json::json!(""));
+    Sentence::Production {
+        label: Some(label.clone()),
+        parameters: Vec::new(),
+        sort: Sort::new("Bool"),
+        items: vec![
+            ProductionItem::Terminal(label.name),
+            ProductionItem::Terminal("(".into()),
+            ProductionItem::NonTerminal {
+                sort: Sort::new("K"),
+                name: None,
+            },
+            ProductionItem::Terminal(")".into()),
+        ],
+        attributes,
+    }
 }
 
 fn concrete_sorts(sentences: &[&Sentence]) -> BTreeSet<Sort> {

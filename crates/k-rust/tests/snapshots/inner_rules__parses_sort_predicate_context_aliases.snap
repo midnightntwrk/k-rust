@@ -1,0 +1,15 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Foo ::= foo(Int)\n  syntax Int ::= r\"[0-9]+\" [token]\n\n  context alias [foo]: HERE\n    requires isFoo(HOLE)\nendmodule\n"
+---
+[
+    SentenceSummary {
+        kind: "alias",
+        body: "#SemanticCastToK(HERE)",
+        requires: "isFoo(#SemanticCastToK(HOLE))",
+        ensures: None,
+        label: Some(
+            "foo",
+        ),
+    },
+]

@@ -181,6 +181,20 @@ fn parses_rule_claim_context_and_alias_bubbles() {
 }
 
 #[test]
+fn parses_sort_predicate_context_aliases() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Foo ::= foo(Int)
+          syntax Int ::= r"[0-9]+" [token]
+
+          context alias [foo]: HERE
+            requires isFoo(HOLE)
+        endmodule
+    "#};
+    assert_rule_resolution_snapshot!(source);
+}
+
+#[test]
 fn loader_parses_rules_against_generated_rule_cells() {
     let source = indoc! {r#"
         module MAIN

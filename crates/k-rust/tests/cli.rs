@@ -142,3 +142,55 @@ fn kcompile_writes_parseable_kore_outputs() {
 
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn kcompile_backend_selects_symbolic_or_concrete_modules() {
+    let source = r#"
+module SYMBOLIC [symbolic]
+  syntax Exp ::= "symbolic" [symbol(symbolicOnly)]
+endmodule
+
+module CONCRETE [concrete]
+  syntax Exp ::= "concrete" [symbol(concreteOnly)]
+endmodule
+
+module MAIN
+  imports SYMBOLIC
+  imports CONCRETE
+  syntax Exp ::= "main" [symbol(main)]
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+
+    for (backend, present, absent) in [
+        ("llvm", "concreteOnly", "symbolicOnly"),
+        ("haskell", "symbolicOnly", "concreteOnly"),
+    ] {
+        let output_directory = root.join(backend);
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kcompile",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "MAIN",
+                "--backend",
+                backend,
+                "--output-directory",
+                output_directory.to_str().unwrap(),
+                "--no-prelude",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{backend}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let kore = fs::read_to_string(output_directory.join("definition.kore")).unwrap();
+        assert!(kore.contains(present), "{backend} should retain {present}");
+        assert!(!kore.contains(absent), "{backend} should exclude {absent}");
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}

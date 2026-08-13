@@ -39,6 +39,8 @@ pub struct LoadOptions {
     pub markdown_selector: String,
     /// Additional roots loaded before the entry source, such as Java's implicit prelude.
     pub implicit_sources: Vec<ResolvedSource>,
+    /// Module attributes excluded by the selected backend before configuration and rule parsing.
+    pub excluded_module_attributes: Vec<String>,
 }
 
 impl Default for LoadOptions {
@@ -46,6 +48,7 @@ impl Default for LoadOptions {
         Self {
             markdown_selector: "k".into(),
             implicit_sources: Vec::new(),
+            excluded_module_attributes: Vec::new(),
         }
     }
 }
@@ -92,6 +95,10 @@ pub enum LoadError {
         first_source: String,
         second_source: String,
     },
+    ExcludedMainModule {
+        module: String,
+        attribute: String,
+    },
     SourceDiagnostics(Vec<Diagnostic>),
     DefinitionResolution(ResolveError),
     Configuration(ConfigError),
@@ -131,6 +138,12 @@ impl fmt::Display for LoadError {
                 formatter,
                 "module {name:?} is declared by both {first_source:?} and {second_source:?}"
             ),
+            Self::ExcludedMainModule { module, attribute } => {
+                write!(
+                    formatter,
+                    "main module {module} has excluded attribute [{attribute}]"
+                )
+            }
             Self::SourceDiagnostics(diagnostics) => {
                 write!(
                     formatter,
@@ -189,6 +202,8 @@ pub fn load_with_options(
     let definition =
         lower_files(&loader.files, main_module).map_err(LoadError::SourceDiagnostics)?;
     let definition = apply_sort_synonyms(&definition).map_err(LoadError::DefinitionResolution)?;
+    let definition =
+        exclude_modules_by_attributes(definition, &options.excluded_module_attributes)?;
     let definition = add_implicit_configuration_imports(definition)?;
     let definition =
         resolve_configuration_bubbles(&definition).map_err(LoadError::Configuration)?;
@@ -202,6 +217,42 @@ pub fn load_with_options(
         definition,
         resolved,
     })
+}
+
+fn exclude_modules_by_attributes(
+    mut definition: Definition,
+    excluded_attributes: &[String],
+) -> Result<Definition, LoadError> {
+    for attribute in excluded_attributes {
+        if definition
+            .main_module()
+            .is_some_and(|module| module.attributes.get(attribute).is_some())
+        {
+            return Err(LoadError::ExcludedMainModule {
+                module: definition.main_module.clone(),
+                attribute: attribute.clone(),
+            });
+        }
+    }
+    let excluded_names = definition
+        .modules
+        .iter()
+        .filter(|module| {
+            excluded_attributes
+                .iter()
+                .any(|attribute| module.attributes.get(attribute).is_some())
+        })
+        .map(|module| module.name.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    definition
+        .modules
+        .retain(|module| !excluded_names.contains(&module.name));
+    for module in &mut definition.modules {
+        module
+            .imports
+            .retain(|import| !excluded_names.contains(&import.name));
+    }
+    Ok(definition)
 }
 
 fn add_implicit_configuration_imports(mut definition: Definition) -> Result<Definition, LoadError> {

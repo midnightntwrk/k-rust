@@ -8,7 +8,10 @@ use std::{
 };
 
 use k_rust::{
-    definition::{ResolvedDefinition, checks::check_definition},
+    definition::{
+        ResolvedDefinition, StructuralCheckBackend, StructuralCheckOptions,
+        checks::check_definition_with_options,
+    },
     diagnostic::{Diagnostic, Severity},
     inner::ProgramParser,
     kast::{json as kast_json, parser::parse_sort, printer::Printer as KastPrinter},
@@ -31,7 +34,7 @@ const HELP: &str = "\
 Rust frontend for the K Framework
 
 Usage:
-  krust kcompile <definition.k> --main-module <MODULE> [--output-directory <DIR>] [-I <DIR>]... [--md-selector <EXPR>] [--builtin-directory <DIR>] [--no-prelude]
+  krust kcompile <definition.k> --main-module <MODULE> [--backend llvm|haskell] [--output-directory <DIR>] [-I <DIR>]... [--md-selector <EXPR>] [--builtin-directory <DIR>] [--no-prelude]
   krust kast <definition.k> --module <MODULE> --sort <SORT> [<program-file> | -e <PROGRAM>] [-I <DIR>]... [--output text|json] [--md-selector <EXPR>] [--builtin-directory <DIR>] [--no-prelude]
   krust help
 ";
@@ -74,7 +77,34 @@ struct CommonOptions {
 #[derive(Debug)]
 struct KcompileOptions {
     common: CommonOptions,
+    backend: CompilationBackend,
     output_directory: PathBuf,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum CompilationBackend {
+    #[default]
+    Llvm,
+    Haskell,
+}
+
+impl CompilationBackend {
+    fn excluded_module_attribute(self) -> &'static str {
+        match self {
+            Self::Llvm => "symbolic",
+            Self::Haskell => "concrete",
+        }
+    }
+
+    fn structural_check_options(self) -> StructuralCheckOptions {
+        match self {
+            Self::Llvm => StructuralCheckOptions::default(),
+            Self::Haskell => StructuralCheckOptions {
+                symbolic: true,
+                backend: StructuralCheckBackend::Haskell,
+            },
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -95,6 +125,11 @@ struct KastOptions {
 fn parse_kcompile(arguments: Vec<OsString>) -> Result<KcompileOptions, Box<dyn Error>> {
     let mut parser = Arguments::new(arguments);
     let module = parser.required_value(&["-m", "--main-module"])?;
+    let backend = match parser.value(&["--backend"])?.as_deref() {
+        None | Some("llvm") => CompilationBackend::Llvm,
+        Some("haskell") => CompilationBackend::Haskell,
+        Some(value) => return Err(format!("unsupported backend {value:?}").into()),
+    };
     let output_directory = parser
         .value(&["-o", "--output-directory"])?
         .map_or_else(|| PathBuf::from("."), PathBuf::from);
@@ -115,6 +150,7 @@ fn parse_kcompile(arguments: Vec<OsString>) -> Result<KcompileOptions, Box<dyn E
             builtin_directory,
             no_prelude,
         },
+        backend,
         output_directory,
     })
 }
@@ -159,6 +195,7 @@ fn parse_kast(arguments: Vec<OsString>) -> Result<KastOptions, Box<dyn Error>> {
 
 fn load_definition(
     options: &CommonOptions,
+    backend: Option<CompilationBackend>,
 ) -> Result<k_rust::outer::LoadedDefinition, Box<dyn Error>> {
     let builtin_directory = options
         .builtin_directory
@@ -185,9 +222,15 @@ fn load_definition(
         &LoadOptions {
             markdown_selector: options.markdown_selector.clone(),
             implicit_sources,
+            excluded_module_attributes: backend
+                .map(|backend| vec![backend.excluded_module_attribute().into()])
+                .unwrap_or_default(),
         },
     )?;
-    let diagnostics = check_definition(&loaded.resolved)?;
+    let check_options = backend
+        .map(CompilationBackend::structural_check_options)
+        .unwrap_or_default();
+    let diagnostics = check_definition_with_options(&loaded.resolved, check_options)?;
     emit_diagnostics(&diagnostics);
     if diagnostics
         .iter()
@@ -199,7 +242,7 @@ fn load_definition(
 }
 
 fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
-    let loaded = load_definition(&options.common)?;
+    let loaded = load_definition(&options.common, Some(options.backend))?;
     let definition = resolve_comm(&loaded.definition).inspect_err(|error| {
         emit_diagnostics(&error.diagnostics);
     })?;
@@ -289,7 +332,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
 }
 
 fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
-    let loaded = load_definition(&options.common)?;
+    let loaded = load_definition(&options.common, None)?;
     let source = match (options.expression, options.program_file) {
         (Some(source), None) => source,
         (None, Some(path)) if path == Path::new("-") => read_stdin()?,
@@ -449,5 +492,24 @@ mod tests {
         assert_eq!(options.sort, "Exp");
         assert_eq!(options.expression.as_deref(), Some("1 + 2"));
         assert_eq!(options.output, OutputFormat::Json);
+    }
+
+    #[test]
+    fn parses_haskell_kcompile_backend() {
+        let options = parse_kcompile(
+            [
+                "definition.k",
+                "--main-module",
+                "MAIN",
+                "--backend",
+                "haskell",
+            ]
+            .into_iter()
+            .map(OsString::from)
+            .collect(),
+        )
+        .unwrap();
+
+        assert_eq!(options.backend, CompilationBackend::Haskell);
     }
 }
