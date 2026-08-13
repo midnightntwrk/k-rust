@@ -12,14 +12,14 @@ module MAIN
   [
     function{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,70)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("choose")
   ]
   symbol Lbleq{}(SortExp{}, SortExp{}) : SortBool{}
   [
     function{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,19,5,54)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("eq")
   ]
   axiom{R}
@@ -49,7 +49,7 @@ module MAIN
     [
       label{}("ignored-simplification"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,22,52)"),
-      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
       simplification{}()
     ]
   axiom{R}
@@ -78,7 +78,7 @@ module MAIN
     [
       label{}("equal-arguments"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,3,16,29)"),
-      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
     ]
   axiom{R}
     \implies{R}(
@@ -106,7 +106,7 @@ module MAIN
     [
       label{}("right-zero"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,12,24)"),
-      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
     ]
   axiom{R}
     \implies{R}(
@@ -217,7 +217,7 @@ module MAIN
     [
       label{}("otherwise"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,3,26,30)"),
-      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
       owise{}()
     ]
   axiom{R}
@@ -240,7 +240,7 @@ module MAIN
     [
       label{}("left-zero"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,8,23)"),
-      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
     ]
   axiom{R}
     \implies{R}(
@@ -263,11 +263,11 @@ module MAIN
       label{}("ignored-non-executable"),
       non-executable{}(),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,3,19,52)"),
-      org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
     ]
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,27,10)"),
-  org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
 ]
 
 // syntax
@@ -282,7 +282,7 @@ module MAIN
     function{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,70)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     priorities{}(),
     right{}(),
     symbol'Kywd'{}("choose"),
@@ -294,7 +294,7 @@ module MAIN
     function{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,19,5,54)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     priorities{}(),
     right{}(),
     symbol'Kywd'{}("eq"),

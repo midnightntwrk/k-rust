@@ -8,7 +8,7 @@ module MAIN
   sort SortBox{SortS0}
   [
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,8,3)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   sort SortExp{} []
   symbol Lblbox{SortS}(SortS) : SortBox{SortS}
@@ -17,7 +17,7 @@ module MAIN
     functional{}(),
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,25,8,51)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("box")
   ]
   symbol Lblpair{}(SortExp{}, SortExp{}) : SortExp{}
@@ -26,14 +26,14 @@ module MAIN
     functional{}(),
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,56)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("pair")
   ]
   symbol Lblpartial{}(SortExp{}) : SortExp{}
   [
     function{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,64)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("partial")
   ]
   symbol Lbltotal{}(SortExp{}) : SortExp{}
@@ -41,7 +41,7 @@ module MAIN
     function{}(),
     functional{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,67)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("total"),
     total{}()
   ]
@@ -51,7 +51,7 @@ module MAIN
     functional{}(),
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,39)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("zero")
   ]
   axiom{R, SortS}
@@ -101,7 +101,7 @@ module MAIN
     [constructor{}()]
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,9,10)"),
-  org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
 ]
 
 // syntax
@@ -110,7 +110,7 @@ module MAIN
   sort SortBox{SortS0}
   [
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,8,3)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   sort SortExp{} []
   symbol Lblbox{SortS}(SortS) : SortBox{SortS}
@@ -121,7 +121,7 @@ module MAIN
     injective{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,25,8,51)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     priorities{}(),
     right{}(),
     symbol'Kywd'{}("box"),
@@ -135,7 +135,7 @@ module MAIN
     injective{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,56)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     priorities{}(),
     right{}(),
     symbol'Kywd'{}("pair"),
@@ -147,7 +147,7 @@ module MAIN
     function{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,64)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     priorities{}(),
     right{}(),
     symbol'Kywd'{}("partial"),
@@ -160,7 +160,7 @@ module MAIN
     functional{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,67)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     priorities{}(),
     right{}(),
     symbol'Kywd'{}("total"),
@@ -175,7 +175,7 @@ module MAIN
     injective{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,39)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     priorities{}(),
     right{}(),
     symbol'Kywd'{}("zero"),

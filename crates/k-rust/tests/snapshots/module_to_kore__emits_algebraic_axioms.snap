@@ -8,14 +8,14 @@ module MAIN
   sort SortBox{SortS0}
   [
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,8,3)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   sort SortExp{} []
   symbol Lbl'Stop'Exp{}() : SortExp{}
   [
     function{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,49)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}(".Exp")
   ]
   symbol Lbl'UndsPlusPlusUnds'{}(SortExp{}, SortExp{}) : SortExp{}
@@ -23,7 +23,7 @@ module MAIN
     function{}(),
     idem{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,4,60)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("_++_"),
     unit{}(Lbl'Stop'Exp{}())
   ]
@@ -33,7 +33,7 @@ module MAIN
     functional{}(),
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,55)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("_~_"),
     unit{}(Lbl'Stop'Exp{}())
   ]
@@ -42,7 +42,7 @@ module MAIN
     functional{}(),
     idem{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,25,9,33)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("merge")
   ]
   axiom{R}
@@ -110,7 +110,7 @@ module MAIN
     [constructor{}()]
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,10,10)"),
-  org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
 ]
 
 // syntax
@@ -119,7 +119,7 @@ module MAIN
   sort SortBox{SortS0}
   [
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,8,3)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   sort SortExp{} []
   symbol Lbl'Stop'Exp{}() : SortExp{}
@@ -128,7 +128,7 @@ module MAIN
     function{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,49)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     priorities{}(),
     right{}(),
     symbol'Kywd'{}(".Exp"),
@@ -143,7 +143,7 @@ module MAIN
     idem{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,4,60)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     priorities{}(),
     right{}(),
     symbol'Kywd'{}("_++_"),
@@ -158,7 +158,7 @@ module MAIN
     injective{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,55)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     priorities{}(),
     right{}(),
     symbol'Kywd'{}("_~_"),
@@ -173,7 +173,7 @@ module MAIN
     idem{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,25,9,33)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     priorities{}(),
     right{}(),
     symbol'Kywd'{}("merge"),

@@ -22,10 +22,7 @@ use k_rust::{
         resolve_function_with_config, resolve_heat_cool_attributes, resolve_io,
         resolve_semantic_casts, resolve_strict, subsort_kitem,
     },
-    kore::{
-        ast::{Attributes, Definition as KoreDefinition},
-        printer::Printer as KorePrinter,
-    },
+    kore::printer::Printer as KorePrinter,
     native::FileResolver,
     outer::{LoadOptions, SourceResolver, load_with_options},
 };
@@ -268,14 +265,8 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     let generated = module_to_kore_from_resolved(&resolved, &options.common.module)?;
     fs::create_dir_all(&options.output_directory)?;
     let printer = KorePrinter::pretty(100);
-    let semantics = KoreDefinition {
-        attributes: Attributes::default(),
-        modules: vec![generated.semantics],
-    };
-    let syntax = KoreDefinition {
-        attributes: Attributes::default(),
-        modules: vec![generated.syntax],
-    };
+    let semantics = generated.semantics_definition();
+    let syntax = generated.syntax_definition();
     fs::write(
         options.output_directory.join("definition.kore"),
         with_newline(printer.print_definition(&semantics)),

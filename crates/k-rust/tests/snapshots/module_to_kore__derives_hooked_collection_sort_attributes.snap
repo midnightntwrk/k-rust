@@ -11,13 +11,13 @@ module MAIN
     element{}(LblMapItem{}()),
     hook{}("MAP.Map"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,3,3)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     unit{}(Lbl'Stop'Map{}())
   ]
   sort SortMapItem{}
   [
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,3,4,3)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   hooked-symbol Lbl'Stop'Map{}() : SortMap{}
   [
@@ -25,7 +25,7 @@ module MAIN
     functional{}(),
     hook{}("MAP.unit"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,72)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}(".Map"),
     total{}()
   ]
@@ -36,13 +36,13 @@ module MAIN
     functional{}(),
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,71)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("_Map_"),
     unit{}(Lbl'Stop'Map{}())
   ]
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,6,10)"),
-  org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
 ]
 
 // syntax
@@ -54,13 +54,13 @@ module MAIN
     element{}(LblMapItem{}()),
     hook{}("MAP.Map"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,3,3)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     unit{}(Lbl'Stop'Map{}())
   ]
   sort SortMapItem{}
   [
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,3,4,3)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   hooked-symbol Lbl'Stop'Map{}() : SortMap{}
   [
@@ -70,7 +70,7 @@ module MAIN
     hook{}("MAP.unit"),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,72)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     priorities{}(),
     right{}(),
     symbol'Kywd'{}(".Map"),
@@ -86,7 +86,7 @@ module MAIN
     injective{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,71)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     priorities{}(),
     right{}(),
     symbol'Kywd'{}("_Map_"),

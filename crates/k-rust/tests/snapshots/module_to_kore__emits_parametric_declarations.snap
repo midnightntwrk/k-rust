@@ -8,7 +8,7 @@ module MAIN
   sort SortBox{SortS0}
   [
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,3,3)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   symbol Lblbox{SortS}(SortS) : SortBox{SortS}
   [
@@ -16,12 +16,12 @@ module MAIN
     functional{}(),
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,25,3,51)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("box")
   ]
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,4,10)"),
-  org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
 ]
 
 // syntax
@@ -30,7 +30,7 @@ module MAIN
   sort SortBox{SortS0}
   [
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,3,3)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k")
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   symbol Lblbox{SortS}(SortS) : SortBox{SortS}
   [
@@ -40,7 +40,7 @@ module MAIN
     injective{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,25,3,51)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("declarations.k"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     priorities{}(),
     right{}(),
     symbol'Kywd'{}("box"),

@@ -119,9 +119,18 @@ fn kcompile_writes_parseable_kore_outputs() {
 
     for name in ["definition.kore", "syntaxDefinition.kore"] {
         let source = fs::read_to_string(output_directory.join(name)).unwrap();
-        parse_definition(&source).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let parsed = parse_definition(&source).unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert_eq!(
+            parsed
+                .modules
+                .iter()
+                .map(|module| module.name.as_str())
+                .collect::<Vec<_>>(),
+            ["BASIC-K", "KSEQ", "INJ", "K", "MAIN"],
+        );
+        assert!(source.contains("Source("));
         if name == "definition.kore" {
-            assert_eq!(source.matches("simplification{}()").count(), 2);
+            assert_eq!(source.matches("simplification{}()").count(), 3);
         }
     }
     assert!(

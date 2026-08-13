@@ -15,8 +15,8 @@ use crate::definition::{
 };
 use crate::kast::{Label, ResolvedProductionId, Sort, Term};
 use crate::kore::ast::{
-    Attributes, Module, Pattern, Sentence as KoreSentence, Sort as KoreSort, Symbol, Variable,
-    VariableKind,
+    Attributes, Definition as KoreDefinition, Module, Pattern, Sentence as KoreSentence,
+    Sort as KoreSort, Symbol, Variable, VariableKind,
 };
 
 use super::sort_injections::{SortInjectionError, SortInjector};
@@ -73,6 +73,32 @@ pub struct DeclarationModules {
     pub semantics: Module,
     pub syntax: Module,
     pub macros: Vec<KoreSentence>,
+    pub definition_attributes: Attributes,
+}
+
+impl DeclarationModules {
+    /// Wrap the backend-facing module in K's standard KORE prelude.
+    pub fn semantics_definition(&self) -> KoreDefinition {
+        self.definition_with(self.semantics.clone())
+    }
+
+    /// Wrap the concrete-syntax module in K's standard KORE prelude.
+    pub fn syntax_definition(&self) -> KoreDefinition {
+        self.definition_with(self.syntax.clone())
+    }
+
+    fn definition_with(&self, module: Module) -> KoreDefinition {
+        let mut definition = standard_kore_prelude();
+        definition.attributes = self.definition_attributes.clone();
+        definition.modules.push(module);
+        definition
+    }
+}
+
+/// Parse the canonical textual KORE prelude embedded by `kompile`.
+pub fn standard_kore_prelude() -> KoreDefinition {
+    crate::kore::parser::parse_definition(include_str!("prelude.kore"))
+        .expect("the embedded KORE prelude must parse")
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -409,6 +435,50 @@ pub fn declaration_modules_from_resolved(
         semantic_sentences.push(declaration(semantic_attributes));
         syntax_sentences.push(declaration(syntax_attributes));
     }
+    for (id, production) in productions.sorted_productions() {
+        let Sentence::Production {
+            label: None,
+            parameters,
+            sort,
+            items,
+            attributes,
+        } = production
+        else {
+            continue;
+        };
+        let Some(bracket_label) = attributes.get_str("bracketLabel") else {
+            continue;
+        };
+        let label = Label::with_parameters(bracket_label, parameters.clone());
+        let attributes = symbol_attributes(
+            attributes,
+            &label,
+            id,
+            &productions,
+            &valued_attributes,
+            &overloaded_greater,
+            &anywhere_labels,
+            &impure_labels,
+            true,
+            items,
+            &syntax_relations,
+        );
+        syntax_sentences.push(KoreSentence::SymbolDeclaration {
+            hooked: false,
+            symbol: encode_kore_label_with_formals(&label, parameters),
+            argument_sorts: items
+                .iter()
+                .filter_map(|item| match item {
+                    ProductionItem::NonTerminal { sort, .. } => {
+                        Some(encode_kore_sort_with_formals(sort, parameters))
+                    }
+                    ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
+                })
+                .collect(),
+            result_sort: encode_kore_sort_with_formals(sort, parameters),
+            attributes,
+        });
+    }
 
     let module_name = encode_kore_identifier(module);
     let module_attributes = emit_attributes(
@@ -416,6 +486,7 @@ pub fn declaration_modules_from_resolved(
         &valued_attributes,
         &BTreeMap::new(),
     );
+    let definition_attributes = definition_attributes(definition, module_id, &productions);
     Ok(DeclarationModules {
         semantics: Module {
             name: module_name.clone(),
@@ -428,7 +499,51 @@ pub fn declaration_modules_from_resolved(
             attributes: Attributes::default(),
         },
         macros: Vec::new(),
+        definition_attributes,
     })
+}
+
+fn definition_attributes(
+    definition: &ResolvedDefinition,
+    module_id: ModuleId,
+    productions: &ProductionCatalog<'_>,
+) -> Attributes {
+    let mut attributes = Vec::new();
+    if let Some(label) = productions
+        .sorted_productions()
+        .find_map(|(_, production)| match production {
+            Sentence::Production {
+                label: Some(label),
+                sort,
+                attributes,
+                ..
+            } if sort.name == "GeneratedTopCell" && attributes.get("initializer").is_some() => {
+                Some(label)
+            }
+            _ => None,
+        })
+    {
+        attributes.push(Pattern::Application {
+            symbol: Symbol {
+                name: "topCellInitializer".into(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: vec![Pattern::Application {
+                symbol: encode_kore_label(label),
+                arguments: Vec::new(),
+            }],
+        });
+    }
+    if let Some(source) = definition.module(module_id).attributes.source() {
+        attributes.push(Pattern::Application {
+            symbol: Symbol {
+                name: encode_kore_identifier(SOURCE_ATTRIBUTE),
+                sort_parameters: Vec::new(),
+            },
+            arguments: vec![Pattern::String(format!("Source({source})"))],
+        });
+    }
+    Attributes(attributes)
 }
 
 /// Emit declarations plus the ordinary semantic rules and local claims of one module.
@@ -2910,6 +3025,11 @@ fn attribute_value_string(key: &str, value: &Value) -> String {
         && let [start_line, start_column, end_line, end_column] = values.as_slice()
     {
         return format!("Location({start_line},{start_column},{end_line},{end_column})");
+    }
+    if key == SOURCE_ATTRIBUTE
+        && let Some(source) = value.as_str()
+    {
+        return format!("Source({source})");
     }
     match value {
         Value::String(value) => value.clone(),

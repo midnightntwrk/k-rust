@@ -3,7 +3,7 @@ use k_rust::kompile::{
     declaration_modules, encode_kore_identifier, encode_kore_label, encode_kore_sort,
     module_to_kore,
 };
-use k_rust::kore::parser::{parse_module, parse_sentence};
+use k_rust::kore::parser::{parse_definition, parse_module, parse_sentence};
 use k_rust::kore::printer::Printer;
 use k_rust::{kast, outer};
 
@@ -91,6 +91,30 @@ macro_rules! module_snapshot {
     };
 }
 
+macro_rules! definition_snapshot {
+    ($name:ident, $source:expr, $module:expr) => {
+        #[test]
+        fn $name() {
+            let source = indoc!($source);
+            let declarations = declaration_modules(&lowered(source, $module), $module)
+                .expect("declarations should emit");
+            let definition = declarations.semantics_definition();
+            let emitted = Printer::pretty(100).print_definition(&definition);
+            assert_eq!(
+                parse_definition(&emitted).expect("complete definition should reparse"),
+                definition,
+            );
+            insta::with_settings!({
+                description => format!("K definition:\n\n{source}"),
+                omit_expression => true,
+                prepend_module_to_snapshot => true,
+            }, {
+                insta::assert_snapshot!(emitted);
+            });
+        }
+    };
+}
+
 declaration_snapshot!(
     emits_sort_and_symbol_declarations,
     r#"
@@ -104,6 +128,28 @@ declaration_snapshot!(
                        > Exp "+" Exp [left, symbol(_+_)]
                        | "box(" value:Int ")" [color(red), format(%1 %2 %3), symbol(box)]
           syntax Bool ::= Exp "==" Exp [function, hook(KEQUAL.eq), symbol(eq), total]
+        endmodule
+    "#,
+    "MAIN"
+);
+
+definition_snapshot!(
+    wraps_generated_modules_in_the_standard_backend_definition,
+    r#"
+        module MAIN
+          syntax GeneratedTopCell ::= "init"
+            [function, initializer, symbol(initGeneratedTopCell)]
+        endmodule
+    "#,
+    "MAIN"
+);
+
+declaration_snapshot!(
+    emits_bracket_symbols_only_in_the_syntax_definition,
+    r#"
+        module MAIN
+          syntax Exp ::= "value" [symbol(value)]
+                       | "(" Exp ")" [bracket]
         endmodule
     "#,
     "MAIN"

@@ -1,0 +1,55 @@
+---
+source: crates/k-rust/tests/module_to_kore.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= \"value\" [symbol(value)]\n               | \"(\" Exp \")\" [bracket]\nendmodule\n"
+---
+// semantics
+module MAIN
+  import K []
+  sort SortExp{} []
+  symbol Lblvalue{}() : SortExp{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,41)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("value")
+  ]
+endmodule [
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,4,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
+]
+
+// syntax
+module MAIN
+  import K []
+  sort SortExp{} []
+  symbol Lblvalue{}() : SortExp{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,41)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("value"),
+    terminals{}("1")
+  ]
+  symbol Lbl'LParUndsRParUnds'MAIN'Unds'Exp'Unds'Exp{}(SortExp{}) : SortExp{}
+  [
+    bracket{}(),
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,39)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    priorities{}(),
+    right{}(),
+    terminals{}("101")
+  ]
+endmodule []
