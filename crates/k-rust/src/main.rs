@@ -1,12 +1,12 @@
 use std::{
     env,
     error::Error,
-    ffi::OsString,
     fs,
     io::{self, Read},
     path::{Path, PathBuf},
 };
 
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use k_rust::{
     definition::{
         ResolvedDefinition, StructuralCheckBackend, StructuralCheckOptions,
@@ -32,43 +32,116 @@ use k_rust::{
     outer::{LoadOptions, SourceResolver, load_with_options},
 };
 
-const HELP: &str = "\
-Rust frontend for the K Framework
-
-Usage:
-  krust kcompile <definition.k> --main-module <MODULE> [--backend llvm|haskell] [--output-directory <DIR>] [-I <DIR>]... [--md-selector <EXPR>] [--builtin-directory <DIR>] [--no-prelude]
-  krust kast <definition.k> --module <MODULE> --sort <SORT> [<program-file> | -e <PROGRAM>] [-I <DIR>]... [--output text|json] [--md-selector <EXPR>] [--builtin-directory <DIR>] [--no-prelude]
-  krust --version
-  krust help
-";
-
 fn main() {
-    if let Err(error) = run(env::args_os().skip(1).collect()) {
+    let cli = Cli::parse();
+    if let Err(error) = run(cli) {
         eprintln!("error: {error}");
         std::process::exit(1);
     }
 }
 
-fn run(arguments: Vec<OsString>) -> Result<(), Box<dyn Error>> {
-    let mut arguments = arguments.into_iter();
-    let Some(command) = arguments.next() else {
-        print!("{HELP}");
-        return Ok(());
-    };
-    let rest = arguments.collect::<Vec<_>>();
-    match command.to_string_lossy().as_ref() {
-        "kcompile" => kcompile(parse_kcompile(rest)?),
-        "kast" => kast(parse_kast(rest)?),
-        "help" | "--help" | "-h" => {
-            print!("{HELP}");
-            Ok(())
-        }
-        "version" | "--version" | "-V" => {
-            println!("krust {}", env!("CARGO_PKG_VERSION"));
-            Ok(())
-        }
-        command => Err(format!("unknown command {command:?}\n\n{HELP}").into()),
+fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
+    match cli.command {
+        Command::Kcompile(options) => kcompile(options.into()),
+        Command::Kast(options) => kast(options.into()),
     }
+}
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "krust",
+    version,
+    about = "Rust frontend for the K Framework",
+    arg_required_else_help = true
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Compile a K definition to backend-facing KORE files.
+    Kcompile(KcompileArgs),
+    /// Parse a program using a K definition and print its KAST.
+    Kast(KastArgs),
+}
+
+#[derive(Clone, Debug, Args)]
+struct SourceArgs {
+    /// Add a directory to the definition source search path.
+    #[arg(short = 'I', long = "include", value_name = "DIR")]
+    includes: Vec<PathBuf>,
+
+    /// Select Markdown code blocks using this expression.
+    #[arg(long = "md-selector", default_value = "k", value_name = "EXPR")]
+    markdown_selector: String,
+
+    /// Resolve K builtin sources from this directory instead of the embedded copies.
+    #[arg(long, value_name = "DIR")]
+    builtin_directory: Option<PathBuf>,
+
+    /// Do not load the standard K prelude implicitly.
+    #[arg(long)]
+    no_prelude: bool,
+}
+
+#[derive(Debug, Args)]
+struct KcompileArgs {
+    /// K definition file to compile.
+    #[arg(value_name = "DEFINITION")]
+    definition: PathBuf,
+
+    /// Main module of the definition.
+    #[arg(short = 'm', long = "main-module", value_name = "MODULE")]
+    module: String,
+
+    /// Backend for which KORE should be generated.
+    #[arg(long, value_enum, default_value_t)]
+    backend: CompilationBackend,
+
+    /// Directory in which generated KORE files are written.
+    #[arg(short = 'o', long, default_value = ".", value_name = "DIR")]
+    output_directory: PathBuf,
+
+    #[command(flatten)]
+    source: SourceArgs,
+}
+
+#[derive(Debug, Args)]
+struct KastArgs {
+    /// K definition file whose grammar should parse the program.
+    #[arg(value_name = "DEFINITION")]
+    definition: PathBuf,
+
+    /// Module whose grammar should parse the program.
+    #[arg(short = 'm', long, value_name = "MODULE")]
+    module: String,
+
+    /// Start sort for the program parser.
+    #[arg(short = 's', long, value_name = "SORT")]
+    sort: String,
+
+    /// Parse this program text instead of reading a file or standard input.
+    #[arg(
+        short = 'e',
+        long,
+        conflicts_with = "program_file",
+        allow_hyphen_values = true,
+        value_name = "PROGRAM"
+    )]
+    expression: Option<String>,
+
+    /// Program file to parse, or `-` for standard input.
+    #[arg(value_name = "PROGRAM_FILE")]
+    program_file: Option<PathBuf>,
+
+    /// KAST output format.
+    #[arg(short = 'o', long, value_enum, default_value_t)]
+    output: OutputFormat,
+
+    #[command(flatten)]
+    source: SourceArgs,
 }
 
 #[derive(Debug)]
@@ -88,7 +161,7 @@ struct KcompileOptions {
     output_directory: PathBuf,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
 enum CompilationBackend {
     #[default]
     Llvm,
@@ -114,8 +187,9 @@ impl CompilationBackend {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
 enum OutputFormat {
+    #[default]
     Text,
     Json,
 }
@@ -129,75 +203,43 @@ struct KastOptions {
     output: OutputFormat,
 }
 
-fn parse_kcompile(arguments: Vec<OsString>) -> Result<KcompileOptions, Box<dyn Error>> {
-    let mut parser = Arguments::new(arguments);
-    let module = parser.required_value(&["-m", "--main-module"])?;
-    let backend = match parser.value(&["--backend"])?.as_deref() {
-        None | Some("llvm") => CompilationBackend::Llvm,
-        Some("haskell") => CompilationBackend::Haskell,
-        Some(value) => return Err(format!("unsupported backend {value:?}").into()),
-    };
-    let output_directory = parser
-        .value(&["-o", "--output-directory"])?
-        .map_or_else(|| PathBuf::from("."), PathBuf::from);
-    let includes = parser.repeated_paths(&["-I", "--include"])?;
-    let markdown_selector = parser
-        .value(&["--md-selector"])?
-        .unwrap_or_else(|| "k".into());
-    let builtin_directory = parser.value(&["--builtin-directory"])?.map(PathBuf::from);
-    let no_prelude = parser.flag(&["--no-prelude"]);
-    let definition = parser.positional("definition file")?;
-    parser.finish()?;
-    Ok(KcompileOptions {
-        common: CommonOptions {
-            definition: definition.into(),
+impl SourceArgs {
+    fn common(self, definition: PathBuf, module: String) -> CommonOptions {
+        CommonOptions {
+            definition,
             module,
-            includes,
-            markdown_selector,
-            builtin_directory,
-            no_prelude,
-        },
-        backend,
-        output_directory,
-    })
+            includes: self.includes,
+            markdown_selector: self.markdown_selector,
+            builtin_directory: self.builtin_directory,
+            no_prelude: self.no_prelude,
+        }
+    }
 }
 
-fn parse_kast(arguments: Vec<OsString>) -> Result<KastOptions, Box<dyn Error>> {
-    let mut parser = Arguments::new(arguments);
-    let module = parser.required_value(&["-m", "--module"])?;
-    let sort = parser.required_value(&["-s", "--sort"])?;
-    let expression = parser.value(&["-e", "--expression"])?;
-    let output = match parser.value(&["-o", "--output"])?.as_deref() {
-        None | Some("text") => OutputFormat::Text,
-        Some("json") => OutputFormat::Json,
-        Some(value) => return Err(format!("unsupported output format {value:?}").into()),
-    };
-    let includes = parser.repeated_paths(&["-I", "--include"])?;
-    let markdown_selector = parser
-        .value(&["--md-selector"])?
-        .unwrap_or_else(|| "k".into());
-    let builtin_directory = parser.value(&["--builtin-directory"])?.map(PathBuf::from);
-    let no_prelude = parser.flag(&["--no-prelude"]);
-    let definition = parser.positional("definition file")?;
-    let program_file = parser.optional_positional().map(PathBuf::from);
-    parser.finish()?;
-    if expression.is_some() && program_file.is_some() {
-        return Err("a program file and --expression cannot be used together".into());
+impl From<KcompileArgs> for KcompileOptions {
+    fn from(arguments: KcompileArgs) -> Self {
+        Self {
+            common: arguments
+                .source
+                .common(arguments.definition, arguments.module),
+            backend: arguments.backend,
+            output_directory: arguments.output_directory,
+        }
     }
-    Ok(KastOptions {
-        common: CommonOptions {
-            definition: definition.into(),
-            module,
-            includes,
-            markdown_selector,
-            builtin_directory,
-            no_prelude,
-        },
-        sort,
-        expression,
-        program_file,
-        output,
-    })
+}
+
+impl From<KastArgs> for KastOptions {
+    fn from(arguments: KastArgs) -> Self {
+        Self {
+            common: arguments
+                .source
+                .common(arguments.definition, arguments.module),
+            sort: arguments.sort,
+            expression: arguments.expression,
+            program_file: arguments.program_file,
+            output: arguments.output,
+        }
+    }
 }
 
 fn load_definition(
@@ -396,112 +438,32 @@ fn emit_diagnostics(diagnostics: &[Diagnostic]) {
     }
 }
 
-struct Arguments {
-    values: Vec<OsString>,
-    used: Vec<bool>,
-}
-
-impl Arguments {
-    fn new(values: Vec<OsString>) -> Self {
-        let used = vec![false; values.len()];
-        Self { values, used }
-    }
-
-    fn value(&mut self, names: &[&str]) -> Result<Option<String>, Box<dyn Error>> {
-        for index in 0..self.values.len() {
-            if self.used[index] || !names.iter().any(|name| self.values[index] == *name) {
-                continue;
-            }
-            self.used[index] = true;
-            let value_index = index + 1;
-            if value_index >= self.values.len() || self.used[value_index] {
-                return Err(format!("{} requires a value", names.last().unwrap()).into());
-            }
-            self.used[value_index] = true;
-            return Ok(Some(
-                self.values[value_index].to_string_lossy().into_owned(),
-            ));
-        }
-        Ok(None)
-    }
-
-    fn required_value(&mut self, names: &[&str]) -> Result<String, Box<dyn Error>> {
-        self.value(names)?
-            .ok_or_else(|| format!("{} is required", names.last().unwrap()).into())
-    }
-
-    fn flag(&mut self, names: &[&str]) -> bool {
-        for index in 0..self.values.len() {
-            if !self.used[index] && names.iter().any(|name| self.values[index] == *name) {
-                self.used[index] = true;
-                return true;
-            }
-        }
-        false
-    }
-
-    fn repeated_paths(&mut self, names: &[&str]) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-        let mut paths = Vec::new();
-        while let Some(path) = self.value(names)? {
-            paths.push(path.into());
-        }
-        Ok(paths)
-    }
-
-    fn positional(&mut self, name: &str) -> Result<OsString, Box<dyn Error>> {
-        self.optional_positional()
-            .ok_or_else(|| format!("{name} is required").into())
-    }
-
-    fn optional_positional(&mut self) -> Option<OsString> {
-        let index = self.values.iter().enumerate().position(|(index, value)| {
-            !self.used[index] && (!value.to_string_lossy().starts_with('-') || value == "-")
-        })?;
-        self.used[index] = true;
-        Some(self.values[index].clone())
-    }
-
-    fn finish(&self) -> Result<(), Box<dyn Error>> {
-        let unexpected = self
-            .values
-            .iter()
-            .zip(&self.used)
-            .filter(|(_, used)| !*used)
-            .map(|(value, _)| value.to_string_lossy())
-            .collect::<Vec<_>>();
-        if unexpected.is_empty() {
-            Ok(())
-        } else {
-            Err(format!("unexpected arguments: {}", unexpected.join(" ")).into())
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn parses_kast_options_in_any_order() {
-        let options = parse_kast(
-            [
-                "--sort",
-                "Exp",
-                "definition.k",
-                "-I",
-                "builtins",
-                "--module",
-                "MAIN",
-                "-e",
-                "1 + 2",
-                "--output",
-                "json",
-            ]
-            .into_iter()
-            .map(OsString::from)
-            .collect(),
-        )
+        let cli = Cli::try_parse_from([
+            "krust",
+            "kast",
+            "--sort",
+            "Exp",
+            "definition.k",
+            "-I",
+            "builtins",
+            "--module",
+            "MAIN",
+            "-e",
+            "1 + 2",
+            "--output",
+            "json",
+        ])
         .unwrap();
+        let Command::Kast(options) = cli.command else {
+            panic!("expected kast command");
+        };
+        let options = KastOptions::from(options);
         assert_eq!(options.common.definition, Path::new("definition.k"));
         assert_eq!(options.common.module, "MAIN");
         assert_eq!(options.common.includes, [PathBuf::from("builtins")]);
@@ -512,20 +474,42 @@ mod tests {
 
     #[test]
     fn parses_haskell_kcompile_backend() {
-        let options = parse_kcompile(
-            [
-                "definition.k",
-                "--main-module",
-                "MAIN",
-                "--backend",
-                "haskell",
-            ]
-            .into_iter()
-            .map(OsString::from)
-            .collect(),
-        )
+        let cli = Cli::try_parse_from([
+            "krust",
+            "kcompile",
+            "definition.k",
+            "--main-module",
+            "MAIN",
+            "--backend",
+            "haskell",
+        ])
         .unwrap();
+        let Command::Kcompile(options) = cli.command else {
+            panic!("expected kcompile command");
+        };
+        let options = KcompileOptions::from(options);
 
         assert_eq!(options.backend, CompilationBackend::Haskell);
+    }
+
+    #[test]
+    fn accepts_program_expressions_that_begin_with_a_hyphen() {
+        let cli = Cli::try_parse_from([
+            "krust",
+            "kast",
+            "definition.k",
+            "--module",
+            "MAIN",
+            "--sort",
+            "Int",
+            "--expression",
+            "-1",
+        ])
+        .unwrap();
+        let Command::Kast(options) = cli.command else {
+            panic!("expected kast command");
+        };
+
+        assert_eq!(options.expression.as_deref(), Some("-1"));
     }
 }
