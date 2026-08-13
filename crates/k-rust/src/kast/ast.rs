@@ -67,6 +67,8 @@ pub struct ResolvedProductionId(pub usize);
 pub struct TermMetadata {
     pub span: Option<TermSpan>,
     pub production: Option<ResolvedProductionId>,
+    /// An explicit compiler sort attached by transformations such as semantic-cast resolution.
+    pub sort: Option<Sort>,
 }
 
 /// A K term. Semantic variant order follows the Scala frontend's total ordering.
@@ -147,6 +149,9 @@ impl Term {
                 }
                 if metadata.production.is_some() {
                     existing.production = metadata.production;
+                }
+                if metadata.sort.is_some() {
+                    existing.sort = metadata.sort;
                 }
                 Self::Annotated {
                     term,

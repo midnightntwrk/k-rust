@@ -1,4 +1,4 @@
-use k_rust::kast::{ResolvedProductionId, Term, TermMetadata, TermSpan};
+use k_rust::kast::{ResolvedProductionId, Sort, Term, TermMetadata, TermSpan};
 
 #[test]
 fn preorder_walk_visits_every_term_in_source_order() {
@@ -33,6 +33,7 @@ fn metadata_is_semantically_transparent_but_remains_inspectable() {
     let annotated = plain.clone().with_metadata(TermMetadata {
         span: Some(TermSpan { start: 2, end: 6 }),
         production: Some(ResolvedProductionId(7)),
+        sort: Some(Sort::new("Exp")),
     });
 
     assert_eq!(annotated, plain);
@@ -43,6 +44,7 @@ fn metadata_is_semantically_transparent_but_remains_inspectable() {
         Some(&TermMetadata {
             span: Some(TermSpan { start: 2, end: 6 }),
             production: Some(ResolvedProductionId(7)),
+            sort: Some(Sort::new("Exp")),
         })
     );
 }

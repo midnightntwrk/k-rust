@@ -446,6 +446,9 @@ impl<'a> TermConverter<'a> {
     }
 
     fn term_sort(&self, term: &Term) -> Result<Sort, TermConversionError> {
+        if let Some(sort) = term.metadata().and_then(|metadata| metadata.sort.clone()) {
+            return Ok(sort);
+        }
         match term.unannotated() {
             Term::InjectedLabel(_) => Err(TermConversionError::UnsupportedInjectedLabel),
             Term::Rewrite { left, right }

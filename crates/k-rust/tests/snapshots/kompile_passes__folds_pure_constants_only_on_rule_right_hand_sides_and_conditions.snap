@@ -1,0 +1,8 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int [hook(INT.Int)]\n  syntax Bool [hook(BOOL.Bool)]\n  syntax Int ::= r\"-?[0-9]+\" [token]\n  syntax Bool ::= r\"true|false\" [token]\n  syntax Int ::= \"add(\" Int \",\" Int \")\" [function, hook(INT.add), symbol(add)]\n  syntax Bool ::= \"eq(\" Int \",\" Int \")\" [function, hook(INT.eq), symbol(eq)]\n  rule add(1, 2) => add(add(1, 2), 39)\n    requires eq(add(1, 1), 2)\nendmodule\n"
+---
+(
+    "add(#token(\"1\",\"Int\"),#token(\"2\",\"Int\"))=>#token(\"42\",\"Int\")",
+    "#token(\"true\",\"Bool\")",
+)

@@ -1,0 +1,27 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= \"a\" [symbol(a)]\n               | \"f(\" Exp \")\" [symbol(f)]\n  rule f(X:Exp) => X:Exp\nendmodule\n"
+---
+(
+    "f(X)=>X",
+    [
+        (
+            "X",
+            Some(
+                Sort {
+                    name: "Exp",
+                    parameters: [],
+                },
+            ),
+        ),
+        (
+            "X",
+            Some(
+                Sort {
+                    name: "Exp",
+                    parameters: [],
+                },
+            ),
+        ),
+    ],
+)

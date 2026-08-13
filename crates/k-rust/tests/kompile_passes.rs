@@ -5,8 +5,10 @@ use k_rust::{
     },
     kast::{Label, Sort, Term, printer::Printer},
     kompile::{
-        module_to_kore, resolve_anon_vars, resolve_comm, resolve_config_var, resolve_contexts,
-        resolve_fun, resolve_function_with_config, resolve_io, resolve_strict,
+        constant_fold, module_to_kore, number_sentences, resolve_anon_vars, resolve_comm,
+        resolve_config_var, resolve_contexts, resolve_fun, resolve_function_with_config,
+        resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts, resolve_strict,
+        subsort_kitem,
     },
     outer::{ResolvedSource, load},
 };
@@ -709,6 +711,391 @@ fn does_not_alias_a_top_cell_for_unresolved_fresh_variables_alone() {
         })
         .unwrap();
     assert_eq!(body, &original);
+}
+
+#[test]
+fn assigns_stable_alpha_normalized_sentence_ids() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "f(" Exp ")" [symbol(f)]
+          rule f(X:Exp) => X:Exp [label(first)]
+          rule f(Y:Exp) => Y:Exp [label(second)]
+          rule f(Z:Exp) => Z:Exp [owise, label(otherwise)]
+        endmodule
+    "#};
+    let transformed = number_sentences(&parsed(source));
+    let ids = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule { attributes, .. } => Some((
+                attributes.get_str("label").map(str::to_owned),
+                attributes
+                    .get_str("UNIQUE_ID")
+                    .expect("rules are numbered")
+                    .to_owned(),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(ids[0].1, ids[1].1);
+    assert_ne!(ids[0].1, ids[2].1);
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(ids);
+    });
+}
+
+#[test]
+fn preserves_existing_sentence_ids() {
+    let mut attributes = Attributes::default();
+    attributes.insert("UNIQUE_ID", json!("already-numbered"));
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![rule(
+                rewrite(application("f", Vec::new()), truth()),
+                attributes,
+            )],
+        )],
+        attributes: Attributes::default(),
+    };
+    let transformed = number_sentences(&definition);
+    assert_eq!(
+        transformed.main_module().unwrap().local_sentences[0]
+            .attributes()
+            .get_str("UNIQUE_ID"),
+        Some("already-numbered")
+    );
+}
+
+#[test]
+fn lowers_heat_and_cool_attributes_to_result_predicates() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax KResult
+          syntax Exp ::= "heat" [symbol(heat)]
+                       | "cool" [symbol(cool)]
+          rule heat => cool [heat, result(KResult)]
+          rule cool => heat [cool, result(KResult)]
+        endmodule
+    "#};
+    let transformed = resolve_heat_cool_attributes(&parsed(source)).unwrap();
+    let requires = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule { requires, .. } => Some(Printer::new().print_term(requires)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(requires);
+    });
+}
+
+#[test]
+fn rejects_heat_rules_without_a_result_sort_or_predicate() {
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![rule(
+                rewrite(application("heat", Vec::new()), truth()),
+                attributes(&[("heat", json!("")), ("result", json!("Missing"))]),
+            )],
+        )],
+        attributes: Attributes::default(),
+    };
+    let error = resolve_heat_cool_attributes(&definition).unwrap_err();
+    assert_eq!(error.diagnostics.len(), 1);
+    assert!(
+        error.diagnostics[0]
+            .message
+            .starts_with("Definition is missing function isMissing required for strictness.")
+    );
+}
+
+#[test]
+fn removes_semantic_casts_and_retains_inferred_variable_sorts() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "f(" Exp ")" [symbol(f)]
+          rule f(X:Exp) => X:Exp
+        endmodule
+    "#};
+    let transformed = resolve_semantic_casts(&parsed(source));
+    let rule = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    let mut variables = Vec::new();
+    rule.visit_preorder(&mut |term| {
+        if let Term::Variable { name, sort } = term {
+            variables.push((name.clone(), sort.clone()));
+        }
+    });
+    let output = (Printer::new().print_term(rule), variables);
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(output);
+    });
+}
+
+#[test]
+fn semantic_cast_sort_metadata_disambiguates_manually_built_applications() {
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                production("choice", "A", Attributes::default()),
+                production("choice", "B", Attributes::default()),
+                rule(
+                    application("#SemanticCastToA", vec![application("choice", Vec::new())]),
+                    Attributes::default(),
+                ),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+    let transformed = resolve_semantic_casts(&definition);
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        body.metadata().and_then(|metadata| metadata.sort.as_ref()),
+        Some(&Sort::new("A"))
+    );
+}
+
+#[test]
+fn adds_kitem_subsorts_for_every_non_parser_sort() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+          syntax Data ::= "d" [symbol(d)]
+          syntax #Internal ::= "internal" [symbol(internal)]
+          rule a => d
+        endmodule
+    "#};
+    let transformed = subsort_kitem(&parsed(source)).unwrap();
+    let generated = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: None,
+                sort,
+                items,
+                attributes,
+                ..
+            } if sort == &Sort::new("KItem") && attributes.is_empty() => match items.as_slice() {
+                [ProductionItem::NonTerminal { sort: child, .. }] => {
+                    Some((sort.to_string(), child.to_string()))
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(generated);
+    });
+}
+
+#[test]
+fn folds_pure_constants_only_on_rule_right_hand_sides_and_conditions() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int [hook(INT.Int)]
+          syntax Bool [hook(BOOL.Bool)]
+          syntax Int ::= r"-?[0-9]+" [token]
+          syntax Bool ::= r"true|false" [token]
+          syntax Int ::= "add(" Int "," Int ")" [function, hook(INT.add), symbol(add)]
+          syntax Bool ::= "eq(" Int "," Int ")" [function, hook(INT.eq), symbol(eq)]
+          rule add(1, 2) => add(add(1, 2), 39)
+            requires eq(add(1, 1), 2)
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let transformed = constant_fold(&definition).unwrap();
+    let output = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, requires, .. } => Some((
+                Printer::new().print_term(body),
+                Printer::new().print_term(requires),
+            )),
+            _ => None,
+        })
+        .unwrap();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(output);
+    });
+}
+
+#[test]
+fn folds_unicode_string_hooks_with_java_token_wrapping() {
+    let string_sort = Sentence::SyntaxSort {
+        parameters: Vec::new(),
+        sort: Sort::new("String"),
+        attributes: attributes(&[("hook", json!("STRING.String"))]),
+    };
+    let concat = Sentence::Production {
+        label: Some(Label::new("concat")),
+        parameters: Vec::new(),
+        sort: Sort::new("String"),
+        items: vec![
+            ProductionItem::NonTerminal {
+                sort: Sort::new("String"),
+                name: None,
+            },
+            ProductionItem::NonTerminal {
+                sort: Sort::new("String"),
+                name: None,
+            },
+        ],
+        attributes: attributes(&[("function", json!("")), ("hook", json!("STRING.concat"))]),
+    };
+    let token = |value: &str| Term::Token {
+        token: value.into(),
+        sort: Sort::new("String"),
+    };
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                string_sort,
+                concat,
+                rule(
+                    rewrite(
+                        application("result", Vec::new()),
+                        application("concat", vec![token("\"λ\""), token("\"🦀\"")]),
+                    ),
+                    Attributes::default(),
+                ),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+    let transformed = constant_fold(&definition).unwrap();
+    let Sentence::Rule { body, .. } = &transformed.main_module().unwrap().local_sentences[2] else {
+        unreachable!()
+    };
+    let Term::Rewrite { right, .. } = body.unannotated() else {
+        unreachable!()
+    };
+    assert_eq!(
+        right.unannotated(),
+        &Term::Token {
+            token: "\"\\u03bb\\U0001f980\"".into(),
+            sort: Sort::new("String"),
+        }
+    );
+}
+
+#[test]
+fn reports_invalid_constant_operations() {
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: Sort::new("Int"),
+                    attributes: attributes(&[("hook", json!("INT.Int"))]),
+                },
+                Sentence::Production {
+                    label: Some(Label::new("divide")),
+                    parameters: Vec::new(),
+                    sort: Sort::new("Int"),
+                    items: vec![
+                        ProductionItem::NonTerminal {
+                            sort: Sort::new("Int"),
+                            name: None,
+                        },
+                        ProductionItem::NonTerminal {
+                            sort: Sort::new("Int"),
+                            name: None,
+                        },
+                    ],
+                    attributes: attributes(&[("hook", json!("INT.tdiv"))]),
+                },
+                rule(
+                    rewrite(
+                        application("result", Vec::new()),
+                        application(
+                            "divide",
+                            vec![
+                                Term::Token {
+                                    token: "1".into(),
+                                    sort: Sort::new("Int"),
+                                },
+                                Term::Token {
+                                    token: "0".into(),
+                                    sort: Sort::new("Int"),
+                                },
+                            ],
+                        ),
+                    ),
+                    Attributes::default(),
+                ),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+    let error = constant_fold(&definition).unwrap_err();
+    assert_eq!(error.diagnostics[0].message, "Division by zero.");
 }
 
 #[test]

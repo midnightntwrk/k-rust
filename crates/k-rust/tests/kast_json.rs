@@ -1,4 +1,4 @@
-use k_rust::kast::{ResolvedProductionId, Term, TermMetadata, TermSpan, json};
+use k_rust::kast::{ResolvedProductionId, Sort, Term, TermMetadata, TermSpan, json};
 use serde_json::Value;
 
 #[test]
@@ -20,6 +20,7 @@ fn encoding_ignores_compiler_metadata() {
     let annotated = plain.clone().with_metadata(TermMetadata {
         span: Some(TermSpan { start: 0, end: 4 }),
         production: Some(ResolvedProductionId(3)),
+        sort: Some(Sort::new("Exp")),
     });
 
     assert_eq!(

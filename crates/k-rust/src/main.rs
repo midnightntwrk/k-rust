@@ -13,8 +13,10 @@ use k_rust::{
     inner::ProgramParser,
     kast::{json as kast_json, parser::parse_sort, printer::Printer as KastPrinter},
     kompile::{
-        module_to_kore_from_resolved, resolve_anon_vars, resolve_comm, resolve_contexts,
-        resolve_fun, resolve_function_with_config, resolve_io, resolve_strict,
+        constant_fold, module_to_kore_from_resolved, number_sentences, resolve_anon_vars,
+        resolve_comm, resolve_contexts, resolve_fun, resolve_function_with_config,
+        resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts, resolve_strict,
+        subsort_kitem,
     },
     kore::{
         ast::{Attributes, Definition as KoreDefinition},
@@ -214,6 +216,15 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     })?;
     let definition = resolve_anon_vars(&definition);
     let definition = resolve_contexts(&definition).inspect_err(|error| {
+        emit_diagnostics(&error.diagnostics);
+    })?;
+    let definition = number_sentences(&definition);
+    let definition = resolve_heat_cool_attributes(&definition).inspect_err(|error| {
+        emit_diagnostics(&error.diagnostics);
+    })?;
+    let definition = resolve_semantic_casts(&definition);
+    let definition = subsort_kitem(&definition)?;
+    let definition = constant_fold(&definition).inspect_err(|error| {
         emit_diagnostics(&error.diagnostics);
     })?;
     let resolved = ResolvedDefinition::resolve(&definition)?;

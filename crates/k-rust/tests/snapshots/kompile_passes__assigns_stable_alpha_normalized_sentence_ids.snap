@@ -1,0 +1,24 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= \"f(\" Exp \")\" [symbol(f)]\n  rule f(X:Exp) => X:Exp [label(first)]\n  rule f(Y:Exp) => Y:Exp [label(second)]\n  rule f(Z:Exp) => Z:Exp [owise, label(otherwise)]\nendmodule\n"
+---
+[
+    (
+        Some(
+            "first",
+        ),
+        "c97f03b14c671bd787603d78758c0f8f36ec5e999e09afb983eff3ede09a8dad",
+    ),
+    (
+        Some(
+            "second",
+        ),
+        "c97f03b14c671bd787603d78758c0f8f36ec5e999e09afb983eff3ede09a8dad",
+    ),
+    (
+        Some(
+            "otherwise",
+        ),
+        "5a99ffb9918d17aa1d36e2d5fac53d694cb496da011d60b0e5d4aaaa0db9d22b",
+    ),
+]

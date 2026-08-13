@@ -1203,6 +1203,7 @@ fn term_metadata(production: &Production, start: usize, end: usize) -> TermMetad
         production: production
             .source_production
             .map(|production| ResolvedProductionId(production.0)),
+        sort: None,
     }
 }
 

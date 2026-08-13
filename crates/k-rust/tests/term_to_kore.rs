@@ -244,6 +244,7 @@ fn resolved_production_identity_disambiguates_application_sorts() {
     let annotated = Term::apply("choice", vec![]).with_metadata(TermMetadata {
         span: None,
         production: Some(ResolvedProductionId(production.0)),
+        sort: None,
     });
     let term = Term::Rewrite {
         left: Box::new(annotated.clone()),

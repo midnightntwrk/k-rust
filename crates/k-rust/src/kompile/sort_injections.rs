@@ -198,6 +198,9 @@ impl<'a> SortInjector<'a> {
         term: &Term,
         expected: Option<&Sort>,
     ) -> Result<Sort, SortInjectionError> {
+        if let Some(sort) = term.metadata().and_then(|metadata| metadata.sort.clone()) {
+            return Ok(sort);
+        }
         match term.unannotated() {
             Term::InjectedLabel(_) => Ok(Sort::new(K_ITEM_SORT)),
             Term::Rewrite { left, right } => {

@@ -177,12 +177,17 @@ also available for the corresponding final pipeline stage. `ResolveStrict` now e
 and context-alias forms of
 `strict` and `seqstrict` into typed evaluation contexts, preserves sequential result guards,
 generates `hybrid` predicate rules, removes consumed context aliases, and supplies the private
-`BOOL` import used by generated conditions. The native `kcompile` command runs all five early passes
-in order. Anonymous-variable resolution gives each `_`, `?_`, `!_`, and `@_` occurrence a
+`BOOL` import used by generated conditions. Anonymous-variable resolution gives each `_`, `?_`,
+`!_`, and `@_` occurrence a
 collision-free sentence-local name. Context lowering then validates visible contexts and replaces
 them with collision-free freezer productions plus paired heat/cool rules, including insertion into
-declared main cells and generated-label conflict checks. The native pipeline runs these seven stages
-in Java order. Markdown and literate-K sources preserve their original
+declared main cells and generated-label conflict checks. Stable SHA3-256 sentence identifiers match
+Java's semantic-attribute filtering and alpha normalization. Heat/cool attributes become explicit
+result predicates, semantic casts become transparent compiler sort metadata, and every non-parser
+sort receives its backend `KItem` subsort. Rewrite-aware constant folding evaluates Java's pure
+Boolean, arbitrary-precision integer, and Unicode string hook families while leaving rule LHS terms
+untouched. The native pipeline runs these first twelve stages in Java order. Markdown and literate-K
+sources preserve their original
 offsets while extracting fenced blocks selected by `--md-selector`. The native resolver can load K's implicit `prelude.md`
 from `--builtin-directory` or `KRUST_BUILTIN_DIRECTORY`, translates historical builtin `.k`
 require names to their Markdown sources, imports `DEFAULT-CONFIGURATION` and `MAP` according to
@@ -238,10 +243,10 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
 - Add presentation adapters for diagnostics after the portable diagnostic model stabilizes. A
   renderer such as `miette` may be useful for a future native CLI, but it does not belong in the
   WASM-compatible core yet.
-- Port the remaining ordered Java KORE-backend transformations after `ResolveComm`, including
-  function/context/strictness normalization, macro expansion, generated sort helpers, cell
-  concretization, and final sentence processing. Then run the resulting definition through
-  `ModuleToKORE` and validate its artifacts with the Haskell backend.
+- Port the remaining ordered Java KORE-backend transformations after `constantFolding`, including
+  macro expansion, generated sort helpers, cell concretization, and final sentence processing.
+  Complete MPFR-compatible folding for the `FLOAT` hook family. Then run the resulting definition
+  through `ModuleToKORE` and validate its artifacts with the Haskell backend.
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete sort parameters normally supplied by parser inference.
 - Complete `ModuleToKORE` beyond ordinary rewrites, reachability claims, equations, macro axioms,

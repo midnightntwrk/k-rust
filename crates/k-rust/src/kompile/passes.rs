@@ -10,21 +10,31 @@ use crate::{
     kast::{ResolvedProductionId, Term},
 };
 
+mod constant_folding;
+mod number_sentences;
 mod resolve_anon_vars;
 mod resolve_contexts;
 mod resolve_fun;
 mod resolve_function_with_config;
+mod resolve_heat_cool;
 mod resolve_io;
+mod resolve_semantic_casts;
 mod resolve_strict;
+mod subsort_kitem;
 
+pub use constant_folding::{ConstantFoldingError, constant_fold};
+pub use number_sentences::number_sentences;
 pub use resolve_anon_vars::resolve_anon_vars;
 pub use resolve_contexts::{ResolveContextsError, resolve_contexts};
 pub use resolve_fun::{ResolveFunError, resolve_fun};
 pub use resolve_function_with_config::{
     ResolveFunctionWithConfigError, resolve_config_var, resolve_function_with_config,
 };
+pub use resolve_heat_cool::{ResolveHeatCoolError, resolve_heat_cool_attributes};
 pub use resolve_io::{ResolveIoError, resolve_io};
+pub use resolve_semantic_casts::resolve_semantic_casts;
 pub use resolve_strict::{ResolveStrictError, resolve_strict};
+pub use subsort_kitem::{SubsortKItemError, subsort_kitem};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveCommError {

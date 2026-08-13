@@ -1,0 +1,8 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax KResult\n  syntax Exp ::= \"heat\" [symbol(heat)]\n               | \"cool\" [symbol(cool)]\n  rule heat => cool [heat, result(KResult)]\n  rule cool => heat [cool, result(KResult)]\nendmodule\n"
+---
+[
+    "`_andBool_`(#token(\"true\",\"Bool\"),`notBool_`(isKResult(HOLE)))",
+    "`_andBool_`(#token(\"true\",\"Bool\"),isKResult(HOLE))",
+]

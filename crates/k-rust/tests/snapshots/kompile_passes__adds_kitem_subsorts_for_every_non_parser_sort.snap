@@ -1,0 +1,14 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= \"a\" [symbol(a)]\n  syntax Data ::= \"d\" [symbol(d)]\n  syntax #Internal ::= \"internal\" [symbol(internal)]\n  rule a => d\nendmodule\n"
+---
+[
+    (
+        "KItem",
+        "Data",
+    ),
+    (
+        "KItem",
+        "Exp",
+    ),
+]
