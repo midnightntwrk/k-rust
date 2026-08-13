@@ -6,8 +6,9 @@ use k_rust::{
     },
     kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, printer::Printer},
     kompile::{
-        add_implicit_computation_cell, check_simplification_rules, concretize_cells, constant_fold,
-        expand_macros, generate_sort_predicate_syntax, generate_sort_projections,
+        add_cool_like_attributes, add_implicit_computation_cell, add_semantics_module,
+        check_simplification_rules, concretize_cells, constant_fold, expand_macros,
+        generate_sort_predicate_rules, generate_sort_predicate_syntax, generate_sort_projections,
         guard_or_patterns, module_to_kore, number_sentences, propagate_macro_attributes,
         resolve_anon_vars, resolve_comm, resolve_config_var, resolve_contexts,
         resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
@@ -1922,6 +1923,96 @@ fn fills_absent_optional_and_repeated_cells_with_their_units() {
     }, {
         insta::assert_debug_snapshot!(output);
     });
+}
+
+#[test]
+fn finalizes_language_parsing_and_sort_predicate_rules() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+        endmodule
+    "#};
+    let definition = generate_sort_predicate_syntax(&parsed(source)).unwrap();
+    let definition = add_semantics_module(&definition);
+    let definition = number_sentences(&generate_sort_predicate_rules(&definition));
+    let language = definition
+        .modules
+        .iter()
+        .find(|module| module.name == "LANGUAGE-PARSING")
+        .unwrap();
+    assert_eq!(
+        language
+            .imports
+            .iter()
+            .map(|import| import.name.as_str())
+            .collect::<Vec<_>>(),
+        ["MAIN"]
+    );
+    let predicates = definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if Printer::new().print_term(body).starts_with("isExp(") => Some((
+                Printer::new().print_term(body),
+                attributes.get("owise").is_some(),
+                attributes.get_str("UNIQUE_ID").map(str::to_owned),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(predicates);
+    });
+}
+
+#[test]
+fn marks_variable_headed_main_cell_sequences_as_cool_like() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <k> 0 </k>
+          rule <k> REST:K ~> 0 => REST ... </k>
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let definition = concretize_cells(&definition).unwrap();
+    let definition = add_cool_like_attributes(&definition);
+    let rendered = definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } => Some((Printer::new().print_term(body), attributes.entries())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .any(
+                |sentence| matches!(sentence, Sentence::Rule { attributes, .. }
+            if attributes.get("initializer").is_none()
+                && attributes.get("cool-like").is_some())
+            ),
+        "{rendered:#?}"
+    );
 }
 
 #[test]

@@ -198,15 +198,18 @@ Cell concretization then completes nested abstractions, inserts missing parents 
 root, closes open leaf cells, orders fixed-arity children, and supplies optional and repeated-cell
 units. `ResolveIO` also rebases parser production identities across the stream syntax and imports it
 adds, so a bundled stdin-stream definition now reaches parseable backend KORE artifacts end to end.
-The native pipeline runs the first twenty-five stages in Java order.
+The finalization stages add `LANGUAGE-PARSING`, alias exact configuration variables, recognize
+`cool-like` rules, generate positive and `owise` sort-predicate equations, and assign final sentence
+identifiers. Coverage generation and Haskell-only unsafe anywhere-rule removal remain identity
+stages unless their corresponding options are requested. The native pipeline now runs all
+thirty-two stages in Java order.
 Markdown and literate-K sources preserve their original
 offsets while extracting fenced blocks selected by `--md-selector`. The native resolver can load K's implicit `prelude.md`
 from `--builtin-directory` or `KRUST_BUILTIN_DIRECTORY`, translates historical builtin `.k`
 require names to their Markdown sources, imports `DEFAULT-CONFIGURATION` and `MAP` according to
 Java's policy, and now parses and validates the bundled prelude together with a real user
 definition. Imported rules retain parser production identity when rebased into the selected main
-module's catalog. The remaining ordered backend work is the seven finalization stages after
-`concretizeCells`, followed by broader backend validation.
+module's catalog. The next end-to-end boundary is broader differential and backend validation.
 
 **Question being answered:** how hard is it for an AI agent fleet to reimplement the
 Java/Scala *frontend* of the K Framework in Rust, with WASM support for the pieces
@@ -255,8 +258,7 @@ cargo build --workspace --target wasm32-unknown-unknown --no-default-features
 - Add presentation adapters for diagnostics after the portable diagnostic model stabilizes. A
   renderer such as `miette` may be useful for a future native CLI, but it does not belong in the
   WASM-compatible core yet.
-- Port the seven remaining ordered Java KORE-backend finalization stages after `concretizeCells`.
-  Complete MPFR-compatible folding for the `FLOAT` hook family. Then run the resulting definition
+- Complete MPFR-compatible folding for the `FLOAT` hook family. Then run the resulting definition
   through `ModuleToKORE` and validate its artifacts with the Haskell backend.
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete sort parameters normally supplied by parser inference.

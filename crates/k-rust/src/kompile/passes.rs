@@ -15,6 +15,7 @@ mod check_simplification;
 mod concretize_cells;
 mod constant_folding;
 mod expand_macros;
+mod finalize;
 mod generate_sort_helpers;
 mod guard_or_patterns;
 mod number_sentences;
@@ -36,6 +37,7 @@ pub use check_simplification::{CheckSimplificationError, check_simplification_ru
 pub use concretize_cells::{ConcretizeCellsError, concretize_cells};
 pub use constant_folding::{ConstantFoldingError, constant_fold};
 pub use expand_macros::{ExpandMacrosError, expand_macros};
+pub use finalize::{add_cool_like_attributes, add_semantics_module, generate_sort_predicate_rules};
 pub use generate_sort_helpers::{generate_sort_predicate_syntax, generate_sort_projections};
 pub use guard_or_patterns::guard_or_patterns;
 pub use number_sentences::number_sentences;

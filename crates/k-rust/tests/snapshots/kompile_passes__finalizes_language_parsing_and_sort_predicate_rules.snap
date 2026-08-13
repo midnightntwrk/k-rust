@@ -1,0 +1,20 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= \"a\" [symbol(a)]\nendmodule\n"
+---
+[
+    (
+        "isExp(Exp)=>#token(\"true\",\"Bool\")",
+        false,
+        Some(
+            "5113a02f7660a72f8eec77fb75db8556ae809f64d13e8478319e14b277319d5c",
+        ),
+    ),
+    (
+        "isExp(K)=>#token(\"false\",\"Bool\")",
+        true,
+        Some(
+            "9e2a259ff2d6434bfe264d9e99ba0f82d9109ec7c26ae247655c5599fc9ef8b1",
+        ),
+    ),
+]
