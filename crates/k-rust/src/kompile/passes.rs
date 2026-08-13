@@ -13,12 +13,14 @@ use crate::{
 mod resolve_fun;
 mod resolve_function_with_config;
 mod resolve_io;
+mod resolve_strict;
 
 pub use resolve_fun::{ResolveFunError, resolve_fun};
 pub use resolve_function_with_config::{
     ResolveFunctionWithConfigError, resolve_config_var, resolve_function_with_config,
 };
 pub use resolve_io::{ResolveIoError, resolve_io};
+pub use resolve_strict::{ResolveStrictError, resolve_strict};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveCommError {

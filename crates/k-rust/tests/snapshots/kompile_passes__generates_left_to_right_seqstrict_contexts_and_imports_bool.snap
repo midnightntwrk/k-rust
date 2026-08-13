@@ -1,0 +1,20 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule BOOL\nendmodule\n\nmodule MAIN\n  syntax Exp ::= \"a\" [symbol(a)]\n               | Exp \"+\" Exp [seqstrict, symbol(_+_)]\nendmodule\n"
+---
+[
+    (
+        "`_+_`(#SemanticCastToExp(HOLE),#SemanticCastToExp(K1))",
+        "`_andBool_`(#token(\"true\",\"Bool\"),#token(\"true\",\"Bool\"))",
+        Some(
+            "MAIN._+_1",
+        ),
+    ),
+    (
+        "`_+_`(#SemanticCastToExp(K0),#SemanticCastToExp(HOLE))",
+        "`_andBool_`(isKResult(K0),#token(\"true\",\"Bool\"))",
+        Some(
+            "MAIN._+_2",
+        ),
+    ),
+]

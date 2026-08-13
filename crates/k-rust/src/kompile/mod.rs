@@ -12,7 +12,8 @@ pub use module_to_kore::{
 };
 pub use passes::{
     ResolveCommError, ResolveFunError, ResolveFunctionWithConfigError, ResolveIoError,
-    resolve_comm, resolve_config_var, resolve_fun, resolve_function_with_config, resolve_io,
+    ResolveStrictError, resolve_comm, resolve_config_var, resolve_fun,
+    resolve_function_with_config, resolve_io, resolve_strict,
 };
 pub use sort_injections::{
     SortInjectionError, SortInjector, add_sort_injections, add_sort_injections_from_resolved,

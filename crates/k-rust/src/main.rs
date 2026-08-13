@@ -14,7 +14,7 @@ use k_rust::{
     kast::{json as kast_json, parser::parse_sort, printer::Printer as KastPrinter},
     kompile::{
         module_to_kore_from_resolved, resolve_comm, resolve_fun, resolve_function_with_config,
-        resolve_io,
+        resolve_io, resolve_strict,
     },
     kore::{
         ast::{Attributes, Definition as KoreDefinition},
@@ -207,6 +207,9 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
         emit_diagnostics(&error.diagnostics);
     })?;
     let definition = resolve_function_with_config(&definition).inspect_err(|error| {
+        emit_diagnostics(&error.diagnostics);
+    })?;
+    let definition = resolve_strict(&definition).inspect_err(|error| {
         emit_diagnostics(&error.diagnostics);
     })?;
     let resolved = ResolvedDefinition::resolve(&definition)?;

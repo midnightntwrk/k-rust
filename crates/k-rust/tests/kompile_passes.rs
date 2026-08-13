@@ -6,7 +6,7 @@ use k_rust::{
     kast::{Label, Sort, Term, printer::Printer},
     kompile::{
         module_to_kore, resolve_comm, resolve_config_var, resolve_fun,
-        resolve_function_with_config, resolve_io,
+        resolve_function_with_config, resolve_io, resolve_strict,
     },
     outer::{ResolvedSource, load},
 };
@@ -709,4 +709,152 @@ fn does_not_alias_a_top_cell_for_unresolved_fresh_variables_alone() {
         })
         .unwrap();
     assert_eq!(body, &original);
+}
+
+#[test]
+fn generates_left_to_right_seqstrict_contexts_and_imports_bool() {
+    let source = indoc! {r#"
+        module BOOL
+        endmodule
+
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | Exp "+" Exp [seqstrict, symbol(_+_)]
+        endmodule
+    "#};
+    let transformed = resolve_strict(&parsed(source)).unwrap();
+    let main = transformed.main_module().unwrap();
+    assert_eq!(
+        main.imports
+            .iter()
+            .filter(|import| import.name == "BOOL" && !import.public)
+            .count(),
+        1
+    );
+    let contexts = main
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Context {
+                body,
+                requires,
+                attributes,
+            } => Some((
+                Printer::new().print_term(body),
+                Printer::new().print_term(requires),
+                attributes.get_str("label").map(str::to_owned),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(contexts);
+    });
+}
+
+#[test]
+fn expands_context_alias_groups_context_rewrites_and_hybrid_rules() {
+    let alias = Sentence::ContextAlias {
+        body: application("wrapper", vec![Term::variable("HERE")]),
+        requires: application("allowed", vec![Term::variable("K0")]),
+        attributes: attributes(&[
+            ("label", json!("custom")),
+            ("context", json!("resume")),
+            ("result", json!("Foo")),
+        ]),
+    };
+    let strict = Sentence::Production {
+        label: Some(Label::new("step")),
+        parameters: Vec::new(),
+        sort: Sort::new("Exp"),
+        items: vec![
+            ProductionItem::NonTerminal {
+                sort: Sort::new("Exp"),
+                name: None,
+            },
+            ProductionItem::NonTerminal {
+                sort: Sort::new("Exp"),
+                name: None,
+            },
+        ],
+        attributes: attributes(&[("seqstrict", json!("custom;1,2")), ("hybrid", json!("Foo"))]),
+    };
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![
+            module("BOOL", Vec::new()),
+            module("MAIN", vec![alias, strict]),
+        ],
+        attributes: Attributes::default(),
+    };
+
+    let transformed = resolve_strict(&definition).unwrap();
+    let main = transformed.main_module().unwrap();
+    assert!(
+        !main
+            .local_sentences
+            .iter()
+            .any(|sentence| matches!(sentence, Sentence::ContextAlias { .. }))
+    );
+    let contexts = main
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Context { body, requires, .. } => Some((
+                Printer::new().print_term(body),
+                Printer::new().print_term(requires),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(contexts.len(), 2);
+    assert!(
+        contexts
+            .iter()
+            .all(|(body, _)| body.contains("#SemanticCastToExp(HOLE)=>resume")),
+        "{contexts:#?}"
+    );
+    assert!(contexts[1].1.contains("isFoo(K0)"), "{contexts:#?}");
+    assert!(main.local_sentences.iter().any(|sentence| {
+        matches!(sentence, Sentence::Rule { body, requires, .. }
+            if Printer::new().print_term(body).starts_with("isFoo(step(")
+                && Printer::new().print_term(requires).contains("isFoo(K0)")
+                && Printer::new().print_term(requires).contains("isFoo(K1)"))
+    }));
+}
+
+#[test]
+fn rejects_strictness_aliases_that_do_not_exist() {
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![
+            module("BOOL", Vec::new()),
+            module(
+                "MAIN",
+                vec![Sentence::Production {
+                    label: Some(Label::new("step")),
+                    parameters: Vec::new(),
+                    sort: Sort::new("Exp"),
+                    items: vec![ProductionItem::NonTerminal {
+                        sort: Sort::new("Exp"),
+                        name: None,
+                    }],
+                    attributes: attributes(&[("strict", json!("missing"))]),
+                }],
+            ),
+        ],
+        attributes: Attributes::default(),
+    };
+
+    let error = resolve_strict(&definition).unwrap_err();
+    assert_eq!(error.diagnostics.len(), 1);
+    assert_eq!(
+        error.diagnostics[0].message,
+        "Found rule label \"missing\" in strictness attribute which did not refer to any sentence."
+    );
 }

@@ -173,9 +173,13 @@ catalog. `ResolveFunctionWithConfig` then discovers functions that inspect fresh
 variables, propagates that requirement transitively through the function call graph, adds a
 `GeneratedTopCell` parameter to their productions and applications, and lowers `#withConfig`
 function rules to explicit top-cell aliases. Its later configuration-variable aliasing operation is
-also available for the corresponding final pipeline stage. The native `kcompile` command runs all
-four early passes in order. Markdown and literate-K sources preserve their original offsets while
-extracting fenced blocks selected by `--md-selector`. The native resolver can load K's implicit `prelude.md`
+also available for the corresponding final pipeline stage. `ResolveStrict` now expands positional
+and context-alias forms of
+`strict` and `seqstrict` into typed evaluation contexts, preserves sequential result guards,
+generates `hybrid` predicate rules, removes consumed context aliases, and supplies the private
+`BOOL` import used by generated conditions. The native `kcompile` command runs all five early passes
+in order. Markdown and literate-K sources preserve their original
+offsets while extracting fenced blocks selected by `--md-selector`. The native resolver can load K's implicit `prelude.md`
 from `--builtin-directory` or `KRUST_BUILTIN_DIRECTORY`, translates historical builtin `.k`
 require names to their Markdown sources, imports `DEFAULT-CONFIGURATION` and `MAP` according to
 Java's policy, and now parses and validates the bundled prelude together with a real user
