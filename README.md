@@ -169,9 +169,13 @@ nested stream configurations. Java's third pass, `ResolveFun`, now lowers `#fun2
 `:=K`, and `:/=K` into collision-free generated lambda productions and rules, including typed
 closure parameters, totality, predicate owise cases, nested local functions, and fresh anonymous
 variables. Production metadata is rebased whenever generated lambda syntax changes a module's
-catalog. The native `kcompile` command runs all three passes in order. Markdown and literate-K
-sources preserve their original offsets while extracting fenced blocks selected by
-`--md-selector`. The native resolver can load K's implicit `prelude.md`
+catalog. `ResolveFunctionWithConfig` then discovers functions that inspect fresh or configuration
+variables, propagates that requirement transitively through the function call graph, adds a
+`GeneratedTopCell` parameter to their productions and applications, and lowers `#withConfig`
+function rules to explicit top-cell aliases. Its later configuration-variable aliasing operation is
+also available for the corresponding final pipeline stage. The native `kcompile` command runs all
+four early passes in order. Markdown and literate-K sources preserve their original offsets while
+extracting fenced blocks selected by `--md-selector`. The native resolver can load K's implicit `prelude.md`
 from `--builtin-directory` or `KRUST_BUILTIN_DIRECTORY`, translates historical builtin `.k`
 require names to their Markdown sources, imports `DEFAULT-CONFIGURATION` and `MAP` according to
 Java's policy, and now parses and validates the bundled prelude together with a real user

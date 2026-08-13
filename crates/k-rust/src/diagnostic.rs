@@ -22,6 +22,7 @@ pub enum DiagnosticCode {
     InvalidCommutativeSimplification,
     InvalidExistentialVariable,
     InvalidFunctionPattern,
+    InvalidFunctionConfiguration,
     InvalidLocalFunction,
     InvalidHole,
     InvalidListDeclaration,
