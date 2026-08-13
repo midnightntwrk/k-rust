@@ -249,6 +249,22 @@ cargo build --workspace --no-default-features
 cargo build --workspace --target wasm32-unknown-unknown --no-default-features
 ```
 
+## Reference differential corpus
+
+The ignored `k/` checkout remains the pinned frontend oracle. Run the complete structural KORE
+corpus with:
+
+```console
+K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-differential.sh
+```
+
+The runner compiles seven upstream definitions through the reference frontend and `krust`, strips
+source locations and generated sentence IDs, and compares each KORE module as a sentence multiset.
+It covers append syntax, ambiguous rewrites, casts, collection-cell rewrites, fresh variables,
+List/Set hooks, and rewrite macros. Individual named cases may be supplied as arguments, such as
+`scripts/reference-differential.sh casts cell-map`. Set `K_CHECKOUT` if the ignored checkout is not
+at `k/`.
+
 ## TODOs
 
 - Map retained inner-parser byte spans back to absolute source locations and preserve remaining
