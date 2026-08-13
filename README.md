@@ -265,6 +265,17 @@ List/Set hooks, and rewrite macros. Individual named cases may be supplied as ar
 `scripts/reference-differential.sh casts cell-map`. Set `K_CHECKOUT` if the ignored checkout is not
 at `k/`.
 
+The backend acceptance gate uses the installed Haskell and LLVM consumers directly:
+
+```console
+K_BACKEND_BIN=/path/to/pinned/bin scripts/backend-smoke.sh
+```
+
+It verifies an MPFR-folded FLOAT definition with Haskell's KORE verifier, loads and executes a
+four-claim definition with `kore-exec`, generates LLVM matching decision trees for the collection
+cell fixture, and links a native interpreter with `llvm-kompile`. `K_KOMPILE` may be supplied
+instead; its sibling backend executables will be used.
+
 ## TODOs
 
 - Map retained inner-parser byte spans back to absolute source locations and preserve remaining
@@ -279,8 +290,6 @@ at `k/`.
 - Add presentation adapters for diagnostics after the portable diagnostic model stabilizes. A
   renderer such as `miette` may be useful for a future native CLI, but it does not belong in the
   WASM-compatible core yet.
-- Run definitions containing MPFR-folded `FLOAT` constants through `ModuleToKORE` and validate
-  their artifacts with the Haskell backend as part of the broader differential corpus.
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete sort parameters normally supplied by parser inference.
 - Complete `ModuleToKORE` beyond ordinary rewrites, reachability claims, equations, macro axioms,
