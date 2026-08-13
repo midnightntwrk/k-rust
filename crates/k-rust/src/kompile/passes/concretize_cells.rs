@@ -1143,22 +1143,21 @@ fn collect_fragment_observations(
                     collect_direct_fragment_variables(argument, &mut variables);
                 }
                 for (name, annotated_sort) in variables {
-                    let constrained_sort = annotated_sort.as_ref().and_then(|sort| {
-                        parent
-                            .children
-                            .iter()
-                            .find(|child| sort == &child.sort || sort == &child.value_sort)
-                            .map(|child| child.sort.clone())
-                    });
+                    // Java tracks variables explicitly annotated with a cell sort separately from
+                    // cell-fragment variables. They already identify one complete child and must
+                    // remain unchanged at non-cell occurrences.
+                    if annotated_sort
+                        .as_ref()
+                        .is_some_and(|sort| model.cells.contains_key(sort))
+                    {
+                        continue;
+                    }
                     let candidates = parent
                         .children
                         .iter()
                         .filter(|child| {
-                            (child.multiplicity == Multiplicity::Star
-                                || !occupied.contains(&child.sort))
-                                && constrained_sort
-                                    .as_ref()
-                                    .is_none_or(|sort| sort == &child.sort)
+                            child.multiplicity == Multiplicity::Star
+                                || !occupied.contains(&child.sort)
                         })
                         .map(|child| child.sort.clone())
                         .collect();

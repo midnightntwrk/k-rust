@@ -149,7 +149,10 @@ SourceFile {
                                         Production {
                                             items: [
                                                 Terminal(
-                                                    "pair(",
+                                                    "pair",
+                                                ),
+                                                Terminal(
+                                                    "(",
                                                 ),
                                                 NonTerminal {
                                                     name: Some(

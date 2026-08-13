@@ -1775,6 +1775,46 @@ fn resolves_fresh_variables_and_generates_the_counter_configuration() {
 }
 
 #[test]
+fn preserves_explicit_cell_variables_while_sorting_cell_fragments() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Id ::= "freshId(" Int ")" [function, freshGenerator, symbol(freshId)]
+          configuration <k> 0 </k>
+          rule 0 => !X:Id
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. }
+                if Printer::new()
+                    .print_term(body)
+                    .starts_with("getGeneratedCounterCell") =>
+            {
+                Some(Printer::new().print_term(body))
+            }
+            _ => None,
+        })
+        .expect("counter projection rule should be generated");
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_snapshot!(body);
+    });
+}
+
+#[test]
 fn reports_missing_generators_for_fresh_variables() {
     let source = indoc! {r#"
         module MAIN

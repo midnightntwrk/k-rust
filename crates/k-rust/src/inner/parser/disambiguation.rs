@@ -103,12 +103,31 @@ impl Grammar {
     }
 
     fn top_parse_label<'a>(&'a self, term: &'a ParsedTerm) -> Option<&'a str> {
-        let (ParsedTerm::Production { production, .. }
-        | ParsedTerm::InstantiatedProduction { production, .. }) = term
-        else {
-            return None;
+        let (production, children) = match term {
+            ParsedTerm::Production {
+                production,
+                children,
+                ..
+            }
+            | ParsedTerm::InstantiatedProduction {
+                production,
+                children,
+                ..
+            } => (*production, children),
+            ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => return None,
         };
-        self.productions[*production].parse_label.as_deref()
+        let descriptor = &self.productions[production];
+        descriptor.parse_label.as_deref().or_else(|| {
+            if descriptor.syntactic_subsort
+                || (descriptor.parse_label.is_none() && children.len() == 1)
+            {
+                children
+                    .first()
+                    .and_then(|child| self.top_parse_label(child))
+            } else {
+                None
+            }
+        })
     }
 
     fn filter_priority_child(

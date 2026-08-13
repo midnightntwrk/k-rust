@@ -1920,6 +1920,37 @@ fn equation_info<'a>(
     let Term::Apply { label, arguments } = application.unannotated() else {
         return Ok(None);
     };
+    let simplification = attributes.get("simplification").is_some();
+    let anywhere = attributes.get("anywhere").is_some();
+    // Java's ModuleToKORE supplies a synthetic polymorphic production for `inj`; it is part of
+    // the KORE prelude rather than the compiled K module's production catalog.
+    if label.name == "inj" {
+        if !simplification && !anywhere {
+            return Ok(None);
+        }
+        let [from, to] = label.parameters.as_slice() else {
+            return Err(ModuleToKoreError::InvalidEquationProduction {
+                production: 0,
+                message: "sort injection labels must carry source and destination sorts".into(),
+            });
+        };
+        if arguments.len() != 1 {
+            return Err(ModuleToKoreError::InvalidEquationProduction {
+                production: 0,
+                message: format!(
+                    "sort injections take one argument but the equation has {}",
+                    arguments.len()
+                ),
+            });
+        }
+        return Ok(Some(EquationInfo {
+            label,
+            children: arguments,
+            argument_sorts: vec![from.clone()],
+            result_sort: to.clone(),
+            direct: simplification,
+        }));
+    }
     let production = resolve_equation_production(application, label, productions)?;
     let Sentence::Production {
         parameters,
@@ -1931,8 +1962,6 @@ fn equation_info<'a>(
     else {
         unreachable!("production catalogs contain productions")
     };
-    let simplification = attributes.get("simplification").is_some();
-    let anywhere = attributes.get("anywhere").is_some();
     if production_attributes.get("function").is_none() && !simplification && !anywhere {
         return Ok(None);
     }
@@ -3308,5 +3337,38 @@ mod tests {
                 arguments: Vec::new(),
             }])
         );
+    }
+
+    #[test]
+    fn uses_the_builtin_polymorphic_injection_production_for_equations() {
+        let definition = KDefinition {
+            main_module: "MAIN".into(),
+            modules: vec![crate::definition::FlatModule {
+                name: "MAIN".into(),
+                imports: Vec::new(),
+                local_sentences: Vec::new(),
+                attributes: KAttributes::default(),
+            }],
+            attributes: KAttributes::default(),
+        };
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let module = resolved.module_id("MAIN").unwrap();
+        let productions = resolved.production_catalog(module);
+        let from = Sort::new("Int");
+        let to = Sort::new("KItem");
+        let left = Term::Apply {
+            label: Label::with_parameters("inj", vec![from.clone(), to.clone()]),
+            arguments: vec![Term::variable("X")],
+        };
+        let mut attributes = KAttributes::default();
+        attributes.insert("simplification", json!(""));
+
+        let equation = equation_info(&left, &attributes, &productions)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(equation.argument_sorts, [from]);
+        assert_eq!(equation.result_sort, to);
+        assert!(equation.direct);
     }
 }

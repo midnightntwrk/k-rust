@@ -469,6 +469,29 @@ rule_snapshot!(
 );
 
 rule_snapshot!(
+    scopes_a_cross_sort_top_level_rewrite_over_its_rhs_operator,
+    r#"
+        module MAIN
+          syntax Pgm ::= "run" [symbol(run)]
+          syntax Exp ::= "value" [symbol(value)]
+                       | Exp "*" Exp [symbol(times)]
+          rule run => value * value
+        endmodule
+    "#
+);
+
+rule_snapshot!(
+    parses_whitespace_between_an_unquoted_prefix_label_and_parenthesis,
+    r#"
+        module MAIN
+          syntax Float ::= r"[0-9]+" [token]
+          syntax Pgm ::= f32mul ( Float, Float )
+          rule f32mul ( F1, F2 ) => f32mul(F2, F1)
+        endmodule
+    "#
+);
+
+rule_snapshot!(
     brackets_shield_associativity,
     r#"
         module MAIN

@@ -84,7 +84,10 @@ Definition {
                     },
                     items: [
                         Terminal(
-                            "pair(",
+                            "pair",
+                        ),
+                        Terminal(
+                            "(",
                         ),
                         NonTerminal {
                             sort: Sort {

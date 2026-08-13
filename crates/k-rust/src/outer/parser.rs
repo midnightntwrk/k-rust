@@ -310,7 +310,8 @@ impl<'a> Parser<'a> {
                             sort: self.sort()?,
                         });
                     } else if self.consume("(") {
-                        items.push(ProductionItem::Terminal(format!("{first}(")));
+                        items.push(ProductionItem::Terminal(first));
+                        items.push(ProductionItem::Terminal("(".into()));
                         let arguments = self.nonterminals_until(')')?;
                         for (index, argument) in arguments.into_iter().enumerate() {
                             if index > 0 {

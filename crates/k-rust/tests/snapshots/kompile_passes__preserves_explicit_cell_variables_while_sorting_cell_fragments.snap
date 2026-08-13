@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Id ::= \"freshId(\" Int \")\" [function, freshGenerator, symbol(freshId)]\n  configuration <k> 0 </k>\n  rule 0 => !X:Id\nendmodule\n"
+---
+getGeneratedCounterCell(`<generatedTop>`(_DotVar0,Cell))=>Cell
