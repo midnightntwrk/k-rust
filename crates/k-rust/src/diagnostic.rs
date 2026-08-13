@@ -24,6 +24,7 @@ pub enum DiagnosticCode {
     InvalidContext,
     InvalidExistentialVariable,
     InvalidFunctionPattern,
+    InvalidFreshConstant,
     InvalidFunctionConfiguration,
     InvalidLocalFunction,
     InvalidHole,

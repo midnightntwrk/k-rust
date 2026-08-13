@@ -11,9 +11,13 @@ use crate::{
 };
 
 mod constant_folding;
+mod generate_sort_helpers;
+mod guard_or_patterns;
 mod number_sentences;
+mod propagate_macro;
 mod resolve_anon_vars;
 mod resolve_contexts;
+mod resolve_fresh_config_constants;
 mod resolve_fun;
 mod resolve_function_with_config;
 mod resolve_heat_cool;
@@ -23,9 +27,15 @@ mod resolve_strict;
 mod subsort_kitem;
 
 pub use constant_folding::{ConstantFoldingError, constant_fold};
+pub use generate_sort_helpers::{generate_sort_predicate_syntax, generate_sort_projections};
+pub use guard_or_patterns::guard_or_patterns;
 pub use number_sentences::number_sentences;
+pub use propagate_macro::propagate_macro_attributes;
 pub use resolve_anon_vars::resolve_anon_vars;
 pub use resolve_contexts::{ResolveContextsError, resolve_contexts};
+pub use resolve_fresh_config_constants::{
+    ResolveFreshConfigConstantsError, resolve_fresh_config_constants,
+};
 pub use resolve_fun::{ResolveFunError, resolve_fun};
 pub use resolve_function_with_config::{
     ResolveFunctionWithConfigError, resolve_config_var, resolve_function_with_config,

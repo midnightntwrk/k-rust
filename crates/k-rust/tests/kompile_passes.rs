@@ -5,8 +5,10 @@ use k_rust::{
     },
     kast::{Label, Sort, Term, printer::Printer},
     kompile::{
-        constant_fold, module_to_kore, number_sentences, resolve_anon_vars, resolve_comm,
-        resolve_config_var, resolve_contexts, resolve_fun, resolve_function_with_config,
+        constant_fold, generate_sort_predicate_syntax, generate_sort_projections,
+        guard_or_patterns, module_to_kore, number_sentences, propagate_macro_attributes,
+        resolve_anon_vars, resolve_comm, resolve_config_var, resolve_contexts,
+        resolve_fresh_config_constants, resolve_fun, resolve_function_with_config,
         resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts, resolve_strict,
         subsort_kitem,
     },
@@ -1096,6 +1098,274 @@ fn reports_invalid_constant_operations() {
     };
     let error = constant_fold(&definition).unwrap_err();
     assert_eq!(error.diagnostics[0].message, "Division by zero.");
+}
+
+#[test]
+fn propagates_production_macro_kinds_except_to_simplification_rules() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "m(" Exp ")" [macro-rec, symbol(m)]
+          rule m(X:Exp) => X:Exp [label(expand)]
+          rule m(a) => a [simplification, label(simplify)]
+        endmodule
+    "#};
+    let transformed = propagate_macro_attributes(&parsed(source)).unwrap();
+    let attributes = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule { attributes, .. } => Some((
+                attributes.get_str("label").map(str::to_owned),
+                attributes.get("macro-rec").is_some(),
+                attributes.get("simplification").is_some(),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(attributes);
+    });
+}
+
+#[test]
+fn guards_or_patterns_with_collision_free_typed_aliases() {
+    let source = indoc! {r##"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "b" [symbol(b)]
+                       | Exp "#Or" Exp [symbol(#Or)]
+          rule a #Or b
+        endmodule
+    "##};
+    let transformed = guard_or_patterns(&parsed(source)).unwrap();
+    let output = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .unwrap();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(output);
+    });
+}
+
+#[test]
+fn or_guards_do_not_cross_existing_alias_or_rewrite_boundaries() {
+    let or = Term::Apply {
+        label: Label::with_parameters("#Or", vec![Sort::new("Exp")]),
+        arguments: vec![application("a", Vec::new()), application("b", Vec::new())],
+    };
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                production("a", "Exp", Attributes::default()),
+                production("b", "Exp", Attributes::default()),
+                rule(rewrite(or.clone(), or.clone()), Attributes::default()),
+                Sentence::Context {
+                    body: Term::As {
+                        pattern: Box::new(or),
+                        alias: Box::new(Term::variable("X")),
+                    },
+                    requires: truth(),
+                    attributes: Attributes::default(),
+                },
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+    assert_eq!(guard_or_patterns(&definition).unwrap(), definition);
+}
+
+#[test]
+fn allocates_shared_and_anonymous_fresh_configuration_constants() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int [hook(INT.Int)]
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Int ::= "initA" [function, initializer, symbol(initA)]
+                       | "initB" [function, initializer, symbol(initB)]
+          rule initA => !X:Int [initializer]
+          rule initB => !X:Int [initializer]
+          rule initA => !_ [initializer]
+          rule initB => !_ [initializer]
+        endmodule
+    "#};
+    let definition = resolve_anon_vars(&parsed(source));
+    let definition = resolve_semantic_casts(&definition);
+    let (transformed, next_fresh) = resolve_fresh_config_constants(&definition).unwrap();
+    let bodies = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let output = (bodies, next_fresh);
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(output);
+    });
+}
+
+#[test]
+fn rejects_non_integer_fresh_configuration_constants() {
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![Sentence::Rule {
+                body: rewrite(
+                    application("init", Vec::new()),
+                    Term::Variable {
+                        name: "!Fresh".into(),
+                        sort: Some(Sort::new("String")),
+                    },
+                ),
+                requires: truth(),
+                ensures: truth(),
+                attributes: attributes(&[("initializer", json!(""))]),
+            }],
+        )],
+        attributes: Attributes::default(),
+    };
+    let error = resolve_fresh_config_constants(&definition).unwrap_err();
+    assert_eq!(
+        error.diagnostics[0].message,
+        "Can't resolve fresh configuration variable not of sort Int"
+    );
+}
+
+#[test]
+fn generates_predicates_for_each_local_sort() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Bool
+          syntax Exp ::= "a" [symbol(a)]
+          syntax Data ::= "d" [symbol(d)]
+        endmodule
+    "#};
+    let transformed = generate_sort_predicate_syntax(&parsed(source)).unwrap();
+    let predicates = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label),
+                sort,
+                attributes,
+                ..
+            } if attributes.get("predicate").is_some() => Some((
+                label.name.clone(),
+                sort.to_string(),
+                attributes.get("predicate").cloned(),
+                attributes.get("total").is_some(),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(predicates);
+    });
+}
+
+#[test]
+fn generates_generic_and_named_field_projections() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Pair ::= pair(left: Int, right: Int) [symbol(pair)]
+        endmodule
+    "#};
+    let definition = generate_sort_predicate_syntax(&parsed(source)).unwrap();
+    let transformed = generate_sort_projections(&definition).unwrap();
+    let output = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } if label.name.starts_with("project:") => Some((
+                "production",
+                label.name.clone(),
+                attributes.get("total").is_some(),
+                attributes.get("projection").is_some(),
+            )),
+            Sentence::Rule {
+                body, attributes, ..
+            } if Printer::new().print_term(body).starts_with("`project:") => Some((
+                "rule",
+                Printer::new().print_term(body),
+                attributes.get("total").is_some(),
+                attributes.get("projection").is_some(),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(output);
+    });
+}
+
+#[test]
+fn generated_sort_projections_are_idempotent() {
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![Sentence::SyntaxSort {
+                parameters: Vec::new(),
+                sort: Sort::new("Exp"),
+                attributes: Attributes::default(),
+            }],
+        )],
+        attributes: Attributes::default(),
+    };
+    let definition = generate_sort_predicate_syntax(&definition).unwrap();
+    let once = generate_sort_projections(&definition).unwrap();
+    let twice = generate_sort_projections(&once).unwrap();
+    assert_eq!(once, twice);
 }
 
 #[test]

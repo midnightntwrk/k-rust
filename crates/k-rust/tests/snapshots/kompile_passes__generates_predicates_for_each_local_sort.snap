@@ -1,0 +1,42 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Bool\n  syntax Exp ::= \"a\" [symbol(a)]\n  syntax Data ::= \"d\" [symbol(d)]\nendmodule\n"
+---
+[
+    (
+        "isBool",
+        "Bool",
+        Some(
+            Object {
+                "name": String("Bool"),
+                "node": String("KSort"),
+                "params": Array [],
+            },
+        ),
+        true,
+    ),
+    (
+        "isData",
+        "Bool",
+        Some(
+            Object {
+                "name": String("Data"),
+                "node": String("KSort"),
+                "params": Array [],
+            },
+        ),
+        true,
+    ),
+    (
+        "isExp",
+        "Bool",
+        Some(
+            Object {
+                "name": String("Exp"),
+                "node": String("KSort"),
+                "params": Array [],
+            },
+        ),
+        true,
+    ),
+]

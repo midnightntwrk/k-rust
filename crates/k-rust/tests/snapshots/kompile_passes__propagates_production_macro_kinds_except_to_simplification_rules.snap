@@ -1,0 +1,20 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= \"a\" [symbol(a)]\n               | \"m(\" Exp \")\" [macro-rec, symbol(m)]\n  rule m(X:Exp) => X:Exp [label(expand)]\n  rule m(a) => a [simplification, label(simplify)]\nendmodule\n"
+---
+[
+    (
+        Some(
+            "expand",
+        ),
+        true,
+        false,
+    ),
+    (
+        Some(
+            "simplify",
+        ),
+        false,
+        true,
+    ),
+]

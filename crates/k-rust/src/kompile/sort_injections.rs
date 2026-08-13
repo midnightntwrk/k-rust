@@ -243,6 +243,34 @@ impl<'a> SortInjector<'a> {
                     return self.term_sort(argument, expected);
                 }
                 match label.name.as_str() {
+                    "#Top" | "#Bottom" | "#And" | "#Or" | "#Not" | "#Implies" | "#AG"
+                    | "weakExistsFinally" | "weakAlwaysFinally" => {
+                        return label.parameters.first().cloned().ok_or_else(|| {
+                            SortInjectionError::MissingParameters {
+                                label: label.name.clone(),
+                                expected: 1,
+                                actual: label.parameters.len(),
+                            }
+                        });
+                    }
+                    "#Ceil" | "#Floor" | "#Equals" => {
+                        return label.parameters.get(1).cloned().ok_or_else(|| {
+                            SortInjectionError::MissingParameters {
+                                label: label.name.clone(),
+                                expected: 2,
+                                actual: label.parameters.len(),
+                            }
+                        });
+                    }
+                    "#Exists" | "#Forall" => {
+                        return label.parameters.last().cloned().ok_or_else(|| {
+                            SortInjectionError::MissingParameters {
+                                label: label.name.clone(),
+                                expected: 1,
+                                actual: 0,
+                            }
+                        });
+                    }
                     "#fun2" if arguments.len() >= 2 => {
                         return self.term_sort(&arguments[0], expected);
                     }

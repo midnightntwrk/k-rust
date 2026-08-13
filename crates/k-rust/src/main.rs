@@ -13,8 +13,10 @@ use k_rust::{
     inner::ProgramParser,
     kast::{json as kast_json, parser::parse_sort, printer::Printer as KastPrinter},
     kompile::{
-        constant_fold, module_to_kore_from_resolved, number_sentences, resolve_anon_vars,
-        resolve_comm, resolve_contexts, resolve_fun, resolve_function_with_config,
+        constant_fold, generate_sort_predicate_syntax, generate_sort_projections,
+        guard_or_patterns, module_to_kore_from_resolved, number_sentences,
+        propagate_macro_attributes, resolve_anon_vars, resolve_comm, resolve_contexts,
+        resolve_fresh_config_constants, resolve_fun, resolve_function_with_config,
         resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts, resolve_strict,
         subsort_kitem,
     },
@@ -227,6 +229,14 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     let definition = constant_fold(&definition).inspect_err(|error| {
         emit_diagnostics(&error.diagnostics);
     })?;
+    let definition = propagate_macro_attributes(&definition)?;
+    let definition = guard_or_patterns(&definition)?;
+    let (definition, _fresh_config_count) = resolve_fresh_config_constants(&definition)
+        .inspect_err(|error| {
+            emit_diagnostics(&error.diagnostics);
+        })?;
+    let definition = generate_sort_predicate_syntax(&definition)?;
+    let definition = generate_sort_projections(&definition)?;
     let resolved = ResolvedDefinition::resolve(&definition)?;
     let generated = module_to_kore_from_resolved(&resolved, &options.common.module)?;
     fs::create_dir_all(&options.output_directory)?;

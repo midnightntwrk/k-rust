@@ -186,8 +186,11 @@ Java's semantic-attribute filtering and alpha normalization. Heat/cool attribute
 result predicates, semantic casts become transparent compiler sort metadata, and every non-parser
 sort receives its backend `KItem` subsort. Rewrite-aware constant folding evaluates Java's pure
 Boolean, arbitrary-precision integer, and Unicode string hook families while leaving rule LHS terms
-untouched. The native pipeline runs these first twelve stages in Java order. Markdown and literate-K
-sources preserve their original
+untouched. Production macro kinds now propagate to non-simplification rules, matching-logic
+disjunctions receive typed collision-free aliases, and initializer rules allocate stable integer
+constants for fresh configuration variables. Generated syntax now includes local-sort predicates,
+generic projections, and named record-field projections. The native pipeline runs these first
+seventeen stages in Java order. Markdown and literate-K sources preserve their original
 offsets while extracting fenced blocks selected by `--md-selector`. The native resolver can load K's implicit `prelude.md`
 from `--builtin-directory` or `KRUST_BUILTIN_DIRECTORY`, translates historical builtin `.k`
 require names to their Markdown sources, imports `DEFAULT-CONFIGURATION` and `MAP` according to

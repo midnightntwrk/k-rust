@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= \"a\" [symbol(a)]\n               | \"b\" [symbol(b)]\n               | Exp \"#Or\" Exp [symbol(#Or)]\n  rule a #Or b\nendmodule\n"
+---
+"#Or(a(.KList),b(.KList)) #as _Gen0"

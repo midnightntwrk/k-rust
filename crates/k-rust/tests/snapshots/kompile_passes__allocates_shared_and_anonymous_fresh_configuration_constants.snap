@@ -1,0 +1,13 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int [hook(INT.Int)]\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Int ::= \"initA\" [function, initializer, symbol(initA)]\n               | \"initB\" [function, initializer, symbol(initB)]\n  rule initA => !X:Int [initializer]\n  rule initB => !X:Int [initializer]\n  rule initA => !_ [initializer]\n  rule initB => !_ [initializer]\nendmodule\n"
+---
+(
+    [
+        "initA(.KList)=>#token(\"0\",\"Int\")",
+        "initB(.KList)=>#token(\"0\",\"Int\")",
+        "initA(.KList)=>#token(\"1\",\"Int\")",
+        "initB(.KList)=>#token(\"2\",\"Int\")",
+    ],
+    3,
+)
