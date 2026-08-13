@@ -1926,6 +1926,62 @@ fn fills_absent_optional_and_repeated_cells_with_their_units() {
 }
 
 #[test]
+fn splits_cell_fragment_variables_and_rebuilds_external_occurrences() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bool ::= "isTopCellFragment" "(" TopCellFragment ")"
+            [function, symbol(isTopCellFragment)]
+          syntax Bool ::= "ok" "(" TopCellFragment ")" [function, symbol(ok)]
+          configuration
+            <top>
+              <k> 0 </k>
+              <state> 1 </state>
+              <env> 2 </env>
+            </top>
+          rule <top>
+            <k> 0 => 1 ... </k>
+            CELLS:TopCellFragment
+          </top>
+          requires isTopCellFragment(CELLS)
+          ensures ok(CELLS)
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let output = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                attributes,
+                ..
+            } if attributes.get("initializer").is_none() => Some((
+                Printer::new().print_term(body),
+                Printer::new().print_term(requires),
+                Printer::new().print_term(ensures),
+            )),
+            _ => None,
+        })
+        .unwrap();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(output);
+    });
+}
+
+#[test]
 fn finalizes_language_parsing_and_sort_predicate_rules() {
     let source = indoc! {r#"
         module MAIN

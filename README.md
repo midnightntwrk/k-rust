@@ -196,7 +196,9 @@ fresh rule variables are lowered through per-sort generators backed by a generat
 and the second sort-helper wave and simplification-rule checks run before the final KItem subsorts.
 Cell concretization then completes nested abstractions, inserts missing parents and the generated
 root, closes open leaf cells, orders fixed-arity children, and supplies optional and repeated-cell
-units. `ResolveIO` also rebases parser production identities across the stream syntax and imports it
+units. Sentence-wide cell-fragment analysis splits variables across compatible child sorts,
+reconstructs fragment terms at non-cell occurrences, and decomposes fragment predicates into
+child-sort tests. `ResolveIO` also rebases parser production identities across the stream syntax and imports it
 adds, so a bundled stdin-stream definition now reaches parseable backend KORE artifacts end to end.
 The finalization stages add `LANGUAGE-PARSING`, alias exact configuration variables, recognize
 `cool-like` rules, generate positive and `owise` sort-predicate equations, and assign final sentence

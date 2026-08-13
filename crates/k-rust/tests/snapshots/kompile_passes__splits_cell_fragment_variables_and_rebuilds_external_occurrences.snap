@@ -1,0 +1,9 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Bool ::= \"isTopCellFragment\" \"(\" TopCellFragment \")\"\n    [function, symbol(isTopCellFragment)]\n  syntax Bool ::= \"ok\" \"(\" TopCellFragment \")\" [function, symbol(ok)]\n  configuration\n    <top>\n      <k> 0 </k>\n      <state> 1 </state>\n      <env> 2 </env>\n    </top>\n  rule <top>\n    <k> 0 => 1 ... </k>\n    CELLS:TopCellFragment\n  </top>\n  requires isTopCellFragment(CELLS)\n  ensures ok(CELLS)\nendmodule\n"
+---
+(
+    "`<generatedTop>`(`<top>`(`<k>`(``#token(\"0\",\"Int\")=>#token(\"1\",\"Int\")``~>_DotVar0),_CellFragment3,_CellFragment2),_DotVar1)",
+    "`_andBool_`(isEnvCell(_CellFragment2),isStateCell(_CellFragment3))",
+    "ok(`<top>-fragment`(noKCell(.KList),_CellFragment3,_CellFragment2))",
+)

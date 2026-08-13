@@ -410,7 +410,15 @@ struct Concretizer<'a> {
     model: &'a CellModel,
     productions: &'a ProductionCatalog<'a>,
     variables: BTreeSet<String>,
+    fragments: BTreeMap<String, FragmentInfo>,
     counter: usize,
+}
+
+#[derive(Clone)]
+struct FragmentInfo {
+    parent: Sort,
+    candidates: BTreeSet<Sort>,
+    split: BTreeMap<Sort, Term>,
 }
 
 impl<'a> Concretizer<'a> {
@@ -419,6 +427,7 @@ impl<'a> Concretizer<'a> {
             model,
             productions,
             variables: BTreeSet::new(),
+            fragments: BTreeMap::new(),
             counter: 0,
         }
     }
@@ -431,6 +440,7 @@ impl<'a> Concretizer<'a> {
             return Ok(sentence);
         }
         self.variables.clear();
+        self.fragments.clear();
         self.counter = 0;
         for root in sentence_roots(&sentence) {
             root.visit_preorder(&mut |term| {
@@ -445,32 +455,44 @@ impl<'a> Concretizer<'a> {
                 requires,
                 ensures,
                 attributes,
-            } => Ok(Sentence::Rule {
-                body: self.concretize_body(body)?,
-                requires,
-                ensures,
-                attributes,
-            }),
+            } => {
+                let body = self.concretize_body(body)?;
+                self.analyze_fragments([&body, &requires, &ensures])?;
+                Ok(Sentence::Rule {
+                    body: self.sort_cells(body)?,
+                    requires: self.sort_cells(requires)?,
+                    ensures: self.sort_cells(ensures)?,
+                    attributes,
+                })
+            }
             Sentence::Claim {
                 body,
                 requires,
                 ensures,
                 attributes,
-            } => Ok(Sentence::Claim {
-                body: self.concretize_body(body)?,
-                requires,
-                ensures,
-                attributes,
-            }),
+            } => {
+                let body = self.concretize_body(body)?;
+                self.analyze_fragments([&body, &requires, &ensures])?;
+                Ok(Sentence::Claim {
+                    body: self.sort_cells(body)?,
+                    requires: self.sort_cells(requires)?,
+                    ensures: self.sort_cells(ensures)?,
+                    attributes,
+                })
+            }
             Sentence::Context {
                 body,
                 requires,
                 attributes,
-            } => Ok(Sentence::Context {
-                body: self.concretize_body(body)?,
-                requires,
-                attributes,
-            }),
+            } => {
+                let body = self.concretize_body(body)?;
+                self.analyze_fragments([&body, &requires])?;
+                Ok(Sentence::Context {
+                    body: self.sort_cells(body)?,
+                    requires: self.sort_cells(requires)?,
+                    attributes,
+                })
+            }
             sentence => Ok(sentence),
         }
     }
@@ -482,8 +504,62 @@ impl<'a> Concretizer<'a> {
             self.add_root(body)?
         };
         let body = self.add_parents(body)?;
-        let body = self.close(body, false)?;
-        self.sort_cells(body)
+        self.close(body, false)
+    }
+
+    fn analyze_fragments<'b>(
+        &mut self,
+        roots: impl IntoIterator<Item = &'b Term>,
+    ) -> Result<(), String> {
+        let mut observations = Vec::<(String, Sort, BTreeSet<Sort>)>::new();
+        for root in roots {
+            collect_fragment_observations(root, self.model, &mut observations);
+        }
+        for (name, parent, candidates) in observations {
+            let entry = self.fragments.entry(name.clone()).or_insert(FragmentInfo {
+                parent: parent.clone(),
+                candidates: candidates.clone(),
+                split: BTreeMap::new(),
+            });
+            if entry.parent != parent {
+                return Err(format!(
+                    "Cell variable {name} is used under two cells: {} and {parent}",
+                    entry.parent
+                ));
+            }
+            entry.candidates = entry
+                .candidates
+                .intersection(&candidates)
+                .cloned()
+                .collect();
+        }
+        let pending = self
+            .fragments
+            .iter()
+            .map(|(name, info)| (name.clone(), info.candidates.clone()))
+            .collect::<Vec<_>>();
+        for (name, candidates) in pending {
+            let mut split = BTreeMap::new();
+            for sort in candidates {
+                let child = self
+                    .model
+                    .cells
+                    .get(&self.fragments[&name].parent)
+                    .and_then(|cell| cell.children.iter().find(|child| child.sort == sort))
+                    .expect("fragment candidates are parent children");
+                let term = if self.fragments[&name].candidates.len() == 1 {
+                    Term::Variable {
+                        name: name.clone(),
+                        sort: Some(child.value_sort.clone()),
+                    }
+                } else {
+                    self.fresh_variable(Some(child.value_sort.clone()), "_CellFragment")
+                };
+                split.insert(sort, term);
+            }
+            self.fragments.get_mut(&name).unwrap().split = split;
+        }
+        Ok(())
     }
 
     fn add_root(&self, term: Term) -> Result<Term, String> {
@@ -810,36 +886,74 @@ impl<'a> Concretizer<'a> {
     }
 
     fn sort_cells(&mut self, term: Term) -> Result<Term, String> {
+        self.sort_cells_with_fragments(term, true)
+    }
+
+    fn sort_cells_with_fragments(
+        &mut self,
+        term: Term,
+        replace_fragments: bool,
+    ) -> Result<Term, String> {
         let metadata = term.metadata().cloned();
         let rebuilt = match term.into_unannotated() {
             Term::Apply { label, arguments } => {
-                let arguments = arguments
-                    .into_iter()
-                    .map(|argument| self.sort_cells(argument))
-                    .collect::<Result<Vec<_>, _>>()?;
-                if let Some(cell) = self.model.cell_for_label(&label)
+                if let [argument] = arguments.as_slice()
+                    && let Term::Variable { name, .. } = argument.unannotated()
+                    && let Some(info) = self.fragments.get(name)
+                    && (label.name == format!("is{}Fragment", info.parent) || label.name == "isBag")
+                {
+                    fragment_predicate(info, self.model)
+                } else if let Some(cell) = self.model.cell_for_label(&label)
                     && !cell.children.is_empty()
                 {
-                    self.order_children(label, arguments, cell)?
+                    let ordered = self.order_children(label, arguments, cell)?;
+                    let Term::Apply { label, arguments } = ordered else {
+                        unreachable!()
+                    };
+                    Term::Apply {
+                        label,
+                        arguments: arguments
+                            .into_iter()
+                            .map(|argument| self.sort_cells_with_fragments(argument, false))
+                            .collect::<Result<_, _>>()?,
+                    }
                 } else {
-                    Term::Apply { label, arguments }
+                    Term::Apply {
+                        label,
+                        arguments: arguments
+                            .into_iter()
+                            .map(|argument| {
+                                self.sort_cells_with_fragments(argument, replace_fragments)
+                            })
+                            .collect::<Result<_, _>>()?,
+                    }
                 }
             }
             Term::Rewrite { left, right } => Term::Rewrite {
-                left: Box::new(self.sort_cells(*left)?),
-                right: Box::new(self.sort_cells(*right)?),
+                left: Box::new(self.sort_cells_with_fragments(*left, replace_fragments)?),
+                right: Box::new(self.sort_cells_with_fragments(*right, replace_fragments)?),
             },
             Term::As { pattern, alias } => Term::As {
-                pattern: Box::new(self.sort_cells(*pattern)?),
-                alias: Box::new(self.sort_cells(*alias)?),
+                pattern: Box::new(self.sort_cells_with_fragments(*pattern, replace_fragments)?),
+                alias: Box::new(self.sort_cells_with_fragments(*alias, replace_fragments)?),
             },
             Term::Sequence(items) => Term::Sequence(
                 items
                     .into_iter()
-                    .map(|item| self.sort_cells(item))
+                    .map(|item| self.sort_cells_with_fragments(item, replace_fragments))
                     .collect::<Result<_, _>>()?,
             ),
-            leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
+            Term::Variable { name, sort } => {
+                if replace_fragments {
+                    self.fragments.get(&name).map_or_else(
+                        || Ok(Term::Variable { name, sort }),
+                        |info| fragment_replacement(info, self.model),
+                    )?
+                } else {
+                    Term::Variable { name, sort }
+                }
+            }
+            leaf @ (Term::InjectedLabel(_) | Term::Token { .. }) => leaf,
             Term::Annotated { .. } => unreachable!(),
         };
         Ok(with_metadata(rebuilt, metadata))
@@ -900,6 +1014,16 @@ impl<'a> Concretizer<'a> {
             }
         }
         for variable in unknown {
+            let variable_name = match variable.unannotated() {
+                Term::Variable { name, .. } => name,
+                _ => unreachable!(),
+            };
+            if let Some(info) = self.fragments.get(variable_name) {
+                for (sort, split) in info.split.clone() {
+                    self.insert_child(&mut ordered, sort, split, cell)?;
+                }
+                continue;
+            }
             let candidates = cell
                 .children
                 .iter()
@@ -912,13 +1036,6 @@ impl<'a> Concretizer<'a> {
                 [child] => {
                     let variable = set_variable_sort(variable, child.value_sort.clone());
                     self.insert_child(&mut ordered, child.sort.clone(), variable, cell)?;
-                }
-                _ if matches!(variable.unannotated(), Term::Variable { name, .. } if name.starts_with("_DotVar")) => {
-                    for child in candidates {
-                        let split =
-                            self.fresh_variable(Some(child.value_sort.clone()), "_CellFragment");
-                        self.insert_child(&mut ordered, child.sort.clone(), split, cell)?;
-                    }
                 }
                 _ => {
                     return Err(format!(
@@ -997,6 +1114,133 @@ impl<'a> Concretizer<'a> {
         };
         Term::Variable { name, sort }
     }
+}
+
+fn collect_fragment_observations(
+    term: &Term,
+    model: &CellModel,
+    observations: &mut Vec<(String, Sort, BTreeSet<Sort>)>,
+) {
+    match term.unannotated() {
+        Term::Apply { label, arguments } => {
+            if let Some(parent) = model.cell_for_label(label)
+                && !parent.children.is_empty()
+            {
+                let occupied = arguments
+                    .iter()
+                    .flat_map(flatten_cells)
+                    .filter_map(|item| model.sort_for_term(item))
+                    .filter(|sort| {
+                        parent
+                            .children
+                            .iter()
+                            .find(|child| child.sort == *sort)
+                            .is_some_and(|child| child.multiplicity != Multiplicity::Star)
+                    })
+                    .collect::<BTreeSet<_>>();
+                let mut variables = Vec::new();
+                for argument in arguments {
+                    collect_direct_fragment_variables(argument, &mut variables);
+                }
+                for (name, annotated_sort) in variables {
+                    let constrained_sort = annotated_sort.as_ref().and_then(|sort| {
+                        parent
+                            .children
+                            .iter()
+                            .find(|child| sort == &child.sort || sort == &child.value_sort)
+                            .map(|child| child.sort.clone())
+                    });
+                    let candidates = parent
+                        .children
+                        .iter()
+                        .filter(|child| {
+                            (child.multiplicity == Multiplicity::Star
+                                || !occupied.contains(&child.sort))
+                                && constrained_sort
+                                    .as_ref()
+                                    .is_none_or(|sort| sort == &child.sort)
+                        })
+                        .map(|child| child.sort.clone())
+                        .collect();
+                    observations.push((name, parent.sort.clone(), candidates));
+                }
+            }
+            for argument in arguments {
+                collect_fragment_observations(argument, model, observations);
+            }
+        }
+        Term::Rewrite { left, right } => {
+            collect_fragment_observations(left, model, observations);
+            collect_fragment_observations(right, model, observations);
+        }
+        Term::As { pattern, alias } => {
+            collect_fragment_observations(pattern, model, observations);
+            collect_fragment_observations(alias, model, observations);
+        }
+        Term::Sequence(items) => {
+            for item in items {
+                collect_fragment_observations(item, model, observations);
+            }
+        }
+        Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => {}
+        Term::Annotated { .. } => unreachable!(),
+    }
+}
+
+fn collect_direct_fragment_variables(term: &Term, variables: &mut Vec<(String, Option<Sort>)>) {
+    for item in flatten_cells(term) {
+        match item.unannotated() {
+            Term::Variable { name, sort } => variables.push((name.clone(), sort.clone())),
+            Term::Rewrite { left, right } => {
+                collect_direct_fragment_variables(left, variables);
+                collect_direct_fragment_variables(right, variables);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn fragment_replacement(info: &FragmentInfo, model: &CellModel) -> Result<Term, String> {
+    let parent = &model.cells[&info.parent];
+    let mut arguments = Vec::with_capacity(parent.children.len());
+    for child in &parent.children {
+        if let Some(term) = info.split.get(&child.sort) {
+            arguments.push(term.clone());
+        } else if let Some(unit) = unit(child) {
+            arguments.push(unit);
+        } else {
+            arguments.push(Term::apply(format!("no{}", child.sort), Vec::new()));
+        }
+    }
+    if parent.children.is_empty() {
+        return Err(format!(
+            "Unsupported cell fragment with types under {}",
+            parent.label.name
+        ));
+    }
+    Ok(Term::apply(
+        format!("{}-fragment", parent.label.name),
+        arguments,
+    ))
+}
+
+fn fragment_predicate(info: &FragmentInfo, model: &CellModel) -> Term {
+    let parent = &model.cells[&info.parent];
+    info.split
+        .iter()
+        .map(|(sort, term)| {
+            let child = parent
+                .children
+                .iter()
+                .find(|child| &child.sort == sort)
+                .expect("fragment split sorts are parent children");
+            Term::apply(format!("is{}", child.value_sort), vec![term.clone()])
+        })
+        .reduce(|left, right| Term::apply("_andBool_", vec![left, right]))
+        .unwrap_or_else(|| Term::Token {
+            token: "true".into(),
+            sort: Sort::new("Bool"),
+        })
 }
 
 fn skip_sentence(sentence: &Sentence) -> bool {
