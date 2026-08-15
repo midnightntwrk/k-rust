@@ -7,6 +7,33 @@ KORE artifacts consumed by the existing Haskell and LLVM backends.
 The project intentionally keeps the backend boundary intact: it replaces the Java/Scala frontend,
 not `kore-exec` or the LLVM backend.
 
+## Running examples
+
+Exercise Z3-backed parametric sort inference with the installed CLI:
+
+```console
+krust kast examples/z3-inference.k \
+  --module Z3-INFERENCE \
+  --sort Box \
+  --expression 'box(same(1))' \
+  --no-prelude
+```
+
+The result should contain `same{Int}`, showing that Z3 inferred the concrete sort:
+
+```text
+box(same{Int}(#token("1","Int")))
+```
+
+On macOS, verify that the release binary does not dynamically load Z3:
+
+```console
+otool -L ~/.local/bin/krust
+```
+
+The output should contain only system libraries and no `libz3.dylib`; together with the inference
+example succeeding, this confirms that the statically linked Z3 implementation was exercised.
+
 ## Status
 
 The repository is a usable v0.1 implementation, not yet a universal drop-in replacement for every
