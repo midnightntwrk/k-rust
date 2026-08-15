@@ -1,20 +1,14 @@
 [package]
 name = "k-rust"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 description = "A Rust implementation of the K Framework frontend"
-license = "BSD-3-Clause"
-repository = "https://github.com/midnightntwrk/k-rust"
 readme = "../../README.md"
-keywords = ["k-framework", "parser", "compiler", "kore", "semantics"]
-categories = ["compilers", "parser-implementations", "development-tools"]
-
-[features]
-default = ["cli"]
-cli = ["dep:clap", "mpfr-folding", "z3-inference"]
-mpfr-folding = ["dep:gmp-mpfr-sys", "dep:rug"]
-z3-inference = ["dep:z3"]
+repository = "https://github.com/midnightntwrk/k-rust"
+license = "BSD-3-Clause"
+keywords = ["compiler", "k-framework", "kore", "parser", "semantics"]
+categories = ["compilers", "development-tools", "parser-implementations"]
 
 [[bin]]
 name = "krust"
@@ -39,3 +33,9 @@ z3 = { workspace = true, optional = true }
 indoc.workspace = true
 insta.workspace = true
 proptest.workspace = true
+
+[features]
+default = ["cli"]
+cli = ["dep:clap", "mpfr-folding", "z3-inference"]
+mpfr-folding = ["dep:gmp-mpfr-sys", "dep:rug"]
+z3-inference = ["dep:z3"]
