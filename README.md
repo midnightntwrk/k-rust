@@ -36,8 +36,8 @@ example succeeding, this confirms that the statically linked Z3 implementation w
 
 ## Status
 
-The repository is a usable v0.1 implementation, not yet a universal drop-in replacement for every
-K command-line workflow.
+The repository is a usable early implementation, not yet a universal drop-in replacement for
+every K command-line workflow.
 
 Implemented end to end:
 
@@ -57,12 +57,14 @@ Implemented end to end:
   source checkout. Explicit sources always take precedence.
 - Native, portable, and `wasm32-unknown-unknown` build gates.
 
-The implementation lives in one `k-rust` crate. We will split it only if compile-time, dependency,
-or release boundaries make that worthwhile.
+The frontend implementation lives in the `k-rust` crate. The thin `k-rust-napi` crate exposes its
+host-independent parsing APIs to Node.js and TypeScript without changing the core crate's release
+or portability boundaries.
 
 ## Install and build
 
-The native frontend enables vendored Z3 and MPFR support by default:
+The native frontend enables statically linked Z3 and MPFR support by default. Z3 is downloaded from
+its official GitHub release rather than compiled from source:
 
 ```console
 cargo install --path crates/k-rust
@@ -70,7 +72,7 @@ cargo install --path crates/k-rust
 cargo build --workspace --release
 ```
 
-The vendored Z3 binding does not call a `z3` executable or require a system Z3 installation.
+The Z3 binding does not call a `z3` executable or require a system Z3 installation.
 
 The portable library subset disables native inference and floating-point folding:
 
@@ -114,6 +116,46 @@ Common source options:
 - `--builtin-directory DIR` overrides the bundled builtin sources.
 - `KRUST_BUILTIN_DIRECTORY` provides the same override through the environment.
 - `--no-prelude` disables the implicit `prelude.md` load.
+
+## Node.js and TypeScript
+
+The `k-rust-napi` crate builds a Node-API addon and a typed TypeScript facade. The facade accepts
+in-memory definitions, resolves additional virtual sources used by `requires`, and returns typed
+KAST JSON rather than exposing Rust implementation types.
+
+Build and test it locally:
+
+```console
+cd crates/k-rust-napi
+npm install
+npm run build:debug
+npm test
+```
+
+```typescript
+import { parseProgram } from '@midnightntwrk/k-rust'
+
+const result = parseProgram({
+  definition: `
+    module ARITHMETIC
+      syntax Int ::= r"[0-9]+" [token]
+      syntax Exp ::= Int
+      syntax Exp ::= left: Exp "+" Exp [symbol(plus)]
+    endmodule
+  `,
+  moduleName: 'ARITHMETIC',
+  sort: 'Exp',
+  program: '1 + 2 + 3',
+  includePrelude: false,
+})
+
+console.log(result.text)
+console.log(result.kast)
+```
+
+The facade also exports `parseKast`, `printKast`, `parseKore`, `printKore`, and
+`formatKoreDefinition`. The generated raw Node-API functions remain available from `native.js` for
+hosts that want JSON strings and the lowest possible wrapper overhead.
 
 Resolution checks explicit builtin overrides, the requiring file's directory, the working
 directory, `-I` directories, and finally the embedded pinned sources.

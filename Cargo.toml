@@ -7,6 +7,9 @@ clap = { version = "4.5", features = ["derive"] }
 gmp-mpfr-sys = { version = "1.7.1", default-features = false, features = ["mpfr"] }
 indoc = "2.0.7"
 insta = "1.48.0"
+napi = "3.4.0"
+napi-build = "2.2.4"
+napi-derive = "3.3.0"
 num-bigint = "0.4.8"
 num-traits = "0.2.19"
 petgraph = { version = "0.8.3", default-features = false, features = ["std"] }

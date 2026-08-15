@@ -115,7 +115,11 @@ fn builtin_source_name(required: &str) -> &str {
     }
 }
 
-fn embedded_builtin(required: &str) -> Option<ResolvedSource> {
+/// Return one of the builtin K sources embedded in native `k-rust` builds.
+///
+/// Native hosts such as the CLI and Node bindings can use this as the final fallback in their
+/// own [`SourceResolver`] implementations without coupling the portable frontend to a filesystem.
+pub fn embedded_builtin(required: &str) -> Option<ResolvedSource> {
     let name = builtin_source_name(required);
     let text = match name {
         "domains.md" => include_str!("../builtin/domains.md"),

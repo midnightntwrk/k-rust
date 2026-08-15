@@ -1,0 +1,44 @@
+{
+  "name": "@midnightntwrk/k-rust",
+  "version": "0.3.0",
+  "description": "TypeScript and Node.js bindings for the k-rust frontend",
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/midnightntwrk/k-rust.git",
+    "directory": "crates/k-rust-napi"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "native.d.ts",
+    "native.js",
+    "*.node",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "npm run build:native && npm run build:typescript",
+    "build:debug": "napi build --platform --js native.js --dts native.d.ts && npm run build:typescript",
+    "build:native": "napi build --platform --release --js native.js --dts native.d.ts",
+    "build:typescript": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.cjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "napi": {
+    "binaryName": "k-rust",
+    "targets": [
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-unknown-linux-gnu"
+    ]
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.8.6",
+    "typescript": "^7.0.2"
+  }
+}

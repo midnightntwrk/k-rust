@@ -25,6 +25,13 @@ jobs:
           components: clippy, rustfmt
           targets: wasm32-unknown-unknown
 
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crates/k-rust-napi/package-lock.json
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -37,11 +44,23 @@ jobs:
       - name: Run tests with native Z3 inference
         run: cargo test --workspace --locked
 
+      - name: Install Node-API development dependencies
+        run: npm ci
+        working-directory: crates/k-rust-napi
+
+      - name: Build and typecheck Node-API bindings
+        run: npm run build:debug
+        working-directory: crates/k-rust-napi
+
+      - name: Test Node-API bindings
+        run: npm test
+        working-directory: crates/k-rust-napi
+
       - name: Check portable feature set
-        run: cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings
+        run: cargo clippy -p k-rust --all-targets --no-default-features --locked -- -D warnings
 
       - name: Test portable feature set
-        run: cargo test --workspace --no-default-features --locked
+        run: cargo test -p k-rust --no-default-features --locked
 
       - name: Check WebAssembly compatibility
-        run: cargo build --workspace --target wasm32-unknown-unknown --no-default-features --locked
+        run: cargo build -p k-rust --target wasm32-unknown-unknown --no-default-features --locked

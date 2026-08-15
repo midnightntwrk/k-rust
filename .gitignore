@@ -1,6 +1,13 @@
 target/
 .z3-trace
 
+# generated Node-API artifacts
+crates/k-rust-napi/node_modules/
+crates/k-rust-napi/dist/
+crates/k-rust-napi/native.d.ts
+crates/k-rust-napi/native.js
+crates/k-rust-napi/*.node
+
 # ignore some references
 evm-semantics/
 k/
