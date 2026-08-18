@@ -11,6 +11,7 @@ use k_rust::{
         parser::{parse_sort, parse_term},
         printer::Printer as KastPrinter,
     },
+    kompile::{CompilationBackend, CompileError, CompileOptions, compile_loaded_definition},
     kore::{
         json as kore_json,
         parser::{parse_definition, parse_pattern},
@@ -35,6 +36,19 @@ struct ParseProgramOptions {
     sources: Option<Vec<Source>>,
     markdown_selector: Option<String>,
     include_prelude: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CompileDefinitionOptions {
+    definition: String,
+    module_name: String,
+    backend: Option<String>,
+    source_name: Option<String>,
+    sources: Option<Vec<Source>>,
+    markdown_selector: Option<String>,
+    include_prelude: Option<bool>,
+    kore_width: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -67,6 +81,15 @@ struct ParsedProgram {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct CompiledDefinition {
+    definition_kore: String,
+    syntax_definition_kore: String,
+    macros_kore: String,
+    diagnostics: Vec<WasmDiagnostic>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WasmDiagnostic {
     severity: String,
     code: String,
@@ -76,6 +99,56 @@ struct WasmDiagnostic {
     start_column: Option<u32>,
     end_line: Option<u32>,
     end_column: Option<u32>,
+}
+
+/// Compile an in-memory K definition into backend-facing KORE artifacts.
+#[wasm_bindgen(js_name = compileDefinitionWasm)]
+pub fn compile_definition_wasm(options: &str) -> Result<String, JsError> {
+    compile_definition(options).map_err(js_error)
+}
+
+fn compile_definition(options: &str) -> Result<String, String> {
+    let options: CompileDefinitionOptions = serde_json::from_str(options).map_err(display_error)?;
+    let backend = options
+        .backend
+        .as_deref()
+        .unwrap_or("llvm")
+        .parse::<CompilationBackend>()?;
+    if options.include_prelude.unwrap_or(false) {
+        return Err(
+            "the embedded prelude requires native Z3 inference and is unavailable in WebAssembly; provide portable sources explicitly"
+                .to_owned(),
+        );
+    }
+    let source_name = options
+        .source_name
+        .unwrap_or_else(|| "definition.k".to_owned());
+    let mut resolver = VirtualResolver::new(options.sources.unwrap_or_default());
+    let loaded = load_with_options(
+        ResolvedSource::new(source_name, options.definition),
+        &options.module_name,
+        &mut resolver,
+        &LoadOptions {
+            markdown_selector: options.markdown_selector.unwrap_or_else(|| "k".to_owned()),
+            implicit_sources: Vec::new(),
+            excluded_module_attributes: vec![backend.excluded_module_attribute().to_owned()],
+        },
+    )
+    .map_err(display_error)?;
+    let artifacts = compile_loaded_definition(
+        &loaded,
+        CompileOptions {
+            backend,
+            kore_width: options.kore_width.unwrap_or(100) as usize,
+        },
+    )
+    .map_err(format_compile_error)?;
+    serialize(&CompiledDefinition {
+        definition_kore: artifacts.definition_kore,
+        syntax_definition_kore: artifacts.syntax_definition_kore,
+        macros_kore: artifacts.macros_kore,
+        diagnostics: artifacts.diagnostics.into_iter().map(Into::into).collect(),
+    })
 }
 
 /// Load an in-memory K definition and parse one concrete program.
@@ -198,6 +271,15 @@ fn js_error(error: impl std::fmt::Display) -> JsError {
     JsError::new(&error.to_string())
 }
 
+fn format_compile_error(error: CompileError) -> String {
+    let diagnostics = format_diagnostics(&error.diagnostics);
+    if diagnostics.is_empty() {
+        error.to_string()
+    } else {
+        format!("{error}\n{diagnostics}")
+    }
+}
+
 fn format_diagnostics(diagnostics: &[Diagnostic]) -> String {
     diagnostics
         .iter()
@@ -311,5 +393,19 @@ mod tests {
         )
         .unwrap();
         assert!(result.contains(r#"#token(\"42\",\"Int\")"#));
+    }
+
+    #[test]
+    fn compiles_a_portable_definition() {
+        let result = compile_definition(
+            r#"{
+                "definition": "module MAIN\n syntax Int ::= r\"[0-9]+\" [token]\n syntax Exp ::= Int\nendmodule",
+                "moduleName": "MAIN",
+                "includePrelude": false
+            }"#,
+        )
+        .unwrap();
+        assert!(result.contains("definitionKore"));
+        assert!(result.contains("module MAIN"));
     }
 }

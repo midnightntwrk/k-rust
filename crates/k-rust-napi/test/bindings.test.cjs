@@ -1,7 +1,14 @@
 const assert = require('node:assert/strict')
 const test = require('node:test')
 
-const { parseKast, parseKore, parseProgram, printKast, printKore } = require('../dist/index.js')
+const {
+  compileDefinition,
+  parseKast,
+  parseKore,
+  parseProgram,
+  printKast,
+  printKore,
+} = require('../dist/index.js')
 
 test('parses programs through virtual requires', () => {
   const parsed = parseProgram({
@@ -47,6 +54,26 @@ test('uses Z3-backed parametric sort inference', () => {
   })
 
   assert.equal(parsed.text, 'box(same{Int}(#token("1","Int")))')
+})
+
+test('compiles definitions through the full native pipeline', () => {
+  const compiled = compileDefinition({
+    definition: `
+      module MAIN
+        syntax Int ::= r"[0-9]+" [token]
+        syntax Box ::= "box(" Int ")" [function, symbol(box)]
+        syntax {S} S ::= "same(" S ")" [symbol(same)]
+        rule box(same(1)) => box(1)
+      endmodule
+    `,
+    moduleName: 'MAIN',
+    includePrelude: false,
+  })
+
+  assert.match(compiled.definitionKore, /module MAIN/)
+  assert.match(compiled.definitionKore, /Lblsame/)
+  assert.match(compiled.syntaxDefinitionKore, /module MAIN/)
+  assert.equal(compiled.macrosKore, '\n')
 })
 
 test('round-trips KAST and KORE through typed JSON', () => {

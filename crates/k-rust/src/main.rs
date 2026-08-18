@@ -8,26 +8,11 @@ use std::{
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use k_rust::{
-    definition::{
-        ResolvedDefinition, StructuralCheckBackend, StructuralCheckOptions,
-        checks::check_definition_with_options,
-    },
+    definition::checks::check_definition,
     diagnostic::{Diagnostic, Severity},
     inner::ProgramParser,
     kast::{json as kast_json, parser::parse_sort, printer::Printer as KastPrinter},
-    kompile::{
-        ModuleToKoreOptions, add_cool_like_attributes, add_implicit_computation_cell,
-        add_semantics_module, add_sort_injections_to_definition, check_simplification_rules,
-        concretize_cells, constant_fold, expand_macros, generate_sort_predicate_rules,
-        generate_sort_predicate_syntax, generate_sort_projections, guard_or_patterns,
-        minimize_term_construction, module_to_kore_from_resolved_with_options, number_sentences,
-        propagate_macro_attributes, remove_unit, resolve_anon_vars, resolve_comm,
-        resolve_config_var, resolve_contexts, resolve_fresh_config_constants,
-        resolve_fresh_constants, resolve_fun, resolve_function_with_config,
-        resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts, resolve_strict,
-        subsort_kitem,
-    },
-    kore::printer::Printer as KorePrinter,
+    kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
     native::FileResolver,
     outer::{LoadOptions, SourceResolver, load_with_options},
 };
@@ -98,7 +83,7 @@ struct KcompileArgs {
 
     /// Backend for which KORE should be generated.
     #[arg(long, value_enum, default_value_t)]
-    backend: CompilationBackend,
+    backend: CompilationBackendArg,
 
     /// Directory in which generated KORE files are written.
     #[arg(short = 'o', long, default_value = ".", value_name = "DIR")]
@@ -162,27 +147,17 @@ struct KcompileOptions {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
-enum CompilationBackend {
+enum CompilationBackendArg {
     #[default]
     Llvm,
     Haskell,
 }
 
-impl CompilationBackend {
-    fn excluded_module_attribute(self) -> &'static str {
-        match self {
-            Self::Llvm => "symbolic",
-            Self::Haskell => "concrete",
-        }
-    }
-
-    fn structural_check_options(self) -> StructuralCheckOptions {
-        match self {
-            Self::Llvm => StructuralCheckOptions::default(),
-            Self::Haskell => StructuralCheckOptions {
-                symbolic: true,
-                backend: StructuralCheckBackend::Haskell,
-            },
+impl From<CompilationBackendArg> for CompilationBackend {
+    fn from(backend: CompilationBackendArg) -> Self {
+        match backend {
+            CompilationBackendArg::Llvm => Self::Llvm,
+            CompilationBackendArg::Haskell => Self::Haskell,
         }
     }
 }
@@ -222,7 +197,7 @@ impl From<KcompileArgs> for KcompileOptions {
             common: arguments
                 .source
                 .common(arguments.definition, arguments.module),
-            backend: arguments.backend,
+            backend: arguments.backend.into(),
             output_directory: arguments.output_directory,
         }
     }
@@ -276,10 +251,44 @@ fn load_definition(
                 .unwrap_or_default(),
         },
     )?;
-    let check_options = backend
-        .map(CompilationBackend::structural_check_options)
-        .unwrap_or_default();
-    let diagnostics = check_definition_with_options(&loaded.resolved, check_options)?;
+    Ok(loaded)
+}
+
+fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
+    let loaded = load_definition(&options.common, Some(options.backend))?;
+    let artifacts = match compile_loaded_definition(
+        &loaded,
+        CompileOptions {
+            backend: options.backend,
+            ..CompileOptions::default()
+        },
+    ) {
+        Ok(artifacts) => artifacts,
+        Err(error) => {
+            emit_diagnostics(&error.diagnostics);
+            return Err(error.into());
+        }
+    };
+    emit_diagnostics(&artifacts.diagnostics);
+    fs::create_dir_all(&options.output_directory)?;
+    fs::write(
+        options.output_directory.join("definition.kore"),
+        artifacts.definition_kore,
+    )?;
+    fs::write(
+        options.output_directory.join("syntaxDefinition.kore"),
+        artifacts.syntax_definition_kore,
+    )?;
+    fs::write(
+        options.output_directory.join("macros.kore"),
+        artifacts.macros_kore,
+    )?;
+    Ok(())
+}
+
+fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
+    let loaded = load_definition(&options.common, None)?;
+    let diagnostics = check_definition(&loaded.resolved)?;
     emit_diagnostics(&diagnostics);
     if diagnostics
         .iter()
@@ -287,110 +296,6 @@ fn load_definition(
     {
         return Err("definition checks failed".into());
     }
-    Ok(loaded)
-}
-
-fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
-    let loaded = load_definition(&options.common, Some(options.backend))?;
-    let definition = resolve_comm(&loaded.definition).inspect_err(|error| {
-        emit_diagnostics(&error.diagnostics);
-    })?;
-    let definition = resolve_io(&definition).inspect_err(|error| {
-        emit_diagnostics(&error.diagnostics);
-    })?;
-    let definition = resolve_fun(&definition).inspect_err(|error| {
-        emit_diagnostics(&error.diagnostics);
-    })?;
-    let definition = resolve_function_with_config(&definition).inspect_err(|error| {
-        emit_diagnostics(&error.diagnostics);
-    })?;
-    let definition = resolve_strict(&definition).inspect_err(|error| {
-        emit_diagnostics(&error.diagnostics);
-    })?;
-    let definition = resolve_anon_vars(&definition);
-    let definition = resolve_contexts(&definition).inspect_err(|error| {
-        emit_diagnostics(&error.diagnostics);
-    })?;
-    let definition = number_sentences(&definition);
-    let definition = resolve_heat_cool_attributes(&definition).inspect_err(|error| {
-        emit_diagnostics(&error.diagnostics);
-    })?;
-    let definition = resolve_semantic_casts(&definition);
-    let definition = subsort_kitem(&definition)?;
-    let definition = constant_fold(&definition).inspect_err(|error| {
-        emit_diagnostics(&error.diagnostics);
-    })?;
-    let definition = propagate_macro_attributes(&definition)?;
-    let definition = guard_or_patterns(&definition)?;
-    let (definition, fresh_config_count) = resolve_fresh_config_constants(&definition)
-        .inspect_err(|error| {
-            emit_diagnostics(&error.diagnostics);
-        })?;
-    let definition = generate_sort_predicate_syntax(&definition)?;
-    let definition = generate_sort_projections(&definition)?;
-    let definition = expand_macros(&definition).inspect_err(|error| {
-        emit_diagnostics(&error.diagnostics);
-    })?;
-    let definition = add_implicit_computation_cell(&definition)?;
-    let definition =
-        resolve_fresh_constants(&definition, fresh_config_count).inspect_err(|error| {
-            emit_diagnostics(&error.diagnostics);
-        })?;
-    let definition = generate_sort_predicate_syntax(&definition)?;
-    let definition = generate_sort_projections(&definition)?;
-    let definition = check_simplification_rules(&definition).inspect_err(|error| {
-        emit_diagnostics(&error.diagnostics);
-    })?;
-    let definition = subsort_kitem(&definition)?;
-    let definition = concretize_cells(&definition).inspect_err(|error| {
-        emit_diagnostics(&error.diagnostics);
-    })?;
-    // `genCoverage` is an identity stage unless coverage instrumentation is requested. The CLI
-    // does not expose that optional mode yet. `removeAnywhereRules` is likewise an identity stage
-    // unless the Haskell-only unsafe removal option is selected.
-    let definition = add_semantics_module(&definition);
-    let definition = resolve_config_var(&definition);
-    let definition = add_cool_like_attributes(&definition);
-    let definition = generate_sort_predicate_rules(&definition);
-    let definition = number_sentences(&definition);
-    let definition = add_sort_injections_to_definition(&definition)?;
-    let definition = remove_unit(&definition)?;
-    let definition = minimize_term_construction(&definition)?;
-    let resolved = ResolvedDefinition::resolve(&definition)?;
-    let generated = module_to_kore_from_resolved_with_options(
-        &resolved,
-        &options.common.module,
-        ModuleToKoreOptions {
-            generate_map_ceil_axioms: options.backend == CompilationBackend::Haskell,
-        },
-    )?;
-    fs::create_dir_all(&options.output_directory)?;
-    let printer = KorePrinter::pretty(100);
-    let semantics = generated.semantics_definition();
-    let syntax = generated.syntax_definition();
-    fs::write(
-        options.output_directory.join("definition.kore"),
-        with_newline(printer.print_definition(&semantics)),
-    )?;
-    fs::write(
-        options.output_directory.join("syntaxDefinition.kore"),
-        with_newline(printer.print_definition(&syntax)),
-    )?;
-    let macros = generated
-        .macros
-        .iter()
-        .map(|sentence| printer.print_sentence(sentence))
-        .collect::<Vec<_>>()
-        .join("\n");
-    fs::write(
-        options.output_directory.join("macros.kore"),
-        with_newline(macros),
-    )?;
-    Ok(())
-}
-
-fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
-    let loaded = load_definition(&options.common, None)?;
     let source = match (options.expression, options.program_file) {
         (Some(source), None) => source,
         (None, Some(path)) if path == Path::new("-") => read_stdin()?,
@@ -412,13 +317,6 @@ fn read_stdin() -> io::Result<String> {
     let mut source = String::new();
     io::stdin().read_to_string(&mut source)?;
     Ok(source)
-}
-
-fn with_newline(mut text: String) -> String {
-    if !text.ends_with('\n') {
-        text.push('\n');
-    }
-    text
 }
 
 fn emit_diagnostics(diagnostics: &[Diagnostic]) {

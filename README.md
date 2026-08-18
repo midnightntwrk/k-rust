@@ -123,8 +123,8 @@ directory, `-I` directories, and finally the embedded pinned sources.
 ## Node.js and TypeScript
 
 The `k-rust-napi` crate builds a Node-API addon and a typed TypeScript facade. The facade accepts
-in-memory definitions, resolves additional virtual sources used by `requires`, and returns typed
-KAST JSON rather than exposing Rust implementation types.
+in-memory definitions, resolves additional virtual sources used by `requires`, and can either parse
+programs into typed KAST JSON or compile definitions into the three backend-facing KORE artifacts.
 
 Build and test it locally:
 
@@ -156,9 +156,12 @@ console.log(result.text)
 console.log(result.kast)
 ```
 
-The facade also exports `parseKast`, `printKast`, `parseKore`, `printKore`, and
-`formatKoreDefinition`. The generated raw Node-API functions remain available from `native.js` for
-hosts that want JSON strings and the lowest possible wrapper overhead.
+Use `compileDefinition({ definition, moduleName, backend })` to run the same ordered compilation
+pipeline as `krust kcompile` without filesystem output. It returns `definitionKore`,
+`syntaxDefinitionKore`, `macrosKore`, and diagnostics. The facade also exports `parseKast`,
+`printKast`, `parseKore`, `printKore`, and `formatKoreDefinition`. The generated raw Node-API
+functions remain available from `native.js` for hosts that want the lowest possible wrapper
+overhead.
 
 ## WebAssembly and TypeScript
 
@@ -195,8 +198,9 @@ const result = parseProgram({
 ```
 
 After initialization, parsing is synchronous. Use a worker for large inputs in latency-sensitive
-applications. Definitions that require native Z3 inference return an explicit unsupported-boundary
-error rather than silently choosing a different parse. Because the standard prelude itself needs
+applications. `compileDefinition` exposes the same in-memory compiler API and returns all three KORE
+artifacts. Definitions that require native Z3 inference return an explicit unsupported-boundary
+error rather than silently choosing a different result. Because the standard prelude itself needs
 Z3 while parsing rules, the WASM package defaults `includePrelude` to `false`; portable dependencies
 must be passed explicitly through `sources`.
 

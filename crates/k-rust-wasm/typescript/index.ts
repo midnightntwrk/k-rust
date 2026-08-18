@@ -1,4 +1,5 @@
 import initBindings, {
+  compileDefinitionWasm,
   formatKoreDefinitionWasm,
   initSync as initBindingsSync,
   parseKastWasm,
@@ -93,6 +94,21 @@ export interface ParseProgramOptions {
   includePrelude?: boolean
 }
 
+export type CompilationBackend = 'llvm' | 'haskell'
+
+export interface CompileDefinitionOptions {
+  definition: string
+  moduleName: string
+  backend?: CompilationBackend
+  sourceName?: string
+  /** Additional virtual files keyed by the names used in `requires`. */
+  sources?: Readonly<Record<string, string>> | readonly Source[]
+  markdownSelector?: string
+  /** The native prelude needs Z3 and cannot be loaded in WASM. Defaults to false. */
+  includePrelude?: boolean
+  koreWidth?: number
+}
+
 export interface Diagnostic {
   severity: 'error' | 'warning'
   code: string
@@ -107,6 +123,13 @@ export interface Diagnostic {
 export interface ParsedProgram {
   text: string
   kast: Kast
+  diagnostics: Diagnostic[]
+}
+
+export interface CompiledDefinition {
+  definitionKore: string
+  syntaxDefinitionKore: string
+  macrosKore: string
   diagnostics: Diagnostic[]
 }
 
@@ -155,6 +178,19 @@ export function parseProgram(options: ParseProgramOptions): ParsedProgram {
   ) as ParsedProgram
 }
 
+/** Compile an in-memory K definition into backend-facing KORE artifacts. */
+export function compileDefinition(options: CompileDefinitionOptions): CompiledDefinition {
+  assertInitialized()
+  return JSON.parse(
+    compileDefinitionWasm(
+      JSON.stringify({
+        ...options,
+        sources: normalizeSources(options.sources),
+      }),
+    ),
+  ) as CompiledDefinition
+}
+
 /** Parse textual KAST and return both canonical text and typed KAST JSON v4. */
 export function parseKast(source: string): SerializedKast {
   assertInitialized()
@@ -191,7 +227,9 @@ function assertInitialized(): void {
   }
 }
 
-function normalizeSources(sources: ParseProgramOptions['sources']): readonly Source[] | undefined {
+function normalizeSources(
+  sources: ParseProgramOptions['sources'] | CompileDefinitionOptions['sources'],
+): readonly Source[] | undefined {
   if (sources === undefined || Array.isArray(sources)) return sources
   return Object.entries(sources).map(([name, text]) => ({ name, text }))
 }

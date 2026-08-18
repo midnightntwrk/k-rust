@@ -12,6 +12,7 @@ use k_rust::{
         parser::{parse_sort, parse_term},
         printer::Printer as KastPrinter,
     },
+    kompile::{CompilationBackend, CompileError, CompileOptions, compile_loaded_definition},
     kore::{
         json as kore_json,
         parser::{parse_definition, parse_pattern},
@@ -44,6 +45,18 @@ pub struct NativeParseProgramOptions {
 }
 
 #[napi(object)]
+pub struct NativeCompileDefinitionOptions {
+    pub definition: String,
+    pub module_name: String,
+    pub backend: Option<String>,
+    pub source_name: Option<String>,
+    pub sources: Option<Vec<NativeSource>>,
+    pub markdown_selector: Option<String>,
+    pub include_prelude: Option<bool>,
+    pub kore_width: Option<u32>,
+}
+
+#[napi(object)]
 pub struct NativeDiagnostic {
     pub severity: String,
     pub code: String,
@@ -68,6 +81,64 @@ pub struct NativeParsedProgram {
 pub struct NativeSerializedTerm {
     pub text: String,
     pub json: String,
+}
+
+#[napi(object)]
+pub struct NativeCompiledDefinition {
+    pub definition_kore: String,
+    pub syntax_definition_kore: String,
+    pub macros_kore: String,
+    pub diagnostics: Vec<NativeDiagnostic>,
+}
+
+/// Compile an in-memory K definition into backend-facing KORE artifacts.
+#[napi]
+pub fn compile_definition_native(
+    options: NativeCompileDefinitionOptions,
+) -> Result<NativeCompiledDefinition> {
+    let backend = options
+        .backend
+        .as_deref()
+        .unwrap_or("llvm")
+        .parse::<CompilationBackend>()
+        .map_err(napi_error)?;
+    let source_name = options
+        .source_name
+        .unwrap_or_else(|| "definition.k".to_owned());
+    let mut resolver = VirtualResolver::new(options.sources.unwrap_or_default());
+    let implicit_sources = if options.include_prelude.unwrap_or(true) {
+        vec![
+            embedded("prelude.md")
+                .ok_or_else(|| Error::from_reason("embedded prelude is unavailable"))?,
+        ]
+    } else {
+        Vec::new()
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new(source_name, options.definition),
+        &options.module_name,
+        &mut resolver,
+        &LoadOptions {
+            markdown_selector: options.markdown_selector.unwrap_or_else(|| "k".to_owned()),
+            implicit_sources,
+            excluded_module_attributes: vec![backend.excluded_module_attribute().to_owned()],
+        },
+    )
+    .map_err(napi_error)?;
+    let artifacts = compile_loaded_definition(
+        &loaded,
+        CompileOptions {
+            backend,
+            kore_width: options.kore_width.unwrap_or(100) as usize,
+        },
+    )
+    .map_err(compile_error)?;
+    Ok(NativeCompiledDefinition {
+        definition_kore: artifacts.definition_kore,
+        syntax_definition_kore: artifacts.syntax_definition_kore,
+        macros_kore: artifacts.macros_kore,
+        diagnostics: artifacts.diagnostics.into_iter().map(Into::into).collect(),
+    })
 }
 
 /// Load a K definition from virtual sources and parse one concrete program.
@@ -163,6 +234,15 @@ fn kore_printer(width: Option<u32>) -> KorePrinter {
 
 fn napi_error(error: impl std::fmt::Display) -> Error {
     Error::from_reason(error.to_string())
+}
+
+fn compile_error(error: CompileError) -> Error {
+    let diagnostics = format_diagnostics(&error.diagnostics);
+    if diagnostics.is_empty() {
+        Error::from_reason(error.to_string())
+    } else {
+        Error::from_reason(format!("{error}\n{diagnostics}"))
+    }
 }
 
 fn format_diagnostics(diagnostics: &[Diagnostic]) -> String {

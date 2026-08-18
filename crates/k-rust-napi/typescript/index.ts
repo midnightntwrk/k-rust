@@ -1,4 +1,5 @@
 import {
+  compileDefinitionNative,
   formatKoreDefinitionNative,
   parseKastNative,
   parseKoreNative,
@@ -6,6 +7,7 @@ import {
   printKastNative,
   printKoreNative,
   type NativeDiagnostic,
+  type NativeCompileDefinitionOptions,
   type NativeParseProgramOptions,
 } from '../native.js'
 
@@ -94,6 +96,22 @@ export interface ParseProgramOptions {
   includePrelude?: boolean
 }
 
+export type CompilationBackend = 'llvm' | 'haskell'
+
+export interface CompileDefinitionOptions {
+  definition: string
+  moduleName: string
+  backend?: CompilationBackend
+  sourceName?: string
+  /** Additional virtual files keyed by the names used in `requires`. */
+  sources?: Readonly<Record<string, string>> | readonly Source[]
+  markdownSelector?: string
+  /** Load k-rust's embedded standard prelude. Defaults to true. */
+  includePrelude?: boolean
+  /** Pretty-printer line width. Defaults to 100. */
+  koreWidth?: number
+}
+
 export interface Diagnostic extends NativeDiagnostic {
   severity: 'error' | 'warning'
 }
@@ -101,6 +119,13 @@ export interface Diagnostic extends NativeDiagnostic {
 export interface ParsedProgram {
   text: string
   kast: Kast
+  diagnostics: Diagnostic[]
+}
+
+export interface CompiledDefinition {
+  definitionKore: string
+  syntaxDefinitionKore: string
+  macrosKore: string
   diagnostics: Diagnostic[]
 }
 
@@ -125,6 +150,19 @@ export function parseProgram(options: ParseProgramOptions): ParsedProgram {
     text: parsed.text,
     kast: JSON.parse(parsed.json) as Kast,
     diagnostics: parsed.diagnostics as Diagnostic[],
+  }
+}
+
+/** Compile an in-memory K definition into backend-facing textual KORE artifacts. */
+export function compileDefinition(options: CompileDefinitionOptions): CompiledDefinition {
+  const nativeOptions: NativeCompileDefinitionOptions = {
+    ...options,
+    sources: normalizeSources(options.sources),
+  }
+  const compiled = compileDefinitionNative(nativeOptions)
+  return {
+    ...compiled,
+    diagnostics: compiled.diagnostics as Diagnostic[],
   }
 }
 

@@ -33,11 +33,15 @@ const { text, kast, diagnostics } = parseProgram({
 })
 ```
 
+`compileDefinition({ definition, moduleName, backend })` compiles an in-memory portable definition
+and returns `definitionKore`, `syntaxDefinitionKore`, `macrosKore`, and diagnostics without writing
+files.
+
 The package exposes `initSync` for hosts that load the packaged `.wasm` bytes themselves. Parsing
 is synchronous after initialization; use a worker when large or untrusted definitions must not
 block the main thread.
 
-This portable build intentionally excludes native Z3 inference and MPFR folding. Parses that need
-Z3 return an explicit error instead of silently changing semantics. The standard prelude itself
-needs Z3 during rule parsing, so this package defaults `includePrelude` to `false` and rejects
-`true`; pass any portable dependencies explicitly through `sources`.
+This portable build intentionally excludes native Z3 inference and MPFR folding. Parsing or
+compilation that needs Z3 returns an explicit error instead of silently changing semantics. The
+standard prelude itself needs Z3 during rule parsing, so this package defaults `includePrelude` to
+`false` and rejects `true`; pass any portable dependencies explicitly through `sources`.

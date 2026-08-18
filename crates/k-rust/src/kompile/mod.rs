@@ -1,10 +1,15 @@
 //! Pure compilation passes and KORE emission.
 
+mod compile;
 mod module_to_kore;
 mod passes;
 mod sort_injections;
 mod term_to_kore;
 
+pub use compile::{
+    CompilationBackend, CompileError, CompileOptions, CompiledKoreArtifacts,
+    compile_loaded_definition,
+};
 pub use module_to_kore::{
     DeclarationError, DeclarationModules, ModuleToKoreError, ModuleToKoreOptions,
     declaration_modules, declaration_modules_from_resolved, encode_kore_identifier,

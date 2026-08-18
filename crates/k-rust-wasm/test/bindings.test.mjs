@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import {
+  compileDefinition,
   default as init,
   formatKoreDefinition,
   parseKast,
@@ -14,6 +15,59 @@ import {
 
 const bytes = readFileSync(new URL('../generated/bindings_bg.wasm', import.meta.url))
 await init(bytes)
+
+test('compiles a portable definition into all KORE artifacts', () => {
+  const compiled = compileDefinition({
+    definition: `
+      module MAIN
+        syntax Int ::= r"[0-9]+" [token]
+      endmodule
+    `,
+    moduleName: 'MAIN',
+  })
+
+  assert.match(compiled.definitionKore, /module MAIN/)
+  assert.match(compiled.syntaxDefinitionKore, /module MAIN/)
+  assert.equal(compiled.macrosKore, '\n')
+  assert.deepEqual(compiled.diagnostics, [])
+})
+
+test('reports the compiler Z3 inference boundary', () => {
+  assert.throws(
+    () =>
+      compileDefinition({
+        definition: `
+          module MAIN
+            syntax Int ::= r"[0-9]+" [token]
+            syntax Box ::= "box(" Int ")" [function, symbol(box)]
+            syntax {S} S ::= "same(" S ")" [function, symbol(same)]
+            rule box(same(1)) => box(1)
+          endmodule
+        `,
+        moduleName: 'MAIN',
+      }),
+    /native Z3 sort inference/i,
+  )
+})
+
+test('reports the compiler MPFR folding boundary', () => {
+  assert.throws(
+    () =>
+      compileDefinition({
+        definition: `
+          module MAIN
+            syntax Float [hook(FLOAT.Float)]
+            syntax Float ::= r"[0-9]+\\.[0-9]+" [token]
+            syntax Float ::= "add(" Float "," Float ")" [function, hook(FLOAT.add), symbol(addFloat)]
+            syntax Float ::= "result" [function, symbol(result)]
+            rule result => add(0.1, 0.2)
+          endmodule
+        `,
+        moduleName: 'MAIN',
+      }),
+    /native MPFR implementation/i,
+  )
+})
 
 test('executes the portable parser inside WebAssembly', () => {
   const parsed = parseProgram({
