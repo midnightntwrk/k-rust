@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, path::Path};
 
 use k_rust::{
+    builtin::embedded,
     definition::checks::check_definition,
     diagnostic::{Diagnostic, Severity},
     inner::ProgramParser,
@@ -16,8 +17,9 @@ use k_rust::{
         parser::{parse_definition, parse_pattern},
         printer::Printer as KorePrinter,
     },
-    native::embedded_builtin,
-    outer::{LoadOptions, ResolvedSource, SourceResolver, load_with_options},
+    outer::{
+        LoadOptions, ResolvedSource, SourceResolver, load_with_options, normalize_virtual_path,
+    },
 };
 use napi::{Error, Result};
 use napi_derive::napi;
@@ -77,7 +79,7 @@ pub fn parse_program_native(options: NativeParseProgramOptions) -> Result<Native
     let mut resolver = VirtualResolver::new(options.sources.unwrap_or_default());
     let implicit_sources = if options.include_prelude.unwrap_or(true) {
         vec![
-            embedded_builtin("prelude.md")
+            embedded("prelude.md")
                 .ok_or_else(|| Error::from_reason("embedded prelude is unavailable"))?,
         ]
     } else {
@@ -218,7 +220,7 @@ impl VirtualResolver {
             sources: sources
                 .into_iter()
                 .map(|source| {
-                    let name = normalize_source_name(Path::new(&source.name));
+                    let name = normalize_virtual_path(Path::new(&source.name));
                     (name.clone(), ResolvedSource::new(name, source.text))
                 })
                 .collect(),
@@ -234,27 +236,14 @@ impl SourceResolver for VirtualResolver {
     ) -> std::result::Result<ResolvedSource, String> {
         let relative = Path::new(requiring_source)
             .parent()
-            .map(|parent| normalize_source_name(&parent.join(required)));
+            .map(|parent| normalize_virtual_path(&parent.join(required)));
         for candidate in relative.into_iter().chain([required.to_owned()]) {
             if let Some(source) = self.sources.get(&candidate) {
                 return Ok(source.clone());
             }
         }
-        embedded_builtin(required).ok_or_else(|| {
+        embedded(required).ok_or_else(|| {
             format!("{required:?} was not provided in options.sources and is not a builtin")
         })
     }
-}
-
-fn normalize_source_name(path: &Path) -> String {
-    path.components()
-        .filter_map(|component| match component {
-            std::path::Component::Normal(value) => Some(value.to_string_lossy()),
-            std::path::Component::ParentDir => Some("..".into()),
-            std::path::Component::CurDir => None,
-            std::path::Component::RootDir => Some("/".into()),
-            std::path::Component::Prefix(prefix) => Some(prefix.as_os_str().to_string_lossy()),
-        })
-        .collect::<Vec<_>>()
-        .join("/")
 }

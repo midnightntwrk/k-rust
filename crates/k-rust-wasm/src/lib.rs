@@ -1,0 +1,315 @@
+//! WebAssembly bindings for the portable, host-independent `k-rust` frontend.
+
+use std::{collections::BTreeMap, path::Path};
+
+use k_rust::{
+    definition::checks::check_definition,
+    diagnostic::{Diagnostic, Severity},
+    inner::ProgramParser,
+    kast::{
+        json as kast_json,
+        parser::{parse_sort, parse_term},
+        printer::Printer as KastPrinter,
+    },
+    kore::{
+        json as kore_json,
+        parser::{parse_definition, parse_pattern},
+        printer::Printer as KorePrinter,
+    },
+    outer::{
+        LoadOptions, ResolvedSource, SourceResolver, load_with_options, normalize_virtual_path,
+    },
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use wasm_bindgen::prelude::*;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ParseProgramOptions {
+    definition: String,
+    module_name: String,
+    sort: String,
+    program: String,
+    source_name: Option<String>,
+    sources: Option<Vec<Source>>,
+    markdown_selector: Option<String>,
+    include_prelude: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct Source {
+    name: String,
+    text: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SerializedKast {
+    text: String,
+    kast: Value,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SerializedKore {
+    text: String,
+    kore: Value,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ParsedProgram {
+    text: String,
+    kast: Value,
+    diagnostics: Vec<WasmDiagnostic>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WasmDiagnostic {
+    severity: String,
+    code: String,
+    message: String,
+    source: Option<String>,
+    start_line: Option<u32>,
+    start_column: Option<u32>,
+    end_line: Option<u32>,
+    end_column: Option<u32>,
+}
+
+/// Load an in-memory K definition and parse one concrete program.
+#[wasm_bindgen(js_name = parseProgramWasm)]
+pub fn parse_program_wasm(options: &str) -> Result<String, JsError> {
+    parse_program(options).map_err(js_error)
+}
+
+fn parse_program(options: &str) -> Result<String, String> {
+    let options: ParseProgramOptions = serde_json::from_str(options).map_err(display_error)?;
+    let source_name = options
+        .source_name
+        .unwrap_or_else(|| "definition.k".to_owned());
+    let mut resolver = VirtualResolver::new(options.sources.unwrap_or_default());
+    if options.include_prelude.unwrap_or(false) {
+        return Err(
+            "the embedded prelude requires native Z3 inference and is unavailable in WebAssembly; provide portable sources explicitly"
+                .to_owned(),
+        );
+    }
+    let loaded = load_with_options(
+        ResolvedSource::new(source_name, options.definition),
+        &options.module_name,
+        &mut resolver,
+        &LoadOptions {
+            markdown_selector: options.markdown_selector.unwrap_or_else(|| "k".to_owned()),
+            implicit_sources: Vec::new(),
+            excluded_module_attributes: Vec::new(),
+        },
+    )
+    .map_err(display_error)?;
+
+    let diagnostics = check_definition(&loaded.resolved).map_err(display_error)?;
+    if diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        return Err(format_diagnostics(&diagnostics));
+    }
+
+    let sort = parse_sort(&options.sort).map_err(display_error)?;
+    let parser = ProgramParser::from_resolved(&loaded.resolved, &options.module_name)
+        .map_err(display_error)?;
+    let term = parser
+        .parse(&sort, &options.program)
+        .map_err(display_error)?;
+    serialize(&ParsedProgram {
+        text: KastPrinter::new().print_term(&term),
+        kast: json_value(kast_json::to_string(&term).map_err(display_error)?)?,
+        diagnostics: diagnostics.into_iter().map(Into::into).collect(),
+    })
+}
+
+/// Convert textual KAST into canonical text and KAST JSON v4.
+#[wasm_bindgen(js_name = parseKastWasm)]
+pub fn parse_kast_wasm(source: &str) -> Result<String, JsError> {
+    parse_kast(source).map_err(js_error)
+}
+
+fn parse_kast(source: &str) -> Result<String, String> {
+    let term = parse_term(source).map_err(display_error)?;
+    serialize(&SerializedKast {
+        text: KastPrinter::new().print_term(&term),
+        kast: json_value(kast_json::to_string(&term).map_err(display_error)?)?,
+    })
+}
+
+/// Convert KAST JSON v4 into canonical textual KAST.
+#[wasm_bindgen(js_name = printKastWasm)]
+pub fn print_kast_wasm(json: &str) -> Result<String, JsError> {
+    let term = kast_json::from_str(json).map_err(js_error)?;
+    Ok(KastPrinter::new().print_term(&term))
+}
+
+/// Convert a textual KORE pattern into canonical text and KORE JSON v1.
+#[wasm_bindgen(js_name = parseKoreWasm)]
+pub fn parse_kore_wasm(source: &str, width: Option<u32>) -> Result<String, JsError> {
+    parse_kore(source, width).map_err(js_error)
+}
+
+fn parse_kore(source: &str, width: Option<u32>) -> Result<String, String> {
+    let pattern = parse_pattern(source).map_err(display_error)?;
+    serialize(&SerializedKore {
+        text: kore_printer(width).print_pattern(&pattern),
+        kore: json_value(kore_json::to_string(&pattern).map_err(display_error)?)?,
+    })
+}
+
+/// Convert KORE JSON v1 into canonical textual KORE.
+#[wasm_bindgen(js_name = printKoreWasm)]
+pub fn print_kore_wasm(json: &str, width: Option<u32>) -> Result<String, JsError> {
+    let pattern = kore_json::from_str(json).map_err(js_error)?;
+    Ok(kore_printer(width).print_pattern(&pattern))
+}
+
+/// Parse and consistently pretty-print a complete textual KORE definition.
+#[wasm_bindgen(js_name = formatKoreDefinitionWasm)]
+pub fn format_kore_definition_wasm(source: &str, width: Option<u32>) -> Result<String, JsError> {
+    let definition = parse_definition(source).map_err(js_error)?;
+    Ok(kore_printer(width).print_definition(&definition))
+}
+
+fn kore_printer(width: Option<u32>) -> KorePrinter {
+    KorePrinter::pretty(width.unwrap_or(100) as usize)
+}
+
+fn serialize(value: &impl Serialize) -> Result<String, String> {
+    serde_json::to_string(value).map_err(display_error)
+}
+
+fn json_value(json: String) -> Result<Value, String> {
+    serde_json::from_str(&json).map_err(display_error)
+}
+
+fn display_error(error: impl std::fmt::Display) -> String {
+    error.to_string()
+}
+
+fn js_error(error: impl std::fmt::Display) -> JsError {
+    JsError::new(&error.to_string())
+}
+
+fn format_diagnostics(diagnostics: &[Diagnostic]) -> String {
+    diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == Severity::Error)
+        .map(|diagnostic| {
+            let location = match (&diagnostic.source, diagnostic.location) {
+                (Some(source), Some(location)) => format!(
+                    "{source}:{}:{}: ",
+                    location.start_line, location.start_column
+                ),
+                (Some(source), None) => format!("{source}: "),
+                _ => String::new(),
+            };
+            format!("{location}{:?}: {}", diagnostic.code, diagnostic.message)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+impl From<Diagnostic> for WasmDiagnostic {
+    fn from(diagnostic: Diagnostic) -> Self {
+        let (start_line, start_column, end_line, end_column) = diagnostic
+            .location
+            .map(|location| {
+                (
+                    Some(location.start_line),
+                    Some(location.start_column),
+                    Some(location.end_line),
+                    Some(location.end_column),
+                )
+            })
+            .unwrap_or((None, None, None, None));
+        Self {
+            severity: format!("{:?}", diagnostic.severity).to_lowercase(),
+            code: format!("{:?}", diagnostic.code),
+            message: diagnostic.message,
+            source: diagnostic.source,
+            start_line,
+            start_column,
+            end_line,
+            end_column,
+        }
+    }
+}
+
+struct VirtualResolver {
+    sources: BTreeMap<String, ResolvedSource>,
+}
+
+impl VirtualResolver {
+    fn new(sources: Vec<Source>) -> Self {
+        Self {
+            sources: sources
+                .into_iter()
+                .map(|source| {
+                    let name = normalize_virtual_path(Path::new(&source.name));
+                    (name.clone(), ResolvedSource::new(name, source.text))
+                })
+                .collect(),
+        }
+    }
+}
+
+impl SourceResolver for VirtualResolver {
+    fn resolve(
+        &mut self,
+        requiring_source: &str,
+        required: &str,
+    ) -> Result<ResolvedSource, String> {
+        let relative = Path::new(requiring_source)
+            .parent()
+            .map(|parent| normalize_virtual_path(&parent.join(required)));
+        for candidate in relative.into_iter().chain([required.to_owned()]) {
+            if let Some(source) = self.sources.get(&candidate) {
+                return Ok(source.clone());
+            }
+        }
+        Err(format!("{required:?} was not provided in options.sources"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serializes_portable_kast_and_kore_results() {
+        assert!(
+            parse_kast(r#"#token("x","Id")"#)
+                .unwrap()
+                .contains("KToken")
+        );
+        assert!(parse_kore("X:S", None).unwrap().contains("EVar"));
+    }
+
+    #[test]
+    fn parses_programs_through_virtual_requires() {
+        let result = parse_program(
+            r#"{
+                "definition": "requires \"../base.k\"\nmodule MAIN\n imports BASE\n syntax Exp ::= Int\nendmodule",
+                "moduleName": "MAIN",
+                "sort": "Exp",
+                "program": "42",
+                "sourceName": "definitions/nested/main.k",
+                "sources": [{
+                    "name": "definitions/base.k",
+                    "text": "module BASE\n syntax Int ::= r\"[0-9]+\" [token]\nendmodule"
+                }],
+                "includePrelude": false
+            }"#,
+        )
+        .unwrap();
+        assert!(result.contains(r#"#token(\"42\",\"Int\")"#));
+    }
+}

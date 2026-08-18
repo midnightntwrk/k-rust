@@ -30,7 +30,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: crates/k-rust-napi/package-lock.json
+          cache-dependency-path: |
+            crates/k-rust-napi/package-lock.json
+            crates/k-rust-wasm/package-lock.json
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -56,11 +58,23 @@ jobs:
         run: npm test
         working-directory: crates/k-rust-napi
 
+      - name: Install WebAssembly package dependencies
+        run: npm ci
+        working-directory: crates/k-rust-wasm
+
+      - name: Build and typecheck WebAssembly bindings
+        run: npm run build:dev
+        working-directory: crates/k-rust-wasm
+
+      - name: Test WebAssembly bindings
+        run: npm test
+        working-directory: crates/k-rust-wasm
+
       - name: Check portable feature set
-        run: cargo clippy -p k-rust --all-targets --no-default-features --locked -- -D warnings
+        run: cargo clippy -p k-rust -p k-rust-wasm --all-targets --no-default-features --locked -- -D warnings
 
       - name: Test portable feature set
-        run: cargo test -p k-rust --no-default-features --locked
+        run: cargo test -p k-rust -p k-rust-wasm --no-default-features --locked
 
       - name: Check WebAssembly compatibility
-        run: cargo build -p k-rust --target wasm32-unknown-unknown --no-default-features --locked
+        run: cargo build -p k-rust-wasm --target wasm32-unknown-unknown --locked

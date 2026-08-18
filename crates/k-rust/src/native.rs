@@ -5,7 +5,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::outer::{ResolvedSource, SourceResolver};
+use crate::{
+    builtin::{embedded, source_name},
+    outer::{ResolvedSource, SourceResolver},
+};
 
 /// Filesystem-backed resolution for entry files and recursive `requires`.
 #[derive(Clone, Debug)]
@@ -49,7 +52,7 @@ impl FileResolver {
     }
 
     fn candidates(&self, requiring_source: &str, required: &str) -> Vec<PathBuf> {
-        let required = PathBuf::from(builtin_source_name(required));
+        let required = PathBuf::from(source_name(required));
         let required = required.as_path();
         if required.is_absolute() {
             return vec![required.to_owned()];
@@ -89,7 +92,7 @@ impl SourceResolver for FileResolver {
                 }
             }
         }
-        if let Some(source) = embedded_builtin(required) {
+        if let Some(source) = embedded(required) {
             return Ok(source);
         }
         Err(format!(
@@ -101,39 +104,6 @@ impl SourceResolver for FileResolver {
                 .join(", ")
         ))
     }
-}
-
-fn builtin_source_name(required: &str) -> &str {
-    match required {
-        "ffi.k" => "ffi.md",
-        "json.k" => "json.md",
-        "rat.k" => "rat.md",
-        "substitution.k" => "substitution.md",
-        "domains.k" => "domains.md",
-        "kast.k" => "kast.md",
-        required => required,
-    }
-}
-
-/// Return one of the builtin K sources embedded in native `k-rust` builds.
-///
-/// Native hosts such as the CLI and Node bindings can use this as the final fallback in their
-/// own [`SourceResolver`] implementations without coupling the portable frontend to a filesystem.
-pub fn embedded_builtin(required: &str) -> Option<ResolvedSource> {
-    let name = builtin_source_name(required);
-    let text = match name {
-        "domains.md" => include_str!("../builtin/domains.md"),
-        "ffi.md" => include_str!("../builtin/ffi.md"),
-        "json.md" => include_str!("../builtin/json.md"),
-        "kast.md" => include_str!("../builtin/kast.md"),
-        "prelude.md" => include_str!("../builtin/prelude.md"),
-        "rat.md" => include_str!("../builtin/rat.md"),
-        "substitution.md" => include_str!("../builtin/substitution.md"),
-        "timer.md" => include_str!("../builtin/timer.md"),
-        "unification.k" => include_str!("../builtin/unification.k"),
-        _ => return None,
-    };
-    Some(ResolvedSource::new(format!("krust-builtin://{name}"), text))
 }
 
 #[cfg(test)]

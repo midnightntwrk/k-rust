@@ -1,0 +1,49 @@
+{
+  "name": "@midnightntwrk/k-rust-wasm",
+  "version": "0.3.0",
+  "description": "Portable WebAssembly and TypeScript bindings for the k-rust frontend",
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/midnightntwrk/k-rust.git",
+    "directory": "crates/k-rust-wasm"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "generated/bindings.js",
+    "generated/bindings.d.ts",
+    "generated/bindings_bg.wasm",
+    "generated/bindings_bg.wasm.d.ts",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "npm run build:wasm && npm run build:typescript",
+    "build:dev": "npm run build:wasm:dev && npm run build:typescript",
+    "build:wasm": "wasm-pack build --release --target web --out-dir generated --out-name bindings && node scripts/prepare-generated.mjs",
+    "build:wasm:dev": "wasm-pack build --dev --target web --out-dir generated --out-name bindings && node scripts/prepare-generated.mjs",
+    "build:typescript": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "wasm-pack": "^0.15.0"
+  }
+}

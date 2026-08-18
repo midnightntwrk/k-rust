@@ -5,7 +5,7 @@ members = ["cargo:."]
 [dist]
 # The preferred dist version to use in CI (Cargo.toml SemVer syntax)
 cargo-dist-version = "0.32.0"
-# Only the native CLI belongs in GitHub release archives. The N-API crate is packaged with npm.
+# Only the native CLI belongs in GitHub release archives. Binding crates are packaged with npm.
 packages = ["k-rust"]
 # CI backends to support
 ci = "github"

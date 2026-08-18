@@ -8,6 +8,11 @@ crates/k-rust-napi/native.d.ts
 crates/k-rust-napi/native.js
 crates/k-rust-napi/*.node
 
+# generated WebAssembly package artifacts
+crates/k-rust-wasm/node_modules/
+crates/k-rust-wasm/dist/
+crates/k-rust-wasm/generated/
+
 # ignore some references
 evm-semantics/
 k/

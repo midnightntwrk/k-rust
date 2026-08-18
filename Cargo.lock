@@ -950,6 +950,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "k-rust-wasm"
+version = "0.3.0"
+dependencies = [
+ "k-rust",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "keccak"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

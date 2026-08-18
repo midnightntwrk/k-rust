@@ -1,5 +1,6 @@
 //! A Rust implementation of the K Framework frontend.
 
+pub mod builtin;
 pub mod definition;
 pub mod diagnostic;
 pub mod inner;

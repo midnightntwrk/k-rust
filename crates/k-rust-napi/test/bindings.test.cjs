@@ -6,7 +6,7 @@ const { parseKast, parseKore, parseProgram, printKast, printKore } = require('..
 test('parses programs through virtual requires', () => {
   const parsed = parseProgram({
     definition: `
-      requires "base.k"
+      requires "../base.k"
       module MAIN
         imports BASE
         syntax Exp ::= Int
@@ -15,7 +15,7 @@ test('parses programs through virtual requires', () => {
     moduleName: 'MAIN',
     sort: 'Exp',
     program: '42',
-    sourceName: 'definitions/main.k',
+    sourceName: 'definitions/nested/main.k',
     sources: {
       'definitions/base.k': `
         module BASE

@@ -57,9 +57,9 @@ Implemented end to end:
   source checkout. Explicit sources always take precedence.
 - Native, portable, and `wasm32-unknown-unknown` build gates.
 
-The frontend implementation lives in the `k-rust` crate. The thin `k-rust-napi` crate exposes its
-host-independent parsing APIs to Node.js and TypeScript without changing the core crate's release
-or portability boundaries.
+The frontend implementation lives in the `k-rust` crate. Thin `k-rust-napi` and `k-rust-wasm`
+crates expose its host-independent parsing APIs to native Node.js and portable WebAssembly
+respectively, without changing the core crate's release or portability boundaries.
 
 ## Install and build
 
@@ -77,8 +77,8 @@ The Z3 binding does not call a `z3` executable or require a system Z3 installati
 The portable library subset disables native inference and floating-point folding:
 
 ```console
-cargo build --workspace --no-default-features
-cargo build --workspace --target wasm32-unknown-unknown --no-default-features
+cargo build -p k-rust --no-default-features
+cargo build -p k-rust-wasm --target wasm32-unknown-unknown
 ```
 
 The CLI is deliberately native-only. A portable build returns a structured
@@ -116,6 +116,9 @@ Common source options:
 - `--builtin-directory DIR` overrides the bundled builtin sources.
 - `KRUST_BUILTIN_DIRECTORY` provides the same override through the environment.
 - `--no-prelude` disables the implicit `prelude.md` load.
+
+Resolution checks explicit builtin overrides, the requiring file's directory, the working
+directory, `-I` directories, and finally the embedded pinned sources.
 
 ## Node.js and TypeScript
 
@@ -157,8 +160,45 @@ The facade also exports `parseKast`, `printKast`, `parseKore`, `printKore`, and
 `formatKoreDefinition`. The generated raw Node-API functions remain available from `native.js` for
 hosts that want JSON strings and the lowest possible wrapper overhead.
 
-Resolution checks explicit builtin overrides, the requiring file's directory, the working
-directory, `-I` directories, and finally the embedded pinned sources.
+## WebAssembly and TypeScript
+
+The separate `@midnightntwrk/k-rust-wasm` package exposes the portable frontend through standard
+WebAssembly and ES modules. It has the same typed KAST/KORE and virtual-source API as the native
+package, but does not bundle Z3 or MPFR and can run in browsers and workers.
+
+Build and test it locally:
+
+```console
+cd crates/k-rust-wasm
+npm install
+npm run build:dev
+npm test
+```
+
+```typescript
+import init, { parseProgram } from '@midnightntwrk/k-rust-wasm'
+
+await init()
+
+const result = parseProgram({
+  definition: `
+    module ARITHMETIC
+      syntax Int ::= r"[0-9]+" [token]
+      syntax Exp ::= Int
+    endmodule
+  `,
+  moduleName: 'ARITHMETIC',
+  sort: 'Exp',
+  program: '42',
+  includePrelude: false,
+})
+```
+
+After initialization, parsing is synchronous. Use a worker for large inputs in latency-sensitive
+applications. Definitions that require native Z3 inference return an explicit unsupported-boundary
+error rather than silently choosing a different parse. Because the standard prelude itself needs
+Z3 while parsing rules, the WASM package defaults `includePrelude` to `false`; portable dependencies
+must be passed explicitly through `sources`.
 
 ## Compatibility evidence
 
@@ -205,9 +245,9 @@ cargo fmt --all -- --check
 cargo build --workspace --all-targets --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings
-cargo test --workspace --no-default-features --locked
-cargo build --workspace --target wasm32-unknown-unknown --no-default-features --locked
+cargo clippy -p k-rust -p k-rust-wasm --all-targets --no-default-features --locked -- -D warnings
+cargo test -p k-rust -p k-rust-wasm --no-default-features --locked
+cargo build -p k-rust-wasm --target wasm32-unknown-unknown --locked
 ```
 
 Snapshot updates are intentional and source-driven. Review them locally with `cargo insta review`;
