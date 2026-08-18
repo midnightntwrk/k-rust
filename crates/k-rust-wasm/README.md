@@ -12,7 +12,7 @@ npm run build:dev
 npm test
 ```
 
-## Example
+## Parsing example
 
 ```typescript
 import init, { parseProgram } from '@midnightntwrk/k-rust-wasm'
@@ -33,9 +33,33 @@ const { text, kast, diagnostics } = parseProgram({
 })
 ```
 
-`compileDefinition({ definition, moduleName, backend })` compiles an in-memory portable definition
-and returns `definitionKore`, `syntaxDefinitionKore`, `macrosKore`, and diagnostics without writing
-files.
+## Compilation example
+
+```typescript
+import init, { compileDefinition } from '@midnightntwrk/k-rust-wasm'
+
+await init()
+
+const {
+  definitionKore,
+  syntaxDefinitionKore,
+  macrosKore,
+  diagnostics,
+} = compileDefinition({
+  definition: `
+    module MAIN
+      syntax Int ::= r"[0-9]+" [token]
+      syntax Exp ::= Int
+    endmodule
+  `,
+  moduleName: 'MAIN',
+  backend: 'llvm',
+  includePrelude: false,
+})
+```
+
+`compileDefinition` runs the portable frontend pipeline without writing files. Like every exported
+operation, it may only be called after `init` or `initSync` completes.
 
 The package exposes `initSync` for hosts that load the packaged `.wasm` bytes themselves. Parsing
 is synchronous after initialization; use a worker when large or untrusted definitions must not

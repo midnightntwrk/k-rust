@@ -18,7 +18,7 @@ npm run build:debug
 npm test
 ```
 
-## Example
+## Parsing example
 
 ```typescript
 import { parseProgram } from '@midnightntwrk/k-rust'
@@ -37,9 +37,32 @@ const { text, kast, diagnostics } = parseProgram({
 })
 ```
 
-`compileDefinition({ definition, moduleName, backend })` runs the same ordered frontend pipeline as
-`krust kcompile` and returns `definitionKore`, `syntaxDefinitionKore`, `macrosKore`, and diagnostics
-without writing files.
+## Compilation example
+
+```typescript
+import { compileDefinition } from '@midnightntwrk/k-rust'
+
+const {
+  definitionKore,
+  syntaxDefinitionKore,
+  macrosKore,
+  diagnostics,
+} = compileDefinition({
+  definition: `
+    module MAIN
+      syntax Int ::= r"[0-9]+" [token]
+      syntax Exp ::= Int
+    endmodule
+  `,
+  moduleName: 'MAIN',
+  backend: 'llvm',
+  includePrelude: false,
+})
+```
+
+`compileDefinition` runs the same ordered frontend pipeline as `krust kcompile` without writing
+files. Native compilation includes Z3-backed sort inference and MPFR-backed floating-point constant
+folding. `includePrelude` defaults to `true` in this package.
 
 The native addon is synchronous. Call it from a worker thread when parsing untrusted or especially
 large definitions in latency-sensitive Node.js applications.
