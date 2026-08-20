@@ -558,16 +558,62 @@ fn recover_indeterminate_match(
     }
 }
 
-/// Recover the first-order narrowing case where a ground constructor-like rule fragment is matched
-/// by a symbolic configuration variable. The resulting equality is part of both the applied branch
-/// and its complementary remainder. Function-like fragments need a definedness condition and
-/// fragments containing rule variables need existential unification, so both deliberately remain
-/// indeterminate here.
-fn recover_ground_symbolic_match(
+/// Recover first-order narrowing when a constructor pattern is matched by a symbolic
+/// configuration variable.
+///
+/// Rule variables left unbound by ordinary matching become fresh variables in the successor. The
+/// resulting equality is retained on the applied branch and negated on its complementary branch.
+/// Function-like fragments still remain indeterminate because they additionally require a
+/// definedness condition.
+fn recover_constructor_symbolic_match(
     sorts: &crate::matching::SortGraph,
-    substitution: Substitution,
+    rule: &RewriteRule,
+    pattern: &Pattern,
+    mut substitution: Substitution,
     remainder: &[(Term, Term)],
+    fresh_counter: &mut u64,
 ) -> Option<(Substitution, Vec<Predicate>)> {
+    for (rule_term, configuration_term) in remainder {
+        let rule_term = substitute(rule_term, &substitution);
+        let configuration_term = substitute(configuration_term, &substitution);
+        let TermKind::Variable(configuration_variable) = configuration_term.kind() else {
+            return None;
+        };
+        if !is_constructor_pattern(&rule_term)
+            || rule_term
+                .attributes()
+                .variables
+                .contains(configuration_variable)
+            || !sorts
+                .check_subsort(&rule_term.sort(), &configuration_variable.sort)
+                .ok()?
+        {
+            return None;
+        }
+    }
+
+    let mut names_to_avoid = pattern_variable_names(pattern)
+        .into_iter()
+        .chain(
+            substitution
+                .values()
+                .flat_map(|term| term.attributes().variables.iter())
+                .map(|variable| variable.name.clone()),
+        )
+        .collect::<BTreeSet<_>>();
+    let unbound = rule
+        .lhs
+        .attributes()
+        .variables
+        .iter()
+        .filter(|variable| !substitution.contains_key(*variable))
+        .cloned()
+        .collect::<Vec<_>>();
+    for variable in unbound {
+        let fresh = fresh_variable(&variable, &mut names_to_avoid, fresh_counter);
+        substitution.insert(variable, fresh);
+    }
+
     let mut conditions = Vec::new();
     for (rule_term, configuration_term) in remainder {
         let rule_term = substitute(rule_term, &substitution);
@@ -578,17 +624,31 @@ fn recover_ground_symbolic_match(
         let TermKind::Variable(configuration_variable) = configuration_term.kind() else {
             return None;
         };
-        if !rule_term.attributes().constructor_like
-            || !rule_term.attributes().variables.is_empty()
-            || !sorts
+        debug_assert!(is_constructor_pattern(&rule_term));
+        debug_assert!(
+            sorts
                 .check_subsort(&rule_term.sort(), &configuration_variable.sort)
-                .ok()?
-        {
-            return None;
-        }
+                .unwrap_or(false)
+        );
         conditions.push(Predicate::Equals(configuration_term, rule_term));
     }
     (!conditions.is_empty()).then_some((substitution, conditions))
+}
+
+fn is_constructor_pattern(term: &Term) -> bool {
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            symbol.attributes.symbol_type == SymbolType::Constructor
+                && arguments.iter().all(is_constructor_pattern)
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => true,
+        TermKind::Injection { term, .. } => is_constructor_pattern(term),
+        TermKind::And(..) | TermKind::Map { .. } | TermKind::List { .. } | TermKind::Set { .. } => {
+            false
+        }
+    }
 }
 
 struct RuleApplication {
@@ -628,10 +688,13 @@ fn apply_rule(
                 substitution,
                 remainder,
             } => {
-                if let Some(recovered) = recover_ground_symbolic_match(
+                if let Some(recovered) = recover_constructor_symbolic_match(
                     &definition.sort_graph,
+                    rule,
+                    pattern,
                     substitution.clone(),
                     &remainder,
+                    fresh_counter,
                 ) {
                     recovered
                 } else {
@@ -945,27 +1008,46 @@ fn freshen_existentials(
     pattern: &Pattern,
     fresh_counter: &mut u64,
 ) -> Substitution {
-    let mut names_to_avoid = pattern
-        .term
-        .attributes()
-        .variables
-        .iter()
-        .map(|variable| variable.name.clone())
-        .collect::<BTreeSet<_>>();
+    let mut names_to_avoid = pattern_variable_names(pattern);
     rule.existentials
         .iter()
         .cloned()
         .map(|variable| {
-            let name = loop {
-                let name = format!("{}!{}", variable.name, *fresh_counter);
-                *fresh_counter += 1;
-                if names_to_avoid.insert(name.as_str().into()) {
-                    break name;
-                }
-            };
-            let term = Term::variable(Variable::new(name, variable.sort.clone()));
-            (variable, term)
+            let fresh = fresh_variable(&variable, &mut names_to_avoid, fresh_counter);
+            (variable, fresh)
         })
+        .collect()
+}
+
+fn fresh_variable(
+    variable: &Variable,
+    names_to_avoid: &mut BTreeSet<crate::term::Name>,
+    fresh_counter: &mut u64,
+) -> Term {
+    let name = loop {
+        let name = format!("{}!{}", variable.name, *fresh_counter);
+        *fresh_counter += 1;
+        if names_to_avoid.insert(name.as_str().into()) {
+            break name;
+        }
+    };
+    Term::variable(Variable::new(name, variable.sort.clone()))
+}
+
+fn pattern_variable_names(pattern: &Pattern) -> BTreeSet<crate::term::Name> {
+    pattern
+        .term
+        .attributes()
+        .variables
+        .iter()
+        .cloned()
+        .chain(
+            pattern
+                .constraints
+                .iter()
+                .flat_map(Predicate::free_variables),
+        )
+        .map(|variable| variable.name)
         .collect()
 }
 
@@ -1148,6 +1230,7 @@ mod tests {
                 sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 symbol wrap{}(SortInt{}) : SortInt{} [constructor{}()]
+                symbol pair{}(SortInt{}, SortInt{}) : SortInt{} [constructor{}()]
                 symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), smt-hook{}("<")]
                 $RULES
@@ -1610,6 +1693,91 @@ mod tests {
             [Predicate::Not(inner)]
                 if matches!(inner.as_ref(), Predicate::Equals(_, _))
         ));
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn narrows_a_constructor_pattern_with_fresh_rule_variables() {
+        let definition = symbolic_remainder_definition(
+            r#"
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(
+                    wrap{}(
+                        pair{}(
+                            X:SortInt{},
+                            \dv{SortInt{}}("0")
+                        )
+                    ),
+                    \top{SortInt{}}()
+                ),
+                X:SortInt{}
+            ) [label{}("destructure")]
+            "#,
+        );
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let subject = symbolic_subject(&definition);
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("constructor narrowing should produce applied and complementary branches");
+        };
+
+        let [branch] = branches.as_slice() else {
+            panic!("expected one applied branch, found {branches:?}");
+        };
+        let TermKind::Variable(result_variable) = branch.pattern.term.kind() else {
+            panic!(
+                "expected the fresh component variable, found {:?}",
+                branch.pattern.term
+            );
+        };
+        let [Predicate::Equals(configuration, constructor)] = branch.pattern.constraints.as_slice()
+        else {
+            panic!(
+                "expected one narrowing equality, found {:?}",
+                branch.pattern.constraints
+            );
+        };
+        assert!(
+            matches!(configuration.kind(), TermKind::Variable(variable) if variable.name.as_ref() == "X")
+        );
+        let TermKind::Application {
+            symbol, arguments, ..
+        } = constructor.kind()
+        else {
+            panic!("expected constructor pattern, found {constructor:?}");
+        };
+        assert_eq!(symbol.name.as_ref(), "pair");
+        assert!(
+            matches!(arguments[0].kind(), TermKind::Variable(variable) if variable == result_variable)
+        );
+        assert!(
+            matches!(arguments[1].kind(), TermKind::DomainValue { value, .. } if value.as_ref() == "0")
+        );
+        assert_ne!(result_variable.name.as_ref(), "Rule#X");
+        let first_name = result_variable.name.clone();
+        assert_eq!(fresh, 1);
+        assert!(matches!(
+            remainder.pattern.constraints.as_slice(),
+            [Predicate::Not(inner)] if inner.as_ref() == &Predicate::Equals(configuration.clone(), constructor.clone())
+        ));
+
+        let RewriteResult::Branch {
+            branches: second, ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("repeated constructor narrowing should still apply");
+        };
+        assert!(matches!(
+            second[0].pattern.term.kind(),
+            TermKind::Variable(variable) if variable.name != first_name
+        ));
+        assert_eq!(fresh, 2);
     }
 
     #[cfg(feature = "z3")]
