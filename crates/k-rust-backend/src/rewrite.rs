@@ -1,7 +1,7 @@
 //! Priority-aware rewrite steps over internalized backend theories.
 
 use std::{
-    collections::{BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     sync::Arc,
 };
 
@@ -413,7 +413,11 @@ fn rewrite_step_with_options(
         } else {
             let mut predicates = pattern.constraints.clone();
             predicates.extend(remainder.iter().cloned());
-            solver.is_sat(&predicates, &Substitution::new())
+            if violates_finite_constructor_domain(definition, &predicates) {
+                Ok(Satisfiability::Unsat)
+            } else {
+                solver.is_sat(&predicates, &Substitution::new())
+            }
         };
         if !matches!(
             remainder_result,
@@ -2182,6 +2186,58 @@ pub(crate) fn predicates_truth(predicates: &[Predicate]) -> Truth {
     })
 }
 
+/// Detect a constructor exclusion that contradicts an internalized finite no-junk axiom.
+pub(crate) fn violates_finite_constructor_domain(
+    definition: &BackendDefinition,
+    predicates: &[Predicate],
+) -> bool {
+    let mut exclusions = BTreeMap::<Variable, BTreeSet<Term>>::new();
+    for predicate in predicates {
+        collect_constructor_exclusions(definition, predicate, &mut exclusions);
+    }
+    exclusions.into_iter().any(|(variable, excluded)| {
+        definition
+            .finite_constructors(&variable.sort)
+            .is_some_and(|constructors| constructors.iter().all(|term| excluded.contains(term)))
+    })
+}
+
+fn collect_constructor_exclusions(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    exclusions: &mut BTreeMap<Variable, BTreeSet<Term>>,
+) {
+    if let Predicate::And(predicates) = predicate {
+        for predicate in predicates {
+            collect_constructor_exclusions(definition, predicate, exclusions);
+        }
+        return;
+    }
+    let Predicate::Not(inner) = predicate else {
+        return;
+    };
+    let Predicate::Equals(left, right) = inner.as_ref() else {
+        return;
+    };
+    let pair = match (left.kind(), right.kind()) {
+        (TermKind::Variable(variable), _) => Some((variable, right)),
+        (_, TermKind::Variable(variable)) => Some((variable, left)),
+        _ => None,
+    };
+    let Some((variable, constructor)) = pair else {
+        return;
+    };
+    if definition
+        .finite_constructors(&variable.sort)
+        .is_some_and(|constructors| constructors.contains(constructor))
+    {
+        exclusions
+            .entry(variable.clone())
+            .or_default()
+            .insert(constructor.clone());
+    }
+}
+
 fn predicate_truth(predicate: &Predicate) -> Truth {
     match predicate {
         Predicate::True => Truth::True,
@@ -2276,6 +2332,42 @@ mod tests {
         );
         let syntax = parse_definition(&source).expect("definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    #[test]
+    fn rejects_exclusions_covering_a_finite_constructor_sort() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} []
+                symbol a{}() : SortS{} [constructor{}()]
+                symbol b{}() : SortS{} [constructor{}()]
+                symbol c{}() : SortS{} [constructor{}()]
+                axiom{} \or{SortS{}}(
+                    a{}(),
+                    \or{SortS{}}(b{}(), c{}(), \bottom{SortS{}}())
+                ) [constructor{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let variable = Term::variable(Variable::new("X", Sort::simple("SortS")));
+        let excluded = ["a", "b", "c"]
+            .into_iter()
+            .map(|name| {
+                let constructor = definition
+                    .internalize_term(&parse_pattern(&format!("{name}{{}}()")).unwrap(), &[])
+                    .unwrap();
+                Predicate::Not(Box::new(Predicate::Equals(variable.clone(), constructor)))
+            })
+            .collect::<Vec<_>>();
+
+        assert!(!violates_finite_constructor_domain(
+            &definition,
+            &excluded[..2]
+        ));
+        assert!(violates_finite_constructor_domain(&definition, &excluded));
     }
 
     fn set_selection_definition() -> BackendDefinition {

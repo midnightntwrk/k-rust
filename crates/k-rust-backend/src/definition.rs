@@ -20,7 +20,7 @@ use crate::{
     smt::{SExpr, SmtType},
     term::{
         CollectionMetadata, CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Name,
-        Sort, Symbol, SymbolAttributes, SymbolType, Term, Variable,
+        Sort, Symbol, SymbolAttributes, SymbolType, Term, TermKind, Variable,
     },
 };
 
@@ -135,6 +135,7 @@ pub struct BackendDefinition {
     pub function_theory: Theory,
     pub simplification_theory: Theory,
     pub ceil_theory: Theory,
+    finite_sort_constructors: BTreeMap<Sort, Vec<Term>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -381,6 +382,7 @@ impl BackendDefinition {
             function_theory: Theory::new(),
             simplification_theory: Theory::new(),
             ceil_theory: Theory::new(),
+            finite_sort_constructors: BTreeMap::new(),
         };
         let rules = result
             .classified_axioms
@@ -408,8 +410,13 @@ impl BackendDefinition {
             .map(|claim| internalize_reachability_claim(&result, claim))
             .filter_map(Result::transpose)
             .collect::<Result<Vec<_>, _>>()?;
+        result.finite_sort_constructors = collect_finite_sort_constructors(&result);
         crate::definedness::discharge_rewrite_definedness(&mut result);
         Ok(result)
+    }
+
+    pub(crate) fn finite_constructors(&self, sort: &Sort) -> Option<&[Term]> {
+        self.finite_sort_constructors.get(sort).map(Vec::as_slice)
     }
 
     pub fn internalize_term(
@@ -569,6 +576,84 @@ impl BackendDefinition {
             }
         }
         Ok(Term::application(symbol, sort_arguments, arguments))
+    }
+}
+
+fn collect_finite_sort_constructors(definition: &BackendDefinition) -> BTreeMap<Sort, Vec<Term>> {
+    let mut domains = BTreeMap::new();
+    for axiom in &definition.axioms {
+        if !has_attribute(&axiom.attributes, "constructor") {
+            continue;
+        }
+        let mut alternatives = Vec::new();
+        flatten_or(&axiom.pattern, &mut alternatives);
+        if alternatives.len() < 2 {
+            continue;
+        }
+        let mut domain_sort = None;
+        let mut constructors = Vec::new();
+        let mut has_bottom = false;
+        let mut valid = true;
+        for alternative in alternatives {
+            match alternative {
+                kore::Pattern::Bottom { sort } => {
+                    let Ok(sort) = definition.internalize_syntax_sort(sort, &axiom.parameters)
+                    else {
+                        valid = false;
+                        break;
+                    };
+                    has_bottom = true;
+                    if domain_sort.get_or_insert_with(|| sort.clone()) != &sort {
+                        valid = false;
+                        break;
+                    }
+                }
+                kore::Pattern::Application { arguments, .. } if arguments.is_empty() => {
+                    let Ok(term) = definition.internalize_term(alternative, &axiom.parameters)
+                    else {
+                        valid = false;
+                        break;
+                    };
+                    let TermKind::Application { symbol, .. } = term.kind() else {
+                        valid = false;
+                        break;
+                    };
+                    if symbol.attributes.symbol_type != SymbolType::Constructor {
+                        valid = false;
+                        break;
+                    }
+                    let sort = term.sort();
+                    if domain_sort.get_or_insert_with(|| sort.clone()) != &sort {
+                        valid = false;
+                        break;
+                    }
+                    constructors.push(term);
+                }
+                _ => {
+                    valid = false;
+                    break;
+                }
+            }
+        }
+        if valid && has_bottom && !constructors.is_empty() {
+            constructors.sort();
+            constructors.dedup();
+            domains.insert(
+                domain_sort.expect("a nonempty domain has a sort"),
+                constructors,
+            );
+        }
+    }
+    domains
+}
+
+fn flatten_or<'a>(pattern: &'a kore::Pattern, output: &mut Vec<&'a kore::Pattern>) {
+    if let kore::Pattern::Or { arguments, .. } = pattern {
+        for argument in arguments {
+            flatten_or(argument, output);
+        }
+    } else {
+        output.push(pattern);
     }
 }
 

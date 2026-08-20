@@ -835,6 +835,58 @@ mod tests {
 
     #[cfg(feature = "z3")]
     #[test]
+    fn closes_the_remainder_after_exhaustive_constructor_case_analysis() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} []
+                sort SortT{} []
+                symbol a{}() : SortS{} [constructor{}()]
+                symbol b{}() : SortS{} [constructor{}()]
+                symbol c{}() : SortS{} [constructor{}()]
+                symbol total{}(SortS{}) : SortT{} [constructor{}()]
+                symbol end{}() : SortT{} [constructor{}()]
+                axiom{} \or{SortS{}}(
+                    a{}(), b{}(), c{}(), \bottom{SortS{}}()
+                ) [constructor{}()]
+                axiom{} \rewrites{SortT{}}(
+                    \and{SortT{}}(total{}(a{}()), \top{SortT{}}()),
+                    end{}()
+                ) [label{}("a")]
+                axiom{} \rewrites{SortT{}}(
+                    \and{SortT{}}(total{}(b{}()), \top{SortT{}}()),
+                    end{}()
+                ) [label{}("b")]
+                axiom{} \rewrites{SortT{}}(
+                    \and{SortT{}}(total{}(c{}()), \top{SortT{}}()),
+                    end{}()
+                ) [label{}("c")]
+                claim{} \implies{SortT{}}(
+                    \and{SortT{}}(total{}(X:SortS{}), \top{SortT{}}()),
+                    weakAlwaysFinally{SortT{}}(end{}())
+                ) [label{}("total")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &solver,
+        )
+        .expect("claim should execute");
+
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        assert_eq!(result.explored_states, 4);
+        assert_eq!(result.unexplored_states, 0);
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
     fn proves_map_construction_under_antecedent_definedness() {
         let syntax = parse_definition(
             r#"[]

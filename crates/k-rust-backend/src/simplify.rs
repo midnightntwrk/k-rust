@@ -15,7 +15,10 @@ use crate::{
         MatchMode, MatchResult, match_collection_remainders_all_in_definition,
         match_terms_in_definition,
     },
-    rewrite::{Truth, check_concreteness, predicates_truth, substitute_predicates},
+    rewrite::{
+        Truth, check_concreteness, predicates_truth, substitute_predicates,
+        violates_finite_constructor_domain,
+    },
     rule::{Predicate, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
     smt::{NoSolver, SmtError, SmtSolver, Validity},
     substitution::{Substitution, substitute},
@@ -131,7 +134,7 @@ fn simplify_predicates_with_budget(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Vec<Predicate>, SimplificationError> {
-    predicates
+    let simplified = predicates
         .iter()
         .map(|predicate| {
             simplify_predicate_with_budget(
@@ -144,7 +147,12 @@ fn simplify_predicates_with_budget(
                 solver,
             )
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    if violates_finite_constructor_domain(definition, &simplified) {
+        Ok(vec![Predicate::False])
+    } else {
+        Ok(simplified)
+    }
 }
 
 fn simplify_rule_predicates(
