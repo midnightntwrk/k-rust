@@ -8,7 +8,7 @@ use std::{
 use crate::{
     builtin::BuiltinEffect,
     definedness::ceil_term,
-    definition::BackendDefinition,
+    definition::{BackendDefinition, ConstructorHead, constructor_head},
     matching::{
         MatchMode, MatchResult, match_collection_remainders_all_in_definition,
         match_terms_in_definition,
@@ -2505,21 +2505,21 @@ pub(crate) fn violates_finite_constructor_domain(
     definition: &BackendDefinition,
     predicates: &[Predicate],
 ) -> bool {
-    let mut exclusions = BTreeMap::<Variable, BTreeSet<Term>>::new();
+    let mut exclusions = BTreeMap::<Variable, BTreeSet<ConstructorHead>>::new();
     for predicate in predicates {
         collect_constructor_exclusions(definition, predicate, &mut exclusions);
     }
     exclusions.into_iter().any(|(variable, excluded)| {
         definition
-            .finite_constructors(&variable.sort)
-            .is_some_and(|constructors| constructors.iter().all(|term| excluded.contains(term)))
+            .finite_constructor_heads(&variable.sort)
+            .is_some_and(|constructors| constructors.is_subset(&excluded))
     })
 }
 
 fn collect_constructor_exclusions(
     definition: &BackendDefinition,
     predicate: &Predicate,
-    exclusions: &mut BTreeMap<Variable, BTreeSet<Term>>,
+    exclusions: &mut BTreeMap<Variable, BTreeSet<ConstructorHead>>,
 ) {
     if let Predicate::And(predicates) = predicate {
         for predicate in predicates {
@@ -2530,7 +2530,13 @@ fn collect_constructor_exclusions(
     let Predicate::Not(inner) = predicate else {
         return;
     };
-    let Predicate::Equals(left, right) = inner.as_ref() else {
+    let mut inner = inner.as_ref();
+    let mut binders = BTreeSet::new();
+    while let Predicate::Exists(variable, body) = inner {
+        binders.insert(variable.clone());
+        inner = body;
+    }
+    let Predicate::Equals(left, right) = inner else {
         return;
     };
     let pair = match (left.kind(), right.kind()) {
@@ -2541,14 +2547,17 @@ fn collect_constructor_exclusions(
     let Some((variable, constructor)) = pair else {
         return;
     };
+    if binders.contains(variable) || !constructor.attributes().variables.is_subset(&binders) {
+        return;
+    }
+    let Some(head) = constructor_head(constructor) else {
+        return;
+    };
     if definition
-        .finite_constructors(&variable.sort)
-        .is_some_and(|constructors| constructors.contains(constructor))
+        .finite_constructor_heads(&variable.sort)
+        .is_some_and(|constructors| constructors.contains(&head))
     {
-        exclusions
-            .entry(variable.clone())
-            .or_default()
-            .insert(constructor.clone());
+        exclusions.entry(variable.clone()).or_default().insert(head);
     }
 }
 
@@ -2711,6 +2720,56 @@ mod tests {
             &excluded[..2]
         ));
         assert!(violates_finite_constructor_domain(&definition, &excluded));
+    }
+
+    #[test]
+    fn rejects_exclusions_covering_parameterized_constructor_families() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortElement{} []
+                sort SortList{} []
+                symbol nil{}() : SortList{} [constructor{}()]
+                symbol cons{}(SortElement{}, SortList{}) : SortList{} [constructor{}()]
+                axiom{} \or{SortList{}}(
+                    nil{}(),
+                    \exists{SortList{}}(
+                        E:SortElement{},
+                        \exists{SortList{}}(
+                            T:SortList{},
+                            cons{}(E:SortElement{}, T:SortList{})
+                        )
+                    ),
+                    \bottom{SortList{}}()
+                ) [constructor{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let list = Term::variable(Variable::new("L", Sort::simple("SortList")));
+        let nil = internal_term(&definition, "nil{}()");
+        let element = Variable::new("E0", Sort::simple("SortElement"));
+        let tail = Variable::new("T1", Sort::simple("SortList"));
+        let cons = internal_term(&definition, "cons{}(E0:SortElement{}, T1:SortList{})");
+        let excludes_nil = Predicate::Not(Box::new(Predicate::Equals(list.clone(), nil)));
+        let excludes_every_cons = Predicate::Not(Box::new(Predicate::Exists(
+            element,
+            Box::new(Predicate::Exists(
+                tail,
+                Box::new(Predicate::Equals(list.clone(), cons.clone())),
+            )),
+        )));
+        let excludes_one_cons = Predicate::Not(Box::new(Predicate::Equals(list, cons)));
+
+        assert!(!violates_finite_constructor_domain(
+            &definition,
+            &[excludes_nil.clone(), excludes_one_cons],
+        ));
+        assert!(violates_finite_constructor_domain(
+            &definition,
+            &[excludes_nil, excludes_every_cons],
+        ));
     }
 
     fn set_selection_definition() -> BackendDefinition {

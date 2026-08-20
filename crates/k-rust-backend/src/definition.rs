@@ -136,7 +136,19 @@ pub struct BackendDefinition {
     pub simplification_theory: Theory,
     pub predicate_simplification_theory: PredicateTheory,
     pub ceil_theory: Theory,
-    finite_sort_constructors: BTreeMap<Sort, Vec<Term>>,
+    finite_sort_constructors: BTreeMap<Sort, BTreeSet<ConstructorHead>>,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum ConstructorHead {
+    Symbol {
+        name: Name,
+        sort_arguments: Vec<Sort>,
+    },
+    Injection {
+        source: Sort,
+        target: Sort,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -428,8 +440,11 @@ impl BackendDefinition {
         Ok(result)
     }
 
-    pub(crate) fn finite_constructors(&self, sort: &Sort) -> Option<&[Term]> {
-        self.finite_sort_constructors.get(sort).map(Vec::as_slice)
+    pub(crate) fn finite_constructor_heads(
+        &self,
+        sort: &Sort,
+    ) -> Option<&BTreeSet<ConstructorHead>> {
+        self.finite_sort_constructors.get(sort)
     }
 
     pub fn internalize_term(
@@ -592,7 +607,9 @@ impl BackendDefinition {
     }
 }
 
-fn collect_finite_sort_constructors(definition: &BackendDefinition) -> BTreeMap<Sort, Vec<Term>> {
+fn collect_finite_sort_constructors(
+    definition: &BackendDefinition,
+) -> BTreeMap<Sort, BTreeSet<ConstructorHead>> {
     let mut domains = BTreeMap::new();
     for axiom in &definition.axioms {
         if !has_attribute(&axiom.attributes, "constructor") {
@@ -604,7 +621,7 @@ fn collect_finite_sort_constructors(definition: &BackendDefinition) -> BTreeMap<
             continue;
         }
         let mut domain_sort = None;
-        let mut constructors = Vec::new();
+        let mut constructors = BTreeSet::new();
         let mut has_bottom = false;
         let mut valid = true;
         for alternative in alternatives {
@@ -621,17 +638,32 @@ fn collect_finite_sort_constructors(definition: &BackendDefinition) -> BTreeMap<
                         break;
                     }
                 }
-                kore::Pattern::Application { arguments, .. } if arguments.is_empty() => {
-                    let Ok(term) = definition.internalize_term(alternative, &axiom.parameters)
+                alternative => {
+                    let mut constructor = alternative;
+                    let mut binders = BTreeSet::new();
+                    while let kore::Pattern::Exists { variable, body, .. } = constructor {
+                        let Ok(sort) =
+                            definition.internalize_syntax_sort(&variable.sort, &axiom.parameters)
+                        else {
+                            valid = false;
+                            break;
+                        };
+                        binders.insert(Variable::new(variable.name.as_str(), sort));
+                        constructor = body;
+                    }
+                    if !valid {
+                        break;
+                    }
+                    let Ok(term) = definition.internalize_term(constructor, &axiom.parameters)
                     else {
                         valid = false;
                         break;
                     };
-                    let TermKind::Application { symbol, .. } = term.kind() else {
+                    let Some(head) = constructor_head(&term) else {
                         valid = false;
                         break;
                     };
-                    if symbol.attributes.symbol_type != SymbolType::Constructor {
+                    if !term.attributes().variables.is_subset(&binders) {
                         valid = false;
                         break;
                     }
@@ -640,17 +672,11 @@ fn collect_finite_sort_constructors(definition: &BackendDefinition) -> BTreeMap<
                         valid = false;
                         break;
                     }
-                    constructors.push(term);
-                }
-                _ => {
-                    valid = false;
-                    break;
+                    constructors.insert(head);
                 }
             }
         }
         if valid && has_bottom && !constructors.is_empty() {
-            constructors.sort();
-            constructors.dedup();
             domains.insert(
                 domain_sort.expect("a nonempty domain has a sort"),
                 constructors,
@@ -658,6 +684,26 @@ fn collect_finite_sort_constructors(definition: &BackendDefinition) -> BTreeMap<
         }
     }
     domains
+}
+
+pub(crate) fn constructor_head(term: &Term) -> Option<ConstructorHead> {
+    match term.kind() {
+        TermKind::Application {
+            symbol,
+            sort_arguments,
+            ..
+        } if symbol.attributes.symbol_type == SymbolType::Constructor => {
+            Some(ConstructorHead::Symbol {
+                name: symbol.name.clone(),
+                sort_arguments: sort_arguments.clone(),
+            })
+        }
+        TermKind::Injection { source, target, .. } => Some(ConstructorHead::Injection {
+            source: source.clone(),
+            target: target.clone(),
+        }),
+        _ => None,
+    }
 }
 
 fn flatten_or<'a>(pattern: &'a kore::Pattern, output: &mut Vec<&'a kore::Pattern>) {
