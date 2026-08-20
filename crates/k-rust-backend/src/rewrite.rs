@@ -12,7 +12,7 @@ use crate::{
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, substitute},
-    term::{Sort, Term, TermKind, Variable},
+    term::{Name, Sort, Term, TermKind, Variable},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -58,6 +58,10 @@ pub enum IndeterminateReason {
     Concreteness {
         rule_id: String,
         variable: Variable,
+    },
+    Definedness {
+        rule_id: String,
+        symbols: Vec<Name>,
     },
     Smt {
         rule_id: String,
@@ -454,6 +458,17 @@ fn apply_rule(
         return RuleAttempt::Indeterminate(IndeterminateReason::Concreteness {
             rule_id: rule.attributes.unique_id.clone(),
             variable,
+        });
+    }
+    if !rule.computed_attributes.undefined_symbols.is_empty() {
+        return RuleAttempt::Indeterminate(IndeterminateReason::Definedness {
+            rule_id: rule.attributes.unique_id.clone(),
+            symbols: rule
+                .computed_attributes
+                .undefined_symbols
+                .iter()
+                .cloned()
+                .collect(),
         });
     }
     let requires = substitute_predicates(&rule.requires, &substitution);

@@ -288,6 +288,7 @@ impl BackendDefinition {
             };
             insert_theory(theory, rule);
         }
+        crate::definedness::discharge_rewrite_definedness(&mut result);
         Ok(result)
     }
 
