@@ -14,8 +14,8 @@ use crate::{
     claim::{ClaimError, ReachabilityClaim, internalize_reachability_claim},
     matching::SortGraph,
     rule::{
-        AxiomError, ClassifiedAxiom, RuleKind, RulePatternError, Theory, classify_axiom,
-        insert_theory, internalize_axiom,
+        AxiomError, ClassifiedAxiom, InternalizedRule, PredicateTheory, RuleKind, RulePatternError,
+        Theory, classify_axiom, insert_theory, internalize_axiom,
     },
     smt::{SExpr, SmtType},
     term::{
@@ -134,6 +134,7 @@ pub struct BackendDefinition {
     pub rewrite_theory: Theory,
     pub function_theory: Theory,
     pub simplification_theory: Theory,
+    pub predicate_simplification_theory: PredicateTheory,
     pub ceil_theory: Theory,
     finite_sort_constructors: BTreeMap<Sort, Vec<Term>>,
 }
@@ -381,6 +382,7 @@ impl BackendDefinition {
             rewrite_theory: Theory::new(),
             function_theory: Theory::new(),
             simplification_theory: Theory::new(),
+            predicate_simplification_theory: PredicateTheory::new(),
             ceil_theory: Theory::new(),
             finite_sort_constructors: BTreeMap::new(),
         };
@@ -395,14 +397,25 @@ impl BackendDefinition {
             })
             .map(|axiom| internalize_axiom(&result, axiom))
             .collect::<Result<Vec<_>, _>>()?;
-        for (kind, rule) in rules {
-            let theory = match kind {
-                RuleKind::Rewrite => &mut result.rewrite_theory,
-                RuleKind::Function => &mut result.function_theory,
-                RuleKind::Simplification => &mut result.simplification_theory,
-                RuleKind::Ceil => &mut result.ceil_theory,
-            };
-            insert_theory(theory, rule);
+        for rule in rules {
+            match rule {
+                InternalizedRule::Term(kind, rule) => {
+                    let theory = match kind {
+                        RuleKind::Rewrite => &mut result.rewrite_theory,
+                        RuleKind::Function => &mut result.function_theory,
+                        RuleKind::Simplification => &mut result.simplification_theory,
+                        RuleKind::Ceil => &mut result.ceil_theory,
+                    };
+                    insert_theory(theory, rule);
+                }
+                InternalizedRule::Predicate(rule) => {
+                    result
+                        .predicate_simplification_theory
+                        .entry(rule.attributes.priority)
+                        .or_default()
+                        .push(Arc::new(rule));
+                }
+            }
         }
         result.reachability_claims = result
             .claims

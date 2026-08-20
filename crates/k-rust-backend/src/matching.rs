@@ -151,6 +151,72 @@ pub fn match_terms_in_definition(
     )
 }
 
+pub(crate) fn match_term_pairs_in_definition(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    pairs: impl IntoIterator<Item = (Term, Term)>,
+) -> MatchResult {
+    let pairs = pairs
+        .into_iter()
+        .filter(|(pattern, subject)| pattern != subject)
+        .collect::<Vec<_>>();
+    if pairs.is_empty() {
+        return MatchResult::Success(Substitution::new());
+    }
+    let pattern_variables = pairs
+        .iter()
+        .flat_map(|(pattern, _)| pattern.attributes().variables.iter().cloned())
+        .collect::<BTreeSet<_>>();
+    let subject_variables = pairs
+        .iter()
+        .flat_map(|(_, subject)| subject.attributes().variables.iter().cloned())
+        .collect::<BTreeSet<_>>();
+    let shared_variables = pattern_variables
+        .intersection(&subject_variables)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if mode != MatchMode::Implies && !shared_variables.is_empty() {
+        return match mode {
+            MatchMode::Rewrite => MatchResult::Indeterminate {
+                substitution: Substitution::new(),
+                remainder: shared_variables
+                    .into_iter()
+                    .map(|variable| {
+                        let term = Term::variable(variable);
+                        (term.clone(), term)
+                    })
+                    .collect(),
+            },
+            MatchMode::Evaluate => {
+                MatchResult::Failed(FailReason::SharedVariables(shared_variables))
+            }
+            MatchMode::Implies => unreachable!(),
+        };
+    }
+
+    let mut matcher = Matcher {
+        mode,
+        sorts: &definition.sort_graph,
+        definition: Some(definition),
+        substitution: Substitution::new(),
+        queue: pairs.into(),
+        map_queue: VecDeque::new(),
+        indeterminate: Vec::new(),
+    };
+    if let Err(reason) = matcher.run() {
+        return MatchResult::Failed(reason);
+    }
+    if matcher.indeterminate.is_empty() {
+        MatchResult::Success(matcher.substitution)
+    } else {
+        matcher.indeterminate.reverse();
+        MatchResult::Indeterminate {
+            substitution: matcher.substitution,
+            remainder: matcher.indeterminate,
+        }
+    }
+}
+
 fn match_terms_with_context(
     mode: MatchMode,
     sorts: &SortGraph,

@@ -80,6 +80,14 @@ pub struct RewriteRule {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PredicateRewriteRule {
+    pub lhs: Predicate,
+    pub rhs: Vec<Predicate>,
+    pub requires: Vec<Predicate>,
+    pub attributes: RuleAttributes,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RuleRhs {
     Term(Term),
     Predicates(Vec<Predicate>),
@@ -98,6 +106,7 @@ pub enum TermIndex {
 }
 
 pub type Theory = BTreeMap<TermIndex, BTreeMap<u8, Vec<Arc<RewriteRule>>>>;
+pub type PredicateTheory = BTreeMap<u8, Vec<Arc<PredicateRewriteRule>>>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuleKind {
@@ -105,6 +114,12 @@ pub enum RuleKind {
     Function,
     Simplification,
     Ceil,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InternalizedRule {
+    Term(RuleKind, RewriteRule),
+    Predicate(PredicateRewriteRule),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -248,19 +263,14 @@ pub fn classify_axiom(
                 return Err(AxiomError::MalformedEquation);
             }
             if attributes.simplification {
-                return match equation_left.as_ref() {
-                    kore::Pattern::Application { .. } => {
-                        Ok(Some(ClassifiedAxiom::Simplification {
-                            module,
-                            sort_parameters,
-                            requires: (**left).clone(),
-                            lhs: (**equation_left).clone(),
-                            rhs: (**equation_right).clone(),
-                            attributes,
-                        }))
-                    }
-                    _ => Ok(None),
-                };
+                return Ok(Some(ClassifiedAxiom::Simplification {
+                    module,
+                    sort_parameters,
+                    requires: (**left).clone(),
+                    lhs: (**equation_left).clone(),
+                    rhs: (**equation_right).clone(),
+                    attributes,
+                }));
             }
             let kore::Pattern::Application { arguments, .. } = equation_left.as_ref() else {
                 return Err(AxiomError::MalformedEquation);
@@ -321,7 +331,7 @@ pub fn classify_axiom(
 pub fn internalize_axiom(
     definition: &BackendDefinition,
     axiom: &ClassifiedAxiom,
-) -> Result<(RuleKind, RewriteRule), DefinitionError> {
+) -> Result<InternalizedRule, DefinitionError> {
     match axiom {
         ClassifiedAxiom::Rewrite {
             sort_parameters,
@@ -357,7 +367,7 @@ pub fn internalize_axiom(
                 .iter()
                 .map(|variable| prefixed(variable, "Ex#"))
                 .collect();
-            Ok((
+            Ok(InternalizedRule::Term(
                 RuleKind::Rewrite,
                 make_rule(
                     lhs,
@@ -377,11 +387,24 @@ pub fn internalize_axiom(
             attributes,
             ..
         } => {
+            if !is_term_pattern(lhs) {
+                let lhs = internalize_one_predicate(definition, lhs, sort_parameters)?;
+                let requires = internalize_predicates(definition, requires, sort_parameters)?;
+                let rhs = internalize_predicates(definition, rhs, sort_parameters)?;
+                let rename = |variable: &Variable| prefixed(variable, "Eq#");
+                let mut lhs = rename_predicates(&[lhs], rename);
+                return Ok(InternalizedRule::Predicate(PredicateRewriteRule {
+                    lhs: lhs.pop().expect("one predicate was internalized"),
+                    rhs: rename_predicates(&rhs, rename),
+                    requires: rename_predicates(&requires, rename),
+                    attributes: attributes.clone(),
+                }));
+            }
             let lhs = definition.internalize_term(lhs, sort_parameters)?;
             let requires = internalize_predicates(definition, requires, sort_parameters)?;
             let (rhs, ensures) = internalize_rule_pattern(definition, rhs, sort_parameters)?;
             let rename = |variable: &Variable| prefixed(variable, "Eq#");
-            Ok((
+            Ok(InternalizedRule::Term(
                 RuleKind::Simplification,
                 make_rule(
                     rename_term(&lhs, rename),
@@ -421,7 +444,7 @@ pub fn internalize_axiom(
             let requires = internalize_predicates(definition, requires, sort_parameters)?;
             let (rhs, ensures) = internalize_rule_pattern(definition, rhs, sort_parameters)?;
             let rename = |variable: &Variable| prefixed(variable, "Eq#");
-            Ok((
+            Ok(InternalizedRule::Term(
                 RuleKind::Function,
                 make_rule(
                     rename_term(&lhs, rename),
@@ -446,7 +469,7 @@ pub fn internalize_axiom(
             let lhs = rename_term(&lhs, rename);
             let rhs = rename_predicates(&rhs, rename);
             let computed_attributes = computed_attributes([&lhs]);
-            Ok((
+            Ok(InternalizedRule::Term(
                 RuleKind::Ceil,
                 RewriteRule {
                     lhs,
@@ -552,9 +575,15 @@ fn internalize_one_predicate(
     match pattern {
         kore::Pattern::Top { .. } => Ok(Predicate::True),
         kore::Pattern::Bottom { .. } => Ok(Predicate::False),
-        kore::Pattern::Equals { left, right, .. } => {
+        kore::Pattern::Equals { left, right, .. }
+            if is_term_pattern(left) && is_term_pattern(right) =>
+        {
             Ok(Predicate::Equals(term(left)?, term(right)?))
         }
+        kore::Pattern::Equals { left, right, .. } => Ok(Predicate::Iff(
+            Box::new(predicate(left)?),
+            Box::new(predicate(right)?),
+        )),
         kore::Pattern::Ceil { argument, .. } => Ok(Predicate::Ceil(term(argument)?)),
         kore::Pattern::Floor { argument, .. } => Ok(Predicate::Floor(term(argument)?)),
         kore::Pattern::In { left, right, .. } => Ok(Predicate::In(term(left)?, term(right)?)),

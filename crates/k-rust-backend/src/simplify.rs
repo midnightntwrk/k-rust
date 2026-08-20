@@ -13,13 +13,13 @@ use crate::{
     definition::BackendDefinition,
     matching::{
         MatchMode, MatchResult, match_collection_remainders_all_in_definition,
-        match_terms_in_definition,
+        match_term_pairs_in_definition, match_terms_in_definition,
     },
     rewrite::{
         Truth, check_concreteness, predicates_truth, substitute_predicates,
         violates_finite_constructor_domain,
     },
-    rule::{Predicate, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
+    rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
     smt::{NoSolver, SmtError, SmtSolver, Validity},
     substitution::{Substitution, substitute},
     term::{Term, TermKind, Variable},
@@ -66,6 +66,10 @@ pub enum SimplificationError {
     IterationLimit {
         limit: usize,
         term: Term,
+    },
+    PredicateIterationLimit {
+        limit: usize,
+        predicate: Predicate,
     },
     InvalidBuiltinResultSymbol {
         hook: &'static str,
@@ -302,9 +306,248 @@ fn simplify_predicate_with_budget(
             }
         }
     };
-    Ok(normalize_predicate(normalize_hooked_boolean_predicate(
-        definition, simplified,
+    let simplified =
+        normalize_predicate(normalize_hooked_boolean_predicate(definition, simplified));
+    let Some(simplified) = apply_predicate_theory(
+        definition,
+        &simplified,
+        known_predicates,
+        SimplificationOptions {
+            max_iterations: limit,
+        },
+        active_conditions,
+        solver,
+    )?
+    else {
+        return Ok(simplified);
+    };
+    if *remaining == 0 {
+        return Err(SimplificationError::PredicateIterationLimit {
+            limit,
+            predicate: simplified,
+        });
+    }
+    *remaining -= 1;
+    simplify_predicate_with_budget(
+        definition,
+        &simplified,
+        known_predicates,
+        limit,
+        remaining,
+        active_conditions,
+        solver,
+    )
+}
+
+enum PredicateEquationAttempt {
+    NotApplicable,
+    Indeterminate,
+    Applied(Predicate),
+}
+
+fn apply_predicate_theory(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> Result<Option<Predicate>, SimplificationError> {
+    for rules in definition.predicate_simplification_theory.values() {
+        let mut results = Vec::new();
+        let mut rule_ids = Vec::new();
+        let mut indeterminate = false;
+        for rule in rules {
+            match apply_predicate_equation(
+                definition,
+                rule,
+                predicate,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+            )? {
+                PredicateEquationAttempt::NotApplicable => {}
+                PredicateEquationAttempt::Indeterminate => indeterminate = true,
+                PredicateEquationAttempt::Applied(result) => {
+                    results.push(result);
+                    rule_ids.push(rule.attributes.unique_id.clone());
+                }
+            }
+        }
+        if indeterminate {
+            return Ok(None);
+        }
+        match results.len() {
+            0 => {}
+            1 => return Ok(results.pop()),
+            _ if results.windows(2).all(|pair| pair[0] == pair[1]) => {
+                return Ok(results.into_iter().next());
+            }
+            _ => return Err(SimplificationError::ConflictingResults { rule_ids }),
+        }
+    }
+    Ok(None)
+}
+
+fn apply_predicate_equation(
+    definition: &BackendDefinition,
+    rule: &PredicateRewriteRule,
+    predicate: &Predicate,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> Result<PredicateEquationAttempt, SimplificationError> {
+    let substitution = match match_predicate(definition, &rule.lhs, predicate) {
+        PredicateMatch::Failed => return Ok(PredicateEquationAttempt::NotApplicable),
+        PredicateMatch::Indeterminate => return Ok(PredicateEquationAttempt::Indeterminate),
+        PredicateMatch::Success(substitution) => substitution,
+    };
+    let requires = substitute_predicates(&rule.requires, &substitution);
+    let requires = if let Some(anchor) = first_predicate_term(predicate) {
+        simplify_rule_predicates(
+            definition,
+            (&rule.attributes.unique_id, anchor),
+            &requires,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        )
+        .unwrap_or(requires)
+    } else {
+        requires
+    };
+    match predicates_truth(&requires) {
+        Truth::False => return Ok(PredicateEquationAttempt::NotApplicable),
+        Truth::Unknown => {
+            if !requires
+                .iter()
+                .all(|predicate| known_predicates.contains(predicate))
+            {
+                match solver.check_predicates(known_predicates, &Substitution::new(), &requires) {
+                    Ok(Validity::Valid) => {}
+                    Ok(Validity::Invalid) => {
+                        return Ok(PredicateEquationAttempt::NotApplicable);
+                    }
+                    Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => {
+                        return Ok(PredicateEquationAttempt::Indeterminate);
+                    }
+                    Ok(Validity::InconsistentGroundTruth) => {
+                        return Err(SimplificationError::InconsistentGroundTruth {
+                            rule_id: rule.attributes.unique_id.clone(),
+                        });
+                    }
+                    Ok(Validity::Unknown(reason)) => {
+                        return Err(SimplificationError::Smt {
+                            rule_id: rule.attributes.unique_id.clone(),
+                            error: SmtError::Unknown(reason),
+                        });
+                    }
+                    Err(error) => {
+                        return Err(SimplificationError::Smt {
+                            rule_id: rule.attributes.unique_id.clone(),
+                            error,
+                        });
+                    }
+                }
+            }
+        }
+        Truth::True => {}
+    }
+    let rhs = substitute_predicates(&rule.rhs, &substitution);
+    Ok(PredicateEquationAttempt::Applied(normalize_predicate(
+        Predicate::And(rhs),
     )))
+}
+
+enum PredicateMatch {
+    Success(Substitution),
+    Failed,
+    Indeterminate,
+}
+
+fn match_predicate(
+    definition: &BackendDefinition,
+    pattern: &Predicate,
+    subject: &Predicate,
+) -> PredicateMatch {
+    let mut pairs = Vec::new();
+    if !collect_predicate_term_pairs(pattern, subject, &mut pairs) {
+        return PredicateMatch::Failed;
+    }
+    match match_term_pairs_in_definition(
+        MatchMode::Evaluate,
+        definition,
+        pairs
+            .into_iter()
+            .map(|(pattern, subject)| (pattern.clone(), subject.clone())),
+    ) {
+        MatchResult::Success(substitution) => PredicateMatch::Success(substitution),
+        MatchResult::Failed(_) => PredicateMatch::Failed,
+        MatchResult::Indeterminate { .. } => PredicateMatch::Indeterminate,
+    }
+}
+
+fn collect_predicate_term_pairs<'a>(
+    pattern: &'a Predicate,
+    subject: &'a Predicate,
+    pairs: &mut Vec<(&'a Term, &'a Term)>,
+) -> bool {
+    match (pattern, subject) {
+        (Predicate::True, Predicate::True) | (Predicate::False, Predicate::False) => true,
+        (Predicate::Term(left), Predicate::Term(right))
+        | (Predicate::Ceil(left), Predicate::Ceil(right))
+        | (Predicate::Floor(left), Predicate::Floor(right)) => {
+            pairs.push((left, right));
+            true
+        }
+        (Predicate::Equals(left_a, left_b), Predicate::Equals(right_a, right_b))
+        | (Predicate::In(left_a, left_b), Predicate::In(right_a, right_b)) => {
+            pairs.push((left_a, right_a));
+            pairs.push((left_b, right_b));
+            true
+        }
+        (Predicate::Not(left), Predicate::Not(right)) => {
+            collect_predicate_term_pairs(left, right, pairs)
+        }
+        (Predicate::And(left), Predicate::And(right))
+        | (Predicate::Or(left), Predicate::Or(right))
+            if left.len() == right.len() =>
+        {
+            left.iter()
+                .zip(right)
+                .all(|(left, right)| collect_predicate_term_pairs(left, right, pairs))
+        }
+        (Predicate::Implies(left_a, left_b), Predicate::Implies(right_a, right_b))
+        | (Predicate::Iff(left_a, left_b), Predicate::Iff(right_a, right_b)) => {
+            collect_predicate_term_pairs(left_a, right_a, pairs)
+                && collect_predicate_term_pairs(left_b, right_b, pairs)
+        }
+        (Predicate::Exists(left_var, left), Predicate::Exists(right_var, right))
+        | (Predicate::Forall(left_var, left), Predicate::Forall(right_var, right))
+            if left_var == right_var =>
+        {
+            collect_predicate_term_pairs(left, right, pairs)
+        }
+        _ => false,
+    }
+}
+
+fn first_predicate_term(predicate: &Predicate) -> Option<&Term> {
+    match predicate {
+        Predicate::True | Predicate::False => None,
+        Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => Some(term),
+        Predicate::Equals(left, _) | Predicate::In(left, _) => Some(left),
+        Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
+            first_predicate_term(inner)
+        }
+        Predicate::And(inner) | Predicate::Or(inner) => inner.iter().find_map(first_predicate_term),
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            first_predicate_term(left).or_else(|| first_predicate_term(right))
+        }
+    }
 }
 
 /// Apply symbolic BOOL and `K-EQUAL-KORE` equations directly to predicate IR.
@@ -1127,6 +1370,47 @@ mod tests {
         assert_eq!(result.term, expected);
         assert_eq!(result.applied_rules, vec!["identity", "identity"]);
         assert!(result.constraints.is_empty());
+    }
+
+    #[test]
+    fn applies_simplification_rules_to_ml_predicates() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                symbol add{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.add")]
+                axiom{R, Q} \implies{R}(
+                    \not{R}(\equals{SortInt{}, R}(J:SortInt{}, K:SortInt{})),
+                    \equals{Q, R}(
+                        \equals{SortInt{}, Q}(
+                            add{}(I:SortInt{}, J:SortInt{}),
+                            add{}(I:SortInt{}, K:SortInt{})
+                        ),
+                        \and{Q}(\bottom{Q}(), \top{Q}())
+                    )
+                ) [label{}("different-offsets"), simplification{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let predicate = Predicate::Equals(
+            term(&definition, r#"add{}(X:SortInt{}, \dv{SortInt{}}("5"))"#),
+            term(&definition, r#"add{}(X:SortInt{}, \dv{SortInt{}}("7"))"#),
+        );
+
+        let result = simplify_predicate_with_solver(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(result, Predicate::False);
+        assert_eq!(definition.predicate_simplification_theory.len(), 1);
     }
 
     #[test]
