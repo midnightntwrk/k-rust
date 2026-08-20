@@ -232,6 +232,23 @@ pub fn prove_claim(
                 continue;
             }
         };
+        // An inconsistent claim antecedent is a valid implication. This is distinct from an
+        // execution branch becoming bottom after a rewrite, which remains governed by
+        // `allow_vacuous` below (matching the reference prover's custom-simplification tests).
+        if state.depth == 0
+            && state.trace.is_empty()
+            && predicates_truth(&state.pattern.constraints) == Truth::False
+        {
+            let outcome = ProofLeafOutcome::Proven(ImplicationCondition {
+                predicates: vec![crate::rule::Predicate::False],
+                substitution: Default::default(),
+            });
+            record_leaf!(state.leaf(outcome));
+            if claim.mode == ReachabilityMode::OnePath {
+                return Ok(finish(claim.mode, leaves, explored_states, 0));
+            }
+            continue;
+        }
         let simplified = simplify_with_solver(
             definition,
             &state.pattern.term,
@@ -1270,6 +1287,31 @@ mod tests {
             }]
         ));
         assert_eq!(accepted.status, ProofStatus::Proven);
+    }
+
+    #[test]
+    fn proves_claims_with_inconsistent_initial_constraints() {
+        let claims = r#"
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(\bottom{SortS{}}(), a{}()),
+                weakAlwaysFinally{SortS{}}(
+                    \and{SortS{}}(b{}(), \top{SortS{}}())
+                )
+            ) [label{}("false-antecedent")]
+        "#;
+        let definition = definition("", claims);
+        let claim = &definition.reachability_claims[0];
+
+        let result = prove_claim(&definition, claim, ProofOptions::default(), &NoSolver).unwrap();
+
+        assert_eq!(result.status, ProofStatus::Proven);
+        assert!(matches!(
+            result.leaves.as_slice(),
+            [ProofLeaf {
+                outcome: ProofLeafOutcome::Proven(ImplicationCondition { predicates, .. }),
+                ..
+            }] if predicates == &[crate::rule::Predicate::False]
+        ));
     }
 
     #[test]
