@@ -11,6 +11,7 @@ use k_rust_kore::kore::ast as kore;
 
 use crate::{
     matching::SortGraph,
+    rule::{AxiomError, ClassifiedAxiom, classify_axiom},
     term::{
         CollectionMetadata, CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Name,
         Sort, Symbol, SymbolAttributes, SymbolType, Term, Variable,
@@ -47,6 +48,7 @@ pub struct BackendDefinition {
     pub symbols: BTreeMap<Name, Arc<Symbol>>,
     pub sort_graph: SortGraph,
     pub axioms: Vec<PendingAxiom>,
+    pub classified_axioms: Vec<ClassifiedAxiom>,
     pub claims: Vec<PendingAxiom>,
 }
 
@@ -88,6 +90,7 @@ pub enum DefinitionError {
     MalformedCollection(String),
     ExpectedTerm(&'static str),
     EmptyAssociativeApplication(String),
+    Axiom(AxiomError),
 }
 
 impl fmt::Display for DefinitionError {
@@ -217,7 +220,7 @@ impl BackendDefinition {
                     _ => continue,
                 };
                 reject_duplicates(parameters)?;
-                if let Some((sub, sup)) = subsort_attribute(attributes, &sorts)? {
+                if let Some((sub, sup)) = subsort_attribute(pattern, attributes, &sorts)? {
                     subsorts.push((sub, sup));
                 }
                 target.push(PendingAxiom {
@@ -229,6 +232,19 @@ impl BackendDefinition {
             }
         }
 
+        let classified_axioms = axioms
+            .iter()
+            .filter_map(|axiom| {
+                classify_axiom(
+                    axiom.module.clone(),
+                    axiom.parameters.clone(),
+                    &axiom.pattern,
+                    &axiom.attributes,
+                )
+                .transpose()
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(DefinitionError::Axiom)?;
         let sort_graph = build_sort_graph(sorts.keys().cloned(), subsorts);
         Ok(Self {
             main_module: main_module.into(),
@@ -240,6 +256,7 @@ impl BackendDefinition {
             symbols,
             sort_graph,
             axioms,
+            classified_axioms,
             claims,
         })
     }
@@ -671,13 +688,14 @@ fn build_sort_graph(names: impl IntoIterator<Item = Name>, pairs: Vec<(Name, Nam
 }
 
 fn subsort_attribute(
+    pattern: &kore::Pattern,
     attributes: &kore::Attributes,
     sorts: &BTreeMap<Name, SortInfo>,
 ) -> Result<Option<(Name, Name)>, DefinitionError> {
-    let Some(pattern) = attribute(attributes, "subsort") else {
+    let Some(attribute_pattern) = attribute(attributes, "subsort") else {
         return Ok(None);
     };
-    let kore::Pattern::Application { symbol, arguments } = pattern else {
+    let kore::Pattern::Application { symbol, arguments } = attribute_pattern else {
         unreachable!()
     };
     if !arguments.is_empty() || symbol.sort_parameters.len() != 2 {
@@ -688,6 +706,44 @@ fn subsort_attribute(
     let known = BTreeSet::new();
     let sub = internalize_sort(&symbol.sort_parameters[0], sorts, &known)?;
     let sup = internalize_sort(&symbol.sort_parameters[1], sorts, &known)?;
+    let kore::Pattern::Exists { variable, body, .. } = pattern else {
+        return Err(DefinitionError::MalformedAttribute(
+            "subsort attribute must annotate the generated existential axiom".into(),
+        ));
+    };
+    let kore::Pattern::Equals { left, right, .. } = body.as_ref() else {
+        return Err(DefinitionError::MalformedAttribute(
+            "subsort existential must contain an equality".into(),
+        ));
+    };
+    let kore::Pattern::Variable(left_variable) = left.as_ref() else {
+        return Err(DefinitionError::MalformedAttribute(
+            "subsort equality must bind its existential variable".into(),
+        ));
+    };
+    let kore::Pattern::Application {
+        symbol: injection,
+        arguments,
+    } = right.as_ref()
+    else {
+        return Err(DefinitionError::MalformedAttribute(
+            "subsort equality must contain an injection".into(),
+        ));
+    };
+    if left_variable != variable
+        || injection.name != "inj"
+        || injection.sort_parameters.as_slice()
+            != [
+                symbol.sort_parameters[0].clone(),
+                symbol.sort_parameters[1].clone(),
+            ]
+        || !matches!(arguments.as_slice(), [kore::Pattern::Variable(inner)] if inner.sort == symbol.sort_parameters[0])
+        || variable.sort != symbol.sort_parameters[1]
+    {
+        return Err(DefinitionError::MalformedAttribute(
+            "subsort axiom does not agree with its sub- and supersort parameters".into(),
+        ));
+    }
     match (sub, sup) {
         (
             Sort::Application {
@@ -798,12 +854,25 @@ mod tests {
                     [function{}(), assoc{}(), hook{}("MAP.concat")]
                 symbol value{}() : SortValue{} [constructor{}()]
                 symbol box{S}(S) : SortBox{S} [constructor{}()]
-                axiom{} \top{SortValue{}}() [subsort{SortKey{}, SortValue{}}()]
+                axiom{R}
+                    \exists{R}(
+                        Val:SortValue{},
+                        \equals{SortValue{}, R}(
+                            Val:SortValue{},
+                            inj{SortKey{}, SortValue{}}(From:SortKey{})
+                        )
+                    )
+                    [subsort{SortKey{}, SortValue{}}()]
             endmodule []
             module MAIN
                 import BASE []
                 symbol key{}() : SortKey{} [constructor{}()]
-                axiom{} \top{SortValue{}}() [label{}("kept-for-rule-internalization")]
+                axiom{}
+                    \rewrites{SortValue{}}(
+                        \and{SortValue{}}(value{}(), \top{SortValue{}}()),
+                        value{}()
+                    )
+                    [label{}("kept-for-rule-internalization")]
             endmodule []
         "#})
         .expect("definition should parse");
@@ -820,6 +889,7 @@ mod tests {
         assert!(definition.sorts.contains_key("SortBox"));
         assert!(definition.symbols.contains_key("key"));
         assert_eq!(definition.axioms.len(), 2);
+        assert_eq!(definition.classified_axioms.len(), 1);
         assert_eq!(
             definition
                 .sort_graph
