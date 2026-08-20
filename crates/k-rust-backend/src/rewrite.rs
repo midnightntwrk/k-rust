@@ -989,6 +989,26 @@ fn apply_rule_with_match(
                             )
                         }));
                     }
+                    if let Some(matches) = recover_symbolic_map_key_matches(
+                        definition,
+                        substitution.clone(),
+                        &remainder,
+                    ) {
+                        return combine_rule_attempts(matches.into_iter().map(|mut matched| {
+                            let mut conditions = inherited_conditions.clone();
+                            conditions.append(&mut matched.conditions);
+                            matched.conditions = conditions;
+                            apply_rule_with_match(
+                                definition,
+                                rule,
+                                pattern,
+                                fresh_counter,
+                                simplification_options,
+                                solver,
+                                Some(matched),
+                            )
+                        }));
+                    }
                     if let Some(matches) = recover_map_not_in_keys_matches(
                         definition,
                         rule,
@@ -1368,6 +1388,170 @@ fn apply_rule_with_match(
         },
         remainder,
     }])
+}
+
+/// Narrow a concrete rule-map key against symbolic keys in a closed configuration map.
+///
+/// Booster leaves this shape for Kore's unifier. Each possible key selection becomes an applied
+/// branch guarded by equality; ordinary rule remainder construction preserves the complementary
+/// disequalities on the original configuration.
+fn recover_symbolic_map_key_matches(
+    definition: &BackendDefinition,
+    substitution: Substitution,
+    remainder: &[(Term, Term)],
+) -> Option<Vec<PartialRuleMatch>> {
+    let (pair_index, map_definition, pattern_entries, pattern_rest, subject_entries) = remainder
+        .iter()
+        .enumerate()
+        .find_map(|(index, (pattern, subject))| {
+            let pattern = substitute(pattern, &substitution);
+            let subject = substitute(subject, &substitution);
+            let (
+                TermKind::Map {
+                    definition: pattern_definition,
+                    entries: pattern_entries,
+                    rest: Some(pattern_rest),
+                },
+                TermKind::Map {
+                    definition: subject_definition,
+                    entries: subject_entries,
+                    rest: None,
+                },
+            ) = (pattern.kind(), subject.kind())
+            else {
+                return None;
+            };
+            if pattern_definition != subject_definition
+                || pattern_entries.is_empty()
+                || !pattern_entries
+                    .iter()
+                    .all(|(key, _)| key.attributes().constructor_like)
+                || !matches!(pattern_rest.kind(), TermKind::Variable(_))
+                || pattern_entries.len()
+                    > subject_entries
+                        .iter()
+                        .filter(|(key, _)| matches!(key.kind(), TermKind::Variable(_)))
+                        .count()
+            {
+                return None;
+            }
+            Some((
+                index,
+                pattern_definition.clone(),
+                pattern_entries.clone(),
+                pattern_rest.clone(),
+                subject_entries.clone(),
+            ))
+        })?;
+    let branch_remainder = remainder
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != pair_index)
+        .map(|(_, pair)| pair.clone())
+        .collect::<Vec<_>>();
+    let mut matches = Vec::new();
+    search_symbolic_map_key_matches(
+        definition,
+        &map_definition,
+        &pattern_entries,
+        &pattern_rest,
+        0,
+        subject_entries,
+        substitution,
+        Vec::new(),
+        branch_remainder,
+        &mut matches,
+    );
+    Some(matches)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn search_symbolic_map_key_matches(
+    definition: &BackendDefinition,
+    map_definition: &Arc<crate::term::MapDefinition>,
+    pattern_entries: &[(Term, Term)],
+    pattern_rest: &Term,
+    index: usize,
+    remaining_subject: Vec<(Term, Term)>,
+    substitution: Substitution,
+    conditions: Vec<Predicate>,
+    unresolved: Vec<(Term, Term)>,
+    matches: &mut Vec<PartialRuleMatch>,
+) {
+    if index == pattern_entries.len() {
+        let rest = substitute(pattern_rest, &substitution);
+        let subject_rest = Term::map(map_definition.clone(), remaining_subject, None);
+        let (substitution, unresolved) =
+            match match_terms_in_definition(MatchMode::Rewrite, definition, &rest, &subject_rest) {
+                MatchResult::Failed(_) => return,
+                MatchResult::Success(found) => (compose(&found, &substitution), unresolved),
+                MatchResult::Indeterminate {
+                    substitution: found,
+                    remainder,
+                } => {
+                    let mut unresolved = unresolved;
+                    unresolved.extend(remainder);
+                    (compose(&found, &substitution), unresolved)
+                }
+            };
+        matches.push(PartialRuleMatch {
+            substitution,
+            conditions,
+            remainder: unresolved,
+        });
+        return;
+    }
+
+    let (pattern_key, pattern_value) = &pattern_entries[index];
+    let pattern_key = substitute(pattern_key, &substitution);
+    for subject_index in 0..remaining_subject.len() {
+        let (subject_key, subject_value) = &remaining_subject[subject_index];
+        if !matches!(subject_key.kind(), TermKind::Variable(_)) {
+            continue;
+        }
+        let condition = Predicate::Equals(subject_key.clone(), pattern_key.clone());
+        if predicates_truth(std::slice::from_ref(&condition)) == Truth::False {
+            continue;
+        }
+        let pattern_value = substitute(pattern_value, &substitution);
+        let (next_substitution, next_unresolved) = match match_terms_in_definition(
+            MatchMode::Rewrite,
+            definition,
+            &pattern_value,
+            subject_value,
+        ) {
+            MatchResult::Failed(_) => continue,
+            MatchResult::Success(found) => (compose(&found, &substitution), unresolved.clone()),
+            MatchResult::Indeterminate {
+                substitution: found,
+                remainder,
+            } => {
+                let mut next_unresolved = unresolved.clone();
+                next_unresolved.extend(remainder);
+                (compose(&found, &substitution), next_unresolved)
+            }
+        };
+        let mut next_conditions = conditions.clone();
+        if predicates_truth(std::slice::from_ref(&condition)) == Truth::Unknown
+            && !next_conditions.contains(&condition)
+        {
+            next_conditions.push(condition);
+        }
+        let mut next_subject = remaining_subject.clone();
+        next_subject.remove(subject_index);
+        search_symbolic_map_key_matches(
+            definition,
+            map_definition,
+            pattern_entries,
+            pattern_rest,
+            index + 1,
+            next_subject,
+            next_substitution,
+            next_conditions,
+            next_unresolved,
+            matches,
+        );
+    }
 }
 
 /// Decompose the Boolean unification cases used by the pinned backend: conjunction with `true`,
@@ -2432,6 +2616,42 @@ mod tests {
         )
         .expect("map definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN").expect("map definition should internalize")
+    }
+
+    fn symbolic_map_key_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortKey{} [hasDomainValues{}()]
+                sort SortValue{} [hasDomainValues{}()]
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                sort SortState{} []
+                symbol mapUnit{}() : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.unit")]
+                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                symbol mapState{}(SortMap{}) : SortState{} [constructor{}()]
+                symbol mapPicked{}(SortValue{}, SortMap{}) : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        mapState{}(
+                            mapConcat{}(
+                                mapItem{}(\dv{SortKey{}}("wanted"), VALUE:SortValue{}),
+                                REST:SortMap{}
+                            )
+                        ),
+                        \top{SortState{}}()
+                    ),
+                    mapPicked{}(VALUE:SortValue{}, REST:SortMap{})
+                ) [label{}("select-wanted")]
+            endmodule []"#,
+        )
+        .expect("symbolic map-key definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("symbolic map-key definition should internalize")
     }
 
     #[cfg(feature = "z3")]
@@ -4367,6 +4587,60 @@ mod tests {
             branches
                 .iter()
                 .all(|branch| branch.pattern.constraints.is_empty())
+        );
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn narrows_concrete_rule_map_keys_against_symbolic_configuration_keys() {
+        let definition = symbolic_map_key_definition();
+        let wanted = r#"\dv{SortKey{}}("wanted")"#;
+        let selected_value = r#"\dv{SortValue{}}("selected")"#;
+        let other_key = r#"\dv{SortKey{}}("other")"#;
+        let other_value = r#"\dv{SortValue{}}("other-value")"#;
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                &format!(
+                    "mapState{{}}(mapConcat{{}}(mapItem{{}}(KEY:SortKey{{}}, {selected_value}), mapItem{{}}({other_key}, {other_value})))"
+                ),
+            ),
+            constraints: Vec::new(),
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("symbolic key selection should retain its complementary branch");
+        };
+        let [branch] = branches.as_slice() else {
+            panic!("expected one symbolic key selection, found {branches:?}");
+        };
+        assert_eq!(
+            branch.pattern.term,
+            internal_term(
+                &definition,
+                &format!(
+                    "mapPicked{{}}({selected_value}, mapItem{{}}({other_key}, {other_value}))"
+                )
+            )
+        );
+        let selected = Predicate::Equals(
+            internal_term(&definition, "KEY:SortKey{}"),
+            internal_term(&definition, wanted),
+        );
+        assert_eq!(
+            branch.pattern.constraints.as_slice(),
+            std::slice::from_ref(&selected)
+        );
+        assert_eq!(
+            remainder.pattern.constraints,
+            [Predicate::Not(Box::new(selected))]
         );
     }
 
