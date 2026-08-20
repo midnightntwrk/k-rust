@@ -193,6 +193,7 @@ pub enum ClassifiedAxiom {
     Ceil {
         module: Name,
         sort_parameters: Vec<Name>,
+        requires: kore::Pattern,
         lhs: kore::Pattern,
         rhs: kore::Pattern,
         attributes: RuleAttributes,
@@ -255,6 +256,7 @@ pub fn classify_axiom(
                 return Ok(Some(ClassifiedAxiom::Ceil {
                     module,
                     sort_parameters,
+                    requires: (**left).clone(),
                     lhs: (**argument).clone(),
                     rhs: (**equation_right).clone(),
                     attributes,
@@ -459,15 +461,18 @@ pub fn internalize_axiom(
         }
         ClassifiedAxiom::Ceil {
             sort_parameters,
+            requires,
             lhs,
             rhs,
             attributes,
             ..
         } => {
             let lhs = definition.internalize_term(lhs, sort_parameters)?;
+            let requires = internalize_predicates(definition, requires, sort_parameters)?;
             let rhs = internalize_predicates(definition, rhs, sort_parameters)?;
             let rename = |variable: &Variable| prefixed(variable, "Eq#");
             let lhs = rename_term(&lhs, rename);
+            let requires = rename_predicates(&requires, rename);
             let rhs = rename_predicates(&rhs, rename);
             let computed_attributes = computed_attributes([&lhs]);
             Ok(InternalizedRule::Term(
@@ -475,7 +480,7 @@ pub fn internalize_axiom(
                 RewriteRule {
                     lhs,
                     rhs: RuleRhs::Predicates(rhs),
-                    requires: Vec::new(),
+                    requires,
                     ensures: Vec::new(),
                     attributes: attributes.clone(),
                     computed_attributes,

@@ -210,6 +210,71 @@ fn simplify_rule_predicates(
     )
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RuleCondition {
+    Satisfied,
+    Refuted,
+    Indeterminate,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn evaluate_rule_condition(
+    definition: &BackendDefinition,
+    rule_id: &str,
+    anchor: Option<&Term>,
+    predicates: Vec<Predicate>,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> Result<RuleCondition, SimplificationError> {
+    let predicates = if let Some(anchor) = anchor {
+        simplify_rule_predicates(
+            definition,
+            (rule_id, anchor),
+            &predicates,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        )
+        .unwrap_or(predicates)
+    } else {
+        predicates
+    };
+    match predicates_truth(&predicates) {
+        Truth::False => return Ok(RuleCondition::Refuted),
+        Truth::True => return Ok(RuleCondition::Satisfied),
+        Truth::Unknown => {}
+    }
+    if predicates
+        .iter()
+        .all(|predicate| known_predicates.contains(predicate))
+    {
+        return Ok(RuleCondition::Satisfied);
+    }
+    match solver.check_predicates(known_predicates, &Substitution::new(), &predicates) {
+        Ok(Validity::Valid) => Ok(RuleCondition::Satisfied),
+        Ok(Validity::Invalid) => Ok(RuleCondition::Refuted),
+        Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => {
+            Ok(RuleCondition::Indeterminate)
+        }
+        Ok(Validity::InconsistentGroundTruth) => {
+            Err(SimplificationError::InconsistentGroundTruth {
+                rule_id: rule_id.to_owned(),
+            })
+        }
+        Ok(Validity::Unknown(reason)) => Err(SimplificationError::Smt {
+            rule_id: rule_id.to_owned(),
+            error: SmtError::Unknown(reason),
+        }),
+        Err(error) => Err(SimplificationError::Smt {
+            rule_id: rule_id.to_owned(),
+            error,
+        }),
+    }
+}
+
 pub fn simplify_predicate_with_solver(
     definition: &BackendDefinition,
     predicate: &Predicate,
@@ -361,6 +426,33 @@ fn simplify_predicate_with_budget(
     ) {
         return Ok(Predicate::False);
     }
+    if let Some(simplified) = apply_ceil_theory(
+        definition,
+        &simplified,
+        known_predicates,
+        SimplificationOptions {
+            max_iterations: limit,
+        },
+        active_conditions,
+        solver,
+    )? {
+        if *remaining == 0 {
+            return Err(SimplificationError::PredicateIterationLimit {
+                limit,
+                predicate: simplified,
+            });
+        }
+        *remaining -= 1;
+        return simplify_predicate_with_budget(
+            definition,
+            &simplified,
+            known_predicates,
+            limit,
+            remaining,
+            active_conditions,
+            solver,
+        );
+    }
     let Some(simplified) = apply_predicate_theory(
         definition,
         &simplified,
@@ -397,6 +489,124 @@ fn conjunctively_contains(predicates: &[Predicate], target: &Predicate) -> bool 
         predicate == target
             || matches!(predicate, Predicate::And(inner) if conjunctively_contains(inner, target))
     })
+}
+
+enum CeilEquationAttempt {
+    NotApplicable,
+    Indeterminate,
+    Applied(Predicate),
+}
+
+fn apply_ceil_theory(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> Result<Option<Predicate>, SimplificationError> {
+    let Predicate::Ceil(term) = predicate else {
+        return Ok(None);
+    };
+    let groups = applicable_groups(&definition.ceil_theory, &term_index(term));
+    for rules in groups.values() {
+        let mut results = Vec::new();
+        let mut rule_ids = Vec::new();
+        let mut indeterminate = false;
+        for rule in rules {
+            match apply_ceil_equation(
+                definition,
+                rule,
+                term,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+            )? {
+                CeilEquationAttempt::NotApplicable => {}
+                CeilEquationAttempt::Indeterminate => indeterminate = true,
+                CeilEquationAttempt::Applied(result) => {
+                    results.push(result);
+                    rule_ids.push(rule.attributes.unique_id.clone());
+                }
+            }
+        }
+        if indeterminate && results.is_empty() {
+            return Ok(None);
+        }
+        match results.len() {
+            0 => {}
+            1 => return Ok(results.pop()),
+            _ if results.windows(2).all(|pair| pair[0] == pair[1]) => {
+                return Ok(results.into_iter().next());
+            }
+            _ => return Err(SimplificationError::ConflictingResults { rule_ids }),
+        }
+    }
+    Ok(None)
+}
+
+fn apply_ceil_equation(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    term: &Term,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> Result<CeilEquationAttempt, SimplificationError> {
+    let substitution =
+        match match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term) {
+            MatchResult::Failed(_) => return Ok(CeilEquationAttempt::NotApplicable),
+            MatchResult::Indeterminate {
+                substitution,
+                remainder,
+            } => {
+                let Some(matches) = match_collection_remainders_all_in_definition(
+                    MatchMode::Evaluate,
+                    definition,
+                    substitution,
+                    &remainder,
+                ) else {
+                    return Ok(CeilEquationAttempt::Indeterminate);
+                };
+                let Some(substitution) = matches.into_iter().next() else {
+                    return Ok(CeilEquationAttempt::NotApplicable);
+                };
+                substitution
+            }
+            MatchResult::Success(substitution) => substitution,
+        };
+    if substitution
+        .keys()
+        .any(|variable| !rule.lhs.attributes().variables.contains(variable))
+        || check_concreteness(rule, &substitution).is_some()
+    {
+        return Ok(CeilEquationAttempt::NotApplicable);
+    }
+
+    let requires = substitute_predicates(&rule.requires, &substitution);
+    match evaluate_rule_condition(
+        definition,
+        &rule.attributes.unique_id,
+        Some(term),
+        requires,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    )? {
+        RuleCondition::Satisfied => {}
+        RuleCondition::Refuted => return Ok(CeilEquationAttempt::NotApplicable),
+        RuleCondition::Indeterminate => return Ok(CeilEquationAttempt::Indeterminate),
+    }
+
+    let RuleRhs::Predicates(rhs) = &rule.rhs else {
+        return Ok(CeilEquationAttempt::NotApplicable);
+    };
+    Ok(CeilEquationAttempt::Applied(normalize_predicate(
+        Predicate::And(substitute_predicates(rhs, &substitution)),
+    )))
 }
 
 enum PredicateEquationAttempt {
@@ -465,56 +675,19 @@ fn apply_predicate_equation(
         PredicateMatch::Success(substitution) => substitution,
     };
     let requires = substitute_predicates(&rule.requires, &substitution);
-    let requires = if let Some(anchor) = first_predicate_term(predicate) {
-        simplify_rule_predicates(
-            definition,
-            (&rule.attributes.unique_id, anchor),
-            &requires,
-            known_predicates,
-            options,
-            active_conditions,
-            solver,
-        )
-        .unwrap_or(requires)
-    } else {
-        requires
-    };
-    match predicates_truth(&requires) {
-        Truth::False => return Ok(PredicateEquationAttempt::NotApplicable),
-        Truth::Unknown => {
-            if !requires
-                .iter()
-                .all(|predicate| known_predicates.contains(predicate))
-            {
-                match solver.check_predicates(known_predicates, &Substitution::new(), &requires) {
-                    Ok(Validity::Valid) => {}
-                    Ok(Validity::Invalid) => {
-                        return Ok(PredicateEquationAttempt::NotApplicable);
-                    }
-                    Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => {
-                        return Ok(PredicateEquationAttempt::Indeterminate);
-                    }
-                    Ok(Validity::InconsistentGroundTruth) => {
-                        return Err(SimplificationError::InconsistentGroundTruth {
-                            rule_id: rule.attributes.unique_id.clone(),
-                        });
-                    }
-                    Ok(Validity::Unknown(reason)) => {
-                        return Err(SimplificationError::Smt {
-                            rule_id: rule.attributes.unique_id.clone(),
-                            error: SmtError::Unknown(reason),
-                        });
-                    }
-                    Err(error) => {
-                        return Err(SimplificationError::Smt {
-                            rule_id: rule.attributes.unique_id.clone(),
-                            error,
-                        });
-                    }
-                }
-            }
-        }
-        Truth::True => {}
+    match evaluate_rule_condition(
+        definition,
+        &rule.attributes.unique_id,
+        first_predicate_term(predicate),
+        requires,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    )? {
+        RuleCondition::Satisfied => {}
+        RuleCondition::Refuted => return Ok(PredicateEquationAttempt::NotApplicable),
+        RuleCondition::Indeterminate => return Ok(PredicateEquationAttempt::Indeterminate),
     }
     let rhs = substitute_predicates(&rule.rhs, &substitution);
     Ok(PredicateEquationAttempt::Applied(normalize_predicate(
@@ -1318,50 +1491,19 @@ fn apply_equation(
         return Ok(EquationAttempt::NotApplicable);
     }
     let requires = substitute_predicates(&rule.requires, &substitution);
-    let requires = simplify_rule_predicates(
+    match evaluate_rule_condition(
         definition,
-        (&rule.attributes.unique_id, term),
-        &requires,
+        &rule.attributes.unique_id,
+        Some(term),
+        requires,
         known_predicates,
         options,
         active_conditions,
         solver,
-    )
-    .unwrap_or(requires);
-    match predicates_truth(&requires) {
-        Truth::False => return Ok(EquationAttempt::NotApplicable),
-        Truth::Unknown => {
-            if !requires
-                .iter()
-                .all(|predicate| known_predicates.contains(predicate))
-            {
-                match solver.check_predicates(known_predicates, &Substitution::new(), &requires) {
-                    Ok(Validity::Valid) => {}
-                    Ok(Validity::Invalid) => return Ok(EquationAttempt::NotApplicable),
-                    Ok(Validity::InconsistentGroundTruth) => {
-                        return Err(SimplificationError::InconsistentGroundTruth {
-                            rule_id: rule.attributes.unique_id.clone(),
-                        });
-                    }
-                    Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => {
-                        return Ok(EquationAttempt::Indeterminate);
-                    }
-                    Ok(Validity::Unknown(reason)) => {
-                        return Err(SimplificationError::Smt {
-                            rule_id: rule.attributes.unique_id.clone(),
-                            error: SmtError::Unknown(reason),
-                        });
-                    }
-                    Err(error) => {
-                        return Err(SimplificationError::Smt {
-                            rule_id: rule.attributes.unique_id.clone(),
-                            error,
-                        });
-                    }
-                }
-            }
-        }
-        Truth::True => {}
+    )? {
+        RuleCondition::Satisfied => {}
+        RuleCondition::Refuted => return Ok(EquationAttempt::NotApplicable),
+        RuleCondition::Indeterminate => return Ok(EquationAttempt::Indeterminate),
     }
     let (rhs, rhs_is_bottom) = match &rule.rhs {
         RuleRhs::Term(rhs) => (substitute(rhs, &substitution), false),
@@ -1585,6 +1727,67 @@ mod tests {
 
         assert_eq!(result, Predicate::False);
         assert_eq!(definition.predicate_simplification_theory.len(), 1);
+    }
+
+    #[test]
+    fn applies_conditional_ceil_equations_under_known_predicates() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                symbol isFun{}(SortInt{}) : SortBool{} [function{}(), total{}()]
+                symbol fun{}(SortInt{}) : SortInt{} [function{}()]
+                axiom{R, Q} \implies{R}(
+                    \equals{SortBool{}, R}(
+                        isFun{}(X:SortInt{}),
+                        \dv{SortBool{}}("true")
+                    ),
+                    \equals{Q, R}(
+                        \ceil{SortInt{}, Q}(fun{}(X:SortInt{})),
+                        \and{Q}(\top{Q}(), \top{Q}())
+                    )
+                ) [label{}("ceil-fun"), simplification{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let is_fun = term(&definition, "isFun{}(X:SortInt{})");
+        let truth = term(&definition, r#"\dv{SortBool{}}("true")"#);
+        let predicate = Predicate::Ceil(term(&definition, "fun{}(X:SortInt{})"));
+        let known = [Predicate::Equals(is_fun, truth)];
+
+        assert_eq!(
+            simplify_predicate_with_solver(
+                &definition,
+                &predicate,
+                &known,
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .unwrap(),
+            Predicate::True,
+        );
+        assert_eq!(
+            simplify_predicate_with_solver(
+                &definition,
+                &predicate,
+                &[],
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .unwrap(),
+            predicate,
+        );
+        let ceil_rule = definition
+            .ceil_theory
+            .values()
+            .flat_map(|groups| groups.values())
+            .flatten()
+            .next()
+            .expect("ceil equation should be indexed");
+        assert_eq!(ceil_rule.requires.len(), 1);
     }
 
     #[test]
