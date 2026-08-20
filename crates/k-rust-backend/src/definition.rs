@@ -103,6 +103,10 @@ impl OverloadGraph {
             .map(|(greater, _)| greater.clone())
             .collect()
     }
+
+    pub fn overloaded_by(&self, greater: &Name) -> BTreeSet<Name> {
+        self.greater_than.get(greater).cloned().unwrap_or_default()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -796,6 +796,7 @@ impl Matcher<'_> {
             {
                 self.defer(pattern, subject)
             }
+            (_, _) if self.can_narrow_overload(&pattern, &subject) => self.defer(pattern, subject),
             (left, right) if is_rigid(left) && is_rigid(right) => {
                 Err(FailReason::DifferentSymbols(pattern, subject))
             }
@@ -909,6 +910,33 @@ impl Matcher<'_> {
             pattern_view.lift(common.clone(), &sort_arguments, self.sorts)?,
             subject_view.lift(common, &sort_arguments, self.sorts)?,
         ))
+    }
+
+    fn can_narrow_overload(&self, pattern: &Term, subject: &Term) -> bool {
+        let Some(definition) = self.definition else {
+            return false;
+        };
+        let Some(pattern) = OverloadView::new(pattern) else {
+            return false;
+        };
+        let TermKind::Injection { term, .. } = subject.kind() else {
+            return false;
+        };
+        let TermKind::Variable(variable) = term.kind() else {
+            return false;
+        };
+        definition
+            .overloads
+            .overloaded_by(&pattern.symbol.name)
+            .into_iter()
+            .filter_map(|name| definition.symbols.get(&name))
+            .any(|symbol| {
+                symbol.sort_variables.is_empty()
+                    && self
+                        .sorts
+                        .check_subsort(&symbol.result_sort, &variable.sort)
+                        .unwrap_or(false)
+            })
     }
 
     fn match_lists(

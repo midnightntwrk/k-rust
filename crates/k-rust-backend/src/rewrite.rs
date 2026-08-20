@@ -815,7 +815,15 @@ fn apply_rule_with_match(
                             )
                         }));
                     }
-                    if let Some(recovered) = recover_functional_symbolic_match(
+                    if let Some(recovered) = recover_overload_symbolic_match(
+                        definition,
+                        pattern,
+                        substitution.clone(),
+                        &remainder,
+                        fresh_counter,
+                    ) {
+                        recovered
+                    } else if let Some(recovered) = recover_functional_symbolic_match(
                         definition,
                         rule,
                         pattern,
@@ -1070,6 +1078,122 @@ fn apply_rule_with_match(
         },
         remainder,
     }])
+}
+
+fn recover_overload_symbolic_match(
+    definition: &BackendDefinition,
+    state: &Pattern,
+    substitution: Substitution,
+    remainder: &[(Term, Term)],
+    fresh_counter: &mut u64,
+) -> Option<(Substitution, Vec<Predicate>)> {
+    let [(rule_term, configuration_term)] = remainder else {
+        return None;
+    };
+    let rule_term = substitute(rule_term, &substitution);
+    let configuration_term = substitute(configuration_term, &substitution);
+    let rule_application = match rule_term.kind() {
+        TermKind::Application { .. } => &rule_term,
+        TermKind::Injection { term, .. } => term,
+        _ => return None,
+    };
+    let TermKind::Application {
+        symbol: rule_symbol,
+        ..
+    } = rule_application.kind()
+    else {
+        return None;
+    };
+    let TermKind::Injection {
+        target,
+        term: configuration_inner,
+        ..
+    } = configuration_term.kind()
+    else {
+        return None;
+    };
+    let TermKind::Variable(configuration_variable) = configuration_inner.kind() else {
+        return None;
+    };
+
+    let mut candidates = definition
+        .overloads
+        .overloaded_by(&rule_symbol.name)
+        .into_iter()
+        .filter_map(|name| definition.symbols.get(&name).cloned())
+        .filter(|symbol| {
+            symbol.sort_variables.is_empty()
+                && symbol.attributes.symbol_type == SymbolType::Constructor
+                && definition
+                    .sort_graph
+                    .check_subsort(&symbol.result_sort, &configuration_variable.sort)
+                    .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+    let exact = candidates
+        .iter()
+        .filter(|symbol| symbol.result_sort == configuration_variable.sort)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !exact.is_empty() {
+        candidates = exact;
+    }
+    let [candidate] = candidates.as_slice() else {
+        return None;
+    };
+
+    let mut names_to_avoid = pattern_variable_names(state)
+        .into_iter()
+        .chain(
+            substitution
+                .values()
+                .flat_map(|term| term.attributes().variables.iter())
+                .map(|variable| variable.name.clone()),
+        )
+        .collect::<BTreeSet<_>>();
+    let arguments = candidate
+        .argument_sorts
+        .iter()
+        .enumerate()
+        .map(|(index, sort)| {
+            fresh_variable(
+                &Variable::new(format!("Ex#Overload{index}"), sort.clone()),
+                &mut names_to_avoid,
+                fresh_counter,
+            )
+        })
+        .collect::<Vec<_>>();
+    let candidate_term = Term::application(candidate.clone(), Vec::new(), arguments);
+    let configuration_value = if candidate.result_sort == configuration_variable.sort {
+        candidate_term.clone()
+    } else {
+        Term::injection(
+            candidate.result_sort.clone(),
+            configuration_variable.sort.clone(),
+            candidate_term.clone(),
+        )
+    };
+    let lifted = if candidate.result_sort == *target {
+        candidate_term
+    } else {
+        Term::injection(
+            candidate.result_sort.clone(),
+            target.clone(),
+            candidate_term,
+        )
+    };
+    let found = match match_terms_in_definition(MatchMode::Rewrite, definition, &rule_term, &lifted)
+    {
+        MatchResult::Success(found) => found,
+        MatchResult::Failed(_) | MatchResult::Indeterminate { .. } => return None,
+    };
+    Some((
+        compose(&found, &substitution),
+        vec![Predicate::Equals(
+            Term::variable(configuration_variable.clone()),
+            configuration_value,
+        )],
+    ))
 }
 
 fn recover_collection_matches(
@@ -2480,6 +2604,66 @@ mod tests {
             )
         );
         assert!(applied.pattern.constraints.is_empty());
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn narrows_an_injected_variable_to_a_lesser_overload() {
+        let definition = overload_rewrite_definition();
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                "overloadState{}(inj{SortSub{}, SortTop{}}(CONFIG:SortSub{}))",
+            ),
+            constraints: Vec::new(),
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("overload narrowing should retain applied and complementary branches");
+        };
+        let [branch] = branches.as_slice() else {
+            panic!("expected one overload narrowing branch, found {branches:?}");
+        };
+        let TermKind::Application { arguments, .. } = branch.pattern.term.kind() else {
+            panic!("expected the overload result constructor");
+        };
+        let TermKind::Injection { term: result, .. } = arguments[0].kind() else {
+            panic!("the narrowed argument should remain injected to SortTop");
+        };
+        let TermKind::Variable(fresh_variable) = result.kind() else {
+            panic!("the lesser overload argument should be fresh");
+        };
+        assert!(fresh_variable.name.starts_with("Ex#Overload0"));
+        let [Predicate::Equals(configuration, value)] = branch.pattern.constraints.as_slice()
+        else {
+            panic!("expected the overload narrowing equality");
+        };
+        assert!(matches!(
+            configuration.kind(),
+            TermKind::Variable(variable) if variable.name.as_ref() == "CONFIG"
+        ));
+        assert!(matches!(
+            value.kind(),
+            TermKind::Application { symbol, arguments, .. }
+                if symbol.name.as_ref() == "lower"
+                    && matches!(arguments[0].kind(), TermKind::Variable(variable) if variable == fresh_variable)
+        ));
+        let [Predicate::Not(remainder_condition)] = remainder.pattern.constraints.as_slice() else {
+            panic!("expected a negated complementary condition");
+        };
+        assert!(matches!(
+            remainder_condition.as_ref(),
+            Predicate::Exists(variable, equality)
+                if variable == fresh_variable
+                    && equality.as_ref() == &branch.pattern.constraints[0]
+        ));
     }
 
     #[test]
