@@ -335,11 +335,47 @@ fn expand_with(
             associativity,
             symbol,
             arguments,
-        } => Ok(Pattern::AssociativeApplication {
-            associativity: *associativity,
-            symbol: substitute_symbol(symbol, sorts),
-            arguments: expand_many(arguments, aliases, sorts, terms, stack)?,
-        }),
+        } => {
+            if aliases.contains_key(&symbol.name) {
+                let Some(application) = associative_application(*associativity, symbol, arguments)
+                else {
+                    return Ok(pattern.clone());
+                };
+                return recurse(&application, stack);
+            }
+            Ok(Pattern::AssociativeApplication {
+                associativity: *associativity,
+                symbol: substitute_symbol(symbol, sorts),
+                arguments: expand_many(arguments, aliases, sorts, terms, stack)?,
+            })
+        }
+    }
+}
+
+fn associative_application(
+    associativity: kore::Associativity,
+    symbol: &kore::Symbol,
+    arguments: &[kore::Pattern],
+) -> Option<kore::Pattern> {
+    let application = |arguments| kore::Pattern::Application {
+        symbol: symbol.clone(),
+        arguments,
+    };
+    match associativity {
+        kore::Associativity::Left => {
+            let mut arguments = arguments.iter().cloned();
+            let first = arguments.next()?;
+            Some(arguments.fold(first, |left, right| application(vec![left, right])))
+        }
+        kore::Associativity::Right => {
+            let (last, rest) = arguments.split_last()?;
+            Some(
+                rest.iter()
+                    .rev()
+                    .cloned()
+                    .fold(last.clone(), |right, left| application(vec![left, right])),
+            )
+        }
     }
 }
 
@@ -769,5 +805,37 @@ mod tests {
         .expect("expected expansion should parse");
 
         assert_eq!(expand(&application, &aliases).unwrap(), expected);
+    }
+
+    #[test]
+    fn expands_aliases_through_associative_wrappers() {
+        let definition = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort S{} []
+                symbol f{}(S{}, S{}) : S{} []
+                symbol a{}() : S{} []
+                symbol b{}() : S{} []
+                symbol c{}() : S{} []
+                alias pair{}(S{}, S{}) : S{}
+                    where pair{}(X:S{}, Y:S{}) := f{}(X:S{}, Y:S{}) []
+            endmodule []
+        "#})
+        .expect("alias definition should parse");
+        let modules = definition.modules.iter().collect::<Vec<_>>();
+        let aliases = collect(&modules).expect("alias definition should validate");
+        let left = parse_pattern(r"\left-assoc{}(pair{}(a{}(), b{}(), c{}()))")
+            .expect("left-associative alias application should parse");
+        let right = parse_pattern(r"\right-assoc{}(pair{}(a{}(), b{}(), c{}()))")
+            .expect("right-associative alias application should parse");
+
+        assert_eq!(
+            expand(&left, &aliases).unwrap(),
+            parse_pattern("f{}(f{}(a{}(), b{}()), c{}())").unwrap()
+        );
+        assert_eq!(
+            expand(&right, &aliases).unwrap(),
+            parse_pattern("f{}(a{}(), f{}(b{}(), c{}()))").unwrap()
+        );
     }
 }
