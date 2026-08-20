@@ -175,7 +175,7 @@ pub fn check_disjunctive_implication_with_existentials(
         let mut matched = false;
         let mut incomplete = false;
         for (consequent, _) in &consequents {
-            let substitution = match match_terms_in_definition(
+            let (substitution, remainder) = match match_terms_in_definition(
                 MatchMode::Implies,
                 definition,
                 &consequent.term,
@@ -185,17 +185,19 @@ pub fn check_disjunctive_implication_with_existentials(
                     return Err(ImplicationError::Subsorting(error));
                 }
                 MatchResult::Failed(_) => continue,
-                MatchResult::Indeterminate { .. } => {
-                    incomplete = true;
-                    continue;
-                }
-                MatchResult::Success(substitution) => substitution,
+                MatchResult::Indeterminate {
+                    substitution,
+                    remainder,
+                } => (substitution, remainder),
+                MatchResult::Success(substitution) => (substitution, Vec::new()),
             };
             matched = true;
-            let obligations = substitute_predicates(&consequent.constraints, &substitution)
-                .into_iter()
-                .filter(|predicate| !antecedent.constraints.contains(predicate))
-                .collect::<Vec<_>>();
+            let obligations = implication_obligations(
+                consequent,
+                &substitution,
+                remainder,
+                &antecedent.constraints,
+            );
             let obligations = match simplify_predicates_with_solver(
                 definition,
                 &obligations,
@@ -322,7 +324,10 @@ pub fn check_implication_with_existentials_and_options(
                 return Err(ImplicationError::Subsorting(error));
             }
             MatchResult::Failed(_) => return Ok(invalid()),
-            MatchResult::Indeterminate { .. } => {
+            MatchResult::Indeterminate {
+                substitution,
+                remainder,
+            } => {
                 let simplified = simplify_with_solver(
                     definition,
                     &antecedent.term,
@@ -339,9 +344,15 @@ pub fn check_implication_with_existentials_and_options(
                     ),
                 };
                 if simplified == antecedent {
-                    // The reference backend deliberately treats a stable,
-                    // unresolved term match as a decisive non-implication.
-                    return Ok(invalid());
+                    return discharge_consequent(
+                        definition,
+                        &antecedent,
+                        &consequent,
+                        substitution,
+                        remainder,
+                        options,
+                        solver,
+                    );
                 }
                 antecedent = simplified;
             }
@@ -351,6 +362,7 @@ pub fn check_implication_with_existentials_and_options(
                     &antecedent,
                     &consequent,
                     substitution,
+                    Vec::new(),
                     options,
                     solver,
                 );
@@ -401,13 +413,17 @@ fn discharge_consequent(
     antecedent: &Pattern,
     consequent: &Pattern,
     substitution: Substitution,
+    remainder: Vec<(crate::term::Term, crate::term::Term)>,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<ImplicationResult, ImplicationError> {
-    let obligations = substitute_predicates(&consequent.constraints, &substitution)
-        .into_iter()
-        .filter(|predicate| !antecedent.constraints.contains(predicate))
-        .collect::<Vec<_>>();
+    let had_match_remainder = !remainder.is_empty();
+    let obligations = implication_obligations(
+        consequent,
+        &substitution,
+        remainder,
+        &antecedent.constraints,
+    );
     if obligations.is_empty() {
         return Ok(valid(substitution));
     }
@@ -424,18 +440,58 @@ fn discharge_consequent(
     };
     match predicates_truth(&obligations) {
         Truth::True => return Ok(valid(substitution)),
-        Truth::False => return Ok(condition_invalid()),
+        Truth::False => {
+            return Ok(if had_match_remainder {
+                invalid()
+            } else {
+                condition_invalid()
+            });
+        }
         Truth::Unknown => {}
     }
 
     Ok(
         match solver.check_predicates(&antecedent.constraints, &Substitution::new(), &obligations) {
             Ok(Validity::Valid) => valid(substitution),
-            Ok(Validity::Invalid) => condition_invalid(),
+            Ok(Validity::Invalid) => {
+                if had_match_remainder {
+                    invalid()
+                } else {
+                    condition_invalid()
+                }
+            }
             Ok(Validity::InconsistentGroundTruth) => vacuously_valid(),
+            Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) if had_match_remainder => {
+                invalid()
+            }
             Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => indeterminate(),
         },
     )
+}
+
+fn implication_obligations(
+    consequent: &Pattern,
+    substitution: &Substitution,
+    remainder: Vec<(crate::term::Term, crate::term::Term)>,
+    known: &[Predicate],
+) -> Vec<Predicate> {
+    let mut obligations = Vec::new();
+    for (left, right) in remainder {
+        let predicate = Predicate::Equals(
+            substitute(&left, substitution),
+            substitute(&right, substitution),
+        );
+        if !obligations.contains(&predicate) {
+            obligations.push(predicate);
+        }
+    }
+    for predicate in substitute_predicates(&consequent.constraints, substitution) {
+        if !obligations.contains(&predicate) {
+            obligations.push(predicate);
+        }
+    }
+    obligations.retain(|predicate| !known.contains(predicate));
+    obligations
 }
 
 fn free_variables(pattern: &Pattern) -> BTreeSet<Variable> {
@@ -765,6 +821,25 @@ mod tests {
             Term::variable(crate::term::Variable::new("X", Sort::simple("SortInt"))),
             int(&definition, "1"),
         ));
+        let solver = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Valid),
+        };
+
+        assert_eq!(
+            check_implication(&definition, &antecedent, &consequent, &solver),
+            Ok(valid(Substitution::new()))
+        );
+    }
+
+    #[test]
+    fn discharges_symbolic_term_match_equalities_with_smt() {
+        let definition = definition();
+        let antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, X:SortInt{})"#);
+        let consequent = pattern(
+            &definition,
+            r#"pair{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("0"))"#,
+        );
         let solver = FixedSolver {
             satisfiability: Ok(Satisfiability::Sat),
             validity: Ok(Validity::Valid),
