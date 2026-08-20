@@ -6,7 +6,8 @@ use crate::{
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms},
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
-    simplify::{SimplificationError, SimplificationOptions, simplify},
+    simplify::{SimplificationError, SimplificationOptions, simplify_with_solver},
+    smt::{NoSolver, SmtError, SmtSolver, Validity},
     substitution::{Substitution, substitute},
     term::{Sort, Term, TermKind, Variable},
 };
@@ -54,6 +55,10 @@ pub enum IndeterminateReason {
     Concreteness {
         rule_id: String,
         variable: Variable,
+    },
+    Smt {
+        rule_id: String,
+        error: SmtError,
     },
 }
 
@@ -113,6 +118,15 @@ pub fn execute(
     initial: Pattern,
     options: ExecutionOptions,
 ) -> ExecutionResult {
+    execute_with_solver(definition, initial, options, &NoSolver)
+}
+
+pub fn execute_with_solver(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: ExecutionOptions,
+    solver: &dyn SmtSolver,
+) -> ExecutionResult {
     let mut fresh_counter = 0;
     let mut pending = VecDeque::from([ExecutionState {
         pattern: initial,
@@ -121,12 +135,14 @@ pub fn execute(
     }]);
     let mut leaves = Vec::new();
     while let Some(mut state) = pending.pop_front() {
-        match simplify(
+        match simplify_with_solver(
             definition,
             &state.pattern.term,
+            &state.pattern.constraints,
             SimplificationOptions {
                 max_iterations: options.max_simplification_iterations,
             },
+            solver,
         ) {
             Ok(simplified) => {
                 state.pattern.term = simplified.term;
@@ -164,7 +180,7 @@ pub fn execute(
             });
             continue;
         }
-        match rewrite_step(definition, &state.pattern, &mut fresh_counter) {
+        match rewrite_step_with_solver(definition, &state.pattern, &mut fresh_counter, solver) {
             RewriteResult::Stuck(pattern) => leaves.push(ExecutionLeaf {
                 pattern,
                 depth: state.depth,
@@ -229,6 +245,15 @@ pub fn rewrite_step(
     pattern: &Pattern,
     fresh_counter: &mut u64,
 ) -> RewriteResult {
+    rewrite_step_with_solver(definition, pattern, fresh_counter, &NoSolver)
+}
+
+pub fn rewrite_step_with_solver(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    fresh_counter: &mut u64,
+    solver: &dyn SmtSolver,
+) -> RewriteResult {
     let index = term_index(&pattern.term);
     let priority_groups = applicable_groups(definition, &index);
     if priority_groups.is_empty() {
@@ -238,7 +263,7 @@ pub fn rewrite_step(
     for rules in priority_groups.values() {
         let mut applied = Vec::new();
         for rule in rules {
-            match apply_rule(definition, rule, pattern, fresh_counter) {
+            match apply_rule(definition, rule, pattern, fresh_counter, solver) {
                 RuleAttempt::NotApplicable => {}
                 RuleAttempt::Trivial => saw_trivial = true,
                 RuleAttempt::Applied(result) => applied.push(result),
@@ -303,6 +328,7 @@ fn apply_rule(
     rule: &RewriteRule,
     pattern: &Pattern,
     fresh_counter: &mut u64,
+    solver: &dyn SmtSolver,
 ) -> RuleAttempt {
     let substitution = match match_terms(
         MatchMode::Rewrite,
@@ -334,10 +360,40 @@ fn apply_rule(
     match predicates_truth(&requires) {
         Truth::False => return RuleAttempt::NotApplicable,
         Truth::Unknown => {
-            return RuleAttempt::Indeterminate(IndeterminateReason::Requires {
-                rule_id: rule.attributes.unique_id.clone(),
-                predicates: requires,
-            });
+            if !requires
+                .iter()
+                .all(|predicate| pattern.constraints.contains(predicate))
+            {
+                match solver.check_predicates(&pattern.constraints, &Substitution::new(), &requires)
+                {
+                    Ok(Validity::Valid) => {}
+                    Ok(Validity::Invalid) => return RuleAttempt::NotApplicable,
+                    Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => {
+                        return RuleAttempt::Indeterminate(IndeterminateReason::Requires {
+                            rule_id: rule.attributes.unique_id.clone(),
+                            predicates: requires,
+                        });
+                    }
+                    Ok(Validity::InconsistentGroundTruth) => {
+                        return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
+                            rule_id: rule.attributes.unique_id.clone(),
+                            error: SmtError::InconsistentGroundTruth,
+                        });
+                    }
+                    Ok(Validity::Unknown(reason)) => {
+                        return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
+                            rule_id: rule.attributes.unique_id.clone(),
+                            error: SmtError::Unknown(reason),
+                        });
+                    }
+                    Err(error) => {
+                        return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
+                            rule_id: rule.attributes.unique_id.clone(),
+                            error,
+                        });
+                    }
+                }
+            }
         }
         Truth::True => {}
     }
@@ -351,8 +407,29 @@ fn apply_rule(
         &substitute_predicates(&rule.ensures, &substitution),
         &existential_substitution,
     );
-    if predicates_truth(&ensures) == Truth::False {
-        return RuleAttempt::Trivial;
+    match predicates_truth(&ensures) {
+        Truth::False => return RuleAttempt::Trivial,
+        Truth::True => {}
+        Truth::Unknown => {
+            match solver.check_predicates(&pattern.constraints, &Substitution::new(), &ensures) {
+                Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
+                    return RuleAttempt::Trivial;
+                }
+                Ok(Validity::Valid | Validity::Indeterminate) | Err(SmtError::Unavailable) => {}
+                Ok(Validity::Unknown(reason)) => {
+                    return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
+                        rule_id: rule.attributes.unique_id.clone(),
+                        error: SmtError::Unknown(reason),
+                    });
+                }
+                Err(error) => {
+                    return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
+                        rule_id: rule.attributes.unique_id.clone(),
+                        error,
+                    });
+                }
+            }
+        }
     }
     let mut constraints = pattern.constraints.clone();
     constraints.extend(ensures);
@@ -698,6 +775,63 @@ mod tests {
                 ..
             } if rule_id == "conditional"
         ));
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn z3_proves_or_refutes_symbolic_requires_before_priority_fallback() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol wrap{}(SortInt{}) : SortInt{} [constructor{}()]
+                symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("<")]
+                axiom{} \rewrites{SortInt{}}(
+                    \and{SortInt{}}(
+                        wrap{}(X:SortInt{}),
+                        \equals{SortBool{}, SortInt{}}(
+                            lt{}(X:SortInt{}, \dv{SortInt{}}("10")),
+                            \dv{SortBool{}}("true")
+                        )
+                    ),
+                    \dv{SortInt{}}("high")
+                ) [label{}("high"), priority{}("10")]
+                axiom{} \rewrites{SortInt{}}(
+                    \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
+                    \dv{SortInt{}}("fallback")
+                ) [label{}("fallback"), priority{}("50")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let variable = Variable::new("Y", Sort::simple("SortInt"));
+        let subject = definition
+            .internalize_term(&parse_pattern("wrap{}(Y:SortInt{})").unwrap(), &[])
+            .unwrap();
+        let integer = |value: &str| Term::domain_value(Sort::simple("SortInt"), value);
+        let run = |value: &str| {
+            let pattern = Pattern {
+                term: subject.clone(),
+                constraints: vec![Predicate::Equals(
+                    Term::variable(variable.clone()),
+                    integer(value),
+                )],
+            };
+            let mut fresh = 0;
+            rewritten_value(rewrite_step_with_solver(
+                &definition,
+                &pattern,
+                &mut fresh,
+                &solver,
+            ))
+        };
+
+        assert_eq!(run("5"), "high");
+        assert_eq!(run("15"), "fallback");
     }
 
     #[test]

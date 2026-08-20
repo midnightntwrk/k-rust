@@ -2,10 +2,21 @@
 
 use std::{collections::BTreeMap, fmt};
 
+#[cfg(feature = "z3")]
+use std::collections::BTreeSet;
+
 use crate::{
-    rule::Predicate,
-    term::{Sort, Term, TermKind},
+    definition::BackendDefinition,
+    rule::{Predicate, RewriteRule, RuleRhs, Theory},
+    substitution::Substitution,
+    term::{Sort, Term, TermKind, Variable},
 };
+
+#[cfg(feature = "z3")]
+mod z3;
+
+#[cfg(feature = "z3")]
+pub use z3::{Z3Options, Z3Solver};
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SmtType {
@@ -295,6 +306,311 @@ pub enum TranslationError {
         arguments: usize,
     },
     UnsupportedPredicate(&'static str),
+    ParametricSort(Sort),
+    SmtLemmaSurplusMappings {
+        rule_id: String,
+        terms: Vec<Term>,
+    },
+    MissingSmtLemmaVariable {
+        rule_id: String,
+        variable: Variable,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SmtPrelude {
+    declarations: Vec<String>,
+}
+
+impl SmtPrelude {
+    pub fn from_definition(definition: &BackendDefinition) -> Result<Self, TranslationError> {
+        let mut declarations = definition
+            .sorts
+            .iter()
+            .filter(|(name, _)| name.as_ref() != "SortInt" && name.as_ref() != "SortBool")
+            .map(|(name, info)| format!("(declare-sort {} {})", quote(name), info.parameters.len()))
+            .collect::<Vec<_>>();
+        for symbol in definition.symbols.values() {
+            let Some(SmtType::Lib(name)) = &symbol.attributes.smt else {
+                continue;
+            };
+            let arguments = symbol
+                .argument_sorts
+                .iter()
+                .map(smt_sort)
+                .collect::<Result<Vec<_>, _>>()?;
+            declarations.push(format!(
+                "(declare-fun {name} ({}) {})",
+                arguments.join(" "),
+                smt_sort(&symbol.result_sort)?
+            ));
+        }
+        for rule in smt_lemmas(definition) {
+            declarations.push(format!("(assert {})", translate_smt_lemma(rule)?));
+        }
+        Ok(Self { declarations })
+    }
+
+    pub fn declarations(&self) -> &[String] {
+        &self.declarations
+    }
+
+    #[cfg(feature = "z3")]
+    fn query(
+        &self,
+        known: &[Predicate],
+        substitution: &Substitution,
+        checked: &[Predicate],
+        filter_for_checked: bool,
+    ) -> Result<TranslatedQuery, TranslationError> {
+        let mut translation = TranslationState::new();
+        let substitution = substitution
+            .iter()
+            .map(|(variable, term)| {
+                Ok(SExpr::application(
+                    "=",
+                    vec![
+                        translation.translate_term(&Term::variable(variable.clone()))?,
+                        translation.translate_term(term)?,
+                    ],
+                ))
+            })
+            .collect::<Result<Vec<_>, TranslationError>>()?;
+        let known = known
+            .iter()
+            .map(|predicate| translation.translate_predicate(predicate))
+            .collect::<Result<Vec<_>, _>>()?;
+        let checked = checked
+            .iter()
+            .map(|predicate| translation.translate_predicate(predicate))
+            .collect::<Result<Vec<_>, _>>()?;
+        let checked = SExpr::application("and", checked);
+        let (substitution, known) = if filter_for_checked {
+            let interesting = smt_variables(&checked);
+            (
+                closure_over(&interesting, substitution),
+                closure_over(&interesting, known),
+            )
+        } else {
+            (substitution, known)
+        };
+        let mut base = self.declarations.clone();
+        for (term, name) in &translation.mappings {
+            base.push(format!(
+                "(declare-const {name} {})",
+                smt_sort(&term.sort())?
+            ));
+        }
+        base.extend(
+            substitution
+                .into_iter()
+                .chain(known)
+                .map(|expression| format!("(assert {expression})")),
+        );
+        Ok(TranslatedQuery {
+            base: base.join("\n"),
+            checked,
+        })
+    }
+}
+
+#[cfg(feature = "z3")]
+fn smt_variables(expression: &SExpr) -> BTreeSet<String> {
+    match expression {
+        SExpr::Atom(atom) if atom.starts_with("SMT-") => BTreeSet::from([atom.clone()]),
+        SExpr::Atom(_) => BTreeSet::new(),
+        SExpr::List(items) => items.iter().flat_map(smt_variables).collect(),
+    }
+}
+
+#[cfg(feature = "z3")]
+fn closure_over(interesting: &BTreeSet<String>, expressions: Vec<SExpr>) -> Vec<SExpr> {
+    let mut variables = interesting.clone();
+    let mut remaining = expressions.into_iter().collect::<BTreeSet<_>>();
+    let mut selected = BTreeSet::new();
+    loop {
+        let added = remaining
+            .iter()
+            .filter(|expression| !smt_variables(expression).is_disjoint(&variables))
+            .cloned()
+            .collect::<Vec<_>>();
+        if added.is_empty() {
+            return selected.into_iter().collect();
+        }
+        for expression in added {
+            remaining.remove(&expression);
+            variables.extend(smt_variables(&expression));
+            selected.insert(expression);
+        }
+    }
+}
+
+fn smt_lemmas(definition: &BackendDefinition) -> Vec<&RewriteRule> {
+    fn theory_rules(theory: &Theory) -> impl Iterator<Item = &RewriteRule> {
+        theory
+            .values()
+            .flat_map(|priorities| priorities.values())
+            .flatten()
+            .map(AsRef::as_ref)
+    }
+    theory_rules(&definition.function_theory)
+        .chain(theory_rules(&definition.simplification_theory))
+        .filter(|rule| rule.attributes.smt_lemma)
+        .collect()
+}
+
+fn translate_smt_lemma(rule: &RewriteRule) -> Result<SExpr, TranslationError> {
+    let RuleRhs::Term(rhs) = &rule.rhs else {
+        return Err(TranslationError::UnsupportedPredicate("ceil SMT lemma"));
+    };
+    let mut translation = TranslationState::new();
+    let equality = SExpr::application(
+        "=",
+        vec![
+            translation.translate_term(&rule.lhs)?,
+            translation.translate_term(rhs)?,
+        ],
+    );
+    let body = if rule.requires.is_empty() {
+        equality
+    } else {
+        let requires = rule
+            .requires
+            .iter()
+            .map(|predicate| translation.translate_predicate(predicate))
+            .collect::<Result<Vec<_>, _>>()?;
+        SExpr::application("=>", vec![SExpr::application("and", requires), equality])
+    };
+    let mut binders = Vec::new();
+    for variable in &rule.lhs.attributes().variables {
+        let term = Term::variable(variable.clone());
+        let Some(name) = translation.mappings.remove(&term) else {
+            return Err(TranslationError::MissingSmtLemmaVariable {
+                rule_id: rule.attributes.unique_id.clone(),
+                variable: variable.clone(),
+            });
+        };
+        binders.push(SExpr::List(vec![
+            SExpr::atom(name),
+            SExpr::atom(smt_sort(&variable.sort)?),
+        ]));
+    }
+    if !translation.mappings.is_empty() {
+        return Err(TranslationError::SmtLemmaSurplusMappings {
+            rule_id: rule.attributes.unique_id.clone(),
+            terms: translation.mappings.into_keys().collect(),
+        });
+    }
+    if binders.is_empty() {
+        Ok(body)
+    } else {
+        Ok(SExpr::List(vec![
+            SExpr::atom("forall"),
+            SExpr::List(binders),
+            body,
+        ]))
+    }
+}
+
+fn smt_sort(sort: &Sort) -> Result<String, TranslationError> {
+    match sort {
+        Sort::Variable(_) => Err(TranslationError::ParametricSort(sort.clone())),
+        Sort::Application { name, .. } if name.as_ref() == "SortInt" => Ok("Int".into()),
+        Sort::Application { name, .. } if name.as_ref() == "SortBool" => Ok("Bool".into()),
+        Sort::Application { name, arguments } if arguments.is_empty() => Ok(quote(name)),
+        Sort::Application { name, arguments } => Ok(format!(
+            "({} {})",
+            quote(name),
+            arguments
+                .iter()
+                .map(smt_sort)
+                .collect::<Result<Vec<_>, _>>()?
+                .join(" ")
+        )),
+    }
+}
+
+fn quote(name: &str) -> String {
+    format!("|{name}|")
+}
+
+#[cfg(feature = "z3")]
+struct TranslatedQuery {
+    base: String,
+    checked: SExpr,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Satisfiability {
+    Sat,
+    Unsat,
+    Unknown(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Validity {
+    Valid,
+    Invalid,
+    InconsistentGroundTruth,
+    Indeterminate,
+    Unknown(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SmtError {
+    Translation(TranslationError),
+    Unavailable,
+    InconsistentPrelude,
+    UnknownPrelude(String),
+    Unknown(String),
+    InconsistentGroundTruth,
+}
+
+impl From<TranslationError> for SmtError {
+    fn from(error: TranslationError) -> Self {
+        Self::Translation(error)
+    }
+}
+
+pub trait SmtSolver {
+    fn is_sat(
+        &self,
+        predicates: &[Predicate],
+        substitution: &Substitution,
+    ) -> Result<Satisfiability, SmtError>;
+
+    fn check_predicates(
+        &self,
+        known: &[Predicate],
+        substitution: &Substitution,
+        checked: &[Predicate],
+    ) -> Result<Validity, SmtError>;
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NoSolver;
+
+impl SmtSolver for NoSolver {
+    fn is_sat(
+        &self,
+        _predicates: &[Predicate],
+        _substitution: &Substitution,
+    ) -> Result<Satisfiability, SmtError> {
+        Err(SmtError::Unavailable)
+    }
+
+    fn check_predicates(
+        &self,
+        _known: &[Predicate],
+        _substitution: &Substitution,
+        checked: &[Predicate],
+    ) -> Result<Validity, SmtError> {
+        if checked.is_empty() {
+            Ok(Validity::Valid)
+        } else {
+            Err(SmtError::Unavailable)
+        }
+    }
 }
 
 fn fill_placeholders(expression: &SExpr, arguments: &[SExpr]) -> Result<SExpr, TranslationError> {

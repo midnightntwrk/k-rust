@@ -40,4 +40,4 @@ proptest.workspace = true
 default = ["cli"]
 cli = ["dep:clap", "mpfr-folding", "z3-inference"]
 mpfr-folding = ["dep:gmp-mpfr-sys", "dep:rug"]
-z3-inference = ["dep:z3"]
+z3-inference = ["dep:z3", "k-rust-backend/z3"]

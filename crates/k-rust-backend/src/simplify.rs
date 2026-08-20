@@ -8,6 +8,7 @@ use crate::{
     matching::{MatchMode, MatchResult, match_terms},
     rewrite::{Truth, check_concreteness, predicates_truth, substitute_predicates},
     rule::{Predicate, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
+    smt::{NoSolver, SmtError, SmtSolver, Validity},
     substitution::{Substitution, substitute},
     term::{Term, TermKind, Variable},
 };
@@ -51,6 +52,13 @@ pub enum SimplificationError {
     ConflictingResults {
         rule_ids: Vec<String>,
     },
+    Smt {
+        rule_id: String,
+        error: SmtError,
+    },
+    InconsistentGroundTruth {
+        rule_id: String,
+    },
     IterationLimit {
         limit: usize,
         term: Term,
@@ -62,18 +70,37 @@ pub fn simplify(
     term: &Term,
     options: SimplificationOptions,
 ) -> Result<Simplification, SimplificationError> {
+    simplify_with_solver(definition, term, &[], options, &NoSolver)
+}
+
+pub fn simplify_with_solver(
+    definition: &BackendDefinition,
+    term: &Term,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Result<Simplification, SimplificationError> {
     let mut remaining = options.max_iterations;
-    simplify_with_budget(definition, term, options.max_iterations, &mut remaining)
+    simplify_with_budget(
+        definition,
+        term,
+        known_predicates,
+        options.max_iterations,
+        &mut remaining,
+        solver,
+    )
 }
 
 fn simplify_with_budget(
     definition: &BackendDefinition,
     term: &Term,
+    known_predicates: &[Predicate],
     limit: usize,
     remaining: &mut usize,
+    solver: &dyn SmtSolver,
 ) -> Result<Simplification, SimplificationError> {
-    let children = simplify_children(definition, term, limit, remaining)?;
-    let root = simplify_root(definition, &children.term)?;
+    let children = simplify_children(definition, term, known_predicates, limit, remaining, solver)?;
+    let root = simplify_root(definition, &children.term, known_predicates, solver)?;
     let mut constraints = children.constraints;
     constraints.extend(root.constraints);
     let mut applied_rules = children.applied_rules;
@@ -92,7 +119,14 @@ fn simplify_with_budget(
         });
     }
     *remaining -= 1;
-    let next = simplify_with_budget(definition, &root.term, limit, remaining)?;
+    let next = simplify_with_budget(
+        definition,
+        &root.term,
+        known_predicates,
+        limit,
+        remaining,
+        solver,
+    )?;
     constraints.extend(next.constraints);
     applied_rules.extend(next.applied_rules);
     Ok(Simplification {
@@ -105,13 +139,16 @@ fn simplify_with_budget(
 fn simplify_children(
     definition: &BackendDefinition,
     term: &Term,
+    known_predicates: &[Predicate],
     limit: usize,
     remaining: &mut usize,
+    solver: &dyn SmtSolver,
 ) -> Result<Simplification, SimplificationError> {
     let mut constraints = Vec::new();
     let mut applied_rules = Vec::new();
     let mut child = |term: &Term| {
-        let result = simplify_with_budget(definition, term, limit, remaining)?;
+        let result =
+            simplify_with_budget(definition, term, known_predicates, limit, remaining, solver)?;
         constraints.extend(result.constraints);
         applied_rules.extend(result.applied_rules);
         Ok::<_, SimplificationError>(result.term)
@@ -193,6 +230,8 @@ fn simplify_children(
 fn simplify_root(
     definition: &BackendDefinition,
     term: &Term,
+    known_predicates: &[Predicate],
+    solver: &dyn SmtSolver,
 ) -> Result<Simplification, SimplificationError> {
     if let Some(result) = evaluate_builtin(term).map_err(SimplificationError::Builtin)? {
         let TermKind::Application { symbol, .. } = term.kind() else {
@@ -211,10 +250,22 @@ fn simplify_root(
             )],
         });
     }
-    if let Some(result) = apply_theory(definition, &definition.function_theory, term)? {
+    if let Some(result) = apply_theory(
+        definition,
+        &definition.function_theory,
+        term,
+        known_predicates,
+        solver,
+    )? {
         return Ok(result);
     }
-    if let Some(result) = apply_theory(definition, &definition.simplification_theory, term)? {
+    if let Some(result) = apply_theory(
+        definition,
+        &definition.simplification_theory,
+        term,
+        known_predicates,
+        solver,
+    )? {
         return Ok(result);
     }
     Ok(Simplification {
@@ -228,12 +279,14 @@ fn apply_theory(
     definition: &BackendDefinition,
     theory: &Theory,
     term: &Term,
+    known_predicates: &[Predicate],
+    solver: &dyn SmtSolver,
 ) -> Result<Option<Simplification>, SimplificationError> {
     let groups = applicable_groups(theory, &term_index(term));
     for rules in groups.values() {
         let mut results = Vec::new();
         for rule in rules {
-            match apply_equation(definition, rule, term)? {
+            match apply_equation(definition, rule, term, known_predicates, solver)? {
                 EquationAttempt::NotApplicable => {}
                 EquationAttempt::Applied(result) => results.push(result),
             }
@@ -287,6 +340,8 @@ fn apply_equation(
     definition: &BackendDefinition,
     rule: &RewriteRule,
     term: &Term,
+    known_predicates: &[Predicate],
+    solver: &dyn SmtSolver,
 ) -> Result<EquationAttempt, SimplificationError> {
     let substitution =
         match match_terms(MatchMode::Evaluate, &definition.sort_graph, &rule.lhs, term) {
@@ -313,10 +368,38 @@ fn apply_equation(
     match predicates_truth(&requires) {
         Truth::False => return Ok(EquationAttempt::NotApplicable),
         Truth::Unknown => {
-            return Err(SimplificationError::IndeterminateRequires {
-                rule_id: rule.attributes.unique_id.clone(),
-                predicates: requires,
-            });
+            if !requires
+                .iter()
+                .all(|predicate| known_predicates.contains(predicate))
+            {
+                match solver.check_predicates(known_predicates, &Substitution::new(), &requires) {
+                    Ok(Validity::Valid) => {}
+                    Ok(Validity::Invalid) => return Ok(EquationAttempt::NotApplicable),
+                    Ok(Validity::InconsistentGroundTruth) => {
+                        return Err(SimplificationError::InconsistentGroundTruth {
+                            rule_id: rule.attributes.unique_id.clone(),
+                        });
+                    }
+                    Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => {
+                        return Err(SimplificationError::IndeterminateRequires {
+                            rule_id: rule.attributes.unique_id.clone(),
+                            predicates: requires,
+                        });
+                    }
+                    Ok(Validity::Unknown(reason)) => {
+                        return Err(SimplificationError::Smt {
+                            rule_id: rule.attributes.unique_id.clone(),
+                            error: SmtError::Unknown(reason),
+                        });
+                    }
+                    Err(error) => {
+                        return Err(SimplificationError::Smt {
+                            rule_id: rule.attributes.unique_id.clone(),
+                            error,
+                        });
+                    }
+                }
+            }
         }
         Truth::True => {}
     }
@@ -332,11 +415,31 @@ fn apply_equation(
             constraints: Vec::new(),
             applied_rules: vec![rule.attributes.unique_id.clone()],
         })),
-        Truth::Unknown => Ok(EquationAttempt::Applied(Simplification {
-            term: rhs,
-            constraints: ensures,
-            applied_rules: vec![rule.attributes.unique_id.clone()],
-        })),
+        Truth::Unknown => {
+            match solver.check_predicates(known_predicates, &Substitution::new(), &ensures) {
+                Ok(Validity::Invalid) => {
+                    return Ok(EquationAttempt::NotApplicable);
+                }
+                Ok(
+                    Validity::Valid
+                    | Validity::Indeterminate
+                    | Validity::InconsistentGroundTruth
+                    | Validity::Unknown(_),
+                )
+                | Err(SmtError::Unavailable) => {}
+                Err(error) => {
+                    return Err(SimplificationError::Smt {
+                        rule_id: rule.attributes.unique_id.clone(),
+                        error,
+                    });
+                }
+            }
+            Ok(EquationAttempt::Applied(Simplification {
+                term: rhs,
+                constraints: ensures,
+                applied_rules: vec![rule.attributes.unique_id.clone()],
+            }))
+        }
     }
 }
 
@@ -438,6 +541,53 @@ mod tests {
             result.applied_rules,
             vec!["builtin:INT.add", "builtin:INT.add"]
         );
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn z3_disambiguates_symbolic_equation_requires() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("<")]
+                symbol f{}(SortInt{}) : SortInt{} [function{}()]
+                axiom{R} \implies{R}(
+                    \equals{SortBool{}, R}(
+                        lt{}(X:SortInt{}, \dv{SortInt{}}("10")),
+                        \dv{SortBool{}}("true")
+                    ),
+                    \equals{SortInt{}, R}(
+                        f{}(X:SortInt{}),
+                        \and{SortInt{}}(X:SortInt{}, \top{SortInt{}}())
+                    )
+                ) [label{}("conditional-f"), simplification{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let input = term(&definition, "f{}(Y:SortInt{})");
+        let variable = Term::variable(Variable::new("Y", crate::term::Sort::simple("SortInt")));
+        let run = |value: &str| {
+            simplify_with_solver(
+                &definition,
+                &input,
+                &[Predicate::Equals(
+                    variable.clone(),
+                    Term::domain_value(crate::term::Sort::simple("SortInt"), value),
+                )],
+                SimplificationOptions::default(),
+                &solver,
+            )
+            .unwrap()
+        };
+
+        assert_eq!(run("5").term, variable);
+        assert_eq!(run("15").term, input);
     }
 
     #[test]

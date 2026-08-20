@@ -950,6 +950,7 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "proptest",
+ "z3",
 ]
 
 [[package]]
