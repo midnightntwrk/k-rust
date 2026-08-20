@@ -2,6 +2,9 @@
 
 use num_bigint::{BigInt, Sign};
 
+mod list;
+mod map;
+
 use crate::term::{Sort, SymbolType, Term, TermKind};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -19,6 +22,10 @@ pub enum BuiltinError {
     AlternativeSortsDiffer {
         then_sort: Sort,
         else_sort: Sort,
+    },
+    IncompatibleMapSorts {
+        left: Sort,
+        right: Sort,
     },
 }
 
@@ -58,6 +65,8 @@ pub fn evaluate_hook(hook: &str, arguments: &[Term]) -> Result<Option<Term>, Bui
         "KEQUAL.ite" => kequal_ite(arguments),
         "KEQUAL.eq" => kequal(arguments, false),
         "KEQUAL.ne" => kequal(arguments, true),
+        hook if hook.starts_with("LIST.") => list::evaluate(hook, arguments),
+        hook if hook.starts_with("MAP.") => map::evaluate(hook, arguments),
         _ => Ok(None),
     }
 }
@@ -277,7 +286,7 @@ fn read_bool(term: &Term) -> Option<bool> {
     }
 }
 
-fn read_int(term: &Term) -> Option<BigInt> {
+pub(super) fn read_int(term: &Term) -> Option<BigInt> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };
@@ -286,18 +295,22 @@ fn read_int(term: &Term) -> Option<BigInt> {
         .flatten()
 }
 
-fn bool_term(value: bool) -> Term {
+pub(super) fn bool_term(value: bool) -> Term {
     Term::domain_value(
         Sort::simple("SortBool"),
         if value { "true" } else { "false" },
     )
 }
 
-fn int_term(value: BigInt) -> Term {
+pub(super) fn int_term(value: BigInt) -> Term {
     Term::domain_value(Sort::simple("SortInt"), value.to_string())
 }
 
-fn expect_arity(hook: &str, arguments: &[Term], expected: usize) -> Result<(), BuiltinError> {
+pub(super) fn expect_arity(
+    hook: &str,
+    arguments: &[Term],
+    expected: usize,
+) -> Result<(), BuiltinError> {
     if arguments.len() == expected {
         Ok(())
     } else {
@@ -309,7 +322,7 @@ fn expect_arity(hook: &str, arguments: &[Term], expected: usize) -> Result<(), B
     }
 }
 
-fn expect_sort(hook: &str, term: &Term, expected: &Sort) -> Result<(), BuiltinError> {
+pub(super) fn expect_sort(hook: &str, term: &Term, expected: &Sort) -> Result<(), BuiltinError> {
     let actual = term.sort();
     if &actual == expected {
         Ok(())

@@ -948,6 +948,7 @@ dependencies = [
  "indoc",
  "k-rust-kore",
  "num-bigint",
+ "num-traits",
  "proptest",
 ]
 
