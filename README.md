@@ -54,8 +54,8 @@ Implemented end to end:
 - A portable Earley/chart parser with K's scanner winner rules, layout, priorities,
   associativity, records, user lists, casts, cells, ambiguity factoring, and sort inference.
 - Native Z3-backed ambiguous and parametric inference by default, with a portable non-Z3 subset.
-- KAST text and JSON v4; KORE text, JSON v1, ASTs, compact and pretty printers, and explicit
-  syntax/KAST normalization.
+- KAST text and JSON v4; KORE text, JSON v1, binary KORE 1.0–1.2, ASTs, compact and pretty
+  printers, and explicit syntax/KAST normalization.
 - Definition catalogs, import resolution, structural checks, configuration expansion, the ordered
   backend lowering pipeline, sort injections, and `ModuleToKORE`.
 - KORE generation for ordinary rules, claims, equations, functions, `owise`, macros, aliases,
@@ -323,7 +323,6 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete parameters normally supplied by parser inference.
 - Emit the optional legacy priority aliases supported by `ModuleToKORE` compatibility modes.
-- Implement binary KORE input.
 - Complete the remaining Kore proof-search controls and general symbolic remainder construction;
   combined destination branches are discharged together, while unresolved term unification still
   remains conservative.

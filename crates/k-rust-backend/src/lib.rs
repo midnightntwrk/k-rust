@@ -1,5 +1,6 @@
 //! In-process concrete and symbolic execution for KORE definitions.
 
+pub mod binary;
 pub mod builtin;
 pub mod claim;
 pub mod definedness;
