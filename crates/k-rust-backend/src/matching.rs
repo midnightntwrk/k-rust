@@ -158,6 +158,9 @@ fn match_terms_with_context(
     pattern: &Term,
     subject: &Term,
 ) -> MatchResult {
+    if pattern == subject {
+        return MatchResult::Success(Substitution::new());
+    }
     let shared_variables = pattern
         .attributes()
         .variables
@@ -1860,6 +1863,16 @@ mod tests {
                 variable("X", sort()),
                 domain_value(sort(), "value"),
             )]))
+        );
+    }
+
+    #[test]
+    fn identical_shared_variables_match_without_a_binding() {
+        let term = Term::variable(variable("X", sort()));
+
+        assert_eq!(
+            match_terms(MatchMode::Rewrite, &sort_graph(), &term, &term),
+            MatchResult::Success(Substitution::new())
         );
     }
 

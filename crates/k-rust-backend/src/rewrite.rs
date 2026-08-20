@@ -628,7 +628,7 @@ fn recover_functional_symbolic_match(
     definition: &BackendDefinition,
     rule: &RewriteRule,
     pattern: &Pattern,
-    mut substitution: Substitution,
+    substitution: Substitution,
     remainder: &[(Term, Term)],
     fresh_counter: &mut u64,
 ) -> Option<(Substitution, Vec<Predicate>)> {
@@ -652,38 +652,8 @@ fn recover_functional_symbolic_match(
         }
     }
 
-    let mut names_to_avoid = pattern_variable_names(pattern)
-        .into_iter()
-        .chain(
-            substitution
-                .values()
-                .flat_map(|term| term.attributes().variables.iter())
-                .map(|variable| variable.name.clone()),
-        )
-        .collect::<BTreeSet<_>>();
-    let unbound = rule
-        .lhs
-        .attributes()
-        .variables
-        .iter()
-        .filter(|variable| !substitution.contains_key(*variable))
-        .cloned()
-        .collect::<Vec<_>>();
-    let mut fresh_variables = BTreeSet::new();
-    for variable in unbound {
-        let base_name = variable
-            .name
-            .strip_prefix("Rule#")
-            .or_else(|| variable.name.strip_prefix("Eq#"))
-            .unwrap_or(variable.name.as_ref());
-        let existential = Variable::new(format!("Ex#{base_name}"), variable.sort.clone());
-        let fresh = fresh_variable(&existential, &mut names_to_avoid, fresh_counter);
-        let TermKind::Variable(fresh_variable) = fresh.kind() else {
-            unreachable!("fresh terms are variables")
-        };
-        fresh_variables.insert(fresh_variable.clone());
-        substitution.insert(variable, fresh);
-    }
+    let (substitution, fresh_variables) =
+        freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter);
 
     let mut conditions = Vec::new();
     for (rule_term, configuration_term) in remainder {
@@ -721,6 +691,87 @@ fn recover_functional_symbolic_match(
         }
     }
     (!conditions.is_empty()).then_some((substitution, conditions))
+}
+
+fn freshen_unbound_rule_variables(
+    rule: &RewriteRule,
+    pattern: &Pattern,
+    mut substitution: Substitution,
+    fresh_counter: &mut u64,
+) -> (Substitution, BTreeSet<Variable>) {
+    let mut names_to_avoid = pattern_variable_names(pattern)
+        .into_iter()
+        .chain(
+            substitution
+                .values()
+                .flat_map(|term| term.attributes().variables.iter())
+                .map(|variable| variable.name.clone()),
+        )
+        .collect::<BTreeSet<_>>();
+    let unbound = rule
+        .lhs
+        .attributes()
+        .variables
+        .iter()
+        .filter(|variable| !substitution.contains_key(*variable))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut fresh_variables = BTreeSet::new();
+    for variable in unbound {
+        let base_name = variable
+            .name
+            .strip_prefix("Rule#")
+            .or_else(|| variable.name.strip_prefix("Eq#"))
+            .unwrap_or(variable.name.as_ref());
+        let existential = Variable::new(format!("Ex#{base_name}"), variable.sort.clone());
+        let fresh = fresh_variable(&existential, &mut names_to_avoid, fresh_counter);
+        let TermKind::Variable(fresh_variable) = fresh.kind() else {
+            unreachable!("fresh terms are variables")
+        };
+        fresh_variables.insert(fresh_variable.clone());
+        substitution.insert(variable, fresh);
+    }
+    (substitution, fresh_variables)
+}
+
+/// Preserve unresolved functional unification as equality conditions after simplification reaches
+/// a fixed point. AC collection equations are deliberately excluded because they require their
+/// own multi-solution theory rather than one opaque equality.
+fn recover_function_equality_match(
+    rule: &RewriteRule,
+    pattern: &Pattern,
+    substitution: Substitution,
+    remainder: &[(Term, Term)],
+    fresh_counter: &mut u64,
+) -> Option<(Substitution, Vec<Predicate>)> {
+    if remainder.is_empty()
+        || remainder.iter().any(|(left, right)| {
+            left.sort() != right.sort()
+                || is_collection_term(left)
+                || is_collection_term(right)
+                || (!contains_function_pattern(left) && !contains_function_pattern(right))
+        })
+    {
+        return None;
+    }
+    let (substitution, _) =
+        freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter);
+    let conditions = remainder
+        .iter()
+        .filter_map(|(left, right)| {
+            let left = substitute(left, &substitution);
+            let right = substitute(right, &substitution);
+            (left != right).then_some(Predicate::Equals(left, right))
+        })
+        .collect::<Vec<_>>();
+    (!conditions.is_empty()).then_some((substitution, conditions))
+}
+
+fn is_collection_term(term: &Term) -> bool {
+    matches!(
+        term.kind(),
+        TermKind::Map { .. } | TermKind::List { .. } | TermKind::Set { .. }
+    )
 }
 
 fn is_functional_pattern(term: &Term) -> bool {
@@ -926,6 +977,14 @@ fn apply_rule_with_match(
                         fresh_counter,
                     ) {
                         recovered
+                    } else if let Some(recovered) = recover_function_equality_match(
+                        rule,
+                        pattern,
+                        substitution.clone(),
+                        &remainder,
+                        fresh_counter,
+                    ) {
+                        recovered
                     } else {
                         let requires = substitute_predicates(&rule.requires, &substitution);
                         let requires = simplify_predicates_with_solver(
@@ -970,6 +1029,12 @@ fn apply_rule_with_match(
         MatchResult::Success(substitution) => (substitution, Vec::new()),
     };
     inherited_conditions.append(&mut match_conditions);
+    for value in substitution
+        .values()
+        .filter(|value| !matches!(value.kind(), TermKind::Variable(_)))
+    {
+        extend_unique(&mut inherited_conditions, ceil_term(definition, value));
+    }
     let match_conditions = inherited_conditions;
 
     if !match_conditions.is_empty() {
@@ -1873,6 +1938,29 @@ mod tests {
         BackendDefinition::internalize(&syntax, "MAIN").expect("ITE definition should internalize")
     }
 
+    fn unresolved_function_rewrite_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol wrap{}(SortBool{}) : SortS{} [constructor{}()]
+                symbol not{}(SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.not")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        wrap{}(not{}(X:SortBool{})),
+                        \top{SortS{}}()
+                    ),
+                    \dv{SortS{}}("done")
+                ) [label{}("negated")]
+            endmodule []"#,
+        )
+        .expect("function rewrite definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("function rewrite definition should internalize")
+    }
+
     fn subject(definition: &BackendDefinition, value: &str) -> Pattern {
         let syntax = parse_pattern(&format!(r#"wrap{{}}(\dv{{SortS{{}}}}("{value}"))"#))
             .expect("subject should parse");
@@ -2098,27 +2186,8 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_function_pattern_witness_remains_indeterminate() {
-        let syntax = parse_definition(
-            r#"[]
-            module MAIN
-                sort SortS{} [hasDomainValues{}()]
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
-                symbol wrap{}(SortBool{}) : SortS{} [constructor{}()]
-                symbol not{}(SortBool{}) : SortBool{}
-                    [function{}(), total{}(), hook{}("BOOL.not")]
-                axiom{} \rewrites{SortS{}}(
-                    \and{SortS{}}(
-                        wrap{}(not{}(X:SortBool{})),
-                        \top{SortS{}}()
-                    ),
-                    \dv{SortS{}}("done")
-                ) [label{}("negated")]
-            endmodule []"#,
-        )
-        .expect("definition should parse");
-        let definition =
-            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+    fn unresolved_function_equality_requires_an_smt_solver() {
+        let definition = unresolved_function_rewrite_definition();
         let term = definition
             .internalize_term(
                 &parse_pattern(r#"wrap{}(\dv{SortBool{}}("true"))"#).unwrap(),
@@ -2137,10 +2206,116 @@ mod tests {
                 &mut fresh,
             ),
             RewriteResult::Indeterminate {
-                reason: IndeterminateReason::Match { .. },
+                reason: IndeterminateReason::Smt {
+                    error: SmtError::Unavailable,
+                    ..
+                },
                 ..
             }
         ));
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn retains_unresolved_function_equality_as_a_branch_condition() {
+        let definition = unresolved_function_rewrite_definition();
+        let term = internal_term(&definition, r#"wrap{}(\dv{SortBool{}}("true"))"#);
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            ..
+        } = rewrite_step_with_solver(
+            &definition,
+            &Pattern {
+                term,
+                constraints: Vec::new(),
+            },
+            &mut fresh,
+            &solver,
+        )
+        else {
+            panic!("functional equality should produce applied and complementary branches");
+        };
+        let [branch] = branches.as_slice() else {
+            panic!("expected one conditional function match, found {branches:?}");
+        };
+        let [equality @ Predicate::Equals(left, right)] = branch.pattern.constraints.as_slice()
+        else {
+            panic!("expected one functional equality condition");
+        };
+        assert!(matches!(
+            left.kind(),
+            TermKind::Application { symbol, .. } if symbol.name.as_ref() == "not"
+        ));
+        assert_eq!(right, &Term::domain_value(Sort::simple("SortBool"), "true"));
+        let fresh_variables = equality.free_variables();
+        let mut fresh_variables = fresh_variables.iter();
+        let fresh_variable = fresh_variables
+            .next()
+            .expect("the unbound rule argument should be freshened");
+        assert!(fresh_variables.next().is_none());
+        assert!(fresh_variable.name.starts_with("Ex#X"));
+        assert!(matches!(
+            remainder.pattern.constraints.as_slice(),
+            [Predicate::Not(inner)]
+                if matches!(inner.as_ref(), Predicate::Exists(variable, condition)
+                    if variable == fresh_variable && condition.as_ref() == equality)
+        ));
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn requires_definedness_when_a_variable_matches_a_partial_function() {
+        let definition = definition(
+            r#"
+            symbol partial{}(SortS{}) : SortS{} [function{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(X:SortS{}),
+                    \top{SortS{}}()
+                ),
+                \dv{SortS{}}("done")
+            ) [label{}("variable-match")]
+            "#,
+        );
+        let function = internal_term(&definition, r#"partial{}(\dv{SortS{}}("value"))"#);
+        let subject = Pattern {
+            term: internal_term(&definition, r#"wrap{}(partial{}(\dv{SortS{}}("value")))"#),
+            constraints: Vec::new(),
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("partial-function binding should retain applied and undefined branches");
+        };
+        let [branch] = branches.as_slice() else {
+            panic!("expected one conditionally defined match, found {branches:?}");
+        };
+        assert_eq!(
+            branch.pattern.term,
+            internal_term(&definition, r#"\dv{SortS{}}("done")"#)
+        );
+        assert_eq!(
+            branch.pattern.constraints,
+            [Predicate::Ceil(function.clone())]
+        );
+        assert_eq!(
+            remainder.pattern.constraints,
+            [Predicate::Not(Box::new(Predicate::Ceil(function.clone())))]
+        );
+        assert_eq!(
+            branch.substitution.values().collect::<Vec<_>>(),
+            [&function]
+        );
     }
 
     #[test]
