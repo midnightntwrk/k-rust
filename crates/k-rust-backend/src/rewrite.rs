@@ -749,6 +749,25 @@ struct RuleApplication {
     remainder: Predicate,
 }
 
+struct PartialRuleMatch {
+    substitution: Substitution,
+    conditions: Vec<Predicate>,
+    remainder: Vec<(Term, Term)>,
+}
+
+#[derive(Clone, Copy)]
+enum IteSide {
+    Pattern,
+    Subject,
+}
+
+struct IteSplit {
+    side: IteSide,
+    condition: Term,
+    then_pair: (Term, Term),
+    else_pair: (Term, Term),
+}
+
 fn apply_rule(
     definition: &BackendDefinition,
     rule: &RewriteRule,
@@ -776,105 +795,146 @@ fn apply_rule_with_match(
     fresh_counter: &mut u64,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
-    matched: Option<(Substitution, Vec<Predicate>)>,
+    matched: Option<PartialRuleMatch>,
 ) -> RuleAttempt {
-    let (substitution, match_conditions) = if let Some(matched) = matched {
-        matched
+    let (matching, mut inherited_conditions) = if let Some(matched) = matched {
+        let matching = if matched.remainder.is_empty() {
+            MatchResult::Success(matched.substitution)
+        } else {
+            MatchResult::Indeterminate {
+                substitution: matched.substitution,
+                remainder: matched.remainder,
+            }
+        };
+        (matching, matched.conditions)
     } else {
-        match match_terms_in_definition(MatchMode::Rewrite, definition, &rule.lhs, &pattern.term) {
+        (
+            match_terms_in_definition(MatchMode::Rewrite, definition, &rule.lhs, &pattern.term),
+            Vec::new(),
+        )
+    };
+    let mut inherited_knowledge = pattern.constraints.clone();
+    extend_unique(
+        &mut inherited_knowledge,
+        inherited_conditions.iter().cloned(),
+    );
+    let (substitution, mut match_conditions) = match matching {
+        MatchResult::Failed(_) => return RuleAttempt::NotApplicable,
+        MatchResult::Indeterminate {
+            substitution,
+            remainder,
+        } => match recover_indeterminate_match(
+            definition,
+            substitution,
+            remainder,
+            &inherited_knowledge,
+            simplification_options,
+            solver,
+        ) {
             MatchResult::Failed(_) => return RuleAttempt::NotApplicable,
+            MatchResult::Success(substitution) => (substitution, Vec::new()),
             MatchResult::Indeterminate {
                 substitution,
                 remainder,
-            } => match recover_indeterminate_match(
-                definition,
-                substitution,
-                remainder,
-                &pattern.constraints,
-                simplification_options,
-                solver,
-            ) {
-                MatchResult::Failed(_) => return RuleAttempt::NotApplicable,
-                MatchResult::Success(substitution) => (substitution, Vec::new()),
-                MatchResult::Indeterminate {
-                    substitution,
-                    remainder,
-                } => {
-                    if let Some(matches) =
-                        recover_collection_matches(definition, substitution.clone(), &remainder)
-                    {
-                        return combine_rule_attempts(matches.into_iter().map(|substitution| {
-                            apply_rule_with_match(
-                                definition,
-                                rule,
-                                pattern,
-                                fresh_counter,
-                                simplification_options,
-                                solver,
-                                Some((substitution, Vec::new())),
-                            )
-                        }));
-                    }
-                    if let Some(recovered) = recover_overload_symbolic_match(
-                        definition,
-                        pattern,
-                        substitution.clone(),
-                        &remainder,
-                        fresh_counter,
-                    ) {
-                        recovered
-                    } else if let Some(recovered) = recover_functional_symbolic_match(
-                        definition,
-                        rule,
-                        pattern,
-                        substitution.clone(),
-                        &remainder,
-                        fresh_counter,
-                    ) {
-                        recovered
-                    } else {
-                        let requires = substitute_predicates(&rule.requires, &substitution);
-                        let requires = simplify_predicates_with_solver(
+            } => {
+                if let Some(matches) =
+                    recover_ite_matches(definition, substitution.clone(), &remainder)
+                {
+                    return combine_rule_attempts(matches.into_iter().map(|mut matched| {
+                        let mut conditions = inherited_conditions.clone();
+                        conditions.append(&mut matched.conditions);
+                        matched.conditions = conditions;
+                        apply_rule_with_match(
                             definition,
-                            &requires,
-                            &pattern.constraints,
+                            rule,
+                            pattern,
+                            fresh_counter,
                             simplification_options,
                             solver,
+                            Some(matched),
                         )
-                        .unwrap_or(requires);
-                        if predicates_truth(&requires) == Truth::False {
-                            return RuleAttempt::NotApplicable;
-                        }
-                        let unclear = requires
-                            .into_iter()
-                            .filter(|predicate| {
-                                predicates_truth(std::slice::from_ref(predicate)) == Truth::Unknown
-                                    && !pattern.constraints.contains(predicate)
-                            })
-                            .collect::<Vec<_>>();
-                        if !unclear.is_empty()
-                            && matches!(
-                                solver.check_predicates(
-                                    &pattern.constraints,
-                                    &Substitution::new(),
-                                    &unclear,
-                                ),
-                                Ok(Validity::Invalid)
-                            )
-                        {
-                            return RuleAttempt::NotApplicable;
-                        }
-                        return RuleAttempt::Indeterminate(IndeterminateReason::Match {
-                            rule_id: rule.attributes.unique_id.clone(),
-                            substitution,
-                            remainder,
-                        });
-                    }
+                    }));
                 }
-            },
-            MatchResult::Success(substitution) => (substitution, Vec::new()),
-        }
+                if let Some(matches) =
+                    recover_collection_matches(definition, substitution.clone(), &remainder)
+                {
+                    return combine_rule_attempts(matches.into_iter().map(|substitution| {
+                        apply_rule_with_match(
+                            definition,
+                            rule,
+                            pattern,
+                            fresh_counter,
+                            simplification_options,
+                            solver,
+                            Some(PartialRuleMatch {
+                                substitution,
+                                conditions: inherited_conditions.clone(),
+                                remainder: Vec::new(),
+                            }),
+                        )
+                    }));
+                }
+                if let Some(recovered) = recover_overload_symbolic_match(
+                    definition,
+                    pattern,
+                    substitution.clone(),
+                    &remainder,
+                    fresh_counter,
+                ) {
+                    recovered
+                } else if let Some(recovered) = recover_functional_symbolic_match(
+                    definition,
+                    rule,
+                    pattern,
+                    substitution.clone(),
+                    &remainder,
+                    fresh_counter,
+                ) {
+                    recovered
+                } else {
+                    let requires = substitute_predicates(&rule.requires, &substitution);
+                    let requires = simplify_predicates_with_solver(
+                        definition,
+                        &requires,
+                        &inherited_knowledge,
+                        simplification_options,
+                        solver,
+                    )
+                    .unwrap_or(requires);
+                    if predicates_truth(&requires) == Truth::False {
+                        return RuleAttempt::NotApplicable;
+                    }
+                    let unclear = requires
+                        .into_iter()
+                        .filter(|predicate| {
+                            predicates_truth(std::slice::from_ref(predicate)) == Truth::Unknown
+                                && !inherited_knowledge.contains(predicate)
+                        })
+                        .collect::<Vec<_>>();
+                    if !unclear.is_empty()
+                        && matches!(
+                            solver.check_predicates(
+                                &inherited_knowledge,
+                                &Substitution::new(),
+                                &unclear,
+                            ),
+                            Ok(Validity::Invalid)
+                        )
+                    {
+                        return RuleAttempt::NotApplicable;
+                    }
+                    return RuleAttempt::Indeterminate(IndeterminateReason::Match {
+                        rule_id: rule.attributes.unique_id.clone(),
+                        substitution,
+                        remainder,
+                    });
+                }
+            }
+        },
+        MatchResult::Success(substitution) => (substitution, Vec::new()),
     };
+    inherited_conditions.append(&mut match_conditions);
+    let match_conditions = inherited_conditions;
 
     if !match_conditions.is_empty() {
         let mut narrowed = pattern.constraints.clone();
@@ -1078,6 +1138,121 @@ fn apply_rule_with_match(
         },
         remainder,
     }])
+}
+
+/// Split symbolic `KEQUAL.ite` applications at the unification boundary.
+///
+/// Concrete conditions are handled by the builtin evaluator. When the condition remains
+/// symbolic, each ITE branch is matched independently and guarded by the Boolean value which
+/// selects it. This mirrors the pinned backend's `unifyIfThenElse` behavior without teaching the
+/// syntax-directed matcher about branching.
+fn recover_ite_matches(
+    definition: &BackendDefinition,
+    substitution: Substitution,
+    remainder: &[(Term, Term)],
+) -> Option<Vec<PartialRuleMatch>> {
+    let (index, side, condition, then_pair, else_pair) =
+        remainder
+            .iter()
+            .enumerate()
+            .find_map(|(index, (pattern, subject))| {
+                let pattern = substitute(pattern, &substitution);
+                let subject = substitute(subject, &substitution);
+                split_ite_pair(&pattern, &subject).map(
+                    |IteSplit {
+                         side,
+                         condition,
+                         then_pair,
+                         else_pair,
+                     }| { (index, side, condition, then_pair, else_pair) },
+                )
+            })?;
+    let untouched = remainder
+        .iter()
+        .enumerate()
+        .filter(|(candidate, _)| *candidate != index)
+        .map(|(_, pair)| pair.clone())
+        .collect::<Vec<_>>();
+
+    let mut recovered = Vec::new();
+    for (value, (pattern, subject)) in [(true, then_pair), (false, else_pair)] {
+        let matched = match_terms_in_definition(MatchMode::Rewrite, definition, &pattern, &subject);
+        let (found, mut branch_remainder) = match matched {
+            MatchResult::Failed(_) => continue,
+            MatchResult::Success(found) => (found, Vec::new()),
+            MatchResult::Indeterminate {
+                substitution,
+                remainder,
+            } => (substitution, remainder),
+        };
+        let mut substitution = compose(&found, &substitution);
+        branch_remainder.extend(untouched.iter().cloned());
+        let value = Term::domain_value(
+            Sort::simple("SortBool"),
+            if value { "true" } else { "false" },
+        );
+        let mut condition = substitute(&condition, &substitution);
+        let mut conditions = Vec::new();
+        if matches!(side, IteSide::Pattern) {
+            match match_terms_in_definition(MatchMode::Rewrite, definition, &condition, &value) {
+                MatchResult::Failed(_) => continue,
+                MatchResult::Success(found) => {
+                    substitution = compose(&found, &substitution);
+                }
+                MatchResult::Indeterminate {
+                    substitution: found,
+                    remainder,
+                } => {
+                    substitution = compose(&found, &substitution);
+                    branch_remainder.extend(remainder);
+                    condition = substitute(&condition, &substitution);
+                    conditions.push(Predicate::Equals(condition, value));
+                }
+            }
+        } else {
+            conditions.push(Predicate::Equals(condition, value));
+        }
+        recovered.push(PartialRuleMatch {
+            substitution,
+            conditions,
+            remainder: branch_remainder,
+        });
+    }
+    Some(recovered)
+}
+
+fn split_ite_pair(pattern: &Term, subject: &Term) -> Option<IteSplit> {
+    if let Some((condition, then_branch, else_branch)) = ite_arguments(pattern) {
+        return Some(IteSplit {
+            side: IteSide::Pattern,
+            condition,
+            then_pair: (then_branch, subject.clone()),
+            else_pair: (else_branch, subject.clone()),
+        });
+    }
+    let (condition, then_branch, else_branch) = ite_arguments(subject)?;
+    Some(IteSplit {
+        side: IteSide::Subject,
+        condition,
+        then_pair: (pattern.clone(), then_branch),
+        else_pair: (pattern.clone(), else_branch),
+    })
+}
+
+fn ite_arguments(term: &Term) -> Option<(Term, Term, Term)> {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        return None;
+    };
+    if symbol.attributes.hook.as_deref() != Some("KEQUAL.ite") {
+        return None;
+    }
+    let [condition, then_branch, else_branch] = arguments.as_slice() else {
+        return None;
+    };
+    Some((condition.clone(), then_branch.clone(), else_branch.clone()))
 }
 
 fn recover_overload_symbolic_match(
@@ -1634,6 +1809,32 @@ mod tests {
             .sort_graph
             .insert("SortTop", [crate::term::Name::from("SortSub")]);
         definition
+    }
+
+    #[cfg(feature = "z3")]
+    fn ite_rewrite_definition(lhs: &str) -> BackendDefinition {
+        let source = r#"[]
+            module MAIN
+                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortValue{} []
+                sort SortState{} []
+                symbol ite{}(SortBool{}, SortValue{}, SortValue{}) : SortValue{}
+                    [function{}(), total{}(), hook{}("KEQUAL.ite")]
+                symbol chosen{}() : SortValue{} [constructor{}()]
+                symbol rejected{}() : SortValue{} [constructor{}()]
+                symbol state{}(SortValue{}) : SortState{} [constructor{}()]
+                symbol done{}() : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        $LHS,
+                        \top{SortState{}}()
+                    ),
+                    done{}()
+                ) [label{}("choose")]
+            endmodule []"#
+            .replace("$LHS", lhs);
+        let syntax = parse_definition(&source).expect("ITE definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("ITE definition should internalize")
     }
 
     fn subject(definition: &BackendDefinition, value: &str) -> Pattern {
@@ -2664,6 +2865,113 @@ mod tests {
                 if variable == fresh_variable
                     && equality.as_ref() == &branch.pattern.constraints[0]
         ));
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn splits_symbolic_if_then_else_during_rewrite_matching() {
+        let definition = ite_rewrite_definition("state{}(chosen{}())");
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                "state{}(ite{}(CONDITION:SortBool{}, chosen{}(), rejected{}()))",
+            ),
+            constraints: Vec::new(),
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("one viable ITE branch should retain its complementary state");
+        };
+        let [branch] = branches.as_slice() else {
+            panic!("only the selected constructor should match, found {branches:?}");
+        };
+        assert_eq!(branch.pattern.term, internal_term(&definition, "done{}()"));
+        let condition = internal_term(&definition, "CONDITION:SortBool{}");
+        let selected = Predicate::Equals(
+            condition,
+            Term::domain_value(Sort::simple("SortBool"), "true"),
+        );
+        assert_eq!(
+            branch.pattern.constraints.as_slice(),
+            std::slice::from_ref(&selected)
+        );
+        assert_eq!(
+            remainder.pattern.constraints,
+            [Predicate::Not(Box::new(selected))]
+        );
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn splits_symbolic_if_then_else_on_the_rule_side() {
+        let definition = ite_rewrite_definition(
+            "state{}(ite{}(CONDITION:SortBool{}, chosen{}(), rejected{}()))",
+        );
+        let subject = Pattern {
+            term: internal_term(&definition, "state{}(chosen{}())"),
+            constraints: Vec::new(),
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Finished(applied) =
+            rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("the viable rule-side ITE branch should match exhaustively");
+        };
+        assert_eq!(applied.pattern.term, internal_term(&definition, "done{}()"));
+        assert!(applied.pattern.constraints.is_empty());
+        assert!(applied.substitution.iter().any(|(variable, value)| {
+            variable.name.ends_with("CONDITION")
+                && value == &Term::domain_value(Sort::simple("SortBool"), "true")
+        }));
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn recursively_splits_nested_symbolic_if_then_else() {
+        let definition = ite_rewrite_definition("state{}(chosen{}())");
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                "state{}(ite{}(OUTER:SortBool{}, ite{}(INNER:SortBool{}, chosen{}(), rejected{}()), rejected{}()))",
+            ),
+            constraints: Vec::new(),
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("the nested viable path should retain its complementary state");
+        };
+        let [branch] = branches.as_slice() else {
+            panic!("only one nested ITE path should match, found {branches:?}");
+        };
+        let expected = ["OUTER", "INNER"]
+            .map(|name| {
+                Predicate::Equals(
+                    internal_term(&definition, &format!("{name}:SortBool{{}}")),
+                    Term::domain_value(Sort::simple("SortBool"), "true"),
+                )
+            })
+            .to_vec();
+        assert_eq!(branch.pattern.constraints, expected);
+        assert_eq!(
+            remainder.pattern.constraints,
+            [Predicate::Not(Box::new(Predicate::And(expected)))]
+        );
     }
 
     #[test]
