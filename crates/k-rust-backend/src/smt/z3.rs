@@ -50,8 +50,26 @@ impl Z3Solver {
         definition: &crate::definition::BackendDefinition,
         options: Z3Options,
     ) -> Result<Self, SmtError> {
+        Self::with_options_and_prelude(definition, options, None)
+    }
+
+    pub fn with_prelude(
+        definition: &crate::definition::BackendDefinition,
+        prelude: &str,
+    ) -> Result<Self, SmtError> {
+        Self::with_options_and_prelude(definition, Z3Options::default(), Some(prelude))
+    }
+
+    pub fn with_options_and_prelude(
+        definition: &crate::definition::BackendDefinition,
+        options: Z3Options,
+        prelude: Option<&str>,
+    ) -> Result<Self, SmtError> {
         let solver = Self {
-            prelude: SmtPrelude::from_definition(definition)?,
+            prelude: match prelude {
+                Some(prelude) => SmtPrelude::from_definition_with_prelude(definition, prelude)?,
+                None => SmtPrelude::from_definition(definition)?,
+            },
             options,
         };
         match solver.solve(&solver.prelude.declarations().join("\n")) {
@@ -400,6 +418,19 @@ mod tests {
 
         assert!(matches!(
             Z3Solver::new(&definition),
+            Err(SmtError::InconsistentPrelude)
+        ));
+    }
+
+    #[test]
+    fn loads_external_smt_preludes_and_rejects_inconsistent_ones() {
+        let definition = definition();
+        let consistent = "(declare-const a Int)\n(assert (> a 0))";
+        let inconsistent = "(declare-const a Int)\n(assert (> a 0))\n(assert (< a 0))";
+
+        assert!(Z3Solver::with_prelude(&definition, consistent).is_ok());
+        assert!(matches!(
+            Z3Solver::with_prelude(&definition, inconsistent),
             Err(SmtError::InconsistentPrelude)
         ));
     }

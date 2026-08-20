@@ -396,6 +396,17 @@ impl SmtPrelude {
         Ok(Self { declarations })
     }
 
+    pub fn from_definition_with_prelude(
+        definition: &BackendDefinition,
+        prelude: &str,
+    ) -> Result<Self, TranslationError> {
+        let mut generated = Self::from_definition(definition)?;
+        if !prelude.trim().is_empty() {
+            generated.declarations.push(prelude.to_owned());
+        }
+        Ok(generated)
+    }
+
     pub fn declarations(&self) -> &[String] {
         &self.declarations
     }

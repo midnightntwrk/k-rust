@@ -37,7 +37,7 @@ use k_rust_backend::{
     externalize,
     proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
     rewrite::{ExecutionOptions, HaltReason, Pattern, execute_with_solver_and_observer},
-    smt::Z3Solver,
+    smt::{SmtError, Z3Solver},
 };
 
 fn main() {
@@ -228,6 +228,10 @@ struct KproveArgs {
     #[arg(long, value_name = "FILE")]
     save_proofs: Option<PathBuf>,
 
+    /// Load additional SMT-LIB declarations and assertions before proving.
+    #[arg(long, value_name = "FILE")]
+    smt_prelude: Option<PathBuf>,
+
     /// Do not attempt implication closure before this depth.
     #[arg(long, default_value_t = 0, value_name = "STEPS")]
     min_depth: u64,
@@ -324,6 +328,7 @@ struct KproveOptions {
     breadth_limit: Option<usize>,
     max_counterexamples: usize,
     save_proofs: Option<PathBuf>,
+    smt_prelude: Option<PathBuf>,
     min_depth: u64,
     allow_vacuous: bool,
     graph_search: ProofSearchOrder,
@@ -417,6 +422,7 @@ impl From<KproveArgs> for KproveOptions {
             breadth_limit: arguments.breadth_limit,
             max_counterexamples: arguments.max_counterexamples.get(),
             save_proofs: arguments.save_proofs,
+            smt_prelude: arguments.smt_prelude,
             min_depth: arguments.min_depth,
             allow_vacuous: arguments.allow_vacuous,
             graph_search: arguments.graph_search.into(),
@@ -650,8 +656,30 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     if backend.reachability_claims.is_empty() {
         return Err("the selected module contains no modal reachability claims".into());
     }
-    let solver = Z3Solver::new(&backend)
-        .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
+    let smt_prelude = options
+        .smt_prelude
+        .as_deref()
+        .map(|path| {
+            fs::read_to_string(path).map_err(|error| {
+                io::Error::new(
+                    error.kind(),
+                    format!("could not read SMT prelude `{}`: {error}", path.display()),
+                )
+            })
+        })
+        .transpose()?;
+    let solver = match smt_prelude.as_deref() {
+        Some(prelude) => Z3Solver::with_prelude(&backend, prelude),
+        None => Z3Solver::new(&backend),
+    }
+    .map_err(|error| {
+        io::Error::other(match error {
+            SmtError::InconsistentPrelude => {
+                "the definitions sent to the solver are inconsistent".to_owned()
+            }
+            error => format!("could not initialize Z3: {error:?}"),
+        })
+    })?;
     let selected = backend
         .reachability_claims
         .iter()
@@ -1011,6 +1039,8 @@ mod tests {
             "3",
             "--save-proofs",
             "proofs.kore",
+            "--smt-prelude",
+            "prelude.smt2",
             "--min-depth",
             "2",
             "--allow-vacuous",
@@ -1037,6 +1067,10 @@ mod tests {
         assert_eq!(
             options.save_proofs.as_deref(),
             Some(Path::new("proofs.kore"))
+        );
+        assert_eq!(
+            options.smt_prelude.as_deref(),
+            Some(Path::new("prelude.smt2"))
         );
         assert_eq!(options.min_depth, 2);
         assert!(options.allow_vacuous);
