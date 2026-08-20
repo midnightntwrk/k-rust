@@ -121,38 +121,71 @@ fn extract_existentials(mut pattern: &kore::Pattern) -> (&kore::Pattern, Vec<&ko
     (pattern, variables)
 }
 
-/// Distribute term-level disjunction through conjunction while leaving
+/// Distribute term-level disjunction through term constructors and conjunction while leaving
 /// predicate-only disjunctions intact as constraints.
 fn distribute_term_or(pattern: &kore::Pattern) -> Vec<kore::Pattern> {
+    distribute_term_or_with_context(pattern, false)
+}
+
+fn distribute_term_or_with_context(
+    pattern: &kore::Pattern,
+    inside_term: bool,
+) -> Vec<kore::Pattern> {
     match pattern {
-        kore::Pattern::Or { arguments, .. } if arguments.iter().any(contains_term_component) => {
-            arguments.iter().flat_map(distribute_term_or).collect()
-        }
-        kore::Pattern::And { sort, arguments } => {
-            let mut combinations = vec![Vec::new()];
-            for argument in arguments {
-                let alternatives = distribute_term_or(argument);
-                combinations = combinations
-                    .into_iter()
-                    .flat_map(|prefix| {
-                        alternatives.iter().cloned().map(move |alternative| {
-                            let mut combined = prefix.clone();
-                            combined.push(alternative);
-                            combined
-                        })
-                    })
-                    .collect();
-            }
-            combinations
-                .into_iter()
-                .map(|arguments| kore::Pattern::And {
-                    sort: sort.clone(),
-                    arguments,
-                })
+        kore::Pattern::Or { arguments, .. }
+            if inside_term || arguments.iter().any(contains_term_component) =>
+        {
+            arguments
+                .iter()
+                .flat_map(|argument| distribute_term_or_with_context(argument, true))
                 .collect()
         }
+        kore::Pattern::And { sort, arguments } => distribute_arguments(arguments, inside_term)
+            .into_iter()
+            .map(|arguments| kore::Pattern::And {
+                sort: sort.clone(),
+                arguments,
+            })
+            .collect(),
+        kore::Pattern::Application { symbol, arguments } => distribute_arguments(arguments, true)
+            .into_iter()
+            .map(|arguments| kore::Pattern::Application {
+                symbol: symbol.clone(),
+                arguments,
+            })
+            .collect(),
+        kore::Pattern::AssociativeApplication {
+            associativity,
+            symbol,
+            arguments,
+        } => distribute_arguments(arguments, true)
+            .into_iter()
+            .map(|arguments| kore::Pattern::AssociativeApplication {
+                associativity: *associativity,
+                symbol: symbol.clone(),
+                arguments,
+            })
+            .collect(),
         _ => vec![pattern.clone()],
     }
+}
+
+fn distribute_arguments(arguments: &[kore::Pattern], inside_term: bool) -> Vec<Vec<kore::Pattern>> {
+    let mut combinations = vec![Vec::new()];
+    for argument in arguments {
+        let alternatives = distribute_term_or_with_context(argument, inside_term);
+        combinations = combinations
+            .into_iter()
+            .flat_map(|prefix| {
+                alternatives.iter().cloned().map(move |alternative| {
+                    let mut combined = prefix.clone();
+                    combined.push(alternative);
+                    combined
+                })
+            })
+            .collect();
+    }
+    combinations
 }
 
 fn contains_term_component(pattern: &kore::Pattern) -> bool {
@@ -272,6 +305,29 @@ mod tests {
         );
 
         assert_eq!(definition.reachability_claims[0].rhs.len(), 2);
+    }
+
+    #[test]
+    fn distributes_disjunctions_nested_inside_term_contexts() {
+        let definition = definition(
+            r#"
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(\top{SortS{}}(), c{}(X:SortS{})),
+                weakExistsFinally{SortS{}}(
+                    c{}(
+                        \or{SortS{}}(
+                            X:SortS{},
+                            \dv{SortS{}}("other")
+                        )
+                    )
+                )
+            ) []
+            "#,
+        );
+
+        let claim = &definition.reachability_claims[0];
+        assert_eq!(claim.rhs.len(), 2);
+        assert_ne!(claim.rhs[0].term, claim.rhs[1].term);
     }
 
     #[test]

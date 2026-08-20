@@ -199,9 +199,10 @@ fn kprove_proves_a_modal_claim_in_process() {
 module MAIN
   syntax State ::= "a" [symbol(a)]
                  | "b" [symbol(b)]
+                 | "c" [symbol(c)]
   configuration <k> $PGM:State </k>
   rule <k> a => b </k>
-  claim <k> a => b </k> [label(reaches-b)]
+  claim <k> a => b #Or c </k> [label(reaches-b-or-c)]
 endmodule
 "#,
     )
@@ -214,7 +215,7 @@ endmodule
             "--main-module",
             "MAIN",
             "--claim",
-            "reaches-b",
+            "reaches-b-or-c",
             "--depth",
             "10",
             "--save-proofs",
@@ -230,7 +231,7 @@ endmodule
     );
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
-        "claim reaches-b: proven (2 states, 0 unexplored)\n"
+        "claim reaches-b-or-c: proven (2 states, 0 unexplored)\n"
     );
     let saved = parse_definition(&fs::read_to_string(&saved_proofs).unwrap()).unwrap();
     assert_eq!(
@@ -253,7 +254,7 @@ endmodule
             "--main-module",
             "MAIN",
             "--claim",
-            "reaches-b",
+            "reaches-b-or-c",
             "--save-proofs",
             saved_proofs.to_str().unwrap(),
         ])
@@ -266,7 +267,7 @@ endmodule
     );
     assert_eq!(
         String::from_utf8(resumed.stdout).unwrap(),
-        "claim reaches-b: proven (saved)\n"
+        "claim reaches-b-or-c: proven (saved)\n"
     );
 
     fs::remove_dir_all(root).unwrap();
