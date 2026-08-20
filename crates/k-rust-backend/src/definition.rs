@@ -15,6 +15,7 @@ use crate::{
         AxiomError, ClassifiedAxiom, RuleKind, RulePatternError, Theory, classify_axiom,
         insert_theory, internalize_axiom,
     },
+    smt::{SExpr, SmtType},
     term::{
         CollectionMetadata, CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Name,
         Sort, Symbol, SymbolAttributes, SymbolType, Term, Variable,
@@ -551,6 +552,15 @@ fn symbol_attributes(attributes: &kore::Attributes) -> Result<SymbolAttributes, 
             "sort injections cannot be associative or idempotent".into(),
         ));
     }
+    let smt_hook = attribute_string(attributes, "smt-hook")?;
+    let smtlib = attribute_string(attributes, "smtlib")?;
+    let smt = if let Some(hook) = smt_hook {
+        Some(SmtType::Hook(SExpr::parse(&hook).map_err(|error| {
+            DefinitionError::MalformedAttribute(format!("invalid smt-hook {hook:?}: {error}"))
+        })?))
+    } else {
+        smtlib.map(SmtType::Lib)
+    };
     Ok(SymbolAttributes {
         symbol_type,
         associative: has_attribute(attributes, "assoc"),
@@ -558,6 +568,7 @@ fn symbol_attributes(attributes: &kore::Attributes) -> Result<SymbolAttributes, 
         macro_or_alias: has_attribute(attributes, "macro")
             || has_attribute(attributes, "alias'Kywd'"),
         has_evaluators: !has_attribute(attributes, "no-evaluators"),
+        smt,
         hook: attribute_string(attributes, "hook")?.map(Into::into),
         collection: None,
     })
@@ -1123,5 +1134,39 @@ mod tests {
             ceil.rhs,
             crate::rule::RuleRhs::Predicates(ref predicates) if predicates.is_empty()
         ));
+    }
+
+    #[test]
+    fn internalizes_smt_hooks_and_smtlib_symbol_names() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                symbol absolute{}(SortInt{}) : SortInt{}
+                    [function{}(), total{}(), smt-hook{}("(ite (< #1 0) (- 0 #1) #1)")]
+                symbol opaque{}(SortInt{}) : SortInt{}
+                    [function{}(), total{}(), smtlib{}("opaque_int")]
+                symbol hookWins{}(SortInt{}) : SortInt{}
+                    [function{}(), total{}(), smt-hook{}("+"), smtlib{}("ignored")]
+            endmodule []
+        "#})
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+
+        assert_eq!(
+            definition.symbols["absolute"].attributes.smt,
+            Some(SmtType::Hook(
+                SExpr::parse("(ite (< #1 0) (- 0 #1) #1)").unwrap()
+            ))
+        );
+        assert_eq!(
+            definition.symbols["opaque"].attributes.smt,
+            Some(SmtType::Lib("opaque_int".into()))
+        );
+        assert_eq!(
+            definition.symbols["hookWins"].attributes.smt,
+            Some(SmtType::Hook(SExpr::atom("+")))
+        );
     }
 }

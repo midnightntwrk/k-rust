@@ -7,6 +7,8 @@ use std::{
     sync::Arc,
 };
 
+use crate::smt::SmtType;
+
 pub type Name = Arc<str>;
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -62,6 +64,7 @@ pub struct SymbolAttributes {
     pub idempotent: bool,
     pub macro_or_alias: bool,
     pub has_evaluators: bool,
+    pub smt: Option<SmtType>,
     pub hook: Option<Name>,
     pub collection: Option<CollectionMetadata>,
 }
@@ -74,6 +77,7 @@ impl SymbolAttributes {
             idempotent: false,
             macro_or_alias: false,
             has_evaluators: true,
+            smt: None,
             hook: None,
             collection: None,
         }

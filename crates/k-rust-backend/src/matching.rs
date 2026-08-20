@@ -971,6 +971,7 @@ mod tests {
                 idempotent: false,
                 macro_or_alias: false,
                 has_evaluators: true,
+                smt: None,
                 hook: None,
                 collection: None,
             },

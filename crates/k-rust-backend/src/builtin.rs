@@ -371,6 +371,7 @@ mod tests {
                     idempotent: false,
                     macro_or_alias: false,
                     has_evaluators: true,
+                    smt: None,
                     hook: Some(hook.into()),
                     collection: None,
                 },
