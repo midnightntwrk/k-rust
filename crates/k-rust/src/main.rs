@@ -643,13 +643,15 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         .iter()
         .find(|module| module.name == options.common.module)
         .ok_or_else(|| format!("compiled KORE has no module `{}`", options.common.module))?;
-    let mut proven_ids = saved_claims
+    let mut proven_ids = spec_module
+        .sentences
         .iter()
-        .filter_map(claim_unique_id)
-        .filter(|id| {
-            spec_module.sentences.iter().any(|sentence| {
-                claim_unique_id(sentence) == Some(id.clone()) && saved_claims.contains(sentence)
-            })
+        .filter_map(|sentence| {
+            let id = claim_unique_id(sentence)?;
+            saved_claims
+                .iter()
+                .any(|saved| same_claim(sentence, saved))
+                .then_some(id)
         })
         .collect::<BTreeSet<_>>();
     let backend = BackendDefinition::internalize(&syntax, &options.common.module)?;
@@ -834,6 +836,26 @@ fn claim_unique_id(sentence: &KoreSentence) -> Option<String> {
         return None;
     };
     attribute_string(attributes, "UNIQUE'Unds'ID").or_else(|| attribute_string(attributes, "label"))
+}
+
+fn same_claim(left: &KoreSentence, right: &KoreSentence) -> bool {
+    let (
+        KoreSentence::Claim {
+            parameters: left_parameters,
+            pattern: left_pattern,
+            ..
+        },
+        KoreSentence::Claim {
+            parameters: right_parameters,
+            pattern: right_pattern,
+            ..
+        },
+    ) = (left, right)
+    else {
+        return false;
+    };
+
+    left_parameters == right_parameters && left_pattern == right_pattern
 }
 
 fn attribute_string(attributes: &KoreAttributes, name: &str) -> Option<String> {

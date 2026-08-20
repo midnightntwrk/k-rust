@@ -274,6 +274,93 @@ endmodule
 }
 
 #[test]
+fn kprove_recalls_the_same_claim_from_another_spec_module() {
+    let (root, _) = fixture();
+    let saved_proofs = root.join("proofs.kore");
+    let semantics = root.join("semantics.k");
+    let first_spec = root.join("first-spec.k");
+    let second_spec = root.join("second-spec.k");
+    fs::write(
+        &semantics,
+        r#"
+module SEMANTICS
+  syntax State ::= "a" [symbol(a)]
+                 | "b" [symbol(b)]
+  configuration <k> $PGM:State </k>
+  rule <k> a => b </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &first_spec,
+        r#"
+requires "semantics.k"
+module FIRST-SPEC
+  imports SEMANTICS
+  claim <k> a => b </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &second_spec,
+        r#"
+requires "semantics.k"
+module SECOND-SPEC
+  imports SEMANTICS
+  claim <k> a => b </k>
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let first = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            first_spec.to_str().unwrap(),
+            "--main-module",
+            "FIRST-SPEC",
+            "--definition-module",
+            "SEMANTICS",
+            "--save-proofs",
+            saved_proofs.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    let second = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            second_spec.to_str().unwrap(),
+            "--main-module",
+            "SECOND-SPEC",
+            "--definition-module",
+            "SEMANTICS",
+            "--save-proofs",
+            saved_proofs.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(second.stdout).unwrap(),
+        "claim #1: proven (saved)\n"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn krun_handles_generated_concreteness_constraints() {
     let (root, definition) = fixture();
     fs::write(
