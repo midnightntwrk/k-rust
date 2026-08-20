@@ -21,7 +21,7 @@ use crate::{
     },
     rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
     smt::{NoSolver, SmtError, SmtSolver, Validity},
-    substitution::{Substitution, substitute},
+    substitution::{Substitution, compose, substitute},
     term::{Term, TermKind},
 };
 
@@ -130,13 +130,26 @@ fn simplify_predicates_with_budget(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Vec<Predicate>, SimplificationError> {
-    let simplified = predicates
+    let mut conjuncts = Vec::new();
+    for predicate in predicates {
+        if !conjuncts.contains(predicate) {
+            conjuncts.push(predicate.clone());
+        }
+    }
+    let simplified = conjuncts
         .iter()
-        .map(|predicate| {
+        .enumerate()
+        .map(|(index, predicate)| {
+            let mut assumptions = known_predicates.to_vec();
+            for (other_index, assumption) in conjuncts.iter().enumerate() {
+                if other_index != index && !assumptions.contains(assumption) {
+                    assumptions.push(assumption.clone());
+                }
+            }
             simplify_predicate_with_budget(
                 definition,
                 predicate,
-                known_predicates,
+                &assumptions,
                 limit,
                 remaining,
                 active_conditions,
@@ -144,11 +157,30 @@ fn simplify_predicates_with_budget(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if violates_finite_constructor_domain(definition, &simplified) {
-        Ok(vec![Predicate::False])
+    let simplified = if violates_finite_constructor_domain(definition, &simplified) {
+        vec![Predicate::False]
     } else {
-        Ok(simplified)
+        simplified
+    };
+    if simplified == conjuncts {
+        return Ok(simplified);
     }
+    if *remaining == 0 {
+        return Err(SimplificationError::PredicateIterationLimit {
+            limit,
+            predicate: Predicate::And(simplified),
+        });
+    }
+    *remaining -= 1;
+    simplify_predicates_with_budget(
+        definition,
+        &simplified,
+        known_predicates,
+        limit,
+        remaining,
+        active_conditions,
+        solver,
+    )
 }
 
 fn simplify_rule_predicates(
@@ -207,10 +239,13 @@ fn simplify_predicate_with_budget(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Predicate, SimplificationError> {
-    if known_predicates.contains(predicate) {
+    if conjunctively_contains(known_predicates, predicate) {
         return Ok(Predicate::True);
     }
-    if known_predicates.contains(&Predicate::Not(Box::new(predicate.clone()))) {
+    if conjunctively_contains(
+        known_predicates,
+        &Predicate::Not(Box::new(predicate.clone())),
+    ) {
         return Ok(Predicate::False);
     }
     let mut simplify_term = |term: &Term| {
@@ -244,7 +279,7 @@ fn simplify_predicate_with_budget(
             active_conditions,
             solver,
         )?)),
-        Predicate::And(inner) | Predicate::Or(inner) => {
+        Predicate::And(inner) => {
             let inner = simplify_predicates_with_budget(
                 definition,
                 inner,
@@ -254,11 +289,24 @@ fn simplify_predicate_with_budget(
                 active_conditions,
                 solver,
             )?;
-            if matches!(predicate, Predicate::And(_)) {
-                Predicate::And(inner)
-            } else {
-                Predicate::Or(inner)
-            }
+            Predicate::And(inner)
+        }
+        Predicate::Or(inner) => {
+            let inner = inner
+                .iter()
+                .map(|predicate| {
+                    simplify_predicate_with_budget(
+                        definition,
+                        predicate,
+                        known_predicates,
+                        limit,
+                        remaining,
+                        active_conditions,
+                        solver,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Predicate::Or(inner)
         }
         Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
             let left = simplify_predicate_with_budget(
@@ -304,6 +352,15 @@ fn simplify_predicate_with_budget(
     };
     let simplified =
         normalize_predicate(normalize_hooked_boolean_predicate(definition, simplified));
+    if conjunctively_contains(known_predicates, &simplified) {
+        return Ok(Predicate::True);
+    }
+    if conjunctively_contains(
+        known_predicates,
+        &Predicate::Not(Box::new(simplified.clone())),
+    ) {
+        return Ok(Predicate::False);
+    }
     let Some(simplified) = apply_predicate_theory(
         definition,
         &simplified,
@@ -333,6 +390,13 @@ fn simplify_predicate_with_budget(
         active_conditions,
         solver,
     )
+}
+
+fn conjunctively_contains(predicates: &[Predicate], target: &Predicate) -> bool {
+    predicates.iter().any(|predicate| {
+        predicate == target
+            || matches!(predicate, Predicate::And(inner) if conjunctively_contains(inner, target))
+    })
 }
 
 enum PredicateEquationAttempt {
@@ -817,22 +881,52 @@ fn simplify_with_budget(
 }
 
 fn replace_from_path_condition(term: &Term, predicates: &[Predicate]) -> Term {
-    let replacements = predicates
-        .iter()
-        .filter_map(|predicate| {
-            let Predicate::Equals(left, right) = predicate else {
-                return None;
-            };
-            if is_scalar_domain_value(left) {
-                Some((right, left))
-            } else if is_scalar_domain_value(right) {
-                Some((left, right))
-            } else {
-                None
+    let mut substitution = Substitution::new();
+    let mut replacements = Vec::new();
+    let mut equalities = Vec::new();
+    collect_conjunctive_equalities(predicates, &mut equalities);
+    for (left, right) in equalities {
+        let binding = match (left.kind(), right.kind()) {
+            (TermKind::Variable(variable), _) => Some((variable, right)),
+            (_, TermKind::Variable(variable)) => Some((variable, left)),
+            _ => None,
+        };
+        if let Some((variable, replacement)) = binding {
+            let replacement = substitute(replacement, &substitution);
+            if !replacement.attributes().variables.contains(variable) {
+                let binding = Substitution::from([(variable.clone(), replacement)]);
+                substitution = compose(&binding, &substitution);
             }
+        } else if is_scalar_domain_value(left) {
+            replacements.push((right.clone(), left.clone()));
+        } else if is_scalar_domain_value(right) {
+            replacements.push((left.clone(), right.clone()));
+        }
+    }
+    let replacements = replacements
+        .into_iter()
+        .map(|(original, replacement)| {
+            (
+                substitute(&original, &substitution),
+                substitute(&replacement, &substitution),
+            )
         })
         .collect::<Vec<_>>();
-    replace_terms_bottom_up(term, &replacements)
+    let term = substitute(term, &substitution);
+    replace_terms_bottom_up(&term, &replacements)
+}
+
+fn collect_conjunctive_equalities<'a>(
+    predicates: &'a [Predicate],
+    equalities: &mut Vec<(&'a Term, &'a Term)>,
+) {
+    for predicate in predicates {
+        match predicate {
+            Predicate::Equals(left, right) => equalities.push((left, right)),
+            Predicate::And(inner) => collect_conjunctive_equalities(inner, equalities),
+            _ => {}
+        }
+    }
 }
 
 fn is_scalar_domain_value(term: &Term) -> bool {
@@ -844,7 +938,7 @@ fn is_scalar_domain_value(term: &Term) -> bool {
     )
 }
 
-fn replace_terms_bottom_up(term: &Term, replacements: &[(&Term, &Term)]) -> Term {
+fn replace_terms_bottom_up(term: &Term, replacements: &[(Term, Term)]) -> Term {
     let replace = |term: &Term| replace_terms_bottom_up(term, replacements);
     let rebuilt = match term.kind() {
         TermKind::And(left, right) => Term::and(replace(left), replace(right)),
@@ -901,7 +995,7 @@ fn replace_terms_bottom_up(term: &Term, replacements: &[(&Term, &Term)]) -> Term
     };
     replacements
         .iter()
-        .find_map(|(original, replacement)| (*original == &rebuilt).then(|| (*replacement).clone()))
+        .find_map(|(original, replacement)| (original == &rebuilt).then(|| replacement.clone()))
         .unwrap_or(rebuilt)
 }
 
@@ -1369,6 +1463,78 @@ mod tests {
         assert_eq!(result.term, expected);
         assert_eq!(result.applied_rules, vec!["identity", "identity"]);
         assert!(result.constraints.is_empty());
+    }
+
+    #[test]
+    fn propagates_symbolic_path_equalities_into_terms() {
+        let definition = definition("");
+        let x = term(&definition, "X:SortS{}");
+        let y = term(&definition, "Y:SortS{}");
+        let value = term(&definition, r#"\dv{SortS{}}("value")"#);
+        let input = term(&definition, "wrap{}(X:SortS{})");
+        let known = [Predicate::And(vec![
+            Predicate::Equals(x, y.clone()),
+            Predicate::Equals(y, value.clone()),
+        ])];
+
+        let result = simplify_with_solver(
+            &definition,
+            &input,
+            &known,
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(
+            result.term,
+            term(&definition, r#"wrap{}(\dv{SortS{}}("value"))"#)
+        );
+    }
+
+    #[test]
+    fn simplifies_conjuncts_under_sibling_assumptions() {
+        let definition = definition("");
+        let x = term(&definition, "X:SortS{}");
+        let y = term(&definition, "Y:SortS{}");
+        let wrap_x = term(&definition, "wrap{}(X:SortS{})");
+        let wrap_y = term(&definition, "wrap{}(Y:SortS{})");
+        let predicate = Predicate::And(vec![
+            Predicate::Iff(Box::new(Predicate::True), Box::new(Predicate::Equals(x, y))),
+            Predicate::Not(Box::new(Predicate::Equals(wrap_x, wrap_y))),
+        ]);
+
+        let result = simplify_predicate_with_solver(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(result, Predicate::False);
+    }
+
+    #[test]
+    fn deduplicates_conjuncts_without_discharging_them() {
+        let definition = definition("");
+        let disequality = Predicate::Not(Box::new(Predicate::Equals(
+            term(&definition, "X:SortS{}"),
+            term(&definition, "Y:SortS{}"),
+        )));
+        let predicate = Predicate::And(vec![disequality.clone(), disequality.clone()]);
+
+        let result = simplify_predicate_with_solver(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(result, disequality);
     }
 
     #[test]

@@ -485,7 +485,8 @@ fn counterexample_limit_reached(
     options: ProofOptions,
 ) -> bool {
     mode == ReachabilityMode::AllPath
-        && leaves.iter().filter(|leaf| !is_proven(leaf)).count() >= options.max_counterexamples
+        && leaves.iter().filter(|leaf| !closes_all_path(leaf)).count()
+            >= options.max_counterexamples
 }
 
 #[derive(Clone)]
@@ -745,7 +746,7 @@ fn finish(
     let any_disproved = leaves.iter().any(|leaf| {
         matches!(
             leaf.outcome,
-            ProofLeafOutcome::Stuck | ProofLeafOutcome::Trivial | ProofLeafOutcome::Vacuous
+            ProofLeafOutcome::Stuck | ProofLeafOutcome::Vacuous
         )
     });
     let any_indeterminate = leaves.iter().any(|leaf| {
@@ -767,7 +768,7 @@ fn finish(
         _ if any_depth_bound => ProofStatus::DepthBound,
         _ if any_breadth_bound => ProofStatus::BreadthBound,
         _ if unexplored_states > 0 => ProofStatus::Indeterminate,
-        ReachabilityMode::AllPath if leaves.iter().all(is_proven) => ProofStatus::Proven,
+        ReachabilityMode::AllPath if leaves.iter().all(closes_all_path) => ProofStatus::Proven,
         ReachabilityMode::OnePath => ProofStatus::Disproved,
         ReachabilityMode::AllPath => ProofStatus::Indeterminate,
     };
@@ -784,6 +785,10 @@ fn is_proven(leaf: &ProofLeaf) -> bool {
         leaf.outcome,
         ProofLeafOutcome::Proven(_) | ProofLeafOutcome::Trusted
     )
+}
+
+fn closes_all_path(leaf: &ProofLeaf) -> bool {
+    is_proven(leaf) || matches!(leaf.outcome, ProofLeafOutcome::Trivial)
 }
 
 fn extend_unique(left: &mut Vec<crate::rule::Predicate>, right: Vec<crate::rule::Predicate>) {
@@ -847,6 +852,29 @@ mod tests {
         definition
             .internalize_term(&syntax, &[])
             .expect("term should internalize")
+    }
+
+    #[test]
+    fn trivial_successors_close_only_all_path_branches() {
+        let definition = definition("", "");
+        let leaf = ProofLeaf {
+            pattern: Pattern {
+                term: term(&definition, "a{}()"),
+                constraints: Vec::new(),
+            },
+            depth: 1,
+            trace: Vec::new(),
+            outcome: ProofLeafOutcome::Trivial,
+        };
+
+        assert_eq!(
+            finish(ReachabilityMode::AllPath, vec![leaf.clone()], 1, 0).status,
+            ProofStatus::Proven
+        );
+        assert_eq!(
+            finish(ReachabilityMode::OnePath, vec![leaf], 1, 0).status,
+            ProofStatus::Disproved
+        );
     }
 
     #[cfg(feature = "z3")]

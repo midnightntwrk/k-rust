@@ -1173,13 +1173,7 @@ fn apply_rule_with_match(
         return RuleAttempt::NotApplicable;
     }
     inherited_conditions.append(&mut match_conditions);
-    for value in substitution
-        .values()
-        .filter(|value| !matches!(value.kind(), TermKind::Variable(_)))
-    {
-        extend_unique(&mut inherited_conditions, ceil_term(definition, value));
-    }
-    let match_conditions = simplify_predicates_with_solver(
+    let inherited_conditions = simplify_predicates_with_solver(
         definition,
         &inherited_conditions,
         &pattern.constraints,
@@ -1187,13 +1181,40 @@ fn apply_rule_with_match(
         solver,
     )
     .unwrap_or(inherited_conditions);
-    if predicates_truth(&match_conditions) == Truth::False {
+    if predicates_truth(&inherited_conditions) == Truth::False {
         return RuleAttempt::NotApplicable;
     }
-    let match_conditions = match_conditions
+    let mut match_conditions = inherited_conditions
         .into_iter()
         .filter(|condition| predicates_truth(std::slice::from_ref(condition)) == Truth::Unknown)
         .collect::<Vec<_>>();
+
+    let mut definedness_conditions = Vec::new();
+    for value in substitution
+        .values()
+        .filter(|value| !matches!(value.kind(), TermKind::Variable(_)))
+    {
+        extend_unique(&mut definedness_conditions, ceil_term(definition, value));
+    }
+    let mut definedness_knowledge = pattern.constraints.clone();
+    extend_unique(&mut definedness_knowledge, match_conditions.iter().cloned());
+    let definedness_conditions = simplify_predicates_with_solver(
+        definition,
+        &definedness_conditions,
+        &definedness_knowledge,
+        simplification_options,
+        solver,
+    )
+    .unwrap_or(definedness_conditions);
+    if predicates_truth(&definedness_conditions) == Truth::False {
+        return RuleAttempt::Trivial;
+    }
+    extend_unique(
+        &mut match_conditions,
+        definedness_conditions.into_iter().filter(|condition| {
+            predicates_truth(std::slice::from_ref(condition)) == Truth::Unknown
+        }),
+    );
 
     if !match_conditions.is_empty() {
         let mut narrowed = pattern.constraints.clone();
@@ -2956,6 +2977,29 @@ mod tests {
         definition
             .internalize_term(&syntax, &[])
             .expect("term should internalize")
+    }
+
+    #[test]
+    fn treats_an_undefined_matched_subterm_as_trivial() {
+        let definition = definition(
+            r#"
+            symbol partial{}() : SortS{} [function{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                wrap{}(\dv{SortS{}}("done"))
+            ) [label{}("unwrap")]
+            "#,
+        );
+        let partial = internal_term(&definition, "partial{}()");
+        let subject = Pattern {
+            term: internal_term(&definition, "wrap{}(partial{}())"),
+            constraints: vec![Predicate::Not(Box::new(Predicate::Ceil(partial)))],
+        };
+        let mut fresh = 0;
+
+        let result = rewrite_step(&definition, &subject, &mut fresh);
+
+        assert_eq!(result, RewriteResult::Trivial(subject));
     }
 
     #[cfg(feature = "z3")]
