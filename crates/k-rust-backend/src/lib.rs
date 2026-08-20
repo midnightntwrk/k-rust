@@ -7,6 +7,7 @@ pub mod definition;
 pub mod externalize;
 pub mod implication;
 pub mod matching;
+pub mod proof;
 pub mod rewrite;
 pub mod rule;
 pub mod simplify;

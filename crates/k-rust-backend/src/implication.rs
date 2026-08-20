@@ -5,14 +5,14 @@ use std::{collections::BTreeSet, error::Error, fmt};
 use crate::{
     definition::BackendDefinition,
     matching::{FailReason, MatchMode, MatchResult, SortError, match_terms},
-    rewrite::{Pattern, Truth, predicates_truth},
+    rewrite::{Pattern, Truth, predicates_truth, substitute_predicates},
     rule::Predicate,
     simplify::{
         SimplificationError, SimplificationOptions, simplify_predicates_with_solver,
         simplify_with_solver,
     },
     smt::{Satisfiability, SmtSolver, Validity},
-    substitution::Substitution,
+    substitution::{Substitution, substitute},
     term::Variable,
 };
 
@@ -117,12 +117,14 @@ pub fn check_implication_with_existentials_and_options(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<ImplicationResult, ImplicationError> {
+    let (consequent, consequent_existentials) =
+        freshen_existentials(antecedent, consequent, consequent_existentials);
     let antecedent_variables = free_variables(antecedent)
         .difference(antecedent_existentials)
         .cloned()
         .collect::<BTreeSet<_>>();
-    let consequent_variables = free_variables(consequent)
-        .difference(consequent_existentials)
+    let consequent_variables = free_variables(&consequent)
+        .difference(&consequent_existentials)
         .cloned()
         .collect::<BTreeSet<_>>();
     let extra_variables = consequent_variables
@@ -181,7 +183,7 @@ pub fn check_implication_with_existentials_and_options(
                 return discharge_consequent(
                     definition,
                     &antecedent,
-                    consequent,
+                    &consequent,
                     substitution,
                     options,
                     solver,
@@ -189,6 +191,43 @@ pub fn check_implication_with_existentials_and_options(
             }
         }
     }
+}
+
+fn freshen_existentials(
+    antecedent: &Pattern,
+    consequent: &Pattern,
+    existentials: &BTreeSet<Variable>,
+) -> (Pattern, BTreeSet<Variable>) {
+    let mut names = free_variables(antecedent)
+        .into_iter()
+        .chain(free_variables(consequent))
+        .map(|variable| variable.name)
+        .collect::<BTreeSet<_>>();
+    let mut substitution = Substitution::new();
+    let mut fresh = BTreeSet::new();
+    for (counter, original) in existentials.iter().enumerate() {
+        let mut suffix = counter;
+        let name = loop {
+            let candidate = format!("{}!exists{suffix}", original.name);
+            if names.insert(candidate.as_str().into()) {
+                break candidate;
+            }
+            suffix += 1;
+        };
+        let variable = Variable::new(name, original.sort.clone());
+        substitution.insert(
+            original.clone(),
+            crate::term::Term::variable(variable.clone()),
+        );
+        fresh.insert(variable);
+    }
+    (
+        Pattern {
+            term: substitute(&consequent.term, &substitution),
+            constraints: substitute_predicates(&consequent.constraints, &substitution),
+        },
+        fresh,
+    )
 }
 
 fn discharge_consequent(
@@ -419,19 +458,44 @@ mod tests {
         let consequent = pattern(&definition, r#"pair{}(X:SortInt{}, Y:SortInt{})"#);
         let y = crate::term::Variable::new("Y", Sort::simple("SortInt"));
 
+        let result = check_implication_with_existentials(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &BTreeSet::from([y]),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
+        assert_eq!(result.status, ImplicationStatus::Valid);
+        let condition = result.condition.expect("a valid result has a condition");
+        assert!(condition.predicates.is_empty());
+        assert_eq!(
+            condition.substitution.values().collect::<Vec<_>>(),
+            vec![&Term::variable(crate::term::Variable::new(
+                "X",
+                Sort::simple("SortInt"),
+            ))]
+        );
+    }
+
+    #[test]
+    fn refreshes_existentials_away_from_antecedent_variables() {
+        let definition = definition();
+        let antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        let consequent = pattern(&definition, r#"pair{}(X:SortInt{}, X:SortInt{})"#);
+        let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
+
         assert_eq!(
             check_implication_with_existentials(
                 &definition,
                 &antecedent,
                 &BTreeSet::new(),
                 &consequent,
-                &BTreeSet::from([y]),
+                &BTreeSet::from([x]),
                 &NoSolver,
             ),
-            Ok(valid(Substitution::from([(
-                crate::term::Variable::new("Y", Sort::simple("SortInt")),
-                Term::variable(crate::term::Variable::new("X", Sort::simple("SortInt"))),
-            )])))
+            Ok(invalid())
         );
     }
 

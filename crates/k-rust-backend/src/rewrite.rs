@@ -98,6 +98,7 @@ pub struct TraceEntry {
 pub enum TraceKind {
     Simplification,
     Rewrite,
+    Claim,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
