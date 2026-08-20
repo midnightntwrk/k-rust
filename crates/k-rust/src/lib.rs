@@ -6,7 +6,7 @@ pub mod diagnostic;
 pub mod inner;
 pub mod kast;
 pub mod kompile;
-pub mod kore;
+pub use k_rust_kore::kore;
 #[cfg(feature = "cli")]
 pub mod native;
 pub mod outer;

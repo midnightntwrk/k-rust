@@ -1,5 +1,5 @@
 ---
-source: crates/k-rust/src/kore/parser/sentence.rs
+source: crates/k-rust-kore/src/kore/parser/sentence.rs
 description: "KORE sentence:\n\naxiom{S} \\equals{S, SortBool{}}(id{S}(X:S), X:S) [simplification{}()]\n"
 ---
 Axiom {

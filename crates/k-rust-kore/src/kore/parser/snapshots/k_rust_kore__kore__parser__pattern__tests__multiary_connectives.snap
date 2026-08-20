@@ -1,5 +1,5 @@
 ---
-source: crates/k-rust/src/kore/parser/pattern.rs
+source: crates/k-rust-kore/src/kore/parser/pattern.rs
 description: "KORE pattern:\n\n\\and{SortBool{}}(\n    \\top{SortBool{}}(),\n    \\or{SortBool{}}(a{}(), b{}(), c{}())\n)\n"
 ---
 And {

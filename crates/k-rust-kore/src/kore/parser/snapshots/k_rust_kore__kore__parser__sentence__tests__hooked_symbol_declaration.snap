@@ -1,5 +1,5 @@
 ---
-source: crates/k-rust/src/kore/parser/sentence.rs
+source: crates/k-rust-kore/src/kore/parser/sentence.rs
 description: "KORE sentence:\n\nhooked-symbol plus{}(SortInt{}, SortInt{}) : SortInt{} [hook{}(\"INT.add\")]\n"
 ---
 SymbolDeclaration {

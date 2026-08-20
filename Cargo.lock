@@ -926,6 +926,7 @@ dependencies = [
  "gmp-mpfr-sys",
  "indoc",
  "insta",
+ "k-rust-kore",
  "num-bigint",
  "num-traits",
  "petgraph",
@@ -937,6 +938,17 @@ dependencies = [
  "serde_json",
  "sha3",
  "z3",
+]
+
+[[package]]
+name = "k-rust-kore"
+version = "0.3.0"
+dependencies = [
+ "indoc",
+ "insta",
+ "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

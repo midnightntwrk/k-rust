@@ -1,5 +1,5 @@
 ---
-source: crates/k-rust/src/kore/parser/sentence.rs
+source: crates/k-rust-kore/src/kore/parser/sentence.rs
 description: "KORE sentence:\n\nalias id{S}(S) : S where id{S}(X:S) := X:S []\n"
 ---
 AliasDeclaration {

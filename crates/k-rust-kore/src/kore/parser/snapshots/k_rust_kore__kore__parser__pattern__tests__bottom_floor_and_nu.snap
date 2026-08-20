@@ -1,5 +1,5 @@
 ---
-source: crates/k-rust/src/kore/parser/pattern.rs
+source: crates/k-rust-kore/src/kore/parser/pattern.rs
 description: "KORE pattern:\n\n\\nu{}(\n    @X:SortSet{},\n    \\floor{SortSet{}, SortBool{}}(\\bottom{SortSet{}}())\n)\n"
 ---
 Nu {

@@ -1,5 +1,5 @@
 ---
-source: crates/k-rust/src/kore/parser/definition.rs
+source: crates/k-rust-kore/src/kore/parser/definition.rs
 description: "KORE definition:\n\n[source{}(\"snapshot-test\")]\n\nmodule BOOL\n    sort SortBool{} []\nendmodule []\n\nmodule MAIN\n    import BOOL []\n    claim{}\n        \\implies{SortBool{}}(\\top{SortBool{}}(), \\top{SortBool{}}())\n        [trusted{}()]\nendmodule []\n"
 ---
 Definition {

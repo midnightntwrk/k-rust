@@ -1,5 +1,5 @@
 ---
-source: crates/k-rust/src/kore/parser/pattern.rs
+source: crates/k-rust-kore/src/kore/parser/pattern.rs
 description: "KORE pattern:\n\nfoo{S, List{T}}(X:S, @Set:SortSet{}, \"value\")\n"
 ---
 Application {

@@ -57,9 +57,10 @@ Implemented end to end:
   source checkout. Explicit sources always take precedence.
 - Native, portable, and `wasm32-unknown-unknown` build gates.
 
-The frontend implementation lives in the `k-rust` crate. Thin `k-rust-napi` and `k-rust-wasm`
-crates expose its host-independent parsing APIs to native Node.js and portable WebAssembly
-respectively, without changing the core crate's release or portability boundaries.
+The frontend implementation lives in the `k-rust` crate, with shared KORE syntax and serialization
+in `k-rust-kore` so the in-process backend can consume the same representation without depending on
+frontend internals. Thin `k-rust-napi` and `k-rust-wasm` crates expose the host-independent APIs to
+native Node.js and portable WebAssembly respectively.
 
 ## Install and build
 
@@ -260,7 +261,7 @@ CI only runs ordinary tests and never accepts snapshots.
 Release packaging is checked with:
 
 ```console
-cargo package -p k-rust --locked
+cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 ```
 
 ## Scope and known limitations

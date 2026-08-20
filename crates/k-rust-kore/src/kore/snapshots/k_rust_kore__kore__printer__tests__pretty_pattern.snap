@@ -1,5 +1,5 @@
 ---
-source: crates/k-rust/src/kore/printer.rs
+source: crates/k-rust-kore/src/kore/printer.rs
 description: "Input KORE pattern:\n\n\\forall{SortBool{}}(\n    X:SortInt{},\n    \\implies{SortBool{}}(\n        \\equals{SortInt{}, SortBool{}}(X:SortInt{}, \\dv{SortInt{}}(\"42\")),\n        \\top{SortBool{}}()\n    )\n)\n"
 ---
 \forall{SortBool{}}(

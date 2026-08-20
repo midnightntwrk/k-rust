@@ -1,0 +1,19 @@
+[package]
+name = "k-rust-kore"
+version = "0.3.0"
+edition = "2024"
+rust-version = "1.85"
+description = "KORE syntax, parsing, printing, and serialization for k-rust"
+repository = "https://github.com/midnightntwrk/k-rust"
+license = "BSD-3-Clause"
+keywords = ["k-framework", "kore", "parser", "rewriting"]
+categories = ["compilers", "parser-implementations"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+indoc.workspace = true
+insta.workspace = true
+proptest.workspace = true

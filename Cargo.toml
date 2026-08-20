@@ -7,6 +7,7 @@ clap = { version = "4.5", features = ["derive"] }
 gmp-mpfr-sys = { version = "1.7.1", default-features = false, features = ["mpfr"] }
 indoc = "2.0.7"
 insta = "1.48.0"
+k-rust-kore = { version = "0.3.0", path = "crates/k-rust-kore" }
 napi = "3.4.0"
 napi-build = "2.2.4"
 napi-derive = "3.3.0"
