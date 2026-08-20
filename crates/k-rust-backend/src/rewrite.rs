@@ -6,7 +6,10 @@ use crate::{
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms},
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
-    simplify::{SimplificationError, SimplificationOptions, simplify_with_solver},
+    simplify::{
+        SimplificationError, SimplificationOptions, simplify_predicates_with_solver,
+        simplify_with_solver,
+    },
     smt::{NoSolver, SmtError, SmtSolver, Validity},
     substitution::{Substitution, substitute},
     term::{Sort, Term, TermKind, Variable},
@@ -180,7 +183,15 @@ pub fn execute_with_solver(
             });
             continue;
         }
-        match rewrite_step_with_solver(definition, &state.pattern, &mut fresh_counter, solver) {
+        match rewrite_step_with_options(
+            definition,
+            &state.pattern,
+            &mut fresh_counter,
+            SimplificationOptions {
+                max_iterations: options.max_simplification_iterations,
+            },
+            solver,
+        ) {
             RewriteResult::Stuck(pattern) => leaves.push(ExecutionLeaf {
                 pattern,
                 depth: state.depth,
@@ -254,6 +265,22 @@ pub fn rewrite_step_with_solver(
     fresh_counter: &mut u64,
     solver: &dyn SmtSolver,
 ) -> RewriteResult {
+    rewrite_step_with_options(
+        definition,
+        pattern,
+        fresh_counter,
+        SimplificationOptions::default(),
+        solver,
+    )
+}
+
+fn rewrite_step_with_options(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    fresh_counter: &mut u64,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> RewriteResult {
     let index = term_index(&pattern.term);
     let priority_groups = applicable_groups(definition, &index);
     if priority_groups.is_empty() {
@@ -263,7 +290,14 @@ pub fn rewrite_step_with_solver(
     for rules in priority_groups.values() {
         let mut applied = Vec::new();
         for rule in rules {
-            match apply_rule(definition, rule, pattern, fresh_counter, solver) {
+            match apply_rule(
+                definition,
+                rule,
+                pattern,
+                fresh_counter,
+                simplification_options,
+                solver,
+            ) {
                 RuleAttempt::NotApplicable => {}
                 RuleAttempt::Trivial => saw_trivial = true,
                 RuleAttempt::Applied(result) => applied.push(result),
@@ -328,6 +362,7 @@ fn apply_rule(
     rule: &RewriteRule,
     pattern: &Pattern,
     fresh_counter: &mut u64,
+    simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> RuleAttempt {
     let substitution = match match_terms(
@@ -357,6 +392,14 @@ fn apply_rule(
         });
     }
     let requires = substitute_predicates(&rule.requires, &substitution);
+    let requires = simplify_predicates_with_solver(
+        definition,
+        &requires,
+        &pattern.constraints,
+        simplification_options,
+        solver,
+    )
+    .unwrap_or(requires);
     match predicates_truth(&requires) {
         Truth::False => return RuleAttempt::NotApplicable,
         Truth::Unknown => {
@@ -407,6 +450,14 @@ fn apply_rule(
         &substitute_predicates(&rule.ensures, &substitution),
         &existential_substitution,
     );
+    let ensures = simplify_predicates_with_solver(
+        definition,
+        &ensures,
+        &pattern.constraints,
+        simplification_options,
+        solver,
+    )
+    .unwrap_or(ensures);
     match predicates_truth(&ensures) {
         Truth::False => return RuleAttempt::Trivial,
         Truth::True => {}
@@ -741,6 +792,68 @@ mod tests {
                 &mut fresh,
             )),
             "low"
+        );
+    }
+
+    #[test]
+    fn simplifies_rule_conditions_with_backend_equations_before_rewriting() {
+        let definition = definition(
+            r#"
+            sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            symbol isZero{}(SortS{}) : SortBool{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortBool{}, R}(
+                    isZero{}(\dv{SortS{}}("zero")),
+                    \and{SortBool{}}(
+                        \dv{SortBool{}}("true"),
+                        \top{SortBool{}}()
+                    )
+                )
+            ) [label{}("zero-is-zero"), simplification{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortBool{}, R}(
+                    isZero{}(\dv{SortS{}}("one")),
+                    \and{SortBool{}}(
+                        \dv{SortBool{}}("false"),
+                        \top{SortBool{}}()
+                    )
+                )
+            ) [label{}("one-is-not-zero"), simplification{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(X:SortS{}),
+                    \equals{SortBool{}, SortS{}}(
+                        isZero{}(X:SortS{}),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                \dv{SortS{}}("high")
+            ) [label{}("conditional"), priority{}("10")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \dv{SortS{}}("fallback")
+            ) [label{}("fallback"), priority{}("50")]
+            "#,
+        );
+        let mut fresh = 0;
+
+        assert_eq!(
+            rewritten_value(rewrite_step(
+                &definition,
+                &subject(&definition, "zero"),
+                &mut fresh,
+            )),
+            "high"
+        );
+        assert_eq!(
+            rewritten_value(rewrite_step(
+                &definition,
+                &subject(&definition, "one"),
+                &mut fresh,
+            )),
+            "fallback"
         );
     }
 

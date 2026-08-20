@@ -1,6 +1,9 @@
 //! Recursive equation simplification to a bounded fixed point.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use crate::{
     builtin::{BuiltinError, evaluate as evaluate_builtin},
@@ -81,14 +84,288 @@ pub fn simplify_with_solver(
     solver: &dyn SmtSolver,
 ) -> Result<Simplification, SimplificationError> {
     let mut remaining = options.max_iterations;
+    let active_conditions = BTreeSet::new();
     simplify_with_budget(
         definition,
         term,
         known_predicates,
         options.max_iterations,
         &mut remaining,
+        &active_conditions,
         solver,
     )
+}
+
+pub fn simplify_predicates_with_solver(
+    definition: &BackendDefinition,
+    predicates: &[Predicate],
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Result<Vec<Predicate>, SimplificationError> {
+    let mut remaining = options.max_iterations;
+    let active_conditions = BTreeSet::new();
+    simplify_predicates_with_budget(
+        definition,
+        predicates,
+        known_predicates,
+        options.max_iterations,
+        &mut remaining,
+        &active_conditions,
+        solver,
+    )
+}
+
+fn simplify_predicates_with_budget(
+    definition: &BackendDefinition,
+    predicates: &[Predicate],
+    known_predicates: &[Predicate],
+    limit: usize,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> Result<Vec<Predicate>, SimplificationError> {
+    predicates
+        .iter()
+        .map(|predicate| {
+            simplify_predicate_with_budget(
+                definition,
+                predicate,
+                known_predicates,
+                limit,
+                remaining,
+                active_conditions,
+                solver,
+            )
+        })
+        .collect()
+}
+
+fn simplify_rule_predicates(
+    definition: &BackendDefinition,
+    condition_key: (&str, &Term),
+    predicates: &[Predicate],
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> Result<Vec<Predicate>, SimplificationError> {
+    let key = (condition_key.0.to_owned(), condition_key.1.clone());
+    if active_conditions.contains(&key) {
+        return Ok(predicates.to_vec());
+    }
+    let mut active_conditions = active_conditions.clone();
+    active_conditions.insert(key);
+    let mut remaining = options.max_iterations;
+    simplify_predicates_with_budget(
+        definition,
+        predicates,
+        known_predicates,
+        options.max_iterations,
+        &mut remaining,
+        &active_conditions,
+        solver,
+    )
+}
+
+pub fn simplify_predicate_with_solver(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Result<Predicate, SimplificationError> {
+    let mut remaining = options.max_iterations;
+    let active_conditions = BTreeSet::new();
+    simplify_predicate_with_budget(
+        definition,
+        predicate,
+        known_predicates,
+        options.max_iterations,
+        &mut remaining,
+        &active_conditions,
+        solver,
+    )
+}
+
+fn simplify_predicate_with_budget(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known_predicates: &[Predicate],
+    limit: usize,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> Result<Predicate, SimplificationError> {
+    let mut simplify_term = |term: &Term| {
+        simplify_with_budget(
+            definition,
+            term,
+            known_predicates,
+            limit,
+            remaining,
+            active_conditions,
+            solver,
+        )
+        .map(|result| result.term)
+    };
+    let simplified = match predicate {
+        Predicate::True => Predicate::True,
+        Predicate::False => Predicate::False,
+        Predicate::Term(term) => Predicate::Term(simplify_term(term)?),
+        Predicate::Equals(left, right) => {
+            Predicate::Equals(simplify_term(left)?, simplify_term(right)?)
+        }
+        Predicate::Ceil(term) => Predicate::Ceil(simplify_term(term)?),
+        Predicate::Floor(term) => Predicate::Floor(simplify_term(term)?),
+        Predicate::In(left, right) => Predicate::In(simplify_term(left)?, simplify_term(right)?),
+        Predicate::Not(inner) => Predicate::Not(Box::new(simplify_predicate_with_budget(
+            definition,
+            inner,
+            known_predicates,
+            limit,
+            remaining,
+            active_conditions,
+            solver,
+        )?)),
+        Predicate::And(inner) | Predicate::Or(inner) => {
+            let inner = simplify_predicates_with_budget(
+                definition,
+                inner,
+                known_predicates,
+                limit,
+                remaining,
+                active_conditions,
+                solver,
+            )?;
+            if matches!(predicate, Predicate::And(_)) {
+                Predicate::And(inner)
+            } else {
+                Predicate::Or(inner)
+            }
+        }
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            let left = simplify_predicate_with_budget(
+                definition,
+                left,
+                known_predicates,
+                limit,
+                remaining,
+                active_conditions,
+                solver,
+            )?;
+            let right = simplify_predicate_with_budget(
+                definition,
+                right,
+                known_predicates,
+                limit,
+                remaining,
+                active_conditions,
+                solver,
+            )?;
+            if matches!(predicate, Predicate::Implies(..)) {
+                Predicate::Implies(Box::new(left), Box::new(right))
+            } else {
+                Predicate::Iff(Box::new(left), Box::new(right))
+            }
+        }
+        Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
+            let inner = simplify_predicate_with_budget(
+                definition,
+                inner,
+                known_predicates,
+                limit,
+                remaining,
+                active_conditions,
+                solver,
+            )?;
+            if matches!(predicate, Predicate::Exists(..)) {
+                Predicate::Exists(variable.clone(), Box::new(inner))
+            } else {
+                Predicate::Forall(variable.clone(), Box::new(inner))
+            }
+        }
+    };
+    Ok(normalize_predicate(simplified))
+}
+
+fn normalize_predicate(predicate: Predicate) -> Predicate {
+    match predicate {
+        Predicate::Not(inner) => match predicates_truth(std::slice::from_ref(&inner)) {
+            Truth::True => Predicate::False,
+            Truth::False => Predicate::True,
+            Truth::Unknown => Predicate::Not(inner),
+        },
+        Predicate::And(inner) => {
+            let mut normalized = Vec::new();
+            for predicate in inner {
+                match normalize_predicate(predicate) {
+                    Predicate::True => {}
+                    Predicate::False => return Predicate::False,
+                    Predicate::And(nested) => normalized.extend(nested),
+                    predicate => normalized.push(predicate),
+                }
+            }
+            match normalized.len() {
+                0 => Predicate::True,
+                1 => normalized.pop().unwrap(),
+                _ => Predicate::And(normalized),
+            }
+        }
+        Predicate::Or(inner) => {
+            let mut normalized = Vec::new();
+            for predicate in inner {
+                match normalize_predicate(predicate) {
+                    Predicate::False => {}
+                    Predicate::True => return Predicate::True,
+                    Predicate::Or(nested) => normalized.extend(nested),
+                    predicate => normalized.push(predicate),
+                }
+            }
+            match normalized.len() {
+                0 => Predicate::False,
+                1 => normalized.pop().unwrap(),
+                _ => Predicate::Or(normalized),
+            }
+        }
+        Predicate::Implies(left, right) => match (
+            predicates_truth(std::slice::from_ref(&left)),
+            predicates_truth(std::slice::from_ref(&right)),
+        ) {
+            (Truth::False, _) | (_, Truth::True) => Predicate::True,
+            (Truth::True, Truth::False) => Predicate::False,
+            (Truth::True, Truth::Unknown) => *right,
+            (Truth::Unknown, Truth::False) => normalize_predicate(Predicate::Not(left)),
+            _ => Predicate::Implies(left, right),
+        },
+        Predicate::Iff(left, right) => match (
+            predicates_truth(std::slice::from_ref(&left)),
+            predicates_truth(std::slice::from_ref(&right)),
+        ) {
+            (Truth::True, Truth::True) | (Truth::False, Truth::False) => Predicate::True,
+            (Truth::True, Truth::False) | (Truth::False, Truth::True) => Predicate::False,
+            (Truth::True, Truth::Unknown) => *right,
+            (Truth::Unknown, Truth::True) => *left,
+            (Truth::False, Truth::Unknown) => normalize_predicate(Predicate::Not(right)),
+            (Truth::Unknown, Truth::False) => normalize_predicate(Predicate::Not(left)),
+            _ => Predicate::Iff(left, right),
+        },
+        Predicate::Exists(_, ref inner) | Predicate::Forall(_, ref inner)
+            if predicates_truth(std::slice::from_ref(inner)) == Truth::True =>
+        {
+            Predicate::True
+        }
+        Predicate::Exists(_, ref inner) | Predicate::Forall(_, ref inner)
+            if predicates_truth(std::slice::from_ref(inner)) == Truth::False =>
+        {
+            Predicate::False
+        }
+        predicate => match predicates_truth(std::slice::from_ref(&predicate)) {
+            Truth::True => Predicate::True,
+            Truth::False => Predicate::False,
+            Truth::Unknown => predicate,
+        },
+    }
 }
 
 fn simplify_with_budget(
@@ -97,10 +374,29 @@ fn simplify_with_budget(
     known_predicates: &[Predicate],
     limit: usize,
     remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Simplification, SimplificationError> {
-    let children = simplify_children(definition, term, known_predicates, limit, remaining, solver)?;
-    let root = simplify_root(definition, &children.term, known_predicates, solver)?;
+    let term = replace_from_path_condition(term, known_predicates);
+    let children = simplify_children(
+        definition,
+        &term,
+        known_predicates,
+        limit,
+        remaining,
+        active_conditions,
+        solver,
+    )?;
+    let root = simplify_root(
+        definition,
+        &children.term,
+        known_predicates,
+        SimplificationOptions {
+            max_iterations: limit,
+        },
+        active_conditions,
+        solver,
+    )?;
     let mut constraints = children.constraints;
     constraints.extend(root.constraints);
     let mut applied_rules = children.applied_rules;
@@ -125,6 +421,7 @@ fn simplify_with_budget(
         known_predicates,
         limit,
         remaining,
+        active_conditions,
         solver,
     )?;
     constraints.extend(next.constraints);
@@ -136,19 +433,116 @@ fn simplify_with_budget(
     })
 }
 
+fn replace_from_path_condition(term: &Term, predicates: &[Predicate]) -> Term {
+    let replacements = predicates
+        .iter()
+        .filter_map(|predicate| {
+            let Predicate::Equals(left, right) = predicate else {
+                return None;
+            };
+            if is_scalar_domain_value(left) {
+                Some((right, left))
+            } else if is_scalar_domain_value(right) {
+                Some((left, right))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    replace_terms_bottom_up(term, &replacements)
+}
+
+fn is_scalar_domain_value(term: &Term) -> bool {
+    matches!(
+        term.kind(),
+        TermKind::DomainValue { sort, .. }
+            if sort == &crate::term::Sort::simple("SortInt")
+                || sort == &crate::term::Sort::simple("SortBool")
+    )
+}
+
+fn replace_terms_bottom_up(term: &Term, replacements: &[(&Term, &Term)]) -> Term {
+    let replace = |term: &Term| replace_terms_bottom_up(term, replacements);
+    let rebuilt = match term.kind() {
+        TermKind::And(left, right) => Term::and(replace(left), replace(right)),
+        TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } => Term::application(
+            symbol.clone(),
+            sort_arguments.clone(),
+            arguments.iter().map(replace).collect(),
+        ),
+        TermKind::Injection {
+            source,
+            target,
+            term,
+        } => Term::injection(source.clone(), target.clone(), replace(term)),
+        TermKind::Map {
+            definition,
+            entries,
+            rest,
+        } => Term::map(
+            definition.clone(),
+            entries
+                .iter()
+                .map(|(key, value)| (replace(key), replace(value)))
+                .collect(),
+            rest.as_ref().map(replace),
+        ),
+        TermKind::List {
+            definition,
+            heads,
+            rest,
+        } => Term::list(
+            definition.clone(),
+            heads.iter().map(replace).collect(),
+            rest.as_ref().map(|(middle, tails)| {
+                (
+                    replace(middle),
+                    tails.iter().map(replace).collect::<Vec<_>>(),
+                )
+            }),
+        ),
+        TermKind::Set {
+            definition,
+            elements,
+            rest,
+        } => Term::set(
+            definition.clone(),
+            elements.iter().map(replace).collect(),
+            rest.as_ref().map(replace),
+        ),
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => term.clone(),
+    };
+    replacements
+        .iter()
+        .find_map(|(original, replacement)| (*original == &rebuilt).then(|| (*replacement).clone()))
+        .unwrap_or(rebuilt)
+}
+
 fn simplify_children(
     definition: &BackendDefinition,
     term: &Term,
     known_predicates: &[Predicate],
     limit: usize,
     remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Simplification, SimplificationError> {
     let mut constraints = Vec::new();
     let mut applied_rules = Vec::new();
     let mut child = |term: &Term| {
-        let result =
-            simplify_with_budget(definition, term, known_predicates, limit, remaining, solver)?;
+        let result = simplify_with_budget(
+            definition,
+            term,
+            known_predicates,
+            limit,
+            remaining,
+            active_conditions,
+            solver,
+        )?;
         constraints.extend(result.constraints);
         applied_rules.extend(result.applied_rules);
         Ok::<_, SimplificationError>(result.term)
@@ -231,6 +625,8 @@ fn simplify_root(
     definition: &BackendDefinition,
     term: &Term,
     known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Simplification, SimplificationError> {
     if let Some(result) = evaluate_builtin(term).map_err(SimplificationError::Builtin)? {
@@ -255,6 +651,8 @@ fn simplify_root(
         &definition.function_theory,
         term,
         known_predicates,
+        options,
+        active_conditions,
         solver,
     )? {
         return Ok(result);
@@ -264,6 +662,8 @@ fn simplify_root(
         &definition.simplification_theory,
         term,
         known_predicates,
+        options,
+        active_conditions,
         solver,
     )? {
         return Ok(result);
@@ -280,13 +680,23 @@ fn apply_theory(
     theory: &Theory,
     term: &Term,
     known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Option<Simplification>, SimplificationError> {
     let groups = applicable_groups(theory, &term_index(term));
     for rules in groups.values() {
         let mut results = Vec::new();
         for rule in rules {
-            match apply_equation(definition, rule, term, known_predicates, solver)? {
+            match apply_equation(
+                definition,
+                rule,
+                term,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+            )? {
                 EquationAttempt::NotApplicable => {}
                 EquationAttempt::Applied(result) => results.push(result),
             }
@@ -341,6 +751,8 @@ fn apply_equation(
     rule: &RewriteRule,
     term: &Term,
     known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<EquationAttempt, SimplificationError> {
     let substitution =
@@ -365,6 +777,16 @@ fn apply_equation(
         });
     }
     let requires = substitute_predicates(&rule.requires, &substitution);
+    let requires = simplify_rule_predicates(
+        definition,
+        (&rule.attributes.unique_id, term),
+        &requires,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    )
+    .unwrap_or(requires);
     match predicates_truth(&requires) {
         Truth::False => return Ok(EquationAttempt::NotApplicable),
         Truth::Unknown => {
@@ -408,6 +830,16 @@ fn apply_equation(
     };
     let rhs = substitute(rhs, &substitution);
     let ensures = substitute_predicates(&rule.ensures, &substitution);
+    let ensures = simplify_rule_predicates(
+        definition,
+        (&rule.attributes.unique_id, term),
+        &ensures,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    )
+    .unwrap_or(ensures);
     match predicates_truth(&ensures) {
         Truth::False => Ok(EquationAttempt::NotApplicable),
         Truth::True => Ok(EquationAttempt::Applied(Simplification {
@@ -586,8 +1018,14 @@ mod tests {
             .unwrap()
         };
 
-        assert_eq!(run("5").term, variable);
-        assert_eq!(run("15").term, input);
+        assert_eq!(
+            run("5").term,
+            Term::domain_value(crate::term::Sort::simple("SortInt"), "5")
+        );
+        assert_eq!(
+            run("15").term,
+            term(&definition, r#"f{}(\dv{SortInt{}}("15"))"#)
+        );
     }
 
     #[test]
@@ -616,6 +1054,40 @@ mod tests {
             simplify(&definition, &input, SimplificationOptions::default()),
             Err(SimplificationError::IndeterminateRequires { rule_id, .. })
                 if rule_id == "conditional"
+        ));
+    }
+
+    #[test]
+    fn recursive_side_condition_simplification_stops_as_indeterminate() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol loop{}(SortBool{}) : SortBool{} [function{}()]
+                axiom{R} \implies{R}(
+                    \equals{SortBool{}, R}(
+                        loop{}(X:SortBool{}),
+                        \dv{SortBool{}}("true")
+                    ),
+                    \equals{SortBool{}, R}(
+                        loop{}(X:SortBool{}),
+                        \and{SortBool{}}(
+                            \dv{SortBool{}}("true"),
+                            \top{SortBool{}}()
+                        )
+                    )
+                ) [label{}("recursive-condition"), simplification{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let input = term(&definition, r#"loop{}(\dv{SortBool{}}("true"))"#);
+
+        assert!(matches!(
+            simplify(&definition, &input, SimplificationOptions::default()),
+            Err(SimplificationError::IndeterminateRequires { rule_id, .. })
+                if rule_id == "recursive-condition"
         ));
     }
 
