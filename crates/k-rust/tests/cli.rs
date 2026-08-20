@@ -227,7 +227,7 @@ endmodule
     );
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
-        "claim reaches-b: proven (2 states)\n"
+        "claim reaches-b: proven (2 states, 0 unexplored)\n"
     );
 
     fs::remove_dir_all(root).unwrap();

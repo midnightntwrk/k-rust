@@ -31,6 +31,8 @@ use crate::{
 pub struct ProofOptions {
     pub max_depth: u64,
     pub min_depth: u64,
+    pub breadth_limit: Option<usize>,
+    pub max_counterexamples: usize,
     pub max_simplification_iterations: usize,
     pub allow_vacuous: bool,
     pub search_order: ProofSearchOrder,
@@ -49,6 +51,8 @@ impl Default for ProofOptions {
         Self {
             max_depth: 1_000,
             min_depth: 0,
+            breadth_limit: None,
+            max_counterexamples: 1,
             max_simplification_iterations: 100,
             allow_vacuous: false,
             search_order: ProofSearchOrder::BreadthFirst,
@@ -110,11 +114,14 @@ pub struct ProofResult {
     pub status: ProofStatus,
     pub leaves: Vec<ProofLeaf>,
     pub explored_states: u64,
+    pub unexplored_states: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProofError {
     Implication(ImplicationError),
+    BreadthLimitExceeded { limit: usize, actual: usize },
+    ZeroCounterexampleLimit,
 }
 
 impl fmt::Display for ProofError {
@@ -131,6 +138,9 @@ pub fn prove_claim(
     options: ProofOptions,
     solver: &dyn SmtSolver,
 ) -> Result<ProofResult, ProofError> {
+    if options.max_counterexamples == 0 {
+        return Err(ProofError::ZeroCounterexampleLimit);
+    }
     if claim.attributes.trusted {
         return Ok(ProofResult {
             status: ProofStatus::Proven,
@@ -141,6 +151,7 @@ pub fn prove_claim(
                 outcome: ProofLeafOutcome::Trusted,
             }],
             explored_states: 0,
+            unexplored_states: 0,
         });
     }
 
@@ -152,6 +163,19 @@ pub fn prove_claim(
     let mut leaves = Vec::new();
     let mut fresh_counter = 0;
     let mut explored_states = 0;
+    macro_rules! record_leaf {
+        ($leaf:expr) => {{
+            leaves.push($leaf);
+            if counterexample_limit_reached(claim.mode, &leaves, options) {
+                return Ok(finish(
+                    claim.mode,
+                    leaves,
+                    explored_states,
+                    pending.len() as u64,
+                ));
+            }
+        }};
+    }
     while let Some(mut state) = match options.search_order {
         ProofSearchOrder::BreadthFirst => pending.pop_front(),
         ProofSearchOrder::DepthFirst => pending.pop_back(),
@@ -168,7 +192,7 @@ pub fn prove_claim(
         ) {
             Ok(simplified) => simplified,
             Err(error) => {
-                leaves.push(state.leaf(ProofLeafOutcome::Indeterminate(
+                record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
                     ProofIndeterminateReason::Simplification(error),
                 )));
                 continue;
@@ -198,9 +222,9 @@ pub fn prove_claim(
                 ProofLeafOutcome::Vacuous
             };
             let proven = matches!(outcome, ProofLeafOutcome::Proven(_));
-            leaves.push(state.leaf(outcome));
+            record_leaf!(state.leaf(outcome));
             if proven && claim.mode == ReachabilityMode::OnePath {
-                return Ok(finish(claim.mode, leaves, explored_states));
+                return Ok(finish(claim.mode, leaves, explored_states, 0));
             }
             continue;
         }
@@ -223,9 +247,9 @@ pub fn prove_claim(
                     let condition = implication
                         .condition
                         .expect("a valid implication always has a condition");
-                    leaves.push(state.leaf(ProofLeafOutcome::Proven(condition)));
+                    record_leaf!(state.leaf(ProofLeafOutcome::Proven(condition)));
                     if claim.mode == ReachabilityMode::OnePath {
-                        return Ok(finish(claim.mode, leaves, explored_states));
+                        return Ok(finish(claim.mode, leaves, explored_states, 0));
                     }
                     continue;
                 }
@@ -233,7 +257,7 @@ pub fn prove_claim(
                     if options.stuck_check
                         && implication.failure == Some(ImplicationFailure::ConsequentCondition) =>
                 {
-                    leaves.push(state.leaf(ProofLeafOutcome::Stuck));
+                    record_leaf!(state.leaf(ProofLeafOutcome::Stuck));
                     continue;
                 }
                 ImplicationStatus::Invalid => {}
@@ -242,7 +266,7 @@ pub fn prove_claim(
         }
 
         if state.depth >= options.max_depth {
-            leaves.push(state.leaf(ProofLeafOutcome::DepthBound));
+            record_leaf!(state.leaf(ProofLeafOutcome::DepthBound));
             continue;
         }
 
@@ -270,16 +294,20 @@ pub fn prove_claim(
             if let Some((candidate, transition)) = claim_transition {
                 match transition {
                     ClaimApplication::Applied(patterns) => {
-                        pending.extend(patterns.into_iter().map(|pattern| {
-                            state.clone().claimed(
-                                pattern,
-                                candidate.attributes.label.clone(),
-                                candidate.attributes.unique_id.clone(),
-                            )
-                        }));
+                        extend_frontier(
+                            &mut pending,
+                            patterns.into_iter().map(|pattern| {
+                                state.clone().claimed(
+                                    pattern,
+                                    candidate.attributes.label.clone(),
+                                    candidate.attributes.unique_id.clone(),
+                                )
+                            }),
+                            options.breadth_limit,
+                        )?;
                     }
                     ClaimApplication::Indeterminate(reason) => {
-                        leaves.push(state.leaf(ProofLeafOutcome::Indeterminate(
+                        record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
                             ProofIndeterminateReason::Claim {
                                 claim_id: candidate.attributes.unique_id.clone(),
                                 reason,
@@ -294,14 +322,20 @@ pub fn prove_claim(
 
         match rewrite_step_with_solver(definition, &state.pattern, &mut fresh_counter, solver) {
             RewriteResult::Finished(applied) => {
-                pending.push_back(state.rewritten(applied));
+                extend_frontier(
+                    &mut pending,
+                    std::iter::once(state.rewritten(applied)),
+                    options.breadth_limit,
+                )?;
             }
             RewriteResult::Branch { branches, .. } => {
-                pending.extend(
+                extend_frontier(
+                    &mut pending,
                     branches
                         .into_iter()
                         .map(|applied| state.clone().rewritten(applied)),
-                );
+                    options.breadth_limit,
+                )?;
             }
             RewriteResult::Stuck(_) => {
                 let outcome = if implication_indeterminate {
@@ -309,18 +343,44 @@ pub fn prove_claim(
                 } else {
                     ProofLeafOutcome::Stuck
                 };
-                leaves.push(state.leaf(outcome));
+                record_leaf!(state.leaf(outcome));
             }
-            RewriteResult::Trivial(_) => leaves.push(state.leaf(ProofLeafOutcome::Trivial)),
+            RewriteResult::Trivial(_) => record_leaf!(state.leaf(ProofLeafOutcome::Trivial)),
             RewriteResult::Indeterminate { reason, .. } => {
-                leaves.push(state.leaf(ProofLeafOutcome::Indeterminate(
+                record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
                     ProofIndeterminateReason::Rewrite(reason),
                 )));
             }
         }
     }
 
-    Ok(finish(claim.mode, leaves, explored_states))
+    Ok(finish(claim.mode, leaves, explored_states, 0))
+}
+
+fn extend_frontier(
+    pending: &mut VecDeque<ProofState>,
+    states: impl IntoIterator<Item = ProofState>,
+    breadth_limit: Option<usize>,
+) -> Result<(), ProofError> {
+    pending.extend(states);
+    if let Some(limit) = breadth_limit
+        && pending.len() > limit
+    {
+        return Err(ProofError::BreadthLimitExceeded {
+            limit,
+            actual: pending.len(),
+        });
+    }
+    Ok(())
+}
+
+fn counterexample_limit_reached(
+    mode: ReachabilityMode,
+    leaves: &[ProofLeaf],
+    options: ProofOptions,
+) -> bool {
+    mode == ReachabilityMode::AllPath
+        && leaves.iter().filter(|leaf| !is_proven(leaf)).count() >= options.max_counterexamples
 }
 
 #[derive(Clone)]
@@ -535,7 +595,12 @@ fn freshen_claim(
     }
 }
 
-fn finish(mode: ReachabilityMode, leaves: Vec<ProofLeaf>, explored_states: u64) -> ProofResult {
+fn finish(
+    mode: ReachabilityMode,
+    leaves: Vec<ProofLeaf>,
+    explored_states: u64,
+    unexplored_states: u64,
+) -> ProofResult {
     let any_proven = leaves.iter().any(is_proven);
     let any_disproved = leaves.iter().any(|leaf| {
         matches!(
@@ -554,6 +619,7 @@ fn finish(mode: ReachabilityMode, leaves: Vec<ProofLeaf>, explored_states: u64) 
         ReachabilityMode::AllPath if any_disproved => ProofStatus::Disproved,
         _ if any_indeterminate => ProofStatus::Indeterminate,
         _ if any_depth_bound => ProofStatus::DepthBound,
+        _ if unexplored_states > 0 => ProofStatus::Indeterminate,
         ReachabilityMode::AllPath if leaves.iter().all(is_proven) => ProofStatus::Proven,
         ReachabilityMode::OnePath => ProofStatus::Disproved,
         ReachabilityMode::AllPath => ProofStatus::Indeterminate,
@@ -562,6 +628,7 @@ fn finish(mode: ReachabilityMode, leaves: Vec<ProofLeaf>, explored_states: u64) 
         status,
         leaves,
         explored_states,
+        unexplored_states,
     }
 }
 
@@ -802,7 +869,10 @@ mod tests {
         let all_path = prove_claim(
             &definition,
             &definition.reachability_claims[1],
-            ProofOptions::default(),
+            ProofOptions {
+                max_counterexamples: 2,
+                ..ProofOptions::default()
+            },
             &NoSolver,
         )
         .unwrap();
@@ -810,6 +880,55 @@ mod tests {
         assert_eq!(one_path.status, ProofStatus::Proven);
         assert_eq!(all_path.status, ProofStatus::Disproved);
         assert_eq!(all_path.leaves.len(), 2);
+        assert_eq!(all_path.unexplored_states, 0);
+    }
+
+    #[test]
+    fn limits_live_breadth_and_collected_counterexamples() {
+        let claims = modal_claim(ReachabilityMode::AllPath, "a", "c", false);
+        let definition = definition(A_TO_B_AND_C, &claims);
+        let claim = &definition.reachability_claims[0];
+
+        let breadth_error = prove_claim(
+            &definition,
+            claim,
+            ProofOptions {
+                breadth_limit: Some(1),
+                ..ProofOptions::default()
+            },
+            &NoSolver,
+        )
+        .unwrap_err();
+        assert_eq!(
+            breadth_error,
+            ProofError::BreadthLimitExceeded {
+                limit: 1,
+                actual: 2,
+            }
+        );
+
+        let limited = prove_claim(&definition, claim, ProofOptions::default(), &NoSolver).unwrap();
+        assert_eq!(limited.status, ProofStatus::Disproved);
+        assert_eq!(limited.leaves.len(), 1);
+        assert_eq!(limited.unexplored_states, 1);
+    }
+
+    #[test]
+    fn rejects_a_zero_counterexample_limit() {
+        let claims = modal_claim(ReachabilityMode::AllPath, "a", "b", false);
+        let definition = definition("", &claims);
+        assert_eq!(
+            prove_claim(
+                &definition,
+                &definition.reachability_claims[0],
+                ProofOptions {
+                    max_counterexamples: 0,
+                    ..ProofOptions::default()
+                },
+                &NoSolver,
+            ),
+            Err(ProofError::ZeroCounterexampleLimit)
+        );
     }
 
     #[test]

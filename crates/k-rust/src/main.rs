@@ -3,6 +3,7 @@ use std::{
     error::Error,
     fs,
     io::{self, Read},
+    num::NonZeroUsize,
     path::{Path, PathBuf},
 };
 
@@ -204,6 +205,14 @@ struct KproveArgs {
     #[arg(long, default_value_t = 1_000, value_name = "STEPS")]
     depth: u64,
 
+    /// Maximum number of live parallel proof branches.
+    #[arg(long = "breadth", value_name = "BRANCHES")]
+    breadth_limit: Option<usize>,
+
+    /// Stop an all-path proof after finding this many counterexamples.
+    #[arg(long, default_value = "1", value_name = "COUNT")]
+    max_counterexamples: NonZeroUsize,
+
     /// Do not attempt implication closure before this depth.
     #[arg(long, default_value_t = 0, value_name = "STEPS")]
     min_depth: u64,
@@ -288,6 +297,8 @@ struct KproveOptions {
     common: CommonOptions,
     claims: Vec<String>,
     depth: u64,
+    breadth_limit: Option<usize>,
+    max_counterexamples: usize,
     min_depth: u64,
     allow_vacuous: bool,
     graph_search: ProofSearchOrder,
@@ -371,6 +382,8 @@ impl From<KproveArgs> for KproveOptions {
                 .common(arguments.definition, arguments.module),
             claims: arguments.claims,
             depth: arguments.depth,
+            breadth_limit: arguments.breadth_limit,
+            max_counterexamples: arguments.max_counterexamples.get(),
             min_depth: arguments.min_depth,
             allow_vacuous: arguments.allow_vacuous,
             graph_search: arguments.graph_search.into(),
@@ -601,6 +614,8 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             ProofOptions {
                 max_depth: options.depth,
                 min_depth: options.min_depth,
+                breadth_limit: options.breadth_limit,
+                max_counterexamples: options.max_counterexamples,
                 allow_vacuous: options.allow_vacuous,
                 search_order: options.graph_search,
                 stuck_check: options.stuck_check,
@@ -614,9 +629,10 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             .as_deref()
             .map_or_else(|| format!("#{}", index + 1), str::to_owned);
         println!(
-            "claim {name}: {} ({} states)",
+            "claim {name}: {} ({} states, {} unexplored)",
             proof_status(result.status),
-            result.explored_states
+            result.explored_states,
+            result.unexplored_states,
         );
         if result.status != ProofStatus::Proven {
             all_proven = false;
@@ -823,6 +839,10 @@ mod tests {
             "second",
             "--depth",
             "42",
+            "--breadth",
+            "7",
+            "--max-counterexamples",
+            "3",
             "--min-depth",
             "2",
             "--allow-vacuous",
@@ -840,6 +860,8 @@ mod tests {
         assert_eq!(options.common.module, "SPEC");
         assert_eq!(options.claims, ["first", "second"]);
         assert_eq!(options.depth, 42);
+        assert_eq!(options.breadth_limit, Some(7));
+        assert_eq!(options.max_counterexamples, 3);
         assert_eq!(options.min_depth, 2);
         assert!(options.allow_vacuous);
         assert_eq!(options.graph_search, ProofSearchOrder::DepthFirst);
