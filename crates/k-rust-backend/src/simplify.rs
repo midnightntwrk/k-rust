@@ -49,10 +49,6 @@ pub struct Simplification {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SimplificationError {
     Builtin(BuiltinError),
-    IndeterminateRequires {
-        rule_id: String,
-        predicates: Vec<Predicate>,
-    },
     IndeterminateConcreteness {
         rule_id: String,
         variable: Variable,
@@ -1012,10 +1008,7 @@ fn apply_equation(
                         });
                     }
                     Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => {
-                        return Err(SimplificationError::IndeterminateRequires {
-                            rule_id: rule.attributes.unique_id.clone(),
-                            predicates: requires,
-                        });
+                        return Ok(EquationAttempt::Indeterminate);
                     }
                     Ok(Validity::Unknown(reason)) => {
                         return Err(SimplificationError::Smt {
@@ -1456,7 +1449,7 @@ mod tests {
     }
 
     #[test]
-    fn reports_unknown_requires_instead_of_skipping_to_lower_priority() {
+    fn preserves_unknown_requires_without_falling_through_to_lower_priority() {
         let definition = definition(
             r#"
             axiom{R} \implies{R}(
@@ -1477,15 +1470,42 @@ mod tests {
         );
         let input = term(&definition, "f{}(Y:SortS{})");
 
-        assert!(matches!(
-            simplify(&definition, &input, SimplificationOptions::default()),
-            Err(SimplificationError::IndeterminateRequires { rule_id, .. })
-                if rule_id == "conditional"
-        ));
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+        assert_eq!(result.term, input);
+        assert!(result.applied_rules.is_empty());
     }
 
     #[test]
-    fn recursive_side_condition_simplification_stops_as_indeterminate() {
+    fn preserves_functions_with_complementary_unknown_equation_conditions() {
+        let definition = definition(
+            r#"
+            axiom{R} \implies{R}(
+                \equals{SortS{}, R}(X:SortS{}, \dv{SortS{}}("zero")),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("yes"), \top{SortS{}}())
+                )
+            ) [label{}("yes"), simplification{}()]
+            axiom{R} \implies{R}(
+                \not{R}(\equals{SortS{}, R}(X:SortS{}, \dv{SortS{}}("zero"))),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("no"), \top{SortS{}}())
+                )
+            ) [label{}("no"), simplification{}()]
+            "#,
+        );
+        let input = term(&definition, "f{}(Y:SortS{})");
+
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+        assert_eq!(result.term, input);
+        assert!(result.applied_rules.is_empty());
+    }
+
+    #[test]
+    fn recursive_side_condition_simplification_preserves_the_application() {
         let syntax = parse_definition(
             r#"[]
             module MAIN
@@ -1511,11 +1531,10 @@ mod tests {
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
         let input = term(&definition, r#"loop{}(\dv{SortBool{}}("true"))"#);
 
-        assert!(matches!(
-            simplify(&definition, &input, SimplificationOptions::default()),
-            Err(SimplificationError::IndeterminateRequires { rule_id, .. })
-                if rule_id == "recursive-condition"
-        ));
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+        assert_eq!(result.term, input);
+        assert!(result.applied_rules.is_empty());
     }
 
     #[test]
