@@ -15,6 +15,14 @@ pub fn minimize_term_construction(
 ) -> Result<Definition, TermConversionError> {
     let resolved =
         ResolvedDefinition::resolve(definition).map_err(TermConversionError::Definition)?;
+    // Java constructs one minimizer from the final main module and applies it to every
+    // sentence visible through that module. In particular, compiler-generated symbols such as
+    // `<generatedTop>` may be declared in the main module while occurring in imported rules.
+    let main_module = resolved
+        .module_id(&definition.main_module)
+        .expect("resolved definition contains its main module");
+    let main_productions = resolved.production_catalog(main_module);
+    let main_converter = TermConverter::new(&resolved, &definition.main_module)?;
     let mut output = definition.clone();
     for module in &mut output.modules {
         let module_id = resolved
@@ -35,7 +43,8 @@ pub fn minimize_term_construction(
             if attributes.get("simplification").is_some() {
                 continue;
             }
-            let mut minimizer = Minimizer::new(&productions, &converter);
+            let mut minimizer =
+                Minimizer::new(&productions, &converter, &main_productions, &main_converter);
             minimizer.gather_variables(body);
             minimizer.gather_variables(requires);
             minimizer.gather_variables(ensures);
@@ -63,6 +72,8 @@ enum Position {
 struct Minimizer<'a> {
     productions: &'a ProductionCatalog<'a>,
     converter: &'a TermConverter<'a>,
+    main_productions: &'a ProductionCatalog<'a>,
+    main_converter: &'a TermConverter<'a>,
     variables: BTreeSet<(String, Option<Sort>)>,
     cache: BTreeMap<Term, Term>,
     used_on_rhs: BTreeSet<Term>,
@@ -70,10 +81,17 @@ struct Minimizer<'a> {
 }
 
 impl<'a> Minimizer<'a> {
-    fn new(productions: &'a ProductionCatalog<'a>, converter: &'a TermConverter<'a>) -> Self {
+    fn new(
+        productions: &'a ProductionCatalog<'a>,
+        converter: &'a TermConverter<'a>,
+        main_productions: &'a ProductionCatalog<'a>,
+        main_converter: &'a TermConverter<'a>,
+    ) -> Self {
         Self {
             productions,
             converter,
+            main_productions,
+            main_converter,
             variables: BTreeSet::new(),
             cache: BTreeMap::new(),
             used_on_rhs: BTreeSet::new(),
@@ -104,7 +122,13 @@ impl<'a> Minimizer<'a> {
             && !is_true(term)
             && !self.cache.contains_key(term)
         {
-            let sort = self.converter.infer_sort(term)?;
+            let sort = match self.converter.infer_sort(term) {
+                Ok(sort) => sort,
+                Err(local_error) => self
+                    .main_converter
+                    .infer_sort(term)
+                    .map_err(|_| local_error)?,
+            };
             let variable = self.new_variable(sort);
             self.cache.insert(term.clone(), variable);
         }
@@ -253,6 +277,10 @@ impl<'a> Minimizer<'a> {
     fn hook(&self, label: &crate::kast::Label) -> Option<&str> {
         self.productions
             .attributes_for(&LabelHead::from(label))
+            .or_else(|| {
+                self.main_productions
+                    .attributes_for(&LabelHead::from(label))
+            })
             .and_then(|attributes| attributes.get_str("hook"))
     }
 }

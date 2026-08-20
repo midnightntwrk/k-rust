@@ -509,6 +509,15 @@ pub fn term_index(term: &Term) -> TermIndex {
         TermKind::Set { .. } => TermIndex::Set,
         TermKind::DomainValue { .. } => TermIndex::DomainValue,
         TermKind::Variable(_) => TermIndex::Variable,
+        // K's `#as` aliases are emitted as a conjunction between the real pattern and a
+        // variable which binds the entire matched subject. Index the rule by the structural
+        // conjunct so it remains discoverable for an ordinary subject term.
+        TermKind::And(left, right) if matches!(left.kind(), TermKind::Variable(_)) => {
+            term_index(right)
+        }
+        TermKind::And(left, right) if matches!(right.kind(), TermKind::Variable(_)) => {
+            term_index(left)
+        }
         TermKind::And(..) => TermIndex::And,
     }
 }

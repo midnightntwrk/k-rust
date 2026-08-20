@@ -1,7 +1,7 @@
 use indoc::indoc;
 use k_rust::{
     definition::{
-        Attributes, Definition, FlatModule, LabelHead, ProductionId, ProductionItem,
+        Attributes, Definition, FlatImport, FlatModule, LabelHead, ProductionId, ProductionItem,
         ResolvedDefinition, Sentence,
     },
     kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, printer::Printer},
@@ -2574,6 +2574,63 @@ fn reuses_lhs_subterms_on_rule_right_hand_sides() {
     }, {
         insta::assert_debug_snapshot!(rules);
     });
+}
+
+#[test]
+fn minimizes_imported_aliases_with_symbols_generated_in_the_main_module() {
+    let generated_top = Sentence::Production {
+        label: Some(Label::new("<generatedTop>")),
+        parameters: Vec::new(),
+        sort: Sort::new("GeneratedTopCell"),
+        items: vec![ProductionItem::NonTerminal {
+            sort: Sort::new("Cell"),
+            name: None,
+        }],
+        attributes: Attributes::default(),
+    };
+    let top = application("<generatedTop>", vec![application("cell", Vec::new())]);
+    let aliased = Term::As {
+        pattern: Box::new(top.clone()),
+        alias: Box::new(Term::Variable {
+            name: "#Configuration".into(),
+            sort: Some(Sort::new("GeneratedTopCell")),
+        }),
+    };
+    let mut main = module("MAIN", vec![generated_top]);
+    main.imports.push(FlatImport {
+        name: "LIB".into(),
+        public: true,
+    });
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![
+            module(
+                "LIB",
+                vec![
+                    production("cell", "Cell", Attributes::default()),
+                    rule(rewrite(aliased, top), Attributes::default()),
+                ],
+            ),
+            main,
+        ],
+        attributes: Attributes::default(),
+    };
+
+    let transformed = minimize_term_construction(&definition)
+        .expect("main-module generated symbols should sort imported aliases");
+    let rendered = transformed
+        .modules
+        .iter()
+        .find(|module| module.name == "LIB")
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .unwrap();
+    assert!(rendered.contains("_Gen"), "{rendered}");
 }
 
 #[test]

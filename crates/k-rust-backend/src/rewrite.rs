@@ -3118,6 +3118,31 @@ mod tests {
     }
 
     #[test]
+    fn applies_rules_with_top_level_alias_binders() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    \and{SortS{}}(wrap{}(X:SortS{}), Whole:SortS{}),
+                    \top{SortS{}}()
+                ),
+                \dv{SortS{}}("done")
+            ) [label{}("aliased")]
+            "#,
+        );
+        let mut fresh = 0;
+
+        assert_eq!(
+            rewritten_value(rewrite_step(
+                &definition,
+                &subject(&definition, "value"),
+                &mut fresh,
+            )),
+            "done"
+        );
+    }
+
+    #[test]
     fn retries_function_pattern_remainders_after_simplification() {
         let definition = definition(
             r#"
