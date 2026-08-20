@@ -80,7 +80,7 @@ pub struct DeclarationModules {
 /// Backend-specific KORE generation switches.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ModuleToKoreOptions {
-    /// Generate Haskell backend definedness axioms for hooked maps.
+    /// Generate definedness axioms for hooked maps used by the symbolic Rust backend.
     pub generate_map_ceil_axioms: bool,
 }
 
@@ -3576,7 +3576,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generates_haskell_map_definedness_rule() {
+    fn generates_symbolic_backend_map_definedness_rule() {
         let source = indoc! {r#"
             module MAIN
               syntax Bool

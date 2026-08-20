@@ -210,7 +210,7 @@ enum CompilationBackendArg {
 impl From<CompilationBackendArg> for CompilationBackend {
     fn from(backend: CompilationBackendArg) -> Self {
         match backend {
-            CompilationBackendArg::Rust => Self::Haskell,
+            CompilationBackendArg::Rust => Self::Rust,
             CompilationBackendArg::Llvm => Self::Llvm,
         }
     }
@@ -385,11 +385,11 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
 }
 
 fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
-    let loaded = load_definition(&options.common, Some(CompilationBackend::Haskell))?;
+    let loaded = load_definition(&options.common, Some(CompilationBackend::Rust))?;
     let compiled = match compile_loaded_definition(
         &loaded,
         CompileOptions {
-            backend: CompilationBackend::Haskell,
+            backend: CompilationBackend::Rust,
             ..CompileOptions::default()
         },
     ) {
@@ -575,7 +575,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_haskell_kcompile_backend() {
+    fn accepts_haskell_as_a_legacy_name_for_the_rust_backend() {
         let cli = Cli::try_parse_from([
             "krust",
             "kcompile",
@@ -591,7 +591,7 @@ mod tests {
         };
         let options = KcompileOptions::from(options);
 
-        assert_eq!(options.backend, CompilationBackend::Haskell);
+        assert_eq!(options.backend, CompilationBackend::Rust);
     }
 
     #[test]

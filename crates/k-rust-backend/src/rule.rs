@@ -883,8 +883,8 @@ fn extract_existentials(mut pattern: kore::Pattern) -> (kore::Pattern, Vec<kore:
 }
 
 fn parse_concreteness(attributes: &kore::Attributes) -> Result<Concreteness, AxiomError> {
-    let concrete = attribute_strings(attributes, "concrete")?;
-    let symbolic = attribute_strings(attributes, "symbolic")?;
+    let concrete = attribute_constrained_variables(attributes, "concrete")?;
+    let symbolic = attribute_constrained_variables(attributes, "symbolic")?;
     match (concrete, symbolic) {
         (None, None) => Ok(Concreteness::Unconstrained),
         (Some(concrete), Some(_)) if concrete.is_empty() => {
@@ -918,6 +918,37 @@ fn parse_concreteness(attributes: &kore::Attributes) -> Result<Concreteness, Axi
             ))
         }
     }
+}
+
+fn attribute_constrained_variables(
+    attributes: &kore::Attributes,
+    name: &str,
+) -> Result<Option<Vec<String>>, AxiomError> {
+    let Some(arguments) = attribute_application(attributes, name) else {
+        return Ok(None);
+    };
+    arguments
+        .iter()
+        .map(|argument| match argument {
+            kore::Pattern::Variable(variable) => {
+                let kore::Sort::Application {
+                    name: sort,
+                    arguments,
+                } = &variable.sort
+                else {
+                    return Err(AxiomError::MalformedAttribute(name.into()));
+                };
+                if !arguments.is_empty() {
+                    return Err(AxiomError::MalformedAttribute(name.into()));
+                }
+                Ok(format!("{}:{sort}", variable.name))
+            }
+            // Older generated definitions encoded the same pair as a string.
+            kore::Pattern::String(value) => Ok(value.clone()),
+            _ => Err(AxiomError::MalformedAttribute(name.into())),
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
 }
 
 fn parse_constrained_variables(
@@ -982,23 +1013,6 @@ fn attribute_string_or_empty(
         [kore::Pattern::String(value)] => Ok(Some(value.clone())),
         _ => Err(AxiomError::MalformedAttribute(name.into())),
     }
-}
-
-fn attribute_strings(
-    attributes: &kore::Attributes,
-    name: &str,
-) -> Result<Option<Vec<String>>, AxiomError> {
-    let Some(arguments) = attribute_application(attributes, name) else {
-        return Ok(None);
-    };
-    arguments
-        .iter()
-        .map(|argument| match argument {
-            kore::Pattern::String(value) => Ok(value.clone()),
-            _ => Err(AxiomError::MalformedAttribute(name.into())),
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map(Some)
 }
 
 #[cfg(test)]
@@ -1066,7 +1080,7 @@ mod tests {
                     f{}(X:S{}),
                     \and{S{}}(result{}(), \top{S{}}())
                 )
-            ) [concrete{}("X:S")]"#,
+            ) [concrete{}(X:S{})]"#,
         )
         .expect("axiom should classify")
         .expect("axiom should be executable");

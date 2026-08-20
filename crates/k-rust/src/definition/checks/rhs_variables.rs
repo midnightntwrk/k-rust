@@ -9,7 +9,7 @@ use crate::kast::{Label, Sort, Term};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum StructuralCheckBackend {
-    Haskell,
+    Rust,
     #[default]
     Other,
 }
@@ -91,7 +91,7 @@ fn check_rule_variables(
 
     let error_existential = !options.symbolic
         && sentence.attributes().get_str("label") != Some("STDIN-STREAM.stdinUnblock");
-    let requires_is_lhs = is_claim || options.backend == StructuralCheckBackend::Haskell;
+    let requires_is_lhs = is_claim || options.backend == StructuralCheckBackend::Rust;
     let requires_position = if requires_is_lhs {
         TermPosition::BODY
     } else {

@@ -99,7 +99,7 @@ pub fn compile_definition_native(
     let backend = options
         .backend
         .as_deref()
-        .unwrap_or("llvm")
+        .unwrap_or("rust")
         .parse::<CompilationBackend>()
         .map_err(napi_error)?;
     let source_name = options

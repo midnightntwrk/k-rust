@@ -281,16 +281,15 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 
 ## Scope and known limitations
 
-- Haskell and LLVM backend implementations remain external. `krust kcompile` emits their inputs;
-  it does not invoke backend compilation itself.
+- The LLVM backend remains external. `krust kcompile --backend llvm` emits its input but does not
+  invoke LLVM compilation; symbolic execution is handled by the in-process Rust backend.
 - Context/freezer labels are semantically equivalent but can differ in numeric suffix assignment
   from Java when Java's `HashSet` traversal changes encounter order. The exact corpus does not
   normalize arbitrary user labels.
 - The WASM-compatible feature set intentionally omits Z3 inference and MPFR constant folding.
-- Coverage instrumentation and Haskell's optional unsafe-`anywhere` removal mode are not exposed by
-  the CLI. They are identity stages unless explicitly requested in Java.
-- LSP, `kserver`, backend execution commands such as `krun`/`kprove`, and Bison parser generation
-  are outside the current frontend/CLI scope.
+- Coverage instrumentation and the optional unsafe-`anywhere` removal mode are not exposed by the
+  CLI. They are identity stages unless explicitly requested in Java.
+- LSP, `kserver`, `kprove`, and Bison parser generation are outside the current CLI scope.
 
 ## TODOs
 

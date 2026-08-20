@@ -55,14 +55,15 @@ const {
     endmodule
   `,
   moduleName: 'MAIN',
-  backend: 'llvm',
+  backend: 'rust',
   includePrelude: false,
 })
 ```
 
 `compileDefinition` runs the same ordered frontend pipeline as `krust kcompile` without writing
-files. Native compilation includes Z3-backed sort inference and MPFR-backed floating-point constant
-folding. `includePrelude` defaults to `true` in this package.
+files. The backend defaults to `rust`; select `llvm` only when emitting input for the external LLVM
+backend. Native compilation includes Z3-backed sort inference and MPFR-backed floating-point
+constant folding. `includePrelude` defaults to `true` in this package.
 
 The native addon is synchronous. Call it from a worker thread when parsing untrusted or especially
 large definitions in latency-sensitive Node.js applications.

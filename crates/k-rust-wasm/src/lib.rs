@@ -112,7 +112,7 @@ fn compile_definition(options: &str) -> Result<String, String> {
     let backend = options
         .backend
         .as_deref()
-        .unwrap_or("llvm")
+        .unwrap_or("rust")
         .parse::<CompilationBackend>()?;
     if options.include_prelude.unwrap_or(false) {
         return Err(

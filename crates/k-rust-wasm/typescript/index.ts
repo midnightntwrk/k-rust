@@ -94,7 +94,7 @@ export interface ParseProgramOptions {
   includePrelude?: boolean
 }
 
-export type CompilationBackend = 'llvm' | 'haskell'
+export type CompilationBackend = 'rust' | 'llvm'
 
 export interface CompileDefinitionOptions {
   definition: string

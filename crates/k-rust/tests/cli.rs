@@ -190,6 +190,53 @@ endmodule
 }
 
 #[test]
+fn krun_handles_generated_concreteness_constraints() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  syntax Int ::= abs(Int) [function, total]
+               | "error" [function, total]
+  rule abs(X:Int) => X:Int requires X >Int 0
+  rule abs(X) => 0 -Int X [owise]
+  rule abs(0) => error [simplification]
+  configuration <k> $PGM:Int </k>
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Int",
+            "--expression",
+            "abs(0)",
+            "--depth",
+            "20",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(output.contains(r#"\dv{SortInt{}}("0")"#), "{output}");
+    assert!(!output.contains("Lblerror{}()"), "{output}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kcompile_writes_parseable_kore_outputs() {
     let (root, definition) = fixture();
     let output_directory = root.join("compiled");
@@ -259,7 +306,7 @@ endmodule
 
     for (backend, present, absent) in [
         ("llvm", "concreteOnly", "symbolicOnly"),
-        ("haskell", "symbolicOnly", "concreteOnly"),
+        ("rust", "symbolicOnly", "concreteOnly"),
     ] {
         let output_directory = root.join(backend);
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))

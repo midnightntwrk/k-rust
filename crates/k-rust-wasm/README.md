@@ -53,13 +53,14 @@ const {
     endmodule
   `,
   moduleName: 'MAIN',
-  backend: 'llvm',
+  backend: 'rust',
   includePrelude: false,
 })
 ```
 
-`compileDefinition` runs the portable frontend pipeline without writing files. Like every exported
-operation, it may only be called after `init` or `initSync` completes.
+`compileDefinition` runs the portable frontend pipeline without writing files and defaults to the
+Rust backend dialect; select `llvm` only when emitting input for the external LLVM backend. Like
+every exported operation, it may only be called after `init` or `initSync` completes.
 
 The package exposes `initSync` for hosts that load the packaged `.wasm` bytes themselves. Parsing
 is synchronous after initialization; use a worker when large or untrusted definitions must not

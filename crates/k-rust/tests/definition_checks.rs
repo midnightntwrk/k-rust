@@ -515,7 +515,7 @@ fn unbound_variables_attribute_allows_named_exceptions() {
 }
 
 #[test]
-fn requirements_bind_claim_and_haskell_variables_only() {
+fn requirements_bind_claim_and_symbolic_backend_variables_only() {
     let rule = Sentence::Rule {
         body: rewrite(token("0"), Term::variable("X")),
         requires: Term::variable("X"),
@@ -530,17 +530,17 @@ fn requirements_bind_claim_and_haskell_variables_only() {
     };
 
     let ordinary = check_rhs_variables(&[&rule], StructuralCheckOptions::default());
-    let haskell = check_rhs_variables(
+    let symbolic = check_rhs_variables(
         &[&rule],
         StructuralCheckOptions {
-            backend: StructuralCheckBackend::Haskell,
+            backend: StructuralCheckBackend::Rust,
             ..StructuralCheckOptions::default()
         },
     );
     let claim = check_rhs_variables(&[&claim], StructuralCheckOptions::default());
 
     assert_eq!(ordinary.len(), 2);
-    assert!(haskell.is_empty());
+    assert!(symbolic.is_empty());
     assert!(claim.is_empty());
 }
 

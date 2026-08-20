@@ -29,7 +29,7 @@ use super::{
 pub enum CompilationBackend {
     Llvm,
     #[default]
-    Haskell,
+    Rust,
 }
 
 impl CompilationBackend {
@@ -37,16 +37,16 @@ impl CompilationBackend {
     pub fn excluded_module_attribute(self) -> &'static str {
         match self {
             Self::Llvm => "symbolic",
-            Self::Haskell => "concrete",
+            Self::Rust => "concrete",
         }
     }
 
     fn structural_check_options(self) -> StructuralCheckOptions {
         match self {
             Self::Llvm => StructuralCheckOptions::default(),
-            Self::Haskell => StructuralCheckOptions {
+            Self::Rust => StructuralCheckOptions {
                 symbolic: true,
-                backend: StructuralCheckBackend::Haskell,
+                backend: StructuralCheckBackend::Rust,
             },
         }
     }
@@ -56,7 +56,7 @@ impl fmt::Display for CompilationBackend {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::Llvm => "llvm",
-            Self::Haskell => "haskell",
+            Self::Rust => "rust",
         })
     }
 }
@@ -67,9 +67,9 @@ impl FromStr for CompilationBackend {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "llvm" => Ok(Self::Llvm),
-            "haskell" => Ok(Self::Haskell),
+            "rust" | "haskell" => Ok(Self::Rust),
             _ => Err(format!(
-                "unsupported compilation backend {value:?}; expected \"llvm\" or \"haskell\""
+                "unsupported compilation backend {value:?}; expected \"rust\" or \"llvm\""
             )),
         }
     }
@@ -85,7 +85,7 @@ pub struct CompileOptions {
 impl Default for CompileOptions {
     fn default() -> Self {
         Self {
-            backend: CompilationBackend::Llvm,
+            backend: CompilationBackend::Rust,
             kore_width: 100,
         }
     }
@@ -239,7 +239,7 @@ pub fn compile_loaded_definition(
     );
     let definition = stage("finalize KItem subsorts", subsort_kitem(&definition))?;
     let definition = diagnostic_stage!("concretize cells", concretize_cells(&definition));
-    // Coverage instrumentation and Haskell's optional unsafe-anywhere removal are identity stages
+    // Coverage instrumentation and the optional unsafe-anywhere removal are identity stages
     // because neither optional mode is exposed by the frontend API yet.
     let definition = add_semantics_module(&definition);
     let definition = resolve_config_var(&definition);
@@ -265,7 +265,7 @@ pub fn compile_loaded_definition(
             &resolved,
             &loaded.definition.main_module,
             ModuleToKoreOptions {
-                generate_map_ceil_axioms: options.backend == CompilationBackend::Haskell,
+                generate_map_ceil_axioms: options.backend == CompilationBackend::Rust,
             },
         ),
     )?;
@@ -334,7 +334,8 @@ mod tests {
     #[test]
     fn parses_backend_names() {
         assert_eq!("llvm".parse(), Ok(CompilationBackend::Llvm));
-        assert_eq!("haskell".parse(), Ok(CompilationBackend::Haskell));
+        assert_eq!("rust".parse(), Ok(CompilationBackend::Rust));
+        assert_eq!("haskell".parse(), Ok(CompilationBackend::Rust));
         assert!("nope".parse::<CompilationBackend>().is_err());
     }
 
@@ -361,9 +362,7 @@ mod tests {
             &LoadOptions {
                 implicit_sources: vec![prelude],
                 excluded_module_attributes: vec![
-                    CompilationBackend::Haskell
-                        .excluded_module_attribute()
-                        .into(),
+                    CompilationBackend::Rust.excluded_module_attribute().into(),
                 ],
                 ..LoadOptions::default()
             },
@@ -372,7 +371,7 @@ mod tests {
         let artifacts = compile_loaded_definition(
             &loaded,
             CompileOptions {
-                backend: CompilationBackend::Haskell,
+                backend: CompilationBackend::Rust,
                 ..CompileOptions::default()
             },
         )
