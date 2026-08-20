@@ -377,17 +377,18 @@ fn expand_binder(
 ) -> Result<kore::Pattern, DefinitionError> {
     let mut body_terms = terms.clone();
     body_terms.remove(variable);
-    let variable = substitute_variable(variable, sorts);
-    if body_terms
-        .values()
-        .any(|replacement| free_variables(replacement).contains(&variable))
-    {
-        return Err(DefinitionError::MalformedAlias(format!(
-            "expanding an alias would capture variable {}",
-            variable.name
-        )));
-    }
-    let body = Box::new(expand_with(body, aliases, sorts, &body_terms, stack)?);
+    let substituted_variable = substitute_variable(variable, sorts);
+    let body_free = free_variables(body);
+    let (variable, body) = if body_terms.iter().any(|(parameter, replacement)| {
+        body_free.contains(parameter) && free_variables(replacement).contains(&substituted_variable)
+    }) {
+        let fresh = fresh_variable(variable, body, &body_terms);
+        let body = rename_bound_occurrences(body, variable, &fresh);
+        (substitute_variable(&fresh, sorts), body)
+    } else {
+        (substituted_variable, body.clone())
+    };
+    let body = Box::new(expand_with(&body, aliases, sorts, &body_terms, stack)?);
     Ok(match kind {
         BinderKind::Exists => kore::Pattern::Exists {
             sort: substitute_sort(sort.expect("exists has a result sort"), sorts),
@@ -402,6 +403,221 @@ fn expand_binder(
         BinderKind::Mu => kore::Pattern::Mu { variable, body },
         BinderKind::Nu => kore::Pattern::Nu { variable, body },
     })
+}
+
+fn fresh_variable(
+    variable: &kore::Variable,
+    body: &kore::Pattern,
+    terms: &BTreeMap<kore::Variable, kore::Pattern>,
+) -> kore::Variable {
+    let mut names = BTreeSet::new();
+    collect_variable_names(body, &mut names);
+    for (parameter, replacement) in terms {
+        names.insert(parameter.name.clone());
+        collect_variable_names(replacement, &mut names);
+    }
+    for index in 0usize.. {
+        let name = format!("{}Alias{index}", variable.name);
+        if names.insert(name.clone()) {
+            return kore::Variable {
+                kind: variable.kind,
+                name,
+                sort: variable.sort.clone(),
+            };
+        }
+    }
+    unreachable!("the set of finite variable names cannot exhaust every suffix")
+}
+
+fn collect_variable_names(pattern: &kore::Pattern, names: &mut BTreeSet<String>) {
+    use kore::Pattern;
+
+    match pattern {
+        Pattern::Variable(variable) => {
+            names.insert(variable.name.clone());
+        }
+        Pattern::Application { arguments, .. }
+        | Pattern::And { arguments, .. }
+        | Pattern::Or { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. } => {
+            for argument in arguments {
+                collect_variable_names(argument, names);
+            }
+        }
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => collect_variable_names(argument, names),
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. } => {
+            collect_variable_names(left, names);
+            collect_variable_names(right, names);
+        }
+        Pattern::Exists { variable, body, .. }
+        | Pattern::Forall { variable, body, .. }
+        | Pattern::Mu { variable, body }
+        | Pattern::Nu { variable, body } => {
+            names.insert(variable.name.clone());
+            collect_variable_names(body, names);
+        }
+        Pattern::String(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => {}
+    }
+}
+
+fn rename_bound_occurrences(
+    pattern: &kore::Pattern,
+    old: &kore::Variable,
+    new: &kore::Variable,
+) -> kore::Pattern {
+    use kore::Pattern;
+
+    let recurse = |pattern: &Pattern| rename_bound_occurrences(pattern, old, new);
+    match pattern {
+        Pattern::String(value) => Pattern::String(value.clone()),
+        Pattern::Variable(variable) => Pattern::Variable(if variable == old {
+            new.clone()
+        } else {
+            variable.clone()
+        }),
+        Pattern::Application { symbol, arguments } => Pattern::Application {
+            symbol: symbol.clone(),
+            arguments: arguments.iter().map(recurse).collect(),
+        },
+        Pattern::Top { sort } => Pattern::Top { sort: sort.clone() },
+        Pattern::Bottom { sort } => Pattern::Bottom { sort: sort.clone() },
+        Pattern::And { sort, arguments } => Pattern::And {
+            sort: sort.clone(),
+            arguments: arguments.iter().map(recurse).collect(),
+        },
+        Pattern::Or { sort, arguments } => Pattern::Or {
+            sort: sort.clone(),
+            arguments: arguments.iter().map(recurse).collect(),
+        },
+        Pattern::Not { sort, argument } => Pattern::Not {
+            sort: sort.clone(),
+            argument: Box::new(recurse(argument)),
+        },
+        Pattern::Next { sort, argument } => Pattern::Next {
+            sort: sort.clone(),
+            argument: Box::new(recurse(argument)),
+        },
+        Pattern::Implies { sort, left, right } => Pattern::Implies {
+            sort: sort.clone(),
+            left: Box::new(recurse(left)),
+            right: Box::new(recurse(right)),
+        },
+        Pattern::Iff { sort, left, right } => Pattern::Iff {
+            sort: sort.clone(),
+            left: Box::new(recurse(left)),
+            right: Box::new(recurse(right)),
+        },
+        Pattern::Rewrites { sort, left, right } => Pattern::Rewrites {
+            sort: sort.clone(),
+            left: Box::new(recurse(left)),
+            right: Box::new(recurse(right)),
+        },
+        Pattern::Exists {
+            sort,
+            variable,
+            body,
+        } => Pattern::Exists {
+            sort: sort.clone(),
+            variable: variable.clone(),
+            body: if variable == old {
+                body.clone()
+            } else {
+                Box::new(recurse(body))
+            },
+        },
+        Pattern::Forall {
+            sort,
+            variable,
+            body,
+        } => Pattern::Forall {
+            sort: sort.clone(),
+            variable: variable.clone(),
+            body: if variable == old {
+                body.clone()
+            } else {
+                Box::new(recurse(body))
+            },
+        },
+        Pattern::Mu { variable, body } => Pattern::Mu {
+            variable: variable.clone(),
+            body: if variable == old {
+                body.clone()
+            } else {
+                Box::new(recurse(body))
+            },
+        },
+        Pattern::Nu { variable, body } => Pattern::Nu {
+            variable: variable.clone(),
+            body: if variable == old {
+                body.clone()
+            } else {
+                Box::new(recurse(body))
+            },
+        },
+        Pattern::Ceil {
+            operand_sort,
+            result_sort,
+            argument,
+        } => Pattern::Ceil {
+            operand_sort: operand_sort.clone(),
+            result_sort: result_sort.clone(),
+            argument: Box::new(recurse(argument)),
+        },
+        Pattern::Floor {
+            operand_sort,
+            result_sort,
+            argument,
+        } => Pattern::Floor {
+            operand_sort: operand_sort.clone(),
+            result_sort: result_sort.clone(),
+            argument: Box::new(recurse(argument)),
+        },
+        Pattern::Equals {
+            operand_sort,
+            result_sort,
+            left,
+            right,
+        } => Pattern::Equals {
+            operand_sort: operand_sort.clone(),
+            result_sort: result_sort.clone(),
+            left: Box::new(recurse(left)),
+            right: Box::new(recurse(right)),
+        },
+        Pattern::In {
+            operand_sort,
+            result_sort,
+            left,
+            right,
+        } => Pattern::In {
+            operand_sort: operand_sort.clone(),
+            result_sort: result_sort.clone(),
+            left: Box::new(recurse(left)),
+            right: Box::new(recurse(right)),
+        },
+        Pattern::DomainValue { sort, value } => Pattern::DomainValue {
+            sort: sort.clone(),
+            value: value.clone(),
+        },
+        Pattern::AssociativeApplication {
+            associativity,
+            symbol,
+            arguments,
+        } => Pattern::AssociativeApplication {
+            associativity: *associativity,
+            symbol: symbol.clone(),
+            arguments: arguments.iter().map(recurse).collect(),
+        },
+    }
 }
 
 fn free_variables(pattern: &kore::Pattern) -> BTreeSet<kore::Variable> {
@@ -474,5 +690,84 @@ fn substitute_sort(sort: &kore::Sort, sorts: &BTreeMap<String, kore::Sort>) -> k
                 .map(|argument| substitute_sort(argument, sorts))
                 .collect(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use indoc::indoc;
+    use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+
+    use super::*;
+
+    #[test]
+    fn alpha_renames_alias_binders_to_avoid_capture() {
+        let definition = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortValue{} []
+                alias bind{}(SortValue{}) : SortValue{}
+                    where bind{}(X:SortValue{}) := \exists{SortValue{}}(
+                        Y:SortValue{},
+                        \and{SortValue{}}(X:SortValue{}, Y:SortValue{})
+                    ) []
+            endmodule []
+        "#})
+        .expect("alias definition should parse");
+        let modules = definition.modules.iter().collect::<Vec<_>>();
+        let aliases = collect(&modules).expect("alias definition should validate");
+        let application = parse_pattern(indoc! {r#"
+            bind{}(
+                \and{SortValue{}}(Y:SortValue{}, YAlias0:SortValue{})
+            )
+        "#})
+        .expect("alias application should parse");
+        let expected = parse_pattern(indoc! {r#"
+            \exists{SortValue{}}(
+                YAlias1:SortValue{},
+                \and{SortValue{}}(
+                    \and{SortValue{}}(Y:SortValue{}, YAlias0:SortValue{}),
+                    YAlias1:SortValue{}
+                )
+            )
+        "#})
+        .expect("expected expansion should parse");
+
+        assert_eq!(expand(&application, &aliases).unwrap(), expected);
+    }
+
+    #[test]
+    fn alpha_renaming_respects_nested_shadowing() {
+        let definition = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortValue{} []
+                alias bind{}(SortValue{}) : SortValue{}
+                    where bind{}(X:SortValue{}) := \exists{SortValue{}}(
+                        Y:SortValue{},
+                        \and{SortValue{}}(
+                            X:SortValue{},
+                            \exists{SortValue{}}(Y:SortValue{}, Y:SortValue{})
+                        )
+                    ) []
+            endmodule []
+        "#})
+        .expect("alias definition should parse");
+        let modules = definition.modules.iter().collect::<Vec<_>>();
+        let aliases = collect(&modules).expect("alias definition should validate");
+        let application =
+            parse_pattern("bind{}(Y:SortValue{})").expect("alias application should parse");
+        let expected = parse_pattern(indoc! {r#"
+            \exists{SortValue{}}(
+                YAlias0:SortValue{},
+                \and{SortValue{}}(
+                    Y:SortValue{},
+                    \exists{SortValue{}}(Y:SortValue{}, Y:SortValue{})
+                )
+            )
+        "#})
+        .expect("expected expansion should parse");
+
+        assert_eq!(expand(&application, &aliases).unwrap(), expected);
     }
 }
