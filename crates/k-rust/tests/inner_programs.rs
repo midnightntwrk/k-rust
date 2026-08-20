@@ -1,11 +1,38 @@
 use indoc::indoc;
-use k_rust::definition::Definition;
+use k_rust::definition::{Definition, LabelHead, ResolvedDefinition};
 use k_rust::inner::{ParseError, ProgramError, ProgramParser, parse_program};
 use k_rust::kast::Sort;
 
 fn lowered(source: &str, main_module: &str) -> Definition {
     let parsed = k_rust::outer::parse("program.k", source).expect("definition should parse");
     k_rust::outer::lower(&parsed, main_module).expect("definition should lower")
+}
+
+#[test]
+fn parsed_production_ids_belong_to_the_resolved_definition_catalog() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax State ::= "a" [symbol(a)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
+    let parsed = ProgramParser::from_resolved(&resolved, "MAIN")
+        .expect("program parser should build")
+        .parse(&Sort::new("State"), "a")
+        .expect("program should parse");
+    let production = parsed
+        .metadata()
+        .and_then(|metadata| metadata.production)
+        .expect("parsed application should retain its production identity");
+    let module = resolved.module_id("MAIN").expect("module should exist");
+    let catalog = resolved.production_catalog(module);
+    let expected = catalog.productions_for(&LabelHead::new("a"));
+
+    assert_eq!(expected.len(), 1);
+    assert_eq!(production.0, expected[0].0);
 }
 
 macro_rules! program_snapshot {

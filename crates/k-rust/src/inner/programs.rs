@@ -80,10 +80,13 @@ impl ProgramParser {
             .module_id(module)
             .ok_or_else(|| ProgramError::MissingModule(module.to_owned()))?;
         let sentences = program_sentences(definition, module_id);
+        let source_catalog = definition.production_catalog(module_id);
         let grammar =
-            Grammar::from_program_sentences(&sentences).map_err(|error| ProgramError::Grammar {
-                module: module.to_owned(),
-                error,
+            Grammar::from_program_sentences(&sentences, &source_catalog).map_err(|error| {
+                ProgramError::Grammar {
+                    module: module.to_owned(),
+                    error,
+                }
             })?;
         Ok(Self {
             module: module.to_owned(),

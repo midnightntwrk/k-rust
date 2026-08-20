@@ -12,9 +12,23 @@ use k_rust::{
     diagnostic::{Diagnostic, Severity},
     inner::ProgramParser,
     kast::{json as kast_json, parser::parse_sort, printer::Printer as KastPrinter},
-    kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+    kompile::{
+        CompilationBackend, CompileOptions, SortInjector, compile_loaded_definition,
+        encode_kore_sort, term_to_kore_from_resolved,
+    },
+    kore::{
+        ast::{Pattern as KorePattern, Sort as KoreSort, Symbol as KoreSymbol},
+        parser::parse_definition as parse_kore_definition,
+        printer::Printer as KorePrinter,
+    },
     native::FileResolver,
     outer::{LoadOptions, SourceResolver, load_with_options},
+};
+use k_rust_backend::{
+    definition::BackendDefinition,
+    externalize,
+    rewrite::{ExecutionOptions, HaltReason, Pattern, execute_with_solver},
+    smt::Z3Solver,
 };
 
 fn main() {
@@ -29,6 +43,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
     match cli.command {
         Command::Kcompile(options) => kcompile(options.into()),
         Command::Kast(options) => kast(options.into()),
+        Command::Krun(options) => krun(options.into()),
     }
 }
 
@@ -50,6 +65,8 @@ enum Command {
     Kcompile(KcompileArgs),
     /// Parse a program using a K definition and print its KAST.
     Kast(KastArgs),
+    /// Compile and execute a program with the in-process Rust backend.
+    Krun(KrunArgs),
 }
 
 #[derive(Clone, Debug, Args)]
@@ -129,6 +146,42 @@ struct KastArgs {
     source: SourceArgs,
 }
 
+#[derive(Debug, Args)]
+struct KrunArgs {
+    /// K definition whose semantics should execute the program.
+    #[arg(value_name = "DEFINITION")]
+    definition: PathBuf,
+
+    /// Main module of the definition.
+    #[arg(short = 'm', long = "main-module", value_name = "MODULE")]
+    module: String,
+
+    /// Start sort for the program parser.
+    #[arg(short = 's', long, value_name = "SORT")]
+    sort: String,
+
+    /// Execute this program text instead of reading a file or standard input.
+    #[arg(
+        short = 'e',
+        long,
+        conflicts_with = "program_file",
+        allow_hyphen_values = true,
+        value_name = "PROGRAM"
+    )]
+    expression: Option<String>,
+
+    /// Program file to execute, or `-` for standard input.
+    #[arg(value_name = "PROGRAM_FILE")]
+    program_file: Option<PathBuf>,
+
+    /// Maximum number of semantic rewrite steps per execution branch.
+    #[arg(long, default_value_t = 1_000, value_name = "STEPS")]
+    depth: u64,
+
+    #[command(flatten)]
+    source: SourceArgs,
+}
+
 #[derive(Debug)]
 struct CommonOptions {
     definition: PathBuf,
@@ -149,15 +202,16 @@ struct KcompileOptions {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
 enum CompilationBackendArg {
     #[default]
+    #[value(alias = "haskell")]
+    Rust,
     Llvm,
-    Haskell,
 }
 
 impl From<CompilationBackendArg> for CompilationBackend {
     fn from(backend: CompilationBackendArg) -> Self {
         match backend {
+            CompilationBackendArg::Rust => Self::Haskell,
             CompilationBackendArg::Llvm => Self::Llvm,
-            CompilationBackendArg::Haskell => Self::Haskell,
         }
     }
 }
@@ -176,6 +230,15 @@ struct KastOptions {
     expression: Option<String>,
     program_file: Option<PathBuf>,
     output: OutputFormat,
+}
+
+#[derive(Debug)]
+struct KrunOptions {
+    common: CommonOptions,
+    sort: String,
+    expression: Option<String>,
+    program_file: Option<PathBuf>,
+    depth: u64,
 }
 
 impl SourceArgs {
@@ -213,6 +276,20 @@ impl From<KastArgs> for KastOptions {
             expression: arguments.expression,
             program_file: arguments.program_file,
             output: arguments.output,
+        }
+    }
+}
+
+impl From<KrunArgs> for KrunOptions {
+    fn from(arguments: KrunArgs) -> Self {
+        Self {
+            common: arguments
+                .source
+                .common(arguments.definition, arguments.module),
+            sort: arguments.sort,
+            expression: arguments.expression,
+            program_file: arguments.program_file,
+            depth: arguments.depth,
         }
     }
 }
@@ -296,13 +373,7 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
     {
         return Err("definition checks failed".into());
     }
-    let source = match (options.expression, options.program_file) {
-        (Some(source), None) => source,
-        (None, Some(path)) if path == Path::new("-") => read_stdin()?,
-        (None, Some(path)) => fs::read_to_string(path)?,
-        (None, None) => read_stdin()?,
-        (Some(_), Some(_)) => unreachable!(),
-    };
+    let source = read_program_source(options.expression, options.program_file)?;
     let sort = parse_sort(&options.sort)?;
     let parser = ProgramParser::from_resolved(&loaded.resolved, &options.common.module)?;
     let term = parser.parse(&sort, &source)?;
@@ -311,6 +382,139 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
         OutputFormat::Json => println!("{}", kast_json::to_string_pretty(&term)?),
     }
     Ok(())
+}
+
+fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
+    let loaded = load_definition(&options.common, Some(CompilationBackend::Haskell))?;
+    let compiled = match compile_loaded_definition(
+        &loaded,
+        CompileOptions {
+            backend: CompilationBackend::Haskell,
+            ..CompileOptions::default()
+        },
+    ) {
+        Ok(compiled) => compiled,
+        Err(error) => {
+            emit_diagnostics(&error.diagnostics);
+            return Err(error.into());
+        }
+    };
+    emit_diagnostics(&compiled.diagnostics);
+
+    let source = read_program_source(options.expression, options.program_file)?;
+    let start_sort = parse_sort(&options.sort)?;
+    let parser = ProgramParser::from_resolved(&loaded.resolved, &options.common.module)?;
+    let program = parser.parse(&start_sort, &source)?;
+    // Parser annotations refer to the source definition's production catalog. Perform
+    // production-sensitive conversion there, before crossing into the transformed definition.
+    let injector = SortInjector::new(&loaded.resolved, &options.common.module)?;
+    let program_sort = injector.term_sort(&program, None)?;
+    let program = injector.inject_at_top(&program)?;
+    let program = term_to_kore_from_resolved(&loaded.resolved, &options.common.module, &program)?;
+    let initial = top_cell_initializer(program, encode_kore_sort(&program_sort));
+
+    let syntax = parse_kore_definition(&compiled.definition_kore)?;
+    let backend = BackendDefinition::internalize(&syntax, &options.common.module)?;
+    let initial = backend.internalize_term(&initial, &[])?;
+    let solver = Z3Solver::new(&backend)
+        .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
+    let execution = execute_with_solver(
+        &backend,
+        Pattern {
+            term: initial,
+            constraints: Vec::new(),
+        },
+        ExecutionOptions {
+            max_depth: options.depth,
+            ..ExecutionOptions::default()
+        },
+        &solver,
+    );
+    if let Some(leaf) = execution.leaves.iter().find(|leaf| {
+        matches!(
+            leaf.halt_reason,
+            HaltReason::Indeterminate(_) | HaltReason::Simplification(_)
+        )
+    }) {
+        return Err(io::Error::other(format!(
+            "in-process backend halted at depth {}: {:?}",
+            leaf.depth, leaf.halt_reason
+        ))
+        .into());
+    }
+    let Some(first_leaf) = execution.leaves.first() else {
+        return Err("in-process backend produced no execution states".into());
+    };
+    let final_sort = externalize::sort(&first_leaf.pattern.term.sort());
+    let mut states = execution
+        .leaves
+        .iter()
+        .map(|leaf| externalize::constrained_pattern(&leaf.pattern))
+        .collect::<Vec<_>>();
+    let output = match states.len() {
+        0 => unreachable!("execution leaves were checked above"),
+        1 => states.pop().unwrap(),
+        _ => KorePattern::Or {
+            sort: final_sort,
+            arguments: states,
+        },
+    };
+    println!("{}", KorePrinter::pretty(100).print_pattern(&output));
+    Ok(())
+}
+
+fn read_program_source(
+    expression: Option<String>,
+    program_file: Option<PathBuf>,
+) -> Result<String, Box<dyn Error>> {
+    Ok(match (expression, program_file) {
+        (Some(source), None) => source,
+        (None, Some(path)) if path == Path::new("-") => read_stdin()?,
+        (None, Some(path)) => fs::read_to_string(path)?,
+        (None, None) => read_stdin()?,
+        (Some(_), Some(_)) => unreachable!(),
+    })
+}
+
+fn top_cell_initializer(program: KorePattern, program_sort: KoreSort) -> KorePattern {
+    let config_var_sort = kore_sort("SortKConfigVar");
+    let item_sort = kore_sort("SortKItem");
+    let key = kore_application(
+        "inj",
+        vec![config_var_sort.clone(), item_sort.clone()],
+        vec![KorePattern::DomainValue {
+            sort: config_var_sort,
+            value: "$PGM".into(),
+        }],
+    );
+    let program = if program_sort == item_sort {
+        program
+    } else {
+        kore_application("inj", vec![program_sort, item_sort], vec![program])
+    };
+    let config = kore_application("Lbl'UndsPipe'-'-GT-Unds'", Vec::new(), vec![key, program]);
+    kore_application("LblinitGeneratedTopCell", Vec::new(), vec![config])
+}
+
+fn kore_application(
+    name: &str,
+    sort_parameters: Vec<KoreSort>,
+    arguments: Vec<KorePattern>,
+) -> KorePattern {
+    KorePattern::Application {
+        symbol: KoreSymbol {
+            name: name.into(),
+            sort_parameters,
+        },
+        arguments,
+    }
+}
+
+fn kore_sort(name: &str) -> KoreSort {
+    KoreSort::Application {
+        name: name.into(),
+        arguments: Vec::new(),
+    }
 }
 
 fn read_stdin() -> io::Result<String> {
@@ -388,6 +592,34 @@ mod tests {
         let options = KcompileOptions::from(options);
 
         assert_eq!(options.backend, CompilationBackend::Haskell);
+    }
+
+    #[test]
+    fn parses_krun_options() {
+        let cli = Cli::try_parse_from([
+            "krust",
+            "krun",
+            "definition.k",
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Exp",
+            "--expression",
+            "1 + 2",
+            "--depth",
+            "42",
+        ])
+        .unwrap();
+        let Command::Krun(options) = cli.command else {
+            panic!("expected krun command");
+        };
+        let options = KrunOptions::from(options);
+
+        assert_eq!(options.common.definition, Path::new("definition.k"));
+        assert_eq!(options.common.module, "MAIN");
+        assert_eq!(options.sort, "Exp");
+        assert_eq!(options.expression.as_deref(), Some("1 + 2"));
+        assert_eq!(options.depth, 42);
     }
 
     #[test]

@@ -146,6 +146,50 @@ fn installed_cli_uses_embedded_pinned_builtins_by_default() {
 }
 
 #[test]
+fn krun_executes_a_concrete_program_in_process() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  syntax State ::= "a" [symbol(a)]
+  syntax State ::= "b" [symbol(b)]
+  configuration <k> $PGM:State </k>
+  rule <k> a => b </k>
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(output.contains("Lblb{}()"), "{output}");
+    assert!(!output.contains("Lbla{}()"), "{output}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kcompile_writes_parseable_kore_outputs() {
     let (root, definition) = fixture();
     let output_directory = root.join("compiled");

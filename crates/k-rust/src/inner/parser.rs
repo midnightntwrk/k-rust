@@ -359,6 +359,7 @@ impl Default for Grammar {
 impl Grammar {
     pub(super) fn from_program_sentences<'a>(
         sentences: impl IntoIterator<Item = &'a Sentence>,
+        source_catalog: &ProductionCatalog<'_>,
     ) -> Result<Self, ParseError> {
         let mut sentences = sentences.into_iter().cloned().collect::<Vec<_>>();
         for sentence in &mut sentences {
@@ -376,7 +377,7 @@ impl Grammar {
                 items.clear();
             }
         }
-        Self::from_sentences(&sentences)
+        Self::from_collected_sentences(sentences.iter().collect(), Some(source_catalog))
     }
 
     pub fn from_sentences<'a>(

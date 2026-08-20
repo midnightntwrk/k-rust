@@ -27,8 +27,8 @@ use super::{
 /// Backend whose KORE input should be generated.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum CompilationBackend {
-    #[default]
     Llvm,
+    #[default]
     Haskell,
 }
 

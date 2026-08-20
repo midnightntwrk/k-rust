@@ -1,11 +1,8 @@
 # k-rust
 
-`k-rust` is a Rust implementation of the [K Framework](https://kframework.org/) frontend. It
-parses K definitions and programs, runs the frontend checking and lowering pipeline, and emits the
-KORE artifacts consumed by the existing Haskell and LLVM backends.
-
-The project intentionally keeps the backend boundary intact: it replaces the Java/Scala frontend,
-not `kore-exec` or the LLVM backend.
+`k-rust` is a Rust implementation of the [K Framework](https://kframework.org/). It parses K
+definitions and programs, runs the frontend checking and lowering pipeline, emits KORE artifacts,
+and includes an in-process symbolic backend.
 
 ## Running examples
 
@@ -24,6 +21,17 @@ The result should contain `same{Int}`, showing that Z3 inferred the concrete sor
 ```text
 box(same{Int}(#token("1","Int")))
 ```
+
+Compile and execute a small rewriting definition with the in-process backend:
+
+```console
+krust krun examples/rewrite.k \
+  --main-module REWRITE \
+  --sort State \
+  --expression a
+```
+
+The final `<k>` cell contains `Lblb{}()`.
 
 On macOS, verify that the release binary does not dynamically load Z3:
 
@@ -52,7 +60,7 @@ Implemented end to end:
   backend lowering pipeline, sort injections, and `ModuleToKORE`.
 - KORE generation for ordinary rules, claims, equations, functions, `owise`, macros, aliases,
   reachability claims, subsorts, overloads, algebraic axioms, no-confusion, and no-junk.
-- Native `krust kast` and `krust kcompile` commands.
+- Native `krust kast`, `krust kcompile`, and experimental `krust krun` commands.
 - Bundled builtin sources pinned to K v7.1.337, so an installed CLI does not require a separate K
   source checkout. Explicit sources always take precedence.
 - Native, portable, and `wasm32-unknown-unknown` build gates.
@@ -96,8 +104,8 @@ krust kcompile definition.k \
   --output-directory definition-kompiled
 ```
 
-`--backend haskell` selects symbolic modules and Haskell-specific generated axioms. Both modes
-write:
+`--backend rust` (the default; `haskell` remains an alias) selects the symbolic KORE dialect used
+by the in-process Rust backend. Both modes write:
 
 - `definition.kore`
 - `syntaxDefinition.kore`
@@ -108,6 +116,13 @@ Parse a concrete program as textual KAST or KAST JSON v4:
 ```console
 krust kast definition.k --module MAIN --sort Exp --expression '1 + 2'
 krust kast definition.k --module MAIN --sort Exp program.exp --output json
+```
+
+Execute a concrete program using the in-process Rust backend:
+
+```console
+krust krun definition.k --main-module MAIN --sort Exp --expression '1 + 2'
+krust krun definition.k --main-module MAIN --sort Exp program.exp --depth 1000
 ```
 
 Common source options:
