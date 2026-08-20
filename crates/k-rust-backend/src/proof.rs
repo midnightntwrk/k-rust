@@ -14,7 +14,7 @@ use crate::{
         ImplicationCondition, ImplicationError, ImplicationFailure, ImplicationStatus,
         check_disjunctive_implication_with_existentials,
     },
-    matching::{MatchMode, MatchResult, match_terms},
+    matching::{MatchMode, MatchResult, match_terms_in_definition},
     rewrite::{
         IndeterminateReason, Pattern, RewriteResult, TraceEntry, TraceKind, Truth,
         predicates_truth, rewrite_step_with_solver, substitute_predicates,
@@ -496,9 +496,9 @@ fn apply_claim(
     fresh_counter: &mut u64,
 ) -> ClaimApplication {
     let claim = freshen_claim(claim, subject, fresh_counter);
-    let substitution = match match_terms(
+    let substitution = match match_terms_in_definition(
         MatchMode::Rewrite,
-        &definition.sort_graph,
+        definition,
         &claim.lhs.term,
         &subject.term,
     ) {

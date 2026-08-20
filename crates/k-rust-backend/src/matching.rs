@@ -6,6 +6,7 @@ use std::{
 };
 
 use crate::{
+    definition::BackendDefinition,
     substitution::{Substitution, compose, substitute},
     term::{ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind, Variable},
 };
@@ -132,6 +133,31 @@ pub fn match_terms(
     pattern: &Term,
     subject: &Term,
 ) -> MatchResult {
+    match_terms_with_context(mode, sorts, None, pattern, subject)
+}
+
+pub fn match_terms_in_definition(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+) -> MatchResult {
+    match_terms_with_context(
+        mode,
+        &definition.sort_graph,
+        Some(definition),
+        pattern,
+        subject,
+    )
+}
+
+fn match_terms_with_context(
+    mode: MatchMode,
+    sorts: &SortGraph,
+    definition: Option<&BackendDefinition>,
+    pattern: &Term,
+    subject: &Term,
+) -> MatchResult {
     let shared_variables = pattern
         .attributes()
         .variables
@@ -160,6 +186,7 @@ pub fn match_terms(
     let mut matcher = Matcher {
         mode,
         sorts,
+        definition,
         substitution: Substitution::new(),
         queue: VecDeque::from([(pattern.clone(), subject.clone())]),
         map_queue: VecDeque::new(),
@@ -185,9 +212,38 @@ pub fn match_terms(
 /// each element of a concrete subject. The ordinary matcher deliberately reports that case as
 /// indeterminate because its result type represents only one substitution. Rewrite execution uses
 /// this helper to preserve every solution as a separate successor.
-pub(crate) fn match_set_terms_all(
+#[cfg(test)]
+fn match_set_terms_all(
     mode: MatchMode,
     sorts: &SortGraph,
+    pattern: &Term,
+    subject: &Term,
+    initial: &Substitution,
+) -> Option<Vec<Substitution>> {
+    match_set_terms_all_with_context(mode, sorts, None, pattern, subject, initial)
+}
+
+pub(crate) fn match_set_terms_all_in_definition(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+    initial: &Substitution,
+) -> Option<Vec<Substitution>> {
+    match_set_terms_all_with_context(
+        mode,
+        &definition.sort_graph,
+        Some(definition),
+        pattern,
+        subject,
+        initial,
+    )
+}
+
+fn match_set_terms_all_with_context(
+    mode: MatchMode,
+    sorts: &SortGraph,
+    backend: Option<&BackendDefinition>,
     pattern: &Term,
     subject: &Term,
     initial: &Substitution,
@@ -232,6 +288,7 @@ pub(crate) fn match_set_terms_all(
     let problem = SetMatchProblem {
         mode,
         sorts,
+        backend,
         definition: pattern_definition.clone(),
         elements: pattern_elements.into_iter().collect(),
         rest: pattern_rest.clone(),
@@ -258,9 +315,38 @@ pub(crate) fn match_set_terms_all(
 ///
 /// Like Set selection, a symbolic key may select any concrete subject entry. Each key choice keeps
 /// its value paired with it and the opaque frame receives exactly the entries not selected.
-pub(crate) fn match_map_terms_all(
+#[cfg(test)]
+fn match_map_terms_all(
     mode: MatchMode,
     sorts: &SortGraph,
+    pattern: &Term,
+    subject: &Term,
+    initial: &Substitution,
+) -> Option<Vec<Substitution>> {
+    match_map_terms_all_with_context(mode, sorts, None, pattern, subject, initial)
+}
+
+pub(crate) fn match_map_terms_all_in_definition(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+    initial: &Substitution,
+) -> Option<Vec<Substitution>> {
+    match_map_terms_all_with_context(
+        mode,
+        &definition.sort_graph,
+        Some(definition),
+        pattern,
+        subject,
+        initial,
+    )
+}
+
+fn match_map_terms_all_with_context(
+    mode: MatchMode,
+    sorts: &SortGraph,
+    backend: Option<&BackendDefinition>,
     pattern: &Term,
     subject: &Term,
     initial: &Substitution,
@@ -305,9 +391,10 @@ pub(crate) fn match_map_terms_all(
         let subject_value = subject_entries.remove(&key).unwrap();
         let mut next = Vec::new();
         for substitution in substitutions {
-            match match_terms(
+            match match_terms_with_context(
                 mode,
                 sorts,
+                backend,
                 &substitute(&pattern_value, &substitution),
                 &subject_value,
             ) {
@@ -327,6 +414,7 @@ pub(crate) fn match_map_terms_all(
     let problem = MapMatchProblem {
         mode,
         sorts,
+        backend,
         definition: pattern_definition.clone(),
         entries: pattern_entries.into_iter().collect(),
         rest: pattern_rest.clone(),
@@ -357,6 +445,7 @@ pub(crate) fn match_map_terms_all(
 struct MapMatchProblem<'a> {
     mode: MatchMode,
     sorts: &'a SortGraph,
+    backend: Option<&'a BackendDefinition>,
     definition: Arc<MapDefinition>,
     entries: Vec<(Term, Term)>,
     rest: Option<Term>,
@@ -380,7 +469,7 @@ impl MapMatchProblem<'_> {
             };
             let rest = substitute(rest, &substitution);
             let remainder = Term::map(self.definition.clone(), remaining, None);
-            match match_terms(self.mode, self.sorts, &rest, &remainder) {
+            match match_terms_with_context(self.mode, self.sorts, self.backend, &rest, &remainder) {
                 MatchResult::Success(found) => solutions.push(compose(&found, &substitution)),
                 MatchResult::Failed(_) => {}
                 MatchResult::Indeterminate { .. } => *indeterminate = true,
@@ -392,7 +481,13 @@ impl MapMatchProblem<'_> {
         let key = substitute(key, &substitution);
         for subject_index in 0..remaining.len() {
             let (subject_key, subject_value) = &remaining[subject_index];
-            let key_substitution = match match_terms(self.mode, self.sorts, &key, subject_key) {
+            let key_substitution = match match_terms_with_context(
+                self.mode,
+                self.sorts,
+                self.backend,
+                &key,
+                subject_key,
+            ) {
                 MatchResult::Success(found) => found,
                 MatchResult::Failed(_) => continue,
                 MatchResult::Indeterminate { .. } => {
@@ -402,7 +497,13 @@ impl MapMatchProblem<'_> {
             };
             let substitution = compose(&key_substitution, &substitution);
             let value = substitute(value, &substitution);
-            match match_terms(self.mode, self.sorts, &value, subject_value) {
+            match match_terms_with_context(
+                self.mode,
+                self.sorts,
+                self.backend,
+                &value,
+                subject_value,
+            ) {
                 MatchResult::Success(value_substitution) => {
                     let mut next_remaining = remaining.clone();
                     next_remaining.remove(subject_index);
@@ -424,6 +525,7 @@ impl MapMatchProblem<'_> {
 struct SetMatchProblem<'a> {
     mode: MatchMode,
     sorts: &'a SortGraph,
+    backend: Option<&'a BackendDefinition>,
     definition: Arc<crate::term::SetDefinition>,
     elements: Vec<Term>,
     rest: Option<Term>,
@@ -447,7 +549,7 @@ impl SetMatchProblem<'_> {
             };
             let rest = substitute(rest, &substitution);
             let remainder = Term::set(self.definition.clone(), remaining, None);
-            match match_terms(self.mode, self.sorts, &rest, &remainder) {
+            match match_terms_with_context(self.mode, self.sorts, self.backend, &rest, &remainder) {
                 MatchResult::Success(found) => solutions.push(compose(&found, &substitution)),
                 MatchResult::Failed(_) => {}
                 MatchResult::Indeterminate { .. } => *indeterminate = true,
@@ -458,7 +560,7 @@ impl SetMatchProblem<'_> {
         let element = substitute(&self.elements[index], &substitution);
         for subject_index in 0..remaining.len() {
             let subject = &remaining[subject_index];
-            match match_terms(self.mode, self.sorts, &element, subject) {
+            match match_terms_with_context(self.mode, self.sorts, self.backend, &element, subject) {
                 MatchResult::Success(found) => {
                     let mut next_remaining = remaining.clone();
                     next_remaining.remove(subject_index);
@@ -480,6 +582,7 @@ impl SetMatchProblem<'_> {
 struct Matcher<'a> {
     mode: MatchMode,
     sorts: &'a SortGraph,
+    definition: Option<&'a BackendDefinition>,
     substitution: Substitution,
     queue: VecDeque<(Term, Term)>,
     map_queue: VecDeque<(Term, Term)>,
@@ -519,6 +622,10 @@ impl Matcher<'_> {
         if let TermKind::And(left, right) = subject.kind() {
             self.enqueue(pattern.clone(), left.clone());
             self.enqueue(pattern, right.clone());
+            return Ok(());
+        }
+        if let Some((pattern, subject)) = self.resolve_overloads(&pattern, &subject) {
+            self.enqueue(pattern, subject);
             return Ok(());
         }
         if let TermKind::Variable(variable) = pattern.kind() {
@@ -751,6 +858,57 @@ impl Matcher<'_> {
             }
         }
         Err(FailReason::DifferentSorts(pattern, subject))
+    }
+
+    fn resolve_overloads(&self, pattern: &Term, subject: &Term) -> Option<(Term, Term)> {
+        let definition = self.definition?;
+        let pattern_view = OverloadView::new(pattern)?;
+        let subject_view = OverloadView::new(subject)?;
+        if pattern_view.symbol.name == subject_view.symbol.name {
+            return None;
+        }
+        let common_name = if definition
+            .overloads
+            .is_overloading(&pattern_view.symbol.name, &subject_view.symbol.name)
+        {
+            pattern_view.symbol.name.clone()
+        } else if definition
+            .overloads
+            .is_overloading(&subject_view.symbol.name, &pattern_view.symbol.name)
+        {
+            subject_view.symbol.name.clone()
+        } else {
+            let common = definition
+                .overloads
+                .common_overloads(&pattern_view.symbol.name, &subject_view.symbol.name);
+            let minimal = common
+                .iter()
+                .filter(|candidate| {
+                    !common.iter().any(|other| {
+                        candidate != &other && definition.overloads.is_overloading(candidate, other)
+                    })
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            let [common] = minimal.as_slice() else {
+                return None;
+            };
+            common.clone()
+        };
+        let common = definition.symbols.get(&common_name)?.clone();
+        let sort_arguments = if pattern_view.symbol.name == common_name {
+            pattern_view.sort_arguments.clone()
+        } else if subject_view.symbol.name == common_name {
+            subject_view.sort_arguments.clone()
+        } else if common.sort_variables.is_empty() {
+            Vec::new()
+        } else {
+            return None;
+        };
+        Some((
+            pattern_view.lift(common.clone(), &sort_arguments, self.sorts)?,
+            subject_view.lift(common, &sort_arguments, self.sorts)?,
+        ))
     }
 
     fn match_lists(
@@ -1125,6 +1283,95 @@ impl Matcher<'_> {
     }
 }
 
+struct OverloadView {
+    original_sort: Sort,
+    symbol: Arc<crate::term::Symbol>,
+    sort_arguments: Vec<Sort>,
+    arguments: Vec<Term>,
+}
+
+impl OverloadView {
+    fn new(term: &Term) -> Option<Self> {
+        let original_sort = term.sort();
+        let application = match term.kind() {
+            TermKind::Application { .. } => term,
+            TermKind::Injection { term, .. } => term,
+            _ => return None,
+        };
+        let TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } = application.kind()
+        else {
+            return None;
+        };
+        Some(Self {
+            original_sort,
+            symbol: symbol.clone(),
+            sort_arguments: sort_arguments.clone(),
+            arguments: arguments.clone(),
+        })
+    }
+
+    fn lift(
+        &self,
+        common: Arc<crate::term::Symbol>,
+        sort_arguments: &[Sort],
+        sorts: &SortGraph,
+    ) -> Option<Term> {
+        if self.arguments.len() != common.argument_sorts.len()
+            || sort_arguments.len() != common.sort_variables.len()
+        {
+            return None;
+        }
+        let parameters = common
+            .sort_variables
+            .iter()
+            .cloned()
+            .zip(sort_arguments.iter().cloned())
+            .collect::<BTreeMap<_, _>>();
+        let arguments = self
+            .arguments
+            .iter()
+            .zip(&common.argument_sorts)
+            .map(|(argument, expected)| {
+                let expected = substitute_sort_parameters(expected, &parameters);
+                inject_to_sort(argument.clone(), expected, sorts)
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let application = Term::application(common, sort_arguments.to_vec(), arguments);
+        inject_to_sort(application, self.original_sort.clone(), sorts)
+    }
+}
+
+fn inject_to_sort(term: Term, target: Sort, sorts: &SortGraph) -> Option<Term> {
+    let source = term.sort();
+    if source == target {
+        return Some(term);
+    }
+    sorts
+        .check_subsort(&source, &target)
+        .ok()?
+        .then(|| Term::injection(source, target, term))
+}
+
+fn substitute_sort_parameters(sort: &Sort, parameters: &BTreeMap<Name, Sort>) -> Sort {
+    match sort {
+        Sort::Variable(name) => parameters
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| sort.clone()),
+        Sort::Application { name, arguments } => Sort::Application {
+            name: name.clone(),
+            arguments: arguments
+                .iter()
+                .map(|argument| substitute_sort_parameters(argument, parameters))
+                .collect(),
+        },
+    }
+}
+
 enum PairRemainder {
     Left(Vec<Term>),
     Right(Vec<Term>),
@@ -1301,6 +1548,8 @@ fn collection_definition_matches(left: &TermKind, right: &TermKind) -> bool {
 mod tests {
     use std::sync::Arc;
 
+    use k_rust_kore::kore::parser::parse_definition;
+
     use crate::term::{
         CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Symbol, SymbolAttributes,
     };
@@ -1470,6 +1719,53 @@ mod tests {
         graph
     }
 
+    fn overload_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortSub{} [hasDomainValues{}()]
+                sort SortLeft{} []
+                sort SortRight{} []
+                sort SortTop{} []
+                symbol lower{}(SortSub{}) : SortSub{} [constructor{}()]
+                symbol upper{}(SortTop{}) : SortTop{} [constructor{}()]
+                symbol left{}(SortLeft{}) : SortLeft{} [constructor{}()]
+                symbol right{}(SortRight{}) : SortRight{} [constructor{}()]
+                symbol common{}(SortTop{}) : SortTop{} [constructor{}()]
+                axiom{R} \equals{SortTop{}, R}(
+                    upper{}(X:SortTop{}),
+                    inj{SortSub{}, SortTop{}}(lower{}(Y:SortSub{}))
+                ) [symbol-overload{}(upper{}(), lower{}())]
+                axiom{R} \equals{SortTop{}, R}(
+                    common{}(X:SortTop{}),
+                    inj{SortLeft{}, SortTop{}}(left{}(Y:SortLeft{}))
+                ) [symbol-overload{}(common{}(), left{}())]
+                axiom{R} \equals{SortTop{}, R}(
+                    common{}(X:SortTop{}),
+                    inj{SortRight{}, SortTop{}}(right{}(Y:SortRight{}))
+                ) [symbol-overload{}(common{}(), right{}())]
+            endmodule []"#,
+        )
+        .expect("overload definition should parse");
+        let mut definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("overload definition should internalize");
+        definition.sort_graph.insert(
+            "SortTop",
+            [
+                Name::from("SortSub"),
+                Name::from("SortLeft"),
+                Name::from("SortRight"),
+            ],
+        );
+        definition
+            .sort_graph
+            .insert("SortLeft", [Name::from("SortSub")]);
+        definition
+            .sort_graph
+            .insert("SortRight", [Name::from("SortSub")]);
+        definition
+    }
+
     fn expected(mode: MatchMode) -> [[Outcome; 9]; 9] {
         use Outcome::{Failed as F, Indeterminate as I, Success as S};
         match mode {
@@ -1549,6 +1845,103 @@ mod tests {
 
         assert_eq!(
             match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
+            MatchResult::Success(Substitution::from([(variable, value)]))
+        );
+    }
+
+    #[test]
+    fn lifts_a_direct_overload_across_a_sort_injection() {
+        let definition = overload_definition();
+        let variable = Variable::new("X", Sort::simple("SortTop"));
+        let pattern = Term::application(
+            definition.symbols["upper"].clone(),
+            Vec::new(),
+            vec![Term::variable(variable.clone())],
+        );
+        let value = Term::domain_value(Sort::simple("SortSub"), "value");
+        let subject = Term::injection(
+            Sort::simple("SortSub"),
+            Sort::simple("SortTop"),
+            Term::application(
+                definition.symbols["lower"].clone(),
+                Vec::new(),
+                vec![value.clone()],
+            ),
+        );
+
+        assert_eq!(
+            match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject),
+            MatchResult::Success(Substitution::from([(
+                variable,
+                Term::injection(Sort::simple("SortSub"), Sort::simple("SortTop"), value,),
+            )]))
+        );
+    }
+
+    #[test]
+    fn lifts_a_direct_overload_in_the_pattern_orientation() {
+        let definition = overload_definition();
+        let variable = Variable::new("X", Sort::simple("SortSub"));
+        let pattern = Term::injection(
+            Sort::simple("SortSub"),
+            Sort::simple("SortTop"),
+            Term::application(
+                definition.symbols["lower"].clone(),
+                Vec::new(),
+                vec![Term::variable(variable.clone())],
+            ),
+        );
+        let value = Term::domain_value(Sort::simple("SortSub"), "value");
+        let subject = Term::application(
+            definition.symbols["upper"].clone(),
+            Vec::new(),
+            vec![Term::injection(
+                Sort::simple("SortSub"),
+                Sort::simple("SortTop"),
+                value.clone(),
+            )],
+        );
+
+        assert_eq!(
+            match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject),
+            MatchResult::Success(Substitution::from([(variable, value)]))
+        );
+    }
+
+    #[test]
+    fn lifts_incomparable_symbols_to_their_unique_common_overload() {
+        let definition = overload_definition();
+        let variable = Variable::new("X", Sort::simple("SortSub"));
+        let pattern = Term::injection(
+            Sort::simple("SortLeft"),
+            Sort::simple("SortTop"),
+            Term::application(
+                definition.symbols["left"].clone(),
+                Vec::new(),
+                vec![Term::injection(
+                    Sort::simple("SortSub"),
+                    Sort::simple("SortLeft"),
+                    Term::variable(variable.clone()),
+                )],
+            ),
+        );
+        let value = Term::domain_value(Sort::simple("SortSub"), "value");
+        let subject = Term::injection(
+            Sort::simple("SortRight"),
+            Sort::simple("SortTop"),
+            Term::application(
+                definition.symbols["right"].clone(),
+                Vec::new(),
+                vec![Term::injection(
+                    Sort::simple("SortSub"),
+                    Sort::simple("SortRight"),
+                    value.clone(),
+                )],
+            ),
+        );
+
+        assert_eq!(
+            match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject),
             MatchResult::Success(Substitution::from([(variable, value)]))
         );
     }

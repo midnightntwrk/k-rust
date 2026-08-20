@@ -8,7 +8,7 @@ use std::{
 use crate::{
     builtin::{BuiltinEffect, BuiltinError, BuiltinResult, evaluate as evaluate_builtin},
     definition::BackendDefinition,
-    matching::{MatchMode, MatchResult, match_terms},
+    matching::{MatchMode, MatchResult, match_terms_in_definition},
     rewrite::{Truth, check_concreteness, predicates_truth, substitute_predicates},
     rule::{Predicate, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
     smt::{NoSolver, SmtError, SmtSolver, Validity},
@@ -808,7 +808,7 @@ fn apply_equation(
     solver: &dyn SmtSolver,
 ) -> Result<EquationAttempt, SimplificationError> {
     let substitution =
-        match match_terms(MatchMode::Evaluate, &definition.sort_graph, &rule.lhs, term) {
+        match match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term) {
             MatchResult::Failed(_) => return Ok(EquationAttempt::NotApplicable),
             MatchResult::Indeterminate {
                 substitution,

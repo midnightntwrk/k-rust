@@ -4,7 +4,7 @@ use std::{collections::BTreeSet, error::Error, fmt};
 
 use crate::{
     definition::BackendDefinition,
-    matching::{FailReason, MatchMode, MatchResult, SortError, match_terms},
+    matching::{FailReason, MatchMode, MatchResult, SortError, match_terms_in_definition},
     rewrite::{Pattern, Truth, predicates_truth, substitute_predicates},
     rule::Predicate,
     simplify::{
@@ -175,9 +175,9 @@ pub fn check_disjunctive_implication_with_existentials(
         let mut matched = false;
         let mut incomplete = false;
         for (consequent, _) in &consequents {
-            let substitution = match match_terms(
+            let substitution = match match_terms_in_definition(
                 MatchMode::Implies,
-                &definition.sort_graph,
+                definition,
                 &consequent.term,
                 &antecedent.term,
             ) {
@@ -312,9 +312,9 @@ pub fn check_implication_with_existentials_and_options(
 
     let mut antecedent = antecedent.clone();
     loop {
-        match match_terms(
+        match match_terms_in_definition(
             MatchMode::Implies,
-            &definition.sort_graph,
+            definition,
             &consequent.term,
             &antecedent.term,
         ) {

@@ -6,7 +6,10 @@ use crate::{
     builtin::BuiltinEffect,
     definedness::ceil_term,
     definition::BackendDefinition,
-    matching::{MatchMode, MatchResult, match_map_terms_all, match_set_terms_all, match_terms},
+    matching::{
+        MatchMode, MatchResult, match_map_terms_all_in_definition,
+        match_set_terms_all_in_definition, match_terms_in_definition,
+    },
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
     simplify::{
         SimplificationError, SimplificationOptions, simplify_predicates_with_solver,
@@ -501,9 +504,9 @@ fn recover_indeterminate_match(
                 .filter(|result| result.constraints.is_empty())
                 .map_or_else(|| pattern.clone(), |result| result.term);
 
-        let pair_remainder = match match_terms(
+        let pair_remainder = match match_terms_in_definition(
             MatchMode::Rewrite,
-            &definition.sort_graph,
+            definition,
             &simplified,
             &subject,
         ) {
@@ -561,9 +564,9 @@ fn recover_indeterminate_match(
             unresolved.extend(pair_remainder);
             continue;
         }
-        match match_terms(
+        match match_terms_in_definition(
             MatchMode::Rewrite,
-            &definition.sort_graph,
+            definition,
             &candidate_pattern.term,
             &subject,
         ) {
@@ -778,12 +781,7 @@ fn apply_rule_with_match(
     let (substitution, match_conditions) = if let Some(matched) = matched {
         matched
     } else {
-        match match_terms(
-            MatchMode::Rewrite,
-            &definition.sort_graph,
-            &rule.lhs,
-            &pattern.term,
-        ) {
+        match match_terms_in_definition(MatchMode::Rewrite, definition, &rule.lhs, &pattern.term) {
             MatchResult::Failed(_) => return RuleAttempt::NotApplicable,
             MatchResult::Indeterminate {
                 substitution,
@@ -1083,17 +1081,17 @@ fn recover_collection_matches(
     for (pattern, subject) in remainder {
         let mut next = Vec::new();
         for substitution in solutions {
-            let matches = match_set_terms_all(
+            let matches = match_set_terms_all_in_definition(
                 MatchMode::Rewrite,
-                &definition.sort_graph,
+                definition,
                 pattern,
                 subject,
                 &substitution,
             )
             .or_else(|| {
-                match_map_terms_all(
+                match_map_terms_all_in_definition(
                     MatchMode::Rewrite,
-                    &definition.sort_graph,
+                    definition,
                     pattern,
                     subject,
                     &substitution,
@@ -1478,6 +1476,40 @@ mod tests {
         )
         .expect("map definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN").expect("map definition should internalize")
+    }
+
+    fn overload_rewrite_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortSub{} [hasDomainValues{}()]
+                sort SortTop{} []
+                sort SortState{} []
+                symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+                symbol lower{}(SortSub{}) : SortSub{} [constructor{}()]
+                symbol upper{}(SortTop{}) : SortTop{} [constructor{}()]
+                symbol overloadState{}(SortTop{}) : SortState{} [constructor{}()]
+                symbol overloadResult{}(SortTop{}) : SortState{} [constructor{}()]
+                axiom{R} \equals{SortTop{}, R}(
+                    upper{}(X:SortTop{}),
+                    inj{SortSub{}, SortTop{}}(lower{}(Y:SortSub{}))
+                ) [symbol-overload{}(upper{}(), lower{}())]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        overloadState{}(upper{}(X:SortTop{})),
+                        \top{SortState{}}()
+                    ),
+                    overloadResult{}(X:SortTop{})
+                ) [label{}("overload-match")]
+            endmodule []"#,
+        )
+        .expect("overload rewrite definition should parse");
+        let mut definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("overload rewrite definition should internalize");
+        definition
+            .sort_graph
+            .insert("SortTop", [crate::term::Name::from("SortSub")]);
+        definition
     }
 
     fn subject(definition: &BackendDefinition, value: &str) -> Pattern {
@@ -2418,6 +2450,34 @@ mod tests {
         assert_eq!(
             applied.pattern.term,
             internal_term(&definition, &format!("wrap{{}}({value})"))
+        );
+        assert!(applied.pattern.constraints.is_empty());
+    }
+
+    #[test]
+    fn rewrites_through_a_direct_symbol_overload() {
+        let definition = overload_rewrite_definition();
+        let value = r#"\dv{SortSub{}}("value")"#;
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                &format!("overloadState{{}}(inj{{SortSub{{}}, SortTop{{}}}}(lower{{}}({value})))"),
+            ),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh)
+        else {
+            panic!("directly overloaded constructors should match during rewriting");
+        };
+
+        assert_eq!(
+            applied.pattern.term,
+            internal_term(
+                &definition,
+                &format!("overloadResult{{}}(inj{{SortSub{{}}, SortTop{{}}}}({value}))"),
+            )
         );
         assert!(applied.pattern.constraints.is_empty());
     }

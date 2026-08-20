@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::{
     definition::BackendDefinition,
-    matching::{MatchMode, MatchResult, match_terms},
+    matching::{MatchMode, MatchResult, match_terms_in_definition},
     rewrite::substitute_predicates,
     rule::{Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
     simplify::{SimplificationOptions, simplify_predicates_with_solver},
@@ -160,7 +160,7 @@ fn apply_ceil_equation(definition: &BackendDefinition, term: &Term) -> Option<Ve
         for rules in groups.values() {
             for rule in rules {
                 let MatchResult::Success(substitution) =
-                    match_terms(MatchMode::Evaluate, &definition.sort_graph, &rule.lhs, term)
+                    match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term)
                 else {
                     continue;
                 };
