@@ -27,7 +27,7 @@ use k_rust::{
 use k_rust_backend::{
     definition::BackendDefinition,
     externalize,
-    proof::{ProofLeafOutcome, ProofOptions, ProofStatus, prove_claim},
+    proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
     rewrite::{ExecutionOptions, HaltReason, Pattern, execute_with_solver},
     smt::Z3Solver,
 };
@@ -212,6 +212,10 @@ struct KproveArgs {
     #[arg(long)]
     allow_vacuous: bool,
 
+    /// Select breadth-first or depth-first proof graph traversal.
+    #[arg(long, value_enum, default_value_t = GraphSearchArg::BreadthFirst)]
+    graph_search: GraphSearchArg,
+
     #[command(flatten)]
     source: SourceArgs,
 }
@@ -282,6 +286,23 @@ struct KproveOptions {
     depth: u64,
     min_depth: u64,
     allow_vacuous: bool,
+    graph_search: ProofSearchOrder,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
+enum GraphSearchArg {
+    #[default]
+    BreadthFirst,
+    DepthFirst,
+}
+
+impl From<GraphSearchArg> for ProofSearchOrder {
+    fn from(order: GraphSearchArg) -> Self {
+        match order {
+            GraphSearchArg::BreadthFirst => Self::BreadthFirst,
+            GraphSearchArg::DepthFirst => Self::DepthFirst,
+        }
+    }
 }
 
 impl SourceArgs {
@@ -347,6 +368,7 @@ impl From<KproveArgs> for KproveOptions {
             depth: arguments.depth,
             min_depth: arguments.min_depth,
             allow_vacuous: arguments.allow_vacuous,
+            graph_search: arguments.graph_search.into(),
         }
     }
 }
@@ -574,6 +596,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                 max_depth: options.depth,
                 min_depth: options.min_depth,
                 allow_vacuous: options.allow_vacuous,
+                search_order: options.graph_search,
                 ..ProofOptions::default()
             },
             &solver,
@@ -796,6 +819,8 @@ mod tests {
             "--min-depth",
             "2",
             "--allow-vacuous",
+            "--graph-search",
+            "depth-first",
         ])
         .unwrap();
         let Command::Kprove(options) = cli.command else {
@@ -809,6 +834,7 @@ mod tests {
         assert_eq!(options.depth, 42);
         assert_eq!(options.min_depth, 2);
         assert!(options.allow_vacuous);
+        assert_eq!(options.graph_search, ProofSearchOrder::DepthFirst);
     }
 
     #[test]

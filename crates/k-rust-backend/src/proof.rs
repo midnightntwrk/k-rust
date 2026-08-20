@@ -33,6 +33,14 @@ pub struct ProofOptions {
     pub min_depth: u64,
     pub max_simplification_iterations: usize,
     pub allow_vacuous: bool,
+    pub search_order: ProofSearchOrder,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ProofSearchOrder {
+    #[default]
+    BreadthFirst,
+    DepthFirst,
 }
 
 impl Default for ProofOptions {
@@ -42,6 +50,7 @@ impl Default for ProofOptions {
             min_depth: 0,
             max_simplification_iterations: 100,
             allow_vacuous: false,
+            search_order: ProofSearchOrder::BreadthFirst,
         }
     }
 }
@@ -141,7 +150,10 @@ pub fn prove_claim(
     let mut leaves = Vec::new();
     let mut fresh_counter = 0;
     let mut explored_states = 0;
-    while let Some(mut state) = pending.pop_front() {
+    while let Some(mut state) = match options.search_order {
+        ProofSearchOrder::BreadthFirst => pending.pop_front(),
+        ProofSearchOrder::DepthFirst => pending.pop_back(),
+    } {
         explored_states += 1;
         let simplified = match simplify_with_solver(
             definition,
@@ -789,6 +801,39 @@ mod tests {
         assert_eq!(one_path.status, ProofStatus::Proven);
         assert_eq!(all_path.status, ProofStatus::Disproved);
         assert_eq!(all_path.leaves.len(), 2);
+    }
+
+    #[test]
+    fn supports_breadth_first_and_depth_first_proof_search() {
+        let claims = modal_claim(ReachabilityMode::OnePath, "a", "c", false);
+        let definition = definition(A_TO_B_AND_C, &claims);
+        let claim = &definition.reachability_claims[0];
+
+        let breadth_first = prove_claim(
+            &definition,
+            claim,
+            ProofOptions {
+                search_order: ProofSearchOrder::BreadthFirst,
+                ..ProofOptions::default()
+            },
+            &NoSolver,
+        )
+        .unwrap();
+        let depth_first = prove_claim(
+            &definition,
+            claim,
+            ProofOptions {
+                search_order: ProofSearchOrder::DepthFirst,
+                ..ProofOptions::default()
+            },
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(breadth_first.status, ProofStatus::Proven);
+        assert_eq!(depth_first.status, ProofStatus::Proven);
+        assert_eq!(breadth_first.explored_states, 3);
+        assert_eq!(depth_first.explored_states, 2);
     }
 
     #[test]

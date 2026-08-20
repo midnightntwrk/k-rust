@@ -131,11 +131,13 @@ Prove all modal reachability claims in a specification module, or select claims 
 ```console
 krust kprove spec.k --main-module SPEC
 krust kprove spec.k --main-module SPEC --claim reaches-result --depth 1000
+krust kprove spec.k --main-module SPEC --graph-search depth-first
 ```
 
 `kprove` handles one-path and all-path claims, trusted claims, guarded claim circularities,
-branching semantic rules, depth bounds, and Z3-backed side conditions entirely in process. A
-specification can `requires` and import its semantics definition in the normal K source layout.
+branching semantic rules, breadth-first or depth-first traversal, depth bounds, and Z3-backed side
+conditions entirely in process. A specification can `requires` and import its semantics definition
+in the normal K source layout.
 
 Common source options:
 
