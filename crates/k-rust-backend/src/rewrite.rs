@@ -6,7 +6,7 @@ use crate::{
     builtin::BuiltinEffect,
     definedness::ceil_term,
     definition::BackendDefinition,
-    matching::{MatchMode, MatchResult, match_set_terms_all, match_terms},
+    matching::{MatchMode, MatchResult, match_map_terms_all, match_set_terms_all, match_terms},
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
     simplify::{
         SimplificationError, SimplificationOptions, simplify_predicates_with_solver,
@@ -803,7 +803,7 @@ fn apply_rule_with_match(
                     remainder,
                 } => {
                     if let Some(matches) =
-                        recover_set_matches(definition, substitution.clone(), &remainder)
+                        recover_collection_matches(definition, substitution.clone(), &remainder)
                     {
                         return combine_rule_attempts(matches.into_iter().map(|substitution| {
                             apply_rule_with_match(
@@ -1074,7 +1074,7 @@ fn apply_rule_with_match(
     }])
 }
 
-fn recover_set_matches(
+fn recover_collection_matches(
     definition: &BackendDefinition,
     initial: Substitution,
     remainder: &[(Term, Term)],
@@ -1083,13 +1083,23 @@ fn recover_set_matches(
     for (pattern, subject) in remainder {
         let mut next = Vec::new();
         for substitution in solutions {
-            next.extend(match_set_terms_all(
+            let matches = match_set_terms_all(
                 MatchMode::Rewrite,
                 &definition.sort_graph,
                 pattern,
                 subject,
                 &substitution,
-            )?);
+            )
+            .or_else(|| {
+                match_map_terms_all(
+                    MatchMode::Rewrite,
+                    &definition.sort_graph,
+                    pattern,
+                    subject,
+                    &substitution,
+                )
+            })?;
+            next.extend(matches);
         }
         solutions = next;
     }
@@ -1431,6 +1441,41 @@ mod tests {
         )
         .expect("set definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN").expect("set definition should internalize")
+    }
+
+    fn map_selection_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortKey{} [hasDomainValues{}()]
+                sort SortValue{} [hasDomainValues{}()]
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                sort SortState{} []
+                symbol mapUnit{}() : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.unit")]
+                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                symbol mapState{}(SortMap{}) : SortState{} [constructor{}()]
+                symbol mapPicked{}(SortKey{}, SortValue{}, SortMap{}) : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        mapState{}(
+                            mapConcat{}(
+                                mapItem{}(KEY:SortKey{}, VALUE:SortValue{}),
+                                REST:SortMap{}
+                            )
+                        ),
+                        \top{SortState{}}()
+                    ),
+                    mapPicked{}(KEY:SortKey{}, VALUE:SortValue{}, REST:SortMap{})
+                ) [label{}("map-select")]
+            endmodule []"#,
+        )
+        .expect("map definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("map definition should internalize")
     }
 
     fn subject(definition: &BackendDefinition, value: &str) -> Pattern {
@@ -2375,6 +2420,61 @@ mod tests {
             internal_term(
                 &definition,
                 &format!("picked{{}}({second}, setItem{{}}({first}))"),
+            ),
+        ];
+        expected.sort();
+
+        assert_eq!(actual, expected);
+        assert!(
+            branches
+                .iter()
+                .all(|branch| branch.pattern.constraints.is_empty())
+        );
+    }
+
+    #[test]
+    fn branches_for_every_concrete_map_key_selection() {
+        let definition = map_selection_definition();
+        let first_key = r#"\dv{SortKey{}}("first")"#;
+        let first_value = r#"\dv{SortValue{}}("first-value")"#;
+        let second_key = r#"\dv{SortKey{}}("second")"#;
+        let second_value = r#"\dv{SortValue{}}("second-value")"#;
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                &format!(
+                    "mapState{{}}(mapConcat{{}}(mapItem{{}}({first_key}, {first_value}), mapItem{{}}({second_key}, {second_value})))"
+                ),
+            ),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: None,
+            ..
+        } = rewrite_step(&definition, &subject, &mut fresh)
+        else {
+            panic!("map selection should produce one exhaustive branch per key");
+        };
+        let mut actual = branches
+            .iter()
+            .map(|branch| branch.pattern.term.clone())
+            .collect::<Vec<_>>();
+        actual.sort();
+        let mut expected = vec![
+            internal_term(
+                &definition,
+                &format!(
+                    "mapPicked{{}}({first_key}, {first_value}, mapItem{{}}({second_key}, {second_value}))"
+                ),
+            ),
+            internal_term(
+                &definition,
+                &format!(
+                    "mapPicked{{}}({second_key}, {second_value}, mapItem{{}}({first_key}, {first_value}))"
+                ),
             ),
         ];
         expected.sort();

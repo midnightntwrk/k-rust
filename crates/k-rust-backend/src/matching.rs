@@ -254,6 +254,173 @@ pub(crate) fn match_set_terms_all(
     }
 }
 
+/// Enumerate complete matches for an internal Map pattern against a closed Map subject.
+///
+/// Like Set selection, a symbolic key may select any concrete subject entry. Each key choice keeps
+/// its value paired with it and the opaque frame receives exactly the entries not selected.
+pub(crate) fn match_map_terms_all(
+    mode: MatchMode,
+    sorts: &SortGraph,
+    pattern: &Term,
+    subject: &Term,
+    initial: &Substitution,
+) -> Option<Vec<Substitution>> {
+    let pattern = substitute(pattern, initial);
+    let subject = substitute(subject, initial);
+    let (
+        TermKind::Map {
+            definition: pattern_definition,
+            entries: pattern_entries,
+            rest: pattern_rest,
+        },
+        TermKind::Map {
+            definition: subject_definition,
+            entries: subject_entries,
+            rest: subject_rest,
+        },
+    ) = (pattern.kind(), subject.kind())
+    else {
+        return None;
+    };
+    if pattern_definition != subject_definition || subject_rest.is_some() {
+        return None;
+    }
+
+    let pattern_entry_count = pattern_entries.len();
+    let subject_entry_count = subject_entries.len();
+    let mut pattern_entries = pattern_entries.iter().cloned().collect::<BTreeMap<_, _>>();
+    let mut subject_entries = subject_entries.iter().cloned().collect::<BTreeMap<_, _>>();
+    if pattern_entries.len() != pattern_entry_count || subject_entries.len() != subject_entry_count
+    {
+        return None;
+    }
+    let common_keys = pattern_entries
+        .keys()
+        .filter(|key| subject_entries.contains_key(*key))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut substitutions = vec![initial.clone()];
+    for key in common_keys {
+        let pattern_value = pattern_entries.remove(&key).unwrap();
+        let subject_value = subject_entries.remove(&key).unwrap();
+        let mut next = Vec::new();
+        for substitution in substitutions {
+            match match_terms(
+                mode,
+                sorts,
+                &substitute(&pattern_value, &substitution),
+                &subject_value,
+            ) {
+                MatchResult::Success(found) => next.push(compose(&found, &substitution)),
+                MatchResult::Failed(_) => {}
+                MatchResult::Indeterminate { .. } => return None,
+            }
+        }
+        substitutions = next;
+    }
+    if (pattern_rest.is_none() && pattern_entries.len() != subject_entries.len())
+        || pattern_entries.len() > subject_entries.len()
+    {
+        return Some(Vec::new());
+    }
+
+    let problem = MapMatchProblem {
+        mode,
+        sorts,
+        definition: pattern_definition.clone(),
+        entries: pattern_entries.into_iter().collect(),
+        rest: pattern_rest.clone(),
+    };
+    let mut solutions = Vec::new();
+    let mut indeterminate = false;
+    for substitution in substitutions {
+        problem.search(
+            0,
+            subject_entries
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            substitution,
+            &mut solutions,
+            &mut indeterminate,
+        );
+    }
+    if indeterminate {
+        None
+    } else {
+        solutions.sort();
+        solutions.dedup();
+        Some(solutions)
+    }
+}
+
+struct MapMatchProblem<'a> {
+    mode: MatchMode,
+    sorts: &'a SortGraph,
+    definition: Arc<MapDefinition>,
+    entries: Vec<(Term, Term)>,
+    rest: Option<Term>,
+}
+
+impl MapMatchProblem<'_> {
+    fn search(
+        &self,
+        index: usize,
+        remaining: Vec<(Term, Term)>,
+        substitution: Substitution,
+        solutions: &mut Vec<Substitution>,
+        indeterminate: &mut bool,
+    ) {
+        if index == self.entries.len() {
+            let Some(rest) = &self.rest else {
+                if remaining.is_empty() {
+                    solutions.push(substitution);
+                }
+                return;
+            };
+            let rest = substitute(rest, &substitution);
+            let remainder = Term::map(self.definition.clone(), remaining, None);
+            match match_terms(self.mode, self.sorts, &rest, &remainder) {
+                MatchResult::Success(found) => solutions.push(compose(&found, &substitution)),
+                MatchResult::Failed(_) => {}
+                MatchResult::Indeterminate { .. } => *indeterminate = true,
+            }
+            return;
+        }
+
+        let (key, value) = &self.entries[index];
+        let key = substitute(key, &substitution);
+        for subject_index in 0..remaining.len() {
+            let (subject_key, subject_value) = &remaining[subject_index];
+            let key_substitution = match match_terms(self.mode, self.sorts, &key, subject_key) {
+                MatchResult::Success(found) => found,
+                MatchResult::Failed(_) => continue,
+                MatchResult::Indeterminate { .. } => {
+                    *indeterminate = true;
+                    continue;
+                }
+            };
+            let substitution = compose(&key_substitution, &substitution);
+            let value = substitute(value, &substitution);
+            match match_terms(self.mode, self.sorts, &value, subject_value) {
+                MatchResult::Success(value_substitution) => {
+                    let mut next_remaining = remaining.clone();
+                    next_remaining.remove(subject_index);
+                    self.search(
+                        index + 1,
+                        next_remaining,
+                        compose(&value_substitution, &substitution),
+                        solutions,
+                        indeterminate,
+                    );
+                }
+                MatchResult::Failed(_) => {}
+                MatchResult::Indeterminate { .. } => *indeterminate = true,
+            }
+        }
+    }
+}
+
 struct SetMatchProblem<'a> {
     mode: MatchMode,
     sorts: &'a SortGraph,
@@ -845,7 +1012,6 @@ impl Matcher<'_> {
             ));
         }
         if pattern.symbolic.len() == 1
-            && pattern.rest.is_none()
             && subject.rest.is_none()
             && subject.concrete.len() + subject.symbolic.len() == 1
         {
@@ -856,10 +1022,11 @@ impl Matcher<'_> {
                 .or_else(|| subject.symbolic.first())
                 .unwrap()
                 .clone();
-            return Ok(vec![
-                (pattern_key, subject_key),
-                (pattern_value, subject_value),
-            ]);
+            let mut problems = vec![(pattern_key, subject_key), (pattern_value, subject_value)];
+            if let Some(rest) = pattern.rest {
+                problems.push((rest, Term::map(definition.clone(), Vec::new(), None)));
+            }
+            return Ok(problems);
         }
         if !pattern.symbolic.is_empty() {
             if subject.is_empty()
@@ -1446,6 +1613,154 @@ mod tests {
                 (key_variable, key),
                 (value_variable, value),
             ]))
+        );
+    }
+
+    #[test]
+    fn empties_a_map_frame_after_an_unambiguous_selection() {
+        let definition = map_definition();
+        let key_variable = variable("KEY", Sort::simple("MapKey"));
+        let value_variable = variable("VALUE", Sort::simple("MapValue"));
+        let rest_variable = variable("REST", Sort::simple("MapSort"));
+        let key = domain_value(Sort::simple("MapKey"), "key");
+        let value = domain_value(Sort::simple("MapValue"), "value");
+        let empty = Term::map(definition.clone(), Vec::new(), None);
+        let pattern = Term::map(
+            definition.clone(),
+            vec![(
+                Term::variable(key_variable.clone()),
+                Term::variable(value_variable.clone()),
+            )],
+            Some(Term::variable(rest_variable.clone())),
+        );
+        let subject = Term::map(definition, vec![(key.clone(), value.clone())], None);
+
+        assert_eq!(
+            match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
+            MatchResult::Success(Substitution::from([
+                (key_variable, key),
+                (rest_variable, empty),
+                (value_variable, value),
+            ]))
+        );
+    }
+
+    #[test]
+    fn enumerates_every_symbolic_map_key_selection() {
+        let definition = map_definition();
+        let key_variable = variable("KEY", Sort::simple("MapKey"));
+        let value_variable = variable("VALUE", Sort::simple("MapValue"));
+        let rest_variable = variable("REST", Sort::simple("MapSort"));
+        let first_key = domain_value(Sort::simple("MapKey"), "first");
+        let first_value = domain_value(Sort::simple("MapValue"), "first-value");
+        let second_key = domain_value(Sort::simple("MapKey"), "second");
+        let second_value = domain_value(Sort::simple("MapValue"), "second-value");
+        let pattern = Term::map(
+            definition.clone(),
+            vec![(
+                Term::variable(key_variable.clone()),
+                Term::variable(value_variable.clone()),
+            )],
+            Some(Term::variable(rest_variable.clone())),
+        );
+        let subject = Term::map(
+            definition.clone(),
+            vec![
+                (first_key.clone(), first_value.clone()),
+                (second_key.clone(), second_value.clone()),
+            ],
+            None,
+        );
+
+        assert_eq!(
+            match_map_terms_all(
+                MatchMode::Rewrite,
+                &sort_graph(),
+                &pattern,
+                &subject,
+                &Substitution::new(),
+            ),
+            Some(vec![
+                Substitution::from([
+                    (key_variable.clone(), first_key.clone()),
+                    (
+                        rest_variable.clone(),
+                        Term::map(
+                            definition.clone(),
+                            vec![(second_key.clone(), second_value.clone())],
+                            None,
+                        ),
+                    ),
+                    (value_variable.clone(), first_value.clone()),
+                ]),
+                Substitution::from([
+                    (key_variable, second_key),
+                    (
+                        rest_variable,
+                        Term::map(definition, vec![(first_key, first_value)], None),
+                    ),
+                    (value_variable, second_value),
+                ]),
+            ])
+        );
+    }
+
+    #[test]
+    fn enumerates_map_entry_permutations_without_splitting_values_from_keys() {
+        let definition = map_definition();
+        let first_key_variable = variable("KEY1", Sort::simple("MapKey"));
+        let first_value_variable = variable("VALUE1", Sort::simple("MapValue"));
+        let second_key_variable = variable("KEY2", Sort::simple("MapKey"));
+        let second_value_variable = variable("VALUE2", Sort::simple("MapValue"));
+        let first_key = domain_value(Sort::simple("MapKey"), "first");
+        let first_value = domain_value(Sort::simple("MapValue"), "first-value");
+        let second_key = domain_value(Sort::simple("MapKey"), "second");
+        let second_value = domain_value(Sort::simple("MapValue"), "second-value");
+        let pattern = Term::map(
+            definition.clone(),
+            vec![
+                (
+                    Term::variable(first_key_variable.clone()),
+                    Term::variable(first_value_variable.clone()),
+                ),
+                (
+                    Term::variable(second_key_variable.clone()),
+                    Term::variable(second_value_variable.clone()),
+                ),
+            ],
+            None,
+        );
+        let subject = Term::map(
+            definition,
+            vec![
+                (first_key.clone(), first_value.clone()),
+                (second_key.clone(), second_value.clone()),
+            ],
+            None,
+        );
+
+        assert_eq!(
+            match_map_terms_all(
+                MatchMode::Rewrite,
+                &sort_graph(),
+                &pattern,
+                &subject,
+                &Substitution::new(),
+            ),
+            Some(vec![
+                Substitution::from([
+                    (first_key_variable.clone(), first_key.clone()),
+                    (first_value_variable.clone(), first_value.clone()),
+                    (second_key_variable.clone(), second_key.clone()),
+                    (second_value_variable.clone(), second_value.clone()),
+                ]),
+                Substitution::from([
+                    (first_key_variable, second_key),
+                    (first_value_variable, second_value),
+                    (second_key_variable, first_key),
+                    (second_value_variable, first_value),
+                ]),
+            ])
         );
     }
 
