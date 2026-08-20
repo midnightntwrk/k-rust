@@ -2,7 +2,7 @@
 
 use std::{
     cmp::Ordering,
-    collections::{BTreeSet, hash_map::DefaultHasher},
+    collections::{BTreeMap, BTreeSet, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
     sync::Arc,
 };
@@ -403,9 +403,52 @@ impl Term {
         &self.0.attributes
     }
 
+    pub fn sort(&self) -> Sort {
+        match self.kind() {
+            TermKind::And(_, right) => right.sort(),
+            TermKind::Application {
+                symbol,
+                sort_arguments,
+                ..
+            } => {
+                let substitution = symbol
+                    .sort_variables
+                    .iter()
+                    .cloned()
+                    .zip(sort_arguments.iter().cloned())
+                    .collect::<BTreeMap<_, _>>();
+                substitute_sort(&symbol.result_sort, &substitution)
+            }
+            TermKind::DomainValue { sort, .. } | TermKind::Variable(Variable { sort, .. }) => {
+                sort.clone()
+            }
+            TermKind::Injection { target, .. } => target.clone(),
+            TermKind::Map { definition, .. } => Sort::simple(definition.map_sort.clone()),
+            TermKind::List { definition, .. } | TermKind::Set { definition, .. } => {
+                Sort::simple(definition.list_sort.clone())
+            }
+        }
+    }
+
     fn new(kind: TermKind, mut attributes: TermAttributes) -> Self {
         attributes.hash = calculate_hash(&kind);
         Self(Arc::new(TermData { attributes, kind }))
+    }
+}
+
+fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) -> Sort {
+    match sort {
+        Sort::Variable(name) => substitution
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| sort.clone()),
+        Sort::Application { name, arguments } => Sort::Application {
+            name: name.clone(),
+            arguments: arguments
+                .iter()
+                .map(|argument| substitute_sort(argument, substitution))
+                .collect(),
+        },
     }
 }
 
