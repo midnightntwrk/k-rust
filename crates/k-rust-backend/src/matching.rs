@@ -918,6 +918,12 @@ impl Matcher<'_> {
                 self.defer(pattern, subject)
             }
             (_, _) if self.can_narrow_overload(&pattern, &subject) => self.defer(pattern, subject),
+            (left, right)
+                if (is_overload_head(self.definition, left) && is_rigid(right))
+                    || (is_rigid(left) && is_overload_head(self.definition, right)) =>
+            {
+                Err(FailReason::DifferentSymbols(pattern, subject))
+            }
             (left, right) if is_rigid(left) && is_rigid(right) => {
                 Err(FailReason::DifferentSymbols(pattern, subject))
             }
@@ -1660,6 +1666,13 @@ fn is_rigid(kind: &TermKind) -> bool {
     )
 }
 
+fn is_overload_head(definition: Option<&BackendDefinition>, kind: &TermKind) -> bool {
+    let (Some(definition), TermKind::Application { symbol, .. }) = (definition, kind) else {
+        return false;
+    };
+    definition.overloads.is_overloaded(&symbol.name)
+}
+
 fn same_collection_category(left: &TermKind, right: &TermKind) -> bool {
     matches!(
         (left, right),
@@ -2041,6 +2054,26 @@ mod tests {
                 Term::injection(Sort::simple("SortSub"), Sort::simple("SortTop"), value,),
             )]))
         );
+    }
+
+    #[test]
+    fn rejects_a_rigid_domain_value_outside_an_overload_family() {
+        let definition = overload_definition();
+        let pattern = Term::application(
+            definition.symbols["upper"].clone(),
+            Vec::new(),
+            vec![Term::variable(Variable::new("X", Sort::simple("SortTop")))],
+        );
+        let subject = Term::injection(
+            Sort::simple("SortSub"),
+            Sort::simple("SortTop"),
+            Term::domain_value(Sort::simple("SortSub"), "value"),
+        );
+
+        assert!(matches!(
+            match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject),
+            MatchResult::Failed(FailReason::DifferentSymbols(..))
+        ));
     }
 
     #[test]
