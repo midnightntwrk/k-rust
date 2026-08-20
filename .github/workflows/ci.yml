@@ -46,6 +46,9 @@ jobs:
       - name: Run tests with native Z3 inference
         run: cargo test --workspace --locked
 
+      - name: Smoke-test the unified in-process backend
+        run: scripts/backend-smoke.sh
+
       - name: Install Node-API development dependencies
         run: npm ci
         working-directory: crates/k-rust-napi

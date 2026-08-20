@@ -263,16 +263,16 @@ scripts/reference-differential.sh casts cell-map  # selected cases
 
 Set `K_CHECKOUT` if the ignored reference checkout is not at `k/`.
 
-The backend acceptance gate consumes Rust-generated artifacts with the real backends:
+The backend acceptance gate compiles, executes, and proves with the in-process Rust backend:
 
 ```console
-K_BACKEND_BIN=/path/to/pinned/bin scripts/backend-smoke.sh
+scripts/backend-smoke.sh
 ```
 
-It verifies an MPFR-folded FLOAT definition with Haskell's KORE verifier, loads and executes a
-four-claim definition with `kore-exec`, generates LLVM matching decision trees for the collection
-cell fixture, and links a native interpreter with `llvm-kompile`. `K_KOMPILE` may be supplied
-instead; its sibling backend executables will be used.
+No Haskell executable is required. The gate also generates LLVM matching decision trees for the
+collection-cell fixture and links a native interpreter when `K_BACKEND_BIN` points to an LLVM
+backend installation. `K_KOMPILE` may be supplied instead; its sibling LLVM executables will be
+used. Set `K_CHECKOUT` when the ignored reference checkout is not at `k/`.
 
 ## Development gates
 
