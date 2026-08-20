@@ -3,6 +3,7 @@
 pub mod builtin;
 pub mod definedness;
 pub mod definition;
+pub mod externalize;
 pub mod matching;
 pub mod rewrite;
 pub mod rule;
