@@ -922,6 +922,29 @@ fn normalize_predicate(predicate: Predicate) -> Predicate {
             ) if left_source == right_source && left_target == right_target => {
                 normalize_predicate(Predicate::Equals(left_term.clone(), right_term.clone()))
             }
+            (
+                TermKind::Application {
+                    symbol: left_symbol,
+                    sort_arguments: left_sorts,
+                    arguments: left_arguments,
+                },
+                TermKind::Application {
+                    symbol: right_symbol,
+                    sort_arguments: right_sorts,
+                    arguments: right_arguments,
+                },
+            ) if left_symbol == right_symbol
+                && left_sorts == right_sorts
+                && left_symbol.attributes.injective =>
+            {
+                normalize_predicate(Predicate::And(
+                    left_arguments
+                        .iter()
+                        .zip(right_arguments)
+                        .map(|(left, right)| Predicate::Equals(left.clone(), right.clone()))
+                        .collect(),
+                ))
+            }
             _ => match predicates_truth(&[Predicate::Equals(left.clone(), right.clone())]) {
                 Truth::True => Predicate::True,
                 Truth::False => Predicate::False,
@@ -2208,6 +2231,43 @@ mod tests {
                 Predicate::Ceil(y),
                 Predicate::Not(Box::new(Predicate::Equals(gx, gy))),
             ])
+        );
+    }
+
+    #[test]
+    fn decomposes_equalities_between_matching_injective_symbols() {
+        let definition = definition(
+            r#"
+            symbol pair{}(SortS{}, SortS{}) : SortS{}
+                [constructor{}(), injective{}()]
+            "#,
+        );
+        let x = term(&definition, "X:SortS{}");
+        let y = term(&definition, "Y:SortS{}");
+        let one = term(&definition, r#"\dv{SortS{}}("1")"#);
+        let left = term(&definition, r#"pair{}(X:SortS{}, \dv{SortS{}}("1"))"#);
+        let right = term(&definition, r#"pair{}(Y:SortS{}, \dv{SortS{}}("1"))"#);
+
+        let result = simplify_predicate_with_solver(
+            &definition,
+            &Predicate::Equals(left, right),
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(result, Predicate::Equals(x, y));
+        assert_eq!(
+            simplify_predicate_with_solver(
+                &definition,
+                &Predicate::Equals(one.clone(), one),
+                &[],
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .unwrap(),
+            Predicate::True,
         );
     }
 
