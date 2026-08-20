@@ -192,6 +192,7 @@ endmodule
 #[test]
 fn kprove_proves_a_modal_claim_in_process() {
     let (root, definition) = fixture();
+    let saved_proofs = root.join("proofs.kore");
     fs::write(
         &definition,
         r#"
@@ -216,6 +217,8 @@ endmodule
             "reaches-b",
             "--depth",
             "10",
+            "--save-proofs",
+            saved_proofs.to_str().unwrap(),
         ])
         .output()
         .unwrap();
@@ -228,6 +231,42 @@ endmodule
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
         "claim reaches-b: proven (2 states, 0 unexplored)\n"
+    );
+    let saved = parse_definition(&fs::read_to_string(&saved_proofs).unwrap()).unwrap();
+    assert_eq!(
+        saved.modules[0].name,
+        "haskell-backend-saved-claims-43943e50-f723-47cd-99fd-07104d664c6d"
+    );
+    assert_eq!(
+        saved.modules[0]
+            .sentences
+            .iter()
+            .filter(|sentence| matches!(sentence, k_rust::kore::ast::Sentence::Claim { .. }))
+            .count(),
+        1
+    );
+
+    let resumed = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--claim",
+            "reaches-b",
+            "--save-proofs",
+            saved_proofs.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        resumed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&resumed.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(resumed.stdout).unwrap(),
+        "claim reaches-b: proven (saved)\n"
     );
 
     fs::remove_dir_all(root).unwrap();

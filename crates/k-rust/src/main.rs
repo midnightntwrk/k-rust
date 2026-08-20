@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     env,
     error::Error,
     fs,
@@ -18,7 +19,11 @@ use k_rust::{
         encode_kore_sort, term_to_kore_from_resolved,
     },
     kore::{
-        ast::{Pattern as KorePattern, Sort as KoreSort, Symbol as KoreSymbol},
+        ast::{
+            Attributes as KoreAttributes, Definition as KoreDefinition, Module as KoreModule,
+            Pattern as KorePattern, Sentence as KoreSentence, Sort as KoreSort,
+            Symbol as KoreSymbol,
+        },
         parser::parse_definition as parse_kore_definition,
         printer::Printer as KorePrinter,
     },
@@ -213,6 +218,10 @@ struct KproveArgs {
     #[arg(long, default_value = "1", value_name = "COUNT")]
     max_counterexamples: NonZeroUsize,
 
+    /// Load and update a KORE checkpoint containing previously proven claims.
+    #[arg(long, value_name = "FILE")]
+    save_proofs: Option<PathBuf>,
+
     /// Do not attempt implication closure before this depth.
     #[arg(long, default_value_t = 0, value_name = "STEPS")]
     min_depth: u64,
@@ -299,6 +308,7 @@ struct KproveOptions {
     depth: u64,
     breadth_limit: Option<usize>,
     max_counterexamples: usize,
+    save_proofs: Option<PathBuf>,
     min_depth: u64,
     allow_vacuous: bool,
     graph_search: ProofSearchOrder,
@@ -384,6 +394,7 @@ impl From<KproveArgs> for KproveOptions {
             depth: arguments.depth,
             breadth_limit: arguments.breadth_limit,
             max_counterexamples: arguments.max_counterexamples.get(),
+            save_proofs: arguments.save_proofs,
             min_depth: arguments.min_depth,
             allow_vacuous: arguments.allow_vacuous,
             graph_search: arguments.graph_search.into(),
@@ -579,6 +590,26 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     emit_diagnostics(&compiled.diagnostics);
 
     let syntax = parse_kore_definition(&compiled.definition_kore)?;
+    let saved_claims = options
+        .save_proofs
+        .as_deref()
+        .map(load_saved_claims)
+        .transpose()?
+        .unwrap_or_default();
+    let spec_module = syntax
+        .modules
+        .iter()
+        .find(|module| module.name == options.common.module)
+        .ok_or_else(|| format!("compiled KORE has no module `{}`", options.common.module))?;
+    let mut proven_ids = saved_claims
+        .iter()
+        .filter_map(claim_unique_id)
+        .filter(|id| {
+            spec_module.sentences.iter().any(|sentence| {
+                claim_unique_id(sentence) == Some(id.clone()) && saved_claims.contains(sentence)
+            })
+        })
+        .collect::<BTreeSet<_>>();
     let backend = BackendDefinition::internalize(&syntax, &options.common.module)?;
     if backend.reachability_claims.is_empty() {
         return Err("the selected module contains no modal reachability claims".into());
@@ -608,6 +639,15 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
 
     let mut all_proven = true;
     for (index, claim) in selected.into_iter().enumerate() {
+        let name = claim
+            .attributes
+            .label
+            .as_deref()
+            .map_or_else(|| format!("#{}", index + 1), str::to_owned);
+        if proven_ids.contains(&claim.attributes.unique_id) {
+            println!("claim {name}: proven (saved)");
+            continue;
+        }
         let result = prove_claim(
             &backend,
             claim,
@@ -623,18 +663,15 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             },
             &solver,
         )?;
-        let name = claim
-            .attributes
-            .label
-            .as_deref()
-            .map_or_else(|| format!("#{}", index + 1), str::to_owned);
         println!(
             "claim {name}: {} ({} states, {} unexplored)",
             proof_status(result.status),
             result.explored_states,
             result.unexplored_states,
         );
-        if result.status != ProofStatus::Proven {
+        if result.status == ProofStatus::Proven {
+            proven_ids.insert(claim.attributes.unique_id.clone());
+        } else {
             all_proven = false;
             for leaf in result.leaves.iter().filter(|leaf| {
                 !matches!(
@@ -651,10 +688,98 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             }
         }
     }
+    if let Some(path) = &options.save_proofs {
+        save_proven_claims(path, spec_module, &proven_ids)?;
+    }
     if !all_proven {
         return Err("one or more reachability claims were not proven".into());
     }
     Ok(())
+}
+
+const SAVED_PROOFS_MODULE: &str =
+    "haskell-backend-saved-claims-43943e50-f723-47cd-99fd-07104d664c6d";
+
+fn load_saved_claims(path: &Path) -> Result<Vec<KoreSentence>, Box<dyn Error>> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let definition = parse_kore_definition(&fs::read_to_string(path)?)?;
+    let module = definition
+        .modules
+        .iter()
+        .find(|module| module.name == SAVED_PROOFS_MODULE)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("saved proof file has no `{SAVED_PROOFS_MODULE}` module"),
+            )
+        })?;
+    Ok(module
+        .sentences
+        .iter()
+        .filter(|sentence| matches!(sentence, KoreSentence::Claim { .. }))
+        .cloned()
+        .collect())
+}
+
+fn save_proven_claims(
+    path: &Path,
+    spec_module: &KoreModule,
+    proven_ids: &BTreeSet<String>,
+) -> Result<(), Box<dyn Error>> {
+    let definition = saved_proof_definition(spec_module, proven_ids);
+    let rendered = KorePrinter::pretty(100).print_definition(&definition);
+    fs::write(path, rendered)?;
+    Ok(())
+}
+
+fn saved_proof_definition(
+    spec_module: &KoreModule,
+    proven_ids: &BTreeSet<String>,
+) -> KoreDefinition {
+    let declarations = spec_module
+        .sentences
+        .iter()
+        .filter(|sentence| {
+            !matches!(
+                sentence,
+                KoreSentence::Axiom { .. } | KoreSentence::Claim { .. }
+            )
+        })
+        .cloned();
+    let claims = spec_module
+        .sentences
+        .iter()
+        .filter(|sentence| claim_unique_id(sentence).is_some_and(|id| proven_ids.contains(&id)))
+        .cloned();
+    KoreDefinition {
+        attributes: KoreAttributes::default(),
+        modules: vec![KoreModule {
+            name: SAVED_PROOFS_MODULE.into(),
+            sentences: declarations.chain(claims).collect(),
+            attributes: KoreAttributes::default(),
+        }],
+    }
+}
+
+fn claim_unique_id(sentence: &KoreSentence) -> Option<String> {
+    let KoreSentence::Claim { attributes, .. } = sentence else {
+        return None;
+    };
+    attribute_string(attributes, "UNIQUE'Unds'ID").or_else(|| attribute_string(attributes, "label"))
+}
+
+fn attribute_string(attributes: &KoreAttributes, name: &str) -> Option<String> {
+    attributes.0.iter().find_map(|attribute| {
+        let KorePattern::Application { symbol, arguments } = attribute else {
+            return None;
+        };
+        let [KorePattern::String(value)] = arguments.as_slice() else {
+            return None;
+        };
+        (symbol.name == name).then(|| value.clone())
+    })
 }
 
 fn proof_status(status: ProofStatus) -> &'static str {
@@ -843,6 +968,8 @@ mod tests {
             "7",
             "--max-counterexamples",
             "3",
+            "--save-proofs",
+            "proofs.kore",
             "--min-depth",
             "2",
             "--allow-vacuous",
@@ -862,10 +989,51 @@ mod tests {
         assert_eq!(options.depth, 42);
         assert_eq!(options.breadth_limit, Some(7));
         assert_eq!(options.max_counterexamples, 3);
+        assert_eq!(
+            options.save_proofs.as_deref(),
+            Some(Path::new("proofs.kore"))
+        );
         assert_eq!(options.min_depth, 2);
         assert!(options.allow_vacuous);
         assert_eq!(options.graph_search, ProofSearchOrder::DepthFirst);
         assert!(!options.stuck_check);
+    }
+
+    #[test]
+    fn saved_proofs_keep_declarations_and_only_proven_claims() {
+        let definition = parse_kore_definition(
+            r#"[]
+            module SPEC
+              sort SortS{} []
+              symbol a{}() : SortS{} []
+              axiom{} \top{SortS{}}() [UNIQUE'Unds'ID{}("axiom")]
+              claim{} \top{SortS{}}() [UNIQUE'Unds'ID{}("first")]
+              claim{} \bottom{SortS{}}() [UNIQUE'Unds'ID{}("second")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let saved =
+            saved_proof_definition(&definition.modules[0], &BTreeSet::from(["second".into()]));
+        let module = &saved.modules[0];
+
+        assert_eq!(module.name, SAVED_PROOFS_MODULE);
+        assert_eq!(module.sentences.len(), 3);
+        assert!(matches!(
+            module.sentences.as_slice(),
+            [
+                KoreSentence::SortDeclaration { .. },
+                KoreSentence::SymbolDeclaration { .. },
+                KoreSentence::Claim { .. }
+            ]
+        ));
+        assert_eq!(
+            claim_unique_id(&module.sentences[2]).as_deref(),
+            Some("second")
+        );
+
+        let rendered = KorePrinter::compact().print_definition(&saved);
+        let reparsed = parse_kore_definition(&rendered).unwrap();
+        assert_eq!(reparsed, saved);
     }
 
     #[test]
