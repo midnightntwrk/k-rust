@@ -60,6 +60,8 @@ Implemented end to end:
   backend lowering pipeline, sort injections, and `ModuleToKORE`.
 - KORE generation for ordinary rules, claims, equations, functions, `owise`, macros, aliases,
   reachability claims, subsorts, overloads, algebraic axioms, no-confusion, and no-junk.
+- In-process concrete and symbolic execution, simplification, implication and reachability checks,
+  builtin collections, Z3 satisfiability/validity queries, and satisfying-model extraction.
 - Native `krust kast`, `krust kcompile`, and experimental `krust krun` and `krust kprove`
   commands.
 - Bundled builtin sources pinned to K v7.1.337, so an installed CLI does not require a separate K

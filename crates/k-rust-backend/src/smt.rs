@@ -410,6 +410,7 @@ impl SmtPrelude {
         Ok(TranslatedQuery {
             base: base.join("\n"),
             checked,
+            mappings: translation.mappings,
         })
     }
 }
@@ -538,6 +539,7 @@ fn quote(name: &str) -> String {
 struct TranslatedQuery {
     base: String,
     checked: SExpr,
+    mappings: BTreeMap<Term, String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -557,6 +559,13 @@ pub enum Validity {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ModelResult {
+    Sat(Substitution),
+    Unsat,
+    Unknown(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SmtError {
     Translation(TranslationError),
     Unavailable,
@@ -564,6 +573,9 @@ pub enum SmtError {
     UnknownPrelude(String),
     Unknown(String),
     InconsistentGroundTruth,
+    MissingModel,
+    MissingModelValue(Variable),
+    InvalidModelValue { variable: Variable, value: String },
 }
 
 impl From<TranslationError> for SmtError {
@@ -585,6 +597,14 @@ pub trait SmtSolver {
         substitution: &Substitution,
         checked: &[Predicate],
     ) -> Result<Validity, SmtError>;
+
+    fn get_model(
+        &self,
+        _predicates: &[Predicate],
+        _substitution: &Substitution,
+    ) -> Result<ModelResult, SmtError> {
+        Err(SmtError::Unavailable)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]

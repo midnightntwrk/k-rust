@@ -1,9 +1,24 @@
 //! In-process Z3 implementation of the backend SMT interface.
 
-use z3::{Params, SatResult, Solver};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    str::FromStr,
+};
 
-use super::{Satisfiability, SmtError, SmtPrelude, SmtSolver, TranslatedQuery, Validity};
-use crate::{rule::Predicate, substitution::Substitution};
+use num_bigint::BigInt;
+use z3::{
+    Model, Params, SatResult, Solver,
+    ast::{Bool, Int},
+};
+
+use super::{
+    ModelResult, Satisfiability, SmtError, SmtPrelude, SmtSolver, TranslatedQuery, Validity,
+};
+use crate::{
+    rule::Predicate,
+    substitution::Substitution,
+    term::{Sort, Term, Variable},
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Z3Options {
@@ -81,6 +96,91 @@ impl Z3Solver {
         }
         self.solve(&script)
     }
+
+    fn solve_model(
+        &self,
+        query: &TranslatedQuery,
+        variables: &BTreeSet<Variable>,
+    ) -> Result<ModelResult, SmtError> {
+        let mut timeout = self.options.timeout_ms;
+        for attempt in 0..=self.options.retry_limit {
+            let solver = Solver::new();
+            let mut parameters = Params::new();
+            parameters.set_u32("timeout", timeout);
+            solver.set_params(&parameters);
+            solver.from_string(query.base.as_str());
+            match solver.check() {
+                SatResult::Sat => {
+                    let model = solver.get_model().ok_or(SmtError::MissingModel)?;
+                    return self.extract_model(&model, &query.mappings, variables);
+                }
+                SatResult::Unsat => return Ok(ModelResult::Unsat),
+                SatResult::Unknown if attempt < self.options.retry_limit => {
+                    timeout = timeout.saturating_mul(2);
+                }
+                SatResult::Unknown => {
+                    return Ok(ModelResult::Unknown(
+                        solver
+                            .get_reason_unknown()
+                            .unwrap_or_else(|| "Z3 returned unknown".into()),
+                    ));
+                }
+            }
+        }
+        unreachable!("the retry loop always returns")
+    }
+
+    fn extract_model(
+        &self,
+        model: &Model,
+        mappings: &BTreeMap<Term, String>,
+        variables: &BTreeSet<Variable>,
+    ) -> Result<ModelResult, SmtError> {
+        let mut substitution = Substitution::new();
+        for variable in variables {
+            let term = Term::variable(variable.clone());
+            let value = match &variable.sort {
+                sort if sort == &Sort::simple("SortInt") => {
+                    let name = mappings
+                        .get(&term)
+                        .ok_or_else(|| SmtError::MissingModelValue(variable.clone()))?;
+                    let value = model
+                        .eval(&Int::new_const(name.clone()), true)
+                        .ok_or_else(|| SmtError::MissingModelValue(variable.clone()))?;
+                    let rendered = normalize_integer(&value.to_string()).ok_or_else(|| {
+                        SmtError::InvalidModelValue {
+                            variable: variable.clone(),
+                            value: value.to_string(),
+                        }
+                    })?;
+                    Term::domain_value(variable.sort.clone(), rendered)
+                }
+                sort if sort == &Sort::simple("SortBool") => {
+                    let name = mappings
+                        .get(&term)
+                        .ok_or_else(|| SmtError::MissingModelValue(variable.clone()))?;
+                    let value = model
+                        .eval(&Bool::new_const(name.clone()), true)
+                        .and_then(|value| value.as_bool())
+                        .ok_or_else(|| SmtError::MissingModelValue(variable.clone()))?;
+                    Term::domain_value(variable.sort.clone(), value.to_string())
+                }
+                _ => term,
+            };
+            substitution.insert(variable.clone(), value);
+        }
+        Ok(ModelResult::Sat(substitution))
+    }
+}
+
+fn normalize_integer(rendered: &str) -> Option<String> {
+    if let Ok(value) = BigInt::from_str(rendered) {
+        return Some(value.to_string());
+    }
+    let magnitude = rendered.strip_prefix("(- ")?.strip_suffix(')')?;
+    BigInt::from_str(magnitude)
+        .ok()
+        .map(|value| (-value).to_string())
 }
 
 impl SmtSolver for Z3Solver {
@@ -126,6 +226,23 @@ impl SmtSolver for Z3Solver {
             }
         })
     }
+
+    fn get_model(
+        &self,
+        predicates: &[Predicate],
+        substitution: &Substitution,
+    ) -> Result<ModelResult, SmtError> {
+        if predicates.is_empty() && substitution.is_empty() {
+            return Ok(ModelResult::Sat(Substitution::new()));
+        }
+        let variables = substitution
+            .keys()
+            .cloned()
+            .chain(predicates.iter().flat_map(Predicate::free_variables))
+            .collect::<BTreeSet<_>>();
+        let query = self.prelude.query(predicates, substitution, &[], false)?;
+        self.solve_model(&query, &variables)
+    }
 }
 
 #[cfg(test)]
@@ -141,6 +258,7 @@ mod tests {
             module MAIN
                 sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortS{} []
                 symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), smt-hook{}("<")]
             endmodule []"#,
@@ -284,5 +402,86 @@ mod tests {
             Z3Solver::new(&definition),
             Err(SmtError::InconsistentPrelude)
         ));
+    }
+
+    #[test]
+    fn extracts_arbitrary_precision_integer_and_boolean_models() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let integer = Variable::new("X", Sort::simple("SortInt"));
+        let boolean = Variable::new("B", Sort::simple("SortBool"));
+        let expected_integer = "-99999999999999999999999999999999999999";
+        let predicates = [
+            Predicate::Equals(
+                Term::variable(integer.clone()),
+                Term::domain_value(Sort::simple("SortInt"), expected_integer),
+            ),
+            Predicate::Equals(
+                Term::variable(boolean.clone()),
+                Term::domain_value(Sort::simple("SortBool"), "true"),
+            ),
+        ];
+
+        let ModelResult::Sat(model) = solver
+            .get_model(&predicates, &Substitution::new())
+            .expect("model should be extracted")
+        else {
+            panic!("constraints should be satisfiable")
+        };
+
+        assert_eq!(
+            model.get(&integer),
+            Some(&Term::domain_value(
+                Sort::simple("SortInt"),
+                expected_integer
+            ))
+        );
+        assert_eq!(
+            model.get(&boolean),
+            Some(&Term::domain_value(Sort::simple("SortBool"), "true"))
+        );
+    }
+
+    #[test]
+    fn model_results_distinguish_empty_unsatisfiable_and_untranslated_inputs() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+
+        assert_eq!(
+            solver.get_model(&[], &Substitution::new()),
+            Ok(ModelResult::Sat(Substitution::new()))
+        );
+
+        let integer = Variable::new("X", Sort::simple("SortInt"));
+        let integer_term = Term::variable(integer);
+        assert_eq!(
+            solver.get_model(
+                &[
+                    Predicate::Equals(
+                        integer_term.clone(),
+                        Term::domain_value(Sort::simple("SortInt"), "1"),
+                    ),
+                    Predicate::Equals(
+                        integer_term,
+                        Term::domain_value(Sort::simple("SortInt"), "2"),
+                    ),
+                ],
+                &Substitution::new(),
+            ),
+            Ok(ModelResult::Unsat)
+        );
+
+        let opaque = Variable::new("Y", Sort::simple("SortS"));
+        let opaque_term = Term::variable(opaque.clone());
+        let ModelResult::Sat(model) = solver
+            .get_model(
+                &[Predicate::Equals(opaque_term.clone(), opaque_term)],
+                &Substitution::new(),
+            )
+            .unwrap()
+        else {
+            panic!("reflexive opaque equality should be satisfiable")
+        };
+        assert_eq!(model.get(&opaque), Some(&Term::variable(opaque.clone())));
     }
 }
