@@ -4159,6 +4159,65 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "z3")]
+    #[test]
+    fn branches_for_set_elements_while_preserving_an_open_subject_frame() {
+        let definition = set_selection_definition();
+        let first = r#"\dv{SortElement{}}("first")"#;
+        let second = r#"\dv{SortElement{}}("second")"#;
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                &format!(
+                    "state{{}}(setConcat{{}}(setConcat{{}}(setItem{{}}({first}), setItem{{}}({second})), SUBJECTREST:SortSet{{}}))"
+                ),
+            ),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+
+        let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
+        let RewriteResult::Branch {
+            branches,
+            remainder,
+            ..
+        } = result.clone()
+        else {
+            panic!(
+                "set selection should preserve the opaque subject frame in every branch: {result:#?}"
+            );
+        };
+        let mut actual = branches
+            .iter()
+            .map(|branch| branch.pattern.term.clone())
+            .collect::<Vec<_>>();
+        actual.sort();
+        let mut expected = vec![
+            internal_term(
+                &definition,
+                &format!(
+                    "picked{{}}({first}, setConcat{{}}(setItem{{}}({second}), SUBJECTREST:SortSet{{}}))"
+                ),
+            ),
+            internal_term(
+                &definition,
+                &format!(
+                    "picked{{}}({second}, setConcat{{}}(setItem{{}}({first}), SUBJECTREST:SortSet{{}}))"
+                ),
+            ),
+        ];
+        expected.sort();
+
+        assert_eq!(actual, expected);
+        assert!(
+            branches
+                .iter()
+                .all(|branch| !branch.pattern.constraints.is_empty())
+        );
+        assert!(remainder.is_some());
+    }
+
     #[test]
     fn branches_for_every_concrete_map_key_selection() {
         let definition = map_selection_definition();
@@ -4212,6 +4271,67 @@ mod tests {
                 .iter()
                 .all(|branch| branch.pattern.constraints.is_empty())
         );
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn branches_for_map_keys_while_preserving_an_open_subject_frame() {
+        let definition = map_selection_definition();
+        let first_key = r#"\dv{SortKey{}}("first")"#;
+        let first_value = r#"\dv{SortValue{}}("first-value")"#;
+        let second_key = r#"\dv{SortKey{}}("second")"#;
+        let second_value = r#"\dv{SortValue{}}("second-value")"#;
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                &format!(
+                    "mapState{{}}(mapConcat{{}}(mapConcat{{}}(mapItem{{}}({first_key}, {first_value}), mapItem{{}}({second_key}, {second_value})), SUBJECTREST:SortMap{{}}))"
+                ),
+            ),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+
+        let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
+        let RewriteResult::Branch {
+            branches,
+            remainder,
+            ..
+        } = result.clone()
+        else {
+            panic!(
+                "map selection should preserve the opaque subject frame in every branch: {result:#?}"
+            );
+        };
+        let mut actual = branches
+            .iter()
+            .map(|branch| branch.pattern.term.clone())
+            .collect::<Vec<_>>();
+        actual.sort();
+        let mut expected = vec![
+            internal_term(
+                &definition,
+                &format!(
+                    "mapPicked{{}}({first_key}, {first_value}, mapConcat{{}}(mapItem{{}}({second_key}, {second_value}), SUBJECTREST:SortMap{{}}))"
+                ),
+            ),
+            internal_term(
+                &definition,
+                &format!(
+                    "mapPicked{{}}({second_key}, {second_value}, mapConcat{{}}(mapItem{{}}({first_key}, {first_value}), SUBJECTREST:SortMap{{}}))"
+                ),
+            ),
+        ];
+        expected.sort();
+
+        assert_eq!(actual, expected);
+        assert!(
+            branches
+                .iter()
+                .all(|branch| !branch.pattern.constraints.is_empty())
+        );
+        assert!(remainder.is_some());
     }
 
     #[cfg(feature = "z3")]

@@ -209,7 +209,7 @@ fn match_terms_with_context(
     }
 }
 
-/// Enumerate complete matches for an internal Set pattern against a closed Set subject.
+/// Enumerate complete matches for an internal Set pattern against a normalized Set subject.
 ///
 /// Set element selection is genuinely nondeterministic: `SetItem(X) REST` has one solution for
 /// each element of a concrete subject. The ordinary matcher deliberately reports that case as
@@ -268,7 +268,9 @@ fn match_set_terms_all_with_context(
     else {
         return None;
     };
-    if pattern_definition != subject_definition || subject_rest.is_some() {
+    if pattern_definition != subject_definition
+        || (subject_rest.is_some() && pattern_rest.is_none())
+    {
         return None;
     }
 
@@ -282,10 +284,11 @@ fn match_set_terms_all_with_context(
         pattern_elements.remove(&element);
         subject_elements.remove(&element);
     }
-    if (pattern_rest.is_none() && pattern_elements.len() != subject_elements.len())
-        || pattern_elements.len() > subject_elements.len()
-    {
+    if pattern_rest.is_none() && pattern_elements.len() != subject_elements.len() {
         return Some(Vec::new());
+    }
+    if pattern_elements.len() > subject_elements.len() {
+        return subject_rest.is_none().then(Vec::new);
     }
 
     let problem = SetMatchProblem {
@@ -295,6 +298,7 @@ fn match_set_terms_all_with_context(
         definition: pattern_definition.clone(),
         elements: pattern_elements.into_iter().collect(),
         rest: pattern_rest.clone(),
+        subject_rest: subject_rest.clone(),
     };
     let mut solutions = Vec::new();
     let mut indeterminate = false;
@@ -314,7 +318,7 @@ fn match_set_terms_all_with_context(
     }
 }
 
-/// Enumerate complete matches for an internal Map pattern against a closed Map subject.
+/// Enumerate complete matches for an internal Map pattern against a normalized Map subject.
 ///
 /// Like Set selection, a symbolic key may select any concrete subject entry. Each key choice keeps
 /// its value paired with it and the opaque frame receives exactly the entries not selected.
@@ -371,7 +375,9 @@ fn match_map_terms_all_with_context(
     else {
         return None;
     };
-    if pattern_definition != subject_definition || subject_rest.is_some() {
+    if pattern_definition != subject_definition
+        || (subject_rest.is_some() && pattern_rest.is_none())
+    {
         return None;
     }
 
@@ -408,10 +414,11 @@ fn match_map_terms_all_with_context(
         }
         substitutions = next;
     }
-    if (pattern_rest.is_none() && pattern_entries.len() != subject_entries.len())
-        || pattern_entries.len() > subject_entries.len()
-    {
+    if pattern_rest.is_none() && pattern_entries.len() != subject_entries.len() {
         return Some(Vec::new());
+    }
+    if pattern_entries.len() > subject_entries.len() {
+        return subject_rest.is_none().then(Vec::new);
     }
 
     let problem = MapMatchProblem {
@@ -421,6 +428,7 @@ fn match_map_terms_all_with_context(
         definition: pattern_definition.clone(),
         entries: pattern_entries.into_iter().collect(),
         rest: pattern_rest.clone(),
+        subject_rest: subject_rest.clone(),
     };
     let mut solutions = Vec::new();
     let mut indeterminate = false;
@@ -452,6 +460,7 @@ struct MapMatchProblem<'a> {
     definition: Arc<MapDefinition>,
     entries: Vec<(Term, Term)>,
     rest: Option<Term>,
+    subject_rest: Option<Term>,
 }
 
 impl MapMatchProblem<'_> {
@@ -471,7 +480,11 @@ impl MapMatchProblem<'_> {
                 return;
             };
             let rest = substitute(rest, &substitution);
-            let remainder = Term::map(self.definition.clone(), remaining, None);
+            let remainder = Term::map(
+                self.definition.clone(),
+                remaining,
+                self.subject_rest.clone(),
+            );
             match match_terms_with_context(self.mode, self.sorts, self.backend, &rest, &remainder) {
                 MatchResult::Success(found) => solutions.push(compose(&found, &substitution)),
                 MatchResult::Failed(_) => {}
@@ -532,6 +545,7 @@ struct SetMatchProblem<'a> {
     definition: Arc<crate::term::SetDefinition>,
     elements: Vec<Term>,
     rest: Option<Term>,
+    subject_rest: Option<Term>,
 }
 
 impl SetMatchProblem<'_> {
@@ -551,7 +565,11 @@ impl SetMatchProblem<'_> {
                 return;
             };
             let rest = substitute(rest, &substitution);
-            let remainder = Term::set(self.definition.clone(), remaining, None);
+            let remainder = Term::set(
+                self.definition.clone(),
+                remaining,
+                self.subject_rest.clone(),
+            );
             match match_terms_with_context(self.mode, self.sorts, self.backend, &rest, &remainder) {
                 MatchResult::Success(found) => solutions.push(compose(&found, &substitution)),
                 MatchResult::Failed(_) => {}
@@ -2209,6 +2227,71 @@ mod tests {
     }
 
     #[test]
+    fn carries_an_open_map_subject_frame_through_every_selection() {
+        let definition = map_definition();
+        let key_variable = variable("KEY", Sort::simple("MapKey"));
+        let value_variable = variable("VALUE", Sort::simple("MapValue"));
+        let rest_variable = variable("REST", Sort::simple("MapSort"));
+        let subject_rest = variable("SUBJECT_REST", Sort::simple("MapSort"));
+        let first_key = domain_value(Sort::simple("MapKey"), "first");
+        let first_value = domain_value(Sort::simple("MapValue"), "first-value");
+        let second_key = domain_value(Sort::simple("MapKey"), "second");
+        let second_value = domain_value(Sort::simple("MapValue"), "second-value");
+        let pattern = Term::map(
+            definition.clone(),
+            vec![(
+                Term::variable(key_variable.clone()),
+                Term::variable(value_variable.clone()),
+            )],
+            Some(Term::variable(rest_variable.clone())),
+        );
+        let subject = Term::map(
+            definition.clone(),
+            vec![
+                (first_key.clone(), first_value.clone()),
+                (second_key.clone(), second_value.clone()),
+            ],
+            Some(Term::variable(subject_rest.clone())),
+        );
+
+        assert_eq!(
+            match_map_terms_all(
+                MatchMode::Rewrite,
+                &sort_graph(),
+                &pattern,
+                &subject,
+                &Substitution::new(),
+            ),
+            Some(vec![
+                Substitution::from([
+                    (key_variable.clone(), first_key.clone()),
+                    (
+                        rest_variable.clone(),
+                        Term::map(
+                            definition.clone(),
+                            vec![(second_key.clone(), second_value.clone())],
+                            Some(Term::variable(subject_rest.clone())),
+                        ),
+                    ),
+                    (value_variable.clone(), first_value.clone()),
+                ]),
+                Substitution::from([
+                    (key_variable, second_key),
+                    (
+                        rest_variable,
+                        Term::map(
+                            definition,
+                            vec![(first_key, first_value)],
+                            Some(Term::variable(subject_rest)),
+                        ),
+                    ),
+                    (value_variable, second_value),
+                ]),
+            ])
+        );
+    }
+
+    #[test]
     fn enumerates_map_entry_permutations_without_splitting_values_from_keys() {
         let definition = map_definition();
         let first_key_variable = variable("KEY1", Sort::simple("MapKey"));
@@ -2466,6 +2549,56 @@ mod tests {
                 Substitution::from([
                     (element_variable, second),
                     (rest_variable, Term::set(definition, vec![first], None)),
+                ]),
+            ])
+        );
+    }
+
+    #[test]
+    fn carries_an_open_set_subject_frame_through_every_selection() {
+        let definition = set_definition();
+        let element_variable = variable("ELEMENT", Sort::simple("SetElement"));
+        let rest_variable = variable("REST", Sort::simple("SetSort"));
+        let subject_rest = variable("SUBJECT_REST", Sort::simple("SetSort"));
+        let first = domain_value(Sort::simple("SetElement"), "first");
+        let second = domain_value(Sort::simple("SetElement"), "second");
+        let pattern = Term::set(
+            definition.clone(),
+            vec![Term::variable(element_variable.clone())],
+            Some(Term::variable(rest_variable.clone())),
+        );
+        let subject = Term::set(
+            definition.clone(),
+            vec![first.clone(), second.clone()],
+            Some(Term::variable(subject_rest.clone())),
+        );
+
+        assert_eq!(
+            match_set_terms_all(
+                MatchMode::Rewrite,
+                &sort_graph(),
+                &pattern,
+                &subject,
+                &Substitution::new(),
+            ),
+            Some(vec![
+                Substitution::from([
+                    (element_variable.clone(), first.clone()),
+                    (
+                        rest_variable.clone(),
+                        Term::set(
+                            definition.clone(),
+                            vec![second.clone()],
+                            Some(Term::variable(subject_rest.clone())),
+                        ),
+                    ),
+                ]),
+                Substitution::from([
+                    (element_variable, second),
+                    (
+                        rest_variable,
+                        Term::set(definition, vec![first], Some(Term::variable(subject_rest)),),
+                    ),
                 ]),
             ])
         );

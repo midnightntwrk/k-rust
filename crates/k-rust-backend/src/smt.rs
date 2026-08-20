@@ -251,8 +251,9 @@ impl TranslationState {
             )),
             Predicate::Ceil(term) if term.attributes().constructor_like => Ok(SExpr::atom("true")),
             predicate @ Predicate::Ceil(_) => Ok(self.abstract_predicate(predicate)),
-            Predicate::Floor(_) => Err(TranslationError::UnsupportedPredicate("floor")),
-            Predicate::In(..) => Err(TranslationError::UnsupportedPredicate("in")),
+            predicate @ (Predicate::Floor(_) | Predicate::In(..)) => {
+                Ok(self.abstract_predicate(predicate))
+            }
             Predicate::Exists(variable, inner) => {
                 self.translate_quantifier("exists", variable, inner)
             }
@@ -835,6 +836,31 @@ mod tests {
                 .unwrap()
                 .to_string(),
             "SMT-1"
+        );
+        assert_eq!(translation.predicate_mappings.len(), 1);
+    }
+
+    #[test]
+    fn abstracts_symbolic_membership_as_a_stable_boolean() {
+        let element = Term::variable(Variable::new("X", Sort::simple("SortElement")));
+        let collection = Term::variable(Variable::new("S", Sort::simple("SortSet")));
+        let membership = Predicate::In(element, collection);
+        let negated = Predicate::Not(Box::new(membership.clone()));
+        let mut translation = TranslationState::new();
+
+        assert_eq!(
+            translation
+                .translate_predicate(&membership)
+                .unwrap()
+                .to_string(),
+            "SMT-1"
+        );
+        assert_eq!(
+            translation
+                .translate_predicate(&negated)
+                .unwrap()
+                .to_string(),
+            "(not SMT-1)"
         );
         assert_eq!(translation.predicate_mappings.len(), 1);
     }
