@@ -1214,6 +1214,12 @@ fn apply_equation(
             }
             MatchResult::Success(substitution) => substitution,
         };
+    if substitution
+        .keys()
+        .any(|variable| !rule.lhs.attributes().variables.contains(variable))
+    {
+        return Ok(EquationAttempt::NotApplicable);
+    }
     if check_concreteness(rule, &substitution).is_some() {
         return Ok(EquationAttempt::NotApplicable);
     }
@@ -1508,6 +1514,77 @@ mod tests {
 
         assert_eq!(result.term, term(&definition, r#"\dv{SortBool{}}("true")"#));
         assert_eq!(result.applied_rules, ["non-empty-map"]);
+    }
+
+    #[test]
+    fn does_not_rebind_configuration_variables_during_equation_matching() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortKey{} []
+                sort SortValue{} []
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                sort SortResult{} []
+                symbol mapUnit{}() : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.unit")]
+                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                symbol select{}(SortMap{}, SortKey{}) : SortResult{} [function{}()]
+                symbol exact{}() : SortResult{} [constructor{}()]
+                symbol different{}() : SortResult{} [constructor{}()]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortResult{}, R}(
+                        select{}(
+                            mapConcat{}(
+                                mapItem{}(KEY:SortKey{}, VALUE:SortValue{}),
+                                REST:SortMap{}
+                            ),
+                            KEY:SortKey{}
+                        ),
+                        \and{SortResult{}}(exact{}(), \top{SortResult{}}())
+                    )
+                ) [label{}("exact"), simplification{}()]
+                axiom{R} \implies{R}(
+                    \not{R}(\equals{SortKey{}, R}(ENTRY:SortKey{}, REQUESTED:SortKey{})),
+                    \equals{SortResult{}, R}(
+                        select{}(
+                            mapConcat{}(
+                                mapItem{}(ENTRY:SortKey{}, VALUE:SortValue{}),
+                                REST:SortMap{}
+                            ),
+                            REQUESTED:SortKey{}
+                        ),
+                        \and{SortResult{}}(different{}(), \top{SortResult{}}())
+                    )
+                ) [label{}("different"), simplification{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let entry = term(&definition, "ENTRY:SortKey{}");
+        let requested = term(&definition, "REQUESTED:SortKey{}");
+        let known = Predicate::Not(Box::new(Predicate::Equals(entry, requested)));
+        let input = term(
+            &definition,
+            "select{}(mapConcat{}(mapItem{}(ENTRY:SortKey{}, VALUE:SortValue{}), MAP:SortMap{}), REQUESTED:SortKey{})",
+        );
+
+        let result = simplify_with_solver(
+            &definition,
+            &input,
+            std::slice::from_ref(&known),
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(result.term, term(&definition, "different{}()"));
+        assert_eq!(result.applied_rules, ["different"]);
     }
 
     #[test]

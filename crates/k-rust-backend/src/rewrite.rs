@@ -1079,6 +1079,9 @@ fn apply_rule_with_match(
                         substitution.clone(),
                         &remainder,
                     ) {
+                        if matches.is_empty() {
+                            return RuleAttempt::NotApplicable;
+                        }
                         return combine_rule_attempts(matches.into_iter().map(|substitution| {
                             apply_rule_with_match(
                                 definition,
@@ -1163,6 +1166,12 @@ fn apply_rule_with_match(
         }
         MatchResult::Success(substitution) => (substitution, Vec::new()),
     };
+    if substitution
+        .keys()
+        .any(|variable| !rule.lhs.attributes().variables.contains(variable))
+    {
+        return RuleAttempt::NotApplicable;
+    }
     inherited_conditions.append(&mut match_conditions);
     for value in substitution
         .values()
@@ -1400,6 +1409,10 @@ fn recover_symbolic_map_key_matches(
     substitution: Substitution,
     remainder: &[(Term, Term)],
 ) -> Option<Vec<PartialRuleMatch>> {
+    let protected_variables = substitution
+        .values()
+        .flat_map(|term| term.attributes().variables.iter().cloned())
+        .collect::<BTreeSet<_>>();
     let (pair_index, map_definition, pattern_entries, pattern_rest, subject_entries) = remainder
         .iter()
         .enumerate()
@@ -1423,10 +1436,17 @@ fn recover_symbolic_map_key_matches(
             };
             if pattern_definition != subject_definition
                 || pattern_entries.is_empty()
-                || !pattern_entries
-                    .iter()
-                    .all(|(key, _)| key.attributes().constructor_like)
-                || !matches!(pattern_rest.kind(), TermKind::Variable(_))
+                || !pattern_entries.iter().all(|(key, _)| {
+                    key.attributes().constructor_like
+                        || (!key.attributes().variables.is_empty()
+                            && key
+                                .attributes()
+                                .variables
+                                .iter()
+                                .all(|variable| protected_variables.contains(variable)))
+                })
+                || !matches!(pattern_rest.kind(), TermKind::Variable(variable)
+                    if !protected_variables.contains(variable))
                 || pattern_entries.len()
                     > subject_entries
                         .iter()
@@ -2652,6 +2672,62 @@ mod tests {
         .expect("symbolic map-key definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN")
             .expect("symbolic map-key definition should internalize")
+    }
+
+    fn shared_symbolic_map_key_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortKey{} []
+                sort SortValue{} []
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                sort SortState{} []
+                symbol mapUnit{}() : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.unit")]
+                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                symbol request{}(SortMap{}, SortKey{}) : SortState{} [constructor{}()]
+                symbol exact{}() : SortState{} [constructor{}()]
+                symbol different{}() : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        request{}(
+                            mapConcat{}(
+                                mapItem{}(KEY:SortKey{}, VALUE:SortValue{}),
+                                REST:SortMap{}
+                            ),
+                            KEY:SortKey{}
+                        ),
+                        \top{SortState{}}()
+                    ),
+                    exact{}()
+                ) [label{}("exact")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        request{}(
+                            mapConcat{}(
+                                mapItem{}(ENTRY:SortKey{}, VALUE:SortValue{}),
+                                REST:SortMap{}
+                            ),
+                            REQUESTED:SortKey{}
+                        ),
+                        \not{SortState{}}(
+                            \equals{SortKey{}, SortState{}}(
+                                ENTRY:SortKey{},
+                                REQUESTED:SortKey{}
+                            )
+                        )
+                    ),
+                    different{}()
+                ) [label{}("different")]
+            endmodule []"#,
+        )
+        .expect("shared symbolic map-key definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("shared symbolic map-key definition should internalize")
     }
 
     #[cfg(feature = "z3")]
@@ -4641,6 +4717,41 @@ mod tests {
         assert_eq!(
             remainder.pattern.constraints,
             [Predicate::Not(Box::new(selected))]
+        );
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn does_not_rebind_configuration_variables_during_map_matching() {
+        let definition = shared_symbolic_map_key_definition();
+        let entry = internal_term(&definition, "ENTRY:SortKey{}");
+        let requested = internal_term(&definition, "REQUESTED:SortKey{}");
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                "request{}(mapConcat{}(mapItem{}(ENTRY:SortKey{}, VALUE:SortValue{}), MAP:SortMap{}), REQUESTED:SortKey{})",
+            ),
+            constraints: vec![Predicate::Not(Box::new(Predicate::Equals(
+                entry, requested,
+            )))],
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
+        let RewriteResult::Finished(applied) = result else {
+            panic!("the disequality rule should be uniquely applicable: {result:?}");
+        };
+
+        assert_eq!(
+            applied.pattern.term,
+            internal_term(&definition, "different{}()")
+        );
+        assert!(
+            applied
+                .substitution
+                .keys()
+                .all(|variable| variable.name.starts_with("Rule#"))
         );
     }
 
