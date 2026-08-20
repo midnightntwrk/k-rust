@@ -132,9 +132,7 @@ fn simplify_predicates_with_budget(
 ) -> Result<Vec<Predicate>, SimplificationError> {
     let mut conjuncts = Vec::new();
     for predicate in predicates {
-        if !conjuncts.contains(predicate) {
-            conjuncts.push(predicate.clone());
-        }
+        extend_conjuncts(&mut conjuncts, predicate);
     }
     let simplified = conjuncts
         .iter()
@@ -186,6 +184,16 @@ fn simplify_predicates_with_budget(
         active_conditions,
         solver,
     )
+}
+
+fn extend_conjuncts(conjuncts: &mut Vec<Predicate>, predicate: &Predicate) {
+    if let Predicate::And(nested) = predicate {
+        for predicate in nested {
+            extend_conjuncts(conjuncts, predicate);
+        }
+    } else if !conjuncts.contains(predicate) {
+        conjuncts.push(predicate.clone());
+    }
 }
 
 fn simplify_rule_predicates(
@@ -1700,6 +1708,31 @@ mod tests {
         .unwrap();
 
         assert_eq!(result, disequality);
+    }
+
+    #[test]
+    fn flattens_overlapping_conjunctions_before_using_sibling_assumptions() {
+        let definition = definition("");
+        let x = term(&definition, "X:SortS{}");
+        let y = term(&definition, "Y:SortS{}");
+        let value = term(&definition, r#"\dv{SortS{}}("value")"#);
+        let defined = Predicate::Ceil(x.clone());
+        let first = Predicate::Not(Box::new(Predicate::Equals(x.clone(), y)));
+        let second = Predicate::Not(Box::new(Predicate::Equals(x, value)));
+
+        let result = simplify_predicates_with_solver(
+            &definition,
+            &[
+                Predicate::And(vec![defined.clone(), first.clone()]),
+                Predicate::And(vec![defined.clone(), second.clone()]),
+            ],
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(result, [defined, first, second]);
     }
 
     #[test]
