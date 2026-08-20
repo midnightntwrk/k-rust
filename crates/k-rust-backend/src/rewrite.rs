@@ -1,6 +1,6 @@
 //! Priority-aware rewrite steps over internalized backend theories.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 
 use crate::{
     definition::BackendDefinition,
@@ -54,6 +54,118 @@ pub enum IndeterminateReason {
         rule_id: String,
         variable: Variable,
     },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExecutionOptions {
+    pub max_depth: u64,
+}
+
+impl Default for ExecutionOptions {
+    fn default() -> Self {
+        Self { max_depth: 1_000 }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TraceEntry {
+    pub depth: u64,
+    pub label: Option<String>,
+    pub unique_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum HaltReason {
+    Stuck,
+    Trivial,
+    DepthBound,
+    Indeterminate(IndeterminateReason),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExecutionLeaf {
+    pub pattern: Pattern,
+    pub depth: u64,
+    pub trace: Vec<TraceEntry>,
+    pub halt_reason: HaltReason,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExecutionResult {
+    pub leaves: Vec<ExecutionLeaf>,
+}
+
+pub fn execute(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: ExecutionOptions,
+) -> ExecutionResult {
+    let mut fresh_counter = 0;
+    let mut pending = VecDeque::from([ExecutionState {
+        pattern: initial,
+        depth: 0,
+        trace: Vec::new(),
+    }]);
+    let mut leaves = Vec::new();
+    while let Some(state) = pending.pop_front() {
+        if state.depth >= options.max_depth {
+            leaves.push(ExecutionLeaf {
+                pattern: state.pattern,
+                depth: state.depth,
+                trace: state.trace,
+                halt_reason: HaltReason::DepthBound,
+            });
+            continue;
+        }
+        match rewrite_step(definition, &state.pattern, &mut fresh_counter) {
+            RewriteResult::Stuck(pattern) => leaves.push(ExecutionLeaf {
+                pattern,
+                depth: state.depth,
+                trace: state.trace,
+                halt_reason: HaltReason::Stuck,
+            }),
+            RewriteResult::Trivial(pattern) => leaves.push(ExecutionLeaf {
+                pattern,
+                depth: state.depth,
+                trace: state.trace,
+                halt_reason: HaltReason::Trivial,
+            }),
+            RewriteResult::Indeterminate { pattern, reason } => leaves.push(ExecutionLeaf {
+                pattern,
+                depth: state.depth,
+                trace: state.trace,
+                halt_reason: HaltReason::Indeterminate(reason),
+            }),
+            RewriteResult::Finished(applied) => {
+                pending.push_back(next_state(state.depth, state.trace, applied))
+            }
+            RewriteResult::Branch { branches, .. } => {
+                for applied in branches {
+                    pending.push_back(next_state(state.depth, state.trace.clone(), applied));
+                }
+            }
+        }
+    }
+    ExecutionResult { leaves }
+}
+
+fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> ExecutionState {
+    trace.push(TraceEntry {
+        depth: depth + 1,
+        label: applied.label,
+        unique_id: applied.unique_id,
+    });
+    ExecutionState {
+        pattern: applied.pattern,
+        depth: depth + 1,
+        trace,
+    }
+}
+
+struct ExecutionState {
+    pattern: Pattern,
+    depth: u64,
+    trace: Vec<TraceEntry>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -589,5 +701,101 @@ mod tests {
                 .clone()
         });
         assert_ne!(names[0], names[1]);
+    }
+
+    #[test]
+    fn executes_to_a_stuck_normal_form_and_records_the_trace() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("zero")), \top{SortS{}}()),
+                wrap{}(\dv{SortS{}}("one"))
+            ) [label{}("first")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("one")), \top{SortS{}}()),
+                \dv{SortS{}}("done")
+            ) [label{}("second")]
+            "#,
+        );
+
+        let result = execute(
+            &definition,
+            subject(&definition, "zero"),
+            ExecutionOptions::default(),
+        );
+        assert_eq!(result.leaves.len(), 1);
+        let leaf = &result.leaves[0];
+        assert_eq!(leaf.depth, 2);
+        assert_eq!(leaf.halt_reason, HaltReason::Stuck);
+        assert_eq!(
+            leaf.trace
+                .iter()
+                .map(|entry| (entry.depth, entry.label.as_deref().unwrap()))
+                .collect::<Vec<_>>(),
+            vec![(1, "first"), (2, "second")]
+        );
+        assert!(matches!(
+            leaf.pattern.term.kind(),
+            TermKind::DomainValue { value, .. } if value.as_ref() == "done"
+        ));
+    }
+
+    #[test]
+    fn stops_exactly_at_the_requested_depth_bound() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                wrap{}(X:SortS{})
+            ) [label{}("loop")]
+            "#,
+        );
+
+        let result = execute(
+            &definition,
+            subject(&definition, "value"),
+            ExecutionOptions { max_depth: 3 },
+        );
+        assert_eq!(result.leaves.len(), 1);
+        assert_eq!(result.leaves[0].depth, 3);
+        assert_eq!(result.leaves[0].trace.len(), 3);
+        assert_eq!(result.leaves[0].halt_reason, HaltReason::DepthBound);
+    }
+
+    #[test]
+    fn carries_each_rewrite_branch_to_its_own_leaf() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \dv{SortS{}}("left")
+            ) [label{}("left")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \dv{SortS{}}("right")
+            ) [label{}("right")]
+            "#,
+        );
+
+        let result = execute(
+            &definition,
+            subject(&definition, "value"),
+            ExecutionOptions::default(),
+        );
+        assert_eq!(result.leaves.len(), 2);
+        assert!(
+            result
+                .leaves
+                .iter()
+                .all(|leaf| leaf.depth == 1 && leaf.halt_reason == HaltReason::Stuck)
+        );
+        assert_eq!(
+            result
+                .leaves
+                .iter()
+                .map(|leaf| leaf.trace[0].label.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["left", "right"]
+        );
     }
 }
