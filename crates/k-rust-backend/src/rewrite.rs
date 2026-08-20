@@ -847,7 +847,7 @@ struct IteSplit {
     else_pair: (Term, Term),
 }
 
-struct KEqualSplit {
+struct EqualitySplit {
     side: SplitSide,
     value: bool,
     left: Term,
@@ -954,7 +954,7 @@ fn apply_rule_with_match(
                             )
                         }));
                     }
-                    if let Some(matches) = recover_kequal_matches(
+                    if let Some(matches) = recover_equality_matches(
                         definition,
                         rule,
                         pattern,
@@ -1399,12 +1399,12 @@ fn boolean_operands(term: &Term, value: bool) -> Option<(bool, Vec<Term>)> {
     }
 }
 
-/// Normalize unification of `KEQUAL.eq(A, B)` with a Boolean domain value.
+/// Normalize unification of a hooked equality application with a Boolean domain value.
 ///
 /// The true case delegates to ordinary unification of the operands so useful substitutions are
 /// retained. The false case is the complement of operand equality and therefore remains a path
 /// condition. This is the same normalization used by the pinned backend's `unifyEq` hook.
-fn recover_kequal_matches(
+fn recover_equality_matches(
     definition: &BackendDefinition,
     rule: &RewriteRule,
     pattern: &Pattern,
@@ -1418,7 +1418,7 @@ fn recover_kequal_matches(
         .find_map(|(index, (left, right))| {
             let left = substitute(left, &substitution);
             let right = substitute(right, &substitution);
-            split_kequal_pair(&left, &right).map(|split| (index, split))
+            split_equality_pair(&left, &right).map(|split| (index, split))
         })?;
     let mut untouched = remainder
         .iter()
@@ -1481,19 +1481,19 @@ fn recover_kequal_matches(
     }])
 }
 
-fn split_kequal_pair(left: &Term, right: &Term) -> Option<KEqualSplit> {
-    if let Some((operand1, operand2)) = kequal_arguments(left)
+fn split_equality_pair(left: &Term, right: &Term) -> Option<EqualitySplit> {
+    if let Some((operand1, operand2)) = equality_arguments(left)
         && let Some(value) = bool_domain_value(right)
     {
-        return Some(KEqualSplit {
+        return Some(EqualitySplit {
             side: SplitSide::Pattern,
             value,
             left: operand1,
             right: operand2,
         });
     }
-    let (operand1, operand2) = kequal_arguments(right)?;
-    Some(KEqualSplit {
+    let (operand1, operand2) = equality_arguments(right)?;
+    Some(EqualitySplit {
         side: SplitSide::Subject,
         value: bool_domain_value(left)?,
         left: operand1,
@@ -1501,14 +1501,18 @@ fn split_kequal_pair(left: &Term, right: &Term) -> Option<KEqualSplit> {
     })
 }
 
-fn kequal_arguments(term: &Term) -> Option<(Term, Term)> {
+fn equality_arguments(term: &Term) -> Option<(Term, Term)> {
     let TermKind::Application {
         symbol, arguments, ..
     } = term.kind()
     else {
         return None;
     };
-    if symbol.attributes.hook.as_deref() != Some("KEQUAL.eq") {
+    if !matches!(
+        symbol.attributes.hook.as_deref(),
+        Some("INT.eq" | "STRING.eq" | "KEQUAL.eq")
+    ) || !is_functional_pattern(term)
+    {
         return None;
     }
     let [left, right] = arguments.as_slice() else {
@@ -2275,6 +2279,37 @@ mod tests {
         let syntax = parse_definition(&source).expect("K equality definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN")
             .expect("K equality definition should internalize")
+    }
+
+    fn scalar_equality_rewrite_definition(
+        equality_hook: &str,
+        operand_sort: &str,
+        sort_hook: &str,
+    ) -> BackendDefinition {
+        let source = r#"[]
+            module MAIN
+                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort $SORT{} [hook{}("$SORT_HOOK"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol equal{}($SORT{}, $SORT{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("$EQUALITY_HOOK")]
+                symbol value{}() : $SORT{} [constructor{}()]
+                symbol state{}(SortBool{}) : SortState{} [constructor{}()]
+                symbol done{}() : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        state{}(equal{}(VALUE:$SORT{}, value{}())),
+                        \top{SortState{}}()
+                    ),
+                    done{}()
+                ) [label{}("scalar-equality")]
+            endmodule []"#
+            .replace("$EQUALITY_HOOK", equality_hook)
+            .replace("$SORT_HOOK", sort_hook)
+            .replace("$SORT", operand_sort);
+        let syntax = parse_definition(&source).expect("scalar equality definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("scalar equality definition should internalize")
     }
 
     fn boolean_rewrite_definition(lhs: &str) -> BackendDefinition {
@@ -3540,6 +3575,43 @@ mod tests {
         assert!(applied.pattern.constraints.is_empty());
         assert!(applied.substitution.iter().any(|(variable, value)| {
             variable.name.ends_with("VALUE") && value == &internal_term(&definition, "chosen{}()")
+        }));
+    }
+
+    #[test]
+    fn unifies_integer_equality_operands_when_matching_true() {
+        let definition = scalar_equality_rewrite_definition("INT.eq", "SortInt", "INT.Int");
+        let subject = Pattern {
+            term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("true"))"#),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh)
+        else {
+            panic!("true integer equality should unify its operands");
+        };
+        assert!(applied.substitution.iter().any(|(variable, value)| {
+            variable.name.ends_with("VALUE") && value == &internal_term(&definition, "value{}()")
+        }));
+    }
+
+    #[test]
+    fn unifies_string_equality_operands_when_matching_true() {
+        let definition =
+            scalar_equality_rewrite_definition("STRING.eq", "SortString", "STRING.String");
+        let subject = Pattern {
+            term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("true"))"#),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh)
+        else {
+            panic!("true string equality should unify its operands");
+        };
+        assert!(applied.substitution.iter().any(|(variable, value)| {
+            variable.name.ends_with("VALUE") && value == &internal_term(&definition, "value{}()")
         }));
     }
 
