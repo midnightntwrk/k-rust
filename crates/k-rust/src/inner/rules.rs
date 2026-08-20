@@ -436,6 +436,10 @@ fn add_rule_k_syntax(
         false,
         false,
     )?;
+    // Scala's KORE-to-tree conversion emits the binary parser representation with a right fold.
+    // Both associations lower to the same flattened K sequence, so retain that canonical tree
+    // and do not report `A ~> B ~> C` as an ambiguity.
+    grammar.add_right_associative("#KSequence");
     #[cfg(not(feature = "z3-inference"))]
     add_rule_sort(grammar, &Sort::new("K"))?;
     let rule_body_sort = rule_sort(&Sort::new("K"));

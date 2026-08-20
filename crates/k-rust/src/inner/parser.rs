@@ -745,6 +745,11 @@ impl Grammar {
         self.associativities.left.insert((label.clone(), label));
     }
 
+    pub(crate) fn add_right_associative(&mut self, label: impl Into<String>) {
+        let label = label.into();
+        self.associativities.right.insert((label.clone(), label));
+    }
+
     pub(super) fn add_matching_terminal_tokens(
         &mut self,
         result: Sort,
@@ -1309,5 +1314,51 @@ mod chart_tests {
             ParsedTerm::Ambiguity(alternatives)
                 if alternatives.len() == MAX_DERIVATIONS_PER_STATE + 1
         ));
+    }
+
+    #[test]
+    fn canonicalizes_k_sequences_as_right_associative() {
+        let mut grammar = Grammar::default();
+        let k = Sort::new("K");
+        for name in ["a", "b", "c"] {
+            grammar
+                .add(
+                    k.clone(),
+                    vec![ProductionItem::Terminal(name.into())],
+                    Some(Label::new(name)),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        grammar
+            .add(
+                k.clone(),
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: k.clone(),
+                        name: None,
+                    },
+                    ProductionItem::Terminal("~>".into()),
+                    ProductionItem::NonTerminal {
+                        sort: k.clone(),
+                        name: None,
+                    },
+                ],
+                Some(Label::new("#KSequence")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.add_right_associative("#KSequence");
+
+        let atom = |name| Term::Apply {
+            label: Label::new(name),
+            arguments: Vec::new(),
+        };
+        assert_eq!(
+            grammar.parse(&k, "a ~> b ~> c").unwrap().unannotated(),
+            &Term::sequence([atom("a"), atom("b"), atom("c")])
+        );
     }
 }
