@@ -156,6 +156,7 @@ impl<'a> SExprParser<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TranslationState {
     pub mappings: BTreeMap<Term, String>,
+    predicate_mappings: Vec<(Predicate, String)>,
     counter: usize,
 }
 
@@ -169,6 +170,7 @@ impl TranslationState {
     pub fn new() -> Self {
         Self {
             mappings: BTreeMap::new(),
+            predicate_mappings: Vec::new(),
             counter: 1,
         }
     }
@@ -248,12 +250,35 @@ impl TranslationState {
                 ],
             )),
             Predicate::Ceil(term) if term.attributes().constructor_like => Ok(SExpr::atom("true")),
-            Predicate::Ceil(_) => Err(TranslationError::UnsupportedPredicate("ceil")),
+            predicate @ Predicate::Ceil(_) => Ok(self.abstract_predicate(predicate)),
             Predicate::Floor(_) => Err(TranslationError::UnsupportedPredicate("floor")),
             Predicate::In(..) => Err(TranslationError::UnsupportedPredicate("in")),
-            Predicate::Exists(..) => Err(TranslationError::UnsupportedPredicate("exists")),
-            Predicate::Forall(..) => Err(TranslationError::UnsupportedPredicate("forall")),
+            Predicate::Exists(variable, inner) => {
+                self.translate_quantifier("exists", variable, inner)
+            }
+            Predicate::Forall(variable, inner) => {
+                self.translate_quantifier("forall", variable, inner)
+            }
         }
+    }
+
+    fn translate_quantifier(
+        &mut self,
+        quantifier: &str,
+        variable: &Variable,
+        body: &Predicate,
+    ) -> Result<SExpr, TranslationError> {
+        let variable_name = self
+            .translate_term(&Term::variable(variable.clone()))?
+            .to_string();
+        Ok(SExpr::List(vec![
+            SExpr::atom(quantifier),
+            SExpr::List(vec![SExpr::List(vec![
+                SExpr::atom(variable_name),
+                SExpr::atom(smt_sort(&variable.sort)?),
+            ])]),
+            self.translate_predicate(body)?,
+        ]))
     }
 
     fn translate_predicates(
@@ -296,6 +321,21 @@ impl TranslationState {
         self.mappings.insert(term.clone(), name.clone());
         SExpr::atom(name)
     }
+
+    fn abstract_predicate(&mut self, predicate: &Predicate) -> SExpr {
+        if let Some((_, name)) = self
+            .predicate_mappings
+            .iter()
+            .find(|(mapped, _)| mapped == predicate)
+        {
+            return SExpr::atom(name);
+        }
+        let name = format!("SMT-{}", self.counter);
+        self.counter += 1;
+        self.predicate_mappings
+            .push((predicate.clone(), name.clone()));
+        SExpr::atom(name)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -310,6 +350,10 @@ pub enum TranslationError {
     SmtLemmaSurplusMappings {
         rule_id: String,
         terms: Vec<Term>,
+    },
+    SmtLemmaSurplusPredicates {
+        rule_id: String,
+        predicates: Vec<Predicate>,
     },
     MissingSmtLemmaVariable {
         rule_id: String,
@@ -400,6 +444,9 @@ impl SmtPrelude {
                 "(declare-const {name} {})",
                 smt_sort(&term.sort())?
             ));
+        }
+        for (_, name) in &translation.predicate_mappings {
+            base.push(format!("(declare-const {name} Bool)"));
         }
         base.extend(
             substitution
@@ -500,6 +547,16 @@ fn translate_smt_lemma(rule: &RewriteRule) -> Result<SExpr, TranslationError> {
         return Err(TranslationError::SmtLemmaSurplusMappings {
             rule_id: rule.attributes.unique_id.clone(),
             terms: translation.mappings.into_keys().collect(),
+        });
+    }
+    if !translation.predicate_mappings.is_empty() {
+        return Err(TranslationError::SmtLemmaSurplusPredicates {
+            rule_id: rule.attributes.unique_id.clone(),
+            predicates: translation
+                .predicate_mappings
+                .into_iter()
+                .map(|(predicate, _)| predicate)
+                .collect(),
         });
     }
     if binders.is_empty() {
@@ -739,6 +796,46 @@ mod tests {
         );
         assert_eq!(translation.mappings.get(&variable), Some(&"SMT-1".into()));
         assert_eq!(variable.sort(), Sort::simple("SortInt"));
+    }
+
+    #[test]
+    fn translates_quantified_predicates_with_typed_binders() {
+        let variable = Variable::new("X", Sort::simple("SortInt"));
+        let predicate = Predicate::Exists(
+            variable.clone(),
+            Box::new(Predicate::Equals(Term::variable(variable), integer("1"))),
+        );
+
+        assert_eq!(
+            TranslationState::new()
+                .translate_predicate(&predicate)
+                .unwrap()
+                .to_string(),
+            "(exists ((SMT-1 Int)) (= SMT-1 1))"
+        );
+    }
+
+    #[test]
+    fn abstracts_symbolic_definedness_as_a_stable_boolean() {
+        let variable = Term::variable(Variable::new("X", Sort::simple("SortInt")));
+        let predicate = Predicate::Ceil(variable);
+        let mut translation = TranslationState::new();
+
+        assert_eq!(
+            translation
+                .translate_predicate(&predicate)
+                .unwrap()
+                .to_string(),
+            "SMT-1"
+        );
+        assert_eq!(
+            translation
+                .translate_predicate(&predicate)
+                .unwrap()
+                .to_string(),
+            "SMT-1"
+        );
+        assert_eq!(translation.predicate_mappings.len(), 1);
     }
 
     #[test]

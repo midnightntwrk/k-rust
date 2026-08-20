@@ -586,15 +586,15 @@ fn recover_indeterminate_match(
     }
 }
 
-/// Recover first-order narrowing when a constructor pattern is matched by a symbolic
+/// Recover first-order narrowing when a functional pattern is matched by a symbolic
 /// configuration variable.
 ///
 /// Rule variables left unbound by ordinary matching become fresh variables in the successor. The
 /// resulting equality is retained on the applied branch and negated on its complementary branch.
-/// Function-like fragments still remain indeterminate because they additionally require a
-/// definedness condition.
-fn recover_constructor_symbolic_match(
-    sorts: &crate::matching::SortGraph,
+/// Function-like fragments additionally retain the definedness conditions produced by their
+/// `ceil` theory.
+fn recover_functional_symbolic_match(
+    definition: &BackendDefinition,
     rule: &RewriteRule,
     pattern: &Pattern,
     mut substitution: Substitution,
@@ -607,12 +607,13 @@ fn recover_constructor_symbolic_match(
         let TermKind::Variable(configuration_variable) = configuration_term.kind() else {
             return None;
         };
-        if !is_constructor_pattern(&rule_term)
+        if !is_functional_pattern(&rule_term)
             || rule_term
                 .attributes()
                 .variables
                 .contains(configuration_variable)
-            || !sorts
+            || !definition
+                .sort_graph
                 .check_subsort(&rule_term.sort(), &configuration_variable.sort)
                 .ok()?
         {
@@ -637,8 +638,19 @@ fn recover_constructor_symbolic_match(
         .filter(|variable| !substitution.contains_key(*variable))
         .cloned()
         .collect::<Vec<_>>();
+    let mut fresh_variables = BTreeSet::new();
     for variable in unbound {
-        let fresh = fresh_variable(&variable, &mut names_to_avoid, fresh_counter);
+        let base_name = variable
+            .name
+            .strip_prefix("Rule#")
+            .or_else(|| variable.name.strip_prefix("Eq#"))
+            .unwrap_or(variable.name.as_ref());
+        let existential = Variable::new(format!("Ex#{base_name}"), variable.sort.clone());
+        let fresh = fresh_variable(&existential, &mut names_to_avoid, fresh_counter);
+        let TermKind::Variable(fresh_variable) = fresh.kind() else {
+            unreachable!("fresh terms are variables")
+        };
+        fresh_variables.insert(fresh_variable.clone());
         substitution.insert(variable, fresh);
     }
 
@@ -652,30 +664,80 @@ fn recover_constructor_symbolic_match(
         let TermKind::Variable(configuration_variable) = configuration_term.kind() else {
             return None;
         };
-        debug_assert!(is_constructor_pattern(&rule_term));
+        debug_assert!(is_functional_pattern(&rule_term));
         debug_assert!(
-            sorts
+            definition
+                .sort_graph
                 .check_subsort(&rule_term.sort(), &configuration_variable.sort)
                 .unwrap_or(false)
         );
+        let definedness = if contains_function_pattern(&rule_term) {
+            ceil_term(definition, &rule_term)
+        } else {
+            Vec::new()
+        };
         conditions.push(Predicate::Equals(configuration_term, rule_term));
+        for predicate in definedness {
+            if matches!(
+                &predicate,
+                Predicate::Ceil(term)
+                    if matches!(term.kind(), TermKind::Variable(variable) if fresh_variables.contains(variable))
+            ) || conditions.contains(&predicate)
+            {
+                continue;
+            }
+            conditions.push(predicate);
+        }
     }
     (!conditions.is_empty()).then_some((substitution, conditions))
 }
 
-fn is_constructor_pattern(term: &Term) -> bool {
+fn is_functional_pattern(term: &Term) -> bool {
     match term.kind() {
         TermKind::Application {
             symbol, arguments, ..
         } => {
-            symbol.attributes.symbol_type == SymbolType::Constructor
-                && arguments.iter().all(is_constructor_pattern)
+            matches!(
+                symbol.attributes.symbol_type,
+                SymbolType::Constructor | SymbolType::Function(_)
+            ) && arguments.iter().all(is_functional_pattern)
         }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => true,
-        TermKind::Injection { term, .. } => is_constructor_pattern(term),
+        TermKind::Injection { term, .. } => is_functional_pattern(term),
         TermKind::And(..) | TermKind::Map { .. } | TermKind::List { .. } | TermKind::Set { .. } => {
             false
         }
+    }
+}
+
+fn contains_function_pattern(term: &Term) -> bool {
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            matches!(symbol.attributes.symbol_type, SymbolType::Function(_))
+                || arguments.iter().any(contains_function_pattern)
+        }
+        TermKind::Injection { term, .. } => contains_function_pattern(term),
+        TermKind::And(left, right) => {
+            contains_function_pattern(left) || contains_function_pattern(right)
+        }
+        TermKind::Map { entries, rest, .. } => {
+            entries.iter().any(|(key, value)| {
+                contains_function_pattern(key) || contains_function_pattern(value)
+            }) || rest.as_ref().is_some_and(contains_function_pattern)
+        }
+        TermKind::List { heads, rest, .. } => {
+            heads.iter().any(contains_function_pattern)
+                || rest.as_ref().is_some_and(|(middle, tails)| {
+                    contains_function_pattern(middle) || tails.iter().any(contains_function_pattern)
+                })
+        }
+        TermKind::Set { elements, rest, .. } => {
+            elements.iter().any(contains_function_pattern)
+                || rest.as_ref().is_some_and(contains_function_pattern)
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
     }
 }
 
@@ -716,8 +778,8 @@ fn apply_rule(
                 substitution,
                 remainder,
             } => {
-                if let Some(recovered) = recover_constructor_symbolic_match(
-                    &definition.sort_graph,
+                if let Some(recovered) = recover_functional_symbolic_match(
+                    definition,
                     rule,
                     pattern,
                     substitution.clone(),
@@ -945,7 +1007,17 @@ fn apply_rule(
     let remainder = if applicability.is_empty() {
         Predicate::False
     } else {
-        Predicate::Not(Box::new(conjoin(applicability)))
+        let mut condition = conjoin(applicability);
+        let state_variables = pattern_free_variables(pattern);
+        let introduced = condition
+            .free_variables()
+            .difference(&state_variables)
+            .cloned()
+            .collect::<Vec<_>>();
+        for variable in introduced.into_iter().rev() {
+            condition = Predicate::Exists(variable, Box::new(condition));
+        }
+        Predicate::Not(Box::new(condition))
     };
     RuleAttempt::Applied(RuleApplication {
         applied: AppliedRule {
@@ -1065,6 +1137,13 @@ fn fresh_variable(
 }
 
 fn pattern_variable_names(pattern: &Pattern) -> BTreeSet<crate::term::Name> {
+    pattern_free_variables(pattern)
+        .into_iter()
+        .map(|variable| variable.name)
+        .collect()
+}
+
+fn pattern_free_variables(pattern: &Pattern) -> BTreeSet<Variable> {
     pattern
         .term
         .attributes()
@@ -1077,7 +1156,6 @@ fn pattern_variable_names(pattern: &Pattern) -> BTreeSet<crate::term::Name> {
                 .iter()
                 .flat_map(Predicate::free_variables),
         )
-        .map(|variable| variable.name)
         .collect()
 }
 
@@ -1261,6 +1339,7 @@ mod tests {
                 sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 symbol wrap{}(SortInt{}) : SortInt{} [constructor{}()]
                 symbol pair{}(SortInt{}, SortInt{}) : SortInt{} [constructor{}()]
+                symbol partial{}(SortInt{}) : SortInt{} [function{}()]
                 symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), smt-hook{}("<")]
                 $RULES
@@ -1792,10 +1871,22 @@ mod tests {
         assert_ne!(result_variable.name.as_ref(), "Rule#X");
         let first_name = result_variable.name.clone();
         assert_eq!(fresh, 1);
-        assert!(matches!(
-            remainder.pattern.constraints.as_slice(),
-            [Predicate::Not(inner)] if inner.as_ref() == &Predicate::Equals(configuration.clone(), constructor.clone())
-        ));
+        let [Predicate::Not(remainder_condition)] = remainder.pattern.constraints.as_slice() else {
+            panic!(
+                "expected a negated remainder, found {:?}",
+                remainder.pattern.constraints
+            );
+        };
+        let Predicate::Exists(remainder_variable, remainder_condition) =
+            remainder_condition.as_ref()
+        else {
+            panic!("fresh narrowing variables must be existential in the remainder");
+        };
+        assert_eq!(remainder_variable, result_variable);
+        assert_eq!(
+            remainder_condition.as_ref(),
+            &Predicate::Equals(configuration.clone(), constructor.clone())
+        );
 
         let RewriteResult::Branch {
             branches: second, ..
@@ -1808,6 +1899,75 @@ mod tests {
             TermKind::Variable(variable) if variable.name != first_name
         ));
         assert_eq!(fresh, 2);
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn narrows_a_function_pattern_with_a_definedness_condition() {
+        let definition = symbolic_remainder_definition(
+            r#"
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(
+                    wrap{}(partial{}(X:SortInt{})),
+                    \top{SortInt{}}()
+                ),
+                X:SortInt{}
+            ) [label{}("partial-destructure")]
+            "#,
+        );
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let subject = symbolic_subject(&definition);
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("functional narrowing should produce applied and complementary branches");
+        };
+
+        let [branch] = branches.as_slice() else {
+            panic!("expected one applied branch, found {branches:?}");
+        };
+        let TermKind::Variable(result_variable) = branch.pattern.term.kind() else {
+            panic!(
+                "expected a fresh function argument, found {:?}",
+                branch.pattern.term
+            );
+        };
+        assert!(result_variable.name.starts_with("Ex#"));
+        let [
+            Predicate::Equals(configuration, function),
+            Predicate::Ceil(defined),
+        ] = branch.pattern.constraints.as_slice()
+        else {
+            panic!(
+                "expected equality and definedness, found {:?}",
+                branch.pattern.constraints
+            );
+        };
+        assert_eq!(function, defined);
+        assert!(
+            matches!(configuration.kind(), TermKind::Variable(variable) if variable.name.as_ref() == "X")
+        );
+        assert!(matches!(
+            function.kind(),
+            TermKind::Application { symbol, arguments, .. }
+                if symbol.name.as_ref() == "partial"
+                    && matches!(arguments[0].kind(), TermKind::Variable(variable) if variable == result_variable)
+        ));
+
+        let [Predicate::Not(remainder_condition)] = remainder.pattern.constraints.as_slice() else {
+            panic!("expected a negated complementary condition");
+        };
+        assert!(matches!(
+            remainder_condition.as_ref(),
+            Predicate::Exists(variable, body)
+                if variable == result_variable
+                    && matches!(body.as_ref(), Predicate::And(predicates) if predicates == branch.pattern.constraints.as_slice())
+        ));
     }
 
     #[cfg(feature = "z3")]
