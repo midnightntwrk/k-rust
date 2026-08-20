@@ -299,12 +299,17 @@ fn with_newline(mut text: String) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "z3-inference")]
     use k_rust_backend::definition::BackendDefinition;
 
+    #[cfg(feature = "z3-inference")]
     use crate::{
         builtin::embedded,
+        outer::{LoadOptions, load_with_options},
+    };
+    use crate::{
         kore::parser::parse_definition,
-        outer::{LoadOptions, ResolvedSource, load, load_with_options},
+        outer::{ResolvedSource, load},
     };
 
     use super::*;
@@ -339,6 +344,7 @@ mod tests {
         assert!("nope".parse::<CompilationBackend>().is_err());
     }
 
+    #[cfg(feature = "z3-inference")]
     #[test]
     fn emitted_symbolic_kore_internalizes_in_process() {
         let source = r#"

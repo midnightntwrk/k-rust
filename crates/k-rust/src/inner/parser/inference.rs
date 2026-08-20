@@ -314,8 +314,36 @@ impl<'a> Solver<'a> {
                         child_sorts.len()
                     )));
                 }
-                for (child, expected) in child_sorts.iter().cloned().zip(expected.iter()) {
-                    self.constrain(child, SortRef::Concrete((*expected).clone()))?;
+                let anywhere_lhs_sort = (anywhere
+                    && production
+                        .label
+                        .as_ref()
+                        .is_some_and(|label| label.name == "#KRewrite")
+                    && children.len() == 2)
+                    .then(|| declared_sort(grammar, strip_brackets(grammar, &children[0])));
+                for (index, ((term, child), expected)) in children
+                    .iter()
+                    .zip(child_sorts.iter().cloned())
+                    .zip(expected.iter())
+                    .enumerate()
+                {
+                    let expected = SortRef::Concrete(
+                        if index == 1
+                            && let Some(lhs_sort) = &anywhere_lhs_sort
+                        {
+                            lhs_sort.clone()
+                        } else {
+                            (*expected).clone()
+                        },
+                    );
+                    self.constrain(child.clone(), expected.clone())?;
+                    if is_anonymous_leaf(term) {
+                        // Scala's inferencer treats every anonymous occurrence as having exactly
+                        // the sort required by its context.  A mere upper bound is insufficient
+                        // for parser sorts such as KItem, whose synthetic hierarchy is not always
+                        // represented by an ordinary subsort production.
+                        self.constrain(expected, child)?;
+                    }
                 }
                 if production.label.as_ref().is_some_and(|label| {
                     matches!(
@@ -328,16 +356,6 @@ impl<'a> Solver<'a> {
                     let child = SortRef::Concrete((*child).clone());
                     self.constrain(cast.clone(), child.clone())?;
                     self.constrain(child, cast)?;
-                }
-                if anywhere
-                    && production
-                        .label
-                        .as_ref()
-                        .is_some_and(|label| label.name == "#KRewrite")
-                    && children.len() == 2
-                {
-                    let lhs_sort = declared_sort(grammar, strip_brackets(grammar, &children[0]));
-                    self.constrain(child_sorts[1].clone(), SortRef::Concrete(lhs_sort))?;
                 }
                 Ok(SortRef::Concrete(production.result.clone()))
             }
@@ -490,6 +508,14 @@ fn strip_brackets<'a>(grammar: &Grammar, mut term: &'a ParsedTerm) -> &'a Parsed
     term
 }
 
+fn is_anonymous_leaf(term: &ParsedTerm) -> bool {
+    matches!(
+        term,
+        ParsedTerm::Term(term)
+            if matches!(term.unannotated(), Term::Variable { name, .. } if is_anonymous(name))
+    )
+}
+
 fn declared_sort(grammar: &Grammar, term: &ParsedTerm) -> Sort {
     match term {
         ParsedTerm::Production { production, .. } => {
@@ -515,17 +541,20 @@ fn production_arity(production: &Production) -> usize {
 }
 
 fn variable_id(name: &str, next_anonymous: &mut usize) -> VariableId {
-    if name.starts_with('_')
-        || name.starts_with("?_")
-        || name.starts_with("!_")
-        || name.starts_with("@_")
-    {
+    if is_anonymous(name) {
         let id = VariableId::Anonymous(*next_anonymous);
         *next_anonymous += 1;
         id
     } else {
         VariableId::Named(name.to_owned())
     }
+}
+
+fn is_anonymous(name: &str) -> bool {
+    name.starts_with('_')
+        || name.starts_with("?_")
+        || name.starts_with("!_")
+        || name.starts_with("@_")
 }
 
 fn inference_error(message: impl Into<String>) -> ParseError {

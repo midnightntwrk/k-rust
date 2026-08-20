@@ -45,6 +45,17 @@ krust krun examples/list-unification.k \
 
 The final `<k>` cell contains `Lblsuccess...`, and both List cells contain `x`, `y`, and `z`.
 
+Exercise associative-commutative Map matching with a framed remainder:
+
+```console
+krust krun examples/map-framing.k \
+  --main-module MAP-FRAMING \
+  --sort Val \
+  --expression a
+```
+
+The final `<store>` cell contains only the `b |-> 2` and `c |-> 3` entries.
+
 On macOS, verify that the release binary does not dynamically load Z3:
 
 ```console

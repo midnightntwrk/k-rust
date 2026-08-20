@@ -690,6 +690,20 @@ rule_snapshot!(
 );
 
 rule_snapshot!(
+    infers_anonymous_collection_values_at_their_exact_kitem_sort,
+    r#"
+        module MAIN
+          syntax Val ::= "a" [symbol(a)]
+          syntax KItem ::= Val
+          syntax Map ::= ".Map" [symbol(dotMap)]
+                       | KItem "|->" KItem [symbol(mapEntry)]
+          syntax KItem ::= Map
+          rule (a |-> _) => .Map
+        endmodule
+    "#
+);
+
+rule_snapshot!(
     infers_boolean_condition_variables_from_builtin_rule_syntax,
     r#"
         module MAIN

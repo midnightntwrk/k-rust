@@ -201,10 +201,12 @@ impl<'a> Encoding<'a> {
             ParsedTerm::Term(term) => match term.unannotated() {
                 Term::Variable { name, .. } => {
                     let variable = self.term_variable(name, path);
-                    Ok(match cast_context {
-                        CastContext::Strict => variable.eq(expected),
-                        CastContext::Parser => Bool::from_bool(true),
-                        CastContext::None | CastContext::Semantic => {
+                    Ok(match (is_anonymous(name), cast_context) {
+                        // Anonymous occurrences are independent variables, but each one has the
+                        // exact sort demanded by its context in the reference inferencer.
+                        (true, _) | (_, CastContext::Strict) => variable.eq(expected),
+                        (false, CastContext::Parser) => Bool::from_bool(true),
+                        (false, CastContext::None | CastContext::Semantic) => {
                             self.less_than_eq(&variable, expected, false)?
                         }
                     })

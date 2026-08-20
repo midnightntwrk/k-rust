@@ -678,7 +678,13 @@ fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) -> Sort {
 fn combine_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> TermAttributes {
     let mut terms = terms.into_iter();
     let Some(first) = terms.next() else {
-        return TermAttributes::default();
+        // These flags are conjunctions over child terms.  Their identity is true, which is
+        // essential for nullary constructors and empty builtin collections to be recognized as
+        // concrete constructor-like values.
+        return TermAttributes {
+            constructor_like: true,
+            ..TermAttributes::default()
+        };
     };
     let mut combined = first.attributes().clone();
     for term in terms {
@@ -765,6 +771,18 @@ mod tests {
         );
         assert!(concrete.attributes().constructor_like);
         assert!(concrete.attributes().evaluated);
+    }
+
+    #[test]
+    fn nullary_constructors_are_constructor_like() {
+        let term = Term::application(
+            Arc::new(Symbol::constructor("constant", Vec::new(), sort())),
+            Vec::new(),
+            Vec::new(),
+        );
+
+        assert!(term.attributes().constructor_like);
+        assert!(term.attributes().evaluated);
     }
 
     #[test]

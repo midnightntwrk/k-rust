@@ -35,6 +35,16 @@ list_execution=$(krust krun "$workspace/examples/list-unification.k" \
 grep -q "Lblsuccess'Unds'LIST-UNIFICATION'Unds'Val{}()" <<<"$list_execution"
 test "$(grep -c 'LblListItem{}' <<<"$list_execution")" -eq 6
 
+echo "[rust] selecting and removing a concrete Map entry through AC framing"
+map_execution=$(krust krun "$workspace/examples/map-framing.k" \
+  --main-module MAP-FRAMING \
+  --sort Val \
+  --expression a \
+  --depth 10)
+grep -q "Lblb'Unds'MAP-FRAMING'Unds'Val{}()" <<<"$map_execution"
+grep -q "Lblc'Unds'MAP-FRAMING'Unds'Val{}()" <<<"$map_execution"
+test "$(grep -c "Lbl'UndsPipe'-'-GT-Unds'{}(" <<<"$map_execution")" -eq 2
+
 echo "[rust] proving a reachability claim with in-process Z3"
 proof=$(krust kprove "$workspace/examples/reachability.k" \
   --main-module REACHABILITY \

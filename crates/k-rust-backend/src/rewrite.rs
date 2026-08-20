@@ -1123,7 +1123,21 @@ fn apply_rule_with_match(
     {
         extend_unique(&mut inherited_conditions, ceil_term(definition, value));
     }
-    let match_conditions = inherited_conditions;
+    let match_conditions = simplify_predicates_with_solver(
+        definition,
+        &inherited_conditions,
+        &pattern.constraints,
+        simplification_options,
+        solver,
+    )
+    .unwrap_or(inherited_conditions);
+    if predicates_truth(&match_conditions) == Truth::False {
+        return RuleAttempt::NotApplicable;
+    }
+    let match_conditions = match_conditions
+        .into_iter()
+        .filter(|condition| predicates_truth(std::slice::from_ref(condition)) == Truth::Unknown)
+        .collect::<Vec<_>>();
 
     if !match_conditions.is_empty() {
         let mut narrowed = pattern.constraints.clone();
