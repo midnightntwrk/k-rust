@@ -55,10 +55,19 @@ pub fn evaluate(term: &Term) -> Result<BuiltinResult, BuiltinError> {
     let Some(hook) = symbol.attributes.hook.as_deref() else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    evaluate_hook(hook, arguments)
+    let result_sort = term.sort();
+    evaluate_hook_with_sort(hook, arguments, Some(&result_sort))
 }
 
 pub fn evaluate_hook(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    evaluate_hook_with_sort(hook, arguments, None)
+}
+
+fn evaluate_hook_with_sort(
+    hook: &str,
+    arguments: &[Term],
+    result_sort: Option<&Sort>,
+) -> Result<BuiltinResult, BuiltinError> {
     match hook {
         "INT.ediv" => return int_partial_binary(hook, arguments, euclidean_division),
         "INT.emod" => return int_partial_binary(hook, arguments, euclidean_modulus),
@@ -100,7 +109,9 @@ pub fn evaluate_hook(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, Bu
         "KEQUAL.ne" => kequal(arguments, true),
         hook if hook.starts_with("LIST.") => list::evaluate(hook, arguments),
         hook if hook.starts_with("MAP.") => map::evaluate(hook, arguments),
-        hook if hook.starts_with("STRING.") => return string::evaluate(hook, arguments),
+        hook if hook.starts_with("STRING.") => {
+            return string::evaluate(hook, arguments, result_sort);
+        }
         _ => Ok(None),
     }?;
     Ok(result.into())
@@ -590,6 +601,23 @@ mod tests {
         assert_eq!(
             evaluate(&comparison),
             Ok(BuiltinResult::Value(bool_term(true)))
+        );
+    }
+
+    #[test]
+    fn string_to_token_uses_the_application_result_sort() {
+        let token_sort = Sort::simple("SortIdentifier");
+        let application = hooked(
+            "STRING.string2token",
+            token_sort.clone(),
+            vec![Term::domain_value(Sort::simple("SortString"), "alpha")],
+        );
+
+        assert_eq!(
+            evaluate(&application),
+            Ok(BuiltinResult::Value(Term::domain_value(
+                token_sort, "alpha"
+            )))
         );
     }
 

@@ -6,7 +6,11 @@ use num_traits::ToPrimitive;
 use super::{BuiltinError, BuiltinResult, bool_term, expect_arity, int_term, read_int};
 use crate::term::{Sort, Term, TermKind};
 
-pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+pub(super) fn evaluate(
+    hook: &str,
+    arguments: &[Term],
+    result_sort: Option<&Sort>,
+) -> Result<BuiltinResult, BuiltinError> {
     match hook {
         "STRING.eq" => compare(hook, arguments, |left, right| left == right),
         "STRING.ne" => compare(hook, arguments, |left, right| left != right),
@@ -25,6 +29,7 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
         "STRING.chr" => chr(arguments),
         "STRING.ord" => ord(arguments),
         "STRING.token2string" => token_to_string(arguments),
+        "STRING.string2token" => string_to_token(arguments, result_sort),
         _ => Ok(BuiltinResult::NotApplicable),
     }
 }
@@ -187,6 +192,23 @@ fn token_to_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(string_term(value.as_ref())))
 }
 
+fn string_to_token(
+    arguments: &[Term],
+    result_sort: Option<&Sort>,
+) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity("STRING.string2token", arguments, 1)?;
+    let Some(value) = read_string(&arguments[0]) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some(result_sort) = result_sort else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    Ok(BuiltinResult::Value(Term::domain_value(
+        result_sort.clone(),
+        value,
+    )))
+}
+
 fn read_base(term: &Term) -> Option<u32> {
     read_int(term)
         .and_then(|base| base.to_u32())
@@ -209,7 +231,7 @@ mod tests {
     use super::*;
 
     fn evaluate(hook: &str, arguments: Vec<Term>) -> BuiltinResult {
-        super::evaluate(hook, &arguments).unwrap()
+        super::evaluate(hook, &arguments, None).unwrap()
     }
 
     #[test]
