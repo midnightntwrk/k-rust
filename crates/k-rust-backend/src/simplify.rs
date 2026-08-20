@@ -6,9 +6,15 @@ use std::{
 };
 
 use crate::{
-    builtin::{BuiltinEffect, BuiltinError, BuiltinResult, evaluate as evaluate_builtin},
+    builtin::{
+        BuiltinEffect, BuiltinError, BuiltinResult, evaluate as evaluate_builtin, k_sequence_item,
+    },
+    definedness::ceil_term,
     definition::BackendDefinition,
-    matching::{MatchMode, MatchResult, match_terms_in_definition},
+    matching::{
+        MatchMode, MatchResult, match_collection_remainders_all_in_definition,
+        match_terms_in_definition,
+    },
     rewrite::{Truth, check_concreteness, predicates_truth, substitute_predicates},
     rule::{Predicate, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
     smt::{NoSolver, SmtError, SmtSolver, Validity},
@@ -40,11 +46,6 @@ pub struct Simplification {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SimplificationError {
     Builtin(BuiltinError),
-    IndeterminateMatch {
-        rule_id: String,
-        substitution: Substitution,
-        remainder: Vec<(Term, Term)>,
-    },
     IndeterminateRequires {
         rule_id: String,
         predicates: Vec<Predicate>,
@@ -202,6 +203,12 @@ fn simplify_predicate_with_budget(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Predicate, SimplificationError> {
+    if known_predicates.contains(predicate) {
+        return Ok(Predicate::True);
+    }
+    if known_predicates.contains(&Predicate::Not(Box::new(predicate.clone()))) {
+        return Ok(Predicate::False);
+    }
     let mut simplify_term = |term: &Term| {
         simplify_with_budget(
             definition,
@@ -291,11 +298,134 @@ fn simplify_predicate_with_budget(
             }
         }
     };
-    Ok(normalize_predicate(simplified))
+    Ok(normalize_predicate(normalize_hooked_boolean_predicate(
+        definition, simplified,
+    )))
+}
+
+/// Apply symbolic BOOL and `K-EQUAL-KORE` equations directly to predicate IR.
+///
+/// The frontend represents K operands as singleton K sequences, while collection definedness
+/// compares their underlying KItems. Lowering both to the item makes those logically identical
+/// conditions share one internal representation. The ceil obligations retain strictness: a
+/// Boolean result from K equality implies that both operands were defined.
+fn normalize_hooked_boolean_predicate(
+    definition: &BackendDefinition,
+    predicate: Predicate,
+) -> Predicate {
+    let Predicate::Equals(left, right) = predicate else {
+        return predicate;
+    };
+    let (application, value) = if let Some(value) = bool_value(&right) {
+        (&left, value)
+    } else if let Some(value) = bool_value(&left) {
+        (&right, value)
+    } else {
+        return Predicate::Equals(left, right);
+    };
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = application.kind()
+    else {
+        return Predicate::Equals(left, right);
+    };
+    if let Some(operator) = symbol.attributes.hook.as_deref() {
+        let bool_operand = |term: &Term, value| {
+            normalize_hooked_boolean_predicate(
+                definition,
+                Predicate::Equals(
+                    term.clone(),
+                    Term::domain_value(
+                        crate::term::Sort::simple("SortBool"),
+                        if value { "true" } else { "false" },
+                    ),
+                ),
+            )
+        };
+        match (operator, arguments.as_slice()) {
+            ("BOOL.and", [first, second]) => {
+                let operands = vec![bool_operand(first, value), bool_operand(second, value)];
+                return normalize_predicate(if value {
+                    Predicate::And(operands)
+                } else {
+                    Predicate::Or(operands)
+                });
+            }
+            ("BOOL.or", [first, second]) => {
+                let operands = vec![bool_operand(first, value), bool_operand(second, value)];
+                return normalize_predicate(if value {
+                    Predicate::Or(operands)
+                } else {
+                    Predicate::And(operands)
+                });
+            }
+            ("BOOL.not", [operand]) => return bool_operand(operand, !value),
+            _ => {}
+        }
+    }
+    let negate = match symbol.attributes.hook.as_deref() {
+        Some("KEQUAL.eq") => !value,
+        Some("KEQUAL.ne") => value,
+        _ => return Predicate::Equals(left, right),
+    };
+    let [left_operand, right_operand] = arguments.as_slice() else {
+        return Predicate::Equals(left, right);
+    };
+    let (Some(left_operand), Some(right_operand)) = (
+        k_sequence_item(left_operand),
+        k_sequence_item(right_operand),
+    ) else {
+        return Predicate::Equals(left, right);
+    };
+    let equality = Predicate::Equals(left_operand.clone(), right_operand.clone());
+    let condition = if negate {
+        Predicate::Not(Box::new(equality))
+    } else {
+        equality
+    };
+    let mut predicates = ceil_term(definition, left_operand);
+    predicates.extend(ceil_term(definition, right_operand));
+    predicates.push(condition);
+    normalize_predicate(Predicate::And(predicates))
+}
+
+fn bool_value(term: &Term) -> Option<bool> {
+    let TermKind::DomainValue { sort, value } = term.kind() else {
+        return None;
+    };
+    if sort != &crate::term::Sort::simple("SortBool") {
+        return None;
+    }
+    match value.as_ref() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
 }
 
 fn normalize_predicate(predicate: Predicate) -> Predicate {
     match predicate {
+        Predicate::Equals(left, right) => match (left.kind(), right.kind()) {
+            (
+                TermKind::Injection {
+                    source: left_source,
+                    target: left_target,
+                    term: left_term,
+                },
+                TermKind::Injection {
+                    source: right_source,
+                    target: right_target,
+                    term: right_term,
+                },
+            ) if left_source == right_source && left_target == right_target => {
+                normalize_predicate(Predicate::Equals(left_term.clone(), right_term.clone()))
+            }
+            _ => match predicates_truth(&[Predicate::Equals(left.clone(), right.clone())]) {
+                Truth::True => Predicate::True,
+                Truth::False => Predicate::False,
+                Truth::Unknown => Predicate::Equals(left, right),
+            },
+        },
         Predicate::Not(inner) => match predicates_truth(std::slice::from_ref(&inner)) {
             Truth::True => Predicate::False,
             Truth::False => Predicate::True,
@@ -739,6 +869,7 @@ fn apply_theory(
     let groups = applicable_groups(theory, &term_index(term));
     for rules in groups.values() {
         let mut results = Vec::new();
+        let mut indeterminate = false;
         for rule in rules {
             match apply_equation(
                 definition,
@@ -750,8 +881,14 @@ fn apply_theory(
                 solver,
             )? {
                 EquationAttempt::NotApplicable => {}
+                EquationAttempt::Indeterminate => indeterminate = true,
                 EquationAttempt::Applied(result) => results.push(result),
             }
+        }
+        if indeterminate {
+            // A rule at this priority may apply after the symbolic subject becomes more concrete.
+            // Preserve the application and do not fall through to lower-priority equations.
+            return Ok(None);
         }
         match results.len() {
             0 => {}
@@ -795,6 +932,7 @@ fn applicable_groups(theory: &Theory, index: &TermIndex) -> BTreeMap<u8, Vec<Arc
 
 enum EquationAttempt {
     NotApplicable,
+    Indeterminate,
     Applied(Simplification),
 }
 
@@ -814,11 +952,22 @@ fn apply_equation(
                 substitution,
                 remainder,
             } => {
-                return Err(SimplificationError::IndeterminateMatch {
-                    rule_id: rule.attributes.unique_id.clone(),
-                    substitution,
-                    remainder,
-                });
+                let Some(matches) = match_collection_remainders_all_in_definition(
+                    MatchMode::Evaluate,
+                    definition,
+                    substitution.clone(),
+                    &remainder,
+                ) else {
+                    return Ok(EquationAttempt::Indeterminate);
+                };
+                let Some(substitution) = matches.into_iter().next() else {
+                    return Ok(EquationAttempt::NotApplicable);
+                };
+                // K function equations are required to be functional. AC matching may expose
+                // several equivalent decompositions, so use the first substitution from the
+                // helper's stable sorted order rather than turning evaluation into execution
+                // branching.
+                substitution
             }
             MatchResult::Success(substitution) => substitution,
         };
@@ -1027,6 +1176,162 @@ mod tests {
         assert_eq!(
             result.applied_rules,
             vec!["builtin:INT.add", "builtin:INT.add"]
+        );
+    }
+
+    #[test]
+    fn evaluates_function_equations_with_symbolic_map_selection() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortKey{} [hasDomainValues{}()]
+                sort SortValue{} [hasDomainValues{}()]
+                sort SortBool{} [hasDomainValues{}()]
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                symbol mapUnit{}() : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.unit")]
+                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                symbol nonEmpty{}(SortMap{}) : SortBool{} [function{}()]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortBool{}, R}(
+                        nonEmpty{}(
+                            mapConcat{}(
+                                mapItem{}(KEY:SortKey{}, VALUE:SortValue{}),
+                                REST:SortMap{}
+                            )
+                        ),
+                        \and{SortBool{}}(
+                            \dv{SortBool{}}("true"),
+                            \top{SortBool{}}()
+                        )
+                    )
+                ) [label{}("non-empty-map"), simplification{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let input = term(
+            &definition,
+            r#"nonEmpty{}(
+                mapConcat{}(
+                    mapItem{}(\dv{SortKey{}}("a"), \dv{SortValue{}}("1")),
+                    mapItem{}(\dv{SortKey{}}("b"), \dv{SortValue{}}("2"))
+                )
+            )"#,
+        );
+
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+        assert_eq!(result.term, term(&definition, r#"\dv{SortBool{}}("true")"#));
+        assert_eq!(result.applied_rules, ["non-empty-map"]);
+    }
+
+    #[test]
+    fn preserves_symbolic_functions_blocked_by_a_higher_priority_match() {
+        let definition = definition(
+            r#"
+            symbol a{}() : SortS{} [constructor{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(a{}()),
+                    \and{SortS{}}(\dv{SortS{}}("specific"), \top{SortS{}}())
+                )
+            ) [label{}("specific"), simplification{}("10")]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("fallback"), \top{SortS{}}())
+                )
+            ) [label{}("fallback"), simplification{}("50")]
+            "#,
+        );
+        let input = term(&definition, "f{}(Y:SortS{})");
+
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+        assert_eq!(result.term, input);
+        assert!(result.applied_rules.is_empty());
+    }
+
+    #[test]
+    fn normalizes_boolean_k_disequality_conditions_to_native_predicates() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortBool{} [hasDomainValues{}()]
+                sort SortElement{} []
+                sort SortKItem{} []
+                sort SortK{} []
+                symbol dotk{}() : SortK{} [constructor{}()]
+                symbol kseq{}(SortKItem{}, SortK{}) : SortK{}
+                    [constructor{}(), injective{}()]
+                symbol andBool{}(SortBool{}, SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.and")]
+                symbol notEqual{}(SortK{}, SortK{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("KEQUAL.ne")]
+                symbol g{}(SortElement{}) : SortElement{} [function{}(), total{}()]
+                symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+                axiom{R} \exists{R}(
+                    Value:SortKItem{},
+                    \equals{SortKItem{}, R}(
+                        Value:SortKItem{},
+                        inj{SortElement{}, SortKItem{}}(From:SortElement{})
+                    )
+                ) [subsort{SortElement{}, SortKItem{}}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let x = term(&definition, "X:SortElement{}");
+        let y = term(&definition, "Y:SortElement{}");
+        let gx = term(&definition, "g{}(X:SortElement{})");
+        let gy = term(&definition, "g{}(Y:SortElement{})");
+        let condition = term(
+            &definition,
+            r#"andBool{}(
+                notEqual{}(
+                    kseq{}(inj{SortElement{}, SortKItem{}}(X:SortElement{}), dotk{}()),
+                    kseq{}(inj{SortElement{}, SortKItem{}}(Y:SortElement{}), dotk{}())
+                ),
+                notEqual{}(
+                    kseq{}(inj{SortElement{}, SortKItem{}}(g{}(X:SortElement{})), dotk{}()),
+                    kseq{}(inj{SortElement{}, SortKItem{}}(g{}(Y:SortElement{})), dotk{}())
+                )
+            )"#,
+        );
+        let predicate = Predicate::Equals(
+            condition,
+            Term::domain_value(Sort::simple("SortBool"), "true"),
+        );
+
+        let result = simplify_predicate_with_solver(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(
+            result,
+            Predicate::And(vec![
+                Predicate::Ceil(x.clone()),
+                Predicate::Ceil(y.clone()),
+                Predicate::Not(Box::new(Predicate::Equals(x.clone(), y.clone()))),
+                Predicate::Ceil(x),
+                Predicate::Ceil(y),
+                Predicate::Not(Box::new(Predicate::Equals(gx, gy))),
+            ])
         );
     }
 

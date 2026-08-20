@@ -350,6 +350,40 @@ pub(crate) fn match_map_terms_all_in_definition(
     )
 }
 
+/// Enumerate complete collection matches for every deferred pair from an ordinary match.
+///
+/// A deferred Set or Map pair may have multiple AC solutions. Returning all substitutions keeps
+/// that branching policy outside the one-result [`MatchResult`] API and lets each consumer decide
+/// whether the solutions are execution branches or equivalent choices for a functional equation.
+pub(crate) fn match_collection_remainders_all_in_definition(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    initial: Substitution,
+    remainder: &[(Term, Term)],
+) -> Option<Vec<Substitution>> {
+    let mut solutions = vec![initial];
+    for (pattern, subject) in remainder {
+        let mut next = Vec::new();
+        for substitution in solutions {
+            let matches = match_set_terms_all_in_definition(
+                mode,
+                definition,
+                pattern,
+                subject,
+                &substitution,
+            )
+            .or_else(|| {
+                match_map_terms_all_in_definition(mode, definition, pattern, subject, &substitution)
+            })?;
+            next.extend(matches);
+        }
+        solutions = next;
+    }
+    solutions.sort();
+    solutions.dedup();
+    Some(solutions)
+}
+
 fn match_map_terms_all_with_context(
     mode: MatchMode,
     sorts: &SortGraph,

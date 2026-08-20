@@ -207,6 +207,25 @@ pub fn prove_claim(
                 }
             };
         }
+        let simplified_constraints = simplify_predicates_with_solver(
+            definition,
+            &state.pattern.constraints,
+            &[],
+            SimplificationOptions {
+                max_iterations: options.max_simplification_iterations,
+            },
+            solver,
+        );
+        finish_if_timed_out!();
+        state.pattern.constraints = match simplified_constraints {
+            Ok(constraints) => constraints,
+            Err(error) => {
+                record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
+                    ProofIndeterminateReason::Simplification(error),
+                )));
+                continue;
+            }
+        };
         let simplified = simplify_with_solver(
             definition,
             &state.pattern.term,

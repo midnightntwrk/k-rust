@@ -452,7 +452,7 @@ fn evaluate_equality(left: &Term, right: &Term) -> Option<bool> {
     }
 }
 
-fn k_sequence_item(term: &Term) -> Option<&Term> {
+pub(crate) fn k_sequence_item(term: &Term) -> Option<&Term> {
     let TermKind::Application {
         symbol, arguments, ..
     } = term.kind()

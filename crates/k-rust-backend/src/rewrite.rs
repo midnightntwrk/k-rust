@@ -10,8 +10,8 @@ use crate::{
     definedness::ceil_term,
     definition::BackendDefinition,
     matching::{
-        MatchMode, MatchResult, match_map_terms_all_in_definition,
-        match_set_terms_all_in_definition, match_terms_in_definition,
+        MatchMode, MatchResult, match_collection_remainders_all_in_definition,
+        match_terms_in_definition,
     },
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
     simplify::{
@@ -173,6 +173,26 @@ pub fn execute_with_solver_and_observer(
     let mut leaves = Vec::new();
     let mut effects = Vec::new();
     while let Some(mut state) = pending.pop_front() {
+        match simplify_predicates_with_solver(
+            definition,
+            &state.pattern.constraints,
+            &[],
+            SimplificationOptions {
+                max_iterations: options.max_simplification_iterations,
+            },
+            solver,
+        ) {
+            Ok(constraints) => state.pattern.constraints = constraints,
+            Err(error) => {
+                leaves.push(ExecutionLeaf {
+                    pattern: state.pattern,
+                    depth: state.depth,
+                    trace: state.trace,
+                    halt_reason: HaltReason::Simplification(error),
+                });
+                continue;
+            }
+        }
         match simplify_with_solver(
             definition,
             &state.pattern.term,
@@ -1029,9 +1049,12 @@ fn apply_rule_with_match(
                             )
                         }));
                     }
-                    if let Some(matches) =
-                        recover_collection_matches(definition, substitution.clone(), &remainder)
-                    {
+                    if let Some(matches) = match_collection_remainders_all_in_definition(
+                        MatchMode::Rewrite,
+                        definition,
+                        substitution.clone(),
+                        &remainder,
+                    ) {
                         return combine_rule_attempts(matches.into_iter().map(|substitution| {
                             apply_rule_with_match(
                                 definition,
@@ -1943,38 +1966,6 @@ fn recover_overload_symbolic_match(
             configuration_value,
         )],
     ))
-}
-
-fn recover_collection_matches(
-    definition: &BackendDefinition,
-    initial: Substitution,
-    remainder: &[(Term, Term)],
-) -> Option<Vec<Substitution>> {
-    let mut solutions = vec![initial];
-    for (pattern, subject) in remainder {
-        let mut next = Vec::new();
-        for substitution in solutions {
-            let matches = match_set_terms_all_in_definition(
-                MatchMode::Rewrite,
-                definition,
-                pattern,
-                subject,
-                &substitution,
-            )
-            .or_else(|| {
-                match_map_terms_all_in_definition(
-                    MatchMode::Rewrite,
-                    definition,
-                    pattern,
-                    subject,
-                    &substitution,
-                )
-            })?;
-            next.extend(matches);
-        }
-        solutions = next;
-    }
-    Some(solutions)
 }
 
 fn combine_rule_attempts(attempts: impl IntoIterator<Item = RuleAttempt>) -> RuleAttempt {
