@@ -3,6 +3,7 @@
 use std::collections::{BTreeSet, VecDeque};
 
 use crate::{
+    definedness::ceil_term,
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms},
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
@@ -587,17 +588,6 @@ fn apply_rule(
             variable,
         });
     }
-    if !rule.computed_attributes.undefined_symbols.is_empty() {
-        return RuleAttempt::Indeterminate(IndeterminateReason::Definedness {
-            rule_id: rule.attributes.unique_id.clone(),
-            symbols: rule
-                .computed_attributes
-                .undefined_symbols
-                .iter()
-                .cloned()
-                .collect(),
-        });
-    }
     let requires = substitute_predicates(&rule.requires, &substitution);
     let requires = simplify_predicates_with_solver(
         definition,
@@ -658,12 +648,54 @@ fn apply_rule(
     };
     let existential_substitution = freshen_existentials(rule, pattern, fresh_counter);
     let rhs = substitute(&substitute(rhs, &substitution), &existential_substitution);
+    let mut condition_knowledge = pattern.constraints.clone();
+    extend_unique(&mut condition_knowledge, unclear_requires.iter().cloned());
+    let (rhs, rhs_constraints) = if rule.computed_attributes.undefined_symbols.is_empty() {
+        (rhs, Vec::new())
+    } else {
+        match simplify_with_solver(
+            definition,
+            &rhs,
+            &condition_knowledge,
+            simplification_options,
+            solver,
+        ) {
+            Ok(simplified) => (simplified.term, simplified.constraints),
+            Err(_) => (rhs, Vec::new()),
+        }
+    };
+    extend_unique(&mut condition_knowledge, rhs_constraints.iter().cloned());
+    if !rule.computed_attributes.undefined_symbols.is_empty() {
+        let obligations = ceil_term(definition, &rhs);
+        let obligations = simplify_predicates_with_solver(
+            definition,
+            &obligations,
+            &condition_knowledge,
+            simplification_options,
+            solver,
+        )
+        .unwrap_or(obligations);
+        let defined = predicates_truth(&obligations) == Truth::True
+            || matches!(
+                solver.check_predicates(&condition_knowledge, &Substitution::new(), &obligations,),
+                Ok(Validity::Valid)
+            );
+        if !defined {
+            return RuleAttempt::Indeterminate(IndeterminateReason::Definedness {
+                rule_id: rule.attributes.unique_id.clone(),
+                symbols: rule
+                    .computed_attributes
+                    .undefined_symbols
+                    .iter()
+                    .cloned()
+                    .collect(),
+            });
+        }
+    }
     let ensures = substitute_predicates(
         &substitute_predicates(&rule.ensures, &substitution),
         &existential_substitution,
     );
-    let mut condition_knowledge = pattern.constraints.clone();
-    extend_unique(&mut condition_knowledge, unclear_requires.iter().cloned());
     let ensures = simplify_predicates_with_solver(
         definition,
         &ensures,
@@ -698,6 +730,7 @@ fn apply_rule(
     }
     let mut constraints = pattern.constraints.clone();
     extend_unique(&mut constraints, unclear_requires.iter().cloned());
+    extend_unique(&mut constraints, rhs_constraints);
     extend_unique(&mut constraints, ensures);
     let remainder = if unclear_requires.is_empty() {
         Predicate::False

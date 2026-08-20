@@ -237,6 +237,56 @@ endmodule
 }
 
 #[test]
+fn krun_simplifies_partial_rhs_functions_before_definedness() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  syntax Pgm ::= run(Int)
+  syntax Num ::= Int
+               | inc(Num) [function]
+               | foo(Num) [function]
+  rule run(3) => foo(inc(333))
+  rule inc(I:Int) => I +Int 1 [concrete]
+  rule foo(I) => I
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Pgm",
+            "--expression",
+            "run(3)",
+            "--depth",
+            "20",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(output.contains(r#"\dv{SortInt{}}("334")"#), "{output}");
+    assert!(!output.contains("Lblinc"), "{output}");
+    assert!(!output.contains("Lblfoo"), "{output}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn krun_recovers_evaluable_collection_function_patterns() {
     let (root, definition) = fixture();
     fs::write(

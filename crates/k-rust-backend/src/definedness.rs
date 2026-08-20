@@ -252,6 +252,7 @@ mod tests {
 
     use super::*;
     use crate::rewrite::{IndeterminateReason, Pattern, RewriteResult, rewrite_step};
+    use crate::term::Sort;
 
     fn definition(extra_axioms: &str) -> BackendDefinition {
         let source = r#"[]
@@ -326,6 +327,43 @@ mod tests {
                 && symbols.len() == 1
                 && symbols[0].as_ref() == "partial"
         ));
+    }
+
+    #[test]
+    fn simplifies_an_instantiated_rhs_before_checking_definedness() {
+        let definition = definition(
+            r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    partial{}(X:SortS{}),
+                    \and{SortS{}}(X:SortS{}, \top{SortS{}}())
+                )
+            ) [label{}("evaluate-partial"), simplification{}()]
+            "#,
+        );
+        let subject = definition
+            .internalize_term(
+                &parse_pattern(r#"wrap{}(\dv{SortS{}}("value"))"#).unwrap(),
+                &[],
+            )
+            .unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Finished(applied) = rewrite_step(
+            &definition,
+            &Pattern {
+                term: subject,
+                constraints: Vec::new(),
+            },
+            &mut fresh,
+        ) else {
+            panic!("evaluated RHS should be defined");
+        };
+        assert_eq!(
+            applied.pattern.term,
+            Term::domain_value(Sort::simple("SortS"), "value")
+        );
     }
 
     #[test]
