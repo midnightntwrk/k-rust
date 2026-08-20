@@ -27,6 +27,7 @@ use k_rust::{
 use k_rust_backend::{
     definition::BackendDefinition,
     externalize,
+    proof::{ProofLeafOutcome, ProofOptions, ProofStatus, prove_claim},
     rewrite::{ExecutionOptions, HaltReason, Pattern, execute_with_solver},
     smt::Z3Solver,
 };
@@ -44,6 +45,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         Command::Kcompile(options) => kcompile(options.into()),
         Command::Kast(options) => kast(options.into()),
         Command::Krun(options) => krun(options.into()),
+        Command::Kprove(options) => kprove(options.into()),
     }
 }
 
@@ -67,6 +69,8 @@ enum Command {
     Kast(KastArgs),
     /// Compile and execute a program with the in-process Rust backend.
     Krun(KrunArgs),
+    /// Compile and prove modal reachability claims with the in-process Rust backend.
+    Kprove(KproveArgs),
 }
 
 #[derive(Clone, Debug, Args)]
@@ -182,6 +186,36 @@ struct KrunArgs {
     source: SourceArgs,
 }
 
+#[derive(Debug, Args)]
+struct KproveArgs {
+    /// K definition or specification containing the claims to prove.
+    #[arg(value_name = "DEFINITION")]
+    definition: PathBuf,
+
+    /// Main specification module.
+    #[arg(short = 'm', long = "main-module", value_name = "MODULE")]
+    module: String,
+
+    /// Prove only claims with one of these labels. May be repeated.
+    #[arg(long = "claim", value_name = "LABEL")]
+    claims: Vec<String>,
+
+    /// Maximum number of rewrite or circularity steps per proof branch.
+    #[arg(long, default_value_t = 1_000, value_name = "STEPS")]
+    depth: u64,
+
+    /// Do not attempt implication closure before this depth.
+    #[arg(long, default_value_t = 0, value_name = "STEPS")]
+    min_depth: u64,
+
+    /// Accept branches whose left-hand side simplifies to bottom.
+    #[arg(long)]
+    allow_vacuous: bool,
+
+    #[command(flatten)]
+    source: SourceArgs,
+}
+
 #[derive(Debug)]
 struct CommonOptions {
     definition: PathBuf,
@@ -241,6 +275,15 @@ struct KrunOptions {
     depth: u64,
 }
 
+#[derive(Debug)]
+struct KproveOptions {
+    common: CommonOptions,
+    claims: Vec<String>,
+    depth: u64,
+    min_depth: u64,
+    allow_vacuous: bool,
+}
+
 impl SourceArgs {
     fn common(self, definition: PathBuf, module: String) -> CommonOptions {
         CommonOptions {
@@ -290,6 +333,20 @@ impl From<KrunArgs> for KrunOptions {
             expression: arguments.expression,
             program_file: arguments.program_file,
             depth: arguments.depth,
+        }
+    }
+}
+
+impl From<KproveArgs> for KproveOptions {
+    fn from(arguments: KproveArgs) -> Self {
+        Self {
+            common: arguments
+                .source
+                .common(arguments.definition, arguments.module),
+            claims: arguments.claims,
+            depth: arguments.depth,
+            min_depth: arguments.min_depth,
+            allow_vacuous: arguments.allow_vacuous,
         }
     }
 }
@@ -463,6 +520,106 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
+    let loaded = load_definition(&options.common, Some(CompilationBackend::Rust))?;
+    let compiled = match compile_loaded_definition(
+        &loaded,
+        CompileOptions {
+            backend: CompilationBackend::Rust,
+            ..CompileOptions::default()
+        },
+    ) {
+        Ok(compiled) => compiled,
+        Err(error) => {
+            emit_diagnostics(&error.diagnostics);
+            return Err(error.into());
+        }
+    };
+    emit_diagnostics(&compiled.diagnostics);
+
+    let syntax = parse_kore_definition(&compiled.definition_kore)?;
+    let backend = BackendDefinition::internalize(&syntax, &options.common.module)?;
+    if backend.reachability_claims.is_empty() {
+        return Err("the selected module contains no modal reachability claims".into());
+    }
+    let solver = Z3Solver::new(&backend)
+        .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
+    let selected = backend
+        .reachability_claims
+        .iter()
+        .filter(|claim| {
+            options.claims.is_empty()
+                || claim
+                    .attributes
+                    .label
+                    .as_ref()
+                    .is_some_and(|label| options.claims.contains(label))
+        })
+        .collect::<Vec<_>>();
+    for requested in &options.claims {
+        if !selected
+            .iter()
+            .any(|claim| claim.attributes.label.as_ref() == Some(requested))
+        {
+            return Err(format!("no modal reachability claim has label `{requested}`").into());
+        }
+    }
+
+    let mut all_proven = true;
+    for (index, claim) in selected.into_iter().enumerate() {
+        let result = prove_claim(
+            &backend,
+            claim,
+            ProofOptions {
+                max_depth: options.depth,
+                min_depth: options.min_depth,
+                allow_vacuous: options.allow_vacuous,
+                ..ProofOptions::default()
+            },
+            &solver,
+        )?;
+        let name = claim
+            .attributes
+            .label
+            .as_deref()
+            .map_or_else(|| format!("#{}", index + 1), str::to_owned);
+        println!(
+            "claim {name}: {} ({} states)",
+            proof_status(result.status),
+            result.explored_states
+        );
+        if result.status != ProofStatus::Proven {
+            all_proven = false;
+            for leaf in result.leaves.iter().filter(|leaf| {
+                !matches!(
+                    leaf.outcome,
+                    ProofLeafOutcome::Proven(_) | ProofLeafOutcome::Trusted
+                )
+            }) {
+                println!("  {:?} at depth {}", leaf.outcome, leaf.depth);
+                let pattern = externalize::constrained_pattern(&leaf.pattern);
+                let rendered = KorePrinter::pretty(100).print_pattern(&pattern);
+                for line in rendered.lines() {
+                    println!("    {line}");
+                }
+            }
+        }
+    }
+    if !all_proven {
+        return Err("one or more reachability claims were not proven".into());
+    }
+    Ok(())
+}
+
+fn proof_status(status: ProofStatus) -> &'static str {
+    match status {
+        ProofStatus::Proven => "proven",
+        ProofStatus::Disproved => "disproved",
+        ProofStatus::Indeterminate => "indeterminate",
+        ProofStatus::DepthBound => "depth bound",
+    }
+}
+
 fn read_program_source(
     expression: Option<String>,
     program_file: Option<PathBuf>,
@@ -620,6 +777,38 @@ mod tests {
         assert_eq!(options.sort, "Exp");
         assert_eq!(options.expression.as_deref(), Some("1 + 2"));
         assert_eq!(options.depth, 42);
+    }
+
+    #[test]
+    fn parses_kprove_claim_selection_and_bounds() {
+        let cli = Cli::try_parse_from([
+            "krust",
+            "kprove",
+            "spec.k",
+            "--main-module",
+            "SPEC",
+            "--claim",
+            "first",
+            "--claim",
+            "second",
+            "--depth",
+            "42",
+            "--min-depth",
+            "2",
+            "--allow-vacuous",
+        ])
+        .unwrap();
+        let Command::Kprove(options) = cli.command else {
+            panic!("expected kprove command");
+        };
+        let options = KproveOptions::from(options);
+
+        assert_eq!(options.common.definition, Path::new("spec.k"));
+        assert_eq!(options.common.module, "SPEC");
+        assert_eq!(options.claims, ["first", "second"]);
+        assert_eq!(options.depth, 42);
+        assert_eq!(options.min_depth, 2);
+        assert!(options.allow_vacuous);
     }
 
     #[test]

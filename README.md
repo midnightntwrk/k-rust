@@ -60,7 +60,8 @@ Implemented end to end:
   backend lowering pipeline, sort injections, and `ModuleToKORE`.
 - KORE generation for ordinary rules, claims, equations, functions, `owise`, macros, aliases,
   reachability claims, subsorts, overloads, algebraic axioms, no-confusion, and no-junk.
-- Native `krust kast`, `krust kcompile`, and experimental `krust krun` commands.
+- Native `krust kast`, `krust kcompile`, and experimental `krust krun` and `krust kprove`
+  commands.
 - Bundled builtin sources pinned to K v7.1.337, so an installed CLI does not require a separate K
   source checkout. Explicit sources always take precedence.
 - Native, portable, and `wasm32-unknown-unknown` build gates.
@@ -124,6 +125,17 @@ Execute a concrete program using the in-process Rust backend:
 krust krun definition.k --main-module MAIN --sort Exp --expression '1 + 2'
 krust krun definition.k --main-module MAIN --sort Exp program.exp --depth 1000
 ```
+
+Prove all modal reachability claims in a specification module, or select claims by label:
+
+```console
+krust kprove spec.k --main-module SPEC
+krust kprove spec.k --main-module SPEC --claim reaches-result --depth 1000
+```
+
+`kprove` handles one-path and all-path claims, trusted claims, guarded claim circularities,
+branching semantic rules, depth bounds, and Z3-backed side conditions entirely in process. A
+specification can `requires` and import its semantics definition in the normal K source layout.
 
 Common source options:
 
@@ -289,7 +301,7 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 - The WASM-compatible feature set intentionally omits Z3 inference and MPFR constant folding.
 - Coverage instrumentation and the optional unsafe-`anywhere` removal mode are not exposed by the
   CLI. They are identity stages unless explicitly requested in Java.
-- LSP, `kserver`, `kprove`, and Bison parser generation are outside the current CLI scope.
+- LSP, `kserver`, and Bison parser generation are outside the current CLI scope.
 
 ## TODOs
 
@@ -306,6 +318,9 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
   concrete parameters normally supplied by parser inference.
 - Emit the optional legacy priority aliases supported by `ModuleToKORE` compatibility modes.
 - Implement binary KORE input.
+- Complete combined disjunctive implication removal and the remaining Kore proof-search controls;
+  the current prover conservatively reports an indeterminate leaf when a symbolic state is covered
+  only by the union of multiple RHS alternatives.
 - Measure Z3-path usage across a substantially larger real-definition corpus.
 - Revisit package splitting only if real build or release pressure justifies it.
 

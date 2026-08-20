@@ -190,6 +190,50 @@ endmodule
 }
 
 #[test]
+fn kprove_proves_a_modal_claim_in_process() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  syntax State ::= "a" [symbol(a)]
+                 | "b" [symbol(b)]
+  configuration <k> $PGM:State </k>
+  rule <k> a => b </k>
+  claim <k> a => b </k> [one-path, label(reaches-b)]
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--claim",
+            "reaches-b",
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "claim reaches-b: proven (2 states)\n"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn krun_handles_generated_concreteness_constraints() {
     let (root, definition) = fixture();
     fs::write(
