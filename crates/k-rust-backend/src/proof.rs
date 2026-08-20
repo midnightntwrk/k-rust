@@ -1295,32 +1295,21 @@ mod tests {
     }
 
     #[test]
-    fn allows_explicitly_vacuous_rewrites_only_when_requested() {
+    fn closes_explicit_bottom_rewrites_as_trivial() {
         let claims = modal_claim(ReachabilityMode::AllPath, "a", "b", false);
         let definition = definition(A_TO_BOTTOM, &claims);
         let claim = &definition.reachability_claims[0];
 
-        let rejected = prove_claim(&definition, claim, ProofOptions::default(), &NoSolver).unwrap();
-        let accepted = prove_claim(
-            &definition,
-            claim,
-            ProofOptions {
-                allow_vacuous: true,
-                ..ProofOptions::default()
-            },
-            &NoSolver,
-        )
-        .unwrap();
+        let result = prove_claim(&definition, claim, ProofOptions::default(), &NoSolver).unwrap();
 
-        assert_eq!(rejected.status, ProofStatus::Disproved);
+        assert_eq!(result.status, ProofStatus::Proven);
         assert!(matches!(
-            rejected.leaves.as_slice(),
+            result.leaves.as_slice(),
             [ProofLeaf {
-                outcome: ProofLeafOutcome::Vacuous,
+                outcome: ProofLeafOutcome::Trivial,
                 ..
             }]
         ));
-        assert_eq!(accepted.status, ProofStatus::Proven);
     }
 
     #[test]

@@ -256,14 +256,8 @@ pub fn execute_with_solver_and_observer(
                 trace: state.trace,
                 halt_reason: HaltReason::Stuck,
             }),
-            RewriteResult::Trivial(pattern) => leaves.push(ExecutionLeaf {
-                pattern,
-                depth: state.depth,
-                trace: state.trace,
-                halt_reason: HaltReason::Trivial,
-            }),
-            // A vacuous rewrite produces bottom, so this path contributes no execution leaf.
-            RewriteResult::Vacuous(_) => {}
+            // Trivial and vacuous rewrites produce bottom, so these paths contribute no leaf.
+            RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
             RewriteResult::Indeterminate { pattern, reason } => leaves.push(ExecutionLeaf {
                 pattern,
                 depth: state.depth,
@@ -385,7 +379,6 @@ fn rewrite_step_with_options(
         return RewriteResult::Stuck(pattern.clone());
     }
     let mut saw_trivial = false;
-    let mut saw_vacuous = false;
     for rules in priority_groups.values() {
         let mut applied = Vec::new();
         for rule in rules {
@@ -399,7 +392,6 @@ fn rewrite_step_with_options(
             ) {
                 RuleAttempt::NotApplicable => {}
                 RuleAttempt::Trivial => saw_trivial = true,
-                RuleAttempt::Vacuous => saw_vacuous = true,
                 RuleAttempt::Applied(results) => applied.extend(results),
                 RuleAttempt::Indeterminate(reason) => {
                     return RewriteResult::Indeterminate {
@@ -476,9 +468,7 @@ fn rewrite_step_with_options(
             }
         }
     }
-    if saw_vacuous {
-        RewriteResult::Vacuous(pattern.clone())
-    } else if saw_trivial {
+    if saw_trivial {
         RewriteResult::Trivial(pattern.clone())
     } else {
         RewriteResult::Stuck(pattern.clone())
@@ -511,7 +501,6 @@ fn applicable_groups(
 enum RuleAttempt {
     NotApplicable,
     Trivial,
-    Vacuous,
     Applied(Vec<RuleApplication>),
     Indeterminate(IndeterminateReason),
 }
@@ -1319,7 +1308,7 @@ fn apply_rule_with_match(
 
     let rhs = match &rule.rhs {
         RuleRhs::Term(rhs) => rhs,
-        RuleRhs::Bottom => return RuleAttempt::Vacuous,
+        RuleRhs::Bottom => return RuleAttempt::Trivial,
         RuleRhs::Predicates(_) => return RuleAttempt::NotApplicable,
     };
     let existential_substitution = freshen_existentials(rule, pattern, fresh_counter);
@@ -2211,20 +2200,16 @@ fn recover_overload_symbolic_match(
 fn combine_rule_attempts(attempts: impl IntoIterator<Item = RuleAttempt>) -> RuleAttempt {
     let mut applications = Vec::new();
     let mut trivial = false;
-    let mut vacuous = false;
     for attempt in attempts {
         match attempt {
             RuleAttempt::NotApplicable => {}
             RuleAttempt::Trivial => trivial = true,
-            RuleAttempt::Vacuous => vacuous = true,
             RuleAttempt::Applied(mut found) => applications.append(&mut found),
             RuleAttempt::Indeterminate(reason) => return RuleAttempt::Indeterminate(reason),
         }
     }
     if applications.is_empty() {
-        if vacuous {
-            RuleAttempt::Vacuous
-        } else if trivial {
+        if trivial {
             RuleAttempt::Trivial
         } else {
             RuleAttempt::NotApplicable
@@ -3195,7 +3180,7 @@ mod tests {
     }
 
     #[test]
-    fn internalizes_a_nested_bottom_rewrite_rhs_as_vacuous() {
+    fn internalizes_a_nested_bottom_rewrite_rhs_as_trivial() {
         let definition = definition(
             r#"
             axiom{} \rewrites{SortS{}}(
@@ -3215,7 +3200,7 @@ mod tests {
 
         let result = rewrite_step(&definition, &subject, &mut fresh);
 
-        assert_eq!(result, RewriteResult::Vacuous(subject.clone()));
+        assert_eq!(result, RewriteResult::Trivial(subject.clone()));
         let execution = execute(&definition, subject, ExecutionOptions::default());
         assert!(execution.leaves.is_empty());
     }
