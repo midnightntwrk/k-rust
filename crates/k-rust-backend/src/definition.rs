@@ -574,6 +574,7 @@ fn symbol_attributes(attributes: &kore::Attributes) -> Result<SymbolAttributes, 
     };
     Ok(SymbolAttributes {
         symbol_type,
+        injective: has_attribute(attributes, "injective"),
         associative: has_attribute(attributes, "assoc"),
         idempotent: has_attribute(attributes, "idem"),
         macro_or_alias: has_attribute(attributes, "macro")
@@ -914,6 +915,8 @@ mod tests {
                     [function{}(), assoc{}(), hook{}("MAP.concat")]
                 symbol value{}() : SortValue{} [constructor{}()]
                 symbol wrap{}(SortValue{}) : SortValue{} [constructor{}()]
+                symbol injectiveFunction{}(SortValue{}) : SortValue{}
+                    [function{}(), total{}(), injective{}()]
                 symbol box{S}(S) : SortBox{S} [constructor{}()]
                 axiom{R}
                     \exists{R}(
@@ -1000,6 +1003,14 @@ mod tests {
             term.sort(),
             Sort::application("SortBox", vec![Sort::simple("SortValue")])
         );
+    }
+
+    #[test]
+    fn preserves_injective_symbol_metadata() {
+        let definition = definition();
+
+        assert!(definition.symbols["injectiveFunction"].attributes.injective);
+        assert!(!definition.symbols["wrap"].attributes.injective);
     }
 
     #[test]

@@ -1407,6 +1407,8 @@ mod tests {
             module MAIN
                 sort SortS{{}} [hasDomainValues{{}}()]
                 symbol wrap{{}}(SortS{{}}) : SortS{{}} [constructor{{}}()]
+                symbol injectiveFunction{{}}(SortS{{}}) : SortS{{}}
+                    [function{{}}(), total{{}}(), injective{{}}()]
                 {axioms}
             endmodule []"#
         );
@@ -2383,6 +2385,41 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["left", "right"]
         );
+    }
+
+    #[test]
+    fn rewrites_through_matching_injective_function_heads() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(injectiveFunction{}(X:SortS{})),
+                    \top{SortS{}}()
+                ),
+                wrap{}(X:SortS{})
+            ) [label{}("injective-match")]
+            "#,
+        );
+        let value = r#"\dv{SortS{}}("value")"#;
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                &format!("wrap{{}}(injectiveFunction{{}}({value}))"),
+            ),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh)
+        else {
+            panic!("injective heads should decompose during rewrite matching");
+        };
+
+        assert_eq!(
+            applied.pattern.term,
+            internal_term(&definition, &format!("wrap{{}}({value})"))
+        );
+        assert!(applied.pattern.constraints.is_empty());
     }
 
     #[test]

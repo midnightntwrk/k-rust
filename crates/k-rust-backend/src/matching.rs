@@ -580,6 +580,8 @@ impl Matcher<'_> {
                     arguments: subject_arguments,
                 },
             ) if (is_constructor(&pattern) && is_constructor(&subject))
+                || (pattern_symbol.attributes.injective
+                    && pattern_symbol.name == subject_symbol.name)
                 || (self.mode == MatchMode::Evaluate
                     && is_function(&pattern)
                     && is_function(&subject)) =>
@@ -1352,6 +1354,7 @@ mod tests {
             result_sort: sort(),
             attributes: SymbolAttributes {
                 symbol_type: SymbolType::Function(FunctionType::Total),
+                injective: false,
                 associative: false,
                 idempotent: false,
                 macro_or_alias: false,
@@ -1361,6 +1364,13 @@ mod tests {
                 collection: None,
             },
         })
+    }
+
+    fn injective_function() -> Arc<Symbol> {
+        let mut symbol = (*function()).clone();
+        symbol.name = "injective".into();
+        symbol.attributes.injective = true;
+        Arc::new(symbol)
     }
 
     fn application(symbol: Arc<Symbol>, argument: Term) -> Term {
@@ -1526,6 +1536,20 @@ mod tests {
                 variable("X", sort()),
                 domain_value(sort(), "value"),
             )]))
+        );
+    }
+
+    #[test]
+    fn decomposes_matching_injective_functions_during_rewriting() {
+        let symbol = injective_function();
+        let variable = variable("X", sort());
+        let value = domain_value(sort(), "value");
+        let pattern = application(symbol.clone(), Term::variable(variable.clone()));
+        let subject = application(symbol, value.clone());
+
+        assert_eq!(
+            match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
+            MatchResult::Success(Substitution::from([(variable, value)]))
         );
     }
 
