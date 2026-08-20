@@ -37,6 +37,74 @@ enum CollectionSort {
     Set(CollectionSymbols),
 }
 
+/// Transitive strict ordering between overloaded KORE symbols.
+///
+/// A relation `(greater, lesser)` records that `greater` overloads `lesser`. Symbols which share
+/// a strict upper bound may be unified by lifting both applications to a common overload.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct OverloadGraph {
+    greater_than: BTreeMap<Name, BTreeSet<Name>>,
+    members: BTreeSet<Name>,
+}
+
+impl OverloadGraph {
+    fn from_relations(
+        relations: impl IntoIterator<Item = (Name, Name)>,
+    ) -> Result<Self, DefinitionError> {
+        let mut pairs = relations.into_iter().collect::<BTreeSet<_>>();
+        loop {
+            let inferred = pairs
+                .iter()
+                .flat_map(|(greater, middle)| {
+                    pairs
+                        .iter()
+                        .filter(move |(candidate, _)| candidate == middle)
+                        .map(move |(_, lesser)| (greater.clone(), lesser.clone()))
+                })
+                .collect::<Vec<_>>();
+            let previous = pairs.len();
+            pairs.extend(inferred);
+            if pairs.len() == previous {
+                break;
+            }
+        }
+        if let Some((symbol, _)) = pairs.iter().find(|(greater, lesser)| greater == lesser) {
+            return Err(DefinitionError::MalformedAttribute(format!(
+                "symbol-overload relation contains a cycle through {symbol}"
+            )));
+        }
+        let mut graph = Self::default();
+        for (greater, lesser) in pairs {
+            graph.members.insert(greater.clone());
+            graph.members.insert(lesser.clone());
+            graph
+                .greater_than
+                .entry(greater)
+                .or_default()
+                .insert(lesser);
+        }
+        Ok(graph)
+    }
+
+    pub fn is_overloaded(&self, symbol: &Name) -> bool {
+        self.members.contains(symbol)
+    }
+
+    pub fn is_overloading(&self, greater: &Name, lesser: &Name) -> bool {
+        self.greater_than
+            .get(greater)
+            .is_some_and(|lessers| lessers.contains(lesser))
+    }
+
+    pub fn common_overloads(&self, left: &Name, right: &Name) -> BTreeSet<Name> {
+        self.greater_than
+            .iter()
+            .filter(|(_, lessers)| lessers.contains(left) && lessers.contains(right))
+            .map(|(greater, _)| greater.clone())
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PendingAxiom {
     pub module: Name,
@@ -52,6 +120,7 @@ pub struct BackendDefinition {
     pub sorts: BTreeMap<Name, SortInfo>,
     pub symbols: BTreeMap<Name, Arc<Symbol>>,
     pub sort_graph: SortGraph,
+    pub overloads: OverloadGraph,
     pub axioms: Vec<PendingAxiom>,
     pub classified_axioms: Vec<ClassifiedAxiom>,
     pub claims: Vec<PendingAxiom>,
@@ -212,6 +281,7 @@ impl BackendDefinition {
         let mut axioms = Vec::new();
         let mut claims = Vec::new();
         let mut subsorts = Vec::new();
+        let mut overloads = Vec::new();
         for module in &ordered {
             for sentence in &module.sentences {
                 let (target, parameters, pattern, attributes) = match sentence {
@@ -230,6 +300,9 @@ impl BackendDefinition {
                 reject_duplicates(parameters)?;
                 if let Some((sub, sup)) = subsort_attribute(pattern, attributes, &sorts)? {
                     subsorts.push((sub, sup));
+                }
+                if let Some(overload) = overload_attribute(attributes)? {
+                    overloads.push(overload);
                 }
                 target.push(PendingAxiom {
                     module: module.name.as_str().into(),
@@ -254,6 +327,15 @@ impl BackendDefinition {
             .collect::<Result<Vec<_>, _>>()
             .map_err(DefinitionError::Axiom)?;
         let sort_graph = build_sort_graph(sorts.keys().cloned(), subsorts);
+        for (greater, lesser) in &overloads {
+            if !symbols.contains_key(greater) {
+                return Err(DefinitionError::UnknownSymbol(greater.to_string()));
+            }
+            if !symbols.contains_key(lesser) {
+                return Err(DefinitionError::UnknownSymbol(lesser.to_string()));
+            }
+        }
+        let overloads = OverloadGraph::from_relations(overloads)?;
         let mut result = Self {
             main_module: main_module.into(),
             modules: ordered
@@ -263,6 +345,7 @@ impl BackendDefinition {
             sorts,
             symbols,
             sort_graph,
+            overloads,
             axioms,
             classified_axioms,
             claims,
@@ -870,6 +953,43 @@ fn attribute_symbol(
     }
 }
 
+fn overload_attribute(
+    attributes: &kore::Attributes,
+) -> Result<Option<(Name, Name)>, DefinitionError> {
+    let Some(pattern) =
+        attribute(attributes, "symbol-overload").or_else(|| attribute(attributes, "overload"))
+    else {
+        return Ok(None);
+    };
+    let kore::Pattern::Application { arguments, .. } = pattern else {
+        unreachable!()
+    };
+    let [
+        kore::Pattern::Application {
+            symbol: greater,
+            arguments: greater_arguments,
+        },
+        kore::Pattern::Application {
+            symbol: lesser,
+            arguments: lesser_arguments,
+        },
+    ] = arguments.as_slice()
+    else {
+        return Err(DefinitionError::MalformedAttribute(
+            "symbol-overload must contain two nullary symbols".into(),
+        ));
+    };
+    if !greater_arguments.is_empty() || !lesser_arguments.is_empty() {
+        return Err(DefinitionError::MalformedAttribute(
+            "symbol-overload must contain two nullary symbols".into(),
+        ));
+    }
+    Ok(Some((
+        greater.name.as_str().into(),
+        lesser.name.as_str().into(),
+    )))
+}
+
 fn reject_duplicates(parameters: &[String]) -> Result<(), DefinitionError> {
     let mut seen = BTreeSet::new();
     for parameter in parameters {
@@ -952,6 +1072,31 @@ mod tests {
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
     }
 
+    fn overload_definition() -> BackendDefinition {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortS{} []
+                symbol A{}() : SortS{} [constructor{}()]
+                symbol B{}() : SortS{} [constructor{}()]
+                symbol C{}() : SortS{} [constructor{}()]
+                symbol D{}() : SortS{} [constructor{}()]
+                symbol E{}() : SortS{} [constructor{}()]
+                axiom{} \equals{SortS{}, SortS{}}(D{}(), B{}())
+                    [symbol-overload{}(D{}(), B{}())]
+                axiom{} \equals{SortS{}, SortS{}}(D{}(), C{}())
+                    [symbol-overload{}(D{}(), C{}())]
+                axiom{} \equals{SortS{}, SortS{}}(B{}(), A{}())
+                    [symbol-overload{}(B{}(), A{}())]
+                axiom{} \equals{SortS{}, SortS{}}(C{}(), A{}())
+                    [symbol-overload{}(C{}(), A{}())]
+            endmodule []
+        "#})
+        .expect("overload definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("overload definition should internalize")
+    }
+
     #[test]
     fn resolves_transitive_module_scope_and_subsorts() {
         let definition = definition();
@@ -1011,6 +1156,55 @@ mod tests {
 
         assert!(definition.symbols["injectiveFunction"].attributes.injective);
         assert!(!definition.symbols["wrap"].attributes.injective);
+    }
+
+    #[test]
+    fn internalizes_the_transitive_symbol_overload_graph() {
+        let definition = overload_definition();
+        let a = Name::from("A");
+        let b = Name::from("B");
+        let c = Name::from("C");
+        let d = Name::from("D");
+        let e = Name::from("E");
+
+        assert!(definition.overloads.is_overloaded(&a));
+        assert!(definition.overloads.is_overloaded(&d));
+        assert!(!definition.overloads.is_overloaded(&e));
+        assert!(definition.overloads.is_overloading(&d, &a));
+        assert!(!definition.overloads.is_overloading(&a, &d));
+        assert_eq!(
+            definition.overloads.common_overloads(&a, &a),
+            BTreeSet::from([b, c, d.clone()])
+        );
+        assert_eq!(
+            definition
+                .overloads
+                .common_overloads(&Name::from("B"), &Name::from("C")),
+            BTreeSet::from([d])
+        );
+    }
+
+    #[test]
+    fn rejects_cyclic_symbol_overloads() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortS{} []
+                symbol A{}() : SortS{} [constructor{}()]
+                symbol B{}() : SortS{} [constructor{}()]
+                axiom{} \equals{SortS{}, SortS{}}(A{}(), B{}())
+                    [symbol-overload{}(A{}(), B{}())]
+                axiom{} \equals{SortS{}, SortS{}}(B{}(), A{}())
+                    [symbol-overload{}(B{}(), A{}())]
+            endmodule []
+        "#})
+        .expect("cyclic overload definition should parse");
+
+        assert!(matches!(
+            BackendDefinition::internalize(&syntax, "MAIN"),
+            Err(DefinitionError::MalformedAttribute(message))
+                if message.contains("cycle")
+        ));
     }
 
     #[test]
