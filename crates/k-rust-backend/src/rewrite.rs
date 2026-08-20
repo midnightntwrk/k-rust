@@ -390,7 +390,7 @@ pub fn rewrite_step_with_solver(
     )
 }
 
-fn rewrite_step_with_options(
+pub(crate) fn rewrite_step_with_options(
     definition: &BackendDefinition,
     pattern: &Pattern,
     fresh_counter: &mut u64,

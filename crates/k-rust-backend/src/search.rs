@@ -1,0 +1,648 @@
+//! Reachability search over the symbolic execution tree.
+
+use std::collections::VecDeque;
+
+use crate::{
+    builtin::BuiltinEffect,
+    definition::BackendDefinition,
+    matching::{MatchMode, MatchResult, match_terms_in_definition},
+    rewrite::{
+        AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry,
+        TraceKind, Truth, predicates_truth, rewrite_step_with_options, substitute_predicates,
+    },
+    rule::Predicate,
+    simplify::{
+        SimplificationError, SimplificationOptions, simplify_predicates_with_solver,
+        simplify_with_solver,
+    },
+    smt::{NoSolver, Satisfiability, SmtError, SmtSolver},
+    substitution::Substitution,
+};
+
+/// Which nodes in the execution tree are returned by a search.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SearchType {
+    /// Configurations reached in exactly one semantic rewrite step.
+    One,
+    /// Configurations which cannot be rewritten further.
+    Final,
+    /// Every reachable configuration, including the initial configuration.
+    Star,
+    /// Every configuration reached in at least one semantic rewrite step.
+    Plus,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SearchOptions {
+    pub search_type: SearchType,
+    pub max_depth: u64,
+    pub max_results: Option<usize>,
+    pub max_simplification_iterations: usize,
+}
+
+impl Default for SearchOptions {
+    fn default() -> Self {
+        Self {
+            search_type: SearchType::Final,
+            max_depth: 1_000,
+            max_results: None,
+            max_simplification_iterations: 100,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SearchState {
+    pub pattern: Pattern,
+    pub depth: u64,
+    pub trace: Vec<TraceEntry>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum IncompleteSearch {
+    DepthBound(SearchState),
+    Indeterminate {
+        state: SearchState,
+        reason: IndeterminateReason,
+    },
+    Simplification {
+        state: SearchState,
+        error: SimplificationError,
+    },
+    Match {
+        state: SearchState,
+        substitution: Substitution,
+        remainder: Vec<(crate::term::Term, crate::term::Term)>,
+    },
+    Smt {
+        state: SearchState,
+        error: SmtError,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SearchResult {
+    pub states: Vec<SearchState>,
+    pub effects: Vec<BuiltinEffect>,
+    pub incomplete: Vec<IncompleteSearch>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SearchMatch {
+    pub substitution: Substitution,
+    pub constraints: Vec<Predicate>,
+    pub state: SearchState,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PatternSearchResult {
+    pub matches: Vec<SearchMatch>,
+    pub effects: Vec<BuiltinEffect>,
+    pub incomplete: Vec<IncompleteSearch>,
+}
+
+pub fn search_graph(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: SearchOptions,
+) -> SearchResult {
+    search_graph_with_solver(definition, initial, options, &NoSolver)
+}
+
+pub fn search_graph_with_solver(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+) -> SearchResult {
+    search_graph_with_solver_and_observer(definition, initial, options, solver, |_| {})
+}
+
+pub fn search_graph_with_solver_and_observer(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+    mut observe: impl FnMut(&BuiltinEffect),
+) -> SearchResult {
+    let mut pending = VecDeque::from([SearchState {
+        pattern: initial,
+        depth: 0,
+        trace: Vec::new(),
+    }]);
+    let mut states = Vec::new();
+    let mut effects = Vec::new();
+    let mut incomplete = Vec::new();
+    let mut fresh_counter = 0;
+
+    if options.max_results == Some(0) {
+        return SearchResult {
+            states,
+            effects,
+            incomplete,
+        };
+    }
+
+    while let Some(mut state) = pending.pop_front() {
+        match simplify_predicates_with_solver(
+            definition,
+            &state.pattern.constraints,
+            &[],
+            simplification_options(options),
+            solver,
+        ) {
+            Ok(constraints) => state.pattern.constraints = constraints,
+            Err(error) => {
+                incomplete.push(IncompleteSearch::Simplification { state, error });
+                continue;
+            }
+        }
+        match simplify_with_solver(
+            definition,
+            &state.pattern.term,
+            &state.pattern.constraints,
+            simplification_options(options),
+            solver,
+        ) {
+            Ok(simplified) => {
+                state.pattern.term = simplified.term;
+                state.pattern.constraints.extend(simplified.constraints);
+                record_effects(&mut effects, simplified.effects, &mut observe);
+                state
+                    .trace
+                    .extend(
+                        simplified
+                            .applied_rules
+                            .into_iter()
+                            .map(|unique_id| TraceEntry {
+                                depth: state.depth,
+                                kind: TraceKind::Simplification,
+                                label: None,
+                                unique_id,
+                            }),
+                    );
+            }
+            Err(error) => {
+                incomplete.push(IncompleteSearch::Simplification { state, error });
+                continue;
+            }
+        }
+
+        if selects_reachable_state(options.search_type, state.depth)
+            && push_unique(&mut states, state.clone(), options.max_results)
+        {
+            break;
+        }
+        if options.search_type == SearchType::One && state.depth == 1 {
+            continue;
+        }
+        if state.depth >= options.max_depth {
+            incomplete.push(IncompleteSearch::DepthBound(state));
+            continue;
+        }
+
+        match rewrite_step_with_options(
+            definition,
+            &state.pattern,
+            &mut fresh_counter,
+            simplification_options(options),
+            solver,
+        ) {
+            RewriteResult::Stuck(pattern) => {
+                state.pattern = pattern;
+                if options.search_type == SearchType::Final
+                    && push_unique(&mut states, state, options.max_results)
+                {
+                    break;
+                }
+            }
+            RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
+            RewriteResult::Indeterminate { pattern, reason } => {
+                state.pattern = pattern;
+                incomplete.push(IncompleteSearch::Indeterminate { state, reason });
+            }
+            RewriteResult::Finished(applied) => {
+                record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
+                pending.push_back(next_state(state.depth, state.trace, applied));
+            }
+            RewriteResult::Branch {
+                branches,
+                remainder,
+                ..
+            } => {
+                for applied in branches {
+                    record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
+                    pending.push_back(next_state(state.depth, state.trace.clone(), applied));
+                }
+                if let Some(remainder) = remainder {
+                    pending.push_back(remaining_state(state.depth, state.trace, remainder));
+                }
+            }
+        }
+    }
+
+    SearchResult {
+        states,
+        effects,
+        incomplete,
+    }
+}
+
+/// Search the selected execution states for instances of `target`.
+pub fn search_pattern(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    target: &Pattern,
+    options: SearchOptions,
+) -> PatternSearchResult {
+    search_pattern_with_solver(definition, initial, target, options, &NoSolver)
+}
+
+pub fn search_pattern_with_solver(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    target: &Pattern,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+) -> PatternSearchResult {
+    let requested_bound = options.max_results;
+    if requested_bound == Some(0) {
+        return PatternSearchResult {
+            matches: Vec::new(),
+            effects: Vec::new(),
+            incomplete: Vec::new(),
+        };
+    }
+    let graph = search_graph_with_solver(
+        definition,
+        initial,
+        SearchOptions {
+            max_results: None,
+            ..options
+        },
+        solver,
+    );
+    let mut matches = Vec::new();
+    let mut incomplete = graph.incomplete;
+
+    for state in graph.states {
+        let substitution = match match_terms_in_definition(
+            MatchMode::Implies,
+            definition,
+            &target.term,
+            &state.pattern.term,
+        ) {
+            MatchResult::Success(substitution) => substitution,
+            MatchResult::Failed(_) => continue,
+            MatchResult::Indeterminate {
+                substitution,
+                remainder,
+            } => {
+                incomplete.push(IncompleteSearch::Match {
+                    state,
+                    substitution,
+                    remainder,
+                });
+                continue;
+            }
+        };
+
+        let mut constraints = state.pattern.constraints.clone();
+        constraints.extend(substitute_predicates(&target.constraints, &substitution));
+        let constraints = match simplify_predicates_with_solver(
+            definition,
+            &constraints,
+            &[],
+            simplification_options(options),
+            solver,
+        ) {
+            Ok(constraints) => constraints,
+            Err(error) => {
+                incomplete.push(IncompleteSearch::Simplification { state, error });
+                continue;
+            }
+        };
+        match predicates_truth(&constraints) {
+            Truth::False => continue,
+            Truth::True => {}
+            Truth::Unknown => match solver.is_sat(&constraints, &substitution) {
+                Ok(Satisfiability::Unsat) => continue,
+                Ok(Satisfiability::Sat) => {}
+                Ok(Satisfiability::Unknown(reason)) => {
+                    incomplete.push(IncompleteSearch::Smt {
+                        state,
+                        error: SmtError::Unknown(reason),
+                    });
+                    continue;
+                }
+                Err(error) => {
+                    incomplete.push(IncompleteSearch::Smt { state, error });
+                    continue;
+                }
+            },
+        }
+
+        let found = SearchMatch {
+            substitution,
+            constraints,
+            state,
+        };
+        if !matches.iter().any(|existing: &SearchMatch| {
+            existing.substitution == found.substitution && existing.constraints == found.constraints
+        }) {
+            matches.push(found);
+        }
+        if requested_bound.is_some_and(|bound| matches.len() >= bound) {
+            break;
+        }
+    }
+
+    PatternSearchResult {
+        matches,
+        effects: graph.effects,
+        incomplete,
+    }
+}
+
+fn simplification_options(options: SearchOptions) -> SimplificationOptions {
+    SimplificationOptions {
+        max_iterations: options.max_simplification_iterations,
+    }
+}
+
+fn selects_reachable_state(search_type: SearchType, depth: u64) -> bool {
+    match search_type {
+        SearchType::Star => true,
+        SearchType::Plus => depth > 0,
+        SearchType::One => depth == 1,
+        SearchType::Final => false,
+    }
+}
+
+/// Returns whether the requested solution bound has been reached.
+fn push_unique(
+    states: &mut Vec<SearchState>,
+    state: SearchState,
+    max_results: Option<usize>,
+) -> bool {
+    if !states.iter().any(|found| found.pattern == state.pattern) {
+        states.push(state);
+    }
+    max_results.is_some_and(|limit| states.len() >= limit)
+}
+
+fn record_effects(
+    recorded: &mut Vec<BuiltinEffect>,
+    effects: impl IntoIterator<Item = BuiltinEffect>,
+    observe: &mut impl FnMut(&BuiltinEffect),
+) {
+    for effect in effects {
+        observe(&effect);
+        recorded.push(effect);
+    }
+}
+
+fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> SearchState {
+    trace.push(TraceEntry {
+        depth: depth + 1,
+        kind: TraceKind::Rewrite,
+        label: applied.label,
+        unique_id: applied.unique_id,
+    });
+    SearchState {
+        pattern: applied.pattern,
+        depth: depth + 1,
+        trace,
+    }
+}
+
+fn remaining_state(
+    depth: u64,
+    mut trace: Vec<TraceEntry>,
+    remainder: RemainderBranch,
+) -> SearchState {
+    trace.push(TraceEntry {
+        depth,
+        kind: TraceKind::Remainder,
+        label: None,
+        unique_id: remainder.rule_ids.join(","),
+    });
+    SearchState {
+        pattern: remainder.pattern,
+        depth,
+        trace,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+
+    use super::*;
+    use crate::term::{Sort, Term, TermKind, Variable};
+
+    fn definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module SEARCH
+                sort SortS{} []
+                symbol initial{}() : SortS{} [constructor{}()]
+                symbol next1{}() : SortS{} [constructor{}()]
+                symbol next2{}() : SortS{} [constructor{}()]
+                symbol final1{}() : SortS{} [constructor{}()]
+                symbol final2{}() : SortS{} [constructor{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(initial{}(), \top{SortS{}}()),
+                    next1{}()
+                ) [label{}("initial-next1")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(initial{}(), \top{SortS{}}()),
+                    next2{}()
+                ) [label{}("initial-next2")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(next1{}(), \top{SortS{}}()),
+                    final1{}()
+                ) [label{}("next1-final1")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(next2{}(), \top{SortS{}}()),
+                    final2{}()
+                ) [label{}("next2-final2")]
+            endmodule []"#,
+        )
+        .expect("search definition should parse");
+        BackendDefinition::internalize(&syntax, "SEARCH")
+            .expect("search definition should internalize")
+    }
+
+    fn initial(definition: &BackendDefinition) -> Pattern {
+        pattern(definition, "initial{}()")
+    }
+
+    fn pattern(definition: &BackendDefinition, source: &str) -> Pattern {
+        Pattern {
+            term: definition
+                .internalize_term(
+                    &parse_pattern(source).expect("search pattern should parse"),
+                    &[],
+                )
+                .expect("search pattern should internalize"),
+            constraints: Vec::new(),
+        }
+    }
+
+    fn names(result: &SearchResult) -> BTreeSet<String> {
+        result
+            .states
+            .iter()
+            .map(|state| match state.pattern.term.kind() {
+                TermKind::Application { symbol, .. } => symbol.name.to_string(),
+                other => panic!("expected an application, found {other:?}"),
+            })
+            .collect()
+    }
+
+    fn search(search_type: SearchType) -> SearchResult {
+        let definition = definition();
+        search_graph(
+            &definition,
+            initial(&definition),
+            SearchOptions {
+                search_type,
+                ..SearchOptions::default()
+            },
+        )
+    }
+
+    #[test]
+    fn one_selects_exactly_one_step() {
+        let result = search(SearchType::One);
+        assert_eq!(
+            names(&result),
+            BTreeSet::from(["next1".into(), "next2".into()])
+        );
+        assert!(result.incomplete.is_empty());
+    }
+
+    #[test]
+    fn star_selects_the_reflexive_transitive_closure() {
+        let result = search(SearchType::Star);
+        assert_eq!(
+            names(&result),
+            BTreeSet::from([
+                "initial".into(),
+                "next1".into(),
+                "next2".into(),
+                "final1".into(),
+                "final2".into(),
+            ])
+        );
+        assert!(result.incomplete.is_empty());
+    }
+
+    #[test]
+    fn plus_selects_the_strict_transitive_closure() {
+        let result = search(SearchType::Plus);
+        assert_eq!(
+            names(&result),
+            BTreeSet::from([
+                "next1".into(),
+                "next2".into(),
+                "final1".into(),
+                "final2".into(),
+            ])
+        );
+        assert!(result.incomplete.is_empty());
+    }
+
+    #[test]
+    fn final_selects_only_irreducible_configurations() {
+        let result = search(SearchType::Final);
+        assert_eq!(
+            names(&result),
+            BTreeSet::from(["final1".into(), "final2".into()])
+        );
+        assert!(result.incomplete.is_empty());
+    }
+
+    #[test]
+    fn result_bound_stops_the_breadth_first_search() {
+        let definition = definition();
+        let result = search_graph(
+            &definition,
+            initial(&definition),
+            SearchOptions {
+                search_type: SearchType::One,
+                max_results: Some(1),
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(names(&result), BTreeSet::from(["next1".into()]));
+        assert!(result.incomplete.is_empty());
+    }
+
+    #[test]
+    fn pattern_search_returns_substitutions_for_matching_states() {
+        let definition = definition();
+        let result_variable = Variable::new("Result", Sort::simple("SortS"));
+        let target = Pattern {
+            term: Term::variable(result_variable.clone()),
+            constraints: Vec::new(),
+        };
+
+        let result = search_pattern(
+            &definition,
+            initial(&definition),
+            &target,
+            SearchOptions {
+                search_type: SearchType::Final,
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(result.matches.len(), 2);
+        assert_eq!(
+            result
+                .matches
+                .iter()
+                .map(|found| match found.substitution[&result_variable].kind() {
+                    TermKind::Application { symbol, .. } => symbol.name.to_string(),
+                    other => panic!("expected an application, found {other:?}"),
+                })
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["final1".into(), "final2".into()])
+        );
+        assert!(result.incomplete.is_empty());
+    }
+
+    #[test]
+    fn concrete_pattern_search_reports_reachability() {
+        let definition = definition();
+        let target = pattern(&definition, "initial{}()");
+
+        let reachable = search_pattern(
+            &definition,
+            initial(&definition),
+            &target,
+            SearchOptions {
+                search_type: SearchType::Star,
+                ..SearchOptions::default()
+            },
+        );
+        let unreachable = search_pattern(
+            &definition,
+            initial(&definition),
+            &target,
+            SearchOptions {
+                search_type: SearchType::Final,
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(reachable.matches.len(), 1);
+        assert!(reachable.matches[0].substitution.is_empty());
+        assert!(unreachable.matches.is_empty());
+    }
+}
