@@ -46,6 +46,12 @@ pub struct ImplicationResult {
     pub failure: Option<ImplicationFailure>,
 }
 
+#[derive(Clone, Copy)]
+struct Destination<'a> {
+    pattern: &'a Pattern,
+    existentials: &'a BTreeSet<Variable>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ImplicationError {
     ConsequentFreeVariables(BTreeSet<Variable>),
@@ -174,7 +180,7 @@ pub fn check_disjunctive_implication_with_existentials(
         let mut branches = Vec::new();
         let mut matched = false;
         let mut incomplete = false;
-        for (consequent, _) in &consequents {
+        for (consequent, existentials) in &consequents {
             let (substitution, remainder) = match match_terms_in_definition(
                 MatchMode::Implies,
                 definition,
@@ -198,6 +204,7 @@ pub fn check_disjunctive_implication_with_existentials(
                 remainder,
                 &antecedent.constraints,
             );
+            let obligations = quantify_obligations(obligations, existentials);
             let obligations = match simplify_predicates_with_solver(
                 definition,
                 &obligations,
@@ -347,7 +354,10 @@ pub fn check_implication_with_existentials_and_options(
                     return discharge_consequent(
                         definition,
                         &antecedent,
-                        &consequent,
+                        Destination {
+                            pattern: &consequent,
+                            existentials: &consequent_existentials,
+                        },
                         substitution,
                         remainder,
                         options,
@@ -360,7 +370,10 @@ pub fn check_implication_with_existentials_and_options(
                 return discharge_consequent(
                     definition,
                     &antecedent,
-                    &consequent,
+                    Destination {
+                        pattern: &consequent,
+                        existentials: &consequent_existentials,
+                    },
                     substitution,
                     Vec::new(),
                     options,
@@ -411,7 +424,7 @@ fn freshen_existentials(
 fn discharge_consequent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
-    consequent: &Pattern,
+    consequent: Destination<'_>,
     substitution: Substitution,
     remainder: Vec<(crate::term::Term, crate::term::Term)>,
     options: SimplificationOptions,
@@ -419,11 +432,12 @@ fn discharge_consequent(
 ) -> Result<ImplicationResult, ImplicationError> {
     let had_match_remainder = !remainder.is_empty();
     let obligations = implication_obligations(
-        consequent,
+        consequent.pattern,
         &substitution,
         remainder,
         &antecedent.constraints,
     );
+    let obligations = quantify_obligations(obligations, consequent.existentials);
     if obligations.is_empty() {
         return Ok(valid(substitution));
     }
@@ -462,6 +476,32 @@ fn discharge_consequent(
             Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => indeterminate(),
         },
     )
+}
+
+fn quantify_obligations(
+    obligations: Vec<Predicate>,
+    existentials: &BTreeSet<Variable>,
+) -> Vec<Predicate> {
+    if obligations.is_empty() {
+        return obligations;
+    }
+    let free = obligations
+        .iter()
+        .flat_map(Predicate::free_variables)
+        .collect::<BTreeSet<_>>();
+    let quantified = existentials
+        .iter()
+        .filter(|variable| free.contains(*variable))
+        .cloned()
+        .collect::<Vec<_>>();
+    if quantified.is_empty() {
+        return obligations;
+    }
+    let mut obligation = conjoin(obligations);
+    for variable in quantified.into_iter().rev() {
+        obligation = Predicate::Exists(variable, Box::new(obligation));
+    }
+    vec![obligation]
 }
 
 fn implication_obligations(
@@ -584,6 +624,8 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
+    #[cfg(feature = "z3")]
+    use crate::smt::Z3Solver;
     use crate::{
         definition::BackendDefinition,
         smt::{NoSolver, SmtError},
@@ -601,6 +643,8 @@ mod tests {
                 symbol succ{}(SortInt{}) : SortInt{} [constructor{}()]
                 symbol f{}(SortInt{}) : SortInt{} [function{}()]
                 symbol opaque{}(SortInt{}) : SortInt{} [function{}()]
+                symbol sub{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), smt-hook{}("-")]
                 axiom{R} \implies{R}(
                     \top{R}(),
                     \equals{SortInt{}, R}(
@@ -783,6 +827,31 @@ mod tests {
             &consequent,
             &BTreeSet::from([y]),
             &NoSolver,
+        )
+        .expect("implication should be checked");
+
+        assert_eq!(result.status, ImplicationStatus::Valid);
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn quantifies_existential_variables_nested_in_smt_terms() {
+        let definition = definition();
+        let antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, X:SortInt{})"#);
+        let consequent = pattern(
+            &definition,
+            r#"pair{}(X:SortInt{}, sub{}(Y:SortInt{}, \dv{SortInt{}}("1")))"#,
+        );
+        let y = crate::term::Variable::new("Y", Sort::simple("SortInt"));
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+
+        let result = check_implication_with_existentials(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &BTreeSet::from([y]),
+            &solver,
         )
         .expect("implication should be checked");
 
