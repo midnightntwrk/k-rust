@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn timed_out_steps_do_not_skew_the_average() {
         let controller = StepTimeoutController::new(StepTimeoutOptions {
-            manual: Some(Duration::from_nanos(1)),
+            manual: Some(Duration::ZERO),
             moving_average: false,
         });
         let mut timer = controller.begin_step();
