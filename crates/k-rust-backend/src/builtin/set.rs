@@ -26,7 +26,7 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<Option<Term>, B
     }
 }
 
-fn k_item_set_definition() -> Arc<SetDefinition> {
+pub(super) fn k_item_set_definition() -> Arc<SetDefinition> {
     Arc::new(SetDefinition {
         symbols: CollectionSymbols {
             unit: "Lbl'Stop'Set".into(),

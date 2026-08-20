@@ -1,29 +1,106 @@
 //! Concrete `MAP` hooks implemented by Booster.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use num_bigint::BigInt;
 
-use super::{BuiltinError, bool_term, expect_arity, expect_sort, int_term};
+use super::{BuiltinError, BuiltinResult, bool_term, expect_arity, expect_sort, int_term};
 use crate::{
-    builtin::list::k_item_definition,
-    term::{MapDefinition, Term, TermKind},
+    builtin::{list::k_item_definition as k_item_list_definition, set::k_item_set_definition},
+    term::{CollectionSymbols, MapDefinition, Term, TermKind},
 };
 
-pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
-    match hook {
+pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    let result = match hook {
+        "MAP.element" => element(arguments),
+        "MAP.unit" => unit(arguments),
         "MAP.update" => update(arguments),
         "MAP.updateAll" => update_all(arguments),
         "MAP.remove" => remove(arguments),
+        "MAP.removeAll" => remove_all(arguments),
         "MAP.size" => size(arguments),
-        "MAP.lookup" => lookup(arguments),
         "MAP.lookupOrDefault" => lookup_or_default(arguments),
         "MAP.in_keys" => in_keys(arguments),
+        "MAP.keys" => keys(arguments),
         "MAP.keys_list" => keys_list(arguments),
         "MAP.values" => values(arguments),
         "MAP.inclusion" => inclusion(arguments),
         _ => Ok(None),
+    }?;
+    match hook {
+        "MAP.concat" => concat(arguments),
+        "MAP.lookup" => lookup(arguments),
+        _ => Ok(result.into()),
     }
+}
+
+fn k_item_definition() -> Arc<MapDefinition> {
+    Arc::new(MapDefinition {
+        symbols: CollectionSymbols {
+            unit: "Lbl'Stop'Map".into(),
+            element: "Lbl'UndsPipe'-'-GT-Unds'".into(),
+            concat: "Lbl'Unds'Map'Unds'".into(),
+        },
+        key_sort: "SortKItem".into(),
+        value_sort: "SortKItem".into(),
+        map_sort: "SortMap".into(),
+    })
+}
+
+fn element(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+    expect_arity("MAP.element", arguments, 2)?;
+    Ok(Some(Term::map(
+        k_item_definition(),
+        vec![(arguments[0].clone(), arguments[1].clone())],
+        None,
+    )))
+}
+
+fn unit(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+    expect_arity("MAP.unit", arguments, 0)?;
+    Ok(Some(Term::map(k_item_definition(), Vec::new(), None)))
+}
+
+fn concat(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity("MAP.concat", arguments, 2)?;
+    let [left, right] = arguments else {
+        unreachable!()
+    };
+    let (
+        TermKind::Map {
+            definition,
+            entries: left_entries,
+            rest: left_rest,
+        },
+        TermKind::Map {
+            definition: right_definition,
+            entries: right_entries,
+            rest: right_rest,
+        },
+    ) = (left.kind(), right.kind())
+    else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    if definition != right_definition || (left_rest.is_some() && right_rest.is_some()) {
+        return Ok(BuiltinResult::NotApplicable);
+    }
+    if left_entries.iter().any(|(left_key, _)| {
+        right_entries
+            .iter()
+            .any(|(right_key, _)| left_key == right_key)
+    }) {
+        return Ok(BuiltinResult::Bottom);
+    }
+    let mut entries = left_entries.clone();
+    entries.extend(right_entries.iter().cloned());
+    Ok(BuiltinResult::Value(Term::map(
+        definition.clone(),
+        entries,
+        left_rest.clone().or_else(|| right_rest.clone()),
+    )))
 }
 
 fn update(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
@@ -190,6 +267,47 @@ fn remove(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     }
 }
 
+fn remove_all(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+    expect_arity("MAP.removeAll", arguments, 2)?;
+    let [map, set] = arguments else {
+        unreachable!()
+    };
+    let TermKind::Map {
+        definition,
+        entries,
+        rest: None,
+    } = map.kind()
+    else {
+        return Ok(None);
+    };
+    let TermKind::Set {
+        elements,
+        rest: None,
+        ..
+    } = set.kind()
+    else {
+        return Ok(None);
+    };
+    if entries
+        .iter()
+        .any(|(key, _)| !key.attributes().constructor_like)
+        || elements
+            .iter()
+            .any(|element| !element.attributes().constructor_like)
+    {
+        return Ok(None);
+    }
+    Ok(Some(Term::map(
+        definition.clone(),
+        entries
+            .iter()
+            .filter(|(key, _)| elements.binary_search(key).is_err())
+            .cloned()
+            .collect(),
+        None,
+    )))
+}
+
 fn size(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     expect_arity("MAP.size", arguments, 1)?;
     let TermKind::Map {
@@ -203,18 +321,32 @@ fn size(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     Ok(Some(int_term(BigInt::from(entries.len()))))
 }
 
-fn lookup(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn lookup(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     expect_arity("MAP.lookup", arguments, 2)?;
     let [map, key] = arguments else {
         unreachable!()
     };
-    let TermKind::Map { entries, .. } = map.kind() else {
-        return Ok(None);
+    let TermKind::Map { entries, rest, .. } = map.kind() else {
+        return Ok(BuiltinResult::NotApplicable);
     };
-    Ok(entries
+    if let Some(value) = entries
         .iter()
         .find(|(existing_key, _)| existing_key == key)
-        .map(|(_, value)| value.clone()))
+        .map(|(_, value)| value.clone())
+    {
+        return Ok(BuiltinResult::Value(value));
+    }
+    if rest.is_none()
+        && (entries.is_empty()
+            || (key.attributes().constructor_like
+                && entries
+                    .iter()
+                    .all(|(key, _)| key.attributes().constructor_like)))
+    {
+        Ok(BuiltinResult::Bottom)
+    } else {
+        Ok(BuiltinResult::NotApplicable)
+    }
 }
 
 fn lookup_or_default(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
@@ -274,7 +406,30 @@ fn keys_list(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
         return Ok(None);
     };
     Ok(Some(Term::list(
-        k_item_definition(),
+        k_item_list_definition(),
+        entries.iter().map(|(key, _)| key.clone()).collect(),
+        None,
+    )))
+}
+
+fn keys(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+    expect_arity("MAP.keys", arguments, 1)?;
+    let TermKind::Map {
+        entries,
+        rest: None,
+        ..
+    } = arguments[0].kind()
+    else {
+        return Ok(None);
+    };
+    if entries
+        .iter()
+        .any(|(key, _)| !key.attributes().constructor_like)
+    {
+        return Ok(None);
+    }
+    Ok(Some(Term::set(
+        k_item_set_definition(),
         entries.iter().map(|(key, _)| key.clone()).collect(),
         None,
     )))
@@ -291,7 +446,7 @@ fn values(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
         return Ok(None);
     };
     Ok(Some(Term::list(
-        k_item_definition(),
+        k_item_list_definition(),
         entries.iter().map(|(_, value)| value.clone()).collect(),
         None,
     )))
@@ -512,7 +667,10 @@ mod tests {
         );
         let removed = Term::map(definition, vec![(key("b"), value("two"))], None);
 
-        assert_eq!(lookup(&[map.clone(), key("a")]), Ok(Some(value("one"))));
+        assert_eq!(
+            lookup(&[map.clone(), key("a")]),
+            Ok(BuiltinResult::Value(value("one")))
+        );
         assert_eq!(
             lookup_or_default(&[map.clone(), key("missing"), value("default")]),
             Ok(Some(value("default")))
@@ -530,15 +688,63 @@ mod tests {
     }
 
     #[test]
+    fn missing_concrete_lookup_and_duplicate_concat_are_bottom() {
+        let definition = definition("SortMap");
+        let left = Term::map(definition.clone(), vec![(key("a"), value("left"))], None);
+        let right = Term::map(definition, vec![(key("a"), value("right"))], None);
+
+        assert_eq!(
+            lookup(&[left.clone(), key("missing")]),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(concat(&[left, right]), Ok(BuiltinResult::Bottom));
+    }
+
+    #[test]
+    fn key_sets_and_bulk_removal_match_kore() {
+        let definition = definition("SortMap");
+        let map = Term::map(
+            definition.clone(),
+            vec![
+                (key("a"), value("one")),
+                (key("b"), value("two")),
+                (key("c"), value("three")),
+            ],
+            None,
+        );
+        let removed_keys = Term::set(k_item_set_definition(), vec![key("a"), key("c")], None);
+
+        assert_eq!(
+            keys(std::slice::from_ref(&map)),
+            Ok(Some(Term::set(
+                k_item_set_definition(),
+                vec![key("a"), key("b"), key("c")],
+                None,
+            )))
+        );
+        assert_eq!(
+            remove_all(&[map, removed_keys]),
+            Ok(Some(Term::map(
+                definition,
+                vec![(key("b"), value("two"))],
+                None,
+            )))
+        );
+    }
+
+    #[test]
     fn key_and_value_projections_use_the_reference_kitem_list() {
         let map = Term::map(
             definition("SortMap"),
             vec![(key("b"), value("two")), (key("a"), value("one"))],
             None,
         );
-        let expected_keys = Term::list(k_item_definition(), vec![key("a"), key("b")], None);
-        let expected_values =
-            Term::list(k_item_definition(), vec![value("one"), value("two")], None);
+        let expected_keys = Term::list(k_item_list_definition(), vec![key("a"), key("b")], None);
+        let expected_values = Term::list(
+            k_item_list_definition(),
+            vec![value("one"), value("two")],
+            None,
+        );
 
         assert_eq!(
             keys_list(std::slice::from_ref(&map)),
