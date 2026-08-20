@@ -11,7 +11,7 @@ use crate::{
     definition::BackendDefinition,
     implication::{
         ImplicationCondition, ImplicationError, ImplicationStatus,
-        check_implication_with_existentials,
+        check_disjunctive_implication_with_existentials,
     },
     matching::{MatchMode, MatchResult, match_terms},
     rewrite::{
@@ -191,40 +191,32 @@ pub fn prove_claim(
             continue;
         }
 
-        // Individual disjunct checks are sufficient but not complete for a
-        // disjunctive destination. Preserve uncertainty if none closes.
-        let mut implication_indeterminate = claim.rhs.len() > 1;
-        let mut implication_condition = None;
+        let mut implication_indeterminate = false;
         if state.depth >= options.min_depth {
-            for consequent in &claim.rhs {
-                let implication = check_implication_with_existentials(
-                    definition,
-                    &state.pattern,
-                    &BTreeSet::new(),
-                    consequent,
-                    &claim.existentials,
-                    solver,
-                )
-                .map_err(ProofError::Implication)?;
-                match implication.status {
-                    ImplicationStatus::Valid => {
-                        implication_condition = Some(
-                            implication
-                                .condition
-                                .expect("a valid implication always has a condition"),
-                        );
-                        break;
+            let implication = check_disjunctive_implication_with_existentials(
+                definition,
+                &state.pattern,
+                &claim.rhs,
+                &claim.existentials,
+                SimplificationOptions {
+                    max_iterations: options.max_simplification_iterations,
+                },
+                solver,
+            )
+            .map_err(ProofError::Implication)?;
+            match implication.status {
+                ImplicationStatus::Valid => {
+                    let condition = implication
+                        .condition
+                        .expect("a valid implication always has a condition");
+                    leaves.push(state.leaf(ProofLeafOutcome::Proven(condition)));
+                    if claim.mode == ReachabilityMode::OnePath {
+                        return Ok(finish(claim.mode, leaves, explored_states));
                     }
-                    ImplicationStatus::Invalid => {}
-                    ImplicationStatus::Indeterminate => implication_indeterminate = true,
+                    continue;
                 }
-            }
-            if let Some(condition) = implication_condition {
-                leaves.push(state.leaf(ProofLeafOutcome::Proven(condition)));
-                if claim.mode == ReachabilityMode::OnePath {
-                    return Ok(finish(claim.mode, leaves, explored_states));
-                }
-                continue;
+                ImplicationStatus::Invalid => {}
+                ImplicationStatus::Indeterminate => implication_indeterminate = true,
             }
         }
 
@@ -588,6 +580,62 @@ mod tests {
         );
         let syntax = parse_definition(&source).expect("definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn proves_a_destination_covered_by_complementary_branches() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                claim{} \implies{SortInt{}}(
+                    \and{SortInt{}}(X:SortInt{}, \top{SortInt{}}()),
+                    weakExistsFinally{SortInt{}}(
+                        \or{SortInt{}}(
+                            \and{SortInt{}}(
+                                X:SortInt{},
+                                \equals{SortInt{}, SortInt{}}(
+                                    X:SortInt{},
+                                    \dv{SortInt{}}("0")
+                                )
+                            ),
+                            \and{SortInt{}}(
+                                X:SortInt{},
+                                \not{SortInt{}}(
+                                    \equals{SortInt{}, SortInt{}}(
+                                        X:SortInt{},
+                                        \dv{SortInt{}}("0")
+                                    )
+                                )
+                            )
+                        )
+                    )
+                ) [label{}("complementary")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &solver,
+        )
+        .expect("claim should execute");
+
+        assert_eq!(result.status, ProofStatus::Proven);
+        assert_eq!(result.explored_states, 1);
+        assert!(matches!(
+            result.leaves.as_slice(),
+            [ProofLeaf {
+                outcome: ProofLeafOutcome::Proven(_),
+                ..
+            }]
+        ));
     }
 
     const A_TO_B: &str = r#"

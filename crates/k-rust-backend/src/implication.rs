@@ -108,6 +108,159 @@ pub fn check_implication_with_existentials(
     )
 }
 
+/// Check whether an antecedent is covered by the union of several consequents.
+///
+/// A reachability destination is a disjunction, so proving each branch in
+/// isolation is sufficient but not complete. This operation matches every
+/// branch, combines the residual branch conditions with logical `or`, and
+/// asks the solver to discharge that combined obligation.
+pub fn check_disjunctive_implication_with_existentials(
+    definition: &BackendDefinition,
+    antecedent: &Pattern,
+    consequents: &[Pattern],
+    consequent_existentials: &BTreeSet<Variable>,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Result<ImplicationResult, ImplicationError> {
+    if let [consequent] = consequents {
+        return check_implication_with_existentials_and_options(
+            definition,
+            antecedent,
+            &BTreeSet::new(),
+            consequent,
+            consequent_existentials,
+            options,
+            solver,
+        );
+    }
+
+    let consequents = consequents
+        .iter()
+        .map(|consequent| freshen_existentials(antecedent, consequent, consequent_existentials))
+        .collect::<Vec<_>>();
+    let antecedent_variables = free_variables(antecedent);
+    for (consequent, existentials) in &consequents {
+        let consequent_variables = free_variables(consequent)
+            .difference(existentials)
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let extra_variables = consequent_variables
+            .difference(&antecedent_variables)
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        if !extra_variables.is_empty() {
+            return Err(ImplicationError::ConsequentFreeVariables(extra_variables));
+        }
+    }
+
+    if predicates_truth(&antecedent.constraints) == Truth::False
+        || matches!(
+            solver.is_sat(&antecedent.constraints, &Substitution::new()),
+            Ok(Satisfiability::Unsat)
+        )
+    {
+        return Ok(vacuously_valid());
+    }
+
+    let mut antecedent = antecedent.clone();
+    loop {
+        let mut branches = Vec::new();
+        let mut incomplete = false;
+        for (consequent, _) in &consequents {
+            let substitution = match match_terms(
+                MatchMode::Implies,
+                &definition.sort_graph,
+                &consequent.term,
+                &antecedent.term,
+            ) {
+                MatchResult::Failed(FailReason::Subsorting(error)) => {
+                    return Err(ImplicationError::Subsorting(error));
+                }
+                MatchResult::Failed(_) => continue,
+                MatchResult::Indeterminate { .. } => {
+                    incomplete = true;
+                    continue;
+                }
+                MatchResult::Success(substitution) => substitution,
+            };
+            let obligations = substitute_predicates(&consequent.constraints, &substitution)
+                .into_iter()
+                .filter(|predicate| !antecedent.constraints.contains(predicate))
+                .collect::<Vec<_>>();
+            let obligations = match simplify_predicates_with_solver(
+                definition,
+                &obligations,
+                &antecedent.constraints,
+                options,
+                solver,
+            ) {
+                Ok(obligations) => obligations,
+                Err(_) => {
+                    incomplete = true;
+                    continue;
+                }
+            };
+            match predicates_truth(&obligations) {
+                Truth::True => return Ok(valid(Substitution::new())),
+                Truth::False => continue,
+                Truth::Unknown => branches.push(conjoin(obligations)),
+            }
+        }
+
+        if !branches.is_empty() {
+            let combined = vec![Predicate::Or(branches)];
+            let combined = simplify_predicates_with_solver(
+                definition,
+                &combined,
+                &antecedent.constraints,
+                options,
+                solver,
+            )
+            .unwrap_or(combined);
+            match predicates_truth(&combined) {
+                Truth::True => return Ok(valid(Substitution::new())),
+                Truth::False => {}
+                Truth::Unknown => match solver.check_predicates(
+                    &antecedent.constraints,
+                    &Substitution::new(),
+                    &combined,
+                ) {
+                    Ok(Validity::Valid) => return Ok(valid(Substitution::new())),
+                    Ok(Validity::InconsistentGroundTruth) => return Ok(vacuously_valid()),
+                    Ok(Validity::Invalid) => {}
+                    Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => {
+                        incomplete = true;
+                    }
+                },
+            }
+        }
+
+        if incomplete {
+            let simplified = simplify_with_solver(
+                definition,
+                &antecedent.term,
+                &antecedent.constraints,
+                options,
+                solver,
+            )
+            .map_err(ImplicationError::Simplification)?;
+            let simplified = Pattern {
+                term: simplified.term,
+                constraints: merge_predicates(
+                    antecedent.constraints.clone(),
+                    simplified.constraints,
+                ),
+            };
+            if simplified != antecedent {
+                antecedent = simplified;
+                continue;
+            }
+            return Ok(indeterminate());
+        }
+        return Ok(invalid());
+    }
+}
+
 pub fn check_implication_with_existentials_and_options(
     definition: &BackendDefinition,
     antecedent: &Pattern,
@@ -238,11 +391,9 @@ fn discharge_consequent(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<ImplicationResult, ImplicationError> {
-    let obligations = consequent
-        .constraints
-        .iter()
+    let obligations = substitute_predicates(&consequent.constraints, &substitution)
+        .into_iter()
         .filter(|predicate| !antecedent.constraints.contains(predicate))
-        .cloned()
         .collect::<Vec<_>>();
     if obligations.is_empty() {
         return Ok(valid(substitution));
@@ -297,6 +448,14 @@ fn merge_predicates(mut left: Vec<Predicate>, right: Vec<Predicate>) -> Vec<Pred
         }
     }
     left
+}
+
+fn conjoin(mut predicates: Vec<Predicate>) -> Predicate {
+    match predicates.len() {
+        0 => Predicate::True,
+        1 => predicates.pop().expect("one predicate is present"),
+        _ => Predicate::And(predicates),
+    }
 }
 
 fn valid(substitution: Substitution) -> ImplicationResult {
@@ -480,6 +639,33 @@ mod tests {
     }
 
     #[test]
+    fn applies_the_match_substitution_to_consequent_constraints() {
+        let definition = definition();
+        let antecedent = pattern(
+            &definition,
+            r#"pair{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1"))"#,
+        );
+        let mut consequent = pattern(&definition, r#"pair{}(Y:SortInt{}, Y:SortInt{})"#);
+        let y = crate::term::Variable::new("Y", Sort::simple("SortInt"));
+        consequent.constraints.push(Predicate::Equals(
+            Term::variable(y.clone()),
+            int(&definition, "1"),
+        ));
+
+        let result = check_implication_with_existentials(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &BTreeSet::from([y]),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
+
+        assert_eq!(result.status, ImplicationStatus::Valid);
+    }
+
+    #[test]
     fn refreshes_existentials_away_from_antecedent_variables() {
         let definition = definition();
         let antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
@@ -561,6 +747,65 @@ mod tests {
 
         assert_eq!(
             check_implication(&definition, &antecedent, &consequent, &solver),
+            Ok(valid(Substitution::new()))
+        );
+    }
+
+    #[test]
+    fn discharges_the_union_of_complementary_consequent_conditions() {
+        let definition = definition();
+        let antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, X:SortInt{})"#);
+        let zero = int(&definition, "0");
+        let x = Term::variable(crate::term::Variable::new("X", Sort::simple("SortInt")));
+        let equality = Predicate::Equals(x, zero);
+        let mut first = antecedent.clone();
+        first.constraints.push(equality.clone());
+        let mut second = antecedent.clone();
+        second.constraints.push(Predicate::Not(Box::new(equality)));
+
+        #[derive(Clone, Copy, Debug)]
+        struct DisjunctionSolver;
+
+        impl SmtSolver for DisjunctionSolver {
+            fn is_sat(
+                &self,
+                _predicates: &[Predicate],
+                _substitution: &Substitution,
+            ) -> Result<Satisfiability, SmtError> {
+                Ok(Satisfiability::Sat)
+            }
+
+            fn check_predicates(
+                &self,
+                _known: &[Predicate],
+                _substitution: &Substitution,
+                checked: &[Predicate],
+            ) -> Result<Validity, SmtError> {
+                if matches!(checked, [Predicate::Or(branches)] if branches.len() == 2) {
+                    Ok(Validity::Valid)
+                } else {
+                    Ok(Validity::Invalid)
+                }
+            }
+        }
+
+        assert_eq!(
+            check_implication(&definition, &antecedent, &first, &DisjunctionSolver),
+            Ok(invalid())
+        );
+        assert_eq!(
+            check_implication(&definition, &antecedent, &second, &DisjunctionSolver),
+            Ok(invalid())
+        );
+        assert_eq!(
+            check_disjunctive_implication_with_existentials(
+                &definition,
+                &antecedent,
+                &[first, second],
+                &BTreeSet::new(),
+                SimplificationOptions::default(),
+                &DisjunctionSolver,
+            ),
             Ok(valid(Substitution::new()))
         );
     }

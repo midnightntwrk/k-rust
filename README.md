@@ -318,9 +318,9 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
   concrete parameters normally supplied by parser inference.
 - Emit the optional legacy priority aliases supported by `ModuleToKORE` compatibility modes.
 - Implement binary KORE input.
-- Complete combined disjunctive implication removal and the remaining Kore proof-search controls;
-  the current prover conservatively reports an indeterminate leaf when a symbolic state is covered
-  only by the union of multiple RHS alternatives.
+- Complete the remaining Kore proof-search controls and general symbolic remainder construction;
+  combined destination branches are discharged together, while unresolved term unification still
+  remains conservative.
 - Measure Z3-path usage across a substantially larger real-definition corpus.
 - Revisit package splitting only if real build or release pressure justifies it.
 
