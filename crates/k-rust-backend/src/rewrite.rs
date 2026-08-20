@@ -11,8 +11,8 @@ use crate::{
         simplify_with_solver,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
-    substitution::{Substitution, substitute},
-    term::{Name, Sort, Term, TermKind, Variable},
+    substitution::{Substitution, compose, substitute},
+    term::{Name, Sort, SymbolType, Term, TermKind, Variable},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -394,6 +394,115 @@ enum RuleAttempt {
     Indeterminate(IndeterminateReason),
 }
 
+/// Conservatively recover matches that Booster delegates to Kore.
+///
+/// Remainders are simplified after applying the partial substitution. For a function pattern with
+/// one unbound result-sorted variable, the concrete subject is also tried as a witness; the match
+/// is accepted only when evaluating that witness reproduces the subject exactly. A failed witness
+/// remains indeterminate because it does not prove that no other witness exists.
+fn recover_indeterminate_match(
+    definition: &BackendDefinition,
+    mut substitution: Substitution,
+    remainder: Vec<(Term, Term)>,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> MatchResult {
+    let mut unresolved = Vec::new();
+    for (pattern, subject) in remainder {
+        let pattern = substitute(&pattern, &substitution);
+        let subject = substitute(&subject, &substitution);
+        let simplified =
+            simplify_with_solver(definition, &pattern, known_predicates, options, solver)
+                .ok()
+                .filter(|result| result.constraints.is_empty())
+                .map_or_else(|| pattern.clone(), |result| result.term);
+
+        let pair_remainder = match match_terms(
+            MatchMode::Rewrite,
+            &definition.sort_graph,
+            &simplified,
+            &subject,
+        ) {
+            MatchResult::Success(found) => {
+                substitution = compose(&found, &substitution);
+                continue;
+            }
+            MatchResult::Failed(reason) => return MatchResult::Failed(reason),
+            MatchResult::Indeterminate {
+                substitution: found,
+                remainder,
+            } => {
+                substitution = compose(&found, &substitution);
+                remainder
+            }
+        };
+
+        let TermKind::Application { symbol, .. } = simplified.kind() else {
+            unresolved.extend(pair_remainder);
+            continue;
+        };
+        if !matches!(symbol.attributes.symbol_type, SymbolType::Function(_))
+            || !subject.attributes().constructor_like
+        {
+            unresolved.extend(pair_remainder);
+            continue;
+        }
+        let candidates = simplified
+            .attributes()
+            .variables
+            .iter()
+            .filter(|variable| {
+                !substitution.contains_key(*variable) && variable.sort == subject.sort()
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let [candidate] = candidates.as_slice() else {
+            unresolved.extend(pair_remainder);
+            continue;
+        };
+        let witness = Substitution::from([(candidate.clone(), subject.clone())]);
+        let candidate_substitution = compose(&witness, &substitution);
+        let candidate_pattern = substitute(&pattern, &candidate_substitution);
+        let Ok(candidate_pattern) = simplify_with_solver(
+            definition,
+            &candidate_pattern,
+            known_predicates,
+            options,
+            solver,
+        ) else {
+            unresolved.extend(pair_remainder);
+            continue;
+        };
+        if !candidate_pattern.constraints.is_empty() {
+            unresolved.extend(pair_remainder);
+            continue;
+        }
+        match match_terms(
+            MatchMode::Rewrite,
+            &definition.sort_graph,
+            &candidate_pattern.term,
+            &subject,
+        ) {
+            MatchResult::Success(found) => {
+                substitution = compose(&found, &candidate_substitution);
+                continue;
+            }
+            MatchResult::Failed(_) | MatchResult::Indeterminate { .. } => {}
+        }
+        unresolved.extend(pair_remainder);
+    }
+
+    if unresolved.is_empty() {
+        MatchResult::Success(substitution)
+    } else {
+        MatchResult::Indeterminate {
+            substitution,
+            remainder: unresolved,
+        }
+    }
+}
+
 struct RuleApplication {
     applied: AppliedRule,
     remainder: Predicate,
@@ -417,40 +526,58 @@ fn apply_rule(
         MatchResult::Indeterminate {
             substitution,
             remainder,
-        } => {
-            let requires = substitute_predicates(&rule.requires, &substitution);
-            let requires = simplify_predicates_with_solver(
-                definition,
-                &requires,
-                &pattern.constraints,
-                simplification_options,
-                solver,
-            )
-            .unwrap_or(requires);
-            if predicates_truth(&requires) == Truth::False {
-                return RuleAttempt::NotApplicable;
-            }
-            let unclear = requires
-                .into_iter()
-                .filter(|predicate| {
-                    predicates_truth(std::slice::from_ref(predicate)) == Truth::Unknown
-                        && !pattern.constraints.contains(predicate)
-                })
-                .collect::<Vec<_>>();
-            if !unclear.is_empty()
-                && matches!(
-                    solver.check_predicates(&pattern.constraints, &Substitution::new(), &unclear,),
-                    Ok(Validity::Invalid)
-                )
-            {
-                return RuleAttempt::NotApplicable;
-            }
-            return RuleAttempt::Indeterminate(IndeterminateReason::Match {
-                rule_id: rule.attributes.unique_id.clone(),
+        } => match recover_indeterminate_match(
+            definition,
+            substitution,
+            remainder,
+            &pattern.constraints,
+            simplification_options,
+            solver,
+        ) {
+            MatchResult::Failed(_) => return RuleAttempt::NotApplicable,
+            MatchResult::Success(substitution) => substitution,
+            MatchResult::Indeterminate {
                 substitution,
                 remainder,
-            });
-        }
+            } => {
+                let requires = substitute_predicates(&rule.requires, &substitution);
+                let requires = simplify_predicates_with_solver(
+                    definition,
+                    &requires,
+                    &pattern.constraints,
+                    simplification_options,
+                    solver,
+                )
+                .unwrap_or(requires);
+                if predicates_truth(&requires) == Truth::False {
+                    return RuleAttempt::NotApplicable;
+                }
+                let unclear = requires
+                    .into_iter()
+                    .filter(|predicate| {
+                        predicates_truth(std::slice::from_ref(predicate)) == Truth::Unknown
+                            && !pattern.constraints.contains(predicate)
+                    })
+                    .collect::<Vec<_>>();
+                if !unclear.is_empty()
+                    && matches!(
+                        solver.check_predicates(
+                            &pattern.constraints,
+                            &Substitution::new(),
+                            &unclear,
+                        ),
+                        Ok(Validity::Invalid)
+                    )
+                {
+                    return RuleAttempt::NotApplicable;
+                }
+                return RuleAttempt::Indeterminate(IndeterminateReason::Match {
+                    rule_id: rule.attributes.unique_id.clone(),
+                    substitution,
+                    remainder,
+                });
+            }
+        },
         MatchResult::Success(substitution) => substitution,
     };
 
@@ -931,6 +1058,85 @@ mod tests {
             )),
             "low"
         );
+    }
+
+    #[test]
+    fn retries_function_pattern_remainders_after_simplification() {
+        let definition = definition(
+            r#"
+            symbol identity{}(SortS{}) : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    identity{}(X:SortS{}),
+                    \and{SortS{}}(X:SortS{}, \top{SortS{}}())
+                )
+            ) [label{}("identity"), simplification{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(identity{}(X:SortS{})),
+                    \top{SortS{}}()
+                ),
+                \dv{SortS{}}("done")
+            ) [label{}("function-pattern")]
+            "#,
+        );
+        let mut fresh = 0;
+
+        assert_eq!(
+            rewritten_value(rewrite_step(
+                &definition,
+                &subject(&definition, "value"),
+                &mut fresh,
+            )),
+            "done"
+        );
+    }
+
+    #[test]
+    fn a_failed_function_pattern_witness_remains_indeterminate() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol wrap{}(SortBool{}) : SortS{} [constructor{}()]
+                symbol not{}(SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.not")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        wrap{}(not{}(X:SortBool{})),
+                        \top{SortS{}}()
+                    ),
+                    \dv{SortS{}}("done")
+                ) [label{}("negated")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let term = definition
+            .internalize_term(
+                &parse_pattern(r#"wrap{}(\dv{SortBool{}}("true"))"#).unwrap(),
+                &[],
+            )
+            .unwrap();
+        let mut fresh = 0;
+
+        assert!(matches!(
+            rewrite_step(
+                &definition,
+                &Pattern {
+                    term,
+                    constraints: Vec::new(),
+                },
+                &mut fresh,
+            ),
+            RewriteResult::Indeterminate {
+                reason: IndeterminateReason::Match { .. },
+                ..
+            }
+        ));
     }
 
     #[test]

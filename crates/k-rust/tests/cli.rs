@@ -237,6 +237,54 @@ endmodule
 }
 
 #[test]
+fn krun_recovers_evaluable_collection_function_patterns() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports LIST
+  imports INT
+  configuration <k> $PGM:K </k>
+                <list> ListItem(0) ListItem(1) ListItem(2) </list>
+  syntax KItem ::= l(Int, Int)
+  rule <k> l(I, J) => .K ...</k>
+       <list> _ [ I <- J ] </list>
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "KItem",
+            "--expression",
+            "l(1, 1)",
+            "--depth",
+            "20",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(output.contains("Lbl'-LT-'k'-GT-'{}(dotk{}())"), "{output}");
+    assert!(output.contains(r#"\dv{SortInt{}}("2")"#), "{output}");
+    assert!(!output.contains("Lbll'LPar"), "{output}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kcompile_writes_parseable_kore_outputs() {
     let (root, definition) = fixture();
     let output_directory = root.join("compiled");
