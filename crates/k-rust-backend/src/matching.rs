@@ -450,6 +450,132 @@ pub(crate) fn match_collection_remainders_all_in_definition(
     Some(solutions)
 }
 
+/// Expand implication remainders where a closed destination map is unified with an open current
+/// map. Each returned branch is one AC entry permutation expressed as ordinary term equalities;
+/// the implication layer can simplify and existentially quantify those equations uniformly with
+/// its other obligations.
+pub(crate) fn expand_closed_map_implication_remainders(
+    initial: &Substitution,
+    remainder: &[(Term, Term)],
+) -> Option<Vec<Vec<(Term, Term)>>> {
+    let mut expanded = false;
+    let mut branches = vec![Vec::new()];
+    for (pattern, subject) in remainder {
+        let pattern = substitute(pattern, initial);
+        let subject = substitute(subject, initial);
+        let expansion = match (pattern.kind(), subject.kind()) {
+            (
+                TermKind::Map {
+                    definition: pattern_definition,
+                    entries: pattern_entries,
+                    rest: None,
+                },
+                TermKind::Map {
+                    definition: subject_definition,
+                    entries: subject_entries,
+                    rest: Some(subject_rest),
+                },
+            ) if pattern_definition == subject_definition
+                && subject_entries.len() <= pattern_entries.len() =>
+            {
+                let mut solutions = Vec::new();
+                ClosedMapImplicationProblem {
+                    pattern_definition,
+                    pattern_entries,
+                    subject_entries,
+                    subject_rest,
+                }
+                .enumerate(0, Vec::new(), &mut solutions);
+                Some(solutions)
+            }
+            _ => None,
+        };
+        let Some(expansion) = expansion else {
+            for branch in &mut branches {
+                branch.push((pattern.clone(), subject.clone()));
+            }
+            continue;
+        };
+        expanded = true;
+        let mut next = Vec::new();
+        for branch in branches {
+            for equations in &expansion {
+                let mut combined = branch.clone();
+                combined.extend(equations.iter().cloned());
+                next.push(combined);
+            }
+        }
+        branches = next;
+    }
+    if !expanded {
+        return None;
+    }
+    branches.sort();
+    branches.dedup();
+    Some(branches)
+}
+
+struct ClosedMapImplicationProblem<'a> {
+    pattern_definition: &'a Arc<MapDefinition>,
+    pattern_entries: &'a [(Term, Term)],
+    subject_entries: &'a [(Term, Term)],
+    subject_rest: &'a Term,
+}
+
+impl ClosedMapImplicationProblem<'_> {
+    fn enumerate(
+        &self,
+        subject_index: usize,
+        selected: Vec<(usize, Vec<(Term, Term)>)>,
+        solutions: &mut Vec<Vec<(Term, Term)>>,
+    ) {
+        if subject_index == self.subject_entries.len() {
+            let selected_indices = selected
+                .iter()
+                .map(|(index, _)| *index)
+                .collect::<BTreeSet<_>>();
+            let remaining = self
+                .pattern_entries
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| !selected_indices.contains(index))
+                .map(|(_, entry)| entry.clone())
+                .collect();
+            let mut equations = selected
+                .into_iter()
+                .flat_map(|(_, equations)| equations)
+                .collect::<Vec<_>>();
+            equations.push((
+                self.subject_rest.clone(),
+                Term::map(self.pattern_definition.clone(), remaining, None),
+            ));
+            solutions.push(equations);
+            return;
+        }
+
+        let (subject_key, subject_value) = &self.subject_entries[subject_index];
+        let used = selected
+            .iter()
+            .map(|(index, _)| *index)
+            .collect::<BTreeSet<_>>();
+        for (pattern_index, (pattern_key, pattern_value)) in self.pattern_entries.iter().enumerate()
+        {
+            if used.contains(&pattern_index) {
+                continue;
+            }
+            let mut next = selected.clone();
+            next.push((
+                pattern_index,
+                vec![
+                    (subject_key.clone(), pattern_key.clone()),
+                    (subject_value.clone(), pattern_value.clone()),
+                ],
+            ));
+            self.enumerate(subject_index + 1, next, solutions);
+        }
+    }
+}
+
 fn match_map_terms_all_with_context(
     mode: MatchMode,
     sorts: &SortGraph,
@@ -2447,6 +2573,62 @@ mod tests {
                     (value_variable, second_value),
                 ]),
             ])
+        );
+    }
+
+    #[test]
+    fn expands_closed_destination_maps_against_open_current_maps() {
+        let definition = map_definition();
+        let key = var("KEY", Sort::simple("MapKey"));
+        let value = var("VALUE", Sort::simple("MapValue"));
+        let rest = var("REST", Sort::simple("MapSort"));
+        let first_key = domain_value(Sort::simple("MapKey"), "first");
+        let first_value = domain_value(Sort::simple("MapValue"), "first-value");
+        let second_key = domain_value(Sort::simple("MapKey"), "second");
+        let second_value = domain_value(Sort::simple("MapValue"), "second-value");
+        let destination = Term::map(
+            definition.clone(),
+            vec![
+                (first_key.clone(), first_value.clone()),
+                (second_key.clone(), second_value.clone()),
+            ],
+            None,
+        );
+        let current = Term::map(
+            definition.clone(),
+            vec![(key.clone(), value.clone())],
+            Some(rest.clone()),
+        );
+        let first_remainder = Term::map(
+            definition.clone(),
+            vec![(second_key.clone(), second_value.clone())],
+            None,
+        );
+        let second_remainder = Term::map(
+            definition,
+            vec![(first_key.clone(), first_value.clone())],
+            None,
+        );
+        let mut expected = vec![
+            vec![
+                (key.clone(), first_key),
+                (value.clone(), first_value),
+                (rest.clone(), first_remainder),
+            ],
+            vec![
+                (key, second_key),
+                (value, second_value),
+                (rest, second_remainder),
+            ],
+        ];
+        expected.sort();
+
+        assert_eq!(
+            expand_closed_map_implication_remainders(
+                &Substitution::new(),
+                &[(destination, current)],
+            ),
+            Some(expected),
         );
     }
 

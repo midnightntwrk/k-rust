@@ -905,7 +905,7 @@ fn bool_value(term: &Term) -> Option<bool> {
     }
 }
 
-fn normalize_predicate(predicate: Predicate) -> Predicate {
+pub(crate) fn normalize_predicate(predicate: Predicate) -> Predicate {
     match predicate {
         Predicate::Equals(left, right) => match (left.kind(), right.kind()) {
             (
@@ -951,10 +951,22 @@ fn normalize_predicate(predicate: Predicate) -> Predicate {
                 Truth::Unknown => Predicate::Equals(left, right),
             },
         },
-        Predicate::Not(inner) => match predicates_truth(std::slice::from_ref(&inner)) {
-            Truth::True => Predicate::False,
-            Truth::False => Predicate::True,
-            Truth::Unknown => Predicate::Not(inner),
+        Predicate::Not(inner) => match *inner {
+            Predicate::True => Predicate::False,
+            Predicate::False => Predicate::True,
+            Predicate::Not(inner) => *inner,
+            Predicate::And(inner) => Predicate::Not(Box::new(Predicate::And(inner))),
+            Predicate::Or(inner) => normalize_predicate(Predicate::And(
+                inner
+                    .into_iter()
+                    .map(|predicate| Predicate::Not(Box::new(predicate)))
+                    .collect(),
+            )),
+            inner => match predicates_truth(std::slice::from_ref(&inner)) {
+                Truth::True => Predicate::False,
+                Truth::False => Predicate::True,
+                Truth::Unknown => Predicate::Not(Box::new(inner)),
+            },
         },
         Predicate::And(inner) => {
             let mut normalized = Vec::new();

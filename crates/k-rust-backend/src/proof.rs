@@ -896,7 +896,7 @@ fn complement_implication_condition(
     for variable in introduced.into_iter().rev() {
         covered = crate::rule::Predicate::Exists(variable, Box::new(covered));
     }
-    crate::rule::Predicate::Not(Box::new(covered))
+    crate::simplify::normalize_predicate(crate::rule::Predicate::Not(Box::new(covered)))
 }
 
 fn conjoin_predicates(mut predicates: Vec<crate::rule::Predicate>) -> crate::rule::Predicate {
@@ -960,6 +960,35 @@ mod tests {
         definition
             .internalize_term(&syntax, &[])
             .expect("term should internalize")
+    }
+
+    #[test]
+    fn complements_disjunctive_destination_coverage_branchwise() {
+        let definition = definition("", "");
+        let x = term(&definition, "X:SortS{}");
+        let first = crate::rule::Predicate::Equals(x.clone(), term(&definition, "a{}()"));
+        let second = crate::rule::Predicate::Equals(x.clone(), term(&definition, "b{}()"));
+        let pattern = Pattern {
+            term: x,
+            constraints: Vec::new(),
+        };
+
+        assert_eq!(
+            complement_implication_condition(
+                &pattern,
+                ImplicationCondition {
+                    predicates: vec![crate::rule::Predicate::Or(vec![
+                        first.clone(),
+                        second.clone(),
+                    ])],
+                    substitution: Substitution::new(),
+                },
+            ),
+            crate::rule::Predicate::And(vec![
+                crate::rule::Predicate::Not(Box::new(first)),
+                crate::rule::Predicate::Not(Box::new(second)),
+            ]),
+        );
     }
 
     #[test]

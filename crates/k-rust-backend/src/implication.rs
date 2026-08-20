@@ -4,7 +4,10 @@ use std::{collections::BTreeSet, error::Error, fmt};
 
 use crate::{
     definition::BackendDefinition,
-    matching::{FailReason, MatchMode, MatchResult, SortError, match_terms_in_definition},
+    matching::{
+        FailReason, MatchMode, MatchResult, SortError, expand_closed_map_implication_remainders,
+        match_terms_in_definition,
+    },
     rewrite::{Pattern, Truth, predicates_truth, substitute_predicates},
     rule::Predicate,
     simplify::{
@@ -198,13 +201,13 @@ pub fn check_disjunctive_implication_with_existentials(
                 MatchResult::Success(substitution) => (substitution, Vec::new()),
             };
             matched = true;
-            let obligations = implication_obligations(
+            let obligations = implication_obligation_branches(
                 consequent,
                 &substitution,
                 remainder,
                 &antecedent.constraints,
             );
-            let obligations = quantify_obligations(obligations, existentials);
+            let obligations = combine_obligation_branches(obligations, existentials);
             let obligations = match simplify_predicates_with_solver(
                 definition,
                 &obligations,
@@ -431,13 +434,13 @@ fn discharge_consequent(
     solver: &dyn SmtSolver,
 ) -> Result<ImplicationResult, ImplicationError> {
     let had_match_remainder = !remainder.is_empty();
-    let obligations = implication_obligations(
+    let obligations = implication_obligation_branches(
         consequent.pattern,
         &substitution,
         remainder,
         &antecedent.constraints,
     );
-    let obligations = quantify_obligations(obligations, consequent.existentials);
+    let obligations = combine_obligation_branches(obligations, consequent.existentials);
     if obligations.is_empty() {
         return Ok(valid(substitution));
     }
@@ -502,6 +505,37 @@ fn quantify_obligations(
         obligation = Predicate::Exists(variable, Box::new(obligation));
     }
     vec![obligation]
+}
+
+fn combine_obligation_branches(
+    branches: Vec<Vec<Predicate>>,
+    existentials: &BTreeSet<Variable>,
+) -> Vec<Predicate> {
+    let mut branches = branches
+        .into_iter()
+        .map(|branch| quantify_obligations(branch, existentials))
+        .collect::<Vec<_>>();
+    match branches.len() {
+        0 => vec![Predicate::False],
+        1 => branches.pop().expect("one implication branch is present"),
+        _ => vec![Predicate::Or(
+            branches.into_iter().map(conjoin).collect::<Vec<_>>(),
+        )],
+    }
+}
+
+fn implication_obligation_branches(
+    consequent: &Pattern,
+    substitution: &Substitution,
+    remainder: Vec<(crate::term::Term, crate::term::Term)>,
+    known: &[Predicate],
+) -> Vec<Vec<Predicate>> {
+    let branches = expand_closed_map_implication_remainders(substitution, &remainder)
+        .unwrap_or_else(|| vec![remainder]);
+    branches
+        .into_iter()
+        .map(|remainder| implication_obligations(consequent, substitution, remainder, known))
+        .collect()
 }
 
 fn implication_obligations(
