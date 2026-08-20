@@ -157,11 +157,16 @@ fn simplify_predicates_with_budget(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let simplified = if violates_finite_constructor_domain(definition, &simplified) {
+    let mut simplified = if violates_finite_constructor_domain(definition, &simplified) {
         vec![Predicate::False]
     } else {
         simplified
     };
+    if simplified.contains(&Predicate::False) {
+        simplified = vec![Predicate::False];
+    } else {
+        simplified.retain(|predicate| predicate != &Predicate::True);
+    }
     if simplified == conjuncts {
         return Ok(simplified);
     }
@@ -332,7 +337,16 @@ fn simplify_predicate_with_budget(
         Predicate::Equals(left, right) => {
             Predicate::Equals(simplify_term(left)?, simplify_term(right)?)
         }
-        Predicate::Ceil(term) => Predicate::Ceil(simplify_term(term)?),
+        Predicate::Ceil(term) => {
+            let term = simplify_term(term)?;
+            let unchanged = Predicate::Ceil(term.clone());
+            let expanded = ceil_term(definition, &term);
+            if expanded.as_slice() == [unchanged.clone()] {
+                unchanged
+            } else {
+                Predicate::And(expanded)
+            }
+        }
         Predicate::Floor(term) => Predicate::Floor(simplify_term(term)?),
         Predicate::In(left, right) => Predicate::In(simplify_term(left)?, simplify_term(right)?),
         Predicate::Not(inner) => Predicate::Not(Box::new(simplify_predicate_with_budget(
@@ -1571,7 +1585,7 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
-    use crate::term::Sort;
+    use crate::term::{Sort, Variable};
 
     fn definition(axioms: &str) -> BackendDefinition {
         let source = format!(
@@ -1788,6 +1802,41 @@ mod tests {
             .next()
             .expect("ceil equation should be indexed");
         assert_eq!(ceil_rule.requires.len(), 1);
+    }
+
+    #[test]
+    fn decomposes_constructor_ceil_and_discharges_fresh_existentials() {
+        let definition = definition("");
+        let ordinary = term(&definition, "X:SortS{}");
+        let fresh_constructor = Term::application(
+            definition.symbols["wrap"].clone(),
+            Vec::new(),
+            vec![Term::variable(Variable::new("Ex#X", Sort::simple("SortS")))],
+        );
+        let ordinary_constructor = term(&definition, "wrap{}(X:SortS{})");
+
+        assert_eq!(
+            simplify_predicate_with_solver(
+                &definition,
+                &Predicate::Ceil(fresh_constructor),
+                &[],
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .unwrap(),
+            Predicate::True,
+        );
+        assert_eq!(
+            simplify_predicate_with_solver(
+                &definition,
+                &Predicate::Ceil(ordinary_constructor),
+                &[],
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .unwrap(),
+            Predicate::Ceil(ordinary),
+        );
     }
 
     #[test]
