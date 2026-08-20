@@ -670,8 +670,65 @@ fn computed_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> Compute
                 result.undefined_symbols.insert(symbol.name.clone());
             }
         });
+        visit_partial_collections(term, &mut |name| {
+            result.undefined_symbols.insert(name.clone());
+        });
     }
     result
+}
+
+fn visit_partial_collections(term: &Term, visitor: &mut impl FnMut(&Name)) {
+    match term.kind() {
+        TermKind::Application { arguments, .. } => {
+            for argument in arguments {
+                visit_partial_collections(argument, visitor);
+            }
+        }
+        TermKind::And(left, right) => {
+            visit_partial_collections(left, visitor);
+            visit_partial_collections(right, visitor);
+        }
+        TermKind::Injection { term, .. } => visit_partial_collections(term, visitor),
+        TermKind::Map {
+            definition,
+            entries,
+            rest,
+        } => {
+            visitor(&definition.symbols.concat);
+            for (key, value) in entries {
+                visit_partial_collections(key, visitor);
+                visit_partial_collections(value, visitor);
+            }
+            if let Some(rest) = rest {
+                visit_partial_collections(rest, visitor);
+            }
+        }
+        TermKind::List { heads, rest, .. } => {
+            for head in heads {
+                visit_partial_collections(head, visitor);
+            }
+            if let Some((middle, tails)) = rest {
+                visit_partial_collections(middle, visitor);
+                for tail in tails {
+                    visit_partial_collections(tail, visitor);
+                }
+            }
+        }
+        TermKind::Set {
+            definition,
+            elements,
+            rest,
+        } => {
+            visitor(&definition.symbols.concat);
+            for element in elements {
+                visit_partial_collections(element, visitor);
+            }
+            if let Some(rest) = rest {
+                visit_partial_collections(rest, visitor);
+            }
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+    }
 }
 
 fn visit_symbols(term: &Term, visitor: &mut impl FnMut(&crate::term::Symbol)) {

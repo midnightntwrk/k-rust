@@ -9,6 +9,7 @@ use std::{
 
 use crate::{
     claim::{ReachabilityClaim, ReachabilityMode},
+    definedness::ceil_term,
     definition::BackendDefinition,
     implication::{
         ImplicationCondition, ImplicationError, ImplicationFailure, ImplicationStatus,
@@ -162,8 +163,11 @@ pub fn prove_claim(
         });
     }
 
+    let mut initial = claim.lhs.clone();
+    let initial_definedness = ceil_term(definition, &initial.term);
+    extend_unique(&mut initial.constraints, initial_definedness);
     let mut pending = VecDeque::from([ProofState {
-        pattern: claim.lhs.clone(),
+        pattern: initial,
         depth: 0,
         trace: Vec::new(),
     }]);
@@ -827,6 +831,79 @@ mod tests {
                 ..
             }]
         ));
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn proves_map_construction_under_antecedent_definedness() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortKey{} []
+                sort SortValue{} [hasDomainValues{}()]
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                sort SortState{} []
+                symbol mapUnit{}() : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.unit")]
+                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                symbol start{}(SortKey{}, SortMap{}) : SortState{} [constructor{}()]
+                symbol done{}(SortMap{}) : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        start{}(KEY:SortKey{}, MAP:SortMap{}),
+                        \top{SortState{}}()
+                    ),
+                    done{}(
+                        mapConcat{}(
+                            mapItem{}(KEY:SortKey{}, \dv{SortValue{}}("new")),
+                            MAP:SortMap{}
+                        )
+                    )
+                ) [label{}("insert")]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(
+                        start{}(
+                            X:SortKey{},
+                            mapConcat{}(
+                                mapItem{}(Y:SortKey{}, \dv{SortValue{}}("old")),
+                                REST:SortMap{}
+                            )
+                        ),
+                        \top{SortState{}}()
+                    ),
+                    weakAlwaysFinally{SortState{}}(
+                        done{}(
+                            mapConcat{}(
+                                mapItem{}(X:SortKey{}, \dv{SortValue{}}("new")),
+                                mapConcat{}(
+                                    mapItem{}(Y:SortKey{}, \dv{SortValue{}}("old")),
+                                    REST:SortMap{}
+                                )
+                            )
+                        )
+                    )
+                ) [label{}("map-definedness")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &solver,
+        )
+        .expect("claim should execute");
+
+        assert_eq!(result.status, ProofStatus::Proven);
+        assert_eq!(result.unexplored_states, 0);
     }
 
     const A_TO_B: &str = r#"
