@@ -1151,13 +1151,16 @@ impl Matcher<'_> {
             return Err(FailReason::DifferentSymbols(set(Vec::new(), None), subject));
         }
 
-        if pattern_symbolic.len() == 1 && subject_rest.is_none() && subject_elements.len() == 1 {
+        if pattern_symbolic.len() == 1
+            && subject_elements.len() == 1
+            && (subject_rest.is_none() || pattern_rest.is_some())
+        {
             self.enqueue(
                 pattern_symbolic.into_iter().next().unwrap(),
                 subject_elements.into_iter().next().unwrap(),
             );
             if let Some(rest) = pattern_rest {
-                self.enqueue(rest, set(Vec::new(), None));
+                self.enqueue(rest, set(Vec::new(), subject_rest));
             }
             return Ok(());
         }
@@ -1203,8 +1206,8 @@ impl Matcher<'_> {
             ));
         }
         if pattern.symbolic.len() == 1
-            && subject.rest.is_none()
             && subject.concrete.len() + subject.symbolic.len() == 1
+            && (subject.rest.is_none() || pattern.rest.is_some())
         {
             let (pattern_key, pattern_value) = pattern.symbolic[0].clone();
             let (subject_key, subject_value) = subject
@@ -1215,7 +1218,10 @@ impl Matcher<'_> {
                 .clone();
             let mut problems = vec![(pattern_key, subject_key), (pattern_value, subject_value)];
             if let Some(rest) = pattern.rest {
-                problems.push((rest, Term::map(definition.clone(), Vec::new(), None)));
+                problems.push((
+                    rest,
+                    Term::map(definition.clone(), Vec::new(), subject.rest),
+                ));
             }
             return Ok(problems);
         }
@@ -2104,6 +2110,45 @@ mod tests {
     }
 
     #[test]
+    fn matches_symbolic_map_entries_and_preserves_the_subject_frame() {
+        let definition = map_definition();
+        let key_variable = variable("KEY", Sort::simple("MapKey"));
+        let value_variable = variable("VALUE", Sort::simple("MapValue"));
+        let rest_variable = variable("REST", Sort::simple("MapSort"));
+        let subject_key = variable("SUBJECT_KEY", Sort::simple("MapKey"));
+        let subject_value = variable("SUBJECT_VALUE", Sort::simple("MapValue"));
+        let subject_rest = variable("SUBJECT_REST", Sort::simple("MapSort"));
+        let pattern = Term::map(
+            definition.clone(),
+            vec![(
+                Term::variable(key_variable.clone()),
+                Term::variable(value_variable.clone()),
+            )],
+            Some(Term::variable(rest_variable.clone())),
+        );
+        let subject = Term::map(
+            definition.clone(),
+            vec![(
+                Term::variable(subject_key.clone()),
+                Term::variable(subject_value.clone()),
+            )],
+            Some(Term::variable(subject_rest.clone())),
+        );
+
+        assert_eq!(
+            match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
+            MatchResult::Success(Substitution::from([
+                (key_variable, Term::variable(subject_key)),
+                (
+                    rest_variable,
+                    Term::map(definition, Vec::new(), Some(Term::variable(subject_rest)),),
+                ),
+                (value_variable, Term::variable(subject_value)),
+            ]))
+        );
+    }
+
+    #[test]
     fn enumerates_every_symbolic_map_key_selection() {
         let definition = map_definition();
         let key_variable = variable("KEY", Sort::simple("MapKey"));
@@ -2327,6 +2372,36 @@ mod tests {
             MatchResult::Success(Substitution::from([
                 (element_variable, element),
                 (rest_variable, empty),
+            ]))
+        );
+    }
+
+    #[test]
+    fn matches_symbolic_set_elements_and_preserves_the_subject_frame() {
+        let definition = set_definition();
+        let element_variable = variable("ELEMENT", Sort::simple("SetElement"));
+        let rest_variable = variable("REST", Sort::simple("SetSort"));
+        let subject_element = variable("SUBJECT_ELEMENT", Sort::simple("SetElement"));
+        let subject_rest = variable("SUBJECT_REST", Sort::simple("SetSort"));
+        let pattern = Term::set(
+            definition.clone(),
+            vec![Term::variable(element_variable.clone())],
+            Some(Term::variable(rest_variable.clone())),
+        );
+        let subject = Term::set(
+            definition.clone(),
+            vec![Term::variable(subject_element.clone())],
+            Some(Term::variable(subject_rest.clone())),
+        );
+
+        assert_eq!(
+            match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
+            MatchResult::Success(Substitution::from([
+                (element_variable, Term::variable(subject_element)),
+                (
+                    rest_variable,
+                    Term::set(definition, Vec::new(), Some(Term::variable(subject_rest)),),
+                ),
             ]))
         );
     }
