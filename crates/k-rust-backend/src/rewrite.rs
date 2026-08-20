@@ -91,6 +91,13 @@ pub enum IndeterminateReason {
 pub struct ExecutionOptions {
     pub max_depth: u64,
     pub max_simplification_iterations: usize,
+    pub branch_mode: ExecutionBranchMode,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExecutionBranchMode {
+    StopAtUnconditional,
+    ExploreAll,
 }
 
 impl Default for ExecutionOptions {
@@ -98,6 +105,7 @@ impl Default for ExecutionOptions {
         Self {
             max_depth: 1_000,
             max_simplification_iterations: 100,
+            branch_mode: ExecutionBranchMode::StopAtUnconditional,
         }
     }
 }
@@ -123,6 +131,7 @@ pub enum HaltReason {
     Stuck,
     Trivial,
     Vacuous,
+    Branch { branches: Vec<AppliedRule> },
     DepthBound,
     Indeterminate(IndeterminateReason),
     Simplification(SimplificationError),
@@ -269,10 +278,25 @@ pub fn execute_with_solver_and_observer(
                 pending.push_back(next_state(state.depth, state.trace, applied))
             }
             RewriteResult::Branch {
+                original,
                 branches,
                 remainder,
-                ..
             } => {
+                let unconditional = remainder.is_none()
+                    && branches.len() > 1
+                    && branches
+                        .iter()
+                        .all(|branch| branch.pattern.constraints == original.constraints);
+                if options.branch_mode == ExecutionBranchMode::StopAtUnconditional && unconditional
+                {
+                    leaves.push(ExecutionLeaf {
+                        pattern: original,
+                        depth: state.depth,
+                        trace: state.trace,
+                        halt_reason: HaltReason::Branch { branches },
+                    });
+                    continue;
+                }
                 for applied in branches {
                     record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
                     pending.push_back(next_state(state.depth, state.trace.clone(), applied));
@@ -4270,9 +4294,8 @@ mod tests {
         assert_eq!(result.leaves[0].halt_reason, HaltReason::DepthBound);
     }
 
-    #[test]
-    fn carries_each_rewrite_branch_to_its_own_leaf() {
-        let definition = definition(
+    fn unconditional_branch_definition() -> BackendDefinition {
+        definition(
             r#"
             axiom{} \rewrites{SortS{}}(
                 \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
@@ -4283,12 +4306,36 @@ mod tests {
                 \dv{SortS{}}("right")
             ) [label{}("right")]
             "#,
-        );
+        )
+    }
+
+    #[test]
+    fn stops_at_an_unconditional_rewrite_branch() {
+        let definition = unconditional_branch_definition();
+        let initial = subject(&definition, "value");
+
+        let result = execute(&definition, initial.clone(), ExecutionOptions::default());
+
+        assert_eq!(result.leaves.len(), 1);
+        assert_eq!(result.leaves[0].pattern, initial);
+        assert_eq!(result.leaves[0].depth, 0);
+        let HaltReason::Branch { branches } = &result.leaves[0].halt_reason else {
+            panic!("expected an unconditional branch point");
+        };
+        assert_eq!(branches.len(), 2);
+    }
+
+    #[test]
+    fn explores_each_rewrite_branch_when_requested() {
+        let definition = unconditional_branch_definition();
 
         let result = execute(
             &definition,
             subject(&definition, "value"),
-            ExecutionOptions::default(),
+            ExecutionOptions {
+                branch_mode: ExecutionBranchMode::ExploreAll,
+                ..ExecutionOptions::default()
+            },
         );
         assert_eq!(result.leaves.len(), 2);
         assert!(
