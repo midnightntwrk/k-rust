@@ -22,7 +22,7 @@ use crate::{
     rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
     smt::{NoSolver, SmtError, SmtSolver, Validity},
     substitution::{Substitution, substitute},
-    term::{Term, TermKind, Variable},
+    term::{Term, TermKind},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,10 +49,6 @@ pub struct Simplification {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SimplificationError {
     Builtin(BuiltinError),
-    IndeterminateConcreteness {
-        rule_id: String,
-        variable: Variable,
-    },
     ConflictingResults {
         rule_ids: Vec<String>,
     },
@@ -1218,11 +1214,8 @@ fn apply_equation(
             }
             MatchResult::Success(substitution) => substitution,
         };
-    if let Some(variable) = check_concreteness(rule, &substitution) {
-        return Err(SimplificationError::IndeterminateConcreteness {
-            rule_id: rule.attributes.unique_id.clone(),
-            variable,
-        });
+    if check_concreteness(rule, &substitution).is_some() {
+        return Ok(EquationAttempt::NotApplicable);
     }
     let requires = substitute_predicates(&rule.requires, &substitution);
     let requires = simplify_rule_predicates(
@@ -1547,6 +1540,37 @@ mod tests {
     }
 
     #[test]
+    fn skips_equations_with_violated_concreteness_constraints() {
+        let definition = definition(
+            r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("concrete"), \top{SortS{}}())
+                )
+            ) [label{}("concrete-only"), concrete{}(X:SortS{}), simplification{}("10")]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("fallback"), \top{SortS{}}())
+                )
+            ) [label{}("fallback"), simplification{}("50")]
+            "#,
+        );
+        let input = term(&definition, "f{}(Y:SortS{})");
+
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+        assert_eq!(
+            result.term,
+            term(&definition, r#"\dv{SortS{}}("fallback")"#)
+        );
+        assert_eq!(result.applied_rules, ["fallback"]);
+    }
+
+    #[test]
     fn applies_a_same_priority_result_despite_indeterminate_sibling_heads() {
         let definition = definition(
             r#"
@@ -1737,7 +1761,10 @@ mod tests {
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
         let solver = crate::smt::Z3Solver::new(&definition).unwrap();
         let input = term(&definition, "f{}(Y:SortInt{})");
-        let variable = Term::variable(Variable::new("Y", crate::term::Sort::simple("SortInt")));
+        let variable = Term::variable(crate::term::Variable::new(
+            "Y",
+            crate::term::Sort::simple("SortInt"),
+        ));
         let run = |value: &str| {
             simplify_with_solver(
                 &definition,
