@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    builtin::{BuiltinError, BuiltinResult, evaluate as evaluate_builtin},
+    builtin::{BuiltinEffect, BuiltinError, BuiltinResult, evaluate as evaluate_builtin},
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms},
     rewrite::{Truth, check_concreteness, predicates_truth, substitute_predicates},
@@ -34,6 +34,7 @@ pub struct Simplification {
     pub term: Term,
     pub constraints: Vec<Predicate>,
     pub applied_rules: Vec<String>,
+    pub effects: Vec<BuiltinEffect>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -65,6 +66,10 @@ pub enum SimplificationError {
     IterationLimit {
         limit: usize,
         term: Term,
+    },
+    InvalidBuiltinResultSymbol {
+        hook: &'static str,
+        symbol: &'static str,
     },
 }
 
@@ -401,11 +406,14 @@ fn simplify_with_budget(
     constraints.extend(root.constraints);
     let mut applied_rules = children.applied_rules;
     applied_rules.extend(root.applied_rules);
+    let mut effects = children.effects;
+    effects.extend(root.effects);
     if root.term == children.term {
         return Ok(Simplification {
             term: root.term,
             constraints,
             applied_rules,
+            effects,
         });
     }
     if *remaining == 0 {
@@ -426,10 +434,12 @@ fn simplify_with_budget(
     )?;
     constraints.extend(next.constraints);
     applied_rules.extend(next.applied_rules);
+    effects.extend(next.effects);
     Ok(Simplification {
         term: next.term,
         constraints,
         applied_rules,
+        effects,
     })
 }
 
@@ -533,6 +543,7 @@ fn simplify_children(
 ) -> Result<Simplification, SimplificationError> {
     let mut constraints = Vec::new();
     let mut applied_rules = Vec::new();
+    let mut effects = Vec::new();
     let mut child = |term: &Term| {
         let result = simplify_with_budget(
             definition,
@@ -545,6 +556,7 @@ fn simplify_children(
         )?;
         constraints.extend(result.constraints);
         applied_rules.extend(result.applied_rules);
+        effects.extend(result.effects);
         Ok::<_, SimplificationError>(result.term)
     };
     let term = match term.kind() {
@@ -618,6 +630,7 @@ fn simplify_children(
         term,
         constraints,
         applied_rules,
+        effects,
     })
 }
 
@@ -634,9 +647,14 @@ fn simplify_root(
         let TermKind::Application { symbol, .. } = term.kind() else {
             unreachable!("only applications have builtin hooks")
         };
-        let (term, constraints) = match builtin {
-            BuiltinResult::Value(result) => (result, Vec::new()),
-            BuiltinResult::Bottom => (term.clone(), vec![Predicate::False]),
+        let (term, constraints, effects) = match builtin {
+            BuiltinResult::Value(result) => (result, Vec::new(), Vec::new()),
+            BuiltinResult::Bottom => (term.clone(), vec![Predicate::False], Vec::new()),
+            BuiltinResult::Effect(effect) => (
+                builtin_effect_result(definition, term, &effect)?,
+                Vec::new(),
+                vec![effect],
+            ),
             BuiltinResult::NotApplicable => unreachable!(),
         };
         return Ok(Simplification {
@@ -650,6 +668,7 @@ fn simplify_root(
                     .as_deref()
                     .expect("evaluated builtin has a hook")
             )],
+            effects,
         });
     }
     if let Some(result) = apply_theory(
@@ -678,7 +697,34 @@ fn simplify_root(
         term: term.clone(),
         constraints: Vec::new(),
         applied_rules: Vec::new(),
+        effects: Vec::new(),
     })
+}
+
+fn builtin_effect_result(
+    definition: &BackendDefinition,
+    application: &Term,
+    effect: &BuiltinEffect,
+) -> Result<Term, SimplificationError> {
+    match effect {
+        BuiltinEffect::UserLog(_) => {
+            let Some(dotk) = definition.symbols.get("dotk") else {
+                return Err(SimplificationError::InvalidBuiltinResultSymbol {
+                    hook: "IO.logString",
+                    symbol: "dotk",
+                });
+            };
+            if !dotk.sort_variables.is_empty() || !dotk.argument_sorts.is_empty() {
+                return Err(SimplificationError::InvalidBuiltinResultSymbol {
+                    hook: "IO.logString",
+                    symbol: "dotk",
+                });
+            }
+            let mut dotk = dotk.as_ref().clone();
+            dotk.result_sort = application.sort();
+            Ok(Term::application(Arc::new(dotk), Vec::new(), Vec::new()))
+        }
+    }
 }
 
 fn apply_theory(
@@ -852,6 +898,7 @@ fn apply_equation(
             term: rhs,
             constraints: Vec::new(),
             applied_rules: vec![rule.attributes.unique_id.clone()],
+            effects: Vec::new(),
         })),
         Truth::Unknown => {
             match solver.check_predicates(known_predicates, &Substitution::new(), &ensures) {
@@ -876,6 +923,7 @@ fn apply_equation(
                 term: rhs,
                 constraints: ensures,
                 applied_rules: vec![rule.attributes.unique_id.clone()],
+                effects: Vec::new(),
             }))
         }
     }
@@ -886,6 +934,7 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
+    use crate::term::Sort;
 
     fn definition(axioms: &str) -> BackendDefinition {
         let source = format!(
@@ -979,6 +1028,40 @@ mod tests {
             result.applied_rules,
             vec!["builtin:INT.add", "builtin:INT.add"]
         );
+    }
+
+    #[test]
+    fn returns_user_logs_as_effects_and_the_reference_unit_term() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortString{} [hasDomainValues{}()]
+                sort SortK{} []
+                sort SortUnit{} []
+                symbol dotk{}() : SortK{} [constructor{}()]
+                symbol log{}(SortString{}) : SortUnit{}
+                    [function{}(), total{}(), hook{}("IO.logString")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let input = term(&definition, r#"log{}(\dv{SortString{}}("hello from K"))"#);
+
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+        assert!(matches!(
+            result.term.kind(),
+            TermKind::Application { symbol, arguments, .. }
+                if symbol.name.as_ref() == "dotk"
+                    && symbol.result_sort == Sort::simple("SortUnit")
+                    && arguments.is_empty()
+        ));
+        assert_eq!(
+            result.effects,
+            [BuiltinEffect::UserLog("hello from K".into())]
+        );
+        assert_eq!(result.applied_rules, ["builtin:IO.logString"]);
     }
 
     #[test]

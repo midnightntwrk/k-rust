@@ -32,10 +32,11 @@ use k_rust::{
     outer::{LoadOptions, SourceResolver, load_with_options},
 };
 use k_rust_backend::{
+    builtin::BuiltinEffect,
     definition::BackendDefinition,
     externalize,
     proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
-    rewrite::{ExecutionOptions, HaltReason, Pattern, execute_with_solver},
+    rewrite::{ExecutionOptions, HaltReason, Pattern, execute_with_solver_and_observer},
     smt::Z3Solver,
 };
 
@@ -542,7 +543,7 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
     let initial = backend.internalize_term(&initial, &[])?;
     let solver = Z3Solver::new(&backend)
         .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
-    let execution = execute_with_solver(
+    let execution = execute_with_solver_and_observer(
         &backend,
         Pattern {
             term: initial,
@@ -553,6 +554,9 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
             ..ExecutionOptions::default()
         },
         &solver,
+        |effect| match effect {
+            BuiltinEffect::UserLog(message) => eprintln!("{message}"),
+        },
     );
     if let Some(leaf) = execution.leaves.iter().find(|leaf| {
         matches!(

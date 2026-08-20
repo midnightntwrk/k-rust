@@ -39,6 +39,12 @@ pub enum BuiltinResult {
     NotApplicable,
     Value(Term),
     Bottom,
+    Effect(BuiltinEffect),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum BuiltinEffect {
+    UserLog(String),
 }
 
 impl From<Option<Term>> for BuiltinResult {
@@ -112,6 +118,7 @@ fn evaluate_hook_with_sort(
         "KEQUAL.ite" => kequal_ite(arguments),
         "KEQUAL.eq" => kequal(arguments, false),
         "KEQUAL.ne" => kequal(arguments, true),
+        "IO.logString" => return io_log_string(arguments),
         hook if hook.starts_with("LIST.") => return list::evaluate(hook, arguments),
         hook if hook.starts_with("MAP.") => return map::evaluate(hook, arguments),
         hook if hook.starts_with("SET.") => set::evaluate(hook, arguments),
@@ -128,6 +135,19 @@ fn evaluate_hook_with_sort(
         _ => Ok(None),
     }?;
     Ok(result.into())
+}
+
+fn io_log_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity("IO.logString", arguments, 1)?;
+    let TermKind::DomainValue { sort, value } = arguments[0].kind() else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    if sort != &Sort::simple("SortString") {
+        return Ok(BuiltinResult::NotApplicable);
+    }
+    Ok(BuiltinResult::Effect(BuiltinEffect::UserLog(
+        value.to_string(),
+    )))
 }
 
 fn bool_or(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {

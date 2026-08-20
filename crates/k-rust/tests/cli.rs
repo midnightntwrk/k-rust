@@ -466,6 +466,49 @@ endmodule
 }
 
 #[test]
+fn krun_emits_k_user_logs_on_standard_error() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports K-IO
+  imports STRING
+  configuration <k> $PGM:K </k>
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "K",
+            "--expression",
+            r#"#log("hello from K")"#,
+            "--depth",
+            "20",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "hello from K\n");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("dotk{}()"), "{stdout}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kcompile_writes_parseable_kore_outputs() {
     let (root, definition) = fixture();
     let output_directory = root.join("compiled");

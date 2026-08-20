@@ -3,6 +3,7 @@
 use std::collections::{BTreeSet, VecDeque};
 
 use crate::{
+    builtin::BuiltinEffect,
     definedness::ceil_term,
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms},
@@ -28,6 +29,7 @@ pub struct AppliedRule {
     pub label: Option<String>,
     pub unique_id: String,
     pub substitution: Substitution,
+    pub effects: Vec<BuiltinEffect>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -129,6 +131,7 @@ pub struct ExecutionLeaf {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExecutionResult {
     pub leaves: Vec<ExecutionLeaf>,
+    pub effects: Vec<BuiltinEffect>,
 }
 
 pub fn execute(
@@ -145,6 +148,16 @@ pub fn execute_with_solver(
     options: ExecutionOptions,
     solver: &dyn SmtSolver,
 ) -> ExecutionResult {
+    execute_with_solver_and_observer(definition, initial, options, solver, |_| {})
+}
+
+pub fn execute_with_solver_and_observer(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: ExecutionOptions,
+    solver: &dyn SmtSolver,
+    mut observe: impl FnMut(&BuiltinEffect),
+) -> ExecutionResult {
     let mut fresh_counter = 0;
     let mut pending = VecDeque::from([ExecutionState {
         pattern: initial,
@@ -152,6 +165,7 @@ pub fn execute_with_solver(
         trace: Vec::new(),
     }]);
     let mut leaves = Vec::new();
+    let mut effects = Vec::new();
     while let Some(mut state) = pending.pop_front() {
         match simplify_with_solver(
             definition,
@@ -165,6 +179,7 @@ pub fn execute_with_solver(
             Ok(simplified) => {
                 state.pattern.term = simplified.term;
                 state.pattern.constraints.extend(simplified.constraints);
+                record_effects(&mut effects, simplified.effects, &mut observe);
                 state
                     .trace
                     .extend(
@@ -226,6 +241,7 @@ pub fn execute_with_solver(
                 halt_reason: HaltReason::Indeterminate(reason),
             }),
             RewriteResult::Finished(applied) => {
+                record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
                 pending.push_back(next_state(state.depth, state.trace, applied))
             }
             RewriteResult::Branch {
@@ -234,6 +250,7 @@ pub fn execute_with_solver(
                 ..
             } => {
                 for applied in branches {
+                    record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
                     pending.push_back(next_state(state.depth, state.trace.clone(), applied));
                 }
                 if let Some(remainder) = remainder {
@@ -242,7 +259,18 @@ pub fn execute_with_solver(
             }
         }
     }
-    ExecutionResult { leaves }
+    ExecutionResult { leaves, effects }
+}
+
+fn record_effects(
+    recorded: &mut Vec<BuiltinEffect>,
+    effects: impl IntoIterator<Item = BuiltinEffect>,
+    observe: &mut impl FnMut(&BuiltinEffect),
+) {
+    for effect in effects {
+        observe(&effect);
+        recorded.push(effect);
+    }
 }
 
 fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> ExecutionState {
@@ -827,20 +855,21 @@ fn apply_rule(
     let rhs = substitute(&substitute(rhs, &substitution), &existential_substitution);
     let mut condition_knowledge = match_knowledge;
     extend_unique(&mut condition_knowledge, unclear_requires.iter().cloned());
-    let (rhs, mut rhs_constraints) = if rule.computed_attributes.undefined_symbols.is_empty() {
-        (rhs, Vec::new())
-    } else {
-        match simplify_with_solver(
-            definition,
-            &rhs,
-            &condition_knowledge,
-            simplification_options,
-            solver,
-        ) {
-            Ok(simplified) => (simplified.term, simplified.constraints),
-            Err(_) => (rhs, Vec::new()),
-        }
-    };
+    let (rhs, mut rhs_constraints, effects) =
+        if rule.computed_attributes.undefined_symbols.is_empty() {
+            (rhs, Vec::new(), Vec::new())
+        } else {
+            match simplify_with_solver(
+                definition,
+                &rhs,
+                &condition_knowledge,
+                simplification_options,
+                solver,
+            ) {
+                Ok(simplified) => (simplified.term, simplified.constraints, simplified.effects),
+                Err(_) => (rhs, Vec::new(), Vec::new()),
+            }
+        };
     extend_unique(&mut condition_knowledge, rhs_constraints.iter().cloned());
     if !rule.computed_attributes.undefined_symbols.is_empty() {
         let obligations = ceil_term(definition, &rhs);
@@ -927,6 +956,7 @@ fn apply_rule(
             label: rule.attributes.label.clone(),
             unique_id: rule.attributes.unique_id.clone(),
             substitution,
+            effects,
         },
         remainder,
     })
@@ -1928,6 +1958,43 @@ mod tests {
         assert!(matches!(
             leaf.pattern.term.kind(),
             TermKind::DomainValue { value, .. } if value.as_ref() == "done"
+        ));
+    }
+
+    #[test]
+    fn execution_preserves_user_log_effects() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortString{} [hasDomainValues{}()]
+                sort SortK{} []
+                symbol dotk{}() : SortK{} [constructor{}()]
+                symbol log{}(SortString{}) : SortK{}
+                    [function{}(), total{}(), hook{}("IO.logString")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let initial = definition
+            .internalize_term(
+                &parse_pattern(r#"log{}(\dv{SortString{}}("one line"))"#).unwrap(),
+                &[],
+            )
+            .unwrap();
+
+        let result = execute(
+            &definition,
+            Pattern {
+                term: initial,
+                constraints: Vec::new(),
+            },
+            ExecutionOptions::default(),
+        );
+
+        assert_eq!(result.effects, [BuiltinEffect::UserLog("one line".into())]);
+        assert!(matches!(
+            result.leaves[0].pattern.term.kind(),
+            TermKind::Application { symbol, .. } if symbol.name.as_ref() == "dotk"
         ));
     }
 
