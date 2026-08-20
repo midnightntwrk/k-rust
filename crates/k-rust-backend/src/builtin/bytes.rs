@@ -276,7 +276,7 @@ fn bytes_to_int(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(int_term(unsigned)))
 }
 
-fn read_bytes(term: &Term) -> Option<Vec<u8>> {
+pub(super) fn read_bytes(term: &Term) -> Option<Vec<u8>> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };
@@ -348,7 +348,7 @@ fn read_signedness(term: &Term) -> Option<Signedness> {
     }
 }
 
-fn bytes_term(bytes: &[u8]) -> Term {
+pub(super) fn bytes_term(bytes: &[u8]) -> Term {
     Term::domain_value(
         Sort::simple("SortBytes"),
         bytes

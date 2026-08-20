@@ -1,6 +1,6 @@
 //! Assign Java-compatible stable identifiers to rules and claims.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt::Write};
 
 use serde_json::Value;
 use sha3::{Digest, Sha3_256};
@@ -50,7 +50,11 @@ pub(crate) fn number_sentence(sentence: &mut Sentence) {
             .collect::<BTreeMap<_, _>>(),
     );
     let text = sentence_hash_text(sentence, &semantic_attributes);
-    let id = format!("{:x}", Sha3_256::digest(text.as_bytes()));
+    let digest = Sha3_256::digest(text.as_bytes());
+    let mut id = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(id, "{byte:02x}").expect("writing to a string cannot fail");
+    }
     match sentence {
         Sentence::Rule { attributes, .. } | Sentence::Claim { attributes, .. } => {
             attributes.insert("UNIQUE_ID", Value::String(id));

@@ -4,6 +4,7 @@ use num_bigint::{BigInt, Sign};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 mod bytes;
+mod krypto;
 mod list;
 mod map;
 mod set;
@@ -115,6 +116,12 @@ fn evaluate_hook_with_sort(
         hook if hook.starts_with("MAP.") => return map::evaluate(hook, arguments),
         hook if hook.starts_with("SET.") => set::evaluate(hook, arguments),
         hook if hook.starts_with("BYTES.") => return bytes::evaluate(hook, arguments),
+        hook if hook.starts_with("KRYPTO.")
+            || hook.starts_with("HASH.")
+            || hook.starts_with("SECP256K1.") =>
+        {
+            return krypto::evaluate(hook, arguments);
+        }
         hook if hook.starts_with("STRING.") => {
             return string::evaluate(hook, arguments, result_sort);
         }
