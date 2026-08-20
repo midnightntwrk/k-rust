@@ -944,6 +944,7 @@ dependencies = [
 name = "k-rust-backend"
 version = "0.3.0"
 dependencies = [
+ "indoc",
  "k-rust-kore",
  "proptest",
 ]

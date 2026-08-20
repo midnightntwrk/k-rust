@@ -63,6 +63,7 @@ pub struct SymbolAttributes {
     pub macro_or_alias: bool,
     pub has_evaluators: bool,
     pub hook: Option<Name>,
+    pub collection: Option<CollectionMetadata>,
 }
 
 impl SymbolAttributes {
@@ -74,6 +75,7 @@ impl SymbolAttributes {
             macro_or_alias: false,
             has_evaluators: true,
             hook: None,
+            collection: None,
         }
     }
 }
@@ -126,6 +128,13 @@ pub struct ListDefinition {
 }
 
 pub type SetDefinition = ListDefinition;
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CollectionMetadata {
+    Map(Arc<MapDefinition>),
+    List(Arc<ListDefinition>),
+    Set(Arc<SetDefinition>),
+}
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TermKind {
@@ -211,6 +220,23 @@ impl Term {
             return Self::injection(source.clone(), target.clone(), argument.clone());
         }
 
+        if let Some(collection) = &symbol.attributes.collection {
+            return Self::collection_application(
+                symbol.clone(),
+                sort_arguments,
+                arguments,
+                collection.clone(),
+            );
+        }
+
+        Self::application_raw(symbol, sort_arguments, arguments)
+    }
+
+    fn application_raw(
+        symbol: Arc<Symbol>,
+        sort_arguments: Vec<Sort>,
+        arguments: Vec<Self>,
+    ) -> Self {
         let mut attributes = combine_attributes(arguments.iter());
         let constructor = symbol.attributes.symbol_type == SymbolType::Constructor;
         attributes.evaluated = constructor && attributes.evaluated;
@@ -225,6 +251,85 @@ impl Term {
             },
             attributes,
         )
+    }
+
+    fn collection_application(
+        symbol: Arc<Symbol>,
+        sort_arguments: Vec<Sort>,
+        arguments: Vec<Self>,
+        collection: CollectionMetadata,
+    ) -> Self {
+        match collection {
+            CollectionMetadata::Map(definition) => {
+                if symbol.name == definition.symbols.unit && arguments.is_empty() {
+                    return Self::map(definition, Vec::new(), None);
+                }
+                if symbol.name == definition.symbols.element
+                    && let [key, value] = arguments.as_slice()
+                {
+                    return Self::map(definition, vec![(key.clone(), value.clone())], None);
+                }
+                if symbol.name == definition.symbols.concat
+                    && let [left, right] = arguments.as_slice()
+                {
+                    let (mut entries, left_rest) = map_parts(&definition, left);
+                    let (right_entries, right_rest) = map_parts(&definition, right);
+                    entries.extend(right_entries);
+                    let rest = match (left_rest, right_rest) {
+                        (None, rest) | (rest, None) => rest,
+                        (Some(left), Some(right)) => Some(Self::application_raw(
+                            symbol,
+                            sort_arguments,
+                            vec![left, right],
+                        )),
+                    };
+                    return Self::map(definition, entries, rest);
+                }
+            }
+            CollectionMetadata::List(definition) => {
+                if symbol.name == definition.symbols.unit && arguments.is_empty() {
+                    return Self::list(definition, Vec::new(), None);
+                }
+                if symbol.name == definition.symbols.element
+                    && let [element] = arguments.as_slice()
+                {
+                    return Self::list(definition, vec![element.clone()], None);
+                }
+                if symbol.name == definition.symbols.concat
+                    && let [left, right] = arguments.as_slice()
+                {
+                    return combine_lists(
+                        definition,
+                        symbol,
+                        sort_arguments,
+                        left.clone(),
+                        right.clone(),
+                    );
+                }
+            }
+            CollectionMetadata::Set(definition) => {
+                if symbol.name == definition.symbols.unit && arguments.is_empty() {
+                    return Self::set(definition, Vec::new(), None);
+                }
+                if symbol.name == definition.symbols.element
+                    && let [element] = arguments.as_slice()
+                {
+                    return Self::set(definition, vec![element.clone()], None);
+                }
+                if symbol.name == definition.symbols.concat
+                    && let [left, right] = arguments.as_slice()
+                {
+                    return combine_sets(
+                        definition,
+                        symbol,
+                        sort_arguments,
+                        left.clone(),
+                        right.clone(),
+                    );
+                }
+            }
+        }
+        Self::application_raw(symbol, sort_arguments, arguments)
     }
 
     pub fn domain_value(sort: Sort, value: impl Into<Arc<str>>) -> Self {
@@ -433,6 +538,118 @@ impl Term {
     fn new(kind: TermKind, mut attributes: TermAttributes) -> Self {
         attributes.hash = calculate_hash(&kind);
         Self(Arc::new(TermData { attributes, kind }))
+    }
+}
+
+fn map_parts(definition: &Arc<MapDefinition>, term: &Term) -> (Vec<(Term, Term)>, Option<Term>) {
+    match term.kind() {
+        TermKind::Map {
+            definition: found,
+            entries,
+            rest,
+        } if found == definition => (entries.clone(), rest.clone()),
+        _ => (Vec::new(), Some(term.clone())),
+    }
+}
+
+fn combine_lists(
+    definition: Arc<ListDefinition>,
+    symbol: Arc<Symbol>,
+    sort_arguments: Vec<Sort>,
+    left: Term,
+    right: Term,
+) -> Term {
+    match (left.kind(), right.kind()) {
+        (
+            TermKind::List {
+                definition: left_definition,
+                heads: left_heads,
+                rest: left_rest,
+            },
+            TermKind::List {
+                definition: right_definition,
+                heads: right_heads,
+                rest: right_rest,
+            },
+        ) if left_definition == &definition && right_definition == &definition => {
+            match (left_rest, right_rest) {
+                (None, None) => {
+                    let mut heads = left_heads.clone();
+                    heads.extend(right_heads.iter().cloned());
+                    Term::list(definition, heads, None)
+                }
+                (None, Some(rest)) => {
+                    let mut heads = left_heads.clone();
+                    heads.extend(right_heads.iter().cloned());
+                    Term::list(definition, heads, Some(rest.clone()))
+                }
+                (Some((middle, tails)), None) => {
+                    let mut tails = tails.clone();
+                    tails.extend(right_heads.iter().cloned());
+                    Term::list(
+                        definition,
+                        left_heads.clone(),
+                        Some((middle.clone(), tails)),
+                    )
+                }
+                (Some(_), Some(_)) => {
+                    Term::application_raw(symbol, sort_arguments, vec![left, right])
+                }
+            }
+        }
+        (
+            TermKind::List {
+                definition: found,
+                heads,
+                rest: None,
+            },
+            _,
+        ) if found == &definition => {
+            Term::list(definition, heads.clone(), Some((right, Vec::new())))
+        }
+        (
+            _,
+            TermKind::List {
+                definition: found,
+                heads,
+                rest: None,
+            },
+        ) if found == &definition => {
+            Term::list(definition, Vec::new(), Some((left, heads.clone())))
+        }
+        _ => Term::application_raw(symbol, sort_arguments, vec![left, right]),
+    }
+}
+
+fn combine_sets(
+    definition: Arc<SetDefinition>,
+    symbol: Arc<Symbol>,
+    sort_arguments: Vec<Sort>,
+    left: Term,
+    right: Term,
+) -> Term {
+    let (mut elements, left_rest) = set_parts(&definition, &left);
+    let (right_elements, right_rest) = set_parts(&definition, &right);
+    elements.extend(right_elements);
+    let rest = match (left_rest, right_rest) {
+        (None, rest) | (rest, None) => rest,
+        (Some(left), Some(right)) => Some(Term::application_raw(
+            symbol,
+            sort_arguments,
+            vec![left, right],
+        )),
+    };
+    Term::set(definition, elements, rest)
+}
+
+fn set_parts(definition: &Arc<SetDefinition>, term: &Term) -> (Vec<Term>, Option<Term>) {
+    match term.kind() {
+        TermKind::Set {
+            definition: found,
+            elements,
+            rest,
+        } if found == definition => (elements.clone(), rest.clone()),
+        _ => (Vec::new(), Some(term.clone())),
     }
 }
 

@@ -13,4 +13,5 @@ categories = ["compilers", "development-tools"]
 k-rust-kore.workspace = true
 
 [dev-dependencies]
+indoc.workspace = true
 proptest.workspace = true

@@ -972,6 +972,7 @@ mod tests {
                 macro_or_alias: false,
                 has_evaluators: true,
                 hook: None,
+                collection: None,
             },
         })
     }
