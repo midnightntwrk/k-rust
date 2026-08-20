@@ -2505,13 +2505,13 @@ pub(crate) fn violates_finite_constructor_domain(
     definition: &BackendDefinition,
     predicates: &[Predicate],
 ) -> bool {
-    let mut exclusions = BTreeMap::<Variable, BTreeSet<ConstructorHead>>::new();
+    let mut exclusions = BTreeMap::<Term, BTreeSet<ConstructorHead>>::new();
     for predicate in predicates {
         collect_constructor_exclusions(definition, predicate, &mut exclusions);
     }
-    exclusions.into_iter().any(|(variable, excluded)| {
+    exclusions.into_iter().any(|(subject, excluded)| {
         definition
-            .finite_constructor_heads(&variable.sort)
+            .finite_constructor_heads(&subject.sort())
             .is_some_and(|constructors| constructors.is_subset(&excluded))
     })
 }
@@ -2519,7 +2519,7 @@ pub(crate) fn violates_finite_constructor_domain(
 fn collect_constructor_exclusions(
     definition: &BackendDefinition,
     predicate: &Predicate,
-    exclusions: &mut BTreeMap<Variable, BTreeSet<ConstructorHead>>,
+    exclusions: &mut BTreeMap<Term, BTreeSet<ConstructorHead>>,
 ) {
     if let Predicate::And(predicates) = predicate {
         for predicate in predicates {
@@ -2539,26 +2539,25 @@ fn collect_constructor_exclusions(
     let Predicate::Equals(left, right) = inner else {
         return;
     };
-    let pair = match (left.kind(), right.kind()) {
-        (TermKind::Variable(variable), _) => Some((variable, right)),
-        (_, TermKind::Variable(variable)) => Some((variable, left)),
-        _ => None,
-    };
-    let Some((variable, constructor)) = pair else {
+    let pair = [(left, right), (right, left)]
+        .into_iter()
+        .find_map(|(subject, constructor)| {
+            let head = constructor_head(constructor)?;
+            definition
+                .finite_constructor_heads(&subject.sort())
+                .is_some_and(|constructors| constructors.contains(&head))
+                .then_some((subject, constructor, head))
+        });
+    let Some((subject, constructor, head)) = pair else {
         return;
     };
-    if binders.contains(variable) || !constructor.attributes().variables.is_subset(&binders) {
-        return;
-    }
-    let Some(head) = constructor_head(constructor) else {
-        return;
-    };
-    if definition
-        .finite_constructor_heads(&variable.sort)
-        .is_some_and(|constructors| constructors.contains(&head))
+    if !is_functional_pattern(subject)
+        || !subject.attributes().variables.is_disjoint(&binders)
+        || !constructor.attributes().variables.is_subset(&binders)
     {
-        exclusions.entry(variable.clone()).or_default().insert(head);
+        return;
     }
+    exclusions.entry(subject.clone()).or_default().insert(head);
 }
 
 fn predicate_truth(predicate: &Predicate) -> Truth {
@@ -2731,6 +2730,7 @@ mod tests {
                 sort SortList{} []
                 symbol nil{}() : SortList{} [constructor{}()]
                 symbol cons{}(SortElement{}, SortList{}) : SortList{} [constructor{}()]
+                symbol unknown{}() : SortList{} [function{}(), total{}()]
                 axiom{} \or{SortList{}}(
                     nil{}(),
                     \exists{SortList{}}(
@@ -2769,6 +2769,25 @@ mod tests {
         assert!(violates_finite_constructor_domain(
             &definition,
             &[excludes_nil, excludes_every_cons],
+        ));
+
+        let unknown = internal_term(&definition, "unknown{}()");
+        let nil = internal_term(&definition, "nil{}()");
+        let element = Variable::new("E2", Sort::simple("SortElement"));
+        let tail = Variable::new("T3", Sort::simple("SortList"));
+        let cons = internal_term(&definition, "cons{}(E2:SortElement{}, T3:SortList{})");
+        assert!(violates_finite_constructor_domain(
+            &definition,
+            &[
+                Predicate::Not(Box::new(Predicate::Equals(unknown.clone(), nil))),
+                Predicate::Not(Box::new(Predicate::Exists(
+                    element,
+                    Box::new(Predicate::Exists(
+                        tail,
+                        Box::new(Predicate::Equals(unknown, cons)),
+                    )),
+                ))),
+            ],
         ));
     }
 
