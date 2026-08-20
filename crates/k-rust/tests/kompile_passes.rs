@@ -1677,6 +1677,41 @@ fn wraps_cell_free_rules_and_contexts_in_the_main_computation_cell() {
 }
 
 #[test]
+fn imported_syntax_rules_use_the_main_modules_computation_cell() {
+    let source = indoc! {r#"
+        module LANGUAGE-SYNTAX
+          syntax Int ::= r"[0-9]+" [token]
+          rule 1 => 2 [label(imported)]
+        endmodule
+
+        module MAIN
+          imports LANGUAGE-SYNTAX
+          configuration <k> 0 </k>
+        endmodule
+    "#};
+    let transformed = add_implicit_computation_cell(&parsed(source)).unwrap();
+    let body = transformed
+        .modules
+        .iter()
+        .find(|module| module.name == "LANGUAGE-SYNTAX")
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get_str("label") == Some("imported") => Some(body),
+            _ => None,
+        })
+        .unwrap();
+
+    assert!(matches!(
+        body.unannotated(),
+        Term::Apply { label, .. } if label.name == "<k>"
+    ));
+}
+
+#[test]
 fn implicit_computation_cells_require_a_declared_main_cell_only_when_needed() {
     let definition = Definition {
         main_module: "MAIN".into(),

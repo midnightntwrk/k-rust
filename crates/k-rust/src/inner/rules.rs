@@ -37,11 +37,22 @@ impl fmt::Display for RuleError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Definition(error) => error.fmt(formatter),
-            Self::Parse(error) => write!(
-                formatter,
-                "could not parse {} in module {:?}: {}",
-                error.sentence_type, error.module, error.error
-            ),
+            Self::Parse(error) => {
+                match (&error.source, error.location) {
+                    (Some(source), Some(location)) => write!(
+                        formatter,
+                        "{source}:{}:{}: ",
+                        location.start_line, location.start_column
+                    )?,
+                    (Some(source), None) => write!(formatter, "{source}: ")?,
+                    _ => {}
+                }
+                write!(
+                    formatter,
+                    "could not parse {} in module {:?}: {}",
+                    error.sentence_type, error.module, error.error
+                )
+            }
             Self::IllegalEnsures {
                 module,
                 sentence_type,

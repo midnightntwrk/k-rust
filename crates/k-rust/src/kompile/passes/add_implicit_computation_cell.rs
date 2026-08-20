@@ -14,33 +14,37 @@ const MACRO_ATTRIBUTES: &[&str] = &["macro", "macro-rec", "alias", "alias-rec"];
 pub fn add_implicit_computation_cell(definition: &Definition) -> Result<Definition, String> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(|error| error.to_string())?;
     let mut output = definition.clone();
+    // Java derives configuration and label information once from the definition's main-module
+    // closure. Syntax modules may contain generated strictness rules without importing the
+    // configuration themselves; those rules still use the main definition's computation cell.
+    let configuration_productions = resolved.production_catalog(resolved.main_module_id());
+    let cell_sorts = configuration_productions
+        .productions()
+        .filter(|(_, production)| production.attributes().get("cell").is_some())
+        .filter_map(|(_, production)| match production {
+            Sentence::Production { sort, .. } => Some(sort.clone()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let computation_cells = configuration_productions
+        .productions()
+        .filter_map(|(_, production)| match production {
+            Sentence::Production {
+                label: Some(label),
+                sort,
+                attributes,
+                ..
+            } if attributes.get("cell").is_some() && attributes.get("maincell").is_some() => {
+                Some((sort.clone(), label.clone()))
+            }
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
         let productions = resolved.production_catalog(module_id);
-        let cell_sorts = productions
-            .productions()
-            .filter(|(_, production)| production.attributes().get("cell").is_some())
-            .filter_map(|(_, production)| match production {
-                Sentence::Production { sort, .. } => Some(sort.clone()),
-                _ => None,
-            })
-            .collect::<BTreeSet<_>>();
-        let computation_cells = productions
-            .productions()
-            .filter_map(|(_, production)| match production {
-                Sentence::Production {
-                    label: Some(label),
-                    sort,
-                    attributes,
-                    ..
-                } if attributes.get("cell").is_some() && attributes.get("maincell").is_some() => {
-                    Some((sort.clone(), label.clone()))
-                }
-                _ => None,
-            })
-            .collect::<BTreeSet<_>>();
 
         for sentence in &mut module.local_sentences {
             if skip_sentence(sentence) {
@@ -56,7 +60,8 @@ pub fn add_implicit_computation_cell(definition: &Definition) -> Result<Definiti
                 continue;
             }
             let items = flatten_cells(body);
-            if !should_consider(&items, is_claim) || !can_wrap(items[0], &productions, &cell_sorts)
+            if !should_consider(&items, is_claim)
+                || !can_wrap(items[0], &configuration_productions, &cell_sorts)
             {
                 continue;
             }

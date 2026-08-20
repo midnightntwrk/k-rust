@@ -570,6 +570,22 @@ rule_snapshot!(
     "##
 );
 
+#[cfg(feature = "z3-inference")]
+rule_snapshot!(
+    prefers_the_most_specific_generated_bracket,
+    r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax AExp ::= Int | "(" AExp ")" [bracket]
+          syntax KResult ::= Int
+          syntax Map ::= ".Map" [symbol(dotMap)]
+                       | KItem "|->" KItem [symbol(mapEntry)]
+          syntax KItem ::= Map
+          rule (0 |-> (_ => I:Int)) => .Map
+        endmodule
+    "#
+);
+
 rule_snapshot!(
     parses_whitespace_between_an_unquoted_prefix_label_and_parenthesis,
     r#"

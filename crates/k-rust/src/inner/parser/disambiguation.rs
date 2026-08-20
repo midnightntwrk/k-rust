@@ -872,6 +872,10 @@ impl Grammar {
     }
 
     fn remove_overloads(&self, alternatives: BTreeSet<ParsedTerm>) -> BTreeSet<ParsedTerm> {
+        let alternatives = self.remove_bracket_overloads(alternatives);
+        if alternatives.len() == 1 {
+            return alternatives;
+        }
         let Some(productions) = alternatives
             .iter()
             .map(|alternative| {
@@ -900,6 +904,55 @@ impl Grammar {
                 self.productions[*production]
                     .source_production
                     .is_some_and(|production| minimal.contains(&production))
+            })
+            .collect()
+    }
+
+    fn remove_bracket_overloads(&self, alternatives: BTreeSet<ParsedTerm>) -> BTreeSet<ParsedTerm> {
+        let Some(productions) = alternatives
+            .iter()
+            .map(|alternative| match alternative {
+                ParsedTerm::Production { production, .. }
+                | ParsedTerm::InstantiatedProduction { production, .. }
+                    if self.productions[*production].bracket =>
+                {
+                    Some(*production)
+                }
+                ParsedTerm::Production { .. }
+                | ParsedTerm::InstantiatedProduction { .. }
+                | ParsedTerm::Term(_)
+                | ParsedTerm::Ambiguity(_) => None,
+            })
+            .collect::<Option<BTreeSet<_>>>()
+        else {
+            return alternatives;
+        };
+        let order =
+            crate::definition::PartialOrder::new(self.syntactic_subsort_relations.iter().cloned())
+                .expect("the grammar rejected syntactic subsort cycles during construction");
+        let minimal = productions
+            .iter()
+            .filter(|candidate| {
+                !productions.iter().any(|other| {
+                    other != *candidate
+                        && bracket_production_less_than(
+                            &self.productions[*other],
+                            &self.productions[**candidate],
+                            &order,
+                        )
+                })
+            })
+            .copied()
+            .collect::<BTreeSet<_>>();
+        alternatives
+            .into_iter()
+            .filter(|alternative| {
+                let production = match alternative {
+                    ParsedTerm::Production { production, .. }
+                    | ParsedTerm::InstantiatedProduction { production, .. } => production,
+                    ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => unreachable!(),
+                };
+                minimal.contains(production)
             })
             .collect()
     }
@@ -1039,6 +1092,37 @@ impl Grammar {
             }
         }
     }
+}
+
+fn bracket_production_less_than(
+    lesser: &Production,
+    greater: &Production,
+    sorts: &crate::definition::PartialOrder<crate::kast::Sort>,
+) -> bool {
+    if lesser.items.len() != greater.items.len()
+        || !sorts.less_than_eq(&lesser.result, &greater.result)
+    {
+        return false;
+    }
+    let mut strict = lesser.result != greater.result;
+    for (lesser, greater) in lesser.items.iter().zip(&greater.items) {
+        match (lesser, greater) {
+            (Item::NonTerminal(lesser), Item::NonTerminal(greater))
+                if sorts.less_than_eq(lesser, greater) =>
+            {
+                strict |= lesser != greater;
+            }
+            (Item::Terminal(lesser), Item::Terminal(greater)) if lesser == greater => {}
+            (
+                Item::Regex { source: lesser, .. },
+                Item::Regex {
+                    source: greater, ..
+                },
+            ) if lesser == greater => {}
+            _ => return false,
+        }
+    }
+    strict
 }
 
 fn production_arity(production: &Production) -> usize {
