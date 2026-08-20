@@ -854,6 +854,12 @@ struct KEqualSplit {
     right: Term,
 }
 
+struct BooleanSplit {
+    side: SplitSide,
+    expected: bool,
+    operands: Vec<Term>,
+}
+
 fn apply_rule(
     definition: &BackendDefinition,
     rule: &RewriteRule,
@@ -930,6 +936,24 @@ fn apply_rule_with_match(
                     substitution,
                     remainder,
                 } => {
+                    if let Some(matches) =
+                        recover_boolean_matches(definition, substitution.clone(), &remainder)
+                    {
+                        return combine_rule_attempts(matches.into_iter().map(|mut matched| {
+                            let mut conditions = inherited_conditions.clone();
+                            conditions.append(&mut matched.conditions);
+                            matched.conditions = conditions;
+                            apply_rule_with_match(
+                                definition,
+                                rule,
+                                pattern,
+                                fresh_counter,
+                                simplification_options,
+                                solver,
+                                Some(matched),
+                            )
+                        }));
+                    }
                     if let Some(matches) = recover_kequal_matches(
                         definition,
                         rule,
@@ -1269,6 +1293,110 @@ fn apply_rule_with_match(
         },
         remainder,
     }])
+}
+
+/// Decompose the Boolean unification cases used by the pinned backend: conjunction with `true`,
+/// disjunction with `false`, and negation with either Boolean value.
+fn recover_boolean_matches(
+    definition: &BackendDefinition,
+    mut substitution: Substitution,
+    remainder: &[(Term, Term)],
+) -> Option<Vec<PartialRuleMatch>> {
+    let (index, split) = remainder
+        .iter()
+        .enumerate()
+        .find_map(|(index, (left, right))| {
+            let left = substitute(left, &substitution);
+            let right = substitute(right, &substitution);
+            split_boolean_pair(&left, &right).map(|split| (index, split))
+        })?;
+    let mut branch_remainder = remainder
+        .iter()
+        .enumerate()
+        .filter(|(candidate, _)| *candidate != index)
+        .map(|(_, pair)| pair.clone())
+        .collect::<Vec<_>>();
+    let expected = Term::domain_value(
+        Sort::simple("SortBool"),
+        if split.expected { "true" } else { "false" },
+    );
+
+    if matches!(split.side, SplitSide::Pattern) {
+        for operand in split.operands {
+            let operand = substitute(&operand, &substitution);
+            match match_terms_in_definition(MatchMode::Implies, definition, &operand, &expected) {
+                MatchResult::Failed(_) => return Some(Vec::new()),
+                MatchResult::Success(found) => {
+                    substitution = compose(&found, &substitution);
+                }
+                MatchResult::Indeterminate {
+                    substitution: found,
+                    remainder,
+                } => {
+                    substitution = compose(&found, &substitution);
+                    branch_remainder.extend(remainder);
+                }
+            }
+        }
+        return Some(vec![PartialRuleMatch {
+            substitution,
+            conditions: Vec::new(),
+            remainder: branch_remainder,
+        }]);
+    }
+
+    let mut conditions = Vec::new();
+    for operand in split.operands {
+        let condition = Predicate::Equals(operand, expected.clone());
+        match predicates_truth(std::slice::from_ref(&condition)) {
+            Truth::False => return Some(Vec::new()),
+            Truth::True => {}
+            Truth::Unknown => conditions.push(condition),
+        }
+    }
+    Some(vec![PartialRuleMatch {
+        substitution,
+        conditions,
+        remainder: branch_remainder,
+    }])
+}
+
+fn split_boolean_pair(left: &Term, right: &Term) -> Option<BooleanSplit> {
+    if let Some(value) = bool_domain_value(right)
+        && let Some((expected, operands)) = boolean_operands(left, value)
+    {
+        return Some(BooleanSplit {
+            side: SplitSide::Pattern,
+            expected,
+            operands,
+        });
+    }
+    let value = bool_domain_value(left)?;
+    let (expected, operands) = boolean_operands(right, value)?;
+    Some(BooleanSplit {
+        side: SplitSide::Subject,
+        expected,
+        operands,
+    })
+}
+
+fn boolean_operands(term: &Term, value: bool) -> Option<(bool, Vec<Term>)> {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        return None;
+    };
+    match (
+        symbol.attributes.hook.as_deref(),
+        value,
+        arguments.as_slice(),
+    ) {
+        (Some("BOOL.and"), true, [left, right]) => Some((true, vec![left.clone(), right.clone()])),
+        (Some("BOOL.or"), false, [left, right]) => Some((false, vec![left.clone(), right.clone()])),
+        (Some("BOOL.not"), value, [operand]) => Some((!value, vec![operand.clone()])),
+        _ => None,
+    }
 }
 
 /// Normalize unification of `KEQUAL.eq(A, B)` with a Boolean domain value.
@@ -2108,7 +2236,7 @@ mod tests {
                 sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 symbol wrap{}(SortBool{}) : SortS{} [constructor{}()]
                 symbol not{}(SortBool{}) : SortBool{}
-                    [function{}(), total{}(), hook{}("BOOL.not")]
+                    [function{}(), total{}()]
                 axiom{} \rewrites{SortS{}}(
                     \and{SortS{}}(
                         wrap{}(not{}(X:SortBool{})),
@@ -2147,6 +2275,33 @@ mod tests {
         let syntax = parse_definition(&source).expect("K equality definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN")
             .expect("K equality definition should internalize")
+    }
+
+    fn boolean_rewrite_definition(lhs: &str) -> BackendDefinition {
+        let source = r#"[]
+            module MAIN
+                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol and{}(SortBool{}, SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.and")]
+                symbol or{}(SortBool{}, SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.or")]
+                symbol not{}(SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.not")]
+                symbol state{}(SortBool{}) : SortState{} [constructor{}()]
+                symbol done{}() : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        $LHS,
+                        \top{SortState{}}()
+                    ),
+                    done{}()
+                ) [label{}("boolean")]
+            endmodule []"#
+            .replace("$LHS", lhs);
+        let syntax = parse_definition(&source).expect("Boolean definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("Boolean definition should internalize")
     }
 
     fn subject(definition: &BackendDefinition, value: &str) -> Pattern {
@@ -3386,6 +3541,107 @@ mod tests {
         assert!(applied.substitution.iter().any(|(variable, value)| {
             variable.name.ends_with("VALUE") && value == &internal_term(&definition, "chosen{}()")
         }));
+    }
+
+    #[test]
+    fn unifies_both_conjunction_operands_when_matching_true() {
+        let definition =
+            boolean_rewrite_definition("state{}(and{}(LEFT:SortBool{}, RIGHT:SortBool{}))");
+        let subject = Pattern {
+            term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("true"))"#),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh)
+        else {
+            panic!("true conjunction should bind both operands to true");
+        };
+        assert_eq!(applied.substitution.len(), 2);
+        assert!(applied.substitution.iter().all(|(variable, value)| {
+            (variable.name.ends_with("LEFT") || variable.name.ends_with("RIGHT"))
+                && value == &Term::domain_value(Sort::simple("SortBool"), "true")
+        }));
+    }
+
+    #[test]
+    fn unifies_both_disjunction_operands_when_matching_false() {
+        let definition =
+            boolean_rewrite_definition("state{}(or{}(LEFT:SortBool{}, RIGHT:SortBool{}))");
+        let subject = Pattern {
+            term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("false"))"#),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh)
+        else {
+            panic!("false disjunction should bind both operands to false");
+        };
+        assert_eq!(applied.substitution.len(), 2);
+        assert!(applied.substitution.iter().all(|(variable, value)| {
+            (variable.name.ends_with("LEFT") || variable.name.ends_with("RIGHT"))
+                && value == &Term::domain_value(Sort::simple("SortBool"), "false")
+        }));
+    }
+
+    #[test]
+    fn unifies_negation_operand_with_the_opposite_boolean() {
+        let definition = boolean_rewrite_definition("state{}(not{}(VALUE:SortBool{}))");
+        let subject = Pattern {
+            term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("true"))"#),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh)
+        else {
+            panic!("negation should bind its operand to the opposite Boolean");
+        };
+        assert!(applied.substitution.iter().any(|(variable, value)| {
+            variable.name.ends_with("VALUE")
+                && value == &Term::domain_value(Sort::simple("SortBool"), "false")
+        }));
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn constrains_configuration_conjunction_operands_when_matching_true() {
+        let definition = boolean_rewrite_definition(r#"state{}(\dv{SortBool{}}("true"))"#);
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                "state{}(and{}(LEFT:SortBool{}, RIGHT:SortBool{}))",
+            ),
+            constraints: Vec::new(),
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("configuration conjunction should retain its complementary state");
+        };
+        let [branch] = branches.as_slice() else {
+            panic!("expected one conjunction branch, found {branches:?}");
+        };
+        let expected = ["LEFT", "RIGHT"]
+            .map(|name| {
+                Predicate::Equals(
+                    internal_term(&definition, &format!("{name}:SortBool{{}}")),
+                    Term::domain_value(Sort::simple("SortBool"), "true"),
+                )
+            })
+            .to_vec();
+        assert_eq!(branch.pattern.constraints, expected);
+        assert_eq!(
+            remainder.pattern.constraints,
+            [Predicate::Not(Box::new(Predicate::And(expected)))]
+        );
     }
 
     #[cfg(feature = "z3")]
