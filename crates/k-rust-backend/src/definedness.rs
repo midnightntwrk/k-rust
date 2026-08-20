@@ -251,7 +251,7 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
-    use crate::rewrite::{IndeterminateReason, Pattern, RewriteResult, rewrite_step};
+    use crate::rewrite::{Pattern, RewriteResult, rewrite_step};
     use crate::term::Sort;
 
     fn definition(extra_axioms: &str) -> BackendDefinition {
@@ -301,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn unresolved_partial_rhs_blocks_rewriting_explicitly() {
+    fn unresolved_partial_rhs_becomes_a_definedness_constraint() {
         let definition = definition("");
         let subject = definition
             .internalize_term(
@@ -311,21 +311,21 @@ mod tests {
             .unwrap();
         let mut fresh = 0;
 
+        let RewriteResult::Finished(applied) = rewrite_step(
+            &definition,
+            &Pattern {
+                term: subject,
+                constraints: Vec::new(),
+            },
+            &mut fresh,
+        ) else {
+            panic!("the symbolic definedness branch should be retained");
+        };
+        assert_eq!(applied.unique_id, "uses-partial");
         assert!(matches!(
-            rewrite_step(
-                &definition,
-                &Pattern {
-                    term: subject,
-                    constraints: Vec::new(),
-                },
-                &mut fresh,
-            ),
-            RewriteResult::Indeterminate {
-                reason: IndeterminateReason::Definedness { rule_id, symbols },
-                ..
-            } if rule_id == "uses-partial"
-                && symbols.len() == 1
-                && symbols[0].as_ref() == "partial"
+            applied.pattern.constraints.as_slice(),
+            [Predicate::Ceil(term)]
+                if matches!(term.kind(), TermKind::Application { symbol, .. } if symbol.name.as_ref() == "partial")
         ));
     }
 

@@ -13,7 +13,7 @@ use crate::{
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, substitute},
-    term::{Name, Sort, SymbolType, Term, TermKind, Variable},
+    term::{Sort, SymbolType, Term, TermKind, Variable},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -59,10 +59,6 @@ pub enum IndeterminateReason {
     Concreteness {
         rule_id: String,
         variable: Variable,
-    },
-    Definedness {
-        rule_id: String,
-        symbols: Vec<Name>,
     },
     Smt {
         rule_id: String,
@@ -650,7 +646,7 @@ fn apply_rule(
     let rhs = substitute(&substitute(rhs, &substitution), &existential_substitution);
     let mut condition_knowledge = pattern.constraints.clone();
     extend_unique(&mut condition_knowledge, unclear_requires.iter().cloned());
-    let (rhs, rhs_constraints) = if rule.computed_attributes.undefined_symbols.is_empty() {
+    let (rhs, mut rhs_constraints) = if rule.computed_attributes.undefined_symbols.is_empty() {
         (rhs, Vec::new())
     } else {
         match simplify_with_solver(
@@ -675,21 +671,22 @@ fn apply_rule(
             solver,
         )
         .unwrap_or(obligations);
-        let defined = predicates_truth(&obligations) == Truth::True
-            || matches!(
-                solver.check_predicates(&condition_knowledge, &Substitution::new(), &obligations,),
-                Ok(Validity::Valid)
-            );
-        if !defined {
-            return RuleAttempt::Indeterminate(IndeterminateReason::Definedness {
-                rule_id: rule.attributes.unique_id.clone(),
-                symbols: rule
-                    .computed_attributes
-                    .undefined_symbols
-                    .iter()
-                    .cloned()
-                    .collect(),
-            });
+        match predicates_truth(&obligations) {
+            Truth::True => {}
+            Truth::False => return RuleAttempt::Trivial,
+            Truth::Unknown => match solver.check_predicates(
+                &condition_knowledge,
+                &Substitution::new(),
+                &obligations,
+            ) {
+                Ok(Validity::Valid) => {}
+                Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
+                    return RuleAttempt::Trivial;
+                }
+                Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => {
+                    extend_unique(&mut rhs_constraints, obligations);
+                }
+            },
         }
     }
     let ensures = substitute_predicates(

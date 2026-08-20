@@ -287,6 +287,54 @@ endmodule
 }
 
 #[test]
+fn krun_retains_unresolved_definedness_as_a_constraint() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  syntax Pgm ::= run(Int)
+  syntax Num ::= Int | stuck(Num) [function]
+  rule run(I) => stuck(I)
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Pgm",
+            "--expression",
+            "run(1)",
+            "--depth",
+            "20",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        output.contains(r#"\ceil{SortNum{}, SortGeneratedTopCell{}}"#),
+        "{output}"
+    );
+    assert!(output.contains("Lblstuck"), "{output}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn krun_recovers_evaluable_collection_function_patterns() {
     let (root, definition) = fixture();
     fs::write(
