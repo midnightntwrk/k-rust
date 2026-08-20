@@ -600,6 +600,7 @@ mod tests {
                 symbol pair{}(SortInt{}, SortInt{}) : SortKItem{} [constructor{}()]
                 symbol succ{}(SortInt{}) : SortInt{} [constructor{}()]
                 symbol f{}(SortInt{}) : SortInt{} [function{}()]
+                symbol opaque{}(SortInt{}) : SortInt{} [function{}()]
                 axiom{R} \implies{R}(
                     \top{R}(),
                     \equals{SortInt{}, R}(
@@ -686,9 +687,9 @@ mod tests {
     }
 
     #[test]
-    fn retains_an_occurs_check_as_a_partial_implication_condition() {
+    fn retains_a_simplifiable_occurs_check_as_a_partial_implication_condition() {
         let definition = definition();
-        let antecedent = pattern(&definition, r#"succ{}(X:SortInt{})"#);
+        let antecedent = pattern(&definition, r#"opaque{}(X:SortInt{})"#);
         let consequent = pattern(&definition, r#"X:SortInt{}"#);
 
         let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
@@ -702,8 +703,22 @@ mod tests {
             condition.predicates.as_slice(),
             [Predicate::Equals(left, right)]
                 if left == &term(&definition, "X:SortInt{}")
-                    && right == &term(&definition, "succ{}(X:SortInt{})")
+                    && right == &term(&definition, "opaque{}(X:SortInt{})")
         ));
+    }
+
+    #[test]
+    fn rejects_an_occurs_check_below_only_constructors() {
+        let definition = definition();
+        let antecedent = pattern(&definition, r#"succ{}(X:SortInt{})"#);
+        let consequent = pattern(&definition, r#"X:SortInt{}"#);
+
+        let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
+            .expect("implication should be checked");
+
+        assert_eq!(result.status, ImplicationStatus::Invalid);
+        assert_eq!(result.condition, None);
+        assert_eq!(result.failure, Some(ImplicationFailure::TermMismatch));
     }
 
     #[test]

@@ -1424,7 +1424,8 @@ impl Matcher<'_> {
 
         let term = substitute(&term, &self.substitution);
         if term.attributes().variables.contains(&variable) {
-            if self.mode == MatchMode::Implies {
+            if self.mode == MatchMode::Implies && !occurs_below_only_constructors(&variable, &term)
+            {
                 return self.defer(Term::variable(variable), term);
             }
             return Err(FailReason::VariableRecursion(variable, term));
@@ -1444,6 +1445,28 @@ impl Matcher<'_> {
     fn defer(&mut self, pattern: Term, subject: Term) -> Result<(), FailReason> {
         self.indeterminate.push((pattern, subject));
         Ok(())
+    }
+}
+
+/// Return whether an occurrence of `variable` is reachable through only rigid constructors and
+/// sort injections. Such an occurrence makes a finite constructor term cyclic and therefore
+/// unsatisfiable. Occurrences below functions or internal collections may disappear during
+/// simplification, so implication matching retains those as equality conditions instead.
+fn occurs_below_only_constructors(variable: &Variable, term: &Term) -> bool {
+    match term.kind() {
+        TermKind::Variable(found) => found == variable,
+        TermKind::Injection { term, .. } => occurs_below_only_constructors(variable, term),
+        TermKind::Application {
+            symbol, arguments, ..
+        } if symbol.attributes.symbol_type == SymbolType::Constructor => arguments
+            .iter()
+            .any(|argument| occurs_below_only_constructors(variable, argument)),
+        TermKind::And(..)
+        | TermKind::Application { .. }
+        | TermKind::DomainValue { .. }
+        | TermKind::Map { .. }
+        | TermKind::List { .. }
+        | TermKind::Set { .. } => false,
     }
 }
 
