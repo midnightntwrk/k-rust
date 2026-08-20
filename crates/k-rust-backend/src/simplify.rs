@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use crate::{
+    builtin::{BuiltinError, evaluate as evaluate_builtin},
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms},
     rewrite::{Truth, check_concreteness, predicates_truth, substitute_predicates},
@@ -33,6 +34,7 @@ pub struct Simplification {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SimplificationError {
+    Builtin(BuiltinError),
     IndeterminateMatch {
         rule_id: String,
         substitution: Substitution,
@@ -192,6 +194,23 @@ fn simplify_root(
     definition: &BackendDefinition,
     term: &Term,
 ) -> Result<Simplification, SimplificationError> {
+    if let Some(result) = evaluate_builtin(term).map_err(SimplificationError::Builtin)? {
+        let TermKind::Application { symbol, .. } = term.kind() else {
+            unreachable!("only applications have builtin hooks")
+        };
+        return Ok(Simplification {
+            term: result,
+            constraints: Vec::new(),
+            applied_rules: vec![format!(
+                "builtin:{}",
+                symbol
+                    .attributes
+                    .hook
+                    .as_deref()
+                    .expect("evaluated builtin has a hook")
+            )],
+        });
+    }
     if let Some(result) = apply_theory(definition, &definition.function_theory, term)? {
         return Ok(result);
     }
@@ -391,6 +410,34 @@ mod tests {
         let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
         assert_eq!(result.constraints.len(), 1);
         assert!(matches!(result.constraints[0], Predicate::Equals(..)));
+    }
+
+    #[test]
+    fn evaluates_hooked_functions_bottom_up() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortInt{} [hasDomainValues{}()]
+                symbol add{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.add")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let input = term(
+            &definition,
+            r#"add{}(add{}(\dv{SortInt{}}("20"), \dv{SortInt{}}("21")), \dv{SortInt{}}("1"))"#,
+        );
+        let expected = term(&definition, r#"\dv{SortInt{}}("42")"#);
+
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+        assert_eq!(result.term, expected);
+        assert_eq!(
+            result.applied_rules,
+            vec!["builtin:INT.add", "builtin:INT.add"]
+        );
     }
 
     #[test]

@@ -947,6 +947,7 @@ version = "0.3.0"
 dependencies = [
  "indoc",
  "k-rust-kore",
+ "num-bigint",
  "proptest",
 ]
 
