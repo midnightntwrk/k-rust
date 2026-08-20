@@ -835,16 +835,23 @@ struct PartialRuleMatch {
 }
 
 #[derive(Clone, Copy)]
-enum IteSide {
+enum SplitSide {
     Pattern,
     Subject,
 }
 
 struct IteSplit {
-    side: IteSide,
+    side: SplitSide,
     condition: Term,
     then_pair: (Term, Term),
     else_pair: (Term, Term),
+}
+
+struct KEqualSplit {
+    side: SplitSide,
+    value: bool,
+    left: Term,
+    right: Term,
 }
 
 fn apply_rule(
@@ -923,6 +930,29 @@ fn apply_rule_with_match(
                     substitution,
                     remainder,
                 } => {
+                    if let Some(matches) = recover_kequal_matches(
+                        definition,
+                        rule,
+                        pattern,
+                        substitution.clone(),
+                        &remainder,
+                        fresh_counter,
+                    ) {
+                        return combine_rule_attempts(matches.into_iter().map(|mut matched| {
+                            let mut conditions = inherited_conditions.clone();
+                            conditions.append(&mut matched.conditions);
+                            matched.conditions = conditions;
+                            apply_rule_with_match(
+                                definition,
+                                rule,
+                                pattern,
+                                fresh_counter,
+                                simplification_options,
+                                solver,
+                                Some(matched),
+                            )
+                        }));
+                    }
                     if let Some(matches) =
                         recover_ite_matches(definition, substitution.clone(), &remainder)
                     {
@@ -1241,6 +1271,138 @@ fn apply_rule_with_match(
     }])
 }
 
+/// Normalize unification of `KEQUAL.eq(A, B)` with a Boolean domain value.
+///
+/// The true case delegates to ordinary unification of the operands so useful substitutions are
+/// retained. The false case is the complement of operand equality and therefore remains a path
+/// condition. This is the same normalization used by the pinned backend's `unifyEq` hook.
+fn recover_kequal_matches(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    pattern: &Pattern,
+    substitution: Substitution,
+    remainder: &[(Term, Term)],
+    fresh_counter: &mut u64,
+) -> Option<Vec<PartialRuleMatch>> {
+    let (index, split) = remainder
+        .iter()
+        .enumerate()
+        .find_map(|(index, (left, right))| {
+            let left = substitute(left, &substitution);
+            let right = substitute(right, &substitution);
+            split_kequal_pair(&left, &right).map(|split| (index, split))
+        })?;
+    let mut untouched = remainder
+        .iter()
+        .enumerate()
+        .filter(|(candidate, _)| *candidate != index)
+        .map(|(_, pair)| pair.clone())
+        .collect::<Vec<_>>();
+
+    if split.value && matches!(split.side, SplitSide::Pattern) {
+        return Some(
+            match match_terms_in_definition(
+                MatchMode::Implies,
+                definition,
+                &split.left,
+                &split.right,
+            ) {
+                MatchResult::Failed(_) => Vec::new(),
+                MatchResult::Success(found) => vec![PartialRuleMatch {
+                    substitution: compose(&found, &substitution),
+                    conditions: Vec::new(),
+                    remainder: untouched,
+                }],
+                MatchResult::Indeterminate {
+                    substitution: found,
+                    remainder,
+                } => {
+                    untouched.extend(remainder);
+                    vec![PartialRuleMatch {
+                        substitution: compose(&found, &substitution),
+                        conditions: Vec::new(),
+                        remainder: untouched,
+                    }]
+                }
+            },
+        );
+    }
+
+    let substitution = if matches!(split.side, SplitSide::Pattern) {
+        freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter).0
+    } else {
+        substitution
+    };
+    let left = substitute(&split.left, &substitution);
+    let right = substitute(&split.right, &substitution);
+    let equality = Predicate::Equals(left, right);
+    let condition = if split.value {
+        equality
+    } else {
+        Predicate::Not(Box::new(equality))
+    };
+    let conditions = match predicates_truth(std::slice::from_ref(&condition)) {
+        Truth::False => return Some(Vec::new()),
+        Truth::True => Vec::new(),
+        Truth::Unknown => vec![condition],
+    };
+    Some(vec![PartialRuleMatch {
+        substitution,
+        conditions,
+        remainder: untouched,
+    }])
+}
+
+fn split_kequal_pair(left: &Term, right: &Term) -> Option<KEqualSplit> {
+    if let Some((operand1, operand2)) = kequal_arguments(left)
+        && let Some(value) = bool_domain_value(right)
+    {
+        return Some(KEqualSplit {
+            side: SplitSide::Pattern,
+            value,
+            left: operand1,
+            right: operand2,
+        });
+    }
+    let (operand1, operand2) = kequal_arguments(right)?;
+    Some(KEqualSplit {
+        side: SplitSide::Subject,
+        value: bool_domain_value(left)?,
+        left: operand1,
+        right: operand2,
+    })
+}
+
+fn kequal_arguments(term: &Term) -> Option<(Term, Term)> {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        return None;
+    };
+    if symbol.attributes.hook.as_deref() != Some("KEQUAL.eq") {
+        return None;
+    }
+    let [left, right] = arguments.as_slice() else {
+        return None;
+    };
+    Some((left.clone(), right.clone()))
+}
+
+fn bool_domain_value(term: &Term) -> Option<bool> {
+    let TermKind::DomainValue { sort, value } = term.kind() else {
+        return None;
+    };
+    if sort != &Sort::simple("SortBool") {
+        return None;
+    }
+    match value.as_ref() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
 /// Split symbolic `KEQUAL.ite` applications at the unification boundary.
 ///
 /// Concrete conditions are handled by the builtin evaluator. When the condition remains
@@ -1294,7 +1456,7 @@ fn recover_ite_matches(
         );
         let mut condition = substitute(&condition, &substitution);
         let mut conditions = Vec::new();
-        if matches!(side, IteSide::Pattern) {
+        if matches!(side, SplitSide::Pattern) {
             match match_terms_in_definition(MatchMode::Rewrite, definition, &condition, &value) {
                 MatchResult::Failed(_) => continue,
                 MatchResult::Success(found) => {
@@ -1325,7 +1487,7 @@ fn recover_ite_matches(
 fn split_ite_pair(pattern: &Term, subject: &Term) -> Option<IteSplit> {
     if let Some((condition, then_branch, else_branch)) = ite_arguments(pattern) {
         return Some(IteSplit {
-            side: IteSide::Pattern,
+            side: SplitSide::Pattern,
             condition,
             then_pair: (then_branch, subject.clone()),
             else_pair: (else_branch, subject.clone()),
@@ -1333,7 +1495,7 @@ fn split_ite_pair(pattern: &Term, subject: &Term) -> Option<IteSplit> {
     }
     let (condition, then_branch, else_branch) = ite_arguments(subject)?;
     Some(IteSplit {
-        side: IteSide::Subject,
+        side: SplitSide::Subject,
         condition,
         then_pair: (pattern.clone(), then_branch),
         else_pair: (pattern.clone(), else_branch),
@@ -1959,6 +2121,32 @@ mod tests {
         .expect("function rewrite definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN")
             .expect("function rewrite definition should internalize")
+    }
+
+    fn kequal_rewrite_definition(lhs: &str) -> BackendDefinition {
+        let source = r#"[]
+            module MAIN
+                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortValue{} []
+                sort SortState{} []
+                symbol equal{}(SortValue{}, SortValue{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("KEQUAL.eq")]
+                symbol chosen{}() : SortValue{} [constructor{}()]
+                symbol rejected{}() : SortValue{} [constructor{}()]
+                symbol state{}(SortBool{}) : SortState{} [constructor{}()]
+                symbol done{}() : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        $LHS,
+                        \top{SortState{}}()
+                    ),
+                    done{}()
+                ) [label{}("equality")]
+            endmodule []"#
+            .replace("$LHS", lhs);
+        let syntax = parse_definition(&source).expect("K equality definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("K equality definition should internalize")
     }
 
     fn subject(definition: &BackendDefinition, value: &str) -> Pattern {
@@ -3177,6 +3365,108 @@ mod tests {
                 if variable == fresh_variable
                     && equality.as_ref() == &branch.pattern.constraints[0]
         ));
+    }
+
+    #[test]
+    fn unifies_kequal_operands_when_matching_true() {
+        let definition =
+            kequal_rewrite_definition("state{}(equal{}(VALUE:SortValue{}, chosen{}()))");
+        let subject = Pattern {
+            term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("true"))"#),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh)
+        else {
+            panic!("true K equality should unify its operands");
+        };
+        assert_eq!(applied.pattern.term, internal_term(&definition, "done{}()"));
+        assert!(applied.pattern.constraints.is_empty());
+        assert!(applied.substitution.iter().any(|(variable, value)| {
+            variable.name.ends_with("VALUE") && value == &internal_term(&definition, "chosen{}()")
+        }));
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn negates_kequal_operand_unification_when_matching_false() {
+        let definition =
+            kequal_rewrite_definition("state{}(equal{}(VALUE:SortValue{}, chosen{}()))");
+        let subject = Pattern {
+            term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("false"))"#),
+            constraints: Vec::new(),
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("false K equality should retain disequality and complementary branches");
+        };
+        let [branch] = branches.as_slice() else {
+            panic!("expected one disequality branch, found {branches:?}");
+        };
+        let [disequality @ Predicate::Not(inner)] = branch.pattern.constraints.as_slice() else {
+            panic!("expected the negated operand equality");
+        };
+        let Predicate::Equals(left, right) = inner.as_ref() else {
+            panic!("expected an equality beneath the negation");
+        };
+        let TermKind::Variable(fresh_variable) = left.kind() else {
+            panic!("the unbound equality operand should be freshened");
+        };
+        assert!(fresh_variable.name.starts_with("Ex#VALUE"));
+        assert_eq!(right, &internal_term(&definition, "chosen{}()"));
+        assert!(matches!(
+            remainder.pattern.constraints.as_slice(),
+            [Predicate::Not(complement)]
+                if matches!(complement.as_ref(), Predicate::Exists(variable, condition)
+                    if variable == fresh_variable && condition.as_ref() == disequality)
+        ));
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn constrains_configuration_kequal_operands_when_matching_true() {
+        let definition = kequal_rewrite_definition(r#"state{}(\dv{SortBool{}}("true"))"#);
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                "state{}(equal{}(CONFIG:SortValue{}, chosen{}()))",
+            ),
+            constraints: Vec::new(),
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("configuration equality should retain applied and complementary branches");
+        };
+        let [branch] = branches.as_slice() else {
+            panic!("expected one configuration equality branch, found {branches:?}");
+        };
+        let condition = Predicate::Equals(
+            internal_term(&definition, "CONFIG:SortValue{}"),
+            internal_term(&definition, "chosen{}()"),
+        );
+        assert_eq!(
+            branch.pattern.constraints.as_slice(),
+            std::slice::from_ref(&condition)
+        );
+        assert_eq!(
+            remainder.pattern.constraints,
+            [Predicate::Not(Box::new(condition))]
+        );
     }
 
     #[cfg(feature = "z3")]
