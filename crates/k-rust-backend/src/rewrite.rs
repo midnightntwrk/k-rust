@@ -31,6 +31,12 @@ pub struct AppliedRule {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemainderBranch {
+    pub pattern: Pattern,
+    pub rule_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RewriteResult {
     Stuck(Pattern),
     Trivial(Pattern),
@@ -38,6 +44,7 @@ pub enum RewriteResult {
     Branch {
         original: Pattern,
         branches: Vec<AppliedRule>,
+        remainder: Option<RemainderBranch>,
     },
     Indeterminate {
         pattern: Pattern,
@@ -99,6 +106,7 @@ pub enum TraceKind {
     Simplification,
     Rewrite,
     Claim,
+    Remainder,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -220,9 +228,16 @@ pub fn execute_with_solver(
             RewriteResult::Finished(applied) => {
                 pending.push_back(next_state(state.depth, state.trace, applied))
             }
-            RewriteResult::Branch { branches, .. } => {
+            RewriteResult::Branch {
+                branches,
+                remainder,
+                ..
+            } => {
                 for applied in branches {
                     pending.push_back(next_state(state.depth, state.trace.clone(), applied));
+                }
+                if let Some(remainder) = remainder {
+                    pending.push_back(remaining_state(state.depth, state.trace, remainder));
                 }
             }
         }
@@ -240,6 +255,24 @@ fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> E
     ExecutionState {
         pattern: applied.pattern,
         depth: depth + 1,
+        trace,
+    }
+}
+
+fn remaining_state(
+    depth: u64,
+    mut trace: Vec<TraceEntry>,
+    remainder: RemainderBranch,
+) -> ExecutionState {
+    trace.push(TraceEntry {
+        depth,
+        kind: TraceKind::Remainder,
+        label: None,
+        unique_id: remainder.rule_ids.join(","),
+    });
+    ExecutionState {
+        pattern: remainder.pattern,
+        depth,
         trace,
     }
 }
@@ -328,7 +361,11 @@ fn rewrite_step_with_options(
             predicates.extend(remainder.iter().cloned());
             solver.is_sat(&predicates, &Substitution::new())
         };
-        if !matches!(remainder_result, Ok(Satisfiability::Unsat)) && !applied.is_empty() {
+        if !matches!(
+            remainder_result,
+            Ok(Satisfiability::Unsat | Satisfiability::Sat)
+        ) && !applied.is_empty()
+        {
             return RewriteResult::Indeterminate {
                 pattern: pattern.clone(),
                 reason: IndeterminateReason::Remainder {
@@ -341,9 +378,28 @@ fn rewrite_step_with_options(
                 },
             };
         }
+        let remainder = if matches!(remainder_result, Ok(Satisfiability::Sat)) {
+            let rule_ids = applied
+                .iter()
+                .map(|application| application.applied.unique_id.clone())
+                .collect();
+            let mut remainder_pattern = pattern.clone();
+            extend_unique(
+                &mut remainder_pattern.constraints,
+                remainder.iter().cloned(),
+            );
+            Some(RemainderBranch {
+                pattern: remainder_pattern,
+                rule_ids,
+            })
+        } else {
+            None
+        };
         match applied.len() {
             0 => {}
-            1 => return RewriteResult::Finished(applied.pop().unwrap().applied),
+            1 if remainder.is_none() => {
+                return RewriteResult::Finished(applied.pop().unwrap().applied);
+            }
             _ => {
                 return RewriteResult::Branch {
                     original: pattern.clone(),
@@ -351,6 +407,7 @@ fn rewrite_step_with_options(
                         .into_iter()
                         .map(|application| application.applied)
                         .collect(),
+                    remainder,
                 };
             }
         }
@@ -1356,7 +1413,7 @@ mod tests {
 
     #[cfg(feature = "z3")]
     #[test]
-    fn rejects_a_satisfiable_remainder_from_one_symbolic_rule() {
+    fn preserves_a_satisfiable_remainder_from_one_symbolic_rule() {
         let definition = symbolic_remainder_definition(
             r#"
             axiom{} \rewrites{SortInt{}}(
@@ -1374,22 +1431,81 @@ mod tests {
         let solver = crate::smt::Z3Solver::new(&definition).unwrap();
         let mut fresh = 0;
 
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            ..
+        } = rewrite_step_with_solver(
+            &definition,
+            &symbolic_subject(&definition),
+            &mut fresh,
+            &solver,
+        )
+        else {
+            panic!("a partial symbolic rule should retain its remainder branch");
+        };
+        assert_eq!(branches.len(), 1);
+        assert_eq!(remainder.rule_ids, ["negative"]);
+        assert_eq!(remainder.pattern.term, symbolic_subject(&definition).term);
         assert!(matches!(
-            rewrite_step_with_solver(
-                &definition,
-                &symbolic_subject(&definition),
-                &mut fresh,
-                &solver,
-            ),
-            RewriteResult::Indeterminate {
-                reason: IndeterminateReason::Remainder {
-                    rule_ids,
-                    satisfiability: Ok(Satisfiability::Sat),
-                    ..
-                },
-                ..
-            } if rule_ids == ["negative"]
+            remainder.pattern.constraints.as_slice(),
+            [Predicate::Not(_)]
         ));
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn carries_a_symbolic_remainder_to_lower_priority_rules() {
+        let definition = symbolic_remainder_definition(
+            r#"
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(
+                    wrap{}(X:SortInt{}),
+                    \equals{SortBool{}, SortInt{}}(
+                        lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                \dv{SortInt{}}("negative")
+            ) [label{}("negative"), priority{}("10")]
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
+                \dv{SortInt{}}("fallback")
+            ) [label{}("fallback"), priority{}("50")]
+            "#,
+        );
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+
+        let result = execute_with_solver(
+            &definition,
+            symbolic_subject(&definition),
+            ExecutionOptions {
+                max_depth: 1,
+                ..ExecutionOptions::default()
+            },
+            &solver,
+        );
+
+        let mut values = result
+            .leaves
+            .iter()
+            .map(|leaf| {
+                let TermKind::DomainValue { value, .. } = leaf.pattern.term.kind() else {
+                    panic!(
+                        "expected rewritten domain value, found {:?}",
+                        leaf.pattern.term
+                    );
+                };
+                value.to_string()
+            })
+            .collect::<Vec<_>>();
+        values.sort();
+        assert_eq!(values, ["fallback", "negative"]);
+        assert!(result.leaves.iter().any(|leaf| {
+            leaf.trace
+                .iter()
+                .any(|entry| entry.kind == TraceKind::Remainder)
+        }));
     }
 
     #[cfg(feature = "z3")]

@@ -362,7 +362,11 @@ pub fn prove_claim(
                     options.breadth_limit,
                 )?;
             }
-            RewriteResult::Branch { branches, .. } => {
+            RewriteResult::Branch {
+                branches,
+                remainder,
+                ..
+            } => {
                 extend_frontier(
                     &mut pending,
                     branches
@@ -370,6 +374,13 @@ pub fn prove_claim(
                         .map(|applied| state.clone().rewritten(applied)),
                     options.breadth_limit,
                 )?;
+                if let Some(remainder) = remainder {
+                    extend_frontier(
+                        &mut pending,
+                        std::iter::once(state.remaining(remainder)),
+                        options.breadth_limit,
+                    )?;
+                }
             }
             RewriteResult::Stuck(_) => {
                 let outcome = if implication_indeterminate {
@@ -455,6 +466,17 @@ impl ProofState {
             unique_id,
         });
         self.pattern = pattern;
+        self
+    }
+
+    fn remaining(mut self, remainder: crate::rewrite::RemainderBranch) -> Self {
+        self.trace.push(TraceEntry {
+            depth: self.depth,
+            kind: TraceKind::Remainder,
+            label: None,
+            unique_id: remainder.rule_ids.join(","),
+        });
+        self.pattern = remainder.pattern;
         self
     }
 }
