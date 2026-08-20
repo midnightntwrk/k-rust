@@ -440,6 +440,17 @@ fn add_rule_k_syntax(
     // Both associations lower to the same flattened K sequence, so retain that canonical tree
     // and do not report `A ~> B ~> C` as an ambiguity.
     grammar.add_right_associative("#KSequence");
+    // `K` is intentionally absent from `concrete_sorts`, but rule bodies still need a concrete
+    // bracket production. Relying only on KSEQ's parametric bracket leaves a parenthesized
+    // polymorphic rewrite unable to complete before a cell's trailing `...`.
+    grammar.add_bracket(
+        Sort::new("K"),
+        vec![
+            ProductionItem::Terminal("(".into()),
+            nonterminal("K"),
+            ProductionItem::Terminal(")".into()),
+        ],
+    )?;
     #[cfg(not(feature = "z3-inference"))]
     add_rule_sort(grammar, &Sort::new("K"))?;
     let rule_body_sort = rule_sort(&Sort::new("K"));

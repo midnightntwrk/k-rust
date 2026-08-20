@@ -250,6 +250,40 @@ fn loader_parses_rules_against_generated_rule_cells() {
 }
 
 #[test]
+fn loader_parses_parenthesized_sequence_rewrites_before_cell_dots() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Foo ::= "a"
+          configuration <k> a </k>
+          claim <k> (a ~> _ => .K) ... </k>
+        endmodule
+    "#};
+    let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+    let loaded = load(
+        ResolvedSource::new("parenthesized-rewrite.k", source),
+        "MAIN",
+        &mut resolver,
+    )
+    .unwrap();
+    let claims = loaded
+        .definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(sentence_summary)
+        .collect::<Vec<_>>();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(claims);
+    });
+}
+
+#[test]
 fn loader_parses_rewrites_between_bags_inside_collection_cells() {
     let source = indoc! {r#"
         module MAIN

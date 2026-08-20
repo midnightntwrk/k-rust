@@ -1424,6 +1424,9 @@ impl Matcher<'_> {
 
         let term = substitute(&term, &self.substitution);
         if term.attributes().variables.contains(&variable) {
+            if self.mode == MatchMode::Implies {
+                return self.defer(Term::variable(variable), term);
+            }
             return Err(FailReason::VariableRecursion(variable, term));
         }
         let singleton = Substitution::from([(variable.clone(), term.clone())]);

@@ -334,13 +334,18 @@ pub fn prove_claim(
                         &mut constraints,
                         vec![complement_implication_condition(&state.pattern, condition)],
                     );
-                    implication_remainder = Some(crate::rewrite::RemainderBranch {
+                    let remainder = crate::rewrite::RemainderBranch {
                         pattern: Pattern {
                             term: state.pattern.term.clone(),
                             constraints,
                         },
                         rule_ids: vec![format!("destination:{}", claim.attributes.unique_id)],
-                    });
+                    };
+                    if options.stuck_check {
+                        record_leaf!(state.remaining(remainder).leaf(ProofLeafOutcome::Stuck));
+                        continue;
+                    }
+                    implication_remainder = Some(remainder);
                 }
                 ImplicationStatus::Invalid
                     if options.stuck_check
@@ -1609,7 +1614,7 @@ mod tests {
     }
 
     #[test]
-    fn continues_with_the_complement_of_a_partial_destination_match() {
+    fn partial_destination_remainders_respect_the_stuck_check() {
         let definition = definition(
             r#"
             symbol start{}(SortS{}) : SortS{} [constructor{}()]
@@ -1627,16 +1632,29 @@ mod tests {
             "#,
         );
 
-        let result = prove_claim(
+        let checked = prove_claim(
             &definition,
             &definition.reachability_claims[0],
             ProofOptions::default(),
             &NoSolver,
         )
         .expect("claim should execute");
+        let unchecked = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions {
+                stuck_check: false,
+                ..ProofOptions::default()
+            },
+            &NoSolver,
+        )
+        .expect("claim should execute without the stuck heuristic");
 
-        assert_eq!(result.status, ProofStatus::Disproved);
-        assert!(result.leaves.iter().any(|leaf| {
+        assert_eq!(checked.status, ProofStatus::Disproved);
+        assert_eq!(checked.leaves[0].depth, 1);
+        assert!(matches!(checked.leaves[0].outcome, ProofLeafOutcome::Stuck));
+        assert_eq!(unchecked.status, ProofStatus::Disproved);
+        assert!(unchecked.leaves.iter().any(|leaf| {
             leaf.trace
                 .iter()
                 .any(|entry| entry.kind == TraceKind::Remainder)

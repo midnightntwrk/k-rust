@@ -598,6 +598,7 @@ mod tests {
                 sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 sort SortKItem{} []
                 symbol pair{}(SortInt{}, SortInt{}) : SortKItem{} [constructor{}()]
+                symbol succ{}(SortInt{}) : SortInt{} [constructor{}()]
                 symbol f{}(SortInt{}) : SortInt{} [function{}()]
                 axiom{R} \implies{R}(
                     \top{R}(),
@@ -682,6 +683,27 @@ mod tests {
             check_implication(&definition, &antecedent, &consequent, &NoSolver),
             Ok(valid(Substitution::from([(x, int(&definition, "1"))])))
         );
+    }
+
+    #[test]
+    fn retains_an_occurs_check_as_a_partial_implication_condition() {
+        let definition = definition();
+        let antecedent = pattern(&definition, r#"succ{}(X:SortInt{})"#);
+        let consequent = pattern(&definition, r#"X:SortInt{}"#);
+
+        let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
+            .expect("implication should be checked");
+
+        assert_eq!(result.status, ImplicationStatus::Invalid);
+        let condition = result
+            .condition
+            .expect("the recursively matched subset should be retained");
+        assert!(matches!(
+            condition.predicates.as_slice(),
+            [Predicate::Equals(left, right)]
+                if left == &term(&definition, "X:SortInt{}")
+                    && right == &term(&definition, "succ{}(X:SortInt{})")
+        ));
     }
 
     #[test]

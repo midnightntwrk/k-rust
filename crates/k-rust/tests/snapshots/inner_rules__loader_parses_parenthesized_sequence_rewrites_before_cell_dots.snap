@@ -1,0 +1,24 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Foo ::= \"a\"\n  configuration <k> a </k>\n  claim <k> (a ~> _ => .K) ... </k>\nendmodule\n"
+---
+[
+    SentenceSummary {
+        kind: "claim",
+        body: "`<k>`(#noDots(.KList),`a_MAIN_Foo`(.KList)~>#SemanticCastToK(_)=>.K,#dots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "initKCell(.KList)=>`<k>`(#noDots(.KList),`a_MAIN_Foo`(.KList),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+]
