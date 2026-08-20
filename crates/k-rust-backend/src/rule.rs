@@ -31,6 +31,37 @@ pub enum Predicate {
     Forall(Variable, Box<Predicate>),
 }
 
+impl Predicate {
+    pub fn free_variables(&self) -> BTreeSet<Variable> {
+        match self {
+            Self::True | Self::False => BTreeSet::new(),
+            Self::Term(term) | Self::Ceil(term) | Self::Floor(term) => {
+                term.attributes().variables.clone()
+            }
+            Self::Equals(left, right) | Self::In(left, right) => {
+                let mut variables = left.attributes().variables.clone();
+                variables.extend(right.attributes().variables.iter().cloned());
+                variables
+            }
+            Self::Not(inner) => inner.free_variables(),
+            Self::And(inner) | Self::Or(inner) => inner
+                .iter()
+                .flat_map(Self::free_variables)
+                .collect::<BTreeSet<_>>(),
+            Self::Implies(left, right) | Self::Iff(left, right) => {
+                let mut variables = left.free_variables();
+                variables.extend(right.free_variables());
+                variables
+            }
+            Self::Exists(variable, inner) | Self::Forall(variable, inner) => {
+                let mut variables = inner.free_variables();
+                variables.remove(variable);
+                variables
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ComputedRuleAttributes {
     pub contains_ac_symbols: bool,
