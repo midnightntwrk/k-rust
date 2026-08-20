@@ -1,10 +1,13 @@
 //! Pure-Rust cryptographic hooks implemented by Kore's fallback evaluator.
 
+use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
+use k256::elliptic_curve::sec1::ToSec1Point;
+use num_traits::ToPrimitive;
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256, Sha512_256};
 use sha3::{Keccak256, Sha3_256};
 
-use super::{BuiltinError, BuiltinResult, bytes, expect_arity};
+use super::{BuiltinError, BuiltinResult, bytes, expect_arity, read_int};
 use crate::term::{Sort, Term};
 
 pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
@@ -15,6 +18,8 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
         "KRYPTO.sha3256" | "HASH.sha3_256" => hash_hex::<Sha3_256>(hook, arguments),
         "KRYPTO.sha512_256raw" => hash_raw::<Sha512_256>(hook, arguments),
         "KRYPTO.ripemd160" | "HASH.ripemd160" => hash_hex::<Ripemd160>(hook, arguments),
+        "KRYPTO.ecdsaPubKey" => ecdsa_public_key(arguments),
+        "KRYPTO.ecdsaRecover" | "SECP256K1.ecdsaRecover" => ecdsa_recover(hook, arguments),
         _ => Ok(BuiltinResult::NotApplicable),
     }
 }
@@ -26,16 +31,17 @@ where
     let Some(digest) = digest::<D>(hook, arguments)? else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let mut encoded = String::with_capacity(digest.len() * 2);
+    Ok(BuiltinResult::Value(string_term(encode_hex(&digest))))
+}
+
+fn encode_hex(input: &[u8]) -> String {
+    let mut encoded = String::with_capacity(input.len() * 2);
     const HEX: &[u8; 16] = b"0123456789abcdef";
-    for byte in digest {
+    for byte in input {
         encoded.push(char::from(HEX[usize::from(byte >> 4)]));
         encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
     }
-    Ok(BuiltinResult::Value(Term::domain_value(
-        Sort::simple("SortString"),
-        encoded,
-    )))
+    encoded
 }
 
 fn hash_raw<D>(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError>
@@ -59,12 +65,89 @@ where
     Ok(Some(D::digest(input).to_vec()))
 }
 
+fn ecdsa_public_key(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity("KRYPTO.ecdsaPubKey", arguments, 1)?;
+    let Some(secret) = bytes::read_bytes(&arguments[0]) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let encoded = k256::SecretKey::from_slice(&secret)
+        .ok()
+        .map(|secret| secret.public_key().to_sec1_point(false))
+        .and_then(|point| point.as_bytes().get(1..).map(encode_hex))
+        .unwrap_or_default();
+    Ok(BuiltinResult::Value(string_term(encoded)))
+}
+
+fn ecdsa_recover(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity(hook, arguments, 4)?;
+    let Some(message_hash) = bytes::read_bytes(&arguments[0]) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some(v) = read_int(&arguments[1]) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some(v) = v.to_u8() else {
+        return Ok(BuiltinResult::Bottom);
+    };
+    let Some(r) = bytes::read_bytes(&arguments[2]) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some(s) = bytes::read_bytes(&arguments[3]) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+
+    let Some(recovery_id) = v
+        .checked_sub(27)
+        .and_then(|id| RecoveryId::try_from(id).ok())
+    else {
+        return Ok(BuiltinResult::Bottom);
+    };
+    let Some(r) = scalar_bytes(&r) else {
+        return Ok(BuiltinResult::Bottom);
+    };
+    let Some(s) = scalar_bytes(&s) else {
+        return Ok(BuiltinResult::Bottom);
+    };
+    let mut signature_bytes = [0_u8; 64];
+    signature_bytes[..32].copy_from_slice(&r);
+    signature_bytes[32..].copy_from_slice(&s);
+    let Ok(signature) = Signature::from_slice(&signature_bytes) else {
+        return Ok(BuiltinResult::Bottom);
+    };
+    let Ok(key) = VerifyingKey::recover_from_prehash(&message_hash, &signature, recovery_id) else {
+        return Ok(BuiltinResult::Bottom);
+    };
+    let encoded = key.to_sec1_point(false);
+    let Some(coordinates) = encoded.as_bytes().get(1..) else {
+        return Ok(BuiltinResult::Bottom);
+    };
+    Ok(BuiltinResult::Value(bytes::bytes_term(coordinates)))
+}
+
+fn scalar_bytes(input: &[u8]) -> Option<[u8; 32]> {
+    let first_nonzero = input
+        .iter()
+        .position(|byte| *byte != 0)
+        .unwrap_or(input.len());
+    let significant = &input[first_nonzero..];
+    if significant.len() > 32 {
+        return None;
+    }
+    let mut output = [0_u8; 32];
+    output[32 - significant.len()..].copy_from_slice(significant);
+    Some(output)
+}
+
+fn string_term(value: impl Into<String>) -> Term {
+    Term::domain_value(Sort::simple("SortString"), value.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn string(value: &str) -> BuiltinResult {
-        BuiltinResult::Value(Term::domain_value(Sort::simple("SortString"), value))
+        BuiltinResult::Value(string_term(value))
     }
 
     #[test]
@@ -109,6 +192,57 @@ mod tests {
         assert_eq!(
             evaluate("KRYPTO.sha512_256raw", &[empty]),
             Ok(BuiltinResult::Value(bytes::bytes_term(&expected)))
+        );
+    }
+
+    #[test]
+    fn derives_the_uncompressed_public_key_without_its_prefix() {
+        let mut secret = [0_u8; 32];
+        secret[31] = 1;
+        let expected = concat!(
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"
+        );
+
+        assert_eq!(
+            evaluate("KRYPTO.ecdsaPubKey", &[bytes::bytes_term(&secret)]),
+            Ok(string(expected))
+        );
+        assert_eq!(
+            evaluate("KRYPTO.ecdsaPubKey", &[bytes::bytes_term(&[0; 32])]),
+            Ok(string(""))
+        );
+    }
+
+    #[test]
+    fn recovers_a_public_key_from_a_prehash_signature() {
+        use k256::ecdsa::SigningKey;
+
+        let mut secret = [0_u8; 32];
+        secret[31] = 1;
+        let signing_key = SigningKey::from_slice(&secret).expect("valid secret key");
+        let message_hash = Sha256::digest(b"k-rust recovery test");
+        let (signature, recovery_id) = signing_key.sign_prehash_recoverable(&message_hash);
+        let signature = signature.to_bytes();
+        let arguments = [
+            bytes::bytes_term(&message_hash),
+            super::super::int_term((27 + recovery_id.to_byte()).into()),
+            bytes::bytes_term(&signature[..32]),
+            bytes::bytes_term(&signature[32..]),
+        ];
+        let public_key = signing_key.verifying_key().to_sec1_point(false);
+
+        assert_eq!(
+            evaluate("KRYPTO.ecdsaRecover", &arguments),
+            Ok(BuiltinResult::Value(bytes::bytes_term(
+                &public_key.as_bytes()[1..]
+            )))
+        );
+        assert_eq!(
+            evaluate("SECP256K1.ecdsaRecover", &arguments),
+            Ok(BuiltinResult::Value(bytes::bytes_term(
+                &public_key.as_bytes()[1..]
+            )))
         );
     }
 }
