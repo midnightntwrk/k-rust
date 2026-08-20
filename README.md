@@ -323,9 +323,10 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete parameters normally supplied by parser inference.
 - Emit the optional legacy priority aliases supported by `ModuleToKORE` compatibility modes.
-- Complete proof-step timeout, moving-average timeout, and general symbolic remainder construction;
-  proof checkpoints plus order, breadth, depth, counterexample, vacuity, and stuck controls are
-  implemented, while unresolved term unification still remains conservative.
+- Complete general symbolic remainder construction and preemptive interruption inside non-Z3
+  native hooks; proof checkpoints plus cooperative timeout, moving-average, order, breadth, depth,
+  counterexample, vacuity, and stuck controls are implemented, while unresolved term unification
+  still remains conservative.
 - Measure Z3-path usage across a substantially larger real-definition corpus.
 - Revisit package splitting only if real build or release pressure justifies it.
 

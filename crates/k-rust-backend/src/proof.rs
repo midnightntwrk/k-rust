@@ -4,6 +4,7 @@ use std::{
     collections::{BTreeSet, VecDeque},
     error::Error,
     fmt,
+    time::Duration,
 };
 
 use crate::{
@@ -25,6 +26,7 @@ use crate::{
     smt::{SmtError, SmtSolver, Validity},
     substitution::{Substitution, substitute},
     term::{Term, Variable},
+    timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -37,6 +39,8 @@ pub struct ProofOptions {
     pub allow_vacuous: bool,
     pub search_order: ProofSearchOrder,
     pub stuck_check: bool,
+    pub step_timeout: Option<Duration>,
+    pub moving_average_timeout: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -57,6 +61,8 @@ impl Default for ProofOptions {
             allow_vacuous: false,
             search_order: ProofSearchOrder::BreadthFirst,
             stuck_check: true,
+            step_timeout: None,
+            moving_average_timeout: false,
         }
     }
 }
@@ -98,6 +104,7 @@ pub enum ProofLeafOutcome {
     Trivial,
     Vacuous,
     DepthBound,
+    TimedOut(StepTimeoutMode),
     Indeterminate(ProofIndeterminateReason),
 }
 
@@ -163,6 +170,10 @@ pub fn prove_claim(
     let mut leaves = Vec::new();
     let mut fresh_counter = 0;
     let mut explored_states = 0;
+    let timeout_controller = StepTimeoutController::new(StepTimeoutOptions {
+        manual: options.step_timeout,
+        moving_average: options.moving_average_timeout,
+    });
     macro_rules! record_leaf {
         ($leaf:expr) => {{
             leaves.push($leaf);
@@ -181,7 +192,22 @@ pub fn prove_claim(
         ProofSearchOrder::DepthFirst => pending.pop_back(),
     } {
         explored_states += 1;
-        let simplified = match simplify_with_solver(
+        let mut step_timer = timeout_controller.begin_step();
+        macro_rules! finish_if_timed_out {
+            () => {
+                if let Some(mode) = step_timer.timed_out() {
+                    step_timer.discard_measurement();
+                    leaves.push(state.leaf(ProofLeafOutcome::TimedOut(mode)));
+                    return Ok(finish(
+                        claim.mode,
+                        leaves,
+                        explored_states,
+                        pending.len() as u64,
+                    ));
+                }
+            };
+        }
+        let simplified = simplify_with_solver(
             definition,
             &state.pattern.term,
             &state.pattern.constraints,
@@ -189,7 +215,9 @@ pub fn prove_claim(
                 max_iterations: options.max_simplification_iterations,
             },
             solver,
-        ) {
+        );
+        finish_if_timed_out!();
+        let simplified = match simplified {
             Ok(simplified) => simplified,
             Err(error) => {
                 record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
@@ -240,8 +268,9 @@ pub fn prove_claim(
                     max_iterations: options.max_simplification_iterations,
                 },
                 solver,
-            )
-            .map_err(ProofError::Implication)?;
+            );
+            finish_if_timed_out!();
+            let implication = implication.map_err(ProofError::Implication)?;
             match implication.status {
                 ImplicationStatus::Valid => {
                     let condition = implication
@@ -276,14 +305,16 @@ pub fn prove_claim(
                 if candidate.mode != claim.mode {
                     continue;
                 }
-                match apply_claim(
+                let transition = apply_claim(
                     definition,
                     candidate,
                     &state.pattern,
                     options,
                     solver,
                     &mut fresh_counter,
-                ) {
+                );
+                finish_if_timed_out!();
+                match transition {
                     ClaimApplication::NotApplicable => {}
                     transition => {
                         claim_transition = Some((candidate, transition));
@@ -320,7 +351,10 @@ pub fn prove_claim(
             }
         }
 
-        match rewrite_step_with_solver(definition, &state.pattern, &mut fresh_counter, solver) {
+        let rewritten =
+            rewrite_step_with_solver(definition, &state.pattern, &mut fresh_counter, solver);
+        finish_if_timed_out!();
+        match rewritten {
             RewriteResult::Finished(applied) => {
                 extend_frontier(
                     &mut pending,
@@ -608,9 +642,12 @@ fn finish(
             ProofLeafOutcome::Stuck | ProofLeafOutcome::Trivial | ProofLeafOutcome::Vacuous
         )
     });
-    let any_indeterminate = leaves
-        .iter()
-        .any(|leaf| matches!(leaf.outcome, ProofLeafOutcome::Indeterminate(_)));
+    let any_indeterminate = leaves.iter().any(|leaf| {
+        matches!(
+            leaf.outcome,
+            ProofLeafOutcome::TimedOut(_) | ProofLeafOutcome::Indeterminate(_)
+        )
+    });
     let any_depth_bound = leaves
         .iter()
         .any(|leaf| matches!(leaf.outcome, ProofLeafOutcome::DepthBound));
@@ -649,10 +686,35 @@ fn extend_unique(left: &mut Vec<crate::rule::Predicate>, right: Vec<crate::rule:
 
 #[cfg(test)]
 mod tests {
+    use std::{thread, time::Duration};
+
     use k_rust_kore::kore::parser::parse_definition;
 
     use super::*;
-    use crate::smt::NoSolver;
+    use crate::smt::{NoSolver, Satisfiability};
+
+    struct SlowSolver;
+
+    impl SmtSolver for SlowSolver {
+        fn is_sat(
+            &self,
+            _predicates: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+        ) -> Result<Satisfiability, SmtError> {
+            thread::sleep(Duration::from_millis(5));
+            Ok(Satisfiability::Sat)
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+            _checked: &[crate::rule::Predicate],
+        ) -> Result<Validity, SmtError> {
+            thread::sleep(Duration::from_millis(5));
+            Ok(Validity::Indeterminate)
+        }
+    }
 
     fn definition(rules: &str, claims: &str) -> BackendDefinition {
         let source = format!(
@@ -827,6 +889,32 @@ mod tests {
 
         assert_eq!(stuck.status, ProofStatus::Disproved);
         assert_eq!(bounded.status, ProofStatus::DepthBound);
+    }
+
+    #[test]
+    fn discards_a_proof_step_that_exceeds_its_manual_timeout() {
+        let claims = modal_claim(ReachabilityMode::OnePath, "a", "a", false);
+        let definition = definition("", &claims);
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions {
+                step_timeout: Some(Duration::from_millis(1)),
+                ..ProofOptions::default()
+            },
+            &SlowSolver,
+        )
+        .unwrap();
+
+        assert_eq!(result.status, ProofStatus::Indeterminate);
+        assert!(matches!(
+            result.leaves.as_slice(),
+            [ProofLeaf {
+                outcome: ProofLeafOutcome::TimedOut(StepTimeoutMode::Manual(timeout)),
+                ..
+            }] if *timeout == Duration::from_millis(1)
+        ));
     }
 
     #[test]

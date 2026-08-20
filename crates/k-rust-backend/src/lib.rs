@@ -15,3 +15,4 @@ pub mod simplify;
 pub mod smt;
 pub mod substitution;
 pub mod term;
+pub mod timeout;

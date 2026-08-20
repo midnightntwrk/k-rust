@@ -6,6 +6,7 @@ use std::{
     io::{self, Read},
     num::NonZeroUsize,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -238,6 +239,14 @@ struct KproveArgs {
     #[arg(long)]
     disable_stuck_check: bool,
 
+    /// Cancel a proof step after this many seconds.
+    #[arg(long = "set-step-timeout", value_name = "SECONDS")]
+    step_timeout: Option<NonZeroUsize>,
+
+    /// Dynamically limit each step to twice the moving average of prior steps.
+    #[arg(long)]
+    moving_average: bool,
+
     #[command(flatten)]
     source: SourceArgs,
 }
@@ -313,6 +322,8 @@ struct KproveOptions {
     allow_vacuous: bool,
     graph_search: ProofSearchOrder,
     stuck_check: bool,
+    step_timeout: Option<Duration>,
+    moving_average_timeout: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
@@ -399,6 +410,10 @@ impl From<KproveArgs> for KproveOptions {
             allow_vacuous: arguments.allow_vacuous,
             graph_search: arguments.graph_search.into(),
             stuck_check: !arguments.disable_stuck_check,
+            step_timeout: arguments
+                .step_timeout
+                .map(|seconds| Duration::from_secs(seconds.get() as u64)),
+            moving_average_timeout: arguments.moving_average,
         }
     }
 }
@@ -659,6 +674,8 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                 allow_vacuous: options.allow_vacuous,
                 search_order: options.graph_search,
                 stuck_check: options.stuck_check,
+                step_timeout: options.step_timeout,
+                moving_average_timeout: options.moving_average_timeout,
                 ..ProofOptions::default()
             },
             &solver,
@@ -976,6 +993,9 @@ mod tests {
             "--graph-search",
             "depth-first",
             "--disable-stuck-check",
+            "--set-step-timeout",
+            "9",
+            "--moving-average",
         ])
         .unwrap();
         let Command::Kprove(options) = cli.command else {
@@ -997,6 +1017,8 @@ mod tests {
         assert!(options.allow_vacuous);
         assert_eq!(options.graph_search, ProofSearchOrder::DepthFirst);
         assert!(!options.stuck_check);
+        assert_eq!(options.step_timeout, Some(Duration::from_secs(9)));
+        assert!(options.moving_average_timeout);
     }
 
     #[test]
