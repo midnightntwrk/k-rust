@@ -824,11 +824,25 @@ fn is_functional_pattern(term: &Term) -> bool {
                 SymbolType::Constructor | SymbolType::Function(_)
             ) && arguments.iter().all(is_functional_pattern)
         }
+        TermKind::Map { entries, rest, .. } => {
+            entries
+                .iter()
+                .all(|(key, value)| is_functional_pattern(key) && is_functional_pattern(value))
+                && rest.as_ref().is_none_or(is_functional_pattern)
+        }
+        TermKind::List { heads, rest, .. } => {
+            heads.iter().all(is_functional_pattern)
+                && rest.as_ref().is_none_or(|(middle, tails)| {
+                    is_functional_pattern(middle) && tails.iter().all(is_functional_pattern)
+                })
+        }
+        TermKind::Set { elements, rest, .. } => {
+            elements.iter().all(is_functional_pattern)
+                && rest.as_ref().is_none_or(is_functional_pattern)
+        }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => true,
         TermKind::Injection { term, .. } => is_functional_pattern(term),
-        TermKind::And(..) | TermKind::Map { .. } | TermKind::List { .. } | TermKind::Set { .. } => {
-            false
-        }
+        TermKind::And(..) => false,
     }
 }
 
@@ -844,21 +858,7 @@ fn contains_function_pattern(term: &Term) -> bool {
         TermKind::And(left, right) => {
             contains_function_pattern(left) || contains_function_pattern(right)
         }
-        TermKind::Map { entries, rest, .. } => {
-            entries.iter().any(|(key, value)| {
-                contains_function_pattern(key) || contains_function_pattern(value)
-            }) || rest.as_ref().is_some_and(contains_function_pattern)
-        }
-        TermKind::List { heads, rest, .. } => {
-            heads.iter().any(contains_function_pattern)
-                || rest.as_ref().is_some_and(|(middle, tails)| {
-                    contains_function_pattern(middle) || tails.iter().any(contains_function_pattern)
-                })
-        }
-        TermKind::Set { elements, rest, .. } => {
-            elements.iter().any(contains_function_pattern)
-                || rest.as_ref().is_some_and(contains_function_pattern)
-        }
+        TermKind::Map { .. } | TermKind::List { .. } | TermKind::Set { .. } => true,
         TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
     }
 }
@@ -1309,6 +1309,18 @@ fn apply_rule_with_match(
         }
     }
 
+    let mut applicability = match_conditions.clone();
+    applicability.extend(unclear_requires.iter().cloned());
+    let applicability = quantify_introduced_variables(pattern, applicability);
+    if applicability != Predicate::True
+        && conjunctively_contains_alpha_equivalent(
+            &pattern.constraints,
+            &Predicate::Not(Box::new(applicability.clone())),
+        )
+    {
+        return RuleAttempt::NotApplicable;
+    }
+
     let rhs = match &rule.rhs {
         RuleRhs::Term(rhs) => rhs,
         RuleRhs::Bottom => return RuleAttempt::Vacuous,
@@ -1403,22 +1415,10 @@ fn apply_rule_with_match(
     extend_unique(&mut constraints, unclear_requires.iter().cloned());
     extend_unique(&mut constraints, rhs_constraints);
     extend_unique(&mut constraints, ensures);
-    let mut applicability = match_conditions;
-    applicability.extend(unclear_requires.iter().cloned());
-    let remainder = if applicability.is_empty() {
+    let remainder = if applicability == Predicate::True {
         Predicate::False
     } else {
-        let mut condition = conjoin(applicability);
-        let state_variables = pattern_free_variables(pattern);
-        let introduced = condition
-            .free_variables()
-            .difference(&state_variables)
-            .cloned()
-            .collect::<Vec<_>>();
-        for variable in introduced.into_iter().rev() {
-            condition = Predicate::Exists(variable, Box::new(condition));
-        }
-        Predicate::Not(Box::new(condition))
+        Predicate::Not(Box::new(applicability))
     };
     RuleAttempt::Applied(vec![RuleApplication {
         applied: AppliedRule {
@@ -2246,6 +2246,76 @@ fn conjoin(mut predicates: Vec<Predicate>) -> Predicate {
     }
 }
 
+fn quantify_introduced_variables(pattern: &Pattern, predicates: Vec<Predicate>) -> Predicate {
+    let mut condition = conjoin(predicates);
+    let state_variables = pattern_free_variables(pattern);
+    let introduced = condition
+        .free_variables()
+        .difference(&state_variables)
+        .cloned()
+        .collect::<Vec<_>>();
+    for variable in introduced.into_iter().rev() {
+        condition = Predicate::Exists(variable, Box::new(condition));
+    }
+    condition
+}
+
+fn conjunctively_contains_alpha_equivalent(predicates: &[Predicate], target: &Predicate) -> bool {
+    predicates.iter().any(|predicate| {
+        alpha_equivalent(predicate, target)
+            || matches!(predicate, Predicate::And(inner) if conjunctively_contains_alpha_equivalent(inner, target))
+    })
+}
+
+fn alpha_equivalent(left: &Predicate, right: &Predicate) -> bool {
+    let mut left_index = 0;
+    let mut right_index = 0;
+    alpha_normalize(left, &mut left_index) == alpha_normalize(right, &mut right_index)
+}
+
+fn alpha_normalize(predicate: &Predicate, next: &mut usize) -> Predicate {
+    match predicate {
+        Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
+            // NUL cannot occur in parsed KORE identifiers, so these canonical names cannot capture
+            // a free source variable.
+            let normalized = Variable::new(format!("\0bound{next}"), variable.sort.clone());
+            *next += 1;
+            let substitution = [(variable.clone(), Term::variable(normalized.clone()))]
+                .into_iter()
+                .collect();
+            let inner = substitute_predicate(inner, &substitution);
+            let inner = Box::new(alpha_normalize(&inner, next));
+            if matches!(predicate, Predicate::Exists(..)) {
+                Predicate::Exists(normalized, inner)
+            } else {
+                Predicate::Forall(normalized, inner)
+            }
+        }
+        Predicate::Not(inner) => Predicate::Not(Box::new(alpha_normalize(inner, next))),
+        Predicate::And(predicates) => Predicate::And(
+            predicates
+                .iter()
+                .map(|predicate| alpha_normalize(predicate, next))
+                .collect(),
+        ),
+        Predicate::Or(predicates) => Predicate::Or(
+            predicates
+                .iter()
+                .map(|predicate| alpha_normalize(predicate, next))
+                .collect(),
+        ),
+        Predicate::Implies(left, right) => Predicate::Implies(
+            Box::new(alpha_normalize(left, next)),
+            Box::new(alpha_normalize(right, next)),
+        ),
+        Predicate::Iff(left, right) => Predicate::Iff(
+            Box::new(alpha_normalize(left, next)),
+            Box::new(alpha_normalize(right, next)),
+        ),
+        predicate => predicate.clone(),
+    }
+}
+
 fn extend_unique(predicates: &mut Vec<Predicate>, added: impl IntoIterator<Item = Predicate>) {
     for predicate in added {
         if !predicates.contains(&predicate) {
@@ -2562,6 +2632,35 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
+
+    fn existential_equality(bound: &str, free: &str) -> Predicate {
+        let sort = Sort::simple("SortS");
+        let bound = Variable::new(bound, sort.clone());
+        Predicate::Exists(
+            bound.clone(),
+            Box::new(Predicate::Equals(
+                Term::variable(bound),
+                Term::variable(Variable::new(free, sort)),
+            )),
+        )
+    }
+
+    #[test]
+    fn recognizes_alpha_equivalent_applicability_exclusions() {
+        let excluded = Predicate::Not(Box::new(existential_equality("Fresh!0", "State")));
+        let retried = Predicate::Not(Box::new(existential_equality("Fresh!1", "State")));
+        let different_free_variable =
+            Predicate::Not(Box::new(existential_equality("Fresh!1", "Other")));
+
+        assert!(conjunctively_contains_alpha_equivalent(
+            &[Predicate::And(vec![Predicate::True, excluded])],
+            &retried,
+        ));
+        assert!(!conjunctively_contains_alpha_equivalent(
+            &[different_free_variable],
+            &retried,
+        ));
+    }
 
     fn definition(axioms: &str) -> BackendDefinition {
         let source = format!(
