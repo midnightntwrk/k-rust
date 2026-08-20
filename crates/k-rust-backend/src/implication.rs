@@ -23,6 +23,12 @@ pub enum ImplicationStatus {
     Indeterminate,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ImplicationFailure {
+    TermMismatch,
+    ConsequentCondition,
+}
+
 /// The condition under which an implication was established.
 ///
 /// An empty predicate list denotes `top`. A vacuous implication carries
@@ -37,6 +43,7 @@ pub struct ImplicationCondition {
 pub struct ImplicationResult {
     pub status: ImplicationStatus,
     pub condition: Option<ImplicationCondition>,
+    pub failure: Option<ImplicationFailure>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -165,6 +172,7 @@ pub fn check_disjunctive_implication_with_existentials(
     let mut antecedent = antecedent.clone();
     loop {
         let mut branches = Vec::new();
+        let mut matched = false;
         let mut incomplete = false;
         for (consequent, _) in &consequents {
             let substitution = match match_terms(
@@ -183,6 +191,7 @@ pub fn check_disjunctive_implication_with_existentials(
                 }
                 MatchResult::Success(substitution) => substitution,
             };
+            matched = true;
             let obligations = substitute_predicates(&consequent.constraints, &substitution)
                 .into_iter()
                 .filter(|predicate| !antecedent.constraints.contains(predicate))
@@ -257,7 +266,11 @@ pub fn check_disjunctive_implication_with_existentials(
             }
             return Ok(indeterminate());
         }
-        return Ok(invalid());
+        return Ok(if matched {
+            condition_invalid()
+        } else {
+            invalid()
+        });
     }
 }
 
@@ -411,14 +424,14 @@ fn discharge_consequent(
     };
     match predicates_truth(&obligations) {
         Truth::True => return Ok(valid(substitution)),
-        Truth::False => return Ok(invalid()),
+        Truth::False => return Ok(condition_invalid()),
         Truth::Unknown => {}
     }
 
     Ok(
         match solver.check_predicates(&antecedent.constraints, &Substitution::new(), &obligations) {
             Ok(Validity::Valid) => valid(substitution),
-            Ok(Validity::Invalid) => invalid(),
+            Ok(Validity::Invalid) => condition_invalid(),
             Ok(Validity::InconsistentGroundTruth) => vacuously_valid(),
             Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => indeterminate(),
         },
@@ -465,6 +478,7 @@ fn valid(substitution: Substitution) -> ImplicationResult {
             predicates: Vec::new(),
             substitution,
         }),
+        failure: None,
     }
 }
 
@@ -475,6 +489,7 @@ fn vacuously_valid() -> ImplicationResult {
             predicates: vec![Predicate::False],
             substitution: Substitution::new(),
         }),
+        failure: None,
     }
 }
 
@@ -482,6 +497,15 @@ fn invalid() -> ImplicationResult {
     ImplicationResult {
         status: ImplicationStatus::Invalid,
         condition: None,
+        failure: Some(ImplicationFailure::TermMismatch),
+    }
+}
+
+fn condition_invalid() -> ImplicationResult {
+    ImplicationResult {
+        status: ImplicationStatus::Invalid,
+        condition: None,
+        failure: Some(ImplicationFailure::ConsequentCondition),
     }
 }
 
@@ -489,6 +513,7 @@ fn indeterminate() -> ImplicationResult {
     ImplicationResult {
         status: ImplicationStatus::Indeterminate,
         condition: None,
+        failure: None,
     }
 }
 
@@ -791,11 +816,11 @@ mod tests {
 
         assert_eq!(
             check_implication(&definition, &antecedent, &first, &DisjunctionSolver),
-            Ok(invalid())
+            Ok(condition_invalid())
         );
         assert_eq!(
             check_implication(&definition, &antecedent, &second, &DisjunctionSolver),
-            Ok(invalid())
+            Ok(condition_invalid())
         );
         assert_eq!(
             check_disjunctive_implication_with_existentials(

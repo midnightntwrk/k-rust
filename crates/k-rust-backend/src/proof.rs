@@ -10,7 +10,7 @@ use crate::{
     claim::{ReachabilityClaim, ReachabilityMode},
     definition::BackendDefinition,
     implication::{
-        ImplicationCondition, ImplicationError, ImplicationStatus,
+        ImplicationCondition, ImplicationError, ImplicationFailure, ImplicationStatus,
         check_disjunctive_implication_with_existentials,
     },
     matching::{MatchMode, MatchResult, match_terms},
@@ -34,6 +34,7 @@ pub struct ProofOptions {
     pub max_simplification_iterations: usize,
     pub allow_vacuous: bool,
     pub search_order: ProofSearchOrder,
+    pub stuck_check: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -51,6 +52,7 @@ impl Default for ProofOptions {
             max_simplification_iterations: 100,
             allow_vacuous: false,
             search_order: ProofSearchOrder::BreadthFirst,
+            stuck_check: true,
         }
     }
 }
@@ -225,6 +227,13 @@ pub fn prove_claim(
                     if claim.mode == ReachabilityMode::OnePath {
                         return Ok(finish(claim.mode, leaves, explored_states));
                     }
+                    continue;
+                }
+                ImplicationStatus::Invalid
+                    if options.stuck_check
+                        && implication.failure == Some(ImplicationFailure::ConsequentCondition) =>
+                {
+                    leaves.push(state.leaf(ProofLeafOutcome::Stuck));
                     continue;
                 }
                 ImplicationStatus::Invalid => {}
@@ -834,6 +843,40 @@ mod tests {
         assert_eq!(depth_first.status, ProofStatus::Proven);
         assert_eq!(breadth_first.explored_states, 3);
         assert_eq!(depth_first.explored_states, 2);
+    }
+
+    #[test]
+    fn condition_stuck_check_can_be_disabled() {
+        let claims = modal_claim(ReachabilityMode::OnePath, "a", "a", false);
+        let mut definition = definition(A_TO_B, &claims);
+        definition.reachability_claims[0].rhs[0]
+            .constraints
+            .push(crate::rule::Predicate::False);
+
+        let checked = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+        let unchecked = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions {
+                stuck_check: false,
+                ..ProofOptions::default()
+            },
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(checked.status, ProofStatus::Disproved);
+        assert_eq!(checked.explored_states, 1);
+        assert_eq!(checked.leaves[0].depth, 0);
+        assert_eq!(unchecked.status, ProofStatus::Disproved);
+        assert_eq!(unchecked.explored_states, 2);
+        assert_eq!(unchecked.leaves[0].depth, 1);
     }
 
     #[test]

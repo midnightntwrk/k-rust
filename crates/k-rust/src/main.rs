@@ -216,6 +216,10 @@ struct KproveArgs {
     #[arg(long, value_enum, default_value_t = GraphSearchArg::BreadthFirst)]
     graph_search: GraphSearchArg,
 
+    /// Continue rewriting when destination terms match but their side conditions do not.
+    #[arg(long)]
+    disable_stuck_check: bool,
+
     #[command(flatten)]
     source: SourceArgs,
 }
@@ -287,6 +291,7 @@ struct KproveOptions {
     min_depth: u64,
     allow_vacuous: bool,
     graph_search: ProofSearchOrder,
+    stuck_check: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
@@ -369,6 +374,7 @@ impl From<KproveArgs> for KproveOptions {
             min_depth: arguments.min_depth,
             allow_vacuous: arguments.allow_vacuous,
             graph_search: arguments.graph_search.into(),
+            stuck_check: !arguments.disable_stuck_check,
         }
     }
 }
@@ -597,6 +603,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                 min_depth: options.min_depth,
                 allow_vacuous: options.allow_vacuous,
                 search_order: options.graph_search,
+                stuck_check: options.stuck_check,
                 ..ProofOptions::default()
             },
             &solver,
@@ -821,6 +828,7 @@ mod tests {
             "--allow-vacuous",
             "--graph-search",
             "depth-first",
+            "--disable-stuck-check",
         ])
         .unwrap();
         let Command::Kprove(options) = cli.command else {
@@ -835,6 +843,7 @@ mod tests {
         assert_eq!(options.min_depth, 2);
         assert!(options.allow_vacuous);
         assert_eq!(options.graph_search, ProofSearchOrder::DepthFirst);
+        assert!(!options.stuck_check);
     }
 
     #[test]

@@ -137,7 +137,9 @@ krust kprove spec.k --main-module SPEC --graph-search depth-first
 `kprove` handles one-path and all-path claims, trusted claims, guarded claim circularities,
 branching semantic rules, breadth-first or depth-first traversal, depth bounds, and Z3-backed side
 conditions entirely in process. A specification can `requires` and import its semantics definition
-in the normal K source layout.
+in the normal K source layout. The reference stuck-state heuristic is enabled by default; pass
+`--disable-stuck-check` to continue rewriting after destination terms match but their side
+conditions do not.
 
 Common source options:
 
