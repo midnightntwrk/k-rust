@@ -926,6 +926,7 @@ dependencies = [
  "gmp-mpfr-sys",
  "indoc",
  "insta",
+ "k-rust-backend",
  "k-rust-kore",
  "num-bigint",
  "num-traits",

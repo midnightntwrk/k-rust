@@ -19,6 +19,7 @@ required-features = ["cli"]
 clap = { workspace = true, optional = true }
 gmp-mpfr-sys = { workspace = true, optional = true }
 k-rust-kore.workspace = true
+k-rust-backend.workspace = true
 num-bigint.workspace = true
 num-traits.workspace = true
 petgraph.workspace = true

@@ -299,9 +299,12 @@ fn with_newline(mut text: String) -> String {
 
 #[cfg(test)]
 mod tests {
+    use k_rust_backend::definition::BackendDefinition;
+
     use crate::{
+        builtin::embedded,
         kore::parser::parse_definition,
-        outer::{ResolvedSource, load},
+        outer::{LoadOptions, ResolvedSource, load, load_with_options},
     };
 
     use super::*;
@@ -333,5 +336,51 @@ mod tests {
         assert_eq!("llvm".parse(), Ok(CompilationBackend::Llvm));
         assert_eq!("haskell".parse(), Ok(CompilationBackend::Haskell));
         assert!("nope".parse::<CompilationBackend>().is_err());
+    }
+
+    #[test]
+    fn emitted_symbolic_kore_internalizes_in_process() {
+        let source = r#"
+            module MAIN
+              imports MAP
+              syntax Int ::= r"[0-9]+" [token]
+              syntax Exp ::= Int
+              syntax Exp ::= Exp "+" Exp [symbol(_+_)]
+              configuration <k> $PGM:Exp </k>
+              rule <k> X:Exp + 0 => X:Exp </k> [label(right-zero)]
+            endmodule
+        "#;
+        let prelude = embedded("prelude.md").unwrap();
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = load_with_options(
+            ResolvedSource::new("definition.k", source),
+            "MAIN",
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![prelude],
+                excluded_module_attributes: vec![
+                    CompilationBackend::Haskell
+                        .excluded_module_attribute()
+                        .into(),
+                ],
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap();
+        let artifacts = compile_loaded_definition(
+            &loaded,
+            CompileOptions {
+                backend: CompilationBackend::Haskell,
+                ..CompileOptions::default()
+            },
+        )
+        .unwrap();
+        let kore = parse_definition(&artifacts.definition_kore).unwrap();
+
+        let backend = BackendDefinition::internalize(&kore, "MAIN")
+            .expect("frontend KORE should internalize into the in-process backend");
+        assert!(!backend.rewrite_theory.is_empty());
     }
 }

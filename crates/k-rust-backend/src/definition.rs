@@ -11,7 +11,10 @@ use k_rust_kore::kore::ast as kore;
 
 use crate::{
     matching::SortGraph,
-    rule::{AxiomError, ClassifiedAxiom, classify_axiom},
+    rule::{
+        AxiomError, ClassifiedAxiom, RuleKind, RulePatternError, Theory, classify_axiom,
+        insert_theory, internalize_axiom,
+    },
     term::{
         CollectionMetadata, CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Name,
         Sort, Symbol, SymbolAttributes, SymbolType, Term, Variable,
@@ -50,6 +53,10 @@ pub struct BackendDefinition {
     pub axioms: Vec<PendingAxiom>,
     pub classified_axioms: Vec<ClassifiedAxiom>,
     pub claims: Vec<PendingAxiom>,
+    pub rewrite_theory: Theory,
+    pub function_theory: Theory,
+    pub simplification_theory: Theory,
+    pub ceil_theory: Theory,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -85,12 +92,12 @@ pub enum DefinitionError {
     },
     InvalidSymbolType(String),
     InvalidSortParameter,
-    UnsupportedAlias(String),
     MalformedAttribute(String),
     MalformedCollection(String),
     ExpectedTerm(&'static str),
     EmptyAssociativeApplication(String),
     Axiom(AxiomError),
+    RulePattern(RulePatternError),
 }
 
 impl fmt::Display for DefinitionError {
@@ -152,9 +159,6 @@ impl BackendDefinition {
         let mut symbols = BTreeMap::new();
         for module in &ordered {
             for sentence in &module.sentences {
-                if let kore::Sentence::AliasDeclaration { alias, .. } = sentence {
-                    return Err(DefinitionError::UnsupportedAlias(alias.name.clone()));
-                }
                 let kore::Sentence::SymbolDeclaration {
                     symbol,
                     argument_sorts,
@@ -246,7 +250,7 @@ impl BackendDefinition {
             .collect::<Result<Vec<_>, _>>()
             .map_err(DefinitionError::Axiom)?;
         let sort_graph = build_sort_graph(sorts.keys().cloned(), subsorts);
-        Ok(Self {
+        let mut result = Self {
             main_module: main_module.into(),
             modules: ordered
                 .iter()
@@ -258,7 +262,32 @@ impl BackendDefinition {
             axioms,
             classified_axioms,
             claims,
-        })
+            rewrite_theory: Theory::new(),
+            function_theory: Theory::new(),
+            simplification_theory: Theory::new(),
+            ceil_theory: Theory::new(),
+        };
+        let rules = result
+            .classified_axioms
+            .iter()
+            .filter(|axiom| match axiom {
+                ClassifiedAxiom::Rewrite { attributes, .. }
+                | ClassifiedAxiom::Function { attributes, .. }
+                | ClassifiedAxiom::Simplification { attributes, .. }
+                | ClassifiedAxiom::Ceil { attributes, .. } => attributes.executable,
+            })
+            .map(|axiom| internalize_axiom(&result, axiom))
+            .collect::<Result<Vec<_>, _>>()?;
+        for (kind, rule) in rules {
+            let theory = match kind {
+                RuleKind::Rewrite => &mut result.rewrite_theory,
+                RuleKind::Function => &mut result.function_theory,
+                RuleKind::Simplification => &mut result.simplification_theory,
+                RuleKind::Ceil => &mut result.ceil_theory,
+            };
+            insert_theory(theory, rule);
+        }
+        Ok(result)
     }
 
     pub fn internalize_term(
@@ -268,6 +297,15 @@ impl BackendDefinition {
     ) -> Result<Term, DefinitionError> {
         let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
         self.internalize_term_with(pattern, &known)
+    }
+
+    pub(crate) fn internalize_syntax_sort(
+        &self,
+        sort: &kore::Sort,
+        sort_variables: &[Name],
+    ) -> Result<Sort, DefinitionError> {
+        let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
+        internalize_sort(sort, &self.sorts, &known)
     }
 
     fn internalize_term_with(
@@ -853,6 +891,7 @@ mod tests {
                 symbol concat{}(SortMap{}, SortMap{}) : SortMap{}
                     [function{}(), assoc{}(), hook{}("MAP.concat")]
                 symbol value{}() : SortValue{} [constructor{}()]
+                symbol wrap{}(SortValue{}) : SortValue{} [constructor{}()]
                 symbol box{S}(S) : SortBox{S} [constructor{}()]
                 axiom{R}
                     \exists{R}(
@@ -869,8 +908,17 @@ mod tests {
                 symbol key{}() : SortKey{} [constructor{}()]
                 axiom{}
                     \rewrites{SortValue{}}(
-                        \and{SortValue{}}(value{}(), \top{SortValue{}}()),
-                        value{}()
+                        \and{SortValue{}}(
+                            wrap{}(X:SortValue{}),
+                            \equals{SortValue{}, SortValue{}}(X:SortValue{}, value{}())
+                        ),
+                        \exists{SortValue{}}(
+                            Y:SortValue{},
+                            \and{SortValue{}}(
+                                wrap{}(Y:SortValue{}),
+                                \equals{SortValue{}, SortValue{}}(Y:SortValue{}, X:SortValue{})
+                            )
+                        )
                     )
                     [label{}("kept-for-rule-internalization")]
             endmodule []
@@ -890,6 +938,27 @@ mod tests {
         assert!(definition.symbols.contains_key("key"));
         assert_eq!(definition.axioms.len(), 2);
         assert_eq!(definition.classified_axioms.len(), 1);
+        let priorities = definition
+            .rewrite_theory
+            .get(&crate::rule::TermIndex::Symbol("wrap".into()))
+            .expect("rewrite should be indexed by its head symbol");
+        let rule = &priorities[&50][0];
+        assert_eq!(rule.requires.len(), 1);
+        assert_eq!(rule.ensures.len(), 1);
+        assert!(
+            rule.lhs
+                .attributes()
+                .variables
+                .iter()
+                .any(|variable| variable.name.as_ref() == "Rule#X")
+        );
+        assert_eq!(
+            rule.existentials
+                .iter()
+                .map(|variable| variable.name.as_ref())
+                .collect::<Vec<_>>(),
+            vec!["Ex#Y"]
+        );
         assert_eq!(
             definition
                 .sort_graph
@@ -974,7 +1043,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_aliases_until_their_expansion_is_internalized() {
+    fn ignores_claim_only_alias_declarations_like_the_reference_backend() {
         let syntax = parse_definition(indoc! {r#"
             []
             module MAIN
@@ -985,9 +1054,74 @@ mod tests {
         "#})
         .expect("definition should parse");
 
-        assert_eq!(
-            BackendDefinition::internalize(&syntax, "MAIN").unwrap_err(),
-            DefinitionError::UnsupportedAlias("identity".into())
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("claim-only aliases should not prevent executable definition loading");
+        assert!(!definition.symbols.contains_key("identity"));
+    }
+
+    #[test]
+    fn builds_function_simplification_and_ceil_theories() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortValue{} []
+                symbol value{}() : SortValue{} [constructor{}()]
+                symbol wrap{}(SortValue{}) : SortValue{} [constructor{}()]
+                symbol f{}(SortValue{}) : SortValue{} [function{}()]
+                axiom{R}
+                    \implies{R}(
+                        \and{R}(
+                            \top{R}(),
+                            \and{R}(
+                                \in{SortValue{}, R}(X0:SortValue{}, wrap{}(X:SortValue{})),
+                                \top{R}()
+                            )
+                        ),
+                        \equals{SortValue{}, R}(
+                            f{}(X0:SortValue{}),
+                            \and{SortValue{}}(value{}(), \top{SortValue{}}())
+                        )
+                    )
+                    [label{}("evaluate-f")]
+                axiom{R}
+                    \implies{R}(
+                        \top{R}(),
+                        \equals{SortValue{}, R}(
+                            f{}(X:SortValue{}),
+                            \and{SortValue{}}(X:SortValue{}, \top{SortValue{}}())
+                        )
+                    )
+                    [label{}("simplify-f"), simplification{}()]
+                axiom{R}
+                    \implies{R}(
+                        \top{R}(),
+                        \equals{R, R}(
+                            \ceil{SortValue{}, R}(f{}(X:SortValue{})),
+                            \top{R}()
+                        )
+                    )
+                    [label{}("ceil-f")]
+            endmodule []
+        "#})
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let index = crate::rule::TermIndex::Symbol("f".into());
+
+        let function = &definition.function_theory[&index][&50][0];
+        assert!(
+            function
+                .lhs
+                .attributes()
+                .variables
+                .iter()
+                .any(|variable| variable.name.as_ref() == "Eq#X")
         );
+        assert!(definition.simplification_theory.contains_key(&index));
+        let ceil = &definition.ceil_theory[&index][&50][0];
+        assert!(matches!(
+            ceil.rhs,
+            crate::rule::RuleRhs::Predicates(ref predicates) if predicates.is_empty()
+        ));
     }
 }
