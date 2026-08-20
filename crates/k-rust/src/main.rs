@@ -826,6 +826,7 @@ fn proof_status(status: ProofStatus) -> &'static str {
         ProofStatus::Disproved => "disproved",
         ProofStatus::Indeterminate => "indeterminate",
         ProofStatus::DepthBound => "depth bound",
+        ProofStatus::BreadthBound => "breadth bound",
     }
 }
 

@@ -75,6 +75,7 @@ pub enum ProofStatus {
     Disproved,
     Indeterminate,
     DepthBound,
+    BreadthBound,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -106,6 +107,7 @@ pub enum ProofLeafOutcome {
     Trivial,
     Vacuous,
     DepthBound,
+    BreadthBound,
     TimedOut(StepTimeoutMode),
     Indeterminate(ProofIndeterminateReason),
 }
@@ -129,7 +131,6 @@ pub struct ProofResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProofError {
     Implication(ImplicationError),
-    BreadthLimitExceeded { limit: usize, actual: usize },
     ZeroCounterexampleLimit,
 }
 
@@ -349,7 +350,7 @@ pub fn prove_claim(
             if let Some((candidate, transition)) = claim_transition {
                 match transition {
                     ClaimApplication::Applied(patterns) => {
-                        extend_frontier(
+                        if extend_frontier(
                             &mut pending,
                             patterns.into_iter().map(|pattern| {
                                 state.clone().claimed(
@@ -359,7 +360,14 @@ pub fn prove_claim(
                                 )
                             }),
                             options.breadth_limit,
-                        )?;
+                        ) {
+                            return Ok(finish_at_breadth_limit(
+                                claim.mode,
+                                leaves,
+                                pending,
+                                explored_states,
+                            ));
+                        }
                     }
                     ClaimApplication::Indeterminate(reason) => {
                         record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
@@ -380,30 +388,51 @@ pub fn prove_claim(
         finish_if_timed_out!();
         match rewritten {
             RewriteResult::Finished(applied) => {
-                extend_frontier(
+                if extend_frontier(
                     &mut pending,
                     std::iter::once(state.rewritten(applied)),
                     options.breadth_limit,
-                )?;
+                ) {
+                    return Ok(finish_at_breadth_limit(
+                        claim.mode,
+                        leaves,
+                        pending,
+                        explored_states,
+                    ));
+                }
             }
             RewriteResult::Branch {
                 branches,
                 remainder,
                 ..
             } => {
-                extend_frontier(
+                if extend_frontier(
                     &mut pending,
                     branches
                         .into_iter()
                         .map(|applied| state.clone().rewritten(applied)),
                     options.breadth_limit,
-                )?;
+                ) {
+                    return Ok(finish_at_breadth_limit(
+                        claim.mode,
+                        leaves,
+                        pending,
+                        explored_states,
+                    ));
+                }
                 if let Some(remainder) = remainder {
-                    extend_frontier(
+                    if extend_frontier(
                         &mut pending,
                         std::iter::once(state.remaining(remainder)),
                         options.breadth_limit,
-                    )?;
+                    ) {
+                        return Ok(finish_at_breadth_limit(
+                            claim.mode,
+                            leaves,
+                            pending,
+                            explored_states,
+                        ));
+                    }
                 }
             }
             RewriteResult::Stuck(_) => {
@@ -430,17 +459,24 @@ fn extend_frontier(
     pending: &mut VecDeque<ProofState>,
     states: impl IntoIterator<Item = ProofState>,
     breadth_limit: Option<usize>,
-) -> Result<(), ProofError> {
+) -> bool {
     pending.extend(states);
-    if let Some(limit) = breadth_limit
-        && pending.len() > limit
-    {
-        return Err(ProofError::BreadthLimitExceeded {
-            limit,
-            actual: pending.len(),
-        });
-    }
-    Ok(())
+    breadth_limit.is_some_and(|limit| pending.len() > limit)
+}
+
+fn finish_at_breadth_limit(
+    mode: ReachabilityMode,
+    mut leaves: Vec<ProofLeaf>,
+    pending: VecDeque<ProofState>,
+    explored_states: u64,
+) -> ProofResult {
+    let unexplored_states = pending.len() as u64;
+    leaves.extend(
+        pending
+            .into_iter()
+            .map(|state| state.leaf(ProofLeafOutcome::BreadthBound)),
+    );
+    finish(mode, leaves, explored_states, unexplored_states)
 }
 
 fn counterexample_limit_reached(
@@ -721,11 +757,15 @@ fn finish(
     let any_depth_bound = leaves
         .iter()
         .any(|leaf| matches!(leaf.outcome, ProofLeafOutcome::DepthBound));
+    let any_breadth_bound = leaves
+        .iter()
+        .any(|leaf| matches!(leaf.outcome, ProofLeafOutcome::BreadthBound));
     let status = match mode {
         ReachabilityMode::OnePath if any_proven => ProofStatus::Proven,
         ReachabilityMode::AllPath if any_disproved => ProofStatus::Disproved,
         _ if any_indeterminate => ProofStatus::Indeterminate,
         _ if any_depth_bound => ProofStatus::DepthBound,
+        _ if any_breadth_bound => ProofStatus::BreadthBound,
         _ if unexplored_states > 0 => ProofStatus::Indeterminate,
         ReachabilityMode::AllPath if leaves.iter().all(is_proven) => ProofStatus::Proven,
         ReachabilityMode::OnePath => ProofStatus::Disproved,
@@ -758,7 +798,7 @@ fn extend_unique(left: &mut Vec<crate::rule::Predicate>, right: Vec<crate::rule:
 mod tests {
     use std::{thread, time::Duration};
 
-    use k_rust_kore::kore::parser::parse_definition;
+    use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
     use crate::smt::{NoSolver, Satisfiability};
@@ -800,6 +840,13 @@ mod tests {
         );
         let syntax = parse_definition(&source).expect("definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    fn term(definition: &BackendDefinition, source: &str) -> Term {
+        let syntax = parse_pattern(source).expect("term should parse");
+        definition
+            .internalize_term(&syntax, &[])
+            .expect("term should internalize")
     }
 
     #[cfg(feature = "z3")]
@@ -1219,7 +1266,7 @@ mod tests {
         let definition = definition(A_TO_B_AND_C, &claims);
         let claim = &definition.reachability_claims[0];
 
-        let breadth_error = prove_claim(
+        let breadth_limited = prove_claim(
             &definition,
             claim,
             ProofOptions {
@@ -1228,13 +1275,26 @@ mod tests {
             },
             &NoSolver,
         )
-        .unwrap_err();
+        .unwrap();
+        assert_eq!(breadth_limited.status, ProofStatus::BreadthBound);
+        assert_eq!(breadth_limited.explored_states, 1);
+        assert_eq!(breadth_limited.unexplored_states, 2);
+        assert_eq!(breadth_limited.leaves.len(), 2);
+        assert!(
+            breadth_limited
+                .leaves
+                .iter()
+                .all(|leaf| matches!(leaf.outcome, ProofLeafOutcome::BreadthBound))
+        );
         assert_eq!(
-            breadth_error,
-            ProofError::BreadthLimitExceeded {
-                limit: 1,
-                actual: 2,
-            }
+            breadth_limited
+                .leaves
+                .iter()
+                .map(|leaf| leaf.pattern.term.clone())
+                .collect::<BTreeSet<_>>(),
+            [term(&definition, "b{}()"), term(&definition, "c{}()")]
+                .into_iter()
+                .collect()
         );
 
         let limited = prove_claim(&definition, claim, ProofOptions::default(), &NoSolver).unwrap();
