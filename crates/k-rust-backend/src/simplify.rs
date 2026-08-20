@@ -375,7 +375,7 @@ fn apply_predicate_theory(
                 }
             }
         }
-        if indeterminate {
+        if indeterminate && results.is_empty() {
             return Ok(None);
         }
         match results.len() {
@@ -1132,7 +1132,7 @@ fn apply_theory(
                 EquationAttempt::Applied(result) => results.push(result),
             }
         }
-        if indeterminate {
+        if indeterminate && results.is_empty() {
             // A rule at this priority may apply after the symbolic subject becomes more concrete.
             // Preserve the application and do not fall through to lower-priority equations.
             return Ok(None);
@@ -1544,6 +1544,36 @@ mod tests {
 
         assert_eq!(result.term, input);
         assert!(result.applied_rules.is_empty());
+    }
+
+    #[test]
+    fn applies_a_same_priority_result_despite_indeterminate_sibling_heads() {
+        let definition = definition(
+            r#"
+            symbol g{}(SortS{}) : SortS{} [function{}()]
+            symbol h{}(SortS{}) : SortS{} [function{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(g{}(X:SortS{})),
+                    \and{SortS{}}(X:SortS{}, \top{SortS{}}())
+                )
+            ) [label{}("through-g"), simplification{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(h{}(X:SortS{})),
+                    \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}())
+                )
+            ) [label{}("through-h"), simplification{}()]
+            "#,
+        );
+        let input = term(&definition, "f{}(g{}(Y:SortS{}))");
+
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+        assert_eq!(result.term, term(&definition, "Y:SortS{}"));
+        assert_eq!(result.applied_rules, ["through-g"]);
     }
 
     #[test]
