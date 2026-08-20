@@ -720,6 +720,21 @@ rule_snapshot!(
 );
 
 rule_snapshot!(
+    infers_shared_collection_values_at_kitem_instead_of_k,
+    r#"
+        module MAIN
+          syntax Id ::= r"[a-z]+" [token]
+          syntax KItem ::= Id
+          syntax Map ::= ".Map" [symbol(dotMap)]
+                       | KItem "|->" KItem [symbol(mapEntry)]
+          syntax KItem ::= Map
+                       | "(" KItem ")" [bracket]
+          rule X:Id ~> (X |-> I) => I
+        endmodule
+    "#
+);
+
+rule_snapshot!(
     infers_boolean_condition_variables_from_builtin_rule_syntax,
     r#"
         module MAIN

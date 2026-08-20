@@ -41,7 +41,7 @@ impl Grammar {
         let anywhere = explicitly_anywhere || self.lhs_is_function_or_macro(&term);
         let mut encoding = Encoding::new(self, &term, top_sort, anywhere)?;
         let expected = encoding.sort_value(top_sort, &BTreeMap::new())?;
-        let root_context = if is_parser_sort(top_sort) {
+        let root_context = if !is_real_ground_sort(top_sort) {
             CastContext::Parser
         } else {
             CastContext::None
@@ -280,7 +280,9 @@ impl<'a> Encoding<'a> {
                         self.sort_value(child_sort, &parameters)?
                     };
                     let child_context = match cast_context_for(descriptor) {
-                        CastContext::None if is_parser_sort(child_sort) => CastContext::Parser,
+                        CastContext::None if !is_real_ground_sort(child_sort) => {
+                            CastContext::Parser
+                        }
                         context => context,
                     };
                     constraints.push(self.constraint(
@@ -748,7 +750,9 @@ impl<'a> Encoding<'a> {
                             substitute_sort(child_sort, &parameter_values)
                         };
                         let child_context = match cast_context_for(descriptor) {
-                            CastContext::None if is_parser_sort(child_sort) => CastContext::Parser,
+                            CastContext::None if !is_real_ground_sort(child_sort) => {
+                                CastContext::Parser
+                            }
                             context => context,
                         };
                         self.apply_model(

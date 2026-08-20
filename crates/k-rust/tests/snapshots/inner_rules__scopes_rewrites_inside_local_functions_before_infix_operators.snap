@@ -5,7 +5,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Type ::= \"type\" [symbol(t
 [
     SentenceSummary {
         kind: "rule",
-        body: "foo(pair(type(.KList),type(.KList))=>pair(type(.KList),#fun2{K}(#SemanticCastToType(T)=>pair(#SemanticCastToType(T),#SemanticCastToType(T)),type(.KList))))",
+        body: "foo(pair(type(.KList),type(.KList))=>pair(type(.KList),#fun3{KItem,K}(#SemanticCastToType(T),pair(#SemanticCastToType(T),#SemanticCastToType(T)),type(.KList))))",
         requires: "#token(\"true\",\"Bool\")",
         ensures: Some(
             "#token(\"true\",\"Bool\")",
