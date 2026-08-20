@@ -231,6 +231,20 @@ pub(super) fn add_k_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {
         false,
         false,
     )?;
+    // Configuration initializers and rule bodies share the same concrete K-sequence syntax.
+    // Keep it here so rule grammar construction does not install a duplicate production.
+    grammar.add(
+        Sort::new("K"),
+        vec![
+            nonterminal("K"),
+            ProductionItem::Terminal("~>".into()),
+            nonterminal("K"),
+        ],
+        Some(Label::new("#KSequence")),
+        false,
+        false,
+    )?;
+    grammar.add_right_associative("#KSequence");
     grammar.add(
         Sort::new("Bag"),
         vec![ProductionItem::Terminal(".Bag".into())],

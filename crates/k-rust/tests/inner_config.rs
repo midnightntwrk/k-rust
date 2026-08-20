@@ -100,6 +100,28 @@ fn parses_chained_casts_and_empty_bags() {
 }
 
 #[test]
+fn parses_k_sequences_in_configuration_cells() {
+    let source = "<k> foo ~> $PGM:Int </k>";
+    let mut input = definition(source);
+    input.modules[0].local_sentences.insert(
+        1,
+        Sentence::Production {
+            label: Some(Label::new("foo")),
+            parameters: vec![],
+            sort: Sort::new("Foo"),
+            items: vec![ProductionItem::Terminal("foo".into())],
+            attributes: Attributes::default(),
+        },
+    );
+    let transformed = resolve_configuration_bubbles(&input).unwrap();
+
+    assert_config_snapshot!(
+        source,
+        &transformed.main_module().unwrap().local_sentences[2]
+    );
+}
+
+#[test]
 fn parses_record_productions_in_configurations() {
     let source = "<k> pair(... left: 1) </k>";
     let mut input = definition(source);

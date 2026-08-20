@@ -190,6 +190,52 @@ endmodule
 }
 
 #[test]
+fn krun_eliminates_a_k_sequence_rewritten_to_bottom() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  syntax Marker ::= "marker"
+  configuration <k> marker ~> $PGM:Int </k>
+  rule <k> marker => #Bottom ... </k>
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Int",
+            "--expression",
+            "1",
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        output.contains(r"\bottom{SortGeneratedTopCell{}}()"),
+        "{output}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kprove_proves_a_modal_claim_in_process() {
     let (root, definition) = fixture();
     let saved_proofs = root.join("proofs.kore");

@@ -559,6 +559,7 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
     let syntax = parse_kore_definition(&compiled.definition_kore)?;
     let backend = BackendDefinition::internalize(&syntax, &options.common.module)?;
     let initial = backend.internalize_term(&initial, &[])?;
+    let output_sort = externalize::sort(&initial.sort());
     let solver = Z3Solver::new(&backend)
         .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
     let execution = execute_with_solver_and_observer(
@@ -588,17 +589,18 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
         ))
         .into());
     }
-    let Some(first_leaf) = execution.leaves.first() else {
-        return Err("in-process backend produced no execution states".into());
-    };
-    let final_sort = externalize::sort(&first_leaf.pattern.term.sort());
+    let final_sort = execution
+        .leaves
+        .first()
+        .map(|leaf| externalize::sort(&leaf.pattern.term.sort()))
+        .unwrap_or_else(|| output_sort.clone());
     let mut states = execution
         .leaves
         .iter()
         .map(|leaf| externalize::constrained_pattern(&leaf.pattern))
         .collect::<Vec<_>>();
     let output = match states.len() {
-        0 => unreachable!("execution leaves were checked above"),
+        0 => KorePattern::Bottom { sort: output_sort },
         1 => states.pop().unwrap(),
         _ => KorePattern::Or {
             sort: final_sort,

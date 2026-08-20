@@ -262,12 +262,8 @@ pub fn execute_with_solver_and_observer(
                 trace: state.trace,
                 halt_reason: HaltReason::Trivial,
             }),
-            RewriteResult::Vacuous(pattern) => leaves.push(ExecutionLeaf {
-                pattern,
-                depth: state.depth,
-                trace: state.trace,
-                halt_reason: HaltReason::Vacuous,
-            }),
+            // A vacuous rewrite produces bottom, so this path contributes no execution leaf.
+            RewriteResult::Vacuous(_) => {}
             RewriteResult::Indeterminate { pattern, reason } => leaves.push(ExecutionLeaf {
                 pattern,
                 depth: state.depth,
@@ -3219,7 +3215,9 @@ mod tests {
 
         let result = rewrite_step(&definition, &subject, &mut fresh);
 
-        assert_eq!(result, RewriteResult::Vacuous(subject));
+        assert_eq!(result, RewriteResult::Vacuous(subject.clone()));
+        let execution = execute(&definition, subject, ExecutionOptions::default());
+        assert!(execution.leaves.is_empty());
     }
 
     #[cfg(feature = "z3")]

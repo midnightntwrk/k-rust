@@ -425,21 +425,6 @@ fn add_rule_k_syntax(
         false,
         false,
     )?;
-    grammar.add(
-        Sort::new("K"),
-        vec![
-            nonterminal("K"),
-            ProductionItem::Terminal("~>".into()),
-            nonterminal("K"),
-        ],
-        Some(Label::new("#KSequence")),
-        false,
-        false,
-    )?;
-    // Scala's KORE-to-tree conversion emits the binary parser representation with a right fold.
-    // Both associations lower to the same flattened K sequence, so retain that canonical tree
-    // and do not report `A ~> B ~> C` as an ambiguity.
-    grammar.add_right_associative("#KSequence");
     // `K` is intentionally absent from `concrete_sorts`, but rule bodies still need a concrete
     // bracket production. Relying only on KSEQ's parametric bracket leaves a parenthesized
     // polymorphic rewrite unable to complete before a cell's trailing `...`.
