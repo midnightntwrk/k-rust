@@ -48,6 +48,7 @@ pub struct RemainderBranch {
 pub enum RewriteResult {
     Stuck(Pattern),
     Trivial(Pattern),
+    Vacuous(Pattern),
     Finished(AppliedRule),
     Branch {
         original: Pattern,
@@ -121,6 +122,7 @@ pub enum TraceKind {
 pub enum HaltReason {
     Stuck,
     Trivial,
+    Vacuous,
     DepthBound,
     Indeterminate(IndeterminateReason),
     Simplification(SimplificationError),
@@ -260,6 +262,12 @@ pub fn execute_with_solver_and_observer(
                 trace: state.trace,
                 halt_reason: HaltReason::Trivial,
             }),
+            RewriteResult::Vacuous(pattern) => leaves.push(ExecutionLeaf {
+                pattern,
+                depth: state.depth,
+                trace: state.trace,
+                halt_reason: HaltReason::Vacuous,
+            }),
             RewriteResult::Indeterminate { pattern, reason } => leaves.push(ExecutionLeaf {
                 pattern,
                 depth: state.depth,
@@ -381,6 +389,7 @@ fn rewrite_step_with_options(
         return RewriteResult::Stuck(pattern.clone());
     }
     let mut saw_trivial = false;
+    let mut saw_vacuous = false;
     for rules in priority_groups.values() {
         let mut applied = Vec::new();
         for rule in rules {
@@ -394,6 +403,7 @@ fn rewrite_step_with_options(
             ) {
                 RuleAttempt::NotApplicable => {}
                 RuleAttempt::Trivial => saw_trivial = true,
+                RuleAttempt::Vacuous => saw_vacuous = true,
                 RuleAttempt::Applied(results) => applied.extend(results),
                 RuleAttempt::Indeterminate(reason) => {
                     return RewriteResult::Indeterminate {
@@ -470,7 +480,9 @@ fn rewrite_step_with_options(
             }
         }
     }
-    if saw_trivial {
+    if saw_vacuous {
+        RewriteResult::Vacuous(pattern.clone())
+    } else if saw_trivial {
         RewriteResult::Trivial(pattern.clone())
     } else {
         RewriteResult::Stuck(pattern.clone())
@@ -503,6 +515,7 @@ fn applicable_groups(
 enum RuleAttempt {
     NotApplicable,
     Trivial,
+    Vacuous,
     Applied(Vec<RuleApplication>),
     Indeterminate(IndeterminateReason),
 }
@@ -1296,8 +1309,10 @@ fn apply_rule_with_match(
         }
     }
 
-    let RuleRhs::Term(rhs) = &rule.rhs else {
-        return RuleAttempt::NotApplicable;
+    let rhs = match &rule.rhs {
+        RuleRhs::Term(rhs) => rhs,
+        RuleRhs::Bottom => return RuleAttempt::Vacuous,
+        RuleRhs::Predicates(_) => return RuleAttempt::NotApplicable,
     };
     let existential_substitution = freshen_existentials(rule, pattern, fresh_counter);
     let rhs = substitute(&substitute(rhs, &substitution), &existential_substitution);
@@ -2200,16 +2215,20 @@ fn recover_overload_symbolic_match(
 fn combine_rule_attempts(attempts: impl IntoIterator<Item = RuleAttempt>) -> RuleAttempt {
     let mut applications = Vec::new();
     let mut trivial = false;
+    let mut vacuous = false;
     for attempt in attempts {
         match attempt {
             RuleAttempt::NotApplicable => {}
             RuleAttempt::Trivial => trivial = true,
+            RuleAttempt::Vacuous => vacuous = true,
             RuleAttempt::Applied(mut found) => applications.append(&mut found),
             RuleAttempt::Indeterminate(reason) => return RuleAttempt::Indeterminate(reason),
         }
     }
     if applications.is_empty() {
-        if trivial {
+        if vacuous {
+            RuleAttempt::Vacuous
+        } else if trivial {
             RuleAttempt::Trivial
         } else {
             RuleAttempt::NotApplicable
@@ -3000,6 +3019,30 @@ mod tests {
         let result = rewrite_step(&definition, &subject, &mut fresh);
 
         assert_eq!(result, RewriteResult::Trivial(subject));
+    }
+
+    #[test]
+    fn internalizes_a_nested_bottom_rewrite_rhs_as_vacuous() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(\dv{SortS{}}("start")),
+                    \top{SortS{}}()
+                ),
+                wrap{}(\bottom{SortS{}}())
+            ) [label{}("bottom")]
+            "#,
+        );
+        let subject = Pattern {
+            term: internal_term(&definition, r#"wrap{}(\dv{SortS{}}("start"))"#),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        let result = rewrite_step(&definition, &subject, &mut fresh);
+
+        assert_eq!(result, RewriteResult::Vacuous(subject));
     }
 
     #[cfg(feature = "z3")]

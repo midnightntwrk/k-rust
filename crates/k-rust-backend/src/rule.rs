@@ -90,6 +90,7 @@ pub struct PredicateRewriteRule {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RuleRhs {
     Term(Term),
+    Bottom,
     Predicates(Vec<Predicate>),
 }
 
@@ -342,7 +343,7 @@ pub fn internalize_axiom(
             ..
         } => {
             let (lhs, requires) = internalize_rule_pattern(definition, lhs, sort_parameters)?;
-            let (rhs, ensures) = internalize_rule_pattern(definition, rhs, sort_parameters)?;
+            let (rhs, ensures) = internalize_term_rhs(definition, rhs, sort_parameters)?;
             let lhs = rename_term(&lhs, |variable| prefixed(variable, "Rule#"));
             let requires = rename_predicates(&requires, |variable| prefixed(variable, "Rule#"));
             let existential_variables = existentials
@@ -361,7 +362,7 @@ pub fn internalize_axiom(
                     prefixed(variable, "Rule#")
                 }
             };
-            let rhs = rename_term(&rhs, rhs_renaming);
+            let rhs = rename_rhs(rhs, rhs_renaming);
             let ensures = rename_predicates(&ensures, rhs_renaming);
             let existentials = existential_variables
                 .iter()
@@ -402,13 +403,13 @@ pub fn internalize_axiom(
             }
             let lhs = definition.internalize_term(lhs, sort_parameters)?;
             let requires = internalize_predicates(definition, requires, sort_parameters)?;
-            let (rhs, ensures) = internalize_rule_pattern(definition, rhs, sort_parameters)?;
+            let (rhs, ensures) = internalize_term_rhs(definition, rhs, sort_parameters)?;
             let rename = |variable: &Variable| prefixed(variable, "Eq#");
             Ok(InternalizedRule::Term(
                 RuleKind::Simplification,
                 make_rule(
                     rename_term(&lhs, rename),
-                    rename_term(&rhs, rename),
+                    rename_rhs(rhs, rename),
                     rename_predicates(&requires, rename),
                     rename_predicates(&ensures, rename),
                     attributes.clone(),
@@ -442,13 +443,13 @@ pub fn internalize_axiom(
             }
             lhs = substitute(&lhs, &bindings);
             let requires = internalize_predicates(definition, requires, sort_parameters)?;
-            let (rhs, ensures) = internalize_rule_pattern(definition, rhs, sort_parameters)?;
+            let (rhs, ensures) = internalize_term_rhs(definition, rhs, sort_parameters)?;
             let rename = |variable: &Variable| prefixed(variable, "Eq#");
             Ok(InternalizedRule::Term(
                 RuleKind::Function,
                 make_rule(
                     rename_term(&lhs, rename),
-                    rename_term(&rhs, rename),
+                    rename_rhs(rhs, rename),
                     rename_predicates(&requires, rename),
                     rename_predicates(&ensures, rename),
                     attributes.clone(),
@@ -535,6 +536,30 @@ pub(crate) fn internalize_rule_pattern(
         term = Term::and(term, other);
     }
     Ok((term, predicates))
+}
+
+fn internalize_term_rhs(
+    definition: &BackendDefinition,
+    pattern: &kore::Pattern,
+    sort_parameters: &[Name],
+) -> Result<(RuleRhs, Vec<Predicate>), DefinitionError> {
+    if contains_strict_bottom(pattern) {
+        return Ok((RuleRhs::Bottom, Vec::new()));
+    }
+    let (term, predicates) = internalize_rule_pattern(definition, pattern, sort_parameters)?;
+    Ok((RuleRhs::Term(term), predicates))
+}
+
+fn contains_strict_bottom(pattern: &kore::Pattern) -> bool {
+    match pattern {
+        kore::Pattern::Bottom { .. } => true,
+        kore::Pattern::And { arguments, .. }
+        | kore::Pattern::Application { arguments, .. }
+        | kore::Pattern::AssociativeApplication { arguments, .. } => {
+            arguments.iter().any(contains_strict_bottom)
+        }
+        _ => false,
+    }
 }
 
 fn internalize_predicates(
@@ -666,19 +691,22 @@ fn is_term_pattern(pattern: &kore::Pattern) -> bool {
 
 fn make_rule(
     lhs: Term,
-    rhs: Term,
+    rhs: RuleRhs,
     requires: Vec<Predicate>,
     ensures: Vec<Predicate>,
     attributes: RuleAttributes,
     existentials: BTreeSet<Variable>,
 ) -> RewriteRule {
-    let mut computed_attributes = computed_attributes([&lhs, &rhs]);
+    let mut computed_attributes = computed_attributes(std::iter::once(&lhs).chain(match &rhs {
+        RuleRhs::Term(rhs) => Some(rhs),
+        RuleRhs::Bottom | RuleRhs::Predicates(_) => None,
+    }));
     if attributes.preserves_definedness {
         computed_attributes.undefined_symbols.clear();
     }
     RewriteRule {
         lhs,
-        rhs: RuleRhs::Term(rhs),
+        rhs,
         requires,
         ensures,
         attributes,
@@ -823,6 +851,14 @@ fn rename_term(term: &Term, rename: impl Fn(&Variable) -> Variable) -> Term {
         })
         .collect::<Substitution>();
     substitute(term, &substitution)
+}
+
+fn rename_rhs(rhs: RuleRhs, rename: impl Fn(&Variable) -> Variable) -> RuleRhs {
+    match rhs {
+        RuleRhs::Term(term) => RuleRhs::Term(rename_term(&term, rename)),
+        RuleRhs::Bottom => RuleRhs::Bottom,
+        RuleRhs::Predicates(_) => unreachable!("term rules cannot have predicate RHSs"),
+    }
 }
 
 fn rename_predicates(

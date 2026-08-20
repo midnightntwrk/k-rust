@@ -444,6 +444,21 @@ pub fn prove_claim(
                 record_leaf!(state.leaf(outcome));
             }
             RewriteResult::Trivial(_) => record_leaf!(state.leaf(ProofLeafOutcome::Trivial)),
+            RewriteResult::Vacuous(_) => {
+                let outcome = if options.allow_vacuous {
+                    ProofLeafOutcome::Proven(ImplicationCondition {
+                        predicates: vec![crate::rule::Predicate::False],
+                        substitution: Default::default(),
+                    })
+                } else {
+                    ProofLeafOutcome::Vacuous
+                };
+                let proven = matches!(outcome, ProofLeafOutcome::Proven(_));
+                record_leaf!(state.leaf(outcome));
+                if proven && claim.mode == ReachabilityMode::OnePath {
+                    return Ok(finish(claim.mode, leaves, explored_states, 0));
+                }
+            }
             RewriteResult::Indeterminate { reason, .. } => {
                 record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
                     ProofIndeterminateReason::Rewrite(reason),
@@ -1130,6 +1145,13 @@ mod tests {
         ) [label{}("a-loop")]
     "#;
 
+    const A_TO_BOTTOM: &str = r#"
+        axiom{} \rewrites{SortS{}}(
+            \and{SortS{}}(a{}(), \top{SortS{}}()),
+            \bottom{SortS{}}()
+        ) [label{}("a-to-bottom")]
+    "#;
+
     fn modal_claim(mode: ReachabilityMode, left: &str, right: &str, trusted: bool) -> String {
         let modality = match mode {
             ReachabilityMode::OnePath => "weakExistsFinally",
@@ -1148,6 +1170,35 @@ mod tests {
                 )
             ) [{trusted}]"#
         )
+    }
+
+    #[test]
+    fn allows_explicitly_vacuous_rewrites_only_when_requested() {
+        let claims = modal_claim(ReachabilityMode::AllPath, "a", "b", false);
+        let definition = definition(A_TO_BOTTOM, &claims);
+        let claim = &definition.reachability_claims[0];
+
+        let rejected = prove_claim(&definition, claim, ProofOptions::default(), &NoSolver).unwrap();
+        let accepted = prove_claim(
+            &definition,
+            claim,
+            ProofOptions {
+                allow_vacuous: true,
+                ..ProofOptions::default()
+            },
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(rejected.status, ProofStatus::Disproved);
+        assert!(matches!(
+            rejected.leaves.as_slice(),
+            [ProofLeaf {
+                outcome: ProofLeafOutcome::Vacuous,
+                ..
+            }]
+        ));
+        assert_eq!(accepted.status, ProofStatus::Proven);
     }
 
     #[test]

@@ -1363,10 +1363,11 @@ fn apply_equation(
         }
         Truth::True => {}
     }
-    let RuleRhs::Term(rhs) = &rule.rhs else {
-        return Ok(EquationAttempt::NotApplicable);
+    let (rhs, rhs_is_bottom) = match &rule.rhs {
+        RuleRhs::Term(rhs) => (substitute(rhs, &substitution), false),
+        RuleRhs::Bottom => (term.clone(), true),
+        RuleRhs::Predicates(_) => return Ok(EquationAttempt::NotApplicable),
     };
-    let rhs = substitute(rhs, &substitution);
     let ensures = substitute_predicates(&rule.ensures, &substitution);
     let ensures = simplify_rule_predicates(
         definition,
@@ -1382,7 +1383,11 @@ fn apply_equation(
         Truth::False => Ok(EquationAttempt::NotApplicable),
         Truth::True => Ok(EquationAttempt::Applied(Simplification {
             term: rhs,
-            constraints: Vec::new(),
+            constraints: if rhs_is_bottom {
+                vec![Predicate::False]
+            } else {
+                Vec::new()
+            },
             applied_rules: vec![rule.attributes.unique_id.clone()],
             effects: Vec::new(),
         })),
@@ -1405,9 +1410,13 @@ fn apply_equation(
                     });
                 }
             }
+            let mut constraints = ensures;
+            if rhs_is_bottom {
+                constraints.push(Predicate::False);
+            }
             Ok(EquationAttempt::Applied(Simplification {
                 term: rhs,
-                constraints: ensures,
+                constraints,
                 applied_rules: vec![rule.attributes.unique_id.clone()],
                 effects: Vec::new(),
             }))
