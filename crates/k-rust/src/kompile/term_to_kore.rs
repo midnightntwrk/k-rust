@@ -456,7 +456,7 @@ impl<'a> TermConverter<'a> {
     }
 
     fn term_sort(&self, term: &Term) -> Result<Sort, TermConversionError> {
-        if !matches!(term.unannotated(), Term::Apply { .. })
+        if !matches!(term.unannotated(), Term::Apply { .. } | Term::Token { .. })
             && let Some(sort) = term.metadata().and_then(|metadata| metadata.sort.clone())
         {
             return Ok(sort);

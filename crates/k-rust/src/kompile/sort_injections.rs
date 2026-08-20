@@ -260,7 +260,7 @@ impl<'a> SortInjector<'a> {
         // A semantic cast on an application records the intended overload/context, not a
         // replacement for the selected production's result sort. In particular, `{P}:K` where
         // `P:KItem` must still materialize the KItem-to-K sequence wrapper.
-        if !matches!(term.unannotated(), Term::Apply { .. })
+        if !matches!(term.unannotated(), Term::Apply { .. } | Term::Token { .. })
             && let Some(sort) = term.metadata().and_then(|metadata| metadata.sort.clone())
         {
             return Ok(sort);

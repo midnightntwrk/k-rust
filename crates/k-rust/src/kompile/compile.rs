@@ -357,7 +357,7 @@ mod tests {
               syntax Int ::= r"[0-9]+" [token]
               syntax Exp ::= Int
               syntax Exp ::= Exp "+" Exp [symbol(_+_)]
-              configuration <k> $PGM:Exp </k>
+              configuration <k> $PGM:Exp </k> <n> 0:KItem </n>
               rule <k> X:Exp + 0 => X:Exp </k> [label(right-zero)]
               claim <k> X:Exp => X:Exp </k> [one-path, label(reflexive)]
             endmodule

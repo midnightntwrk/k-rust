@@ -121,6 +121,17 @@ injection_snapshot!(
 );
 
 injection_snapshot!(
+    injects_semantically_cast_tokens_from_their_intrinsic_sort,
+    r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+
+          rule 1:KItem => 2:KItem
+        endmodule
+    "#
+);
+
+injection_snapshot!(
     handles_parser_generated_outer_casts,
     r#"
         module MAIN

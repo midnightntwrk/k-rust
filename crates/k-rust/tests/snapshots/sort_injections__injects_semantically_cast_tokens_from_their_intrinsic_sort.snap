@@ -1,0 +1,10 @@
+---
+source: crates/k-rust/tests/sort_injections.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n\n  rule 1:KItem => 2:KItem\nendmodule\n"
+---
+[
+    InjectionSummary {
+        injected: "#SemanticCastToKItem(inj{Int,KItem}(#token(\"1\",\"Int\")))=>#SemanticCastToKItem(inj{Int,KItem}(#token(\"2\",\"Int\")))",
+        kore: "\\rewrites{SortKItem{}}(\n  Lbl'Hash'SemanticCastToKItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))),\n  Lbl'Hash'SemanticCastToKItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"2\")))\n)",
+    },
+]
