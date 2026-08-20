@@ -349,6 +349,7 @@ mod tests {
               syntax Exp ::= Exp "+" Exp [symbol(_+_)]
               configuration <k> $PGM:Exp </k>
               rule <k> X:Exp + 0 => X:Exp </k> [label(right-zero)]
+              claim <k> X:Exp => X:Exp </k> [one-path, label(reflexive)]
             endmodule
         "#;
         let prelude = embedded("prelude.md").unwrap();
@@ -381,5 +382,6 @@ mod tests {
         let backend = BackendDefinition::internalize(&kore, "MAIN")
             .expect("frontend KORE should internalize into the in-process backend");
         assert!(!backend.rewrite_theory.is_empty());
+        assert_eq!(backend.reachability_claims.len(), 1);
     }
 }

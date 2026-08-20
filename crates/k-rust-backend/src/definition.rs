@@ -10,6 +10,7 @@ use std::{
 use k_rust_kore::kore::ast as kore;
 
 use crate::{
+    claim::{ClaimError, ReachabilityClaim, internalize_reachability_claim},
     matching::SortGraph,
     rule::{
         AxiomError, ClassifiedAxiom, RuleKind, RulePatternError, Theory, classify_axiom,
@@ -54,6 +55,7 @@ pub struct BackendDefinition {
     pub axioms: Vec<PendingAxiom>,
     pub classified_axioms: Vec<ClassifiedAxiom>,
     pub claims: Vec<PendingAxiom>,
+    pub reachability_claims: Vec<ReachabilityClaim>,
     pub rewrite_theory: Theory,
     pub function_theory: Theory,
     pub simplification_theory: Theory,
@@ -99,6 +101,7 @@ pub enum DefinitionError {
     EmptyAssociativeApplication(String),
     Axiom(AxiomError),
     RulePattern(RulePatternError),
+    Claim(ClaimError),
 }
 
 impl fmt::Display for DefinitionError {
@@ -263,6 +266,7 @@ impl BackendDefinition {
             axioms,
             classified_axioms,
             claims,
+            reachability_claims: Vec::new(),
             rewrite_theory: Theory::new(),
             function_theory: Theory::new(),
             simplification_theory: Theory::new(),
@@ -288,6 +292,12 @@ impl BackendDefinition {
             };
             insert_theory(theory, rule);
         }
+        result.reachability_claims = result
+            .claims
+            .iter()
+            .map(|claim| internalize_reachability_claim(&result, claim))
+            .filter_map(Result::transpose)
+            .collect::<Result<Vec<_>, _>>()?;
         crate::definedness::discharge_rewrite_definedness(&mut result);
         Ok(result)
     }

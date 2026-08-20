@@ -484,7 +484,7 @@ pub fn term_index(term: &Term) -> TermIndex {
     }
 }
 
-fn internalize_rule_pattern(
+pub(crate) fn internalize_rule_pattern(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
