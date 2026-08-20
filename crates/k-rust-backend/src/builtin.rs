@@ -5,6 +5,7 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 
 mod list;
 mod map;
+mod string;
 
 use crate::term::{Sort, SymbolType, Term, TermKind};
 
@@ -99,6 +100,7 @@ pub fn evaluate_hook(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, Bu
         "KEQUAL.ne" => kequal(arguments, true),
         hook if hook.starts_with("LIST.") => list::evaluate(hook, arguments),
         hook if hook.starts_with("MAP.") => map::evaluate(hook, arguments),
+        hook if hook.starts_with("STRING.") => return string::evaluate(hook, arguments),
         _ => Ok(None),
     }?;
     Ok(result.into())
