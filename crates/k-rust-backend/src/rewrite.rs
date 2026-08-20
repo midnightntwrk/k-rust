@@ -6,7 +6,7 @@ use crate::{
     builtin::BuiltinEffect,
     definedness::ceil_term,
     definition::BackendDefinition,
-    matching::{MatchMode, MatchResult, match_terms},
+    matching::{MatchMode, MatchResult, match_set_terms_all, match_terms},
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
     simplify::{
         SimplificationError, SimplificationOptions, simplify_predicates_with_solver,
@@ -368,7 +368,7 @@ fn rewrite_step_with_options(
             ) {
                 RuleAttempt::NotApplicable => {}
                 RuleAttempt::Trivial => saw_trivial = true,
-                RuleAttempt::Applied(result) => applied.push(result),
+                RuleAttempt::Applied(results) => applied.extend(results),
                 RuleAttempt::Indeterminate(reason) => {
                     return RewriteResult::Indeterminate {
                         pattern: pattern.clone(),
@@ -473,7 +473,7 @@ fn applicable_groups(
 enum RuleAttempt {
     NotApplicable,
     Trivial,
-    Applied(RuleApplication),
+    Applied(Vec<RuleApplication>),
     Indeterminate(IndeterminateReason),
 }
 
@@ -754,80 +754,120 @@ fn apply_rule(
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> RuleAttempt {
-    let (substitution, match_conditions) = match match_terms(
-        MatchMode::Rewrite,
-        &definition.sort_graph,
-        &rule.lhs,
-        &pattern.term,
-    ) {
-        MatchResult::Failed(_) => return RuleAttempt::NotApplicable,
-        MatchResult::Indeterminate {
-            substitution,
-            remainder,
-        } => match recover_indeterminate_match(
-            definition,
-            substitution,
-            remainder,
-            &pattern.constraints,
-            simplification_options,
-            solver,
+    apply_rule_with_match(
+        definition,
+        rule,
+        pattern,
+        fresh_counter,
+        simplification_options,
+        solver,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_rule_with_match(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    pattern: &Pattern,
+    fresh_counter: &mut u64,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    matched: Option<(Substitution, Vec<Predicate>)>,
+) -> RuleAttempt {
+    let (substitution, match_conditions) = if let Some(matched) = matched {
+        matched
+    } else {
+        match match_terms(
+            MatchMode::Rewrite,
+            &definition.sort_graph,
+            &rule.lhs,
+            &pattern.term,
         ) {
             MatchResult::Failed(_) => return RuleAttempt::NotApplicable,
-            MatchResult::Success(substitution) => (substitution, Vec::new()),
             MatchResult::Indeterminate {
                 substitution,
                 remainder,
-            } => {
-                if let Some(recovered) = recover_functional_symbolic_match(
-                    definition,
-                    rule,
-                    pattern,
-                    substitution.clone(),
-                    &remainder,
-                    fresh_counter,
-                ) {
-                    recovered
-                } else {
-                    let requires = substitute_predicates(&rule.requires, &substitution);
-                    let requires = simplify_predicates_with_solver(
-                        definition,
-                        &requires,
-                        &pattern.constraints,
-                        simplification_options,
-                        solver,
-                    )
-                    .unwrap_or(requires);
-                    if predicates_truth(&requires) == Truth::False {
-                        return RuleAttempt::NotApplicable;
-                    }
-                    let unclear = requires
-                        .into_iter()
-                        .filter(|predicate| {
-                            predicates_truth(std::slice::from_ref(predicate)) == Truth::Unknown
-                                && !pattern.constraints.contains(predicate)
-                        })
-                        .collect::<Vec<_>>();
-                    if !unclear.is_empty()
-                        && matches!(
-                            solver.check_predicates(
-                                &pattern.constraints,
-                                &Substitution::new(),
-                                &unclear,
-                            ),
-                            Ok(Validity::Invalid)
-                        )
+            } => match recover_indeterminate_match(
+                definition,
+                substitution,
+                remainder,
+                &pattern.constraints,
+                simplification_options,
+                solver,
+            ) {
+                MatchResult::Failed(_) => return RuleAttempt::NotApplicable,
+                MatchResult::Success(substitution) => (substitution, Vec::new()),
+                MatchResult::Indeterminate {
+                    substitution,
+                    remainder,
+                } => {
+                    if let Some(matches) =
+                        recover_set_matches(definition, substitution.clone(), &remainder)
                     {
-                        return RuleAttempt::NotApplicable;
+                        return combine_rule_attempts(matches.into_iter().map(|substitution| {
+                            apply_rule_with_match(
+                                definition,
+                                rule,
+                                pattern,
+                                fresh_counter,
+                                simplification_options,
+                                solver,
+                                Some((substitution, Vec::new())),
+                            )
+                        }));
                     }
-                    return RuleAttempt::Indeterminate(IndeterminateReason::Match {
-                        rule_id: rule.attributes.unique_id.clone(),
-                        substitution,
-                        remainder,
-                    });
+                    if let Some(recovered) = recover_functional_symbolic_match(
+                        definition,
+                        rule,
+                        pattern,
+                        substitution.clone(),
+                        &remainder,
+                        fresh_counter,
+                    ) {
+                        recovered
+                    } else {
+                        let requires = substitute_predicates(&rule.requires, &substitution);
+                        let requires = simplify_predicates_with_solver(
+                            definition,
+                            &requires,
+                            &pattern.constraints,
+                            simplification_options,
+                            solver,
+                        )
+                        .unwrap_or(requires);
+                        if predicates_truth(&requires) == Truth::False {
+                            return RuleAttempt::NotApplicable;
+                        }
+                        let unclear = requires
+                            .into_iter()
+                            .filter(|predicate| {
+                                predicates_truth(std::slice::from_ref(predicate)) == Truth::Unknown
+                                    && !pattern.constraints.contains(predicate)
+                            })
+                            .collect::<Vec<_>>();
+                        if !unclear.is_empty()
+                            && matches!(
+                                solver.check_predicates(
+                                    &pattern.constraints,
+                                    &Substitution::new(),
+                                    &unclear,
+                                ),
+                                Ok(Validity::Invalid)
+                            )
+                        {
+                            return RuleAttempt::NotApplicable;
+                        }
+                        return RuleAttempt::Indeterminate(IndeterminateReason::Match {
+                            rule_id: rule.attributes.unique_id.clone(),
+                            substitution,
+                            remainder,
+                        });
+                    }
                 }
-            }
-        },
-        MatchResult::Success(substitution) => (substitution, Vec::new()),
+            },
+            MatchResult::Success(substitution) => (substitution, Vec::new()),
+        }
     };
 
     if !match_conditions.is_empty() {
@@ -1019,7 +1059,7 @@ fn apply_rule(
         }
         Predicate::Not(Box::new(condition))
     };
-    RuleAttempt::Applied(RuleApplication {
+    RuleAttempt::Applied(vec![RuleApplication {
         applied: AppliedRule {
             pattern: Pattern {
                 term: rhs,
@@ -1031,7 +1071,51 @@ fn apply_rule(
             effects,
         },
         remainder,
-    })
+    }])
+}
+
+fn recover_set_matches(
+    definition: &BackendDefinition,
+    initial: Substitution,
+    remainder: &[(Term, Term)],
+) -> Option<Vec<Substitution>> {
+    let mut solutions = vec![initial];
+    for (pattern, subject) in remainder {
+        let mut next = Vec::new();
+        for substitution in solutions {
+            next.extend(match_set_terms_all(
+                MatchMode::Rewrite,
+                &definition.sort_graph,
+                pattern,
+                subject,
+                &substitution,
+            )?);
+        }
+        solutions = next;
+    }
+    Some(solutions)
+}
+
+fn combine_rule_attempts(attempts: impl IntoIterator<Item = RuleAttempt>) -> RuleAttempt {
+    let mut applications = Vec::new();
+    let mut trivial = false;
+    for attempt in attempts {
+        match attempt {
+            RuleAttempt::NotApplicable => {}
+            RuleAttempt::Trivial => trivial = true,
+            RuleAttempt::Applied(mut found) => applications.append(&mut found),
+            RuleAttempt::Indeterminate(reason) => return RuleAttempt::Indeterminate(reason),
+        }
+    }
+    if applications.is_empty() {
+        if trivial {
+            RuleAttempt::Trivial
+        } else {
+            RuleAttempt::NotApplicable
+        }
+    } else {
+        RuleAttempt::Applied(applications)
+    }
 }
 
 fn conjoin(mut predicates: Vec<Predicate>) -> Predicate {
@@ -1320,6 +1404,35 @@ mod tests {
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
     }
 
+    fn set_selection_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortElement{} [hasDomainValues{}()]
+                hooked-sort SortSet{}
+                    [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
+                sort SortState{} []
+                symbol setUnit{}() : SortSet{}
+                    [function{}(), total{}(), hook{}("SET.unit")]
+                symbol setItem{}(SortElement{}) : SortSet{}
+                    [function{}(), total{}(), hook{}("SET.element")]
+                symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{}
+                    [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}()]
+                symbol state{}(SortSet{}) : SortState{} [constructor{}()]
+                symbol picked{}(SortElement{}, SortSet{}) : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        state{}(setConcat{}(setItem{}(ELEMENT:SortElement{}), REST:SortSet{})),
+                        \top{SortState{}}()
+                    ),
+                    picked{}(ELEMENT:SortElement{}, REST:SortSet{})
+                ) [label{}("select")]
+            endmodule []"#,
+        )
+        .expect("set definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("set definition should internalize")
+    }
+
     fn subject(definition: &BackendDefinition, value: &str) -> Pattern {
         let syntax = parse_pattern(&format!(r#"wrap{{}}(\dv{{SortS{{}}}}("{value}"))"#))
             .expect("subject should parse");
@@ -1329,6 +1442,13 @@ mod tests {
                 .expect("subject should internalize"),
             constraints: Vec::new(),
         }
+    }
+
+    fn internal_term(definition: &BackendDefinition, source: &str) -> Term {
+        let syntax = parse_pattern(source).expect("term should parse");
+        definition
+            .internalize_term(&syntax, &[])
+            .expect("term should internalize")
     }
 
     #[cfg(feature = "z3")]
@@ -2217,6 +2337,53 @@ mod tests {
                 .map(|leaf| leaf.trace[0].label.as_deref().unwrap())
                 .collect::<Vec<_>>(),
             vec!["left", "right"]
+        );
+    }
+
+    #[test]
+    fn branches_for_every_concrete_set_element_selection() {
+        let definition = set_selection_definition();
+        let first = r#"\dv{SortElement{}}("first")"#;
+        let second = r#"\dv{SortElement{}}("second")"#;
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                &format!("state{{}}(setConcat{{}}(setItem{{}}({first}), setItem{{}}({second})))"),
+            ),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: None,
+            ..
+        } = rewrite_step(&definition, &subject, &mut fresh)
+        else {
+            panic!("set selection should produce one exhaustive branch per element");
+        };
+        let mut actual = branches
+            .iter()
+            .map(|branch| branch.pattern.term.clone())
+            .collect::<Vec<_>>();
+        actual.sort();
+        let mut expected = vec![
+            internal_term(
+                &definition,
+                &format!("picked{{}}({first}, setItem{{}}({second}))"),
+            ),
+            internal_term(
+                &definition,
+                &format!("picked{{}}({second}, setItem{{}}({first}))"),
+            ),
+        ];
+        expected.sort();
+
+        assert_eq!(actual, expected);
+        assert!(
+            branches
+                .iter()
+                .all(|branch| branch.pattern.constraints.is_empty())
         );
     }
 }

@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    substitution::{Substitution, substitute},
+    substitution::{Substitution, compose, substitute},
     term::{ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind, Variable},
 };
 
@@ -179,6 +179,137 @@ pub fn match_terms(
     }
 }
 
+/// Enumerate complete matches for an internal Set pattern against a closed Set subject.
+///
+/// Set element selection is genuinely nondeterministic: `SetItem(X) REST` has one solution for
+/// each element of a concrete subject. The ordinary matcher deliberately reports that case as
+/// indeterminate because its result type represents only one substitution. Rewrite execution uses
+/// this helper to preserve every solution as a separate successor.
+pub(crate) fn match_set_terms_all(
+    mode: MatchMode,
+    sorts: &SortGraph,
+    pattern: &Term,
+    subject: &Term,
+    initial: &Substitution,
+) -> Option<Vec<Substitution>> {
+    let pattern = substitute(pattern, initial);
+    let subject = substitute(subject, initial);
+    let (
+        TermKind::Set {
+            definition: pattern_definition,
+            elements: pattern_elements,
+            rest: pattern_rest,
+        },
+        TermKind::Set {
+            definition: subject_definition,
+            elements: subject_elements,
+            rest: subject_rest,
+        },
+    ) = (pattern.kind(), subject.kind())
+    else {
+        return None;
+    };
+    if pattern_definition != subject_definition || subject_rest.is_some() {
+        return None;
+    }
+
+    let mut pattern_elements = pattern_elements.iter().cloned().collect::<BTreeSet<_>>();
+    let mut subject_elements = subject_elements.iter().cloned().collect::<BTreeSet<_>>();
+    let common = pattern_elements
+        .intersection(&subject_elements)
+        .cloned()
+        .collect::<Vec<_>>();
+    for element in common {
+        pattern_elements.remove(&element);
+        subject_elements.remove(&element);
+    }
+    if (pattern_rest.is_none() && pattern_elements.len() != subject_elements.len())
+        || pattern_elements.len() > subject_elements.len()
+    {
+        return Some(Vec::new());
+    }
+
+    let problem = SetMatchProblem {
+        mode,
+        sorts,
+        definition: pattern_definition.clone(),
+        elements: pattern_elements.into_iter().collect(),
+        rest: pattern_rest.clone(),
+    };
+    let mut solutions = Vec::new();
+    let mut indeterminate = false;
+    problem.search(
+        0,
+        subject_elements.into_iter().collect(),
+        initial.clone(),
+        &mut solutions,
+        &mut indeterminate,
+    );
+    if indeterminate {
+        None
+    } else {
+        solutions.sort();
+        solutions.dedup();
+        Some(solutions)
+    }
+}
+
+struct SetMatchProblem<'a> {
+    mode: MatchMode,
+    sorts: &'a SortGraph,
+    definition: Arc<crate::term::SetDefinition>,
+    elements: Vec<Term>,
+    rest: Option<Term>,
+}
+
+impl SetMatchProblem<'_> {
+    fn search(
+        &self,
+        index: usize,
+        remaining: Vec<Term>,
+        substitution: Substitution,
+        solutions: &mut Vec<Substitution>,
+        indeterminate: &mut bool,
+    ) {
+        if index == self.elements.len() {
+            let Some(rest) = &self.rest else {
+                if remaining.is_empty() {
+                    solutions.push(substitution);
+                }
+                return;
+            };
+            let rest = substitute(rest, &substitution);
+            let remainder = Term::set(self.definition.clone(), remaining, None);
+            match match_terms(self.mode, self.sorts, &rest, &remainder) {
+                MatchResult::Success(found) => solutions.push(compose(&found, &substitution)),
+                MatchResult::Failed(_) => {}
+                MatchResult::Indeterminate { .. } => *indeterminate = true,
+            }
+            return;
+        }
+
+        let element = substitute(&self.elements[index], &substitution);
+        for subject_index in 0..remaining.len() {
+            let subject = &remaining[subject_index];
+            match match_terms(self.mode, self.sorts, &element, subject) {
+                MatchResult::Success(found) => {
+                    let mut next_remaining = remaining.clone();
+                    next_remaining.remove(subject_index);
+                    self.search(
+                        index + 1,
+                        next_remaining,
+                        compose(&found, &substitution),
+                        solutions,
+                        indeterminate,
+                    );
+                }
+                MatchResult::Failed(_) => {}
+                MatchResult::Indeterminate { .. } => *indeterminate = true,
+            }
+        }
+    }
+}
+
 struct Matcher<'a> {
     mode: MatchMode,
     sorts: &'a SortGraph,
@@ -340,14 +471,13 @@ impl Matcher<'_> {
                     elements: right_elements,
                     rest: right_rest,
                 },
-            ) if left == right
-                && left_elements.is_empty()
-                && right_elements.is_empty()
-                && left_rest.is_none()
-                && right_rest.is_none() =>
-            {
-                Ok(())
-            }
+            ) if left == right => self.match_sets(
+                left.clone(),
+                left_elements.clone(),
+                left_rest.clone(),
+                right_elements.clone(),
+                right_rest.clone(),
+            ),
             (
                 TermKind::Map {
                     definition: left,
@@ -596,6 +726,94 @@ impl Matcher<'_> {
         problems.append(&mut rest);
         self.queue.extend(problems);
         Ok(())
+    }
+
+    fn match_sets(
+        &mut self,
+        definition: Arc<crate::term::SetDefinition>,
+        pattern_elements: Vec<Term>,
+        pattern_rest: Option<Term>,
+        subject_elements: Vec<Term>,
+        subject_rest: Option<Term>,
+    ) -> Result<(), FailReason> {
+        let mut pattern_elements = pattern_elements
+            .into_iter()
+            .map(|element| substitute(&element, &self.substitution))
+            .collect::<BTreeSet<_>>();
+        let mut subject_elements = subject_elements.into_iter().collect::<BTreeSet<_>>();
+        let common = pattern_elements
+            .intersection(&subject_elements)
+            .cloned()
+            .collect::<Vec<_>>();
+        for element in common {
+            pattern_elements.remove(&element);
+            subject_elements.remove(&element);
+        }
+
+        let pattern_symbolic = pattern_elements
+            .iter()
+            .filter(|element| !element.attributes().constructor_like)
+            .cloned()
+            .collect::<Vec<_>>();
+        let pattern_concrete = pattern_elements
+            .iter()
+            .filter(|element| element.attributes().constructor_like)
+            .cloned()
+            .collect::<Vec<_>>();
+        let subject_symbolic = subject_elements
+            .iter()
+            .filter(|element| !element.attributes().constructor_like)
+            .cloned()
+            .collect::<Vec<_>>();
+        let set = |elements, rest| Term::set(definition.clone(), elements, rest);
+
+        if let Some(element) = pattern_concrete.first() {
+            if subject_symbolic.is_empty() && subject_rest.is_none() {
+                return Err(FailReason::KeyNotFound(
+                    element.clone(),
+                    set(subject_elements.into_iter().collect(), None),
+                ));
+            }
+            return self.defer(
+                set(pattern_elements.into_iter().collect(), pattern_rest),
+                set(subject_elements.into_iter().collect(), subject_rest),
+            );
+        }
+
+        if pattern_symbolic.is_empty() {
+            let subject_is_empty = subject_elements.is_empty() && subject_rest.is_none();
+            let subject = set(subject_elements.into_iter().collect(), subject_rest);
+            if let Some(rest) = pattern_rest {
+                self.enqueue(rest, subject);
+                return Ok(());
+            }
+            if subject_is_empty {
+                return Ok(());
+            }
+            return Err(FailReason::DifferentSymbols(set(Vec::new(), None), subject));
+        }
+
+        if pattern_symbolic.len() == 1 && subject_rest.is_none() && subject_elements.len() == 1 {
+            self.enqueue(
+                pattern_symbolic.into_iter().next().unwrap(),
+                subject_elements.into_iter().next().unwrap(),
+            );
+            if let Some(rest) = pattern_rest {
+                self.enqueue(rest, set(Vec::new(), None));
+            }
+            return Ok(());
+        }
+
+        if subject_elements.is_empty() && subject_rest.is_none() {
+            return Err(FailReason::DifferentSymbols(
+                set(pattern_elements.into_iter().collect(), pattern_rest),
+                set(Vec::new(), None),
+            ));
+        }
+        self.defer(
+            set(pattern_elements.into_iter().collect(), pattern_rest),
+            set(subject_elements.into_iter().collect(), subject_rest),
+        )
     }
 
     fn match_map_remainders(
@@ -1007,15 +1225,19 @@ mod tests {
         })
     }
 
+    fn set_definition() -> Arc<crate::term::SetDefinition> {
+        Arc::new(crate::term::SetDefinition {
+            symbols: collection_symbols("set"),
+            element_sort: "SetElement".into(),
+            list_sort: "SetSort".into(),
+        })
+    }
+
     fn kinds() -> Vec<(&'static str, Term, Term)> {
         let subject_constructor = application(constructor(), domain_value(sort(), "constructor"));
         let map_definition = map_definition();
         let list_definition = list_definition();
-        let set_definition = Arc::new(ListDefinition {
-            symbols: collection_symbols("set"),
-            element_sort: "SetElement".into(),
-            list_sort: "SetSort".into(),
-        });
+        let set_definition = set_definition();
         vec![
             (
                 "And",
@@ -1255,6 +1477,201 @@ mod tests {
             match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
             MatchResult::Success(Substitution::from([(remainder, expected)]))
         );
+    }
+
+    #[test]
+    fn matches_identical_concrete_sets_independent_of_input_order() {
+        let definition = set_definition();
+        let first = domain_value(Sort::simple("SetElement"), "first");
+        let second = domain_value(Sort::simple("SetElement"), "second");
+        let pattern = Term::set(
+            definition.clone(),
+            vec![first.clone(), second.clone()],
+            None,
+        );
+        let subject = Term::set(definition, vec![second, first], None);
+
+        assert_eq!(
+            match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
+            MatchResult::Success(Substitution::new())
+        );
+    }
+
+    #[test]
+    fn extracts_a_set_remainder_after_common_elements() {
+        let definition = set_definition();
+        let common = domain_value(Sort::simple("SetElement"), "common");
+        let extra = domain_value(Sort::simple("SetElement"), "extra");
+        let remainder = variable("REST", Sort::simple("SetSort"));
+        let pattern = Term::set(
+            definition.clone(),
+            vec![common.clone()],
+            Some(Term::variable(remainder.clone())),
+        );
+        let expected = Term::set(definition.clone(), vec![extra.clone()], None);
+        let subject = Term::set(definition, vec![common, extra], None);
+
+        assert_eq!(
+            match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
+            MatchResult::Success(Substitution::from([(remainder, expected)]))
+        );
+    }
+
+    #[test]
+    fn matches_an_unambiguous_symbolic_set_element() {
+        let definition = set_definition();
+        let element_variable = variable("ELEMENT", Sort::simple("SetElement"));
+        let element = domain_value(Sort::simple("SetElement"), "element");
+        let pattern = Term::set(
+            definition.clone(),
+            vec![Term::variable(element_variable.clone())],
+            None,
+        );
+        let subject = Term::set(definition, vec![element.clone()], None);
+
+        assert_eq!(
+            match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
+            MatchResult::Success(Substitution::from([(element_variable, element)]))
+        );
+    }
+
+    #[test]
+    fn empties_a_set_frame_after_an_unambiguous_selection() {
+        let definition = set_definition();
+        let element_variable = variable("ELEMENT", Sort::simple("SetElement"));
+        let rest_variable = variable("REST", Sort::simple("SetSort"));
+        let element = domain_value(Sort::simple("SetElement"), "element");
+        let empty = Term::set(definition.clone(), Vec::new(), None);
+        let pattern = Term::set(
+            definition.clone(),
+            vec![Term::variable(element_variable.clone())],
+            Some(Term::variable(rest_variable.clone())),
+        );
+        let subject = Term::set(definition, vec![element.clone()], None);
+
+        assert_eq!(
+            match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
+            MatchResult::Success(Substitution::from([
+                (element_variable, element),
+                (rest_variable, empty),
+            ]))
+        );
+    }
+
+    #[test]
+    fn defers_ambiguous_symbolic_set_selection() {
+        let definition = set_definition();
+        let pattern = Term::set(
+            definition.clone(),
+            vec![var("ELEMENT", Sort::simple("SetElement"))],
+            Some(var("REST", Sort::simple("SetSort"))),
+        );
+        let subject = Term::set(
+            definition,
+            vec![
+                domain_value(Sort::simple("SetElement"), "first"),
+                domain_value(Sort::simple("SetElement"), "second"),
+            ],
+            None,
+        );
+
+        assert!(matches!(
+            match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
+            MatchResult::Indeterminate { remainder, .. } if remainder == vec![(pattern, subject)]
+        ));
+    }
+
+    #[test]
+    fn enumerates_every_symbolic_set_selection() {
+        let definition = set_definition();
+        let element_variable = variable("ELEMENT", Sort::simple("SetElement"));
+        let rest_variable = variable("REST", Sort::simple("SetSort"));
+        let first = domain_value(Sort::simple("SetElement"), "first");
+        let second = domain_value(Sort::simple("SetElement"), "second");
+        let pattern = Term::set(
+            definition.clone(),
+            vec![Term::variable(element_variable.clone())],
+            Some(Term::variable(rest_variable.clone())),
+        );
+        let subject = Term::set(
+            definition.clone(),
+            vec![first.clone(), second.clone()],
+            None,
+        );
+
+        assert_eq!(
+            match_set_terms_all(
+                MatchMode::Rewrite,
+                &sort_graph(),
+                &pattern,
+                &subject,
+                &Substitution::new(),
+            ),
+            Some(vec![
+                Substitution::from([
+                    (element_variable.clone(), first.clone()),
+                    (
+                        rest_variable.clone(),
+                        Term::set(definition.clone(), vec![second.clone()], None),
+                    ),
+                ]),
+                Substitution::from([
+                    (element_variable, second),
+                    (rest_variable, Term::set(definition, vec![first], None)),
+                ]),
+            ])
+        );
+    }
+
+    #[test]
+    fn enumerates_set_element_permutations_without_reuse() {
+        let definition = set_definition();
+        let first_variable = variable("FIRST", Sort::simple("SetElement"));
+        let second_variable = variable("SECOND", Sort::simple("SetElement"));
+        let first = domain_value(Sort::simple("SetElement"), "first");
+        let second = domain_value(Sort::simple("SetElement"), "second");
+        let pattern = Term::set(
+            definition.clone(),
+            vec![
+                Term::variable(first_variable.clone()),
+                Term::variable(second_variable.clone()),
+            ],
+            None,
+        );
+        let subject = Term::set(definition, vec![first.clone(), second.clone()], None);
+
+        assert_eq!(
+            match_set_terms_all(
+                MatchMode::Rewrite,
+                &sort_graph(),
+                &pattern,
+                &subject,
+                &Substitution::new(),
+            ),
+            Some(vec![
+                Substitution::from([
+                    (first_variable.clone(), first.clone()),
+                    (second_variable.clone(), second.clone()),
+                ]),
+                Substitution::from([(first_variable, second), (second_variable, first),]),
+            ])
+        );
+    }
+
+    #[test]
+    fn rejects_a_nonempty_pattern_against_the_empty_set() {
+        let definition = set_definition();
+        let pattern = Term::set(
+            definition.clone(),
+            vec![var("ELEMENT", Sort::simple("SetElement"))],
+            Some(var("REST", Sort::simple("SetSort"))),
+        );
+        let subject = Term::set(definition, Vec::new(), None);
+
+        assert!(matches!(
+            match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
+            MatchResult::Failed(FailReason::DifferentSymbols(_, _))
+        ));
     }
 
     #[test]
