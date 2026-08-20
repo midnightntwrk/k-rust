@@ -453,16 +453,11 @@ fn discharge_consequent(
     Ok(
         match solver.check_predicates(&antecedent.constraints, &Substitution::new(), &obligations) {
             Ok(Validity::Valid) => valid(substitution),
-            Ok(Validity::Invalid) => {
-                if had_match_remainder {
-                    invalid()
-                } else {
-                    condition_invalid()
-                }
-            }
+            Ok(Validity::Invalid) if had_match_remainder => partial(substitution, obligations),
+            Ok(Validity::Invalid) => condition_invalid(),
             Ok(Validity::InconsistentGroundTruth) => vacuously_valid(),
             Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) if had_match_remainder => {
-                invalid()
+                partial(substitution, obligations)
             }
             Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => indeterminate(),
         },
@@ -562,6 +557,17 @@ fn condition_invalid() -> ImplicationResult {
         status: ImplicationStatus::Invalid,
         condition: None,
         failure: Some(ImplicationFailure::ConsequentCondition),
+    }
+}
+
+fn partial(substitution: Substitution, predicates: Vec<Predicate>) -> ImplicationResult {
+    ImplicationResult {
+        status: ImplicationStatus::Invalid,
+        condition: Some(ImplicationCondition {
+            predicates,
+            substitution,
+        }),
+        failure: Some(ImplicationFailure::TermMismatch),
     }
 }
 
@@ -753,16 +759,25 @@ mod tests {
         let consequent = pattern(&definition, r#"pair{}(X:SortInt{}, X:SortInt{})"#);
         let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
 
-        assert_eq!(
-            check_implication_with_existentials(
-                &definition,
-                &antecedent,
-                &BTreeSet::new(),
-                &consequent,
-                &BTreeSet::from([x]),
-                &NoSolver,
-            ),
-            Ok(invalid())
+        let result = check_implication_with_existentials(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &BTreeSet::from([x]),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
+        assert_eq!(result.status, ImplicationStatus::Invalid);
+        let condition = result
+            .condition
+            .expect("the matching subset should be retained");
+        assert_eq!(condition.predicates.len(), 1);
+        assert!(
+            condition
+                .substitution
+                .keys()
+                .all(|variable| variable.name.contains("!exists"))
         );
     }
 
@@ -921,9 +936,16 @@ mod tests {
             check_implication(&definition, &antecedent, &consequent, &NoSolver),
             Ok(valid(Substitution::new()))
         );
+        let result = check_implication(&definition, &antecedent, &other, &NoSolver)
+            .expect("implication should be checked");
+        assert_eq!(result.status, ImplicationStatus::Invalid);
         assert_eq!(
-            check_implication(&definition, &antecedent, &other, &NoSolver),
-            Ok(invalid())
+            result
+                .condition
+                .expect("the matching subset should be retained")
+                .predicates
+                .len(),
+            1,
         );
     }
 

@@ -283,6 +283,7 @@ pub fn prove_claim(
         }
 
         let mut implication_indeterminate = false;
+        let mut implication_remainder = None;
         if state.depth >= options.min_depth {
             let implication = check_disjunctive_implication_with_existentials(
                 definition,
@@ -307,6 +308,23 @@ pub fn prove_claim(
                     }
                     continue;
                 }
+                ImplicationStatus::Invalid if implication.condition.is_some() => {
+                    let condition = implication
+                        .condition
+                        .expect("a partial implication carries its coverage condition");
+                    let mut constraints = state.pattern.constraints.clone();
+                    extend_unique(
+                        &mut constraints,
+                        vec![complement_implication_condition(&state.pattern, condition)],
+                    );
+                    implication_remainder = Some(crate::rewrite::RemainderBranch {
+                        pattern: Pattern {
+                            term: state.pattern.term.clone(),
+                            constraints,
+                        },
+                        rule_ids: vec![format!("destination:{}", claim.attributes.unique_id)],
+                    });
+                }
                 ImplicationStatus::Invalid
                     if options.stuck_check
                         && implication.failure == Some(ImplicationFailure::ConsequentCondition) =>
@@ -317,6 +335,22 @@ pub fn prove_claim(
                 ImplicationStatus::Invalid => {}
                 ImplicationStatus::Indeterminate => implication_indeterminate = true,
             }
+        }
+
+        if let Some(remainder) = implication_remainder {
+            if extend_frontier(
+                &mut pending,
+                std::iter::once(state.remaining(remainder)),
+                options.breadth_limit,
+            ) {
+                return Ok(finish_at_breadth_limit(
+                    claim.mode,
+                    leaves,
+                    pending,
+                    explored_states,
+                ));
+            }
+            continue;
         }
 
         if state.depth >= options.max_depth {
@@ -811,6 +845,43 @@ fn extend_unique(left: &mut Vec<crate::rule::Predicate>, right: Vec<crate::rule:
         if !left.contains(&predicate) {
             left.push(predicate);
         }
+    }
+}
+
+fn complement_implication_condition(
+    pattern: &Pattern,
+    condition: ImplicationCondition,
+) -> crate::rule::Predicate {
+    let mut covered = conjoin_predicates(condition.predicates);
+    let state_variables = pattern
+        .term
+        .attributes()
+        .variables
+        .iter()
+        .cloned()
+        .chain(
+            pattern
+                .constraints
+                .iter()
+                .flat_map(crate::rule::Predicate::free_variables),
+        )
+        .collect::<BTreeSet<_>>();
+    let introduced = covered
+        .free_variables()
+        .difference(&state_variables)
+        .cloned()
+        .collect::<Vec<_>>();
+    for variable in introduced.into_iter().rev() {
+        covered = crate::rule::Predicate::Exists(variable, Box::new(covered));
+    }
+    crate::rule::Predicate::Not(Box::new(covered))
+}
+
+fn conjoin_predicates(mut predicates: Vec<crate::rule::Predicate>) -> crate::rule::Predicate {
+    match predicates.len() {
+        0 => crate::rule::Predicate::True,
+        1 => predicates.pop().expect("one predicate is present"),
+        _ => crate::rule::Predicate::And(predicates),
     }
 }
 
@@ -1493,5 +1564,47 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![TraceKind::Rewrite, TraceKind::Claim]
         );
+    }
+
+    #[test]
+    fn continues_with_the_complement_of_a_partial_destination_match() {
+        let definition = definition(
+            r#"
+            symbol start{}(SortS{}) : SortS{} [constructor{}()]
+            symbol done{}(SortS{}) : SortS{} [constructor{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(start{}(X:SortS{}), \top{SortS{}}()),
+                done{}(X:SortS{})
+            ) [label{}("step")]
+            "#,
+            r#"
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(start{}(X:SortS{}), \top{SortS{}}()),
+                weakAlwaysFinally{SortS{}}(done{}(a{}()))
+            ) [label{}("partial-destination")]
+            "#,
+        );
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &NoSolver,
+        )
+        .expect("claim should execute");
+
+        assert_eq!(result.status, ProofStatus::Disproved);
+        assert!(result.leaves.iter().any(|leaf| {
+            leaf.trace
+                .iter()
+                .any(|entry| entry.kind == TraceKind::Remainder)
+                && leaf.pattern.constraints.iter().any(|predicate| {
+                    matches!(
+                        predicate,
+                        crate::rule::Predicate::Not(inner)
+                            if matches!(inner.as_ref(), crate::rule::Predicate::Equals(..))
+                    )
+                })
+        }));
     }
 }
