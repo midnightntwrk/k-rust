@@ -33,6 +33,18 @@ krust krun examples/rewrite.k \
 
 The final `<k>` cell contains `Lblb{}()`.
 
+Exercise the pinned backend's concrete List-unification scenario through the full frontend and
+in-process backend:
+
+```console
+krust krun examples/list-unification.k \
+  --main-module LIST-UNIFICATION \
+  --sort Val \
+  --expression test1
+```
+
+The final `<k>` cell contains `Lblsuccess...`, and both List cells contain `x`, `y`, and `z`.
+
 On macOS, verify that the release binary does not dynamically load Z3:
 
 ```console

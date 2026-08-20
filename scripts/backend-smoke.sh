@@ -26,6 +26,15 @@ execution=$(krust krun "$workspace/examples/rewrite.k" \
   --depth 10)
 grep -q 'Lblb{}()' <<<"$execution"
 
+echo "[rust] matching equal builtin Lists through the full frontend/backend path"
+list_execution=$(krust krun "$workspace/examples/list-unification.k" \
+  --main-module LIST-UNIFICATION \
+  --sort Val \
+  --expression test1 \
+  --depth 10)
+grep -q "Lblsuccess'Unds'LIST-UNIFICATION'Unds'Val{}()" <<<"$list_execution"
+test "$(grep -c 'LblListItem{}' <<<"$list_execution")" -eq 6
+
 echo "[rust] proving a reachability claim with in-process Z3"
 proof=$(krust kprove "$workspace/examples/reachability.k" \
   --main-module REACHABILITY \
