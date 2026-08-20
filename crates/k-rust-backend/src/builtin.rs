@@ -108,7 +108,7 @@ fn evaluate_hook_with_sort(
         "KEQUAL.ite" => kequal_ite(arguments),
         "KEQUAL.eq" => kequal(arguments, false),
         "KEQUAL.ne" => kequal(arguments, true),
-        hook if hook.starts_with("LIST.") => list::evaluate(hook, arguments),
+        hook if hook.starts_with("LIST.") => return list::evaluate(hook, arguments),
         hook if hook.starts_with("MAP.") => map::evaluate(hook, arguments),
         hook if hook.starts_with("SET.") => set::evaluate(hook, arguments),
         hook if hook.starts_with("STRING.") => {

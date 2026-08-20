@@ -5,21 +5,27 @@ use std::sync::Arc;
 use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;
 
-use super::{BuiltinError, bool_term, expect_arity, expect_sort, int_term, read_int};
+use super::{
+    BuiltinError, BuiltinResult, bool_term, expect_arity, expect_sort, int_term, read_int,
+};
 use crate::term::{CollectionSymbols, ListDefinition, Sort, Term, TermKind};
 
-pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
-    match hook {
+pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    let result = match hook {
         "LIST.concat" => concat(arguments),
         "LIST.element" => element(arguments),
-        "LIST.get" => get(arguments),
         "LIST.in" => contains(arguments),
-        "LIST.make" => make(arguments),
-        "LIST.range" => range(arguments),
         "LIST.size" => size(arguments),
         "LIST.unit" => unit(arguments),
-        "LIST.update" => update(arguments),
         _ => Ok(None),
+    }?;
+    match hook {
+        "LIST.get" => get(arguments),
+        "LIST.make" => make(arguments),
+        "LIST.range" => range(arguments),
+        "LIST.update" => update(arguments),
+        "LIST.updateAll" => update_all(arguments),
+        _ => Ok(result.into()),
     }
 }
 
@@ -117,25 +123,36 @@ fn element(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     )))
 }
 
-fn get(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn get(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     expect_arity("LIST.get", arguments, 2)?;
     let [list, index] = arguments else {
         unreachable!()
     };
     let TermKind::List { heads, rest, .. } = list.kind() else {
-        return Ok(None);
+        return Ok(BuiltinResult::NotApplicable);
     };
+    if heads.is_empty() && rest.is_none() {
+        return Ok(BuiltinResult::Bottom);
+    }
     let Some(index_value) = read_int(index) else {
         expect_sort("LIST.get", index, &Sort::simple("SortInt"))?;
-        return Ok(None);
+        return Ok(BuiltinResult::NotApplicable);
     };
     if index_value.sign() != Sign::Minus {
         return Ok(index_value
             .to_usize()
-            .and_then(|index| heads.get(index).cloned()));
+            .and_then(|index| heads.get(index).cloned())
+            .map(BuiltinResult::Value)
+            .unwrap_or_else(|| {
+                if rest.is_none() {
+                    BuiltinResult::Bottom
+                } else {
+                    BuiltinResult::NotApplicable
+                }
+            }));
     }
     let Some(distance) = (-index_value).to_usize() else {
-        return Ok(None);
+        return Ok(BuiltinResult::NotApplicable);
     };
     let known_tail = match rest {
         None => heads,
@@ -144,7 +161,15 @@ fn get(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     Ok(distance
         .checked_sub(1)
         .and_then(|offset| known_tail.len().checked_sub(offset + 1))
-        .and_then(|index| known_tail.get(index).cloned()))
+        .and_then(|index| known_tail.get(index).cloned())
+        .map(BuiltinResult::Value)
+        .unwrap_or_else(|| {
+            if rest.is_none() {
+                BuiltinResult::Bottom
+            } else {
+                BuiltinResult::NotApplicable
+            }
+        }))
 }
 
 fn contains(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
@@ -167,29 +192,29 @@ fn contains(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     }
 }
 
-fn make(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn make(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     expect_arity("LIST.make", arguments, 2)?;
     let [length, value] = arguments else {
         unreachable!()
     };
     let Some(length) = read_int(length) else {
         expect_sort("LIST.make", length, &Sort::simple("SortInt"))?;
-        return Ok(None);
+        return Ok(BuiltinResult::NotApplicable);
     };
     if length.sign() == Sign::Minus {
-        return Ok(Some(Term::list(k_item_definition(), Vec::new(), None)));
+        return Ok(BuiltinResult::Bottom);
     }
     let Some(length) = length.to_usize() else {
-        return Ok(None);
+        return Ok(BuiltinResult::NotApplicable);
     };
-    Ok(Some(Term::list(
+    Ok(BuiltinResult::Value(Term::list(
         k_item_definition(),
         vec![value.clone(); length],
         None,
     )))
 }
 
-fn range(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn range(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     expect_arity("LIST.range", arguments, 3)?;
     let [list, from_front, from_back] = arguments else {
         unreachable!()
@@ -200,51 +225,49 @@ fn range(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
         rest,
     } = list.kind()
     else {
-        return Ok(None);
+        return Ok(BuiltinResult::NotApplicable);
     };
     let Some(front) = read_int(from_front) else {
         expect_sort("LIST.range", from_front, &Sort::simple("SortInt"))?;
-        return Ok(None);
+        return Ok(BuiltinResult::NotApplicable);
     };
     let Some(back) = read_int(from_back) else {
         expect_sort("LIST.range", from_back, &Sort::simple("SortInt"))?;
-        return Ok(None);
+        return Ok(BuiltinResult::NotApplicable);
     };
     if front.sign() == Sign::Minus || back.sign() == Sign::Minus {
-        return Ok(None);
+        return Ok(BuiltinResult::Bottom);
     }
     let front = front.to_usize();
     let back = back.to_usize();
     match rest {
         None => {
             let (Some(front), Some(back)) = (front, back) else {
-                return Ok(None);
+                return Ok(BuiltinResult::NotApplicable);
             };
             let Some(end) = heads.len().checked_sub(back) else {
-                return Ok(None);
+                return Ok(BuiltinResult::Bottom);
             };
             if front > end {
-                return Ok(None);
+                return Ok(BuiltinResult::Bottom);
             }
-            Ok(Some(Term::list(
+            Ok(BuiltinResult::Value(Term::list(
                 definition.clone(),
                 heads[front..end].to_vec(),
                 None,
             )))
         }
         Some((middle, tails)) => {
-            let Some(back) = back else {
-                return Ok(None);
+            let (Some(front), Some(back)) = (front, back) else {
+                return Ok(BuiltinResult::NotApplicable);
             };
-            let Some(tail_end) = tails.len().checked_sub(back) else {
-                return Ok(None);
+            if front > heads.len() || back > tails.len() {
+                return Ok(BuiltinResult::NotApplicable);
             };
-            let heads = front
-                .map(|front| heads.get(front..).unwrap_or_default().to_vec())
-                .unwrap_or_default();
-            Ok(Some(Term::list(
+            let tail_end = tails.len() - back;
+            Ok(BuiltinResult::Value(Term::list(
                 definition.clone(),
-                heads,
+                heads[front..].to_vec(),
                 Some((middle.clone(), tails[..tail_end].to_vec())),
             )))
         }
@@ -267,7 +290,7 @@ fn unit(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     Ok(Some(Term::list(k_item_definition(), Vec::new(), None)))
 }
 
-fn update(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn update(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     expect_arity("LIST.update", arguments, 3)?;
     let [list, index, value] = arguments else {
         unreachable!()
@@ -278,24 +301,80 @@ fn update(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
         rest,
     } = list.kind()
     else {
-        return Ok(None);
+        return Ok(BuiltinResult::NotApplicable);
     };
     let Some(index) = read_int(index) else {
         expect_sort("LIST.update", index, &Sort::simple("SortInt"))?;
-        return Ok(None);
+        return Ok(BuiltinResult::NotApplicable);
     };
     if index.sign() == Sign::Minus {
-        return Ok(None);
+        return Ok(BuiltinResult::Bottom);
     }
     let Some(index) = index.to_usize() else {
-        return Ok(None);
+        return Ok(BuiltinResult::NotApplicable);
     };
     if index >= heads.len() {
-        return Ok(None);
+        return Ok(if rest.is_none() {
+            BuiltinResult::Bottom
+        } else {
+            BuiltinResult::NotApplicable
+        });
     }
     let mut updated = heads.clone();
     updated[index] = value.clone();
-    Ok(Some(Term::list(definition.clone(), updated, rest.clone())))
+    Ok(BuiltinResult::Value(Term::list(
+        definition.clone(),
+        updated,
+        rest.clone(),
+    )))
+}
+
+fn update_all(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity("LIST.updateAll", arguments, 3)?;
+    let [original, index, updates] = arguments else {
+        unreachable!()
+    };
+    let (
+        TermKind::List {
+            definition,
+            heads: original,
+            rest: None,
+        },
+        TermKind::List {
+            definition: update_definition,
+            heads: updates,
+            rest: None,
+        },
+    ) = (original.kind(), updates.kind())
+    else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    if definition != update_definition {
+        return Ok(BuiltinResult::NotApplicable);
+    }
+    let Some(index) = read_int(index) else {
+        expect_sort("LIST.updateAll", index, &Sort::simple("SortInt"))?;
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    if index.sign() == Sign::Minus {
+        return Ok(BuiltinResult::Bottom);
+    }
+    let Some(index) = index.to_usize() else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some(end) = index.checked_add(updates.len()) else {
+        return Ok(BuiltinResult::Bottom);
+    };
+    if end > original.len() {
+        return Ok(BuiltinResult::Bottom);
+    }
+    let mut result = original.clone();
+    result.splice(index..end, updates.iter().cloned());
+    Ok(BuiltinResult::Value(Term::list(
+        definition.clone(),
+        result,
+        None,
+    )))
 }
 
 #[cfg(test)]
@@ -327,9 +406,18 @@ mod tests {
     fn get_indexes_complete_lists_from_both_ends() {
         let list = Term::list(definition(), vec![item("a"), item("b"), item("c")], None);
 
-        assert_eq!(get(&[list.clone(), integer(1)]), Ok(Some(item("b"))));
-        assert_eq!(get(&[list.clone(), integer(-1)]), Ok(Some(item("c"))));
-        assert_eq!(get(&[list, integer(-3)]), Ok(Some(item("a"))));
+        assert_eq!(
+            get(&[list.clone(), integer(1)]),
+            Ok(BuiltinResult::Value(item("b")))
+        );
+        assert_eq!(
+            get(&[list.clone(), integer(-1)]),
+            Ok(BuiltinResult::Value(item("c")))
+        );
+        assert_eq!(
+            get(&[list, integer(-3)]),
+            Ok(BuiltinResult::Value(item("a")))
+        );
     }
 
     #[test]
@@ -341,10 +429,19 @@ mod tests {
             Some((middle, vec![item("b"), item("c")])),
         );
 
-        assert_eq!(get(&[list.clone(), integer(0)]), Ok(Some(item("a"))));
-        assert_eq!(get(&[list.clone(), integer(1)]), Ok(None));
-        assert_eq!(get(&[list.clone(), integer(-1)]), Ok(Some(item("c"))));
-        assert_eq!(get(&[list, integer(-3)]), Ok(None));
+        assert_eq!(
+            get(&[list.clone(), integer(0)]),
+            Ok(BuiltinResult::Value(item("a")))
+        );
+        assert_eq!(
+            get(&[list.clone(), integer(1)]),
+            Ok(BuiltinResult::NotApplicable)
+        );
+        assert_eq!(
+            get(&[list.clone(), integer(-1)]),
+            Ok(BuiltinResult::Value(item("c")))
+        );
+        assert_eq!(get(&[list, integer(-3)]), Ok(BuiltinResult::NotApplicable));
     }
 
     #[test]
@@ -361,7 +458,10 @@ mod tests {
             Some((middle, vec![item("c")])),
         );
 
-        assert_eq!(range(&[list, integer(1), integer(1)]), Ok(Some(expected)));
+        assert_eq!(
+            range(&[list, integer(1), integer(1)]),
+            Ok(BuiltinResult::Value(expected))
+        );
     }
 
     #[test]
@@ -378,7 +478,9 @@ mod tests {
 
     #[test]
     fn default_list_hooks_use_the_reference_kitem_definition() {
-        let made = make(&[integer(2), item("x")]).unwrap().unwrap();
+        let BuiltinResult::Value(made) = make(&[integer(2), item("x")]).unwrap() else {
+            panic!("LIST.make should evaluate")
+        };
         let TermKind::List {
             definition,
             heads,
@@ -408,7 +510,7 @@ mod tests {
         assert_eq!(concat(&[left, right]), Ok(Some(joined.clone())));
         assert_eq!(
             update(&[joined.clone(), integer(1), item("x")]),
-            Ok(Some(changed))
+            Ok(BuiltinResult::Value(changed))
         );
         assert_eq!(size(&[joined]), Ok(Some(integer(3))));
     }
@@ -430,5 +532,27 @@ mod tests {
         );
 
         assert_eq!(concat(&[left, right]), Ok(None));
+    }
+
+    #[test]
+    fn partial_list_hooks_return_bottom_for_undefined_inputs() {
+        let definition = definition();
+        let list = Term::list(definition.clone(), vec![item("a"), item("b")], None);
+        let replacement = Term::list(definition, vec![item("x"), item("y")], None);
+
+        assert_eq!(get(&[list.clone(), integer(2)]), Ok(BuiltinResult::Bottom));
+        assert_eq!(
+            update(&[list.clone(), integer(-1), item("x")]),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(
+            update_all(&[list.clone(), integer(1), replacement]),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(
+            range(&[list, integer(2), integer(1)]),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(make(&[integer(-1), item("x")]), Ok(BuiltinResult::Bottom));
     }
 }
