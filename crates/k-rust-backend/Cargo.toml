@@ -1,0 +1,16 @@
+[package]
+name = "k-rust-backend"
+version = "0.3.0"
+edition = "2024"
+rust-version = "1.85"
+description = "An in-process symbolic execution backend for k-rust"
+repository = "https://github.com/midnightntwrk/k-rust"
+license = "BSD-3-Clause"
+keywords = ["k-framework", "kore", "rewriting", "symbolic-execution"]
+categories = ["compilers", "development-tools"]
+
+[dependencies]
+k-rust-kore.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
