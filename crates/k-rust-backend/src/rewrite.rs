@@ -1,6 +1,9 @@
 //! Priority-aware rewrite steps over internalized backend theories.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::{
+    collections::{BTreeSet, VecDeque},
+    sync::Arc,
+};
 
 use crate::{
     builtin::BuiltinEffect,
@@ -17,7 +20,7 @@ use crate::{
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, substitute},
-    term::{Sort, SymbolType, Term, TermKind, Variable},
+    term::{Sort, Symbol, SymbolType, Term, TermKind, Variable},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -860,6 +863,14 @@ struct BooleanSplit {
     operands: Vec<Term>,
 }
 
+struct MapNotInKeysSplit {
+    side: SplitSide,
+    symbol: Arc<Symbol>,
+    sort_arguments: Vec<Sort>,
+    key: Term,
+    map: Term,
+}
+
 fn apply_rule(
     definition: &BackendDefinition,
     rule: &RewriteRule,
@@ -939,6 +950,29 @@ fn apply_rule_with_match(
                     if let Some(matches) =
                         recover_boolean_matches(definition, substitution.clone(), &remainder)
                     {
+                        return combine_rule_attempts(matches.into_iter().map(|mut matched| {
+                            let mut conditions = inherited_conditions.clone();
+                            conditions.append(&mut matched.conditions);
+                            matched.conditions = conditions;
+                            apply_rule_with_match(
+                                definition,
+                                rule,
+                                pattern,
+                                fresh_counter,
+                                simplification_options,
+                                solver,
+                                Some(matched),
+                            )
+                        }));
+                    }
+                    if let Some(matches) = recover_map_not_in_keys_matches(
+                        definition,
+                        rule,
+                        pattern,
+                        substitution.clone(),
+                        &remainder,
+                        fresh_counter,
+                    ) {
                         return combine_rule_attempts(matches.into_iter().map(|mut matched| {
                             let mut conditions = inherited_conditions.clone();
                             conditions.append(&mut matched.conditions);
@@ -1397,6 +1431,137 @@ fn boolean_operands(term: &Term, value: bool) -> Option<(bool, Vec<Term>)> {
         (Some("BOOL.not"), value, [operand]) => Some((!value, vec![operand.clone()])),
         _ => None,
     }
+}
+
+/// Decompose `MAP.in_keys(key, map) = false` over the known entries of a normalized map.
+fn recover_map_not_in_keys_matches(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    pattern: &Pattern,
+    substitution: Substitution,
+    remainder: &[(Term, Term)],
+    fresh_counter: &mut u64,
+) -> Option<Vec<PartialRuleMatch>> {
+    let (index, split) = remainder
+        .iter()
+        .enumerate()
+        .find_map(|(index, (left, right))| {
+            let left = substitute(left, &substitution);
+            let right = substitute(right, &substitution);
+            split_map_not_in_keys_pair(&left, &right).map(|split| (index, split))
+        })?;
+    let substitution = if matches!(split.side, SplitSide::Pattern) {
+        freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter).0
+    } else {
+        substitution
+    };
+    let key = substitute(&split.key, &substitution);
+    let map = substitute(&split.map, &substitution);
+    let TermKind::Map { entries, rest, .. } = map.kind() else {
+        return None;
+    };
+    if entries.is_empty() && rest.is_some() {
+        return None;
+    }
+
+    let untouched = remainder
+        .iter()
+        .enumerate()
+        .filter(|(candidate, _)| *candidate != index)
+        .map(|(_, pair)| pair.clone())
+        .collect::<Vec<_>>();
+    if entries.is_empty() {
+        return Some(vec![PartialRuleMatch {
+            substitution,
+            conditions: Vec::new(),
+            remainder: untouched,
+        }]);
+    }
+
+    let mut conditions = ceil_term(definition, &key);
+    extend_unique(&mut conditions, ceil_term(definition, &map));
+    for (map_key, _) in entries {
+        extend_unique(
+            &mut conditions,
+            [Predicate::Not(Box::new(Predicate::Equals(
+                key.clone(),
+                map_key.clone(),
+            )))],
+        );
+    }
+    if let Some(rest) = rest {
+        let membership =
+            Term::application(split.symbol, split.sort_arguments, vec![key, rest.clone()]);
+        extend_unique(
+            &mut conditions,
+            [Predicate::Equals(
+                membership,
+                Term::domain_value(Sort::simple("SortBool"), "false"),
+            )],
+        );
+    }
+    conditions.retain(|condition| {
+        !matches!(
+            predicates_truth(std::slice::from_ref(condition)),
+            Truth::True
+        )
+    });
+    if matches!(predicates_truth(&conditions), Truth::False) {
+        return Some(Vec::new());
+    }
+    Some(vec![PartialRuleMatch {
+        substitution,
+        conditions,
+        remainder: untouched,
+    }])
+}
+
+fn split_map_not_in_keys_pair(left: &Term, right: &Term) -> Option<MapNotInKeysSplit> {
+    if bool_domain_value(right) == Some(false)
+        && let Some((symbol, sort_arguments, key, map)) = map_in_keys_arguments(left)
+    {
+        return Some(MapNotInKeysSplit {
+            side: SplitSide::Pattern,
+            symbol,
+            sort_arguments,
+            key,
+            map,
+        });
+    }
+    if bool_domain_value(left) != Some(false) {
+        return None;
+    }
+    let (symbol, sort_arguments, key, map) = map_in_keys_arguments(right)?;
+    Some(MapNotInKeysSplit {
+        side: SplitSide::Subject,
+        symbol,
+        sort_arguments,
+        key,
+        map,
+    })
+}
+
+fn map_in_keys_arguments(term: &Term) -> Option<(Arc<Symbol>, Vec<Sort>, Term, Term)> {
+    let TermKind::Application {
+        symbol,
+        sort_arguments,
+        arguments,
+    } = term.kind()
+    else {
+        return None;
+    };
+    if symbol.attributes.hook.as_deref() != Some("MAP.in_keys") {
+        return None;
+    }
+    let [key, map] = arguments.as_slice() else {
+        return None;
+    };
+    Some((
+        symbol.clone(),
+        sort_arguments.clone(),
+        key.clone(),
+        map.clone(),
+    ))
 }
 
 /// Normalize unification of a hooked equality application with a Boolean domain value.
@@ -2170,6 +2335,49 @@ mod tests {
         )
         .expect("map definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN").expect("map definition should internalize")
+    }
+
+    #[cfg(feature = "z3")]
+    fn map_not_in_keys_rewrite_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortKey{} []
+                sort SortValue{} []
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                sort SortState{} []
+                symbol mapUnit{}() : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.unit")]
+                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                symbol inKeys{}(SortKey{}, SortMap{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("MAP.in_keys")]
+                symbol state{}(SortBool{}) : SortState{} [constructor{}()]
+                symbol done{}() : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        state{}(
+                            inKeys{}(
+                                KEY:SortKey{},
+                                mapConcat{}(
+                                    mapItem{}(ENTRY:SortKey{}, VALUE:SortValue{}),
+                                    REST:SortMap{}
+                                )
+                            )
+                        ),
+                        \top{SortState{}}()
+                    ),
+                    done{}()
+                ) [label{}("not-in-keys")]
+            endmodule []"#,
+        )
+        .expect("map not-in-keys definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("map not-in-keys definition should internalize")
     }
 
     fn overload_rewrite_definition() -> BackendDefinition {
@@ -4004,5 +4212,49 @@ mod tests {
                 .iter()
                 .all(|branch| branch.pattern.constraints.is_empty())
         );
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn decomposes_false_map_membership_over_known_entries_and_a_remainder() {
+        let definition = map_not_in_keys_rewrite_definition();
+        let subject = Pattern {
+            term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("false"))"#),
+            constraints: Vec::new(),
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch { branches, .. } =
+            rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("false map membership should produce a constrained rewrite branch");
+        };
+        let [branch] = branches.as_slice() else {
+            panic!("expected one map membership branch, found {branches:?}");
+        };
+        assert!(branch.pattern.constraints.iter().any(|condition| {
+            matches!(condition, Predicate::Not(inner) if matches!(inner.as_ref(), Predicate::Equals(..)))
+        }));
+        let membership_conditions = branch
+            .pattern
+            .constraints
+            .iter()
+            .filter(|condition| {
+                let term = match condition {
+                    Predicate::Equals(left, _) => Some(left),
+                    Predicate::Not(inner) => match inner.as_ref() {
+                        Predicate::Term(term) => Some(term),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                term.is_some_and(|term| {
+                    matches!(term.kind(), TermKind::Application { symbol, .. }
+                        if symbol.attributes.hook.as_deref() == Some("MAP.in_keys"))
+                })
+            })
+            .count();
+        assert_eq!(membership_conditions, 2);
     }
 }
