@@ -10,7 +10,7 @@ use crate::{
         SimplificationError, SimplificationOptions, simplify_predicates_with_solver,
         simplify_with_solver,
     },
-    smt::{NoSolver, SmtError, SmtSolver, Validity},
+    smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, substitute},
     term::{Sort, Term, TermKind, Variable},
 };
@@ -62,6 +62,11 @@ pub enum IndeterminateReason {
     Smt {
         rule_id: String,
         error: SmtError,
+    },
+    Remainder {
+        rule_ids: Vec<String>,
+        predicates: Vec<Predicate>,
+        satisfiability: Result<Satisfiability, SmtError>,
     },
 }
 
@@ -309,13 +314,41 @@ fn rewrite_step_with_options(
                 }
             }
         }
+        let remainder = applied
+            .iter()
+            .map(|application| application.remainder.clone())
+            .collect::<Vec<_>>();
+        let remainder_result = if applied.is_empty() || predicates_truth(&remainder) == Truth::False
+        {
+            Ok(Satisfiability::Unsat)
+        } else {
+            let mut predicates = pattern.constraints.clone();
+            predicates.extend(remainder.iter().cloned());
+            solver.is_sat(&predicates, &Substitution::new())
+        };
+        if !matches!(remainder_result, Ok(Satisfiability::Unsat)) && !applied.is_empty() {
+            return RewriteResult::Indeterminate {
+                pattern: pattern.clone(),
+                reason: IndeterminateReason::Remainder {
+                    rule_ids: applied
+                        .iter()
+                        .map(|application| application.applied.unique_id.clone())
+                        .collect(),
+                    predicates: remainder,
+                    satisfiability: remainder_result,
+                },
+            };
+        }
         match applied.len() {
             0 => {}
-            1 => return RewriteResult::Finished(applied.pop().unwrap()),
+            1 => return RewriteResult::Finished(applied.pop().unwrap().applied),
             _ => {
                 return RewriteResult::Branch {
                     original: pattern.clone(),
-                    branches: applied,
+                    branches: applied
+                        .into_iter()
+                        .map(|application| application.applied)
+                        .collect(),
                 };
             }
         }
@@ -353,8 +386,13 @@ fn applicable_groups(
 enum RuleAttempt {
     NotApplicable,
     Trivial,
-    Applied(AppliedRule),
+    Applied(RuleApplication),
     Indeterminate(IndeterminateReason),
+}
+
+struct RuleApplication {
+    applied: AppliedRule,
+    remainder: Predicate,
 }
 
 fn apply_rule(
@@ -376,6 +414,33 @@ fn apply_rule(
             substitution,
             remainder,
         } => {
+            let requires = substitute_predicates(&rule.requires, &substitution);
+            let requires = simplify_predicates_with_solver(
+                definition,
+                &requires,
+                &pattern.constraints,
+                simplification_options,
+                solver,
+            )
+            .unwrap_or(requires);
+            if predicates_truth(&requires) == Truth::False {
+                return RuleAttempt::NotApplicable;
+            }
+            let unclear = requires
+                .into_iter()
+                .filter(|predicate| {
+                    predicates_truth(std::slice::from_ref(predicate)) == Truth::Unknown
+                        && !pattern.constraints.contains(predicate)
+                })
+                .collect::<Vec<_>>();
+            if !unclear.is_empty()
+                && matches!(
+                    solver.check_predicates(&pattern.constraints, &Substitution::new(), &unclear,),
+                    Ok(Validity::Invalid)
+                )
+            {
+                return RuleAttempt::NotApplicable;
+            }
             return RuleAttempt::Indeterminate(IndeterminateReason::Match {
                 rule_id: rule.attributes.unique_id.clone(),
                 substitution,
@@ -400,45 +465,50 @@ fn apply_rule(
         solver,
     )
     .unwrap_or(requires);
-    match predicates_truth(&requires) {
-        Truth::False => return RuleAttempt::NotApplicable,
-        Truth::Unknown => {
-            if !requires
-                .iter()
-                .all(|predicate| pattern.constraints.contains(predicate))
-            {
-                match solver.check_predicates(&pattern.constraints, &Substitution::new(), &requires)
-                {
-                    Ok(Validity::Valid) => {}
-                    Ok(Validity::Invalid) => return RuleAttempt::NotApplicable,
-                    Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => {
-                        return RuleAttempt::Indeterminate(IndeterminateReason::Requires {
-                            rule_id: rule.attributes.unique_id.clone(),
-                            predicates: requires,
-                        });
-                    }
-                    Ok(Validity::InconsistentGroundTruth) => {
-                        return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
-                            rule_id: rule.attributes.unique_id.clone(),
-                            error: SmtError::InconsistentGroundTruth,
-                        });
-                    }
-                    Ok(Validity::Unknown(reason)) => {
-                        return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
-                            rule_id: rule.attributes.unique_id.clone(),
-                            error: SmtError::Unknown(reason),
-                        });
-                    }
-                    Err(error) => {
-                        return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
-                            rule_id: rule.attributes.unique_id.clone(),
-                            error,
-                        });
-                    }
-                }
+    if predicates_truth(&requires) == Truth::False {
+        return RuleAttempt::NotApplicable;
+    }
+    let mut unclear_requires = requires
+        .into_iter()
+        .filter(|predicate| {
+            predicates_truth(std::slice::from_ref(predicate)) == Truth::Unknown
+                && !pattern.constraints.contains(predicate)
+        })
+        .collect::<Vec<_>>();
+    if !unclear_requires.is_empty() {
+        match solver.check_predicates(
+            &pattern.constraints,
+            &Substitution::new(),
+            &unclear_requires,
+        ) {
+            Ok(Validity::Valid) => unclear_requires.clear(),
+            Ok(Validity::Invalid) => return RuleAttempt::NotApplicable,
+            Ok(Validity::Indeterminate) => {}
+            Err(SmtError::Unavailable) => {
+                return RuleAttempt::Indeterminate(IndeterminateReason::Requires {
+                    rule_id: rule.attributes.unique_id.clone(),
+                    predicates: unclear_requires,
+                });
+            }
+            Ok(Validity::InconsistentGroundTruth) => {
+                return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
+                    rule_id: rule.attributes.unique_id.clone(),
+                    error: SmtError::InconsistentGroundTruth,
+                });
+            }
+            Ok(Validity::Unknown(reason)) => {
+                return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
+                    rule_id: rule.attributes.unique_id.clone(),
+                    error: SmtError::Unknown(reason),
+                });
+            }
+            Err(error) => {
+                return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
+                    rule_id: rule.attributes.unique_id.clone(),
+                    error,
+                });
             }
         }
-        Truth::True => {}
     }
 
     let RuleRhs::Term(rhs) = &rule.rhs else {
@@ -450,10 +520,12 @@ fn apply_rule(
         &substitute_predicates(&rule.ensures, &substitution),
         &existential_substitution,
     );
+    let mut condition_knowledge = pattern.constraints.clone();
+    extend_unique(&mut condition_knowledge, unclear_requires.iter().cloned());
     let ensures = simplify_predicates_with_solver(
         definition,
         &ensures,
-        &pattern.constraints,
+        &condition_knowledge,
         simplification_options,
         solver,
     )
@@ -462,7 +534,7 @@ fn apply_rule(
         Truth::False => return RuleAttempt::Trivial,
         Truth::True => {}
         Truth::Unknown => {
-            match solver.check_predicates(&pattern.constraints, &Substitution::new(), &ensures) {
+            match solver.check_predicates(&condition_knowledge, &Substitution::new(), &ensures) {
                 Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
                     return RuleAttempt::Trivial;
                 }
@@ -483,16 +555,41 @@ fn apply_rule(
         }
     }
     let mut constraints = pattern.constraints.clone();
-    constraints.extend(ensures);
-    RuleAttempt::Applied(AppliedRule {
-        pattern: Pattern {
-            term: rhs,
-            constraints,
+    extend_unique(&mut constraints, unclear_requires.iter().cloned());
+    extend_unique(&mut constraints, ensures);
+    let remainder = if unclear_requires.is_empty() {
+        Predicate::False
+    } else {
+        Predicate::Not(Box::new(conjoin(unclear_requires)))
+    };
+    RuleAttempt::Applied(RuleApplication {
+        applied: AppliedRule {
+            pattern: Pattern {
+                term: rhs,
+                constraints,
+            },
+            label: rule.attributes.label.clone(),
+            unique_id: rule.attributes.unique_id.clone(),
+            substitution,
         },
-        label: rule.attributes.label.clone(),
-        unique_id: rule.attributes.unique_id.clone(),
-        substitution,
+        remainder,
     })
+}
+
+fn conjoin(mut predicates: Vec<Predicate>) -> Predicate {
+    match predicates.len() {
+        0 => Predicate::True,
+        1 => predicates.pop().unwrap(),
+        _ => Predicate::And(predicates),
+    }
+}
+
+fn extend_unique(predicates: &mut Vec<Predicate>, added: impl IntoIterator<Item = Predicate>) {
+    for predicate in added {
+        if !predicates.contains(&predicate) {
+            predicates.push(predicate);
+        }
+    }
 }
 
 pub(crate) fn check_concreteness(
@@ -751,6 +848,32 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "z3")]
+    fn symbolic_remainder_definition(rules: &str) -> BackendDefinition {
+        let source = r#"[]
+            module MAIN
+                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol wrap{}(SortInt{}) : SortInt{} [constructor{}()]
+                symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("<")]
+                $RULES
+            endmodule []"#
+            .replace("$RULES", rules);
+        let syntax = parse_definition(&source).expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    #[cfg(feature = "z3")]
+    fn symbolic_subject(definition: &BackendDefinition) -> Pattern {
+        Pattern {
+            term: definition
+                .internalize_term(&parse_pattern("wrap{}(X:SortInt{})").unwrap(), &[])
+                .unwrap(),
+            constraints: Vec::new(),
+        }
+    }
+
     fn rewritten_value(result: RewriteResult) -> String {
         let RewriteResult::Finished(applied) = result else {
             panic!("expected finished rewrite, found {result:?}");
@@ -890,6 +1013,38 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn false_requires_prune_a_rule_even_when_matching_is_indeterminate() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(X:SortS{}),
+                    \bottom{SortS{}}()
+                ),
+                \dv{SortS{}}("unreachable")
+            ) [label{}("false-requires")]
+            "#,
+        );
+        let rule = definition
+            .rewrite_theory
+            .values()
+            .flat_map(|groups| groups.values())
+            .flatten()
+            .next()
+            .expect("rewrite rule should be indexed");
+        let pattern = Pattern {
+            term: rule.lhs.clone(),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        assert!(matches!(
+            rewrite_step(&definition, &pattern, &mut fresh),
+            RewriteResult::Stuck(_)
+        ));
+    }
+
     #[cfg(feature = "z3")]
     #[test]
     fn z3_proves_or_refutes_symbolic_requires_before_priority_fallback() {
@@ -945,6 +1100,96 @@ mod tests {
 
         assert_eq!(run("5"), "high");
         assert_eq!(run("15"), "fallback");
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn rejects_a_satisfiable_remainder_from_one_symbolic_rule() {
+        let definition = symbolic_remainder_definition(
+            r#"
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(
+                    wrap{}(X:SortInt{}),
+                    \equals{SortBool{}, SortInt{}}(
+                        lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                \dv{SortInt{}}("negative")
+            ) [label{}("negative")]
+            "#,
+        );
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        assert!(matches!(
+            rewrite_step_with_solver(
+                &definition,
+                &symbolic_subject(&definition),
+                &mut fresh,
+                &solver,
+            ),
+            RewriteResult::Indeterminate {
+                reason: IndeterminateReason::Remainder {
+                    rule_ids,
+                    satisfiability: Ok(Satisfiability::Sat),
+                    ..
+                },
+                ..
+            } if rule_ids == ["negative"]
+        ));
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn branches_only_after_complementary_rules_make_the_remainder_unsatisfiable() {
+        let definition = symbolic_remainder_definition(
+            r#"
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(
+                    wrap{}(X:SortInt{}),
+                    \equals{SortBool{}, SortInt{}}(
+                        lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                \dv{SortInt{}}("negative")
+            ) [label{}("negative")]
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(
+                    wrap{}(X:SortInt{}),
+                    \equals{SortBool{}, SortInt{}}(
+                        lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("false")
+                    )
+                ),
+                \dv{SortInt{}}("nonnegative")
+            ) [label{}("nonnegative")]
+            "#,
+        );
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch { branches, .. } = rewrite_step_with_solver(
+            &definition,
+            &symbolic_subject(&definition),
+            &mut fresh,
+            &solver,
+        ) else {
+            panic!("complementary rules should form a complete branch");
+        };
+        assert_eq!(
+            branches
+                .iter()
+                .map(|branch| branch.label.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["negative", "nonnegative"]
+        );
+        assert!(
+            branches
+                .iter()
+                .all(|branch| branch.pattern.constraints.len() == 1)
+        );
     }
 
     #[test]
