@@ -6,6 +6,7 @@ use crate::{
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms},
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
+    simplify::{SimplificationError, SimplificationOptions, simplify},
     substitution::{Substitution, substitute},
     term::{Sort, Term, TermKind, Variable},
 };
@@ -59,19 +60,30 @@ pub enum IndeterminateReason {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExecutionOptions {
     pub max_depth: u64,
+    pub max_simplification_iterations: usize,
 }
 
 impl Default for ExecutionOptions {
     fn default() -> Self {
-        Self { max_depth: 1_000 }
+        Self {
+            max_depth: 1_000,
+            max_simplification_iterations: 100,
+        }
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TraceEntry {
     pub depth: u64,
+    pub kind: TraceKind,
     pub label: Option<String>,
     pub unique_id: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TraceKind {
+    Simplification,
+    Rewrite,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -80,6 +92,7 @@ pub enum HaltReason {
     Trivial,
     DepthBound,
     Indeterminate(IndeterminateReason),
+    Simplification(SimplificationError),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -107,7 +120,41 @@ pub fn execute(
         trace: Vec::new(),
     }]);
     let mut leaves = Vec::new();
-    while let Some(state) = pending.pop_front() {
+    while let Some(mut state) = pending.pop_front() {
+        match simplify(
+            definition,
+            &state.pattern.term,
+            SimplificationOptions {
+                max_iterations: options.max_simplification_iterations,
+            },
+        ) {
+            Ok(simplified) => {
+                state.pattern.term = simplified.term;
+                state.pattern.constraints.extend(simplified.constraints);
+                state
+                    .trace
+                    .extend(
+                        simplified
+                            .applied_rules
+                            .into_iter()
+                            .map(|unique_id| TraceEntry {
+                                depth: state.depth,
+                                kind: TraceKind::Simplification,
+                                label: None,
+                                unique_id,
+                            }),
+                    );
+            }
+            Err(error) => {
+                leaves.push(ExecutionLeaf {
+                    pattern: state.pattern,
+                    depth: state.depth,
+                    trace: state.trace,
+                    halt_reason: HaltReason::Simplification(error),
+                });
+                continue;
+            }
+        }
         if state.depth >= options.max_depth {
             leaves.push(ExecutionLeaf {
                 pattern: state.pattern,
@@ -152,6 +199,7 @@ pub fn execute(
 fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> ExecutionState {
     trace.push(TraceEntry {
         depth: depth + 1,
+        kind: TraceKind::Rewrite,
         label: applied.label,
         unique_id: applied.unique_id,
     });
@@ -169,7 +217,7 @@ struct ExecutionState {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-enum Truth {
+pub(crate) enum Truth {
     True,
     False,
     #[default]
@@ -319,7 +367,10 @@ fn apply_rule(
     })
 }
 
-fn check_concreteness(rule: &RewriteRule, substitution: &Substitution) -> Option<Variable> {
+pub(crate) fn check_concreteness(
+    rule: &RewriteRule,
+    substitution: &Substitution,
+) -> Option<Variable> {
     let constrained = match &rule.attributes.concreteness {
         Concreteness::Unconstrained => return None,
         Concreteness::All(kind) => rule
@@ -338,7 +389,12 @@ fn check_concreteness(rule: &RewriteRule, substitution: &Substitution) -> Option
                     .variables
                     .iter()
                     .find(|variable| {
-                        variable.name.as_ref().strip_prefix("Rule#") == Some(name.as_ref())
+                        variable
+                            .name
+                            .as_ref()
+                            .strip_prefix("Rule#")
+                            .or_else(|| variable.name.as_ref().strip_prefix("Eq#"))
+                            == Some(name.as_ref())
                             && sort_name(&variable.sort) == Some(sort.as_ref())
                     })
                     .cloned()
@@ -395,7 +451,10 @@ fn freshen_existentials(
         .collect()
 }
 
-fn substitute_predicates(predicates: &[Predicate], substitution: &Substitution) -> Vec<Predicate> {
+pub(crate) fn substitute_predicates(
+    predicates: &[Predicate],
+    substitution: &Substitution,
+) -> Vec<Predicate> {
     predicates
         .iter()
         .map(|predicate| substitute_predicate(predicate, substitution))
@@ -453,7 +512,7 @@ fn without_variable(substitution: &Substitution, variable: &Variable) -> Substit
     substitution
 }
 
-fn predicates_truth(predicates: &[Predicate]) -> Truth {
+pub(crate) fn predicates_truth(predicates: &[Predicate]) -> Truth {
     predicates.iter().fold(Truth::True, |result, predicate| {
         and_truth(result, predicate_truth(predicate))
     })
@@ -754,7 +813,10 @@ mod tests {
         let result = execute(
             &definition,
             subject(&definition, "value"),
-            ExecutionOptions { max_depth: 3 },
+            ExecutionOptions {
+                max_depth: 3,
+                ..ExecutionOptions::default()
+            },
         );
         assert_eq!(result.leaves.len(), 1);
         assert_eq!(result.leaves[0].depth, 3);

@@ -4,5 +4,6 @@ pub mod definition;
 pub mod matching;
 pub mod rewrite;
 pub mod rule;
+pub mod simplify;
 pub mod substitution;
 pub mod term;
