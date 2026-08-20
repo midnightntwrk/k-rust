@@ -10,6 +10,7 @@ use std::{
 use k_rust_kore::kore::ast as kore;
 
 use crate::{
+    alias::{AliasDefinition, collect as collect_aliases, expand as expand_aliases},
     claim::{ClaimError, ReachabilityClaim, internalize_reachability_claim},
     matching::SortGraph,
     rule::{
@@ -123,6 +124,7 @@ pub struct BackendDefinition {
     pub modules: BTreeSet<Name>,
     pub sorts: BTreeMap<Name, SortInfo>,
     pub symbols: BTreeMap<Name, Arc<Symbol>>,
+    aliases: BTreeMap<String, AliasDefinition>,
     pub sort_graph: SortGraph,
     pub overloads: OverloadGraph,
     pub axioms: Vec<PendingAxiom>,
@@ -142,6 +144,7 @@ pub enum DefinitionError {
     DuplicateModule(String),
     DuplicateSort(String),
     DuplicateSymbol(String),
+    DuplicateAlias(String),
     DuplicateParameter(String),
     UnknownSort(String),
     UnknownSymbol(String),
@@ -160,6 +163,16 @@ pub enum DefinitionError {
         expected: usize,
         actual: usize,
     },
+    WrongAliasSortArgumentCount {
+        alias: String,
+        expected: usize,
+        actual: usize,
+    },
+    WrongAliasArity {
+        alias: String,
+        expected: usize,
+        actual: usize,
+    },
     IncorrectArgumentSort {
         symbol: String,
         index: usize,
@@ -170,6 +183,8 @@ pub enum DefinitionError {
     InvalidSortParameter,
     MalformedAttribute(String),
     MalformedCollection(String),
+    MalformedAlias(String),
+    AliasCycle(Vec<String>),
     ExpectedTerm(&'static str),
     EmptyAssociativeApplication(String),
     Axiom(AxiomError),
@@ -208,6 +223,8 @@ impl BackendDefinition {
             &mut ordered,
         )?;
 
+        let aliases = collect_aliases(&ordered)?;
+
         let mut sorts = BTreeMap::new();
         for module in &ordered {
             for sentence in &module.sentences {
@@ -232,6 +249,7 @@ impl BackendDefinition {
                 }
             }
         }
+        validate_alias_declarations(&ordered, &sorts)?;
 
         let mut symbols = BTreeMap::new();
         for module in &ordered {
@@ -288,17 +306,17 @@ impl BackendDefinition {
         let mut overloads = Vec::new();
         for module in &ordered {
             for sentence in &module.sentences {
-                let (target, parameters, pattern, attributes) = match sentence {
+                let (target, parameters, pattern, attributes, expand) = match sentence {
                     kore::Sentence::Axiom {
                         parameters,
                         pattern,
                         attributes,
-                    } => (&mut axioms, parameters, pattern, attributes),
+                    } => (&mut axioms, parameters, pattern, attributes, true),
                     kore::Sentence::Claim {
                         parameters,
                         pattern,
                         attributes,
-                    } => (&mut claims, parameters, pattern, attributes),
+                    } => (&mut claims, parameters, pattern, attributes, false),
                     _ => continue,
                 };
                 reject_duplicates(parameters)?;
@@ -311,7 +329,11 @@ impl BackendDefinition {
                 target.push(PendingAxiom {
                     module: module.name.as_str().into(),
                     parameters: parameters.iter().cloned().map(Into::into).collect(),
-                    pattern: (**pattern).clone(),
+                    pattern: if expand {
+                        expand_aliases(pattern, &aliases)?
+                    } else {
+                        (**pattern).clone()
+                    },
                     attributes: attributes.clone(),
                 });
             }
@@ -348,6 +370,7 @@ impl BackendDefinition {
                 .collect(),
             sorts,
             symbols,
+            aliases,
             sort_graph,
             overloads,
             axioms,
@@ -395,7 +418,8 @@ impl BackendDefinition {
         sort_variables: &[Name],
     ) -> Result<Term, DefinitionError> {
         let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
-        self.internalize_term_with(pattern, &known)
+        let pattern = expand_aliases(pattern, &self.aliases)?;
+        self.internalize_term_with(&pattern, &known)
     }
 
     pub(crate) fn internalize_syntax_sort(
@@ -546,6 +570,37 @@ impl BackendDefinition {
         }
         Ok(Term::application(symbol, sort_arguments, arguments))
     }
+}
+
+fn validate_alias_declarations(
+    modules: &[&kore::Module],
+    sorts: &BTreeMap<Name, SortInfo>,
+) -> Result<(), DefinitionError> {
+    for module in modules {
+        for sentence in &module.sentences {
+            let kore::Sentence::AliasDeclaration {
+                alias,
+                argument_sorts,
+                result_sort,
+                ..
+            } = sentence
+            else {
+                continue;
+            };
+            let known = alias
+                .sort_parameters
+                .iter()
+                .map(|sort| match sort {
+                    kore::Sort::Variable(name) => Ok(Name::from(name.as_str())),
+                    kore::Sort::Application { .. } => Err(DefinitionError::InvalidSortParameter),
+                })
+                .collect::<Result<BTreeSet<_>, _>>()?;
+            for sort in argument_sorts.iter().chain([result_sort]) {
+                internalize_sort(sort, sorts, &known)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn visit_module<'a>(
@@ -1274,20 +1329,89 @@ mod tests {
     }
 
     #[test]
-    fn ignores_claim_only_alias_declarations_like_the_reference_backend() {
+    fn expands_parametric_aliases_without_treating_them_as_symbols() {
         let syntax = parse_definition(indoc! {r#"
             []
             module MAIN
                 sort SortValue{} []
-                alias identity{}(SortValue{}) : SortValue{}
-                    where identity{}(X:SortValue{}) := X:SortValue{} []
+                symbol value{}() : SortValue{} [constructor{}()]
+                alias identity{S}(S) : S
+                    where identity{S}(X:S) := X:S []
             endmodule []
         "#})
         .expect("definition should parse");
 
         let definition = BackendDefinition::internalize(&syntax, "MAIN")
-            .expect("claim-only aliases should not prevent executable definition loading");
+            .expect("alias definition should internalize");
         assert!(!definition.symbols.contains_key("identity"));
+        let application = parse_pattern("identity{SortValue{}}(value{}())")
+            .expect("alias application should parse");
+        assert_eq!(
+            definition.internalize_term(&application, &[]).unwrap(),
+            definition
+                .internalize_term(&parse_pattern("value{}()").unwrap(), &[])
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn expands_aliases_before_classifying_rewrite_axioms() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortValue{} []
+                sort SortState{} []
+                symbol value{}() : SortValue{} [constructor{}()]
+                symbol state{}(SortValue{}) : SortState{} [constructor{}()]
+                symbol done{}() : SortState{} [constructor{}()]
+                alias stateAlias{}(SortValue{}) : SortState{}
+                    where stateAlias{}(X:SortValue{}) := state{}(X:SortValue{}) []
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        stateAlias{}(value{}()),
+                        \top{SortState{}}()
+                    ),
+                    done{}()
+                ) [label{}("aliased-rewrite")]
+            endmodule []
+        "#})
+        .expect("aliased rewrite definition should parse");
+
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("aliased rewrite should internalize");
+        let rules = definition
+            .rewrite_theory
+            .values()
+            .flat_map(|groups| groups.values())
+            .flatten()
+            .collect::<Vec<_>>();
+        let [rule] = rules.as_slice() else {
+            panic!("expected one expanded rewrite rule, found {rules:?}");
+        };
+        assert_eq!(
+            rule.lhs,
+            definition
+                .internalize_term(&parse_pattern("state{}(value{}())").unwrap(), &[])
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn rejects_recursive_alias_expansion_with_the_cycle() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortValue{} []
+                symbol value{}() : SortValue{} [constructor{}()]
+                alias loop{}(SortValue{}) : SortValue{}
+                    where loop{}(X:SortValue{}) := loop{}(X:SortValue{}) []
+            endmodule []
+        "#})
+        .expect("recursive alias definition should parse");
+        assert_eq!(
+            BackendDefinition::internalize(&syntax, "MAIN").unwrap_err(),
+            DefinitionError::AliasCycle(vec!["loop".into(), "loop".into()])
+        );
     }
 
     #[test]

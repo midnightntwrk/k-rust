@@ -1,0 +1,478 @@
+//! Validated expansion of KORE alias applications.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use k_rust_kore::kore::ast as kore;
+
+use crate::definition::DefinitionError;
+
+#[derive(Clone, Debug)]
+pub(crate) struct AliasDefinition {
+    sort_parameters: Vec<String>,
+    parameters: Vec<kore::Variable>,
+    right: kore::Pattern,
+}
+
+pub(crate) fn collect(
+    modules: &[&kore::Module],
+) -> Result<BTreeMap<String, AliasDefinition>, DefinitionError> {
+    let mut aliases = BTreeMap::new();
+    for module in modules {
+        for sentence in &module.sentences {
+            let kore::Sentence::AliasDeclaration {
+                alias,
+                argument_sorts,
+                left,
+                right,
+                ..
+            } = sentence
+            else {
+                continue;
+            };
+            let sort_parameters = alias
+                .sort_parameters
+                .iter()
+                .map(|sort| match sort {
+                    kore::Sort::Variable(name) => Ok(name.clone()),
+                    kore::Sort::Application { .. } => Err(DefinitionError::InvalidSortParameter),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if let Some(duplicate) = first_duplicate(sort_parameters.iter()) {
+                return Err(DefinitionError::DuplicateParameter(duplicate.clone()));
+            }
+            let kore::Pattern::Application { symbol, arguments } = left.as_ref() else {
+                return Err(DefinitionError::MalformedAlias(format!(
+                    "alias {} must have an application on the left",
+                    alias.name
+                )));
+            };
+            if symbol.name != alias.name || symbol.sort_parameters != alias.sort_parameters {
+                return Err(DefinitionError::MalformedAlias(format!(
+                    "alias {} has a mismatched left-hand symbol",
+                    alias.name
+                )));
+            }
+            if arguments.len() != argument_sorts.len() {
+                return Err(DefinitionError::WrongAliasArity {
+                    alias: alias.name.clone(),
+                    expected: argument_sorts.len(),
+                    actual: arguments.len(),
+                });
+            }
+            let parameters = arguments
+                .iter()
+                .zip(argument_sorts)
+                .map(|(argument, expected_sort)| {
+                    let kore::Pattern::Variable(variable) = argument else {
+                        return Err(DefinitionError::MalformedAlias(format!(
+                            "alias {} left-hand arguments must be variables",
+                            alias.name
+                        )));
+                    };
+                    if &variable.sort != expected_sort {
+                        return Err(DefinitionError::MalformedAlias(format!(
+                            "alias {} left-hand variable {} has the wrong sort",
+                            alias.name, variable.name
+                        )));
+                    }
+                    Ok(variable.clone())
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if let Some(duplicate) =
+                first_duplicate(parameters.iter().map(|variable| &variable.name))
+            {
+                return Err(DefinitionError::DuplicateParameter(duplicate.clone()));
+            }
+            let definition = AliasDefinition {
+                sort_parameters,
+                parameters,
+                right: (**right).clone(),
+            };
+            if aliases.insert(alias.name.clone(), definition).is_some() {
+                return Err(DefinitionError::DuplicateAlias(alias.name.clone()));
+            }
+        }
+    }
+    validate_expansions(&aliases)?;
+    Ok(aliases)
+}
+
+fn first_duplicate<'a>(values: impl IntoIterator<Item = &'a String>) -> Option<&'a String> {
+    let mut seen = BTreeSet::new();
+    values.into_iter().find(|value| !seen.insert(*value))
+}
+
+fn validate_expansions(aliases: &BTreeMap<String, AliasDefinition>) -> Result<(), DefinitionError> {
+    for (name, alias) in aliases {
+        let application = kore::Pattern::Application {
+            symbol: kore::Symbol {
+                name: name.clone(),
+                sort_parameters: alias
+                    .sort_parameters
+                    .iter()
+                    .cloned()
+                    .map(kore::Sort::Variable)
+                    .collect(),
+            },
+            arguments: alias
+                .parameters
+                .iter()
+                .cloned()
+                .map(kore::Pattern::Variable)
+                .collect(),
+        };
+        expand(&application, aliases)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn expand(
+    pattern: &kore::Pattern,
+    aliases: &BTreeMap<String, AliasDefinition>,
+) -> Result<kore::Pattern, DefinitionError> {
+    expand_with(
+        pattern,
+        aliases,
+        &BTreeMap::new(),
+        &BTreeMap::new(),
+        &mut Vec::new(),
+    )
+}
+
+fn expand_with(
+    pattern: &kore::Pattern,
+    aliases: &BTreeMap<String, AliasDefinition>,
+    sorts: &BTreeMap<String, kore::Sort>,
+    terms: &BTreeMap<kore::Variable, kore::Pattern>,
+    stack: &mut Vec<String>,
+) -> Result<kore::Pattern, DefinitionError> {
+    use kore::Pattern;
+
+    let recurse = |pattern: &Pattern, stack: &mut Vec<String>| {
+        expand_with(pattern, aliases, sorts, terms, stack)
+    };
+    match pattern {
+        Pattern::String(value) => Ok(Pattern::String(value.clone())),
+        Pattern::Variable(variable) => Ok(terms
+            .get(variable)
+            .cloned()
+            .unwrap_or_else(|| Pattern::Variable(substitute_variable(variable, sorts)))),
+        Pattern::Application { symbol, arguments } => {
+            let symbol = substitute_symbol(symbol, sorts);
+            let arguments = arguments
+                .iter()
+                .map(|argument| recurse(argument, stack))
+                .collect::<Result<Vec<_>, _>>()?;
+            let Some(alias) = aliases.get(&symbol.name) else {
+                return Ok(Pattern::Application { symbol, arguments });
+            };
+            if symbol.sort_parameters.len() != alias.sort_parameters.len() {
+                return Err(DefinitionError::WrongAliasSortArgumentCount {
+                    alias: symbol.name,
+                    expected: alias.sort_parameters.len(),
+                    actual: symbol.sort_parameters.len(),
+                });
+            }
+            if arguments.len() != alias.parameters.len() {
+                return Err(DefinitionError::WrongAliasArity {
+                    alias: symbol.name,
+                    expected: alias.parameters.len(),
+                    actual: arguments.len(),
+                });
+            }
+            if let Some(start) = stack.iter().position(|name| name == &symbol.name) {
+                let mut cycle = stack[start..].to_vec();
+                cycle.push(symbol.name);
+                return Err(DefinitionError::AliasCycle(cycle));
+            }
+            let alias_sorts = alias
+                .sort_parameters
+                .iter()
+                .cloned()
+                .zip(symbol.sort_parameters)
+                .collect::<BTreeMap<_, _>>();
+            let alias_terms = alias
+                .parameters
+                .iter()
+                .cloned()
+                .zip(arguments)
+                .collect::<BTreeMap<_, _>>();
+            stack.push(symbol.name);
+            let result = expand_with(&alias.right, aliases, &alias_sorts, &alias_terms, stack);
+            stack.pop();
+            result
+        }
+        Pattern::Top { sort } => Ok(Pattern::Top {
+            sort: substitute_sort(sort, sorts),
+        }),
+        Pattern::Bottom { sort } => Ok(Pattern::Bottom {
+            sort: substitute_sort(sort, sorts),
+        }),
+        Pattern::And { sort, arguments } => Ok(Pattern::And {
+            sort: substitute_sort(sort, sorts),
+            arguments: expand_many(arguments, aliases, sorts, terms, stack)?,
+        }),
+        Pattern::Or { sort, arguments } => Ok(Pattern::Or {
+            sort: substitute_sort(sort, sorts),
+            arguments: expand_many(arguments, aliases, sorts, terms, stack)?,
+        }),
+        Pattern::Not { sort, argument } => Ok(Pattern::Not {
+            sort: substitute_sort(sort, sorts),
+            argument: Box::new(recurse(argument, stack)?),
+        }),
+        Pattern::Next { sort, argument } => Ok(Pattern::Next {
+            sort: substitute_sort(sort, sorts),
+            argument: Box::new(recurse(argument, stack)?),
+        }),
+        Pattern::Implies { sort, left, right } => Ok(Pattern::Implies {
+            sort: substitute_sort(sort, sorts),
+            left: Box::new(recurse(left, stack)?),
+            right: Box::new(recurse(right, stack)?),
+        }),
+        Pattern::Iff { sort, left, right } => Ok(Pattern::Iff {
+            sort: substitute_sort(sort, sorts),
+            left: Box::new(recurse(left, stack)?),
+            right: Box::new(recurse(right, stack)?),
+        }),
+        Pattern::Rewrites { sort, left, right } => Ok(Pattern::Rewrites {
+            sort: substitute_sort(sort, sorts),
+            left: Box::new(recurse(left, stack)?),
+            right: Box::new(recurse(right, stack)?),
+        }),
+        Pattern::Exists {
+            sort,
+            variable,
+            body,
+        } => expand_binder(
+            BinderKind::Exists,
+            Some(sort),
+            variable,
+            body,
+            aliases,
+            sorts,
+            terms,
+            stack,
+        ),
+        Pattern::Forall {
+            sort,
+            variable,
+            body,
+        } => expand_binder(
+            BinderKind::Forall,
+            Some(sort),
+            variable,
+            body,
+            aliases,
+            sorts,
+            terms,
+            stack,
+        ),
+        Pattern::Mu { variable, body } => expand_binder(
+            BinderKind::Mu,
+            None,
+            variable,
+            body,
+            aliases,
+            sorts,
+            terms,
+            stack,
+        ),
+        Pattern::Nu { variable, body } => expand_binder(
+            BinderKind::Nu,
+            None,
+            variable,
+            body,
+            aliases,
+            sorts,
+            terms,
+            stack,
+        ),
+        Pattern::Ceil {
+            operand_sort,
+            result_sort,
+            argument,
+        } => Ok(Pattern::Ceil {
+            operand_sort: substitute_sort(operand_sort, sorts),
+            result_sort: substitute_sort(result_sort, sorts),
+            argument: Box::new(recurse(argument, stack)?),
+        }),
+        Pattern::Floor {
+            operand_sort,
+            result_sort,
+            argument,
+        } => Ok(Pattern::Floor {
+            operand_sort: substitute_sort(operand_sort, sorts),
+            result_sort: substitute_sort(result_sort, sorts),
+            argument: Box::new(recurse(argument, stack)?),
+        }),
+        Pattern::Equals {
+            operand_sort,
+            result_sort,
+            left,
+            right,
+        } => Ok(Pattern::Equals {
+            operand_sort: substitute_sort(operand_sort, sorts),
+            result_sort: substitute_sort(result_sort, sorts),
+            left: Box::new(recurse(left, stack)?),
+            right: Box::new(recurse(right, stack)?),
+        }),
+        Pattern::In {
+            operand_sort,
+            result_sort,
+            left,
+            right,
+        } => Ok(Pattern::In {
+            operand_sort: substitute_sort(operand_sort, sorts),
+            result_sort: substitute_sort(result_sort, sorts),
+            left: Box::new(recurse(left, stack)?),
+            right: Box::new(recurse(right, stack)?),
+        }),
+        Pattern::DomainValue { sort, value } => Ok(Pattern::DomainValue {
+            sort: substitute_sort(sort, sorts),
+            value: value.clone(),
+        }),
+        Pattern::AssociativeApplication {
+            associativity,
+            symbol,
+            arguments,
+        } => Ok(Pattern::AssociativeApplication {
+            associativity: *associativity,
+            symbol: substitute_symbol(symbol, sorts),
+            arguments: expand_many(arguments, aliases, sorts, terms, stack)?,
+        }),
+    }
+}
+
+fn expand_many(
+    patterns: &[kore::Pattern],
+    aliases: &BTreeMap<String, AliasDefinition>,
+    sorts: &BTreeMap<String, kore::Sort>,
+    terms: &BTreeMap<kore::Variable, kore::Pattern>,
+    stack: &mut Vec<String>,
+) -> Result<Vec<kore::Pattern>, DefinitionError> {
+    patterns
+        .iter()
+        .map(|pattern| expand_with(pattern, aliases, sorts, terms, stack))
+        .collect()
+}
+
+#[derive(Clone, Copy)]
+enum BinderKind {
+    Exists,
+    Forall,
+    Mu,
+    Nu,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn expand_binder(
+    kind: BinderKind,
+    sort: Option<&kore::Sort>,
+    variable: &kore::Variable,
+    body: &kore::Pattern,
+    aliases: &BTreeMap<String, AliasDefinition>,
+    sorts: &BTreeMap<String, kore::Sort>,
+    terms: &BTreeMap<kore::Variable, kore::Pattern>,
+    stack: &mut Vec<String>,
+) -> Result<kore::Pattern, DefinitionError> {
+    let mut body_terms = terms.clone();
+    body_terms.remove(variable);
+    let variable = substitute_variable(variable, sorts);
+    if body_terms
+        .values()
+        .any(|replacement| free_variables(replacement).contains(&variable))
+    {
+        return Err(DefinitionError::MalformedAlias(format!(
+            "expanding an alias would capture variable {}",
+            variable.name
+        )));
+    }
+    let body = Box::new(expand_with(body, aliases, sorts, &body_terms, stack)?);
+    Ok(match kind {
+        BinderKind::Exists => kore::Pattern::Exists {
+            sort: substitute_sort(sort.expect("exists has a result sort"), sorts),
+            variable,
+            body,
+        },
+        BinderKind::Forall => kore::Pattern::Forall {
+            sort: substitute_sort(sort.expect("forall has a result sort"), sorts),
+            variable,
+            body,
+        },
+        BinderKind::Mu => kore::Pattern::Mu { variable, body },
+        BinderKind::Nu => kore::Pattern::Nu { variable, body },
+    })
+}
+
+fn free_variables(pattern: &kore::Pattern) -> BTreeSet<kore::Variable> {
+    use kore::Pattern;
+
+    match pattern {
+        Pattern::Variable(variable) => BTreeSet::from([variable.clone()]),
+        Pattern::Application { arguments, .. }
+        | Pattern::And { arguments, .. }
+        | Pattern::Or { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. } => {
+            arguments.iter().flat_map(free_variables).collect()
+        }
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => free_variables(argument),
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. } => free_variables(left)
+            .into_iter()
+            .chain(free_variables(right))
+            .collect(),
+        Pattern::Exists { variable, body, .. }
+        | Pattern::Forall { variable, body, .. }
+        | Pattern::Mu { variable, body }
+        | Pattern::Nu { variable, body } => {
+            let mut variables = free_variables(body);
+            variables.remove(variable);
+            variables
+        }
+        Pattern::String(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => BTreeSet::new(),
+    }
+}
+
+fn substitute_symbol(symbol: &kore::Symbol, sorts: &BTreeMap<String, kore::Sort>) -> kore::Symbol {
+    kore::Symbol {
+        name: symbol.name.clone(),
+        sort_parameters: symbol
+            .sort_parameters
+            .iter()
+            .map(|sort| substitute_sort(sort, sorts))
+            .collect(),
+    }
+}
+
+fn substitute_variable(
+    variable: &kore::Variable,
+    sorts: &BTreeMap<String, kore::Sort>,
+) -> kore::Variable {
+    kore::Variable {
+        kind: variable.kind,
+        name: variable.name.clone(),
+        sort: substitute_sort(&variable.sort, sorts),
+    }
+}
+
+fn substitute_sort(sort: &kore::Sort, sorts: &BTreeMap<String, kore::Sort>) -> kore::Sort {
+    match sort {
+        kore::Sort::Variable(name) => sorts.get(name).cloned().unwrap_or_else(|| sort.clone()),
+        kore::Sort::Application { name, arguments } => kore::Sort::Application {
+            name: name.clone(),
+            arguments: arguments
+                .iter()
+                .map(|argument| substitute_sort(argument, sorts))
+                .collect(),
+        },
+    }
+}

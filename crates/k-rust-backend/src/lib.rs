@@ -1,5 +1,7 @@
 //! In-process concrete and symbolic execution for KORE definitions.
 
+mod alias;
+
 pub mod binary;
 pub mod builtin;
 pub mod claim;
