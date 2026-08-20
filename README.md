@@ -157,9 +157,13 @@ Prove all modal reachability claims in a specification module, or select claims 
 krust kprove spec.k --main-module SPEC
 krust kprove spec.k --main-module SPEC --claim reaches-result --depth 1000
 krust kprove spec.k --main-module SPEC --graph-search depth-first
+krust kprove spec.k --main-module SPEC --definition-module SEMANTICS
 ```
 
-`kprove` handles one-path and all-path claims, trusted claims, guarded claim circularities,
+Bare claims default to all-path semantics, matching the reference Haskell backend. Use
+`--definition-module` (or `--def-module`) when the configuration belongs to an imported semantics
+module rather than the specification module. `kprove` handles one-path and all-path claims,
+trusted claims, guarded claim circularities,
 branching semantic rules, breadth-first or depth-first traversal, depth bounds, and Z3-backed side
 conditions entirely in process. A specification can `requires` and import its semantics definition
 in the normal K source layout. The reference stuck-state heuristic is enabled by default; pass

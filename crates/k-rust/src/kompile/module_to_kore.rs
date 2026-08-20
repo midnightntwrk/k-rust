@@ -82,6 +82,8 @@ pub struct DeclarationModules {
 pub struct ModuleToKoreOptions {
     /// Generate definedness axioms for hooked maps used by the symbolic Rust backend.
     pub generate_map_ceil_axioms: bool,
+    /// Treat otherwise-unqualified claims as all-path reachability claims.
+    pub default_claims_to_all_path: bool,
 }
 
 impl DeclarationModules {
@@ -608,7 +610,10 @@ pub fn module_to_kore_from_resolved_with_options(
         .map_err(|error| DeclarationError::Relations(RelationError::CircularSubsort(error)))?;
     let injector = SortInjector::new(definition, module)?;
     let converter = TermConverter::new(definition, module)?;
-    let default_reachability = reachability_mode(&definition.module(module_id).attributes);
+    let default_reachability =
+        reachability_mode(&definition.module(module_id).attributes).or(options
+            .default_claims_to_all_path
+            .then_some(ReachabilityMode::AllPath));
     let mut sorted_rules = rules
         .sorted_rules()
         .map(|(_, rule)| {

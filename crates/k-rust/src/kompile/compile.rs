@@ -80,6 +80,8 @@ impl FromStr for CompilationBackend {
 pub struct CompileOptions {
     pub backend: CompilationBackend,
     pub kore_width: usize,
+    /// Match `kprove` by treating bare claims as all-path reachability claims.
+    pub default_claims_to_all_path: bool,
 }
 
 impl Default for CompileOptions {
@@ -87,6 +89,7 @@ impl Default for CompileOptions {
         Self {
             backend: CompilationBackend::Rust,
             kore_width: 100,
+            default_claims_to_all_path: false,
         }
     }
 }
@@ -266,6 +269,7 @@ pub fn compile_loaded_definition(
             &loaded.definition.main_module,
             ModuleToKoreOptions {
                 generate_map_ceil_axioms: options.backend == CompilationBackend::Rust,
+                default_claims_to_all_path: options.default_claims_to_all_path,
             },
         ),
     )?;

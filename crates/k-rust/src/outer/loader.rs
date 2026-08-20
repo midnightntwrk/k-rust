@@ -41,6 +41,8 @@ pub struct LoadOptions {
     pub implicit_sources: Vec<ResolvedSource>,
     /// Module attributes excluded by the selected backend before configuration and rule parsing.
     pub excluded_module_attributes: Vec<String>,
+    /// Module that owns the configuration when it differs from the selected main module.
+    pub configuration_module: Option<String>,
 }
 
 impl Default for LoadOptions {
@@ -49,6 +51,7 @@ impl Default for LoadOptions {
             markdown_selector: "k".into(),
             implicit_sources: Vec::new(),
             excluded_module_attributes: Vec::new(),
+            configuration_module: None,
         }
     }
 }
@@ -99,6 +102,7 @@ pub enum LoadError {
         module: String,
         attribute: String,
     },
+    MissingConfigurationModule(String),
     SourceDiagnostics(Vec<Diagnostic>),
     DefinitionResolution(ResolveError),
     Configuration(ConfigError),
@@ -142,6 +146,12 @@ impl fmt::Display for LoadError {
                 write!(
                     formatter,
                     "main module {module} has excluded attribute [{attribute}]"
+                )
+            }
+            Self::MissingConfigurationModule(module) => {
+                write!(
+                    formatter,
+                    "definition has no configuration module `{module}`"
                 )
             }
             Self::SourceDiagnostics(diagnostics) => {
@@ -204,7 +214,8 @@ pub fn load_with_options(
     let definition = apply_sort_synonyms(&definition).map_err(LoadError::DefinitionResolution)?;
     let definition =
         exclude_modules_by_attributes(definition, &options.excluded_module_attributes)?;
-    let definition = add_implicit_configuration_imports(definition)?;
+    let definition =
+        add_implicit_configuration_imports(definition, options.configuration_module.as_deref())?;
     let definition =
         resolve_configuration_bubbles(&definition).map_err(LoadError::Configuration)?;
     let definition =
@@ -255,7 +266,20 @@ fn exclude_modules_by_attributes(
     Ok(definition)
 }
 
-fn add_implicit_configuration_imports(mut definition: Definition) -> Result<Definition, LoadError> {
+fn add_implicit_configuration_imports(
+    mut definition: Definition,
+    configuration_module: Option<&str>,
+) -> Result<Definition, LoadError> {
+    if let Some(configuration_module) = configuration_module
+        && !definition
+            .modules
+            .iter()
+            .any(|module| module.name == configuration_module)
+    {
+        return Err(LoadError::MissingConfigurationModule(
+            configuration_module.into(),
+        ));
+    }
     let has_default = definition
         .modules
         .iter()
@@ -265,22 +289,28 @@ fn add_implicit_configuration_imports(mut definition: Definition) -> Result<Defi
     if has_default {
         let resolved =
             ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
-        let main = resolved.main_module_id();
-        let has_visible_configuration = resolved.sentences(main).iter().any(|sentence| {
+        let configuration_module = configuration_module.unwrap_or(&definition.main_module);
+        let configuration_module_id = resolved
+            .module_id(configuration_module)
+            .ok_or_else(|| LoadError::MissingConfigurationModule(configuration_module.into()))?;
+        let has_visible_configuration = resolved
+            .sentences(configuration_module_id)
+            .iter()
+            .any(|sentence| {
             matches!(sentence, Sentence::Bubble { sentence_type, .. } if sentence_type == "config")
         });
         if !has_visible_configuration {
-            let main = definition
+            let module = definition
                 .modules
                 .iter_mut()
-                .find(|module| module.name == definition.main_module)
-                .expect("the resolved main module exists");
-            if !main
+                .find(|module| module.name == configuration_module)
+                .expect("the resolved configuration module exists");
+            if !module
                 .imports
                 .iter()
                 .any(|import| import.name == "DEFAULT-CONFIGURATION")
             {
-                main.imports.push(FlatImport {
+                module.imports.push(FlatImport {
                     name: "DEFAULT-CONFIGURATION".into(),
                     public: true,
                 });

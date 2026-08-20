@@ -122,6 +122,7 @@ pub fn compile_definition_native(
             markdown_selector: options.markdown_selector.unwrap_or_else(|| "k".to_owned()),
             implicit_sources,
             excluded_module_attributes: vec![backend.excluded_module_attribute().to_owned()],
+            configuration_module: None,
         },
     )
     .map_err(napi_error)?;
@@ -130,6 +131,7 @@ pub fn compile_definition_native(
         CompileOptions {
             backend,
             kore_width: options.kore_width.unwrap_or(100) as usize,
+            ..CompileOptions::default()
         },
     )
     .map_err(compile_error)?;
@@ -164,6 +166,7 @@ pub fn parse_program_native(options: NativeParseProgramOptions) -> Result<Native
             markdown_selector: options.markdown_selector.unwrap_or_else(|| "k".to_owned()),
             implicit_sources,
             excluded_module_attributes: Vec::new(),
+            configuration_module: None,
         },
     )
     .map_err(napi_error)?;

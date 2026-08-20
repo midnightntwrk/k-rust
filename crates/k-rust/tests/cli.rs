@@ -201,7 +201,7 @@ module MAIN
                  | "b" [symbol(b)]
   configuration <k> $PGM:State </k>
   rule <k> a => b </k>
-  claim <k> a => b </k> [one-path, label(reaches-b)]
+  claim <k> a => b </k> [label(reaches-b)]
 endmodule
 "#,
     )

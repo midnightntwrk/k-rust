@@ -132,6 +132,7 @@ fn compile_definition(options: &str) -> Result<String, String> {
             markdown_selector: options.markdown_selector.unwrap_or_else(|| "k".to_owned()),
             implicit_sources: Vec::new(),
             excluded_module_attributes: vec![backend.excluded_module_attribute().to_owned()],
+            configuration_module: None,
         },
     )
     .map_err(display_error)?;
@@ -140,6 +141,7 @@ fn compile_definition(options: &str) -> Result<String, String> {
         CompileOptions {
             backend,
             kore_width: options.kore_width.unwrap_or(100) as usize,
+            ..CompileOptions::default()
         },
     )
     .map_err(format_compile_error)?;
@@ -177,6 +179,7 @@ fn parse_program(options: &str) -> Result<String, String> {
             markdown_selector: options.markdown_selector.unwrap_or_else(|| "k".to_owned()),
             implicit_sources: Vec::new(),
             excluded_module_attributes: Vec::new(),
+            configuration_module: None,
         },
     )
     .map_err(display_error)?;

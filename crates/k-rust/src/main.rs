@@ -204,6 +204,10 @@ struct KproveArgs {
     #[arg(short = 'm', long = "main-module", value_name = "MODULE")]
     module: String,
 
+    /// Semantics module that owns the configuration; defaults to the specification module.
+    #[arg(long, visible_alias = "def-module", value_name = "MODULE")]
+    definition_module: Option<String>,
+
     /// Prove only claims with one of these labels. May be repeated.
     #[arg(long = "claim", value_name = "LABEL")]
     claims: Vec<String>,
@@ -314,6 +318,7 @@ struct KrunOptions {
 #[derive(Debug)]
 struct KproveOptions {
     common: CommonOptions,
+    definition_module: String,
     claims: Vec<String>,
     depth: u64,
     breadth_limit: Option<usize>,
@@ -398,10 +403,15 @@ impl From<KrunArgs> for KrunOptions {
 
 impl From<KproveArgs> for KproveOptions {
     fn from(arguments: KproveArgs) -> Self {
+        let definition_module = arguments
+            .definition_module
+            .clone()
+            .unwrap_or_else(|| arguments.module.clone());
         Self {
             common: arguments
                 .source
                 .common(arguments.definition, arguments.module),
+            definition_module,
             claims: arguments.claims,
             depth: arguments.depth,
             breadth_limit: arguments.breadth_limit,
@@ -422,6 +432,7 @@ impl From<KproveArgs> for KproveOptions {
 fn load_definition(
     options: &CommonOptions,
     backend: Option<CompilationBackend>,
+    configuration_module: Option<&str>,
 ) -> Result<k_rust::outer::LoadedDefinition, Box<dyn Error>> {
     let builtin_directory = options
         .builtin_directory
@@ -451,13 +462,14 @@ fn load_definition(
             excluded_module_attributes: backend
                 .map(|backend| vec![backend.excluded_module_attribute().into()])
                 .unwrap_or_default(),
+            configuration_module: configuration_module.map(str::to_owned),
         },
     )?;
     Ok(loaded)
 }
 
 fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
-    let loaded = load_definition(&options.common, Some(options.backend))?;
+    let loaded = load_definition(&options.common, Some(options.backend), None)?;
     let artifacts = match compile_loaded_definition(
         &loaded,
         CompileOptions {
@@ -489,7 +501,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
 }
 
 fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
-    let loaded = load_definition(&options.common, None)?;
+    let loaded = load_definition(&options.common, None, None)?;
     let diagnostics = check_definition(&loaded.resolved)?;
     emit_diagnostics(&diagnostics);
     if diagnostics
@@ -510,7 +522,7 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
 }
 
 fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
-    let loaded = load_definition(&options.common, Some(CompilationBackend::Rust))?;
+    let loaded = load_definition(&options.common, Some(CompilationBackend::Rust), None)?;
     let compiled = match compile_loaded_definition(
         &loaded,
         CompileOptions {
@@ -592,11 +604,16 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
 }
 
 fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
-    let loaded = load_definition(&options.common, Some(CompilationBackend::Rust))?;
+    let loaded = load_definition(
+        &options.common,
+        Some(CompilationBackend::Rust),
+        Some(&options.definition_module),
+    )?;
     let compiled = match compile_loaded_definition(
         &loaded,
         CompileOptions {
             backend: CompilationBackend::Rust,
+            default_claims_to_all_path: true,
             ..CompileOptions::default()
         },
     ) {
@@ -979,6 +996,8 @@ mod tests {
             "spec.k",
             "--main-module",
             "SPEC",
+            "--definition-module",
+            "SEMANTICS",
             "--claim",
             "first",
             "--claim",
@@ -1009,6 +1028,7 @@ mod tests {
 
         assert_eq!(options.common.definition, Path::new("spec.k"));
         assert_eq!(options.common.module, "SPEC");
+        assert_eq!(options.definition_module, "SEMANTICS");
         assert_eq!(options.claims, ["first", "second"]);
         assert_eq!(options.depth, 42);
         assert_eq!(options.breadth_limit, Some(7));

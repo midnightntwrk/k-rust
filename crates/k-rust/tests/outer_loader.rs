@@ -280,6 +280,48 @@ fn imports_the_default_configuration_and_map_module_implicitly() {
     }));
 }
 
+#[test]
+fn imports_default_configuration_into_distinct_configuration_module() {
+    let implicit = indoc! {r#"
+        module DEFAULT-CONFIGURATION
+          configuration <k> $PGM:K </k>
+        endmodule
+    "#};
+    let entry = indoc! {"
+        module SEMANTICS
+        endmodule
+
+        module SPEC
+          imports SEMANTICS
+        endmodule
+    "};
+    let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+    let loaded = load_with_options(
+        ResolvedSource::new("spec.k", entry),
+        "SPEC",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![ResolvedSource::new("prelude.k", implicit)],
+            configuration_module: Some("SEMANTICS".into()),
+            ..LoadOptions::default()
+        },
+    )
+    .expect("implicit configuration should attach to the semantics module");
+
+    let semantics = loaded
+        .definition
+        .modules
+        .iter()
+        .find(|module| module.name == "SEMANTICS")
+        .expect("semantics module should exist");
+    assert!(
+        semantics
+            .imports
+            .iter()
+            .any(|import| import.name == "DEFAULT-CONFIGURATION" && import.public)
+    );
+}
+
 macro_rules! load_error_snapshot {
     ($name:ident, $entry:expr, $sources:expr, $main:expr) => {
         #[test]
