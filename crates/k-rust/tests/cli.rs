@@ -289,6 +289,62 @@ endmodule
 }
 
 #[test]
+fn krun_search_explores_an_unconditional_branch() {
+    let (root, definition) = fixture();
+    let search_pattern = root.join("target.kore");
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  syntax State ::= "a" | "b" | "c" | "d" | "e"
+  configuration <k> $PGM:State </k>
+  rule a => b
+  rule b => c
+  rule c => d
+  rule c => e
+endmodule
+"#,
+    )
+    .unwrap();
+    fs::write(&search_pattern, "Result:SortGeneratedTopCell{}").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+            "--depth",
+            "10",
+            "--search-final",
+            "--search-pattern",
+            search_pattern.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(output.contains("Result:SortGeneratedTopCell{}"), "{output}");
+    assert!(output.contains("Lbld'Unds'MAIN'Unds'State{}()"), "{output}");
+    assert!(output.contains("Lble'Unds'MAIN'Unds'State{}()"), "{output}");
+    assert!(
+        !output.contains("Lblc'Unds'MAIN'Unds'State{}()"),
+        "{output}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kprove_proves_a_modal_claim_in_process() {
     let (root, definition) = fixture();
     let saved_proofs = root.join("proofs.kore");

@@ -196,18 +196,40 @@ pub fn search_graph_with_solver_and_observer(
         if options.search_type == SearchType::One && state.depth == 1 {
             continue;
         }
-        if state.depth >= options.max_depth {
+        let at_depth_bound = state.depth >= options.max_depth;
+        if at_depth_bound && options.search_type != SearchType::Final {
             incomplete.push(IncompleteSearch::DepthBound(state));
             continue;
         }
 
-        match rewrite_step_with_options(
+        let rewrite = rewrite_step_with_options(
             definition,
             &state.pattern,
             &mut fresh_counter,
             simplification_options(options),
             solver,
-        ) {
+        );
+        if at_depth_bound {
+            match rewrite {
+                RewriteResult::Stuck(pattern) => {
+                    state.pattern = pattern;
+                    if push_unique(&mut states, state, options.max_results) {
+                        break;
+                    }
+                }
+                RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
+                RewriteResult::Indeterminate { pattern, reason } => {
+                    state.pattern = pattern;
+                    incomplete.push(IncompleteSearch::Indeterminate { state, reason });
+                }
+                RewriteResult::Finished(_) | RewriteResult::Branch { .. } => {
+                    incomplete.push(IncompleteSearch::DepthBound(state));
+                }
+            }
+            continue;
+        }
+
+        match rewrite {
             RewriteResult::Stuck(pattern) => {
                 state.pattern = pattern;
                 if options.search_type == SearchType::Final
@@ -584,6 +606,26 @@ mod tests {
     }
 
     #[test]
+    fn final_search_recognizes_a_normal_form_at_the_depth_bound() {
+        let definition = definition();
+        let result = search_graph(
+            &definition,
+            initial(&definition),
+            SearchOptions {
+                search_type: SearchType::Final,
+                max_depth: 2,
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(
+            names(&result),
+            BTreeSet::from(["final1".into(), "final2".into()])
+        );
+        assert!(result.incomplete.is_empty());
+    }
+
+    #[test]
     fn pattern_search_returns_substitutions_for_matching_states() {
         let definition = definition();
         let result_variable = Variable::new("Result", Sort::simple("SortS"));
@@ -644,5 +686,34 @@ mod tests {
         assert_eq!(reachable.matches.len(), 1);
         assert!(reachable.matches[0].substitution.is_empty());
         assert!(unreachable.matches.is_empty());
+    }
+
+    #[test]
+    fn constrained_kore_search_patterns_filter_solutions() {
+        let definition = definition();
+        let syntax = parse_pattern(
+            r#"\and{SortS{}}(
+                Result:SortS{},
+                \equals{SortS{}, SortS{}}(Result:SortS{}, final1{}())
+            )"#,
+        )
+        .expect("constrained target should parse");
+        let target = definition
+            .internalize_pattern(&syntax, &[])
+            .expect("constrained target should internalize");
+
+        let result = search_pattern(
+            &definition,
+            initial(&definition),
+            &target,
+            SearchOptions {
+                search_type: SearchType::Final,
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(result.matches.len(), 1);
+        assert!(result.matches[0].constraints.is_empty());
+        assert!(result.incomplete.is_empty());
     }
 }

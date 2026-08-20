@@ -83,8 +83,9 @@ Implemented end to end:
   backend lowering pipeline, sort injections, and `ModuleToKORE`.
 - KORE generation for ordinary rules, claims, equations, functions, `owise`, macros, aliases,
   reachability claims, subsorts, overloads, algebraic axioms, no-confusion, and no-junk.
-- In-process concrete and symbolic execution, simplification, implication and reachability checks,
-  builtin collections, Z3 satisfiability/validity queries, and satisfying-model extraction.
+- In-process concrete and symbolic execution, `ONE`/`FINAL`/`STAR`/`PLUS` reachability search,
+  simplification, implication and reachability checks, builtin collections, Z3
+  satisfiability/validity queries, and satisfying-model extraction.
 - Native `krust kast`, `krust kcompile`, and experimental `krust krun` and `krust kprove`
   commands.
 - Bundled builtin sources pinned to K v7.1.337, so an installed CLI does not require a separate K
@@ -150,6 +151,21 @@ Execute a concrete program using the in-process Rust backend:
 krust krun definition.k --main-module MAIN --sort Exp --expression '1 + 2'
 krust krun definition.k --main-module MAIN --sort Exp program.exp --depth 1000
 ```
+
+Search final states, every reachable state, states after exactly one step, or states after one or
+more steps:
+
+```console
+krust krun definition.k --main-module MAIN --sort Exp --expression '1 + 2' --search-final
+krust krun definition.k --main-module MAIN --sort Exp --expression '1 + 2' --search-all
+krust krun definition.k --main-module MAIN --sort Exp --expression '1 + 2' --search-one-step
+krust krun definition.k --main-module MAIN --sort Exp --expression '1 + 2' \
+  --search-one-or-more-steps --search-bound 10
+```
+
+Without a target, each solution binds `Result` to a matching configuration. Pass
+`--search-pattern target.kore` to match solutions against a constrained raw KORE pattern; an empty
+solution set prints `#Bottom`, while a ground match prints `#Top`.
 
 Prove all modal reachability claims in a specification module, or select claims by label:
 

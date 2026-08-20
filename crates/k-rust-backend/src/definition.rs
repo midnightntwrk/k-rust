@@ -13,9 +13,10 @@ use crate::{
     alias::{AliasDefinition, collect as collect_aliases, expand as expand_aliases},
     claim::{ClaimError, ReachabilityClaim, internalize_reachability_claim},
     matching::SortGraph,
+    rewrite::Pattern,
     rule::{
         AxiomError, ClassifiedAxiom, InternalizedRule, PredicateTheory, RuleKind, RulePatternError,
-        Theory, classify_axiom, insert_theory, internalize_axiom,
+        Theory, classify_axiom, insert_theory, internalize_axiom, internalize_rule_pattern,
     },
     smt::{SExpr, SmtType},
     term::{
@@ -455,6 +456,17 @@ impl BackendDefinition {
         let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
         let pattern = expand_aliases(pattern, &self.aliases)?;
         self.internalize_term_with(&pattern, &known)
+    }
+
+    /// Internalize a constrained KORE pattern into its term and predicate components.
+    pub fn internalize_pattern(
+        &self,
+        pattern: &kore::Pattern,
+        sort_variables: &[Name],
+    ) -> Result<Pattern, DefinitionError> {
+        let pattern = expand_aliases(pattern, &self.aliases)?;
+        let (term, constraints) = internalize_rule_pattern(self, &pattern, sort_variables)?;
+        Ok(Pattern { term, constraints })
     }
 
     pub(crate) fn internalize_syntax_sort(

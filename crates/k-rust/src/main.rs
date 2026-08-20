@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use k_rust::{
     definition::checks::check_definition,
     diagnostic::{Diagnostic, Severity},
@@ -26,6 +26,7 @@ use k_rust::{
             Symbol as KoreSymbol,
         },
         parser::parse_definition as parse_kore_definition,
+        parser::parse_pattern as parse_kore_pattern,
         printer::Printer as KorePrinter,
     },
     native::FileResolver,
@@ -37,7 +38,13 @@ use k_rust_backend::{
     externalize,
     proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
     rewrite::{ExecutionOptions, HaltReason, Pattern, execute_with_solver_and_observer},
+    rule::Predicate,
+    search::{
+        IncompleteSearch, PatternSearchResult, SearchOptions, SearchType,
+        search_pattern_with_solver,
+    },
     smt::{SmtError, Z3Solver},
+    term::{Term, Variable},
 };
 
 fn main() {
@@ -159,6 +166,16 @@ struct KastArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(group(
+    ArgGroup::new("search_mode")
+        .args([
+            "search_final",
+            "search_all",
+            "search_one_step",
+            "search_one_or_more_steps",
+        ])
+        .multiple(false)
+))]
 struct KrunArgs {
     /// K definition whose semantics should execute the program.
     #[arg(value_name = "DEFINITION")]
@@ -189,6 +206,30 @@ struct KrunArgs {
     /// Maximum number of semantic rewrite steps per execution branch.
     #[arg(long, default_value_t = 1_000, value_name = "STEPS")]
     depth: u64,
+
+    /// Return only irreducible reachable configurations.
+    #[arg(long, group = "search_mode")]
+    search_final: bool,
+
+    /// Return every reachable configuration, including the initial one.
+    #[arg(long, group = "search_mode")]
+    search_all: bool,
+
+    /// Return configurations reached in exactly one rewrite step.
+    #[arg(long, group = "search_mode")]
+    search_one_step: bool,
+
+    /// Return configurations reached in one or more rewrite steps.
+    #[arg(long, group = "search_mode")]
+    search_one_or_more_steps: bool,
+
+    /// Match search results against this raw KORE pattern file.
+    #[arg(long, requires = "search_mode", value_name = "KORE_FILE")]
+    search_pattern: Option<PathBuf>,
+
+    /// Stop after finding this many distinct search solutions.
+    #[arg(long, requires = "search_mode", value_name = "COUNT")]
+    search_bound: Option<usize>,
 
     #[command(flatten)]
     source: SourceArgs,
@@ -317,6 +358,14 @@ struct KrunOptions {
     expression: Option<String>,
     program_file: Option<PathBuf>,
     depth: u64,
+    search: Option<KrunSearchOptions>,
+}
+
+#[derive(Debug)]
+struct KrunSearchOptions {
+    search_type: SearchType,
+    pattern: Option<PathBuf>,
+    bound: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -394,6 +443,17 @@ impl From<KastArgs> for KastOptions {
 
 impl From<KrunArgs> for KrunOptions {
     fn from(arguments: KrunArgs) -> Self {
+        let search_type = if arguments.search_final {
+            Some(SearchType::Final)
+        } else if arguments.search_all {
+            Some(SearchType::Star)
+        } else if arguments.search_one_step {
+            Some(SearchType::One)
+        } else if arguments.search_one_or_more_steps {
+            Some(SearchType::Plus)
+        } else {
+            None
+        };
         Self {
             common: arguments
                 .source
@@ -402,6 +462,11 @@ impl From<KrunArgs> for KrunOptions {
             expression: arguments.expression,
             program_file: arguments.program_file,
             depth: arguments.depth,
+            search: search_type.map(|search_type| KrunSearchOptions {
+                search_type,
+                pattern: arguments.search_pattern,
+                bound: arguments.search_bound,
+            }),
         }
     }
 }
@@ -562,6 +627,59 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
     let output_sort = externalize::sort(&initial.sort());
     let solver = Z3Solver::new(&backend)
         .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
+    if let Some(search) = options.search {
+        let target = match search.pattern {
+            Some(path) => {
+                let source = fs::read_to_string(&path)?;
+                let syntax = parse_kore_pattern(&source).map_err(|error| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("could not parse search pattern {}: {error}", path.display()),
+                    )
+                })?;
+                backend.internalize_pattern(&syntax, &[])?
+            }
+            None => Pattern {
+                term: Term::variable(Variable::new("Result", initial.sort())),
+                constraints: Vec::new(),
+            },
+        };
+        let result = search_pattern_with_solver(
+            &backend,
+            Pattern {
+                term: initial,
+                constraints: Vec::new(),
+            },
+            &target,
+            SearchOptions {
+                search_type: search.search_type,
+                max_depth: options.depth,
+                max_results: search.bound,
+                ..SearchOptions::default()
+            },
+            &solver,
+        );
+        for effect in &result.effects {
+            match effect {
+                BuiltinEffect::UserLog(message) => eprintln!("{message}"),
+            }
+        }
+        if let Some(incomplete) = result
+            .incomplete
+            .iter()
+            .find(|incomplete| !matches!(incomplete, IncompleteSearch::DepthBound(_)))
+        {
+            return Err(io::Error::other(format!(
+                "in-process backend search was incomplete: {incomplete:?}"
+            ))
+            .into());
+        }
+        println!(
+            "{}",
+            KorePrinter::pretty(100).print_pattern(&search_output(&result, &output_sort))
+        );
+        return Ok(());
+    }
     let execution = execute_with_solver_and_observer(
         &backend,
         Pattern {
@@ -609,6 +727,46 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
     };
     println!("{}", KorePrinter::pretty(100).print_pattern(&output));
     Ok(())
+}
+
+fn search_output(result: &PatternSearchResult, result_sort: &KoreSort) -> KorePattern {
+    let mut solutions = result
+        .matches
+        .iter()
+        .map(|found| {
+            let predicates = found
+                .substitution
+                .iter()
+                .map(|(variable, value)| {
+                    Predicate::Equals(Term::variable(variable.clone()), value.clone())
+                })
+                .chain(found.constraints.iter().cloned())
+                .map(|predicate| {
+                    externalize::predicate_pattern(&predicate, &found.state.pattern.term.sort())
+                })
+                .collect::<Vec<_>>();
+            match predicates.len() {
+                0 => KorePattern::Top {
+                    sort: result_sort.clone(),
+                },
+                1 => predicates.into_iter().next().unwrap(),
+                _ => KorePattern::And {
+                    sort: result_sort.clone(),
+                    arguments: predicates,
+                },
+            }
+        })
+        .collect::<Vec<_>>();
+    match solutions.len() {
+        0 => KorePattern::Bottom {
+            sort: result_sort.clone(),
+        },
+        1 => solutions.pop().unwrap(),
+        _ => KorePattern::Or {
+            sort: result_sort.clone(),
+            arguments: solutions,
+        },
+    }
 }
 
 fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
@@ -1039,6 +1197,37 @@ mod tests {
         assert_eq!(options.sort, "Exp");
         assert_eq!(options.expression.as_deref(), Some("1 + 2"));
         assert_eq!(options.depth, 42);
+        assert!(options.search.is_none());
+    }
+
+    #[test]
+    fn parses_krun_search_options() {
+        let cli = Cli::try_parse_from([
+            "krust",
+            "krun",
+            "definition.k",
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Exp",
+            "--expression",
+            "1 + 2",
+            "--search-all",
+            "--search-pattern",
+            "target.kore",
+            "--search-bound",
+            "3",
+        ])
+        .unwrap();
+        let Command::Krun(options) = cli.command else {
+            panic!("expected krun command");
+        };
+        let options = KrunOptions::from(options);
+        let search = options.search.expect("search options should be present");
+
+        assert_eq!(search.search_type, SearchType::Star);
+        assert_eq!(search.pattern.as_deref(), Some(Path::new("target.kore")));
+        assert_eq!(search.bound, Some(3));
     }
 
     #[test]
