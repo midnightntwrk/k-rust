@@ -1,6 +1,7 @@
 //! In-process evaluation of backend hooks implemented by Booster.
 
 use num_bigint::{BigInt, Sign};
+use num_traits::{One, Signed, ToPrimitive, Zero};
 
 mod list;
 mod map;
@@ -29,22 +30,45 @@ pub enum BuiltinError {
     },
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum BuiltinResult {
+    NotApplicable,
+    Value(Term),
+    Bottom,
+}
+
+impl From<Option<Term>> for BuiltinResult {
+    fn from(value: Option<Term>) -> Self {
+        value.map_or(Self::NotApplicable, Self::Value)
+    }
+}
+
 /// Evaluate a hooked application, returning `None` when its arguments are not determined enough.
-pub fn evaluate(term: &Term) -> Result<Option<Term>, BuiltinError> {
+pub fn evaluate(term: &Term) -> Result<BuiltinResult, BuiltinError> {
     let TermKind::Application {
         symbol, arguments, ..
     } = term.kind()
     else {
-        return Ok(None);
+        return Ok(BuiltinResult::NotApplicable);
     };
     let Some(hook) = symbol.attributes.hook.as_deref() else {
-        return Ok(None);
+        return Ok(BuiltinResult::NotApplicable);
     };
     evaluate_hook(hook, arguments)
 }
 
-pub fn evaluate_hook(hook: &str, arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+pub fn evaluate_hook(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     match hook {
+        "INT.ediv" => return int_partial_binary(hook, arguments, euclidean_division),
+        "INT.emod" => return int_partial_binary(hook, arguments, euclidean_modulus),
+        "INT.tdiv" => return int_partial_binary(hook, arguments, truncating_division),
+        "INT.tmod" => return int_partial_binary(hook, arguments, truncating_modulus),
+        "INT.pow" => return int_partial_binary(hook, arguments, int_pow),
+        "INT.powmod" => return int_powmod(arguments),
+        "INT.log2" => return int_log2(arguments),
+        _ => {}
+    }
+    let result = match hook {
         "BOOL.or" => bool_or(arguments),
         "BOOL.and" => bool_and(arguments),
         "BOOL.xor" => bool_binary(hook, arguments, |left, right| left != right),
@@ -62,13 +86,22 @@ pub fn evaluate_hook(hook: &str, arguments: &[Term]) -> Result<Option<Term>, Bui
         "INT.sub" => int_binary(hook, arguments, |left, right| left - right),
         "INT.mul" => int_binary(hook, arguments, |left, right| left * right),
         "INT.abs" => int_abs(arguments),
+        "INT.min" => int_binary(hook, arguments, std::cmp::min),
+        "INT.max" => int_binary(hook, arguments, std::cmp::max),
+        "INT.and" => int_binary(hook, arguments, |left, right| left & right),
+        "INT.or" => int_binary(hook, arguments, |left, right| left | right),
+        "INT.xor" => int_binary(hook, arguments, |left, right| left ^ right),
+        "INT.not" => int_unary(hook, arguments, |value| !value),
+        "INT.shl" => int_shift(hook, arguments, false),
+        "INT.shr" => int_shift(hook, arguments, true),
         "KEQUAL.ite" => kequal_ite(arguments),
         "KEQUAL.eq" => kequal(arguments, false),
         "KEQUAL.ne" => kequal(arguments, true),
         hook if hook.starts_with("LIST.") => list::evaluate(hook, arguments),
         hook if hook.starts_with("MAP.") => map::evaluate(hook, arguments),
         _ => Ok(None),
-    }
+    }?;
+    Ok(result.into())
 }
 
 fn bool_or(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
@@ -156,6 +189,134 @@ fn int_abs(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
         } else {
             int_term(value)
         }
+    }))
+}
+
+fn int_unary(
+    hook: &str,
+    arguments: &[Term],
+    operation: impl FnOnce(BigInt) -> BigInt,
+) -> Result<Option<Term>, BuiltinError> {
+    expect_arity(hook, arguments, 1)?;
+    Ok(read_int(&arguments[0]).map(|value| int_term(operation(value))))
+}
+
+fn int_partial_binary(
+    hook: &str,
+    arguments: &[Term],
+    operation: impl FnOnce(BigInt, BigInt) -> Option<BigInt>,
+) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity(hook, arguments, 2)?;
+    let Some((left, right)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    Ok(operation(left, right)
+        .map(int_term)
+        .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
+}
+
+fn truncating_division(left: BigInt, right: BigInt) -> Option<BigInt> {
+    (!right.is_zero()).then(|| left / right)
+}
+
+fn truncating_modulus(left: BigInt, right: BigInt) -> Option<BigInt> {
+    (!right.is_zero()).then(|| left % right)
+}
+
+fn euclidean_modulus(left: BigInt, right: BigInt) -> Option<BigInt> {
+    if right.is_zero() {
+        return None;
+    }
+    let modulus = right.abs();
+    let remainder = left % &modulus;
+    Some(if remainder.sign() == Sign::Minus {
+        remainder + modulus
+    } else {
+        remainder
+    })
+}
+
+fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
+    let remainder = euclidean_modulus(left.clone(), right.clone())?;
+    Some((left - remainder) / right)
+}
+
+fn int_pow(base: BigInt, exponent: BigInt) -> Option<BigInt> {
+    if exponent.sign() == Sign::Minus {
+        return None;
+    }
+    exponent.to_u32().map(|exponent| base.pow(exponent))
+}
+
+fn int_powmod(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity("INT.powmod", arguments, 3)?;
+    let Some((base, exponent, modulus)) = read_int(&arguments[0])
+        .zip(read_int(&arguments[1]))
+        .zip(read_int(&arguments[2]))
+        .map(|((base, exponent), modulus)| (base, exponent, modulus))
+    else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    if modulus.is_zero() {
+        return Ok(BuiltinResult::Bottom);
+    }
+    let modulus = modulus.abs();
+    let (base, exponent) = if exponent.sign() == Sign::Minus {
+        let Some(inverse) = modular_inverse(&base, &modulus) else {
+            return Ok(BuiltinResult::Bottom);
+        };
+        (inverse, -exponent)
+    } else {
+        (base, exponent)
+    };
+    Ok(BuiltinResult::Value(int_term(
+        base.modpow(&exponent, &modulus),
+    )))
+}
+
+fn modular_inverse(value: &BigInt, modulus: &BigInt) -> Option<BigInt> {
+    let (mut old_r, mut r) = (value.clone(), modulus.clone());
+    let (mut old_s, mut s) = (BigInt::one(), BigInt::zero());
+    while !r.is_zero() {
+        let quotient = &old_r / &r;
+        (old_r, r) = (r.clone(), old_r - &quotient * r);
+        (old_s, s) = (s.clone(), old_s - quotient * s);
+    }
+    if old_r.abs() != BigInt::one() {
+        return None;
+    }
+    if old_r.sign() == Sign::Minus {
+        old_s = -old_s;
+    }
+    euclidean_modulus(old_s, modulus.clone())
+}
+
+fn int_log2(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity("INT.log2", arguments, 1)?;
+    let Some(value) = read_int(&arguments[0]) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    if value <= BigInt::zero() {
+        return Ok(BuiltinResult::Bottom);
+    }
+    Ok(BuiltinResult::Value(int_term(BigInt::from(
+        value.bits() - 1,
+    ))))
+}
+
+fn int_shift(hook: &str, arguments: &[Term], right: bool) -> Result<Option<Term>, BuiltinError> {
+    expect_arity(hook, arguments, 2)?;
+    let Some((value, amount)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
+        return Ok(None);
+    };
+    let amount = if right { -amount } else { amount };
+    let magnitude = amount.abs().to_usize();
+    Ok(magnitude.map(|magnitude| {
+        int_term(if amount.sign() == Sign::Minus {
+            value >> magnitude
+        } else {
+            value << magnitude
+        })
     }))
 }
 
@@ -395,8 +556,14 @@ mod tests {
             vec![bool_term(true), unknown],
         );
 
-        assert_eq!(evaluate(&false_and_unknown), Ok(Some(bool_term(false))));
-        assert_eq!(evaluate(&true_and_unknown), Ok(None));
+        assert_eq!(
+            evaluate(&false_and_unknown),
+            Ok(BuiltinResult::Value(bool_term(false)))
+        );
+        assert_eq!(
+            evaluate(&true_and_unknown),
+            Ok(BuiltinResult::NotApplicable)
+        );
     }
 
     #[test]
@@ -414,8 +581,69 @@ mod tests {
             vec![int_term(left.clone()), int_term(right)],
         );
 
-        assert_eq!(evaluate(&addition), Ok(Some(int_term(left + 2))));
-        assert_eq!(evaluate(&comparison), Ok(Some(bool_term(true))));
+        assert_eq!(
+            evaluate(&addition),
+            Ok(BuiltinResult::Value(int_term(left + 2)))
+        );
+        assert_eq!(
+            evaluate(&comparison),
+            Ok(BuiltinResult::Value(bool_term(true)))
+        );
+    }
+
+    fn evaluate_int(hook: &str, arguments: &[i64]) -> BuiltinResult {
+        evaluate_hook(
+            hook,
+            &arguments
+                .iter()
+                .copied()
+                .map(BigInt::from)
+                .map(int_term)
+                .collect::<Vec<_>>(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn integer_fallback_hooks_match_kore_arithmetic() {
+        let cases = [
+            ("INT.tdiv", &[-5, -3][..], 1),
+            ("INT.tmod", &[-5, -3][..], -2),
+            ("INT.ediv", &[-5, -3][..], 2),
+            ("INT.emod", &[-5, -3][..], 1),
+            ("INT.pow", &[2, 10][..], 1_024),
+            ("INT.powmod", &[3, -1, 7][..], 5),
+            ("INT.log2", &[1_024][..], 10),
+            ("INT.and", &[6, 3][..], 2),
+            ("INT.or", &[4, 3][..], 7),
+            ("INT.xor", &[6, 3][..], 5),
+            ("INT.shl", &[3, 4][..], 48),
+            ("INT.shr", &[-16, 2][..], -4),
+            ("INT.min", &[-2, 3][..], -2),
+            ("INT.max", &[-2, 3][..], 3),
+        ];
+        for (hook, arguments, expected) in cases {
+            assert_eq!(
+                evaluate_int(hook, arguments),
+                BuiltinResult::Value(int_term(BigInt::from(expected))),
+                "{hook}"
+            );
+        }
+        assert_eq!(
+            evaluate_int("INT.not", &[0]),
+            BuiltinResult::Value(int_term(BigInt::from(-1)))
+        );
+    }
+
+    #[test]
+    fn undefined_integer_operations_are_bottom() {
+        assert_eq!(evaluate_int("INT.ediv", &[1, 0]), BuiltinResult::Bottom);
+        assert_eq!(evaluate_int("INT.pow", &[2, -1]), BuiltinResult::Bottom);
+        assert_eq!(evaluate_int("INT.log2", &[0]), BuiltinResult::Bottom);
+        assert_eq!(
+            evaluate_int("INT.powmod", &[2, -1, 4]),
+            BuiltinResult::Bottom
+        );
     }
 
     #[test]

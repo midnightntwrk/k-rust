@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    builtin::{BuiltinError, evaluate as evaluate_builtin},
+    builtin::{BuiltinError, BuiltinResult, evaluate as evaluate_builtin},
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms},
     rewrite::{Truth, check_concreteness, predicates_truth, substitute_predicates},
@@ -629,13 +629,19 @@ fn simplify_root(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Simplification, SimplificationError> {
-    if let Some(result) = evaluate_builtin(term).map_err(SimplificationError::Builtin)? {
+    let builtin = evaluate_builtin(term).map_err(SimplificationError::Builtin)?;
+    if !matches!(builtin, BuiltinResult::NotApplicable) {
         let TermKind::Application { symbol, .. } = term.kind() else {
             unreachable!("only applications have builtin hooks")
         };
+        let (term, constraints) = match builtin {
+            BuiltinResult::Value(result) => (result, Vec::new()),
+            BuiltinResult::Bottom => (term.clone(), vec![Predicate::False]),
+            BuiltinResult::NotApplicable => unreachable!(),
+        };
         return Ok(Simplification {
-            term: result,
-            constraints: Vec::new(),
+            term,
+            constraints,
             applied_rules: vec![format!(
                 "builtin:{}",
                 symbol
@@ -973,6 +979,31 @@ mod tests {
             result.applied_rules,
             vec!["builtin:INT.add", "builtin:INT.add"]
         );
+    }
+
+    #[test]
+    fn represents_undefined_partial_builtins_as_bottom_constraints() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortInt{} [hasDomainValues{}()]
+                symbol tdiv{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.tdiv")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let input = term(
+            &definition,
+            r#"tdiv{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0"))"#,
+        );
+
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+        assert_eq!(result.term, input);
+        assert_eq!(result.constraints, [Predicate::False]);
+        assert_eq!(result.applied_rules, ["builtin:INT.tdiv"]);
     }
 
     #[cfg(feature = "z3")]
