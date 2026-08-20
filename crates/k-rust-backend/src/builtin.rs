@@ -3,6 +3,7 @@
 use num_bigint::{BigInt, Sign};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
+mod bytes;
 mod list;
 mod map;
 mod set;
@@ -81,7 +82,9 @@ fn evaluate_hook_with_sort(
     }
     let result = match hook {
         "BOOL.or" => bool_or(arguments),
+        "BOOL.orElse" => bool_or(arguments),
         "BOOL.and" => bool_and(arguments),
+        "BOOL.andThen" => bool_and(arguments),
         "BOOL.xor" => bool_binary(hook, arguments, |left, right| left != right),
         "BOOL.eq" => bool_binary(hook, arguments, |left, right| left == right),
         "BOOL.ne" => bool_binary(hook, arguments, |left, right| left != right),
@@ -111,6 +114,7 @@ fn evaluate_hook_with_sort(
         hook if hook.starts_with("LIST.") => return list::evaluate(hook, arguments),
         hook if hook.starts_with("MAP.") => return map::evaluate(hook, arguments),
         hook if hook.starts_with("SET.") => set::evaluate(hook, arguments),
+        hook if hook.starts_with("BYTES.") => return bytes::evaluate(hook, arguments),
         hook if hook.starts_with("STRING.") => {
             return string::evaluate(hook, arguments, result_sort);
         }
