@@ -507,9 +507,9 @@ enum RuleAttempt {
     Indeterminate(IndeterminateReason),
 }
 
-struct RecoveredMatch {
-    result: MatchResult,
-    conditions: Vec<Predicate>,
+pub(crate) struct RecoveredMatch {
+    pub(crate) result: MatchResult,
+    pub(crate) conditions: Vec<Predicate>,
 }
 
 /// Conservatively recover matches that Booster delegates to Kore.
@@ -519,7 +519,7 @@ struct RecoveredMatch {
 /// result-sorted variable, the concrete subject is also tried as a witness; the match is accepted
 /// only when evaluating that witness reproduces the subject exactly. A failed witness remains
 /// indeterminate because it does not prove that no other witness exists.
-fn recover_indeterminate_match(
+pub(crate) fn recover_indeterminate_match(
     definition: &BackendDefinition,
     mut substitution: Substitution,
     remainder: Vec<(Term, Term)>,

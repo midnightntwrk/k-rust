@@ -18,7 +18,8 @@ use crate::{
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rewrite::{
         IndeterminateReason, Pattern, RewriteResult, TraceEntry, TraceKind, Truth,
-        predicates_truth, rewrite_step_with_solver, substitute_predicates,
+        predicates_truth, recover_indeterminate_match, rewrite_step_with_solver,
+        substitute_predicates,
     },
     simplify::{
         SimplificationError, SimplificationOptions, simplify_predicates_with_solver,
@@ -519,25 +520,49 @@ fn apply_claim(
     fresh_counter: &mut u64,
 ) -> ClaimApplication {
     let claim = freshen_claim(claim, subject, fresh_counter);
-    let substitution = match match_terms_in_definition(
+    let matched = match_terms_in_definition(
         MatchMode::Rewrite,
         definition,
         &claim.lhs.term,
         &subject.term,
-    ) {
-        MatchResult::Success(substitution) => substitution,
+    );
+    let (substitution, match_conditions) = match matched {
+        MatchResult::Success(substitution) => (substitution, Vec::new()),
         MatchResult::Failed(_) => return ClaimApplication::NotApplicable,
         MatchResult::Indeterminate {
             substitution,
             remainder,
         } => {
-            return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Match {
+            let recovered = recover_indeterminate_match(
+                definition,
                 substitution,
                 remainder,
-            });
+                &subject.constraints,
+                SimplificationOptions {
+                    max_iterations: options.max_simplification_iterations,
+                },
+                solver,
+            );
+            match recovered.result {
+                MatchResult::Success(substitution) => (substitution, recovered.conditions),
+                MatchResult::Failed(_) => return ClaimApplication::NotApplicable,
+                MatchResult::Indeterminate {
+                    substitution,
+                    remainder,
+                } => {
+                    return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Match {
+                        substitution,
+                        remainder,
+                    });
+                }
+            }
         }
     };
-    let requires = substitute_predicates(&claim.lhs.constraints, &substitution);
+    let mut requires = match_conditions;
+    extend_unique(
+        &mut requires,
+        substitute_predicates(&claim.lhs.constraints, &substitution),
+    );
     let requires = match simplify_predicates_with_solver(
         definition,
         &requires,
@@ -882,6 +907,53 @@ mod tests {
 
         assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
         assert_eq!(result.explored_states, 4);
+        assert_eq!(result.unexplored_states, 0);
+    }
+
+    #[test]
+    fn simplifies_function_patterns_while_applying_claims() {
+        let definition = definition(
+            r#"
+            symbol start{}(SortS{}) : SortS{} [constructor{}()]
+            symbol state{}(SortS{}, SortS{}) : SortS{} [constructor{}()]
+            symbol identity{}(SortS{}) : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    identity{}(X:SortS{}),
+                    \and{SortS{}}(X:SortS{}, \top{SortS{}}())
+                )
+            ) [label{}("identity"), simplification{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(start{}(X:SortS{}), \top{SortS{}}()),
+                state{}(X:SortS{}, X:SortS{})
+            ) [label{}("start")]
+            "#,
+            r#"
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(start{}(a{}()), \top{SortS{}}()),
+                weakAlwaysFinally{SortS{}}(c{}())
+            ) [label{}("main")]
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(
+                    state{}(identity{}(N:SortS{}), N:SortS{}),
+                    \top{SortS{}}()
+                ),
+                weakAlwaysFinally{SortS{}}(c{}())
+            ) [label{}("circularity"), trusted{}()]
+            "#,
+        );
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &NoSolver,
+        )
+        .expect("claim should execute");
+
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        assert_eq!(result.explored_states, 3);
         assert_eq!(result.unexplored_states, 0);
     }
 
