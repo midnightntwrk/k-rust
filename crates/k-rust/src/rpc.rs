@@ -1167,49 +1167,70 @@ fn normalized_implication_syntax(original: &KorePattern, pattern: &Pattern) -> K
         }
     }
 
-    fn replace_constraint_leaves(
-        pattern: &KorePattern,
-        terms_remaining: &mut usize,
-        constraints: &mut impl Iterator<Item = KorePattern>,
-    ) -> KorePattern {
+    fn take_term_leaves(pattern: &KorePattern, terms_remaining: &mut usize) -> Option<KorePattern> {
         match pattern {
-            KorePattern::And { sort, arguments } => KorePattern::And {
-                sort: sort.clone(),
-                arguments: arguments
+            KorePattern::And { sort, arguments } => {
+                let mut arguments = arguments
                     .iter()
-                    .map(|argument| {
-                        replace_constraint_leaves(argument, terms_remaining, constraints)
-                    })
-                    .collect(),
-            },
+                    .filter_map(|argument| take_term_leaves(argument, terms_remaining))
+                    .collect::<Vec<_>>();
+                match arguments.len() {
+                    0 => None,
+                    1 => arguments.pop(),
+                    _ => Some(KorePattern::And {
+                        sort: sort.clone(),
+                        arguments,
+                    }),
+                }
+            }
             _ if *terms_remaining > 0 => {
                 *terms_remaining -= 1;
-                pattern.clone()
+                Some(pattern.clone())
             }
-            _ => constraints.next().unwrap_or_else(|| pattern.clone()),
+            _ => None,
+        }
+    }
+
+    fn balanced_and(sort: &KoreSort, patterns: &[KorePattern]) -> KorePattern {
+        match patterns {
+            [pattern] => pattern.clone(),
+            _ => {
+                let middle = patterns.len() / 2;
+                KorePattern::And {
+                    sort: sort.clone(),
+                    arguments: vec![
+                        balanced_and(sort, &patterns[..middle]),
+                        balanced_and(sort, &patterns[middle..]),
+                    ],
+                }
+            }
         }
     }
 
     fn normalize_body(original: &KorePattern, pattern: &Pattern) -> KorePattern {
         let result_sort = pattern.term.sort();
-        let mut constraints = pattern
-            .constraints
-            .iter()
+        let mut constraints = pattern.constraints.iter().collect::<Vec<_>>();
+        constraints.sort();
+        let constraints = constraints
+            .into_iter()
             .map(|predicate| externalize::predicate_pattern(predicate, &result_sort))
             .collect::<Vec<_>>();
-        constraints.sort();
         let leaves = leaf_count(original);
         if constraints.is_empty() || constraints.len() >= leaves {
             return original.clone();
         }
         let mut terms_remaining = leaves - constraints.len();
-        let mut constraints = constraints.into_iter();
-        let normalized =
-            replace_constraint_leaves(original, &mut terms_remaining, &mut constraints);
-        if terms_remaining == 0 && constraints.next().is_none() {
-            normalized
-        } else {
-            original.clone()
+        let Some(term) = take_term_leaves(original, &mut terms_remaining) else {
+            return original.clone();
+        };
+        if terms_remaining != 0 {
+            return original.clone();
+        }
+        let sort = externalize::sort(&result_sort);
+        let predicate = balanced_and(&sort, &constraints);
+        KorePattern::And {
+            sort,
+            arguments: vec![term, predicate],
         }
     }
 
@@ -2529,6 +2550,83 @@ mod tests {
             panic!("the nested conjunction should be preserved");
         };
         assert_eq!(arguments, &canonical);
+    }
+
+    #[test]
+    fn implication_normalization_uses_backend_order_and_balanced_constraint_groups() {
+        fn flatten_and<'a>(pattern: &'a KorePattern, leaves: &mut Vec<&'a KorePattern>) {
+            if let KorePattern::And { arguments, .. } = pattern {
+                for argument in arguments {
+                    flatten_and(argument, leaves);
+                }
+            } else {
+                leaves.push(pattern);
+            }
+        }
+
+        let sort = BackendSort::simple("SortK");
+        let configuration = Term::variable(Variable::new("CONFIG", sort.clone()));
+        let x = Term::variable(Variable::new("X", sort.clone()));
+        let value = |value| Term::domain_value(sort.clone(), value);
+        let constraints = vec![
+            Predicate::Equals(x.clone(), value("5")),
+            Predicate::Equals(value("2"), x.clone()),
+            Predicate::Equals(x.clone(), value("4")),
+            Predicate::Equals(value("0"), x.clone()),
+            Predicate::Equals(x.clone(), value("3")),
+            Predicate::Equals(value("1"), x),
+        ];
+        let original_constraints = constraints
+            .iter()
+            .map(|predicate| externalize::predicate_pattern(predicate, &sort))
+            .collect::<Vec<_>>();
+        let original_condition =
+            original_constraints
+                .into_iter()
+                .reduce(|left, right| KorePattern::And {
+                    sort: externalize::sort(&sort),
+                    arguments: vec![left, right],
+                });
+        let original = KorePattern::And {
+            sort: externalize::sort(&sort),
+            arguments: vec![
+                externalize::term(&configuration),
+                original_condition.expect("there are six constraints"),
+            ],
+        };
+
+        let normalized = normalized_implication_syntax(
+            &original,
+            &Pattern {
+                term: configuration.clone(),
+                constraints: constraints.clone(),
+            },
+        );
+        let KorePattern::And { arguments, .. } = &normalized else {
+            panic!("the normalized pattern should retain its term conjunction");
+        };
+        assert_eq!(arguments[0], externalize::term(&configuration));
+        let KorePattern::And {
+            arguments: groups, ..
+        } = &arguments[1]
+        else {
+            panic!("six constraints should be divided into two groups");
+        };
+        assert_eq!(groups.len(), 2);
+        assert!(groups.iter().all(|group| matches!(
+            group,
+            KorePattern::And { arguments, .. } if arguments.len() == 2
+        )));
+
+        let mut expected = constraints.iter().collect::<Vec<_>>();
+        expected.sort();
+        let expected = expected
+            .into_iter()
+            .map(|predicate| externalize::predicate_pattern(predicate, &sort))
+            .collect::<Vec<_>>();
+        let mut actual = Vec::new();
+        flatten_and(&arguments[1], &mut actual);
+        assert_eq!(actual, expected.iter().collect::<Vec<_>>());
     }
 
     #[test]

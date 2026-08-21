@@ -1,7 +1,7 @@
 //! Recursive equation simplification to a bounded fixed point.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     sync::Arc,
 };
 
@@ -214,6 +214,37 @@ pub fn simplify_predicates_with_solver(
     )
 }
 
+struct PredicateAssumptions<'a> {
+    predicates: &'a [Predicate],
+    conjuncts: &'a HashSet<Predicate>,
+    excluded: Option<&'a Predicate>,
+}
+
+impl PredicateAssumptions<'_> {
+    fn contains(&self, predicate: &Predicate) -> bool {
+        self.conjuncts.contains(predicate)
+            && self.excluded.is_none_or(|excluded| excluded != predicate)
+    }
+}
+
+fn predicate_conjunct_index(predicates: &[Predicate]) -> HashSet<Predicate> {
+    fn insert(predicate: &Predicate, index: &mut HashSet<Predicate>) {
+        if let Predicate::And(conjuncts) = predicate {
+            for conjunct in conjuncts {
+                insert(conjunct, index);
+            }
+        } else {
+            index.insert(predicate.clone());
+        }
+    }
+
+    let mut index = HashSet::new();
+    for predicate in predicates {
+        insert(predicate, &mut index);
+    }
+    index
+}
+
 fn simplify_predicates_with_budget(
     definition: &BackendDefinition,
     predicates: &[Predicate],
@@ -224,19 +255,28 @@ fn simplify_predicates_with_budget(
     solver: &dyn SmtSolver,
 ) -> Result<Vec<Predicate>, SimplificationError> {
     let mut conjuncts = Vec::new();
+    let mut conjunct_index = HashSet::new();
     for predicate in predicates {
-        extend_conjuncts(&mut conjuncts, predicate);
+        extend_conjuncts(&mut conjuncts, &mut conjunct_index, predicate);
     }
+    let known_index = predicate_conjunct_index(known_predicates);
+    let mut all_assumptions = known_index.clone();
+    all_assumptions.extend(conjunct_index.iter().cloned());
     let simplified = conjuncts
         .iter()
         .enumerate()
         .map(|(index, predicate)| {
             let mut assumptions = known_predicates.to_vec();
             for (other_index, assumption) in conjuncts.iter().enumerate() {
-                if other_index != index && !assumptions.contains(assumption) {
+                if other_index != index && !known_index.contains(assumption) {
                     assumptions.push(assumption.clone());
                 }
             }
+            let assumptions = PredicateAssumptions {
+                predicates: &assumptions,
+                conjuncts: &all_assumptions,
+                excluded: (!known_index.contains(predicate)).then_some(predicate),
+            };
             let mut predicate_remaining = *remaining;
             simplify_predicate_with_budget(
                 definition,
@@ -280,12 +320,16 @@ fn simplify_predicates_with_budget(
     )
 }
 
-fn extend_conjuncts(conjuncts: &mut Vec<Predicate>, predicate: &Predicate) {
+fn extend_conjuncts(
+    conjuncts: &mut Vec<Predicate>,
+    index: &mut HashSet<Predicate>,
+    predicate: &Predicate,
+) {
     if let Predicate::And(nested) = predicate {
         for predicate in nested {
-            extend_conjuncts(conjuncts, predicate);
+            extend_conjuncts(conjuncts, index, predicate);
         }
-    } else if !conjuncts.contains(predicate) {
+    } else if index.insert(predicate.clone()) {
         conjuncts.push(predicate.clone());
     }
 }
@@ -391,10 +435,16 @@ pub fn simplify_predicate_with_solver(
 ) -> Result<Predicate, SimplificationError> {
     let mut remaining = options.max_iterations;
     let active_conditions = BTreeSet::new();
+    let known_index = predicate_conjunct_index(known_predicates);
+    let assumptions = PredicateAssumptions {
+        predicates: known_predicates,
+        conjuncts: &known_index,
+        excluded: None,
+    };
     simplify_predicate_with_budget(
         definition,
         predicate,
-        known_predicates,
+        &assumptions,
         options.max_iterations,
         &mut remaining,
         &active_conditions,
@@ -441,7 +491,7 @@ pub fn simplify_and_decide_predicate_with_solver(
 fn simplify_predicate_with_budget(
     definition: &BackendDefinition,
     predicate: &Predicate,
-    known_predicates: &[Predicate],
+    assumptions: &PredicateAssumptions<'_>,
     limit: usize,
     remaining: &mut usize,
     active_conditions: &BTreeSet<(String, Term)>,
@@ -450,13 +500,10 @@ fn simplify_predicate_with_budget(
     if cancellation_requested() {
         return Err(SimplificationError::Cancelled);
     }
-    if conjunctively_contains(known_predicates, predicate) {
+    if assumptions.contains(predicate) {
         return Ok(Predicate::True);
     }
-    if conjunctively_contains(
-        known_predicates,
-        &Predicate::Not(Box::new(predicate.clone())),
-    ) {
+    if assumptions.contains(&Predicate::Not(Box::new(predicate.clone()))) {
         return Ok(Predicate::False);
     }
     let simplify_term = |term: &Term| {
@@ -464,7 +511,7 @@ fn simplify_predicate_with_budget(
         simplify_with_budget(
             definition,
             term,
-            known_predicates,
+            assumptions.predicates,
             limit,
             &mut term_remaining,
             active_conditions,
@@ -523,7 +570,7 @@ fn simplify_predicate_with_budget(
             Predicate::Not(Box::new(simplify_predicate_with_budget(
                 definition,
                 inner,
-                known_predicates,
+                assumptions,
                 limit,
                 &mut inner_remaining,
                 active_conditions,
@@ -535,7 +582,7 @@ fn simplify_predicate_with_budget(
             let inner = simplify_predicates_with_budget(
                 definition,
                 inner,
-                known_predicates,
+                assumptions.predicates,
                 limit,
                 &mut inner_remaining,
                 active_conditions,
@@ -551,7 +598,7 @@ fn simplify_predicate_with_budget(
                     simplify_predicate_with_budget(
                         definition,
                         predicate,
-                        known_predicates,
+                        assumptions,
                         limit,
                         &mut predicate_remaining,
                         active_conditions,
@@ -566,7 +613,7 @@ fn simplify_predicate_with_budget(
             let left = simplify_predicate_with_budget(
                 definition,
                 left,
-                known_predicates,
+                assumptions,
                 limit,
                 &mut left_remaining,
                 active_conditions,
@@ -576,7 +623,7 @@ fn simplify_predicate_with_budget(
             let right = simplify_predicate_with_budget(
                 definition,
                 right,
-                known_predicates,
+                assumptions,
                 limit,
                 &mut right_remaining,
                 active_conditions,
@@ -593,7 +640,7 @@ fn simplify_predicate_with_budget(
             let inner = simplify_predicate_with_budget(
                 definition,
                 inner,
-                known_predicates,
+                assumptions,
                 limit,
                 &mut inner_remaining,
                 active_conditions,
@@ -608,19 +655,16 @@ fn simplify_predicate_with_budget(
     };
     let simplified =
         normalize_predicate(normalize_hooked_boolean_predicate(definition, simplified));
-    if conjunctively_contains(known_predicates, &simplified) {
+    if assumptions.contains(&simplified) {
         return Ok(Predicate::True);
     }
-    if conjunctively_contains(
-        known_predicates,
-        &Predicate::Not(Box::new(simplified.clone())),
-    ) {
+    if assumptions.contains(&Predicate::Not(Box::new(simplified.clone()))) {
         return Ok(Predicate::False);
     }
     if let Some(simplified) = apply_ceil_theory(
         definition,
         &simplified,
-        known_predicates,
+        assumptions.predicates,
         SimplificationOptions {
             max_iterations: limit,
         },
@@ -637,7 +681,7 @@ fn simplify_predicate_with_budget(
         return simplify_predicate_with_budget(
             definition,
             &simplified,
-            known_predicates,
+            assumptions,
             limit,
             remaining,
             active_conditions,
@@ -647,7 +691,7 @@ fn simplify_predicate_with_budget(
     let Some(simplified) = apply_predicate_theory(
         definition,
         &simplified,
-        known_predicates,
+        assumptions.predicates,
         SimplificationOptions {
             max_iterations: limit,
         },
@@ -667,7 +711,7 @@ fn simplify_predicate_with_budget(
     simplify_predicate_with_budget(
         definition,
         &simplified,
-        known_predicates,
+        assumptions,
         limit,
         remaining,
         active_conditions,
@@ -685,13 +729,6 @@ fn with_simplification_constraints(
         constraints.push(predicate);
         Predicate::And(constraints)
     }
-}
-
-fn conjunctively_contains(predicates: &[Predicate], target: &Predicate) -> bool {
-    predicates.iter().any(|predicate| {
-        predicate == target
-            || matches!(predicate, Predicate::And(inner) if conjunctively_contains(inner, target))
-    })
 }
 
 enum CeilEquationAttempt {
