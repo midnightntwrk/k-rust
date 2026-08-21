@@ -119,6 +119,16 @@ impl BackendSession {
         {
             return Err(SessionError::DuplicateModuleName(source_name));
         }
+        if name_as_id
+            && source_name != module_id
+            && self
+                .syntax
+                .modules
+                .iter()
+                .any(|module| module.name == source_name)
+        {
+            return Err(SessionError::DuplicateModuleName(source_name));
+        }
         if let Some(existing) = self.added_sources.get(&module_id) {
             if existing != source {
                 return Err(SessionError::DuplicateModuleName(module_id));
@@ -127,6 +137,15 @@ impl BackendSession {
                 self.module_aliases.insert(source_name, module_id.clone());
             }
             return Ok(module_id);
+        }
+        if self.module_aliases.contains_key(&module_id)
+            || self
+                .syntax
+                .modules
+                .iter()
+                .any(|module| module.name == module_id)
+        {
+            return Err(SessionError::DuplicateModuleName(module_id));
         }
 
         for sentence in &mut module.sentences {
@@ -276,6 +295,37 @@ mod tests {
                 .add_module(&replacement, parse_module(&replacement).unwrap(), true)
                 .unwrap_err(),
             SessionError::DuplicateModuleName("NEW".into())
+        );
+    }
+
+    #[test]
+    fn rejects_collisions_between_canonical_ids_and_source_name_aliases() {
+        let second_source = "module SECOND import BASE [] endmodule []";
+        let second_id = module_id(second_source);
+        let first_source = format!("module {second_id} import BASE [] endmodule []");
+        let mut first_session = session("BASE");
+        first_session
+            .add_module(&first_source, parse_module(&first_source).unwrap(), true)
+            .unwrap();
+        assert_eq!(
+            first_session
+                .add_module(second_source, parse_module(second_source).unwrap(), false)
+                .unwrap_err(),
+            SessionError::DuplicateModuleName(second_id)
+        );
+
+        let first_source = "module FIRST import BASE [] endmodule []";
+        let first_id = module_id(first_source);
+        let second_source = format!("module {first_id} import BASE [] endmodule []");
+        let mut second_session = session("BASE");
+        second_session
+            .add_module(first_source, parse_module(first_source).unwrap(), false)
+            .unwrap();
+        assert_eq!(
+            second_session
+                .add_module(&second_source, parse_module(&second_source).unwrap(), true)
+                .unwrap_err(),
+            SessionError::DuplicateModuleName(first_id)
         );
     }
 

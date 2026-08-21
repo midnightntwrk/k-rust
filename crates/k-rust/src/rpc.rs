@@ -32,7 +32,7 @@ use k_rust_backend::{
         TraceKind, execute_with_solver, substitute_predicates,
     },
     rule::{Predicate, RulePatternError},
-    session::BackendSession,
+    session::{BackendSession, SessionError},
     simplify::{
         SimplificationError, SimplificationOptions, simplify_and_decide_predicate_with_solver,
         simplify_pattern_with_solver,
@@ -261,6 +261,22 @@ impl RpcFault {
             code: 3,
             message: "Could not find module".into(),
             data: Some(Value::String(module.into())),
+        }
+    }
+
+    fn invalid_module(module: &str) -> Self {
+        Self {
+            code: 8,
+            message: "Invalid module".into(),
+            data: Some(json!({ "error": format!("Module {module} not found.") })),
+        }
+    }
+
+    fn duplicate_module_name(module: String) -> Self {
+        Self {
+            code: 9,
+            message: "Duplicate module name".into(),
+            data: Some(Value::String(module)),
         }
     }
 
@@ -569,7 +585,15 @@ impl RpcService {
         let id = self
             .session
             .add_module(&params.module, module, params.name_as_id)
-            .map_err(|error| RpcFault::backend(format!("could not add module: {error}")))?;
+            .map_err(|error| match error {
+                SessionError::Definition(DefinitionError::NoSuchModule(module)) => {
+                    RpcFault::invalid_module(&module)
+                }
+                SessionError::DuplicateModuleName(module) => {
+                    RpcFault::duplicate_module_name(module)
+                }
+                error => RpcFault::backend(format!("could not add module: {error}")),
+            })?;
         Ok(json!({ "module": id }))
     }
 
@@ -2174,6 +2198,57 @@ mod tests {
 
         let definition = service.definition(Some("EXTRA")).unwrap();
         assert_eq!(definition.main_module.as_ref(), id);
+    }
+
+    #[test]
+    fn add_module_reports_reference_validation_errors() {
+        let mut service = service();
+        let unknown_import = request(
+            &mut service,
+            1,
+            "add-module",
+            json!({ "module": "module EXTRA import MISSING [] endmodule []" }),
+        );
+        assert_eq!(
+            unknown_import["error"],
+            json!({
+                "code": 8,
+                "message": "Invalid module",
+                "data": { "error": "Module MISSING not found." },
+            })
+        );
+
+        let first = "module EXTRA import TEST [] endmodule []";
+        assert!(
+            request(
+                &mut service,
+                2,
+                "add-module",
+                json!({ "module": first, "name-as-id": true }),
+            )["result"]["module"]
+                .is_string()
+        );
+        let replacement = r#"module EXTRA
+            import TEST []
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(state{}(), \top{SortState{}}()),
+                \and{SortState{}}(next{}(), \top{SortState{}}())
+            ) []
+        endmodule []"#;
+        let duplicate = request(
+            &mut service,
+            3,
+            "add-module",
+            json!({ "module": replacement, "name-as-id": true }),
+        );
+        assert_eq!(
+            duplicate["error"],
+            json!({
+                "code": 9,
+                "message": "Duplicate module name",
+                "data": "EXTRA",
+            })
+        );
     }
 
     #[test]
