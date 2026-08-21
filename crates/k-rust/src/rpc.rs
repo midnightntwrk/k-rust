@@ -562,7 +562,7 @@ impl RpcService {
                 }));
             }
             Err(DefinitionError::RulePattern(RulePatternError::MissingTerm)) => {}
-            Err(error) => return Err(pattern_fault(error, &syntax)),
+            Err(error) => return Err(simplify_pattern_fault(error, &syntax)),
         }
         let (predicate, result_sort) = definition
             .internalize_predicate(&syntax, &[])
@@ -843,6 +843,60 @@ fn pattern_fault(error: DefinitionError, pattern: &KorePattern) -> RpcFault {
         code: 2,
         message: "Could not verify pattern".into(),
         data: Some(json!([{ "term": term, "error": message }])),
+    }
+}
+
+/// Report both interpretations attempted by Booster's simplify boundary.
+///
+/// A simplify input may be either a predicate or a term with predicates. Booster tries the
+/// predicate interpretation first and accumulates its error with the term interpretation when
+/// both fail. Syntactic terms are rejected by the predicate interpretation before their children
+/// are validated, so preserve that outer error ahead of the more specific term-validation error.
+fn simplify_pattern_fault(error: DefinitionError, pattern: &KorePattern) -> RpcFault {
+    let Some(term) = first_syntactic_term(pattern) else {
+        return pattern_fault(error, pattern);
+    };
+    let Ok(term) = encode_kore(term) else {
+        return pattern_fault(error, pattern);
+    };
+    let mut fault = pattern_fault(error, pattern);
+    let Some(Value::Array(details)) = &mut fault.data else {
+        return fault;
+    };
+    details.insert(
+        0,
+        json!({
+            "term": term,
+            "error": "Expected a predicate but found a term",
+        }),
+    );
+    fault
+}
+
+fn first_syntactic_term(pattern: &KorePattern) -> Option<&KorePattern> {
+    match pattern {
+        KorePattern::And { arguments, .. } => arguments.iter().find_map(first_syntactic_term),
+        KorePattern::String(_)
+        | KorePattern::Variable(_)
+        | KorePattern::Application { .. }
+        | KorePattern::AssociativeApplication { .. }
+        | KorePattern::DomainValue { .. } => Some(pattern),
+        KorePattern::Top { .. }
+        | KorePattern::Bottom { .. }
+        | KorePattern::Or { .. }
+        | KorePattern::Not { .. }
+        | KorePattern::Next { .. }
+        | KorePattern::Implies { .. }
+        | KorePattern::Iff { .. }
+        | KorePattern::Rewrites { .. }
+        | KorePattern::Exists { .. }
+        | KorePattern::Forall { .. }
+        | KorePattern::Mu { .. }
+        | KorePattern::Nu { .. }
+        | KorePattern::Ceil { .. }
+        | KorePattern::Floor { .. }
+        | KorePattern::Equals { .. }
+        | KorePattern::In { .. } => None,
     }
 }
 
@@ -2095,6 +2149,23 @@ mod tests {
         ))
     }
 
+    fn simplify_validation_service() -> RpcService {
+        RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[]
+                module TEST
+                  sort SortKItem{} []
+                  sort SortInt{} [hasDomainValues{}()]
+                  sort SortBool{} [hasDomainValues{}()]
+                  symbol inj{From, To}(From) : To [sortInjection{}()]
+                  symbol Lblite{Sort}(SortBool{}, Sort, Sort) : Sort [function{}(), total{}()]
+                endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ))
+    }
+
     fn implication_error(antecedent: &str, consequent: &str) -> Value {
         implication_response(antecedent, consequent)["error"].clone()
     }
@@ -2202,6 +2273,70 @@ mod tests {
                     "term": encode_kore(&invalid_injection).unwrap(),
                     "error": "SortKItem{} is not a subsort of SortK{}",
                 }],
+            })
+        );
+    }
+
+    #[test]
+    fn simplify_accumulates_predicate_and_term_validation_errors() {
+        let mut service = simplify_validation_service();
+        let invalid_ite =
+            parse_pattern(r#"Lblite{SortInt{}}(\dv{SortBool{}}("true"), \dv{SortInt{}}("0"))"#)
+                .unwrap();
+        let invalid_input = parse_pattern(
+            r#"inj{SortInt{}, SortKItem{}}(Lblite{SortInt{}}(\dv{SortBool{}}("true"), \dv{SortInt{}}("0")))"#,
+        )
+        .unwrap();
+        let arity_error = request(
+            &mut service,
+            1,
+            "simplify",
+            json!({ "state": encode_kore(&invalid_input).unwrap() }),
+        );
+        assert_eq!(
+            arity_error["error"],
+            json!({
+                "code": 2,
+                "message": "Could not verify pattern",
+                "data": [
+                    {
+                        "term": encode_kore(&invalid_input).unwrap(),
+                        "error": "Expected a predicate but found a term",
+                    },
+                    {
+                        "term": encode_kore(&invalid_ite).unwrap(),
+                        "error": "Inconsistent pattern. Symbol 'Lblite' expected 3 arguments but got 2",
+                    },
+                ],
+            })
+        );
+
+        let invalid_condition = parse_pattern(r#"\dv{SortInt{}}("42")"#).unwrap();
+        let invalid_input = parse_pattern(
+            r#"inj{SortInt{}, SortKItem{}}(Lblite{SortInt{}}(\dv{SortInt{}}("42"), \dv{SortInt{}}("1"), \dv{SortInt{}}("0")))"#,
+        )
+        .unwrap();
+        let sort_error = request(
+            &mut service,
+            2,
+            "simplify",
+            json!({ "state": encode_kore(&invalid_input).unwrap() }),
+        );
+        assert_eq!(
+            sort_error["error"],
+            json!({
+                "code": 2,
+                "message": "Could not verify pattern",
+                "data": [
+                    {
+                        "term": encode_kore(&invalid_input).unwrap(),
+                        "error": "Expected a predicate but found a term",
+                    },
+                    {
+                        "term": encode_kore(&invalid_condition).unwrap(),
+                        "error": "Incorrect sort: expected SortBool{} but got SortInt{}",
+                    },
+                ],
             })
         );
     }
