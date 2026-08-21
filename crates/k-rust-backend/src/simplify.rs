@@ -39,6 +39,19 @@ impl Default for SimplificationOptions {
     }
 }
 
+impl SimplificationOptions {
+    /// Evaluate to a fixed point without Booster's equation-iteration bound.
+    ///
+    /// This mirrors the legacy Kore simplifier used as the complete fallback by
+    /// `kore-rpc-booster`. Cancellation tokens and step deadlines still interrupt
+    /// evaluation; the iteration counter itself does not.
+    pub const fn unbounded() -> Self {
+        Self {
+            max_iterations: usize::MAX,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Simplification {
     pub term: Term,
@@ -1245,84 +1258,65 @@ fn simplify_with_budget(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Simplification, SimplificationError> {
-    if cancellation_requested() {
-        return Err(SimplificationError::Cancelled);
-    }
-    let term = replace_from_path_condition(term, known_predicates);
-    if term.attributes().evaluated {
-        return Ok(Simplification {
-            term,
-            constraints: Vec::new(),
-            applied_rules: Vec::new(),
-            effects: Vec::new(),
-        });
-    }
-    let children = simplify_children(
-        definition,
-        &term,
-        known_predicates,
-        limit,
-        remaining,
-        active_conditions,
-        solver,
-    )?;
-    let root = simplify_root(
-        definition,
-        &children.term,
-        known_predicates,
-        SimplificationOptions {
-            max_iterations: limit,
-        },
-        active_conditions,
-        solver,
-    )?;
-    let mut constraints = children.constraints;
-    constraints.extend(root.constraints);
-    let mut applied_rules = children.applied_rules;
-    applied_rules.extend(root.applied_rules);
-    let mut effects = children.effects;
-    effects.extend(root.effects);
-    if root.term == children.term {
-        return Ok(Simplification {
-            term: root.term,
-            constraints,
-            applied_rules,
-            effects,
-        });
-    }
-    if root.term.attributes().evaluated {
-        return Ok(Simplification {
-            term: root.term,
-            constraints,
-            applied_rules,
-            effects,
-        });
-    }
-    if *remaining == 0 {
-        return Err(SimplificationError::IterationLimit {
+    let mut term = term.clone();
+    let mut constraints = Vec::new();
+    let mut applied_rules = Vec::new();
+    let mut effects = Vec::new();
+    loop {
+        if cancellation_requested() {
+            return Err(SimplificationError::Cancelled);
+        }
+        term = replace_from_path_condition(&term, known_predicates);
+        if term.attributes().evaluated {
+            return Ok(Simplification {
+                term,
+                constraints,
+                applied_rules,
+                effects,
+            });
+        }
+        let children = simplify_children(
+            definition,
+            &term,
+            known_predicates,
             limit,
-            term: root.term,
-        });
+            remaining,
+            active_conditions,
+            solver,
+        )?;
+        let root = simplify_root(
+            definition,
+            &children.term,
+            known_predicates,
+            SimplificationOptions {
+                max_iterations: limit,
+            },
+            active_conditions,
+            solver,
+        )?;
+        constraints.extend(children.constraints);
+        constraints.extend(root.constraints);
+        applied_rules.extend(children.applied_rules);
+        applied_rules.extend(root.applied_rules);
+        effects.extend(children.effects);
+        effects.extend(root.effects);
+        if root.term == children.term || root.term.attributes().evaluated {
+            return Ok(Simplification {
+                term: root.term,
+                constraints,
+                applied_rules,
+                effects,
+            });
+        }
+        if *remaining == 0 {
+            return Err(SimplificationError::IterationLimit {
+                limit,
+                term: root.term,
+            });
+        }
+        *remaining -= 1;
+        term = root.term;
     }
-    *remaining -= 1;
-    let next = simplify_with_budget(
-        definition,
-        &root.term,
-        known_predicates,
-        limit,
-        remaining,
-        active_conditions,
-        solver,
-    )?;
-    constraints.extend(next.constraints);
-    applied_rules.extend(next.applied_rules);
-    effects.extend(next.effects);
-    Ok(Simplification {
-        term: next.term,
-        constraints,
-        applied_rules,
-        effects,
-    })
 }
 
 fn replace_from_path_condition(term: &Term, predicates: &[Predicate]) -> Term {
@@ -3130,6 +3124,55 @@ mod tests {
             ),
             Err(SimplificationError::IterationLimit { limit: 3, .. })
         ));
+    }
+
+    #[test]
+    fn unbounded_simplification_completes_a_long_fixed_point_chain() {
+        let mut theory = String::new();
+        for index in 0..=128 {
+            theory.push_str(&format!(
+                "symbol chain{index}{{}}() : SortS{{}} [function{{}}()]\n"
+            ));
+        }
+        for index in 0..128 {
+            let next = index + 1;
+            theory.push_str(&format!(
+                r#"
+                axiom{{R}} \implies{{R}}(
+                    \top{{R}}(),
+                    \equals{{SortS{{}}, R}}(
+                        chain{index}{{}}(),
+                        \and{{SortS{{}}}}(chain{next}{{}}(), \top{{SortS{{}}}}())
+                    )
+                ) [label{{}}("chain-{index}"), simplification{{}}()]
+                "#
+            ));
+        }
+        theory.push_str(
+            r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    chain128{}(),
+                    \and{SortS{}}(\dv{SortS{}}("done"), \top{SortS{}}())
+                )
+            ) [label{}("chain-done"), simplification{}()]
+            "#,
+        );
+        let definition = definition(&theory);
+        let input = term(&definition, "chain0{}()");
+        let expected = term(&definition, r#"\dv{SortS{}}("done")"#);
+
+        assert!(matches!(
+            simplify(&definition, &input, SimplificationOptions::default()),
+            Err(SimplificationError::IterationLimit { limit: 100, .. })
+        ));
+
+        let result = simplify(&definition, &input, SimplificationOptions::unbounded())
+            .expect("the complete Kore-style pass should finish finite computations");
+
+        assert_eq!(result.term, expected);
+        assert_eq!(result.applied_rules.len(), 129);
     }
 
     #[test]

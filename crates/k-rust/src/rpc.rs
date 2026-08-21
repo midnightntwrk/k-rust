@@ -553,7 +553,7 @@ impl RpcService {
                 let simplified = simplify_pattern_with_solver(
                     &definition,
                     &pattern,
-                    SimplificationOptions::default(),
+                    SimplificationOptions::unbounded(),
                     &solver,
                 )
                 .map_err(|error| simplify_fault(error, &pattern.term.sort()))?;
@@ -571,7 +571,7 @@ impl RpcService {
             &definition,
             &predicate,
             &[],
-            SimplificationOptions::default(),
+            SimplificationOptions::unbounded(),
             &solver,
         )
         .map_err(|error| simplify_fault(error, &result_sort))?;
@@ -1584,7 +1584,7 @@ fn parse_json_value(source: &str) -> serde_json::Result<Value> {
 fn encode_kore(pattern: &KorePattern) -> Result<Value, RpcFault> {
     let source = kore_json::to_string(pattern)
         .map_err(|error| RpcFault::backend(format!("could not encode KORE JSON: {error}")))?;
-    serde_json::from_str(&source)
+    parse_json_value(&source)
         .map_err(|error| RpcFault::backend(format!("could not encode KORE JSON: {error}")))
 }
 
@@ -2670,6 +2670,28 @@ mod tests {
         let depth = 300;
         let source = format!("{}null{}", "[".repeat(depth), "]".repeat(depth));
         assert!(parse_json_value(&source).is_ok());
+    }
+
+    #[test]
+    fn kore_encoder_accepts_deep_patterns_without_serde_recursion_limits() {
+        let mut pattern = KorePattern::Application {
+            symbol: Symbol {
+                name: "value".into(),
+                sort_parameters: vec![],
+            },
+            arguments: vec![],
+        };
+        for _ in 0..160 {
+            pattern = KorePattern::Application {
+                symbol: Symbol {
+                    name: "wrap".into(),
+                    sort_parameters: vec![],
+                },
+                arguments: vec![pattern],
+            };
+        }
+
+        assert!(encode_kore(&pattern).is_ok());
     }
 
     #[test]

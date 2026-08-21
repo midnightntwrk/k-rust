@@ -1099,7 +1099,7 @@ fn simplify_kore_pattern_with_options(
             let simplified = simplify_pattern_with_solver(
                 definition,
                 &pattern,
-                SimplificationOptions::default(),
+                SimplificationOptions::unbounded(),
                 &solver,
             )
             .map_err(|error| {
@@ -1115,7 +1115,7 @@ fn simplify_kore_pattern_with_options(
         definition,
         &predicate,
         &[],
-        SimplificationOptions::default(),
+        SimplificationOptions::unbounded(),
         &solver,
     )
     .map_err(|error| io::Error::other(format!("could not simplify KORE pattern: {error:?}")))?;
