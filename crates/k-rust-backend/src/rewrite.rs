@@ -10,7 +10,7 @@ use crate::{
     definedness::ceil_term,
     definition::{BackendDefinition, ConstructorHead, constructor_head},
     matching::{
-        MatchMode, MatchResult, match_collection_remainders_all_in_definition,
+        FailReason, MatchMode, MatchResult, match_collection_remainders_all_in_definition,
         match_terms_in_definition,
     },
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
@@ -21,6 +21,7 @@ use crate::{
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, substitute},
     term::{Sort, Symbol, SymbolType, Term, TermKind, Variable},
+    unification::{UnificationFailure, UnificationResult, unify_term_pairs},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -784,6 +785,45 @@ pub(crate) fn recover_indeterminate_match(
                 Err(_) => subject.clone(),
             };
 
+        if !simplified_pattern
+            .attributes()
+            .variables
+            .is_disjoint(&simplified_subject.attributes().variables)
+        {
+            match unify_term_pairs(
+                definition,
+                substitution.clone(),
+                [(simplified_pattern.clone(), simplified_subject.clone())],
+            ) {
+                UnificationResult::Unified(unified) => {
+                    substitution = unified.substitution;
+                    extend_unique(&mut conditions, unified.constraints);
+                    continue;
+                }
+                UnificationResult::Bottom(failure) => {
+                    let reason = match failure {
+                        UnificationFailure::VariableRecursion(variable, term) => {
+                            FailReason::VariableRecursion(variable, term)
+                        }
+                        UnificationFailure::DifferentSorts(left, right) => {
+                            FailReason::DifferentSorts(left, right)
+                        }
+                        UnificationFailure::DifferentValues(left, right) => {
+                            FailReason::DifferentValues(left, right)
+                        }
+                        UnificationFailure::DifferentSymbols(left, right) => {
+                            FailReason::DifferentSymbols(left, right)
+                        }
+                    };
+                    return RecoveredMatch {
+                        result: MatchResult::Failed(reason),
+                        conditions,
+                    };
+                }
+                UnificationResult::Unsupported { .. } => {}
+            }
+        }
+
         let pair_remainder = match match_terms_in_definition(
             MatchMode::Rewrite,
             definition,
@@ -873,6 +913,34 @@ pub(crate) fn recover_indeterminate_match(
         }
     };
     RecoveredMatch { result, conditions }
+}
+
+enum GeneralUnificationRecovery {
+    Unified(Substitution, Vec<Predicate>),
+    Bottom,
+    Unsupported,
+}
+
+fn recover_general_unification(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    pattern: &Pattern,
+    substitution: Substitution,
+    remainder: &[(Term, Term)],
+    fresh_counter: &mut u64,
+) -> GeneralUnificationRecovery {
+    match unify_term_pairs(definition, substitution, remainder.iter().cloned()) {
+        UnificationResult::Bottom(_) => GeneralUnificationRecovery::Bottom,
+        UnificationResult::Unsupported { .. } => GeneralUnificationRecovery::Unsupported,
+        UnificationResult::Unified(unified) => {
+            let (substitution, _) =
+                freshen_unbound_rule_variables(rule, pattern, unified.substitution, fresh_counter);
+            GeneralUnificationRecovery::Unified(
+                substitution.clone(),
+                substitute_predicates(&unified.constraints, &substitution),
+            )
+        }
+    }
 }
 
 /// Recover first-order narrowing when a functional pattern is matched by a symbolic
@@ -987,7 +1055,7 @@ fn freshen_unbound_rule_variables(
             unreachable!("fresh terms are variables")
         };
         fresh_variables.insert(fresh_variable.clone());
-        substitution.insert(variable, fresh);
+        substitution = compose(&Substitution::from([(variable, fresh)]), &substitution);
     }
     (substitution, fresh_variables)
 }
@@ -1337,60 +1405,83 @@ fn apply_rule_with_match(
                         fresh_counter,
                     ) {
                         recovered
-                    } else if let Some(recovered) = recover_functional_symbolic_match(
-                        definition,
-                        rule,
-                        pattern,
-                        substitution.clone(),
-                        &remainder,
-                        fresh_counter,
-                    ) {
-                        recovered
-                    } else if let Some(recovered) = recover_function_equality_match(
-                        rule,
-                        pattern,
-                        substitution.clone(),
-                        &remainder,
-                        fresh_counter,
-                    ) {
-                        recovered
                     } else {
-                        let requires = substitute_predicates(&rule.requires, &substitution);
-                        let requires = simplify_predicates_with_solver(
+                        match recover_general_unification(
                             definition,
-                            &requires,
-                            &inherited_knowledge,
-                            simplification_options,
-                            solver,
-                        )
-                        .unwrap_or(requires);
-                        if predicates_truth(&requires) == Truth::False {
-                            return RuleAttempt::NotApplicable;
+                            rule,
+                            pattern,
+                            substitution.clone(),
+                            &remainder,
+                            fresh_counter,
+                        ) {
+                            GeneralUnificationRecovery::Unified(substitution, constraints) => {
+                                (substitution, constraints)
+                            }
+                            GeneralUnificationRecovery::Bottom => {
+                                return RuleAttempt::NotApplicable;
+                            }
+                            GeneralUnificationRecovery::Unsupported => {
+                                if let Some(recovered) = recover_functional_symbolic_match(
+                                    definition,
+                                    rule,
+                                    pattern,
+                                    substitution.clone(),
+                                    &remainder,
+                                    fresh_counter,
+                                ) {
+                                    recovered
+                                } else if let Some(recovered) = recover_function_equality_match(
+                                    rule,
+                                    pattern,
+                                    substitution.clone(),
+                                    &remainder,
+                                    fresh_counter,
+                                ) {
+                                    recovered
+                                } else {
+                                    let requires =
+                                        substitute_predicates(&rule.requires, &substitution);
+                                    let requires = simplify_predicates_with_solver(
+                                        definition,
+                                        &requires,
+                                        &inherited_knowledge,
+                                        simplification_options,
+                                        solver,
+                                    )
+                                    .unwrap_or(requires);
+                                    if predicates_truth(&requires) == Truth::False {
+                                        return RuleAttempt::NotApplicable;
+                                    }
+                                    let unclear = requires
+                                        .into_iter()
+                                        .filter(|predicate| {
+                                            predicates_truth(std::slice::from_ref(predicate))
+                                                == Truth::Unknown
+                                                && !inherited_knowledge.contains(predicate)
+                                        })
+                                        .collect::<Vec<_>>();
+                                    if !unclear.is_empty()
+                                        && matches!(
+                                            solver.check_predicates(
+                                                &inherited_knowledge,
+                                                &Substitution::new(),
+                                                &unclear,
+                                            ),
+                                            Ok(Validity::Invalid)
+                                        )
+                                    {
+                                        return RuleAttempt::NotApplicable;
+                                    }
+                                    return RuleAttempt::Indeterminate(
+                                        IndeterminateReason::Match {
+                                            rule_id: rule.attributes.unique_id.clone(),
+                                            substitution,
+                                            remainder,
+                                        },
+                                    );
+                                }
+                            }
                         }
-                        let unclear = requires
-                            .into_iter()
-                            .filter(|predicate| {
-                                predicates_truth(std::slice::from_ref(predicate)) == Truth::Unknown
-                                    && !inherited_knowledge.contains(predicate)
-                            })
-                            .collect::<Vec<_>>();
-                        if !unclear.is_empty()
-                            && matches!(
-                                solver.check_predicates(
-                                    &inherited_knowledge,
-                                    &Substitution::new(),
-                                    &unclear,
-                                ),
-                                Ok(Validity::Invalid)
-                            )
-                        {
-                            return RuleAttempt::NotApplicable;
-                        }
-                        return RuleAttempt::Indeterminate(IndeterminateReason::Match {
-                            rule_id: rule.attributes.unique_id.clone(),
-                            substitution,
-                            remainder,
-                        });
                     }
                 }
             }
@@ -1403,15 +1494,17 @@ fn apply_rule_with_match(
         .map(|(variable, value)| {
             (
                 variable.clone(),
+                value.clone(),
                 Predicate::Equals(Term::variable(variable.clone()), value.clone()),
             )
         })
         .collect::<Vec<_>>();
-    for (variable, condition) in configuration_bindings {
+    for (variable, value, condition) in configuration_bindings {
         substitution.remove(&variable);
         if !match_conditions.contains(&condition) {
             match_conditions.push(condition);
         }
+        extend_unique(&mut match_conditions, ceil_term(definition, &value));
     }
     inherited_conditions.append(&mut match_conditions);
     let inherited_conditions = simplify_predicates_with_solver(
@@ -3420,6 +3513,39 @@ mod tests {
         let result = rewrite_step(&definition, &subject, &mut fresh);
 
         assert_eq!(result, RewriteResult::Trivial(subject));
+    }
+
+    #[test]
+    fn rejects_a_symbolic_occurs_check_during_rewriting() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} []
+                symbol pair{}(SortS{}, SortS{}) : SortS{} [constructor{}()]
+                symbol nested{}(SortS{}) : SortS{} [constructor{}()]
+                symbol done{}() : SortS{} [constructor{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        pair{}(X:SortS{}, nested{}(X:SortS{})),
+                        \top{SortS{}}()
+                    ),
+                    done{}()
+                ) [label{}("cyclic")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let subject = Pattern {
+            term: internal_term(&definition, "pair{}(Y:SortS{}, Y:SortS{})"),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        assert_eq!(
+            rewrite_step(&definition, &subject, &mut fresh),
+            RewriteResult::Stuck(subject)
+        );
     }
 
     #[test]

@@ -19,3 +19,4 @@ pub mod smt;
 pub mod substitution;
 pub mod term;
 pub mod timeout;
+pub mod unification;
