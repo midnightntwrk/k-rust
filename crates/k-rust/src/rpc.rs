@@ -31,10 +31,11 @@ use k_rust_backend::{
         AppliedRule, ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
         TraceKind, execute_with_solver, substitute_predicates,
     },
-    rule::Predicate,
+    rule::{Predicate, RulePatternError},
     session::BackendSession,
     simplify::{
         SimplificationError, SimplificationOptions, simplify_and_decide_predicate_with_solver,
+        simplify_pattern_with_solver,
     },
     smt::{ModelResult, SmtError, SmtSolver, Z3Solver},
     substitution::{Substitution, substitute},
@@ -510,10 +511,26 @@ impl RpcService {
         let _haskell_logging = params.haskell_logging;
         let definition = self.definition(params.module.as_deref())?;
         let syntax = params.state.0;
+        let solver = solver(&definition)?;
+        match definition.internalize_pattern(&syntax, &[]) {
+            Ok(pattern) => {
+                let simplified = simplify_pattern_with_solver(
+                    &definition,
+                    &pattern,
+                    SimplificationOptions::default(),
+                    &solver,
+                )
+                .map_err(|error| simplify_fault(error, &pattern.term.sort()))?;
+                return Ok(json!({
+                    "state": encode_kore(&externalize::constrained_pattern(&simplified))?
+                }));
+            }
+            Err(DefinitionError::RulePattern(RulePatternError::MissingTerm)) => {}
+            Err(error) => return Err(RpcFault::pattern(error)),
+        }
         let (predicate, result_sort) = definition
             .internalize_predicate(&syntax, &[])
             .map_err(RpcFault::pattern)?;
-        let solver = solver(&definition)?;
         let simplified = simplify_and_decide_predicate_with_solver(
             &definition,
             &predicate,
@@ -1683,6 +1700,19 @@ mod tests {
         ))
     }
 
+    fn boolean_service() -> RpcService {
+        RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[]
+                module TEST
+                  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ))
+    }
+
     fn implication_error(antecedent: &str, consequent: &str) -> Value {
         implication_response(antecedent, consequent)["error"].clone()
     }
@@ -2409,6 +2439,25 @@ mod tests {
             json!({ "state": model_state }),
         );
         assert_eq!(model["result"], json!({ "satisfiable": "Sat" }));
+    }
+
+    #[test]
+    fn simplify_distinguishes_boolean_terms_from_ml_truth() {
+        let mut service = boolean_service();
+        let boolean = encode_kore(
+            &parse_pattern(r#"\dv{SortBool{}}("true")"#).expect("boolean term should parse"),
+        )
+        .unwrap();
+        let logical =
+            encode_kore(&parse_pattern(r#"\top{SortBool{}}()"#).expect("ML truth should parse"))
+                .unwrap();
+
+        let boolean = request(&mut service, 1, "simplify", json!({ "state": boolean }));
+        let logical = request(&mut service, 2, "simplify", json!({ "state": logical }));
+
+        assert_eq!(boolean["result"]["state"]["term"]["tag"], "DV");
+        assert_eq!(boolean["result"]["state"]["term"]["value"], "true");
+        assert_eq!(logical["result"]["state"]["term"]["tag"], "Top");
     }
 
     #[test]

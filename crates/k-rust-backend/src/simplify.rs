@@ -17,7 +17,7 @@ use crate::{
         match_term_pairs_in_definition, match_terms_in_definition,
     },
     rewrite::{
-        Truth, check_concreteness, predicates_truth, substitute_predicates,
+        Pattern, Truth, check_concreteness, predicates_truth, substitute_predicates,
         violates_finite_constructor_domain,
     },
     rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
@@ -105,6 +105,34 @@ pub fn simplify_with_solver(
         &active_conditions,
         solver,
     )
+}
+
+/// Simplify a constrained term while retaining and normalizing its path constraints.
+pub fn simplify_pattern_with_solver(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Result<Pattern, SimplificationError> {
+    let simplified = simplify_with_solver(
+        definition,
+        &pattern.term,
+        &pattern.constraints,
+        options,
+        solver,
+    )?;
+    let mut constraints = pattern.constraints.clone();
+    for constraint in simplified.constraints {
+        if !constraints.contains(&constraint) {
+            constraints.push(constraint);
+        }
+    }
+    let constraints =
+        simplify_predicates_with_solver(definition, &constraints, &[], options, solver)?;
+    Ok(Pattern {
+        term: simplified.term,
+        constraints,
+    })
 }
 
 pub fn simplify_predicates_with_solver(
@@ -1695,7 +1723,12 @@ fn apply_equation(
     )
     .unwrap_or(ensures);
     match predicates_truth(&ensures) {
-        Truth::False => Ok(EquationAttempt::NotApplicable),
+        Truth::False => Ok(EquationAttempt::Applied(Simplification {
+            term: rhs,
+            constraints: vec![Predicate::False],
+            applied_rules: vec![rule.attributes.unique_id.clone()],
+            effects: Vec::new(),
+        })),
         Truth::True => Ok(EquationAttempt::Applied(Simplification {
             term: rhs,
             constraints: if rhs_is_bottom {
@@ -1709,7 +1742,12 @@ fn apply_equation(
         Truth::Unknown => {
             match solver.check_predicates(known_predicates, &Substitution::new(), &ensures) {
                 Ok(Validity::Invalid) => {
-                    return Ok(EquationAttempt::NotApplicable);
+                    return Ok(EquationAttempt::Applied(Simplification {
+                        term: rhs,
+                        constraints: vec![Predicate::False],
+                        applied_rules: vec![rule.attributes.unique_id.clone()],
+                        effects: Vec::new(),
+                    }));
                 }
                 Ok(Validity::Valid) => ensures.clear(),
                 Ok(
@@ -1751,6 +1789,7 @@ mod tests {
             r#"[]
             module MAIN
                 sort SortS{{}} [hasDomainValues{{}}()]
+                sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
                 symbol wrap{{}}(SortS{{}}) : SortS{{}} [constructor{{}}()]
                 symbol budgetPair{{}}(SortS{{}}, SortS{{}}) : SortS{{}} [constructor{{}}()]
                 symbol f{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
@@ -2061,6 +2100,35 @@ mod tests {
         let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
         assert_eq!(result.constraints.len(), 1);
         assert!(matches!(result.constraints[0], Predicate::Equals(..)));
+    }
+
+    #[test]
+    fn refuted_ensures_make_the_equation_result_bottom() {
+        let definition = definition(
+            r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(
+                        X:SortS{},
+                        \equals{SortBool{}, SortS{}}(
+                            \dv{SortBool{}}("true"),
+                            \dv{SortBool{}}("false")
+                        )
+                    )
+                )
+            ) [label{}("contradictory-result"), simplification{}()]
+            "#,
+        );
+        let value = term(&definition, r#"\dv{SortS{}}("value")"#);
+        let input = term(&definition, r#"f{}(\dv{SortS{}}("value"))"#);
+
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+        assert_eq!(result.term, value);
+        assert_eq!(result.constraints, [Predicate::False]);
+        assert_eq!(result.applied_rules, ["contradictory-result"]);
     }
 
     #[test]

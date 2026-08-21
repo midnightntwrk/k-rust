@@ -3,7 +3,7 @@
 use k_rust_kore::kore::ast as kore;
 
 use crate::{
-    rewrite::Pattern,
+    rewrite::{Pattern, Truth, predicates_truth},
     rule::Predicate,
     term::{CollectionSymbols, Sort, Term, TermKind, Variable},
 };
@@ -108,21 +108,31 @@ pub fn term(term: &Term) -> kore::Pattern {
 
 pub fn constrained_pattern(pattern: &Pattern) -> kore::Pattern {
     let result_sort = pattern.term.sort();
-    let mut arguments = Vec::with_capacity(pattern.constraints.len() + 1);
-    arguments.push(term(&pattern.term));
-    arguments.extend(
-        pattern
-            .constraints
-            .iter()
-            .map(|predicate| predicate_pattern(predicate, &result_sort)),
-    );
-    if arguments.len() == 1 {
-        arguments.pop().unwrap()
+    if predicates_truth(&pattern.constraints) == Truth::False {
+        return kore::Pattern::Bottom {
+            sort: sort(&result_sort),
+        };
+    }
+    let mut predicates = pattern
+        .constraints
+        .iter()
+        .map(|predicate| predicate_pattern(predicate, &result_sort))
+        .collect::<Vec<_>>();
+    let Some(predicate) = predicates.pop() else {
+        return term(&pattern.term);
+    };
+    let predicate = if predicates.is_empty() {
+        predicate
     } else {
+        predicates.push(predicate);
         kore::Pattern::And {
             sort: sort(&result_sort),
-            arguments,
+            arguments: predicates,
         }
+    };
+    kore::Pattern::And {
+        sort: sort(&result_sort),
+        arguments: vec![term(&pattern.term), predicate],
     }
 }
 
@@ -421,6 +431,33 @@ mod tests {
                     arguments: Vec::new(),
                 } && arguments.len() == 2
         ));
+    }
+
+    #[test]
+    fn constrained_patterns_group_predicates_and_collapse_bottom() {
+        let sort = Sort::simple("SortInt");
+        let value = Term::domain_value(sort.clone(), "1");
+        let x = Term::variable(Variable::new("X", sort.clone()));
+        let y = Term::variable(Variable::new("Y", sort.clone()));
+        let grouped = constrained_pattern(&Pattern {
+            term: value.clone(),
+            constraints: vec![
+                Predicate::Equals(x, value.clone()),
+                Predicate::Equals(y, value.clone()),
+            ],
+        });
+        let bottom = constrained_pattern(&Pattern {
+            term: value,
+            constraints: vec![Predicate::False],
+        });
+
+        assert!(matches!(
+            grouped,
+            kore::Pattern::And { arguments, .. }
+                if arguments.len() == 2
+                    && matches!(&arguments[1], kore::Pattern::And { arguments, .. } if arguments.len() == 2)
+        ));
+        assert!(matches!(bottom, kore::Pattern::Bottom { .. }));
     }
 
     #[test]

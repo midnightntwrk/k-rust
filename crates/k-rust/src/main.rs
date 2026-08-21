@@ -38,7 +38,7 @@ use k_rust::{
 use k_rust_backend::{
     binary as backend_binary,
     builtin::BuiltinEffect,
-    definition::BackendDefinition,
+    definition::{BackendDefinition, DefinitionError},
     externalize,
     implication::{
         ImplicationCondition, ImplicationResult, ImplicationStatus,
@@ -49,13 +49,16 @@ use k_rust_backend::{
         ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
         execute_with_solver_and_observer,
     },
-    rule::Predicate,
+    rule::{Predicate, RulePatternError},
     search::{
         IncompleteSearch, PatternMatch, PatternMatchError, PatternSearchResult, SearchOptions,
         SearchType, match_disjunction, search_pattern_with_solver,
     },
     session::BackendSession,
-    simplify::{SimplificationOptions, simplify_and_decide_predicate_with_solver},
+    simplify::{
+        SimplificationOptions, simplify_and_decide_predicate_with_solver,
+        simplify_pattern_with_solver,
+    },
     smt::{ModelResult, SmtError, SmtSolver, Z3Solver},
     substitution::Substitution,
     term::{Name as BackendName, Sort as BackendSort, Term, TermKind, Variable},
@@ -1027,9 +1030,25 @@ fn simplify_kore_pattern(
     definition: &BackendDefinition,
     syntax: &KorePattern,
 ) -> Result<KorePattern, Box<dyn Error>> {
-    let (predicate, result_sort) = definition.internalize_predicate(syntax, &[])?;
     let solver = Z3Solver::new(definition)
         .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
+    match definition.internalize_pattern(syntax, &[]) {
+        Ok(pattern) => {
+            let simplified = simplify_pattern_with_solver(
+                definition,
+                &pattern,
+                SimplificationOptions::default(),
+                &solver,
+            )
+            .map_err(|error| {
+                io::Error::other(format!("could not simplify KORE pattern: {error:?}"))
+            })?;
+            return Ok(externalize::constrained_pattern(&simplified));
+        }
+        Err(DefinitionError::RulePattern(RulePatternError::MissingTerm)) => {}
+        Err(error) => return Err(error.into()),
+    }
+    let (predicate, result_sort) = definition.internalize_predicate(syntax, &[])?;
     let simplified = simplify_and_decide_predicate_with_solver(
         definition,
         &predicate,
@@ -2511,6 +2530,24 @@ mod tests {
         assert_eq!(options.module, "MAIN");
         assert_eq!(options.pattern, Path::new("predicate.json"));
         assert_eq!(options.output.as_deref(), Some(Path::new("result.kore")));
+    }
+
+    #[test]
+    fn kore_simplify_preserves_boolean_terms() {
+        let syntax = parse_kore_definition(
+            r#"[]
+            module MAIN
+              hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let boolean = parse_kore_pattern(r#"\dv{SortBool{}}("true")"#).unwrap();
+
+        assert_eq!(
+            simplify_kore_pattern(&definition, &boolean).unwrap(),
+            boolean
+        );
     }
 
     #[test]
