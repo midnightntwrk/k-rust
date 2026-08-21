@@ -25,7 +25,7 @@ use k_rust_backend::{
     externalize,
     implication::{
         ImplicationCondition, ImplicationError, ImplicationFailure, ImplicationResult,
-        ImplicationStatus, check_implication_with_existentials,
+        ImplicationStatus, check_implication_with_existentials_complete,
     },
     rewrite::{
         AppliedRule, ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
@@ -670,7 +670,7 @@ impl RpcService {
             return Err(RpcFault::pattern("antecedent and consequent sorts differ"));
         }
         let solver = solver(&definition, self.smt_options)?;
-        let result = check_implication_with_existentials(
+        let result = check_implication_with_existentials_complete(
             &definition,
             &antecedent_pattern,
             &antecedent_existentials,
@@ -2015,6 +2015,22 @@ mod tests {
         ))
     }
 
+    fn smt_implication_service() -> RpcService {
+        RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[]
+                module TEST
+                  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                  symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("<")]
+                endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ))
+    }
+
     fn boolean_service() -> RpcService {
         RpcService::new(BackendSession::new(
             parse_definition(
@@ -2239,6 +2255,47 @@ mod tests {
         assert_eq!(
             response["result"]["condition"]["predicate"]["term"]["tag"],
             "Bottom"
+        );
+        assert_eq!(
+            response["result"]["condition"]["substitution"]["term"]["tag"],
+            "Top"
+        );
+    }
+
+    #[test]
+    fn implication_uses_an_smt_counterexample_as_a_public_refutation() {
+        let mut service = smt_implication_service();
+        let constrained = |bound| {
+            encode_kore(
+                &parse_pattern(&format!(
+                    r#"\and{{SortInt{{}}}}(
+                        X:SortInt{{}},
+                        \equals{{SortBool{{}}, SortInt{{}}}}(
+                            \dv{{SortBool{{}}}}("true"),
+                            lt{{}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("{bound}"))
+                        )
+                    )"#
+                ))
+                .expect("constrained integer pattern should parse"),
+            )
+            .expect("constrained integer pattern should encode")
+        };
+
+        let response = request(
+            &mut service,
+            1,
+            "implies",
+            json!({
+                "antecedent": constrained(100),
+                "consequent": constrained(10),
+                "assume-defined": true,
+            }),
+        );
+
+        assert_eq!(response["result"]["status"], "invalid");
+        assert_eq!(
+            response["result"]["condition"]["predicate"]["term"]["tag"],
+            "Top"
         );
         assert_eq!(
             response["result"]["condition"]["substitution"]["term"]["tag"],

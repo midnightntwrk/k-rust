@@ -42,7 +42,7 @@ use k_rust_backend::{
     externalize,
     implication::{
         ImplicationCondition, ImplicationResult, ImplicationStatus,
-        check_implication_with_existentials,
+        check_implication_with_existentials_complete,
     },
     proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
     rewrite::{
@@ -1300,7 +1300,7 @@ fn kore_implies_inner(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
         }
         let solver = Z3Solver::with_options(&backend, options.smt.options())
             .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
-        check_implication_with_existentials(
+        check_implication_with_existentials_complete(
             &backend,
             &antecedent,
             &antecedent_existentials,

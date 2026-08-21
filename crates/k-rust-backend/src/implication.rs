@@ -61,6 +61,18 @@ struct Source<'a> {
     original_variable: Option<&'a Variable>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CounterexamplePolicy {
+    PreserveIndeterminate,
+    RefuteImplication,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ImplicationCheckOptions {
+    simplification: SimplificationOptions,
+    counterexamples: CounterexamplePolicy,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ImplicationError {
     ConsequentFreeVariables(BTreeSet<Variable>),
@@ -126,6 +138,34 @@ pub fn check_implication_with_existentials(
         consequent,
         consequent_existentials,
         SimplificationOptions::default(),
+        solver,
+    )
+}
+
+/// Check an implication and use a concrete SMT counterexample as a decisive refutation.
+///
+/// Booster reports `indeterminate` when both the consequent obligation and its negation are
+/// satisfiable under the antecedent. The public KORE service falls back to kore for that case,
+/// which reports the counterexample as `invalid`. This entry point performs that final
+/// classification in process while preserving genuine solver and matching uncertainty.
+pub fn check_implication_with_existentials_complete(
+    definition: &BackendDefinition,
+    antecedent: &Pattern,
+    antecedent_existentials: &BTreeSet<Variable>,
+    consequent: &Pattern,
+    consequent_existentials: &BTreeSet<Variable>,
+    solver: &dyn SmtSolver,
+) -> Result<ImplicationResult, ImplicationError> {
+    check_implication_with_existentials_and_options_and_policy(
+        definition,
+        antecedent,
+        antecedent_existentials,
+        consequent,
+        consequent_existentials,
+        ImplicationCheckOptions {
+            simplification: SimplificationOptions::default(),
+            counterexamples: CounterexamplePolicy::RefuteImplication,
+        },
         solver,
     )
 }
@@ -301,6 +341,29 @@ pub fn check_implication_with_existentials_and_options(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<ImplicationResult, ImplicationError> {
+    check_implication_with_existentials_and_options_and_policy(
+        definition,
+        antecedent,
+        antecedent_existentials,
+        consequent,
+        consequent_existentials,
+        ImplicationCheckOptions {
+            simplification: options,
+            counterexamples: CounterexamplePolicy::PreserveIndeterminate,
+        },
+        solver,
+    )
+}
+
+fn check_implication_with_existentials_and_options_and_policy(
+    definition: &BackendDefinition,
+    antecedent: &Pattern,
+    antecedent_existentials: &BTreeSet<Variable>,
+    consequent: &Pattern,
+    consequent_existentials: &BTreeSet<Variable>,
+    options: ImplicationCheckOptions,
+    solver: &dyn SmtSolver,
+) -> Result<ImplicationResult, ImplicationError> {
     let (consequent, consequent_existentials) =
         freshen_existentials(antecedent, consequent, consequent_existentials);
     let antecedent_variables = free_variables(antecedent)
@@ -352,7 +415,7 @@ pub fn check_implication_with_existentials_and_options(
                     definition,
                     &antecedent.term,
                     &antecedent.constraints,
-                    options,
+                    options.simplification,
                     solver,
                 )
                 .map_err(ImplicationError::Simplification)?;
@@ -446,7 +509,7 @@ fn discharge_consequent(
     consequent: Destination<'_>,
     substitution: Substitution,
     remainder: Vec<(crate::term::Term, crate::term::Term)>,
-    options: SimplificationOptions,
+    options: ImplicationCheckOptions,
     solver: &dyn SmtSolver,
 ) -> Result<ImplicationResult, ImplicationError> {
     let source = antecedent;
@@ -467,7 +530,7 @@ fn discharge_consequent(
         definition,
         &obligations,
         &antecedent.constraints,
-        options,
+        options.simplification,
         solver,
     ) {
         Ok(obligations) => obligations,
@@ -495,6 +558,11 @@ fn discharge_consequent(
             Ok(Validity::InconsistentGroundTruth) => vacuously_valid(),
             Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) if had_match_remainder => {
                 partial(source.original_variable, substitution, obligations)
+            }
+            Ok(Validity::Indeterminate)
+                if options.counterexamples == CounterexamplePolicy::RefuteImplication =>
+            {
+                counterexample_invalid(substitution)
             }
             Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => indeterminate(),
         },
@@ -672,6 +740,17 @@ fn condition_invalid_with_substitution(substitution: Substitution) -> Implicatio
     if substitution.is_empty() {
         return condition_invalid();
     }
+    ImplicationResult {
+        status: ImplicationStatus::Invalid,
+        condition: Some(ImplicationCondition {
+            predicates: Vec::new(),
+            substitution,
+        }),
+        failure: Some(ImplicationFailure::ConsequentCondition),
+    }
+}
+
+fn counterexample_invalid(substitution: Substitution) -> ImplicationResult {
     ImplicationResult {
         status: ImplicationStatus::Invalid,
         condition: Some(ImplicationCondition {
@@ -1160,6 +1239,53 @@ mod tests {
                 .expect("a refuted condition should be retained")
                 .predicates,
             vec![Predicate::False]
+        );
+    }
+
+    #[test]
+    fn complete_check_uses_smt_counterexamples_without_hiding_solver_uncertainty() {
+        let definition = definition();
+        let antecedent = pattern(&definition, r#"X:SortInt{}"#);
+        let mut consequent = antecedent.clone();
+        consequent.constraints.push(Predicate::Equals(
+            Term::variable(crate::term::Variable::new("X", Sort::simple("SortInt"))),
+            int(&definition, "1"),
+        ));
+        let counterexample = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Indeterminate),
+        };
+
+        assert_eq!(
+            check_implication(&definition, &antecedent, &consequent, &counterexample),
+            Ok(indeterminate())
+        );
+        assert_eq!(
+            check_implication_with_existentials_complete(
+                &definition,
+                &antecedent,
+                &BTreeSet::new(),
+                &consequent,
+                &BTreeSet::new(),
+                &counterexample,
+            ),
+            Ok(counterexample_invalid(Substitution::new()))
+        );
+
+        let unavailable = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Err(SmtError::Unavailable),
+        };
+        assert_eq!(
+            check_implication_with_existentials_complete(
+                &definition,
+                &antecedent,
+                &BTreeSet::new(),
+                &consequent,
+                &BTreeSet::new(),
+                &unavailable,
+            ),
+            Ok(indeterminate())
         );
     }
 
