@@ -1661,13 +1661,21 @@ fn split_constraints(
     let (extracted, mut predicates) = extract_substitution(constraints);
     let mut substitution = Substitution::new();
     for (variable, value) in extracted {
-        if configuration_variables.contains(&variable) {
+        if configuration_variables.contains(&variable) || is_rewrite_existential(&variable) {
             substitution.insert(variable, value);
         } else {
             predicates.push(Predicate::Equals(Term::variable(variable), value));
         }
     }
     (predicates, substitution)
+}
+
+fn is_rewrite_existential(variable: &Variable) -> bool {
+    // Handwritten KORE may preserve `?X` directly, while compiled definitions use the Java
+    // variable prefix and either decoded or KORE-encoded punctuation.
+    variable.name.starts_with('?')
+        || variable.name.starts_with("Var?")
+        || variable.name.starts_with("Var'Ques'")
 }
 
 fn constraints_pattern(
@@ -2971,6 +2979,52 @@ mod tests {
                 .all(|binding| binding["second"]["value"] == "resolved")
         );
         assert!(state.get("predicate").is_none());
+    }
+
+    #[test]
+    fn execute_projects_a_resolved_rewrite_existential_as_a_substitution() {
+        let syntax = parse_definition(
+            r#"[]
+                module TEST
+                  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                  sort SortState{} []
+                  symbol initial{}() : SortState{} [constructor{}()]
+                  symbol state{}(SortInt{}) : SortState{} [constructor{}()]
+                  symbol eq{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+                  axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(initial{}(), \top{SortState{}}()),
+                    \exists{SortState{}}(
+                      Var'Ques'X:SortInt{},
+                      \and{SortState{}}(
+                        state{}(Var'Ques'X:SortInt{}),
+                        \equals{SortBool{}, SortState{}}(
+                          eq{}(Var'Ques'X:SortInt{}, \dv{SortInt{}}("42")),
+                          \dv{SortBool{}}("true")
+                        )
+                      )
+                    )
+                  ) [label{}("TEST.resolve"), UNIQUE'Unds'ID{}("resolve-rule")]
+                endmodule []"#,
+        )
+        .expect("definition should parse");
+        let mut service = RpcService::new(BackendSession::new(syntax, "TEST"));
+        let state = encode_kore(&parse_pattern("initial{}()").unwrap()).unwrap();
+
+        let response = request(&mut service, 1, "execute", json!({ "state": state }));
+
+        assert_eq!(response["result"]["reason"], "stuck", "{response:#}");
+        assert_eq!(response["result"]["depth"], 1);
+        assert_eq!(
+            response["result"]["state"]["term"]["term"]["args"][0]["value"],
+            "42"
+        );
+        let substitution = &response["result"]["state"]["substitution"]["term"];
+        assert_eq!(substitution["tag"], "Equals");
+        assert_eq!(substitution["first"]["name"], "Var'Ques'X");
+        assert_eq!(substitution["second"]["value"], "42");
+        assert!(response["result"]["state"].get("predicate").is_none());
     }
 
     #[test]
