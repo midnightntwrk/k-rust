@@ -1571,11 +1571,9 @@ fn execute_applied_state(
         .as_object_mut()
         .expect("execute_state always returns an object");
     object.insert("rule-id".into(), Value::String(applied.unique_id.clone()));
-    if let Some(rule_predicate) = execution_constraints_pattern(
-        definition,
-        &applied.rule_predicates,
-        &applied.pattern.term.sort(),
-    ) {
+    if let Some(rule_predicate) =
+        rule_constraints_pattern(&applied.rule_predicates, &applied.pattern.term.sort())
+    {
         object.insert("rule-predicate".into(), encode_kore(&rule_predicate)?);
     }
     let (_, state_substitution) =
@@ -1611,7 +1609,33 @@ fn externalize_rule_substitution(
             )
         })
         .collect();
-    super::model_substitution(&substitution, result_sort)
+    super::model_substitution(&substitution, result_sort).map(left_associate_conjunction)
+}
+
+fn left_associate_conjunction(pattern: KorePattern) -> KorePattern {
+    let KorePattern::And { sort, arguments } = pattern else {
+        return pattern;
+    };
+    let mut arguments = arguments.into_iter();
+    let Some(first) = arguments.next() else {
+        return KorePattern::And {
+            sort,
+            arguments: Vec::new(),
+        };
+    };
+    let Some(second) = arguments.next() else {
+        return first;
+    };
+    arguments.fold(
+        KorePattern::And {
+            sort: sort.clone(),
+            arguments: vec![first, second],
+        },
+        |left, right| KorePattern::And {
+            sort: sort.clone(),
+            arguments: vec![left, right],
+        },
+    )
 }
 
 fn pattern_variables(pattern: &Pattern) -> BTreeSet<Variable> {
@@ -1672,6 +1696,21 @@ fn execution_constraints_pattern(
         .map(|predicate| {
             externalize::booster_predicate_pattern(definition, predicate, result_sort)
         });
+    let first = predicates.next()?;
+    Some(predicates.fold(first, |left, right| KorePattern::And {
+        sort: externalize::sort(result_sort),
+        arguments: vec![left, right],
+    }))
+}
+
+fn rule_constraints_pattern(
+    constraints: &[Predicate],
+    result_sort: &BackendSort,
+) -> Option<KorePattern> {
+    let mut predicates = constraints
+        .iter()
+        .filter(|predicate| !matches!(predicate, Predicate::True))
+        .map(|predicate| externalize::booster_rule_predicate_pattern(predicate, result_sort));
     let first = predicates.next()?;
     Some(predicates.fold(first, |left, right| KorePattern::And {
         sort: externalize::sort(result_sort),
@@ -2901,6 +2940,36 @@ mod tests {
         let pattern = encode_kore(&pattern).unwrap();
         assert_eq!(pattern["term"]["first"]["name"], "RuleX");
         assert_eq!(pattern["term"]["second"]["value"], "resolved");
+    }
+
+    #[test]
+    fn left_associates_rule_substitution_provenance() {
+        let sort = BackendSort::simple("SortState");
+        let substitution = Substitution::from([
+            (
+                Variable::new("Rule#A", sort.clone()),
+                Term::domain_value(sort.clone(), "a"),
+            ),
+            (
+                Variable::new("Rule#B", sort.clone()),
+                Term::domain_value(sort.clone(), "b"),
+            ),
+            (
+                Variable::new("Rule#C", sort.clone()),
+                Term::domain_value(sort.clone(), "c"),
+            ),
+        ]);
+
+        let pattern = externalize_rule_substitution(&substitution, &Substitution::new(), &sort)
+            .expect("non-empty rule substitution");
+        assert!(matches!(
+            pattern,
+            KorePattern::And { arguments, .. }
+                if arguments.len() == 2
+                    && matches!(&arguments[0], KorePattern::And { arguments, .. }
+                        if arguments.len() == 2)
+                    && matches!(&arguments[1], KorePattern::Equals { .. })
+        ));
     }
 
     #[test]

@@ -157,6 +157,101 @@ pub fn booster_predicate_pattern(
     )
 }
 
+/// Externalize the predicate attached to an applied rule in an execute response.
+///
+/// Booster reports rule provenance as a logical KORE predicate even though the same condition is
+/// retained on the successor state as a Boolean K term. This conversion is intentionally only a
+/// projection: execution keeps the original Boolean term so unresolved `KEQUAL` applications are
+/// not mistaken for semantic equality during simplification.
+pub fn booster_rule_predicate_pattern(predicate: &Predicate, result_sort: &Sort) -> kore::Pattern {
+    predicate_pattern(&logical_rule_predicate(predicate), result_sort)
+}
+
+fn logical_rule_predicate(predicate: &Predicate) -> Predicate {
+    let recurse = logical_rule_predicate;
+    match predicate {
+        Predicate::Term(term) => {
+            boolean_term_predicate(term, true).unwrap_or_else(|| Predicate::Term(term.clone()))
+        }
+        Predicate::Equals(left, right) => {
+            if let Some(value) = boolean_domain_value(right) {
+                boolean_term_predicate(left, value)
+                    .unwrap_or_else(|| Predicate::Equals(left.clone(), right.clone()))
+            } else if let Some(value) = boolean_domain_value(left) {
+                boolean_term_predicate(right, value)
+                    .unwrap_or_else(|| Predicate::Equals(left.clone(), right.clone()))
+            } else {
+                Predicate::Equals(left.clone(), right.clone())
+            }
+        }
+        Predicate::Not(inner) => Predicate::Not(Box::new(recurse(inner))),
+        Predicate::And(inner) => Predicate::And(inner.iter().map(recurse).collect()),
+        Predicate::Or(inner) => Predicate::Or(inner.iter().map(recurse).collect()),
+        Predicate::Implies(left, right) => {
+            Predicate::Implies(Box::new(recurse(left)), Box::new(recurse(right)))
+        }
+        Predicate::Iff(left, right) => {
+            Predicate::Iff(Box::new(recurse(left)), Box::new(recurse(right)))
+        }
+        Predicate::Exists(variable, inner) => {
+            Predicate::Exists(variable.clone(), Box::new(recurse(inner)))
+        }
+        Predicate::Forall(variable, inner) => {
+            Predicate::Forall(variable.clone(), Box::new(recurse(inner)))
+        }
+        Predicate::True
+        | Predicate::False
+        | Predicate::Ceil(_)
+        | Predicate::Floor(_)
+        | Predicate::In(_, _) => predicate.clone(),
+    }
+}
+
+fn boolean_term_predicate(term: &Term, expected: bool) -> Option<Predicate> {
+    if let Some(value) = boolean_domain_value(term) {
+        return Some(if value == expected {
+            Predicate::True
+        } else {
+            Predicate::False
+        });
+    }
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        return None;
+    };
+    let hook = symbol.attributes.hook.as_deref()?;
+    let operand = |index, expected| {
+        arguments
+            .get(index)
+            .and_then(|term| boolean_term_predicate(term, expected))
+    };
+    match (hook, arguments.as_slice()) {
+        ("BOOL.not", [_]) => operand(0, !expected),
+        ("BOOL.and", [_, _]) => Some(if expected {
+            Predicate::And(vec![operand(0, true)?, operand(1, true)?])
+        } else {
+            Predicate::Or(vec![operand(0, false)?, operand(1, false)?])
+        }),
+        ("BOOL.or", [_, _]) => Some(if expected {
+            Predicate::Or(vec![operand(0, true)?, operand(1, true)?])
+        } else {
+            Predicate::And(vec![operand(0, false)?, operand(1, false)?])
+        }),
+        (hook, [left, right]) if hook.ends_with(".eq") || hook.ends_with(".ne") => {
+            let equality = Predicate::Equals(left.clone(), right.clone());
+            let equality_expected = expected == hook.ends_with(".eq");
+            Some(if equality_expected {
+                equality
+            } else {
+                Predicate::Not(Box::new(equality))
+            })
+        }
+        _ => None,
+    }
+}
+
 fn predicate_as_boolean_term(
     definition: &BackendDefinition,
     predicate: &Predicate,
@@ -402,15 +497,25 @@ fn predicate_pattern_with_terms(
 }
 
 fn is_boolean_domain_value(term: &Term) -> bool {
-    matches!(
-        term.kind(),
-        TermKind::DomainValue {
-            sort: Sort::Application { name, arguments },
-            value,
-        } if name.as_ref() == "SortBool"
-            && arguments.is_empty()
-            && matches!(value.as_ref(), "true" | "false")
-    )
+    boolean_domain_value(term).is_some()
+}
+
+fn boolean_domain_value(term: &Term) -> Option<bool> {
+    let TermKind::DomainValue {
+        sort: Sort::Application { name, arguments },
+        value,
+    } = term.kind()
+    else {
+        return None;
+    };
+    if name.as_ref() != "SortBool" || !arguments.is_empty() {
+        return None;
+    }
+    match value.as_ref() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
 }
 
 pub fn sort(value: &Sort) -> kore::Sort {
@@ -638,6 +743,8 @@ mod tests {
                     [function{}(), total{}(), hook{}("INT.eq")]
                 hooked-symbol boolEq{}(SortBool{}, SortBool{}) : SortBool{}
                     [function{}(), total{}(), hook{}("BOOL.eq")]
+                hooked-symbol boolNot{}(SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.not")]
                 symbol condition{}() : SortBool{} [function{}(), total{}()]
             endmodule []"#,
         )
@@ -669,13 +776,29 @@ mod tests {
         let truth = Term::domain_value(Sort::simple("SortBool"), "true");
         let pattern = booster_predicate_pattern(
             &definition,
-            &Predicate::Equals(condition, truth),
+            &Predicate::Equals(condition, truth.clone()),
             &result_sort,
         );
         assert!(matches!(
             pattern,
             kore::Pattern::Equals { right, .. }
                 if matches!(right.as_ref(), kore::Pattern::Application { symbol, .. } if symbol.name == "condition")
+        ));
+
+        let condition = definition
+            .internalize_term(
+                &parse_pattern(r#"boolNot{}(intEq{}(X:SortInt{}, \dv{SortInt{}}("1")))"#).unwrap(),
+                &[],
+            )
+            .unwrap();
+        let logical =
+            booster_rule_predicate_pattern(&Predicate::Equals(truth, condition), &result_sort);
+        assert!(matches!(
+            logical,
+            kore::Pattern::Not { argument, .. }
+                if matches!(argument.as_ref(), kore::Pattern::Equals { left, right, .. }
+                    if matches!(left.as_ref(), kore::Pattern::Variable(variable) if variable.name == "X")
+                        && matches!(right.as_ref(), kore::Pattern::DomainValue { value, .. } if value == "1"))
         ));
     }
 }
