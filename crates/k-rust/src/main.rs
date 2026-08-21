@@ -254,6 +254,14 @@ struct KrunArgs {
     #[arg(long)]
     execute_to_branch: bool,
 
+    /// Stop before applying a rule with this label or unique ID. May be repeated.
+    #[arg(long = "cut-point-rule", value_name = "LABEL_OR_ID")]
+    cut_point_rules: Vec<String>,
+
+    /// Stop after applying a rule with this label or unique ID. May be repeated.
+    #[arg(long = "terminal-rule", value_name = "LABEL_OR_ID")]
+    terminal_rules: Vec<String>,
+
     /// Choose all rewrites or ordered first-applicable rewriting.
     #[arg(long, value_enum, default_value_t = ExecutionStrategyArg::All)]
     strategy: ExecutionStrategyArg,
@@ -294,6 +302,14 @@ struct KoreExecArgs {
     /// Stop and return the current configuration when execution first branches.
     #[arg(long)]
     execute_to_branch: bool,
+
+    /// Stop before applying a rule with this label or unique ID. May be repeated.
+    #[arg(long = "cut-point-rule", value_name = "LABEL_OR_ID")]
+    cut_point_rules: Vec<String>,
+
+    /// Stop after applying a rule with this label or unique ID. May be repeated.
+    #[arg(long = "terminal-rule", value_name = "LABEL_OR_ID")]
+    terminal_rules: Vec<String>,
 
     /// Choose all rewrites or ordered first-applicable rewriting.
     #[arg(long, value_enum, default_value_t = ExecutionStrategyArg::All)]
@@ -467,6 +483,8 @@ struct KrunOptions {
     depth: u64,
     breadth_limit: Option<usize>,
     execute_to_branch: bool,
+    cut_point_rules: BTreeSet<String>,
+    terminal_rules: BTreeSet<String>,
     strategy: ExecutionMode,
     search: Option<KrunSearchOptions>,
 }
@@ -476,6 +494,17 @@ struct KrunSearchOptions {
     search_type: SearchType,
     pattern: Option<PathBuf>,
     bound: Option<usize>,
+}
+
+#[derive(Debug)]
+struct BackendRunOptions {
+    depth: u64,
+    breadth_limit: Option<usize>,
+    execute_to_branch: bool,
+    cut_point_rules: BTreeSet<String>,
+    terminal_rules: BTreeSet<String>,
+    strategy: ExecutionMode,
+    search: Option<KrunSearchOptions>,
 }
 
 #[derive(Debug)]
@@ -584,6 +613,8 @@ impl From<KrunArgs> for KrunOptions {
             depth: arguments.depth.unwrap_or(u64::MAX),
             breadth_limit: arguments.breadth_limit,
             execute_to_branch: arguments.execute_to_branch,
+            cut_point_rules: arguments.cut_point_rules.into_iter().collect(),
+            terminal_rules: arguments.terminal_rules.into_iter().collect(),
             strategy: arguments.strategy.into(),
             search: arguments.search.into_options(),
         }
@@ -749,11 +780,15 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
             term: initial,
             constraints: Vec::new(),
         },
-        options.depth,
-        options.breadth_limit,
-        options.execute_to_branch,
-        options.strategy,
-        options.search,
+        BackendRunOptions {
+            depth: options.depth,
+            breadth_limit: options.breadth_limit,
+            execute_to_branch: options.execute_to_branch,
+            cut_point_rules: options.cut_point_rules,
+            terminal_rules: options.terminal_rules,
+            strategy: options.strategy,
+            search: options.search,
+        },
     )?;
     println!("{}", KorePrinter::pretty(100).print_pattern(&output));
     Ok(())
@@ -775,11 +810,15 @@ fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
     let output = run_backend(
         &backend,
         initial,
-        options.depth.unwrap_or(u64::MAX),
-        options.breadth_limit,
-        options.execute_to_branch,
-        options.strategy.into(),
-        options.search.into_options(),
+        BackendRunOptions {
+            depth: options.depth.unwrap_or(u64::MAX),
+            breadth_limit: options.breadth_limit,
+            execute_to_branch: options.execute_to_branch,
+            cut_point_rules: options.cut_point_rules.into_iter().collect(),
+            terminal_rules: options.terminal_rules.into_iter().collect(),
+            strategy: options.strategy.into(),
+            search: options.search.into_options(),
+        },
     )?;
     let output = KorePrinter::pretty(100).print_pattern(&output);
     if let Some(path) = options.output {
@@ -846,16 +885,12 @@ fn pattern_match_error(error: PatternMatchError) -> io::Error {
 fn run_backend(
     backend: &BackendDefinition,
     initial: Pattern,
-    depth: u64,
-    breadth_limit: Option<usize>,
-    execute_to_branch: bool,
-    strategy: ExecutionMode,
-    search: Option<KrunSearchOptions>,
+    options: BackendRunOptions,
 ) -> Result<KorePattern, Box<dyn Error>> {
     let output_sort = externalize::sort(&initial.term.sort());
     let solver = Z3Solver::new(backend)
         .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
-    if let Some(search) = search {
+    if let Some(search) = options.search {
         let target = match search.pattern {
             Some(path) => load_backend_pattern(backend, &path, "search")?,
             None => Pattern {
@@ -869,8 +904,8 @@ fn run_backend(
             &target,
             SearchOptions {
                 search_type: search.search_type,
-                max_depth: depth,
-                max_breadth: breadth_limit,
+                max_depth: options.depth,
+                max_breadth: options.breadth_limit,
                 max_results: search.bound,
                 ..SearchOptions::default()
             },
@@ -897,14 +932,16 @@ fn run_backend(
         backend,
         initial,
         ExecutionOptions {
-            max_depth: depth,
-            max_breadth: breadth_limit,
-            mode: strategy,
-            branch_mode: if execute_to_branch {
+            max_depth: options.depth,
+            max_breadth: options.breadth_limit,
+            mode: options.strategy,
+            branch_mode: if options.execute_to_branch {
                 ExecutionBranchMode::StopAtBranch
             } else {
                 ExecutionBranchMode::ExploreAll
             },
+            cut_point_rules: options.cut_point_rules,
+            terminal_rules: options.terminal_rules,
             ..ExecutionOptions::default()
         },
         &solver,
@@ -1537,6 +1574,10 @@ mod tests {
             "--breadth",
             "7",
             "--execute-to-branch",
+            "--cut-point-rule",
+            "MAIN.loop",
+            "--terminal-rule",
+            "rule-id",
             "--strategy",
             "any",
         ])
@@ -1553,6 +1594,11 @@ mod tests {
         assert_eq!(options.depth, 42);
         assert_eq!(options.breadth_limit, Some(7));
         assert!(options.execute_to_branch);
+        assert_eq!(
+            options.cut_point_rules,
+            BTreeSet::from(["MAIN.loop".into()])
+        );
+        assert_eq!(options.terminal_rules, BTreeSet::from(["rule-id".into()]));
         assert_eq!(options.strategy, ExecutionMode::Any);
         assert!(options.search.is_none());
     }
@@ -1601,6 +1647,10 @@ mod tests {
             "42",
             "--output",
             "result.kore",
+            "--cut-point-rule",
+            "MAIN.loop",
+            "--terminal-rule",
+            "rule-id",
             "--search-final",
             "--search-pattern",
             "target.kore",
@@ -1615,6 +1665,8 @@ mod tests {
         assert_eq!(options.pattern, Path::new("program.kore"));
         assert_eq!(options.depth, Some(42));
         assert_eq!(options.output.as_deref(), Some(Path::new("result.kore")));
+        assert_eq!(options.cut_point_rules, ["MAIN.loop"]);
+        assert_eq!(options.terminal_rules, ["rule-id"]);
         let search = options
             .search
             .into_options()

@@ -88,13 +88,15 @@ pub enum IndeterminateReason {
     },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExecutionOptions {
     pub max_depth: u64,
     pub max_breadth: Option<usize>,
     pub max_simplification_iterations: usize,
     pub mode: ExecutionMode,
     pub branch_mode: ExecutionBranchMode,
+    pub cut_point_rules: BTreeSet<String>,
+    pub terminal_rules: BTreeSet<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -117,6 +119,8 @@ impl Default for ExecutionOptions {
             max_simplification_iterations: 100,
             mode: ExecutionMode::All,
             branch_mode: ExecutionBranchMode::ExploreAll,
+            cut_point_rules: BTreeSet::new(),
+            terminal_rules: BTreeSet::new(),
         }
     }
 }
@@ -142,7 +146,16 @@ pub enum HaltReason {
     Stuck,
     Trivial,
     Vacuous,
-    Branch { branches: Vec<AppliedRule> },
+    Branch {
+        branches: Vec<AppliedRule>,
+    },
+    CutPointRule {
+        rule: String,
+        next_states: Vec<AppliedRule>,
+    },
+    TerminalRule {
+        rule: String,
+    },
     DepthBound,
     BreadthBound,
     Indeterminate(IndeterminateReason),
@@ -316,10 +329,30 @@ pub fn execute_with_solver_and_observer(
             }),
             RewriteResult::Finished(applied) => {
                 record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
-                enqueue_execution_states(
-                    &mut pending,
-                    vec![next_state(state.depth, state.trace, applied)],
-                );
+                if let Some(rule) = selected_stop_rule(&applied, &options.cut_point_rules) {
+                    leaves.push(ExecutionLeaf {
+                        pattern: state.pattern,
+                        depth: state.depth,
+                        trace: state.trace,
+                        halt_reason: HaltReason::CutPointRule {
+                            rule,
+                            next_states: vec![applied],
+                        },
+                    });
+                    continue;
+                }
+                let terminal_rule = selected_stop_rule(&applied, &options.terminal_rules);
+                let next = next_state(state.depth, state.trace, applied);
+                if let Some(rule) = terminal_rule {
+                    leaves.push(ExecutionLeaf {
+                        pattern: next.pattern,
+                        depth: next.depth,
+                        trace: next.trace,
+                        halt_reason: HaltReason::TerminalRule { rule },
+                    });
+                    continue;
+                }
+                enqueue_execution_states(&mut pending, vec![next]);
                 if execution_breadth_exceeded(&mut pending, &mut leaves, options.max_breadth) {
                     break;
                 }
@@ -355,6 +388,19 @@ pub fn execute_with_solver_and_observer(
         }
     }
     ExecutionResult { leaves, effects }
+}
+
+fn selected_stop_rule(applied: &AppliedRule, selected: &BTreeSet<String>) -> Option<String> {
+    applied
+        .label
+        .as_ref()
+        .filter(|label| selected.contains(*label))
+        .cloned()
+        .or_else(|| {
+            selected
+                .contains(&applied.unique_id)
+                .then(|| applied.unique_id.clone())
+        })
 }
 
 fn enqueue_execution_states(pending: &mut VecDeque<ExecutionState>, next: Vec<ExecutionState>) {
@@ -4951,6 +4997,85 @@ mod tests {
         assert_eq!(result.leaves[0].depth, 3);
         assert_eq!(result.leaves[0].trace.len(), 3);
         assert_eq!(result.leaves[0].halt_reason, HaltReason::DepthBound);
+    }
+
+    fn stop_rule_definition() -> BackendDefinition {
+        definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(\dv{SortS{}}("start")),
+                    \top{SortS{}}()
+                ),
+                wrap{}(\dv{SortS{}}("middle"))
+            ) [label{}("first")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(\dv{SortS{}}("middle")),
+                    \top{SortS{}}()
+                ),
+                \dv{SortS{}}("done")
+            ) [label{}("stop")]
+            "#,
+        )
+    }
+
+    #[test]
+    fn stops_before_applying_a_cut_point_rule() {
+        let definition = stop_rule_definition();
+        let result = execute(
+            &definition,
+            subject(&definition, "start"),
+            ExecutionOptions {
+                cut_point_rules: BTreeSet::from(["stop".into()]),
+                ..ExecutionOptions::default()
+            },
+        );
+
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one cut-point leaf, found {:?}", result.leaves);
+        };
+        assert_eq!(leaf.depth, 1);
+        assert_eq!(leaf.pattern, subject(&definition, "middle"));
+        assert_eq!(leaf.trace.len(), 1);
+        let HaltReason::CutPointRule { rule, next_states } = &leaf.halt_reason else {
+            panic!("expected a cut-point halt, found {:?}", leaf.halt_reason);
+        };
+        assert_eq!(rule, "stop");
+        assert_eq!(next_states.len(), 1);
+        assert_eq!(
+            next_states[0].pattern.term,
+            internal_term(&definition, r#"\dv{SortS{}}("done")"#)
+        );
+    }
+
+    #[test]
+    fn stops_after_applying_a_terminal_rule() {
+        let definition = stop_rule_definition();
+        let result = execute(
+            &definition,
+            subject(&definition, "start"),
+            ExecutionOptions {
+                terminal_rules: BTreeSet::from(["stop".into()]),
+                ..ExecutionOptions::default()
+            },
+        );
+
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one terminal leaf, found {:?}", result.leaves);
+        };
+        assert_eq!(leaf.depth, 2);
+        assert_eq!(
+            leaf.pattern.term,
+            internal_term(&definition, r#"\dv{SortS{}}("done")"#)
+        );
+        assert_eq!(leaf.trace.len(), 2);
+        assert_eq!(
+            leaf.halt_reason,
+            HaltReason::TerminalRule {
+                rule: "stop".into()
+            }
+        );
     }
 
     fn unconditional_branch_definition() -> BackendDefinition {
