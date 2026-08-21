@@ -184,6 +184,10 @@ krust kore-exec definition.kore --module MAIN --pattern pgm.kore \
 krust kore-exec definition.kore --module MAIN --pattern pgm.kore --output result.kore
 ```
 
+Use `--step-timeout MILLISECONDS` for a fixed cooperative rewrite-step deadline and
+`--moving-average-step-timeout` to use twice the measured moving average, capped by the fixed
+deadline when both are supplied. The same flags are available on `krun`.
+
 Rule-only modules can be added transactionally before execution. Their source names are available
 as module IDs for the command, while the backend also assigns the KORE RPC-compatible
 `m<sha256>` identifier internally:

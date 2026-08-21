@@ -3,6 +3,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     sync::Arc,
+    time::Duration,
 };
 
 use crate::{
@@ -21,6 +22,7 @@ use crate::{
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, substitute},
     term::{Sort, Symbol, SymbolType, Term, TermKind, Variable},
+    timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
     unification::{UnificationFailure, UnificationResult, unify_term_pairs},
 };
 
@@ -97,6 +99,8 @@ pub struct ExecutionOptions {
     pub branch_mode: ExecutionBranchMode,
     pub cut_point_rules: BTreeSet<String>,
     pub terminal_rules: BTreeSet<String>,
+    pub step_timeout: Option<Duration>,
+    pub moving_average_timeout: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -121,6 +125,8 @@ impl Default for ExecutionOptions {
             branch_mode: ExecutionBranchMode::ExploreAll,
             cut_point_rules: BTreeSet::new(),
             terminal_rules: BTreeSet::new(),
+            step_timeout: None,
+            moving_average_timeout: false,
         }
     }
 }
@@ -160,6 +166,7 @@ pub enum HaltReason {
     BreadthBound,
     Indeterminate(IndeterminateReason),
     Simplification(SimplificationError),
+    Timeout(StepTimeoutMode),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -208,6 +215,10 @@ pub fn execute_with_solver_and_observer(
     }]);
     let mut leaves = Vec::new();
     let mut effects = Vec::new();
+    let timeout_controller = StepTimeoutController::new(StepTimeoutOptions {
+        manual: options.step_timeout,
+        moving_average: options.moving_average_timeout,
+    });
     if options.max_breadth == Some(0) {
         return ExecutionResult {
             leaves: pending
@@ -218,7 +229,22 @@ pub fn execute_with_solver_and_observer(
         };
     }
     while let Some(mut state) = pending.pop_front() {
-        match simplify_predicates_with_solver(
+        let mut step_timer = timeout_controller.begin_step();
+        macro_rules! finish_if_timed_out {
+            () => {
+                if let Some(mode) = step_timer.timed_out() {
+                    step_timer.discard_measurement();
+                    leaves.push(ExecutionLeaf {
+                        pattern: state.pattern,
+                        depth: state.depth,
+                        trace: state.trace,
+                        halt_reason: HaltReason::Timeout(mode),
+                    });
+                    continue;
+                }
+            };
+        }
+        let simplified_constraints = simplify_predicates_with_solver(
             definition,
             &state.pattern.constraints,
             &[],
@@ -226,7 +252,9 @@ pub fn execute_with_solver_and_observer(
                 max_iterations: options.max_simplification_iterations,
             },
             solver,
-        ) {
+        );
+        finish_if_timed_out!();
+        match simplified_constraints {
             Ok(constraints) => state.pattern.constraints = constraints,
             Err(error) => {
                 leaves.push(ExecutionLeaf {
@@ -247,7 +275,7 @@ pub fn execute_with_solver_and_observer(
             });
             continue;
         }
-        match simplify_with_solver(
+        let simplified = simplify_with_solver(
             definition,
             &state.pattern.term,
             &state.pattern.constraints,
@@ -255,7 +283,9 @@ pub fn execute_with_solver_and_observer(
                 max_iterations: options.max_simplification_iterations,
             },
             solver,
-        ) {
+        );
+        finish_if_timed_out!();
+        match simplified {
             Ok(simplified) => {
                 state.pattern.term = simplified.term;
                 state.pattern.constraints.extend(simplified.constraints);
@@ -293,7 +323,7 @@ pub fn execute_with_solver_and_observer(
             });
             continue;
         }
-        match rewrite_step_with_mode(
+        let rewritten = rewrite_step_with_mode(
             definition,
             &state.pattern,
             &mut fresh_counter,
@@ -302,7 +332,9 @@ pub fn execute_with_solver_and_observer(
             },
             solver,
             options.mode,
-        ) {
+        );
+        finish_if_timed_out!();
+        match rewritten {
             RewriteResult::Stuck(pattern) => leaves.push(ExecutionLeaf {
                 pattern,
                 depth: state.depth,
@@ -4971,6 +5003,46 @@ mod tests {
         assert!(matches!(
             result.leaves[0].pattern.term.kind(),
             TermKind::Application { symbol, .. } if symbol.name.as_ref() == "dotk"
+        ));
+    }
+
+    #[test]
+    fn execution_interrupts_native_hooks_at_the_step_deadline() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.pow")]
+                symbol state{}(SortInt{}) : SortState{} [constructor{}()]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let initial = definition
+            .internalize_pattern(
+                &parse_pattern(r#"state{}(pow{}(\dv{SortInt{}}("2"), \dv{SortInt{}}("10")))"#)
+                    .unwrap(),
+                &[],
+            )
+            .unwrap();
+
+        let result = execute(
+            &definition,
+            initial,
+            ExecutionOptions {
+                step_timeout: Some(Duration::ZERO),
+                ..ExecutionOptions::default()
+            },
+        );
+
+        assert!(matches!(
+            result.leaves.as_slice(),
+            [ExecutionLeaf {
+                halt_reason: HaltReason::Timeout(StepTimeoutMode::Manual(timeout)),
+                ..
+            }] if timeout.is_zero()
         ));
     }
 

@@ -232,6 +232,24 @@ struct SearchArgs {
 }
 
 #[derive(Debug, Args)]
+struct ExecutionTimeoutArgs {
+    /// Cancel a semantic rewrite step after this many milliseconds.
+    #[arg(long = "step-timeout", value_name = "MILLISECONDS")]
+    step_timeout: Option<NonZeroUsize>,
+
+    /// Dynamically limit each step to twice the moving average of prior steps.
+    #[arg(long = "moving-average-step-timeout")]
+    moving_average: bool,
+}
+
+impl ExecutionTimeoutArgs {
+    fn timeout(&self) -> Option<Duration> {
+        self.step_timeout
+            .map(|milliseconds| Duration::from_millis(milliseconds.get() as u64))
+    }
+}
+
+#[derive(Debug, Args)]
 struct KrunArgs {
     /// K definition whose semantics should execute the program.
     #[arg(value_name = "DEFINITION")]
@@ -287,6 +305,9 @@ struct KrunArgs {
     search: SearchArgs,
 
     #[command(flatten)]
+    timeout: ExecutionTimeoutArgs,
+
+    #[command(flatten)]
     source: SourceArgs,
 }
 
@@ -338,6 +359,9 @@ struct KoreExecArgs {
 
     #[command(flatten)]
     search: SearchArgs,
+
+    #[command(flatten)]
+    timeout: ExecutionTimeoutArgs,
 }
 
 #[derive(Debug, Args)]
@@ -569,6 +593,8 @@ struct KrunOptions {
     terminal_rules: BTreeSet<String>,
     strategy: ExecutionMode,
     search: Option<KrunSearchOptions>,
+    step_timeout: Option<Duration>,
+    moving_average_timeout: bool,
 }
 
 #[derive(Debug)]
@@ -587,6 +613,8 @@ struct BackendRunOptions {
     terminal_rules: BTreeSet<String>,
     strategy: ExecutionMode,
     search: Option<KrunSearchOptions>,
+    step_timeout: Option<Duration>,
+    moving_average_timeout: bool,
 }
 
 #[derive(Debug)]
@@ -699,6 +727,8 @@ impl From<KrunArgs> for KrunOptions {
             terminal_rules: arguments.terminal_rules.into_iter().collect(),
             strategy: arguments.strategy.into(),
             search: arguments.search.into_options(),
+            step_timeout: arguments.timeout.timeout(),
+            moving_average_timeout: arguments.timeout.moving_average,
         }
     }
 }
@@ -870,6 +900,8 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
             terminal_rules: options.terminal_rules,
             strategy: options.strategy,
             search: options.search,
+            step_timeout: options.step_timeout,
+            moving_average_timeout: options.moving_average_timeout,
         },
     )?;
     println!("{}", KorePrinter::pretty(100).print_pattern(&output));
@@ -914,6 +946,8 @@ fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
             terminal_rules: options.terminal_rules.into_iter().collect(),
             strategy: options.strategy.into(),
             search: options.search.into_options(),
+            step_timeout: options.timeout.timeout(),
+            moving_average_timeout: options.timeout.moving_average,
         },
     )?;
     let output = KorePrinter::pretty(100).print_pattern(&output);
@@ -1539,6 +1573,8 @@ fn run_backend(
             },
             cut_point_rules: options.cut_point_rules,
             terminal_rules: options.terminal_rules,
+            step_timeout: options.step_timeout,
+            moving_average_timeout: options.moving_average_timeout,
             ..ExecutionOptions::default()
         },
         &solver,
@@ -2269,6 +2305,9 @@ mod tests {
             "rule-id",
             "--strategy",
             "any",
+            "--step-timeout",
+            "250",
+            "--moving-average-step-timeout",
         ])
         .unwrap();
         let Command::Krun(options) = cli.command else {
@@ -2290,6 +2329,8 @@ mod tests {
         assert_eq!(options.terminal_rules, BTreeSet::from(["rule-id".into()]));
         assert_eq!(options.strategy, ExecutionMode::Any);
         assert!(options.search.is_none());
+        assert_eq!(options.step_timeout, Some(Duration::from_millis(250)));
+        assert!(options.moving_average_timeout);
     }
 
     #[test]
@@ -2347,6 +2388,9 @@ mod tests {
             "--search-final",
             "--search-pattern",
             "target.kore",
+            "--step-timeout",
+            "500",
+            "--moving-average-step-timeout",
         ])
         .unwrap();
         let Command::KoreExec(options) = cli.command else {
@@ -2367,6 +2411,8 @@ mod tests {
         assert_eq!(options.output.as_deref(), Some(Path::new("result.kore")));
         assert_eq!(options.cut_point_rules, ["MAIN.loop"]);
         assert_eq!(options.terminal_rules, ["rule-id"]);
+        assert_eq!(options.timeout.timeout(), Some(Duration::from_millis(500)));
+        assert!(options.timeout.moving_average);
         let search = options
             .search
             .into_options()
