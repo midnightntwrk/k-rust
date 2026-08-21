@@ -1930,6 +1930,18 @@ fn apply_rule_with_match(
                         fresh_counter,
                     ) {
                         recovered
+                    } else if remainder.iter().any(|(left, right)| {
+                        !left.attributes().can_be_evaluated || !right.attributes().can_be_evaluated
+                    }) {
+                        // A `no-evaluators` function cannot become rigid after another
+                        // simplification pass. Turning this remainder into an equality
+                        // constraint would falsely make the rule applicable and can rewrite
+                        // the same state forever. Booster reports the match as indeterminate.
+                        return RuleAttempt::Indeterminate(IndeterminateReason::Match {
+                            rule_id: rule.attributes.unique_id.clone(),
+                            substitution,
+                            remainder,
+                        });
                     } else {
                         match recover_general_unification(
                             definition,
@@ -4169,6 +4181,63 @@ mod tests {
         .expect("function rewrite definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN")
             .expect("function rewrite definition should internalize")
+    }
+
+    fn non_evaluable_function_rewrite_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+                symbol foo{}(SortS{}) : SortS{} [constructor{}()]
+                symbol f{}(SortS{}) : SortS{}
+                    [function{}(), total{}(), no-evaluators{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        wrap{}(foo{}(X:SortS{})),
+                        \top{SortS{}}()
+                    ),
+                    wrap{}(f{}(X:SortS{}))
+                ) [label{}("to-non-evaluable")]
+            endmodule []"#,
+        )
+        .expect("non-evaluable function definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("non-evaluable function definition should internalize")
+    }
+
+    #[test]
+    fn aborts_after_rewriting_to_a_concrete_function_without_evaluators() {
+        let definition = non_evaluable_function_rewrite_definition();
+        let initial = Pattern {
+            term: internal_term(&definition, r#"wrap{}(foo{}(\dv{SortS{}}("12")))"#),
+            constraints: Vec::new(),
+        };
+
+        let execution = execute(
+            &definition,
+            initial,
+            ExecutionOptions {
+                max_depth: 2,
+                ..ExecutionOptions::default()
+            },
+        );
+
+        assert!(matches!(
+            execution.leaves.as_slice(),
+            [ExecutionLeaf {
+                pattern: Pattern { term, constraints },
+                depth: 1,
+                halt_reason: HaltReason::Indeterminate(IndeterminateReason::Match {
+                    rule_id,
+                    ..
+                }),
+                ..
+            }] if term == &internal_term(
+                &definition,
+                r#"wrap{}(f{}(\dv{SortS{}}("12")))"#,
+            ) && constraints.is_empty() && rule_id == "to-non-evaluable"
+        ));
     }
 
     fn kequal_rewrite_definition(lhs: &str) -> BackendDefinition {
