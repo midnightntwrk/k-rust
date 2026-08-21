@@ -932,6 +932,7 @@ fn run_backend(
     let mut states = execution
         .leaves
         .iter()
+        .filter(|leaf| !matches!(leaf.halt_reason, HaltReason::Trivial | HaltReason::Vacuous))
         .map(|leaf| externalize::constrained_pattern(&leaf.pattern))
         .collect::<Vec<_>>();
     Ok(match states.len() {

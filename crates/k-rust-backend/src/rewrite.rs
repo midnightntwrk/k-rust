@@ -225,6 +225,15 @@ pub fn execute_with_solver_and_observer(
                 continue;
             }
         }
+        if predicates_truth(&state.pattern.constraints) == Truth::False {
+            leaves.push(ExecutionLeaf {
+                pattern: state.pattern,
+                depth: state.depth,
+                trace: state.trace,
+                halt_reason: HaltReason::Vacuous,
+            });
+            continue;
+        }
         match simplify_with_solver(
             definition,
             &state.pattern.term,
@@ -287,8 +296,18 @@ pub fn execute_with_solver_and_observer(
                 trace: state.trace,
                 halt_reason: HaltReason::Stuck,
             }),
-            // Trivial and vacuous rewrites produce bottom, so these paths contribute no leaf.
-            RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
+            RewriteResult::Trivial(pattern) => leaves.push(ExecutionLeaf {
+                pattern,
+                depth: state.depth,
+                trace: state.trace,
+                halt_reason: HaltReason::Trivial,
+            }),
+            RewriteResult::Vacuous(pattern) => leaves.push(ExecutionLeaf {
+                pattern,
+                depth: state.depth,
+                trace: state.trace,
+                halt_reason: HaltReason::Vacuous,
+            }),
             RewriteResult::Indeterminate { pattern, reason } => leaves.push(ExecutionLeaf {
                 pattern,
                 depth: state.depth,
@@ -471,6 +490,9 @@ fn rewrite_step_with_mode(
     solver: &dyn SmtSolver,
     mode: ExecutionMode,
 ) -> RewriteResult {
+    if predicates_truth(&pattern.constraints) == Truth::False {
+        return RewriteResult::Vacuous(pattern.clone());
+    }
     match mode {
         ExecutionMode::All => rewrite_step_all(
             definition,
@@ -3784,7 +3806,38 @@ mod tests {
 
         assert_eq!(result, RewriteResult::Trivial(subject.clone()));
         let execution = execute(&definition, subject, ExecutionOptions::default());
-        assert!(execution.leaves.is_empty());
+        assert!(matches!(
+            execution.leaves.as_slice(),
+            [ExecutionLeaf {
+                depth: 0,
+                halt_reason: HaltReason::Trivial,
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn reports_vacuous_execution_paths() {
+        let definition = definition("");
+        let subject = Pattern {
+            term: internal_term(&definition, r#"wrap{}(\dv{SortS{}}("start"))"#),
+            constraints: vec![Predicate::False],
+        };
+        let mut fresh = 0;
+
+        assert_eq!(
+            rewrite_step(&definition, &subject, &mut fresh),
+            RewriteResult::Vacuous(subject.clone())
+        );
+        let execution = execute(&definition, subject, ExecutionOptions::default());
+        assert!(matches!(
+            execution.leaves.as_slice(),
+            [ExecutionLeaf {
+                depth: 0,
+                halt_reason: HaltReason::Vacuous,
+                ..
+            }]
+        ));
     }
 
     #[cfg(feature = "z3")]
