@@ -781,7 +781,7 @@ fn pattern_fault(error: DefinitionError, pattern: &KorePattern) -> RpcFault {
             symbol,
             expected,
             actual,
-        } => find_application(pattern, symbol, Some(*actual), None).map(|(term, _)| {
+        } => find_application(pattern, symbol, Some(*actual), None, None).map(|(term, _)| {
             (
                 term,
                 format!(
@@ -796,7 +796,13 @@ fn pattern_fault(error: DefinitionError, pattern: &KorePattern) -> RpcFault {
             actual,
         } => {
             let actual_sort = externalize::sort(actual).to_string();
-            find_application(pattern, symbol, None, Some((*index, actual_sort.as_str())))
+            find_application(
+                pattern,
+                symbol,
+                None,
+                Some((*index, actual_sort.as_str())),
+                None,
+            )
                 .and_then(|(_, arguments)| arguments.get(*index))
                 .map(|term| {
                     (
@@ -807,6 +813,23 @@ fn pattern_fault(error: DefinitionError, pattern: &KorePattern) -> RpcFault {
                         ),
                     )
                 })
+        }
+        DefinitionError::NotSubsort { source, target } => {
+            let source = externalize::sort(source).to_string();
+            let target = externalize::sort(target).to_string();
+            find_application(
+                pattern,
+                "inj",
+                Some(1),
+                None,
+                Some((source.as_str(), target.as_str())),
+            )
+            .map(|(term, _)| {
+                (
+                    term,
+                    format!("{source} is not a subsort of {target}"),
+                )
+            })
         }
         _ => None,
     };
@@ -828,34 +851,61 @@ fn find_application<'a>(
     symbol_name: &str,
     actual_arity: Option<usize>,
     argument_sort: Option<(usize, &str)>,
+    sort_parameters: Option<(&str, &str)>,
 ) -> Option<(&'a KorePattern, &'a [KorePattern])> {
     let nested = match pattern {
         KorePattern::Application { arguments, .. }
         | KorePattern::AssociativeApplication { arguments, .. }
         | KorePattern::And { arguments, .. }
         | KorePattern::Or { arguments, .. } => arguments.iter().find_map(|argument| {
-            find_application(argument, symbol_name, actual_arity, argument_sort)
+            find_application(
+                argument,
+                symbol_name,
+                actual_arity,
+                argument_sort,
+                sort_parameters,
+            )
         }),
         KorePattern::Not { argument, .. }
         | KorePattern::Next { argument, .. }
         | KorePattern::Ceil { argument, .. }
-        | KorePattern::Floor { argument, .. } => {
-            find_application(argument, symbol_name, actual_arity, argument_sort)
-        }
+        | KorePattern::Floor { argument, .. } => find_application(
+            argument,
+            symbol_name,
+            actual_arity,
+            argument_sort,
+            sort_parameters,
+        ),
         KorePattern::Implies { left, right, .. }
         | KorePattern::Iff { left, right, .. }
         | KorePattern::Rewrites { left, right, .. }
         | KorePattern::Equals { left, right, .. }
-        | KorePattern::In { left, right, .. } => {
-            find_application(left, symbol_name, actual_arity, argument_sort)
-                .or_else(|| find_application(right, symbol_name, actual_arity, argument_sort))
-        }
+        | KorePattern::In { left, right, .. } => find_application(
+            left,
+            symbol_name,
+            actual_arity,
+            argument_sort,
+            sort_parameters,
+        )
+        .or_else(|| {
+            find_application(
+                right,
+                symbol_name,
+                actual_arity,
+                argument_sort,
+                sort_parameters,
+            )
+        }),
         KorePattern::Exists { body, .. }
         | KorePattern::Forall { body, .. }
         | KorePattern::Mu { body, .. }
-        | KorePattern::Nu { body, .. } => {
-            find_application(body, symbol_name, actual_arity, argument_sort)
-        }
+        | KorePattern::Nu { body, .. } => find_application(
+            body,
+            symbol_name,
+            actual_arity,
+            argument_sort,
+            sort_parameters,
+        ),
         KorePattern::String(_)
         | KorePattern::Variable(_)
         | KorePattern::Top { .. }
@@ -873,6 +923,15 @@ fn find_application<'a>(
         _ => return None,
     };
     if symbol.name != symbol_name || actual_arity.is_some_and(|arity| arguments.len() != arity) {
+        return None;
+    }
+    if let Some((source, target)) = sort_parameters
+        && !matches!(
+            symbol.sort_parameters.as_slice(),
+            [actual_source, actual_target]
+                if actual_source.to_string() == source && actual_target.to_string() == target
+        )
+    {
         return None;
     }
     if let Some((index, expected_sort)) = argument_sort
@@ -1946,6 +2005,22 @@ mod tests {
         ))
     }
 
+    fn invalid_injection_service() -> RpcService {
+        RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[]
+                module TEST
+                  sort SortKItem{} []
+                  sort SortK{} []
+                  symbol inj{From, To}(From) : To [sortInjection{}()]
+                  symbol wrap{}(SortK{}) : SortK{} [constructor{}()]
+                endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ))
+    }
+
     fn implication_error(antecedent: &str, consequent: &str) -> Value {
         implication_response(antecedent, consequent)["error"].clone()
     }
@@ -2029,6 +2104,29 @@ mod tests {
                 "data": [{
                     "term": encode_kore(&invalid_argument).unwrap(),
                     "error": "Incorrect sort: expected SortInt{} but got SortBool{}",
+                }],
+            })
+        );
+
+        let mut injection_service = invalid_injection_service();
+        let invalid_injection =
+            parse_pattern(r#"inj{SortKItem{}, SortK{}}(VarX:SortKItem{})"#).unwrap();
+        let invalid_pattern =
+            parse_pattern(r#"wrap{}(inj{SortKItem{}, SortK{}}(VarX:SortKItem{}))"#).unwrap();
+        let injection_error = request(
+            &mut injection_service,
+            3,
+            "execute",
+            json!({ "state": encode_kore(&invalid_pattern).unwrap() }),
+        );
+        assert_eq!(
+            injection_error["error"],
+            json!({
+                "code": 2,
+                "message": "Could not verify pattern",
+                "data": [{
+                    "term": encode_kore(&invalid_injection).unwrap(),
+                    "error": "SortKItem{} is not a subsort of SortK{}",
                 }],
             })
         );

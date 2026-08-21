@@ -962,7 +962,7 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
 
     let syntax = parse_kore_definition(&compiled.definition_kore)?;
     let backend = BackendDefinition::internalize(&syntax, &options.common.module)?;
-    let initial = backend.internalize_term(&initial, &[])?;
+    let initial = backend.internalize_frontend_term(&initial, &[])?;
     let output = run_backend(
         &backend,
         Pattern {

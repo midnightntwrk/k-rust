@@ -8,7 +8,7 @@ use std::{
 use k_rust_kore::kore::ast as kore;
 
 use crate::{
-    definition::{BackendDefinition, DefinitionError},
+    definition::{BackendDefinition, DefinitionError, SubsortValidation},
     substitution::{Substitution, substitute},
     term::{Name, Term, TermKind, Variable},
 };
@@ -335,6 +335,7 @@ pub fn internalize_axiom(
     definition: &BackendDefinition,
     axiom: &ClassifiedAxiom,
 ) -> Result<InternalizedRule, DefinitionError> {
+    let subsort_validation = SubsortValidation::Ignore;
     match axiom {
         ClassifiedAxiom::Rewrite {
             sort_parameters,
@@ -344,8 +345,10 @@ pub fn internalize_axiom(
             attributes,
             ..
         } => {
-            let (lhs, requires) = internalize_rule_pattern(definition, lhs, sort_parameters)?;
-            let (rhs, ensures) = internalize_term_rhs(definition, rhs, sort_parameters)?;
+            let (lhs, requires) =
+                internalize_rule_pattern(definition, lhs, sort_parameters, subsort_validation)?;
+            let (rhs, ensures) =
+                internalize_term_rhs(definition, rhs, sort_parameters, subsort_validation)?;
             let lhs = rename_term(&lhs, |variable| prefixed(variable, "Rule#"));
             let requires = rename_predicates(&requires, |variable| prefixed(variable, "Rule#"));
             let existential_variables = existentials
@@ -386,9 +389,16 @@ pub fn internalize_axiom(
             ..
         } => {
             if !is_term_pattern(lhs) {
-                let lhs = internalize_predicate(definition, lhs, sort_parameters)?;
-                let requires = internalize_predicates(definition, requires, sort_parameters)?;
-                let rhs = internalize_predicates(definition, rhs, sort_parameters)?;
+                let lhs =
+                    internalize_predicate(definition, lhs, sort_parameters, subsort_validation)?;
+                let requires = internalize_predicates(
+                    definition,
+                    requires,
+                    sort_parameters,
+                    subsort_validation,
+                )?;
+                let rhs =
+                    internalize_predicates(definition, rhs, sort_parameters, subsort_validation)?;
                 let rename = |variable: &Variable| prefixed(variable, "Eq#");
                 let mut lhs = rename_predicates(&[lhs], rename);
                 return Ok(InternalizedRule::Predicate(PredicateRewriteRule {
@@ -398,9 +408,15 @@ pub fn internalize_axiom(
                     attributes: attributes.clone(),
                 }));
             }
-            let lhs = definition.internalize_term(lhs, sort_parameters)?;
-            let requires = internalize_predicates(definition, requires, sort_parameters)?;
-            let (rhs, ensures) = internalize_term_rhs(definition, rhs, sort_parameters)?;
+            let lhs = definition.internalize_term_with_validation(
+                lhs,
+                sort_parameters,
+                subsort_validation,
+            )?;
+            let requires =
+                internalize_predicates(definition, requires, sort_parameters, subsort_validation)?;
+            let (rhs, ensures) =
+                internalize_term_rhs(definition, rhs, sort_parameters, subsort_validation)?;
             let rename = |variable: &Variable| prefixed(variable, "Eq#");
             Ok(InternalizedRule::Term(
                 RuleKind::Simplification,
@@ -423,12 +439,20 @@ pub fn internalize_axiom(
             attributes,
             ..
         } => {
-            let mut lhs = definition.internalize_term(lhs, sort_parameters)?;
+            let mut lhs = definition.internalize_term_with_validation(
+                lhs,
+                sort_parameters,
+                subsort_validation,
+            )?;
             let mut bindings = Substitution::new();
             for binder in binders {
                 let variable =
                     definition.internalize_variable(&binder.variable, sort_parameters)?;
-                let pattern = definition.internalize_term(&binder.pattern, sort_parameters)?;
+                let pattern = definition.internalize_term_with_validation(
+                    &binder.pattern,
+                    sort_parameters,
+                    subsort_validation,
+                )?;
                 if variable.sort != pattern.sort() {
                     return Err(DefinitionError::RulePattern(
                         RulePatternError::BinderSortMismatch(variable),
@@ -437,8 +461,10 @@ pub fn internalize_axiom(
                 bindings.insert(variable, pattern);
             }
             lhs = substitute(&lhs, &bindings);
-            let requires = internalize_predicates(definition, requires, sort_parameters)?;
-            let (rhs, ensures) = internalize_term_rhs(definition, rhs, sort_parameters)?;
+            let requires =
+                internalize_predicates(definition, requires, sort_parameters, subsort_validation)?;
+            let (rhs, ensures) =
+                internalize_term_rhs(definition, rhs, sort_parameters, subsort_validation)?;
             let rename = |variable: &Variable| prefixed(variable, "Eq#");
             Ok(InternalizedRule::Term(
                 RuleKind::Function,
@@ -460,9 +486,14 @@ pub fn internalize_axiom(
             attributes,
             ..
         } => {
-            let lhs = definition.internalize_term(lhs, sort_parameters)?;
-            let requires = internalize_predicates(definition, requires, sort_parameters)?;
-            let rhs = internalize_predicates(definition, rhs, sort_parameters)?;
+            let lhs = definition.internalize_term_with_validation(
+                lhs,
+                sort_parameters,
+                subsort_validation,
+            )?;
+            let requires =
+                internalize_predicates(definition, requires, sort_parameters, subsort_validation)?;
+            let rhs = internalize_predicates(definition, rhs, sort_parameters, subsort_validation)?;
             let rename = |variable: &Variable| prefixed(variable, "Eq#");
             let lhs = rename_term(&lhs, rename);
             let requires = rename_predicates(&requires, rename);
@@ -519,6 +550,7 @@ pub(crate) fn internalize_rule_pattern(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
+    subsort_validation: SubsortValidation,
 ) -> Result<(Term, Vec<Predicate>), DefinitionError> {
     let mut components = Vec::new();
     flatten_and(pattern, &mut components);
@@ -526,12 +558,17 @@ pub(crate) fn internalize_rule_pattern(
     let mut predicates = Vec::new();
     for component in components {
         if is_term_pattern(component) {
-            terms.push(definition.internalize_term(component, sort_parameters)?);
+            terms.push(definition.internalize_term_with_validation(
+                component,
+                sort_parameters,
+                subsort_validation,
+            )?);
         } else {
             predicates.extend(internalize_predicates(
                 definition,
                 component,
                 sort_parameters,
+                subsort_validation,
             )?);
         }
     }
@@ -549,11 +586,13 @@ fn internalize_term_rhs(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
+    subsort_validation: SubsortValidation,
 ) -> Result<(RuleRhs, Vec<Predicate>), DefinitionError> {
     if contains_strict_bottom(pattern) {
         return Ok((RuleRhs::Bottom, Vec::new()));
     }
-    let (term, predicates) = internalize_rule_pattern(definition, pattern, sort_parameters)?;
+    let (term, predicates) =
+        internalize_rule_pattern(definition, pattern, sort_parameters, subsort_validation)?;
     Ok((RuleRhs::Term(term), predicates))
 }
 
@@ -573,25 +612,31 @@ fn internalize_predicates(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
+    subsort_validation: SubsortValidation,
 ) -> Result<Vec<Predicate>, DefinitionError> {
     match pattern {
         kore::Pattern::Top { .. } => Ok(Vec::new()),
         kore::Pattern::Bottom { .. } => Ok(vec![Predicate::False]),
         kore::Pattern::And { arguments, .. } => arguments
             .iter()
-            .map(|argument| internalize_predicates(definition, argument, sort_parameters))
+            .map(|argument| {
+                internalize_predicates(definition, argument, sort_parameters, subsort_validation)
+            })
             .collect::<Result<Vec<_>, _>>()
             .map(|predicates| predicates.into_iter().flatten().collect()),
         kore::Pattern::Or { arguments, .. } => Ok(vec![Predicate::Or(
             arguments
                 .iter()
-                .map(|argument| internalize_predicate(definition, argument, sort_parameters))
+                .map(|argument| {
+                    internalize_predicate(definition, argument, sort_parameters, subsort_validation)
+                })
                 .collect::<Result<Vec<_>, _>>()?,
         )]),
         _ => Ok(vec![internalize_predicate(
             definition,
             pattern,
             sort_parameters,
+            subsort_validation,
         )?]),
     }
 }
@@ -600,10 +645,14 @@ pub(crate) fn internalize_predicate(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
+    subsort_validation: SubsortValidation,
 ) -> Result<Predicate, DefinitionError> {
-    let term = |pattern: &kore::Pattern| definition.internalize_term(pattern, sort_parameters);
-    let predicate =
-        |pattern: &kore::Pattern| internalize_predicate(definition, pattern, sort_parameters);
+    let term = |pattern: &kore::Pattern| {
+        definition.internalize_term_with_validation(pattern, sort_parameters, subsort_validation)
+    };
+    let predicate = |pattern: &kore::Pattern| {
+        internalize_predicate(definition, pattern, sort_parameters, subsort_validation)
+    };
     match pattern {
         kore::Pattern::Top { .. } => Ok(Predicate::True),
         kore::Pattern::Bottom { .. } => Ok(Predicate::False),
@@ -673,16 +722,21 @@ pub(crate) fn internalize_model_predicate(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
+    subsort_validation: SubsortValidation,
 ) -> Result<Option<Predicate>, DefinitionError> {
-    let recurse =
-        |pattern: &kore::Pattern| internalize_model_predicate(definition, pattern, sort_parameters);
+    let recurse = |pattern: &kore::Pattern| {
+        internalize_model_predicate(definition, pattern, sort_parameters, subsort_validation)
+    };
     Ok(match pattern {
         kore::Pattern::Equals { .. }
         | kore::Pattern::Ceil { .. }
         | kore::Pattern::Floor { .. }
-        | kore::Pattern::In { .. } => {
-            Some(internalize_predicate(definition, pattern, sort_parameters)?)
-        }
+        | kore::Pattern::In { .. } => Some(internalize_predicate(
+            definition,
+            pattern,
+            sort_parameters,
+            subsort_validation,
+        )?),
         kore::Pattern::And { arguments, .. } => {
             let predicates = arguments
                 .iter()

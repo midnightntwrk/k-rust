@@ -41,6 +41,12 @@ enum CollectionSort {
     Set(CollectionSymbols),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SubsortValidation {
+    Check,
+    Ignore,
+}
+
 /// Transitive strict ordering between overloaded KORE symbols.
 ///
 /// A relation `(greater, lesser)` records that `greater` overloads `lesser`. Symbols which share
@@ -195,6 +201,10 @@ pub enum DefinitionError {
         index: usize,
         expected: Sort,
         actual: Sort,
+    },
+    NotSubsort {
+        source: Sort,
+        target: Sort,
     },
     InvalidSymbolType(String),
     InvalidSortParameter,
@@ -456,9 +466,31 @@ impl BackendDefinition {
         pattern: &kore::Pattern,
         sort_variables: &[Name],
     ) -> Result<Term, DefinitionError> {
+        self.internalize_term_with_validation(pattern, sort_variables, SubsortValidation::Check)
+    }
+
+    /// Internalize KORE emitted by the paired frontend without rechecking sort injections.
+    ///
+    /// The frontend can use trusted injection bridges, such as embedding a parsed `SortK` program
+    /// in the initializer's `SortKItem` map. Untrusted KORE and RPC inputs should use
+    /// [`Self::internalize_term`] so malformed injections are rejected at the boundary.
+    pub fn internalize_frontend_term(
+        &self,
+        pattern: &kore::Pattern,
+        sort_variables: &[Name],
+    ) -> Result<Term, DefinitionError> {
+        self.internalize_term_with_validation(pattern, sort_variables, SubsortValidation::Ignore)
+    }
+
+    pub(crate) fn internalize_term_with_validation(
+        &self,
+        pattern: &kore::Pattern,
+        sort_variables: &[Name],
+        subsort_validation: SubsortValidation,
+    ) -> Result<Term, DefinitionError> {
         let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
         let pattern = expand_aliases(pattern, &self.aliases)?;
-        self.internalize_term_with(&pattern, &known)
+        self.internalize_term_with(&pattern, &known, subsort_validation)
     }
 
     /// Internalize a constrained KORE pattern into its term and predicate components.
@@ -468,7 +500,8 @@ impl BackendDefinition {
         sort_variables: &[Name],
     ) -> Result<Pattern, DefinitionError> {
         let pattern = expand_aliases(pattern, &self.aliases)?;
-        let (term, constraints) = internalize_rule_pattern(self, &pattern, sort_variables)?;
+        let (term, constraints) =
+            internalize_rule_pattern(self, &pattern, sort_variables, SubsortValidation::Check)?;
         Ok(Pattern { term, constraints })
     }
 
@@ -480,8 +513,10 @@ impl BackendDefinition {
     ) -> Result<(crate::rule::Predicate, Sort), DefinitionError> {
         let pattern = expand_aliases(pattern, &self.aliases)?;
         let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
-        let result_sort = self.internalize_pattern_result_sort(&pattern, &known)?;
-        let predicate = internalize_rule_predicate(self, &pattern, sort_variables)?;
+        let result_sort =
+            self.internalize_pattern_result_sort(&pattern, &known, SubsortValidation::Check)?;
+        let predicate =
+            internalize_rule_predicate(self, &pattern, sort_variables, SubsortValidation::Check)?;
         Ok((predicate, result_sort))
     }
 
@@ -493,11 +528,15 @@ impl BackendDefinition {
     ) -> Result<Option<(crate::rule::Predicate, Sort)>, DefinitionError> {
         let pattern = expand_aliases(pattern, &self.aliases)?;
         let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
-        let result_sort = self.internalize_pattern_result_sort(&pattern, &known)?;
-        Ok(
-            internalize_rule_model_predicate(self, &pattern, sort_variables)?
-                .map(|predicate| (predicate, result_sort)),
-        )
+        let result_sort =
+            self.internalize_pattern_result_sort(&pattern, &known, SubsortValidation::Check)?;
+        Ok(internalize_rule_model_predicate(
+            self,
+            &pattern,
+            sort_variables,
+            SubsortValidation::Check,
+        )?
+        .map(|predicate| (predicate, result_sort)))
     }
 
     /// Internalize one side of an implication, peeling its leading existential binders.
@@ -519,7 +558,8 @@ impl BackendDefinition {
             existentials.insert(self.internalize_variable(variable, sort_variables)?);
             body = next;
         }
-        let (term, constraints) = internalize_rule_pattern(self, body, sort_variables)?;
+        let (term, constraints) =
+            internalize_rule_pattern(self, body, sort_variables, SubsortValidation::Check)?;
         Ok((Pattern { term, constraints }, existentials))
     }
 
@@ -595,8 +635,12 @@ impl BackendDefinition {
             .into_iter()
             .filter(|alternative| !matches!(alternative, kore::Pattern::Bottom { .. }))
             .map(|alternative| {
-                let (term, constraints) =
-                    internalize_rule_pattern(self, alternative, sort_variables)?;
+                let (term, constraints) = internalize_rule_pattern(
+                    self,
+                    alternative,
+                    sort_variables,
+                    SubsortValidation::Check,
+                )?;
                 Ok(Pattern { term, constraints })
             })
             .collect()
@@ -627,6 +671,7 @@ impl BackendDefinition {
         &self,
         pattern: &kore::Pattern,
         sort_variables: &BTreeSet<Name>,
+        subsort_validation: SubsortValidation,
     ) -> Result<Term, DefinitionError> {
         match pattern {
             kore::Pattern::String(value) => Ok(Term::domain_value(
@@ -645,9 +690,11 @@ impl BackendDefinition {
                 self.validate_application_shape(symbol, arguments.len())?;
                 let arguments = arguments
                     .iter()
-                    .map(|argument| self.internalize_term_with(argument, sort_variables))
+                    .map(|argument| {
+                        self.internalize_term_with(argument, sort_variables, subsort_validation)
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
-                self.internalize_application(symbol, arguments, sort_variables)
+                self.internalize_application(symbol, arguments, sort_variables, subsort_validation)
             }
             kore::Pattern::DomainValue { sort, value } => Ok(Term::domain_value(
                 internalize_sort(sort, &self.sorts, sort_variables)?,
@@ -656,7 +703,9 @@ impl BackendDefinition {
             kore::Pattern::And { arguments, .. } => {
                 let mut arguments = arguments
                     .iter()
-                    .map(|argument| self.internalize_term_with(argument, sort_variables))
+                    .map(|argument| {
+                        self.internalize_term_with(argument, sort_variables, subsort_validation)
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 let Some(mut result) = arguments.pop() else {
                     return Err(DefinitionError::ExpectedTerm("top"));
@@ -673,7 +722,9 @@ impl BackendDefinition {
             } => {
                 let arguments = arguments
                     .iter()
-                    .map(|argument| self.internalize_term_with(argument, sort_variables))
+                    .map(|argument| {
+                        self.internalize_term_with(argument, sort_variables, subsort_validation)
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 let mut iter: Box<dyn Iterator<Item = Term>> = match associativity {
                     kore::Associativity::Left => Box::new(arguments.into_iter()),
@@ -689,7 +740,12 @@ impl BackendDefinition {
                         kore::Associativity::Left => vec![result, argument],
                         kore::Associativity::Right => vec![argument, result],
                     };
-                    result = self.internalize_application(symbol, pair, sort_variables)?;
+                    result = self.internalize_application(
+                        symbol,
+                        pair,
+                        sort_variables,
+                        subsort_validation,
+                    )?;
                 }
                 Ok(result)
             }
@@ -742,6 +798,7 @@ impl BackendDefinition {
         &self,
         pattern: &kore::Pattern,
         sort_variables: &BTreeSet<Name>,
+        subsort_validation: SubsortValidation,
     ) -> Result<Sort, DefinitionError> {
         let syntax_sort = match pattern {
             kore::Pattern::Variable(variable) => Some(&variable.sort),
@@ -771,7 +828,9 @@ impl BackendDefinition {
         };
         match syntax_sort {
             Some(sort) => internalize_sort(sort, &self.sorts, sort_variables),
-            None => Ok(self.internalize_term_with(pattern, sort_variables)?.sort()),
+            None => Ok(self
+                .internalize_term_with(pattern, sort_variables, subsort_validation)?
+                .sort()),
         }
     }
 
@@ -780,6 +839,7 @@ impl BackendDefinition {
         syntax: &kore::Symbol,
         arguments: Vec<Term>,
         sort_variables: &BTreeSet<Name>,
+        subsort_validation: SubsortValidation,
     ) -> Result<Term, DefinitionError> {
         let symbol = self
             .symbols
@@ -811,21 +871,39 @@ impl BackendDefinition {
             .cloned()
             .zip(sort_arguments.iter().cloned())
             .collect::<BTreeMap<_, _>>();
-        for (index, (expected, argument)) in symbol
-            .argument_sorts
-            .iter()
-            .map(|sort| substitute_sort(sort, &substitution))
-            .zip(&arguments)
-            .enumerate()
+        if subsort_validation == SubsortValidation::Check
+            && syntax.name == "inj"
+            && let [source, target] = sort_arguments.as_slice()
+            && !self
+                .sort_graph
+                .check_subsort(source, target)
+                .unwrap_or(false)
         {
-            let actual = argument.sort();
-            if expected != actual {
-                return Err(DefinitionError::IncorrectArgumentSort {
-                    symbol: syntax.name.clone(),
-                    index,
-                    expected,
-                    actual,
-                });
+            return Err(DefinitionError::NotSubsort {
+                source: source.clone(),
+                target: target.clone(),
+            });
+        }
+        // Booster's injection branch records the declared source sort directly and does not run
+        // the ordinary symbol-argument sort check. Preserve that boundary behavior as well as its
+        // precedence over validation performed by an enclosing application.
+        if syntax.name != "inj" {
+            for (index, (expected, argument)) in symbol
+                .argument_sorts
+                .iter()
+                .map(|sort| substitute_sort(sort, &substitution))
+                .zip(&arguments)
+                .enumerate()
+            {
+                let actual = argument.sort();
+                if expected != actual {
+                    return Err(DefinitionError::IncorrectArgumentSort {
+                        symbol: syntax.name.clone(),
+                        index,
+                        expected,
+                        actual,
+                    });
+                }
             }
         }
         Ok(Term::application(symbol, sort_arguments, arguments))
@@ -884,8 +962,11 @@ fn collect_finite_sort_constructors(
                     if !valid {
                         break;
                     }
-                    let Ok(term) = definition.internalize_term(constructor, &axiom.parameters)
-                    else {
+                    let Ok(term) = definition.internalize_term_with_validation(
+                        constructor,
+                        &axiom.parameters,
+                        SubsortValidation::Ignore,
+                    ) else {
                         valid = false;
                         break;
                     };
@@ -1471,6 +1552,7 @@ mod tests {
                 symbol injectiveFunction{}(SortValue{}) : SortValue{}
                     [function{}(), total{}(), injective{}()]
                 symbol box{S}(S) : SortBox{S} [constructor{}()]
+                symbol inj{From, To}(From) : To [sortInjection{}()]
                 axiom{R}
                     \exists{R}(
                         Val:SortValue{},
@@ -1744,6 +1826,48 @@ mod tests {
                 actual: 2,
             }
         );
+    }
+
+    #[test]
+    fn rejects_injections_between_unrelated_sorts() {
+        let definition = definition();
+        let pattern =
+            parse_pattern("inj{SortValue{}, SortKey{}}(key{}())").expect("pattern should parse");
+
+        assert_eq!(
+            definition.internalize_term(&pattern, &[]).unwrap_err(),
+            DefinitionError::NotSubsort {
+                source: Sort::simple("SortValue"),
+                target: Sort::simple("SortKey"),
+            }
+        );
+        definition
+            .internalize_frontend_term(&pattern, &[])
+            .expect("frontend-validated terms may use trusted injection bridges");
+    }
+
+    #[test]
+    fn definition_rules_do_not_recheck_sort_injections() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortA{} []
+                sort SortB{} []
+                symbol inj{From, To}(From) : To [sortInjection{}()]
+                axiom{}
+                    \rewrites{SortB{}}(
+                        \and{SortB{}}(
+                            inj{SortA{}, SortB{}}(X:SortA{}),
+                            \top{SortB{}}()
+                        ),
+                        inj{SortA{}, SortB{}}(X:SortA{})
+                    ) []
+            endmodule []
+        "#})
+        .expect("definition should parse");
+
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("definition rules should trust frontend-validated injections");
     }
 
     #[test]

@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use k_rust_kore::kore::ast as kore;
 
 use crate::{
-    definition::{BackendDefinition, DefinitionError, PendingAxiom},
+    definition::{BackendDefinition, DefinitionError, PendingAxiom, SubsortValidation},
     rewrite::Pattern,
     rule::{RuleAttributes, internalize_rule_pattern},
     term::Variable,
@@ -77,15 +77,24 @@ pub(crate) fn internalize_reachability_claim(
     let rhs = distribute_term_or(right)
         .into_iter()
         .map(|branch| {
-            let (term, constraints) =
-                internalize_rule_pattern(definition, &branch, &claim.parameters)?;
+            let (term, constraints) = internalize_rule_pattern(
+                definition,
+                &branch,
+                &claim.parameters,
+                SubsortValidation::Ignore,
+            )?;
             Ok(Pattern { term, constraints })
         })
         .collect::<Result<Vec<_>, DefinitionError>>()?;
     if rhs.is_empty() {
         return Err(DefinitionError::Claim(ClaimError::MissingRightHandSide));
     }
-    let (lhs, constraints) = internalize_rule_pattern(definition, left, &claim.parameters)?;
+    let (lhs, constraints) = internalize_rule_pattern(
+        definition,
+        left,
+        &claim.parameters,
+        SubsortValidation::Ignore,
+    )?;
     let parsed_attributes =
         RuleAttributes::parse(&claim.attributes).map_err(DefinitionError::Axiom)?;
 
