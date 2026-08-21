@@ -1249,6 +1249,14 @@ fn simplify_with_budget(
         return Err(SimplificationError::Cancelled);
     }
     let term = replace_from_path_condition(term, known_predicates);
+    if term.attributes().evaluated {
+        return Ok(Simplification {
+            term,
+            constraints: Vec::new(),
+            applied_rules: Vec::new(),
+            effects: Vec::new(),
+        });
+    }
     let children = simplify_children(
         definition,
         &term,
@@ -1275,6 +1283,14 @@ fn simplify_with_budget(
     let mut effects = children.effects;
     effects.extend(root.effects);
     if root.term == children.term {
+        return Ok(Simplification {
+            term: root.term,
+            constraints,
+            applied_rules,
+            effects,
+        });
+    }
+    if root.term.attributes().evaluated {
         return Ok(Simplification {
             term: root.term,
             constraints,
@@ -1902,6 +1918,67 @@ mod tests {
         assert_eq!(result.term, expected);
         assert_eq!(result.applied_rules, vec!["identity", "identity"]);
         assert!(result.constraints.is_empty());
+    }
+
+    #[test]
+    fn does_not_apply_equations_to_evaluated_terms() {
+        let definition = definition(
+            r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    X:SortS{},
+                    \and{SortS{}}(f{}(X:SortS{}), \top{SortS{}}())
+                )
+            ) [label{}("expand-anything"), simplification{}()]
+            "#,
+        );
+        let input = term(&definition, r#"\dv{SortS{}}("value")"#);
+
+        let result = simplify(
+            &definition,
+            &input,
+            SimplificationOptions { max_iterations: 1 },
+        )
+        .expect("evaluated terms should already be at a fixed point");
+
+        assert_eq!(result.term, input);
+        assert!(result.applied_rules.is_empty());
+    }
+
+    #[test]
+    fn accepts_an_evaluated_result_at_the_iteration_boundary() {
+        let definition = definition(
+            r#"
+            symbol next{}(SortS{}) : SortS{} [function{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(next{}(X:SortS{}), \top{SortS{}}())
+                )
+            ) [label{}("first"), simplification{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    next{}(X:SortS{}),
+                    \and{SortS{}}(X:SortS{}, \top{SortS{}}())
+                )
+            ) [label{}("second"), simplification{}()]
+            "#,
+        );
+        let input = term(&definition, r#"f{}(\dv{SortS{}}("value"))"#);
+        let expected = term(&definition, r#"\dv{SortS{}}("value")"#);
+
+        let result = simplify(
+            &definition,
+            &input,
+            SimplificationOptions { max_iterations: 1 },
+        )
+        .expect("an evaluated boundary result should not require another iteration");
+
+        assert_eq!(result.term, expected);
+        assert_eq!(result.applied_rules, ["first", "second"]);
     }
 
     #[test]
