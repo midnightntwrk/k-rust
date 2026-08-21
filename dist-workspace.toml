@@ -9,6 +9,8 @@ cargo-dist-version = "0.32.0"
 packages = ["k-rust"]
 # CI backends to support
 ci = "github"
+# Authenticate build-script GitHub API requests with the workflow token.
+github-build-setup = "../build-setup.yml"
 # The installers to generate for each app
 installers = ["shell"]
 # Target platforms to build apps for (Rust target-triple syntax)
