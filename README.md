@@ -374,6 +374,8 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 - Coverage instrumentation and the optional unsafe-`anywhere` removal mode are not exposed by the
   CLI. They are identity stages unless explicitly requested in Java.
 - LSP, `kserver`, and Bison parser generation are outside the current CLI scope.
+- Like the reference backend, AC unification remains conservative when more than one unmatched
+  opaque Set or Map chunk remains after common chunks are cancelled.
 
 ## TODOs
 
@@ -389,12 +391,11 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete parameters normally supplied by parser inference.
 - Emit the optional legacy priority aliases supported by `ModuleToKORE` compatibility modes.
-- Extend symmetric unification across the remaining opaque AC collection equations and add
-  preemptive interruption inside non-Z3 native hooks. First-order constructor/injective terms,
+- Add preemptive interruption inside non-Z3 native hooks. First-order constructor/injective terms,
   occurs checks, opaque function constraints, symmetric closed/open List, Set, and Map narrowing,
-  mixed first-order/collection equations, symbolic condition remainders, proof checkpoints, and
-  cooperative timeout, order, breadth, depth, counterexample, vacuity, and stuck controls are
-  implemented; multi-opaque collection equations remain conservative.
+  common opaque AC chunk cancellation, mixed first-order/collection equations, symbolic condition
+  remainders, proof checkpoints, and cooperative timeout, order, breadth, depth, counterexample,
+  vacuity, and stuck controls are implemented.
 - Measure Z3-path usage across a substantially larger real-definition corpus.
 - Revisit package splitting only if real build or release pressure justifies it.
 

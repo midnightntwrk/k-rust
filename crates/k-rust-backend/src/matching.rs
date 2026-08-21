@@ -334,9 +334,15 @@ fn match_set_terms_all_with_context(
     else {
         return None;
     };
-    if pattern_definition != subject_definition
-        || (subject_rest.is_some() && pattern_rest.is_none())
-    {
+    if pattern_definition != subject_definition {
+        return None;
+    }
+    let (pattern_rest, subject_rest) = cancel_common_opaque_chunks(
+        pattern_rest.clone(),
+        subject_rest.clone(),
+        &pattern_definition.symbols.concat,
+    );
+    if subject_rest.is_some() && pattern_rest.is_none() {
         return None;
     }
 
@@ -363,8 +369,8 @@ fn match_set_terms_all_with_context(
         backend,
         definition: pattern_definition.clone(),
         elements: pattern_elements.into_iter().collect(),
-        rest: pattern_rest.clone(),
-        subject_rest: subject_rest.clone(),
+        rest: pattern_rest,
+        subject_rest,
     };
     let mut solutions = Vec::new();
     let mut indeterminate = false;
@@ -551,6 +557,97 @@ fn match_list_terms_all_in_definition(
     }
 }
 
+#[derive(Clone)]
+struct OpaqueConcatHead {
+    symbol: Arc<crate::term::Symbol>,
+    sort_arguments: Vec<Sort>,
+}
+
+/// Cancel opaque chunks which occur on both sides of an AC equation.
+///
+/// The reference normalizer treats opaque children as a multiset, but retains the greater
+/// multiplicity of a common child in the unified term because duplicate opaque collections may
+/// later normalize to bottom. Rewriting only needs the residual equation, so removing every
+/// occurrence from both differences is equivalent while leaving duplicate-definedness handling to
+/// collection simplification.
+fn cancel_common_opaque_chunks(
+    left: Option<Term>,
+    right: Option<Term>,
+    concat: &Name,
+) -> (Option<Term>, Option<Term>) {
+    let (mut left, left_head) = flatten_opaque_chunks(left, concat);
+    let (mut right, right_head) = flatten_opaque_chunks(right, concat);
+    let common = left
+        .iter()
+        .filter(|term| right.contains(*term))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    left.retain(|term| !common.contains(term));
+    right.retain(|term| !common.contains(term));
+    left.sort();
+    right.sort();
+    (
+        rebuild_opaque_chunks(left, left_head),
+        rebuild_opaque_chunks(right, right_head),
+    )
+}
+
+fn flatten_opaque_chunks(
+    rest: Option<Term>,
+    concat: &Name,
+) -> (Vec<Term>, Option<OpaqueConcatHead>) {
+    fn visit(
+        term: Term,
+        concat: &Name,
+        chunks: &mut Vec<Term>,
+        head: &mut Option<OpaqueConcatHead>,
+    ) {
+        if let TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } = term.kind()
+            && &symbol.name == concat
+            && let [left, right] = arguments.as_slice()
+        {
+            head.get_or_insert_with(|| OpaqueConcatHead {
+                symbol: symbol.clone(),
+                sort_arguments: sort_arguments.clone(),
+            });
+            visit(left.clone(), concat, chunks, head);
+            visit(right.clone(), concat, chunks, head);
+        } else {
+            chunks.push(term);
+        }
+    }
+
+    let mut chunks = Vec::new();
+    let mut head = None;
+    if let Some(rest) = rest {
+        visit(rest, concat, &mut chunks, &mut head);
+    }
+    (chunks, head)
+}
+
+fn rebuild_opaque_chunks(chunks: Vec<Term>, head: Option<OpaqueConcatHead>) -> Option<Term> {
+    let mut chunks = chunks.into_iter();
+    let first = chunks.next()?;
+    Some(chunks.fold(first, |left, right| {
+        let head = head
+            .as_ref()
+            .expect("multiple opaque chunks came from a concatenation");
+        Term::application(
+            head.symbol.clone(),
+            head.sort_arguments.clone(),
+            vec![left, right],
+        )
+    }))
+}
+
+fn is_opaque_concat(term: &Term, concat: &Name) -> bool {
+    matches!(term.kind(), TermKind::Application { symbol, .. } if &symbol.name == concat)
+}
+
 /// Expand implication remainders where a closed destination map is unified with an open current
 /// map. Each returned branch is one AC entry permutation expressed as ordinary term equalities;
 /// the implication layer can simplify and existentially quantify those equations uniformly with
@@ -702,9 +799,15 @@ fn match_map_terms_all_with_context(
     else {
         return None;
     };
-    if pattern_definition != subject_definition
-        || (subject_rest.is_some() && pattern_rest.is_none())
-    {
+    if pattern_definition != subject_definition {
+        return None;
+    }
+    let (pattern_rest, subject_rest) = cancel_common_opaque_chunks(
+        pattern_rest.clone(),
+        subject_rest.clone(),
+        &pattern_definition.symbols.concat,
+    );
+    if subject_rest.is_some() && pattern_rest.is_none() {
         return None;
     }
 
@@ -754,8 +857,8 @@ fn match_map_terms_all_with_context(
         backend,
         definition: pattern_definition.clone(),
         entries: pattern_entries.into_iter().collect(),
-        rest: pattern_rest.clone(),
-        subject_rest: subject_rest.clone(),
+        rest: pattern_rest,
+        subject_rest,
     };
     let mut solutions = Vec::new();
     let mut indeterminate = false;
@@ -1417,6 +1520,19 @@ impl Matcher<'_> {
         check_duplicate_keys(&definition, &pattern_entries, &pattern_rest)?;
         check_duplicate_keys(&definition, &subject_entries, &subject_rest)?;
 
+        if pattern_rest
+            .as_ref()
+            .is_some_and(|rest| is_opaque_concat(rest, &definition.symbols.concat))
+            || subject_rest
+                .as_ref()
+                .is_some_and(|rest| is_opaque_concat(rest, &definition.symbols.concat))
+        {
+            return self.defer(
+                Term::map(definition.clone(), pattern_entries, pattern_rest),
+                Term::map(definition, subject_entries, subject_rest),
+            );
+        }
+
         let mut pattern = pattern_entries.into_iter().collect::<BTreeMap<_, _>>();
         let mut subject = subject_entries.into_iter().collect::<BTreeMap<_, _>>();
         let common_keys = pattern
@@ -1445,6 +1561,18 @@ impl Matcher<'_> {
         subject_elements: Vec<Term>,
         subject_rest: Option<Term>,
     ) -> Result<(), FailReason> {
+        if pattern_rest
+            .as_ref()
+            .is_some_and(|rest| is_opaque_concat(rest, &definition.symbols.concat))
+            || subject_rest
+                .as_ref()
+                .is_some_and(|rest| is_opaque_concat(rest, &definition.symbols.concat))
+        {
+            return self.defer(
+                Term::set(definition.clone(), pattern_elements, pattern_rest),
+                Term::set(definition, subject_elements, subject_rest),
+            );
+        }
         let mut pattern_elements = pattern_elements
             .into_iter()
             .map(|element| substitute(&element, &self.substitution))
@@ -2607,6 +2735,74 @@ mod tests {
                 &[(closed, open)],
             ),
             Some(expected)
+        );
+    }
+
+    #[test]
+    fn cancels_common_opaque_set_chunks_before_solving_the_residual_frame() {
+        let definition = collection_definition();
+        let left = internal_term(
+            &definition,
+            "setConcat{}(setItem{}(X:SortElement{}), setConcat{}(U:SortSet{}, setConcat{}(V:SortSet{}, V:SortSet{})))",
+        );
+        let right = internal_term(
+            &definition,
+            "setConcat{}(setItem{}(Y:SortElement{}), setConcat{}(U:SortSet{}, setConcat{}(V:SortSet{}, setConcat{}(T:SortSet{}, U:SortSet{}))))",
+        );
+
+        assert_eq!(
+            unify_collection_remainders_all_in_definition(
+                MatchMode::Rewrite,
+                &definition,
+                Substitution::new(),
+                &[(left, right)],
+            ),
+            Some(vec![Substitution::from([
+                (
+                    Variable::new("T", Sort::simple("SortSet")),
+                    internal_term(&definition, "setUnit{}()"),
+                ),
+                (
+                    Variable::new("Y", Sort::simple("SortElement")),
+                    internal_term(&definition, "X:SortElement{}"),
+                ),
+            ])])
+        );
+    }
+
+    #[test]
+    fn cancels_common_opaque_map_chunks_before_solving_the_residual_frame() {
+        let definition = collection_definition();
+        let left = internal_term(
+            &definition,
+            "mapConcat{}(mapItem{}(K1:SortKey{}, V1:SortValue{}), mapConcat{}(U:SortMap{}, mapConcat{}(V:SortMap{}, V:SortMap{})))",
+        );
+        let right = internal_term(
+            &definition,
+            "mapConcat{}(mapItem{}(K2:SortKey{}, V2:SortValue{}), mapConcat{}(U:SortMap{}, mapConcat{}(V:SortMap{}, mapConcat{}(T:SortMap{}, U:SortMap{}))))",
+        );
+
+        assert_eq!(
+            unify_collection_remainders_all_in_definition(
+                MatchMode::Rewrite,
+                &definition,
+                Substitution::new(),
+                &[(left, right)],
+            ),
+            Some(vec![Substitution::from([
+                (
+                    Variable::new("K2", Sort::simple("SortKey")),
+                    internal_term(&definition, "K1:SortKey{}"),
+                ),
+                (
+                    Variable::new("T", Sort::simple("SortMap")),
+                    internal_term(&definition, "mapUnit{}()"),
+                ),
+                (
+                    Variable::new("V2", Sort::simple("SortValue")),
+                    internal_term(&definition, "V1:SortValue{}"),
+                ),
+            ])])
         );
     }
 

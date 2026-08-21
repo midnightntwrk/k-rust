@@ -948,19 +948,23 @@ fn recover_general_unification(
                 return GeneralUnificationRecovery::Bottom;
             }
             GeneralUnificationRecovery::Unified(finalize_general_unification(
+                definition,
                 rule,
                 pattern,
                 solutions,
                 &constraints,
+                &remainder,
                 fresh_counter,
             ))
         }
         UnificationResult::Unified(unified) => {
             GeneralUnificationRecovery::Unified(finalize_general_unification(
+                definition,
                 rule,
                 pattern,
                 vec![unified.substitution],
                 &unified.constraints,
+                &[],
                 fresh_counter,
             ))
         }
@@ -968,10 +972,12 @@ fn recover_general_unification(
 }
 
 fn finalize_general_unification(
+    definition: &BackendDefinition,
     rule: &RewriteRule,
     pattern: &Pattern,
     solutions: Vec<Substitution>,
     constraints: &[Predicate],
+    collection_pairs: &[(Term, Term)],
     fresh_counter: &mut u64,
 ) -> Vec<(Substitution, Vec<Predicate>)> {
     solutions
@@ -979,10 +985,33 @@ fn finalize_general_unification(
         .map(|substitution| {
             let (substitution, _) =
                 freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter);
-            let constraints = substitute_predicates(constraints, &substitution);
+            let mut constraints = substitute_predicates(constraints, &substitution);
+            extend_unique(
+                &mut constraints,
+                collection_unification_definedness(definition, collection_pairs, &substitution),
+            );
             (substitution, constraints)
         })
         .collect()
+}
+
+fn collection_unification_definedness(
+    definition: &BackendDefinition,
+    pairs: &[(Term, Term)],
+    substitution: &Substitution,
+) -> Vec<Predicate> {
+    let mut conditions = Vec::new();
+    for (left, right) in pairs {
+        extend_unique(
+            &mut conditions,
+            ceil_term(definition, &substitute(left, substitution)),
+        );
+        extend_unique(
+            &mut conditions,
+            ceil_term(definition, &substitute(right, substitution)),
+        );
+    }
+    conditions
 }
 
 /// Recover first-order narrowing when a functional pattern is matched by a symbolic
@@ -1424,6 +1453,21 @@ fn apply_rule_with_match(
                             return RuleAttempt::NotApplicable;
                         }
                         return combine_rule_attempts(matches.into_iter().map(|substitution| {
+                            let (substitution, _) = freshen_unbound_rule_variables(
+                                rule,
+                                pattern,
+                                substitution,
+                                fresh_counter,
+                            );
+                            let mut conditions = inherited_conditions.clone();
+                            extend_unique(
+                                &mut conditions,
+                                collection_unification_definedness(
+                                    definition,
+                                    &remainder,
+                                    &substitution,
+                                ),
+                            );
                             apply_rule_with_match(
                                 definition,
                                 rule,
@@ -1433,7 +1477,7 @@ fn apply_rule_with_match(
                                 solver,
                                 Some(PartialRuleMatch {
                                     substitution,
-                                    conditions: inherited_conditions.clone(),
+                                    conditions,
                                     remainder: Vec::new(),
                                 }),
                             )
@@ -3199,6 +3243,46 @@ mod tests {
         )
         .expect("set definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN").expect("set definition should internalize")
+    }
+
+    fn opaque_set_narrowing_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortElement{} [hasDomainValues{}()]
+                hooked-sort SortSet{}
+                    [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
+                sort SortState{} []
+                symbol setUnit{}() : SortSet{}
+                    [function{}(), total{}(), hook{}("SET.unit")]
+                symbol setItem{}(SortElement{}) : SortSet{}
+                    [function{}(), total{}(), hook{}("SET.element")]
+                symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{}
+                    [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}()]
+                symbol opaqueA{}() : SortSet{} [function{}(), total{}()]
+                symbol opaqueB{}() : SortSet{} [function{}(), total{}()]
+                symbol state{}(SortSet{}) : SortState{} [constructor{}()]
+                symbol selected{}(SortElement{}) : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        state{}(
+                            setConcat{}(
+                                setItem{}(RULE:SortElement{}),
+                                setConcat{}(
+                                    opaqueA{}(),
+                                    setConcat{}(opaqueB{}(), opaqueB{}())
+                                )
+                            )
+                        ),
+                        \top{SortState{}}()
+                    ),
+                    selected{}(RULE:SortElement{})
+                ) [label{}("opaque-set")]
+            endmodule []"#,
+        )
+        .expect("opaque Set definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("opaque Set definition should internalize")
     }
 
     fn map_selection_definition() -> BackendDefinition {
@@ -5591,6 +5675,66 @@ mod tests {
                 .all(|branch| !branch.pattern.constraints.is_empty())
         );
         assert!(remainder.is_some());
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn rewrites_after_cancelling_common_opaque_set_chunks() {
+        let definition = opaque_set_narrowing_definition();
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                "state{}(setConcat{}(setItem{}(CONFIG:SortElement{}), setConcat{}(opaqueA{}(), setConcat{}(opaqueB{}(), setConcat{}(REST:SortSet{}, opaqueA{}())))))",
+            ),
+            constraints: Vec::new(),
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(_),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("common opaque chunks should cancel before Set frame narrowing");
+        };
+        let [branch] = branches.as_slice() else {
+            panic!("the residual Set frame has one solution: {branches:?}");
+        };
+        let TermKind::Application {
+            symbol, arguments, ..
+        } = branch.pattern.term.kind()
+        else {
+            panic!("rewrite result should be selected(RULE)");
+        };
+        assert_eq!(symbol.name.as_ref(), "selected");
+        let [fresh_rule] = arguments.as_slice() else {
+            panic!("selected should retain one fresh rule variable");
+        };
+        assert!(matches!(fresh_rule.kind(), TermKind::Variable(variable)
+            if variable.name.starts_with("Ex#RULE")));
+        assert!(branch.pattern.constraints.contains(&Predicate::Equals(
+            internal_term(&definition, "CONFIG:SortElement{}"),
+            fresh_rule.clone(),
+        )));
+        assert!(
+            branch.pattern.constraints.contains(&Predicate::Equals(
+                internal_term(&definition, "REST:SortSet{}"),
+                internal_term(&definition, "setUnit{}()"),
+            )),
+            "missing residual frame binding: {:#?}",
+            branch.pattern.constraints
+        );
+        assert!(
+            branch
+                .pattern
+                .constraints
+                .contains(&Predicate::Ceil(internal_term(
+                    &definition,
+                    "setConcat{}(opaqueA{}(), setConcat{}(opaqueB{}(), opaqueB{}()))",
+                ),))
+        );
     }
 
     #[test]
