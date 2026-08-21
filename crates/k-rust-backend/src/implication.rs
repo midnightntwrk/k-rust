@@ -55,6 +55,12 @@ struct Destination<'a> {
     existentials: &'a BTreeSet<Variable>,
 }
 
+#[derive(Clone, Copy)]
+struct Source<'a> {
+    pattern: &'a Pattern,
+    original_variable: Option<&'a Variable>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ImplicationError {
     ConsequentFreeVariables(BTreeSet<Variable>),
@@ -322,6 +328,10 @@ pub fn check_implication_with_existentials_and_options(
         return Ok(vacuously_valid());
     }
 
+    let original_antecedent_variable = match antecedent.term.kind() {
+        crate::term::TermKind::Variable(variable) => Some(variable.clone()),
+        _ => None,
+    };
     let mut antecedent = antecedent.clone();
     loop {
         match match_terms_in_definition(
@@ -356,7 +366,10 @@ pub fn check_implication_with_existentials_and_options(
                 if simplified == antecedent {
                     return discharge_consequent(
                         definition,
-                        &antecedent,
+                        Source {
+                            pattern: &antecedent,
+                            original_variable: original_antecedent_variable.as_ref(),
+                        },
                         Destination {
                             pattern: &consequent,
                             existentials: &consequent_existentials,
@@ -372,7 +385,10 @@ pub fn check_implication_with_existentials_and_options(
             MatchResult::Success(substitution) => {
                 return discharge_consequent(
                     definition,
-                    &antecedent,
+                    Source {
+                        pattern: &antecedent,
+                        original_variable: original_antecedent_variable.as_ref(),
+                    },
                     Destination {
                         pattern: &consequent,
                         existentials: &consequent_existentials,
@@ -426,13 +442,15 @@ fn freshen_existentials(
 
 fn discharge_consequent(
     definition: &BackendDefinition,
-    antecedent: &Pattern,
+    antecedent: Source<'_>,
     consequent: Destination<'_>,
     substitution: Substitution,
     remainder: Vec<(crate::term::Term, crate::term::Term)>,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<ImplicationResult, ImplicationError> {
+    let source = antecedent;
+    let antecedent = source.pattern;
     let had_match_remainder = !remainder.is_empty();
     let obligations = implication_obligation_branches(
         consequent.pattern,
@@ -470,11 +488,13 @@ fn discharge_consequent(
     Ok(
         match solver.check_predicates(&antecedent.constraints, &Substitution::new(), &obligations) {
             Ok(Validity::Valid) => valid(substitution),
-            Ok(Validity::Invalid) if had_match_remainder => partial(substitution, obligations),
+            Ok(Validity::Invalid) if had_match_remainder => {
+                partial(source.original_variable, substitution, obligations)
+            }
             Ok(Validity::Invalid) => condition_invalid_with_substitution(substitution),
             Ok(Validity::InconsistentGroundTruth) => vacuously_valid(),
             Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) if had_match_remainder => {
-                partial(substitution, obligations)
+                partial(source.original_variable, substitution, obligations)
             }
             Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => indeterminate(),
         },
@@ -648,7 +668,27 @@ fn condition_invalid_with_substitution(substitution: Substitution) -> Implicatio
     }
 }
 
-fn partial(substitution: Substitution, predicates: Vec<Predicate>) -> ImplicationResult {
+fn partial(
+    antecedent_variable: Option<&Variable>,
+    mut substitution: Substitution,
+    predicates: Vec<Predicate>,
+) -> ImplicationResult {
+    let mut predicates = predicates;
+    predicates.retain(|predicate| {
+        let Predicate::Equals(left, right) = predicate else {
+            return true;
+        };
+        let binding = implication_binding(left, right, antecedent_variable)
+            .or_else(|| implication_binding(right, left, antecedent_variable));
+        let Some((variable, value)) = binding else {
+            return true;
+        };
+        if substitution.contains_key(variable) {
+            return true;
+        }
+        substitution.insert(variable.clone(), value.clone());
+        false
+    });
     ImplicationResult {
         status: ImplicationStatus::Invalid,
         condition: Some(ImplicationCondition {
@@ -657,6 +697,18 @@ fn partial(substitution: Substitution, predicates: Vec<Predicate>) -> Implicatio
         }),
         failure: Some(ImplicationFailure::TermMismatch),
     }
+}
+
+fn implication_binding<'a>(
+    variable: &'a crate::term::Term,
+    value: &'a crate::term::Term,
+    antecedent_variable: Option<&Variable>,
+) -> Option<(&'a Variable, &'a crate::term::Term)> {
+    let crate::term::TermKind::Variable(variable) = variable.kind() else {
+        return None;
+    };
+    (antecedent_variable == Some(variable) && !value.attributes().variables.contains(variable))
+        .then_some((variable, value))
 }
 
 fn indeterminate() -> ImplicationResult {
@@ -797,6 +849,28 @@ mod tests {
                 if left == &term(&definition, "X:SortInt{}")
                     && right == &term(&definition, "opaque{}(X:SortInt{})")
         ));
+    }
+
+    #[test]
+    fn promotes_a_partial_configuration_binding_into_the_implication_substitution() {
+        let definition = definition();
+        let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
+        let antecedent = pattern(&definition, "X:SortInt{}");
+        let value = int(&definition, "0");
+        let consequent = Pattern {
+            term: value.clone(),
+            constraints: Vec::new(),
+        };
+
+        let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
+            .expect("implication should be checked");
+        let condition = result
+            .condition
+            .expect("the partial configuration binding should be retained");
+
+        assert_eq!(result.status, ImplicationStatus::Invalid);
+        assert_eq!(condition.substitution, Substitution::from([(x, value)]));
+        assert!(condition.predicates.is_empty());
     }
 
     #[test]

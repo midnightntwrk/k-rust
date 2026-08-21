@@ -1264,16 +1264,30 @@ fn implication_substitution(
     bindings.sort_by_key(|(variable, _)| (variable.name.clone(), variable.sort.clone()));
     let mut bindings = bindings.into_iter().map(|(variable, value)| {
         let mut output_variable = variable.clone();
-        if let Some((name, suffix)) = variable.name.as_ref().rsplit_once("!exists")
-            && suffix.chars().all(|character| character.is_ascii_digit())
-        {
+        let consequent_existential = variable
+            .name
+            .as_ref()
+            .rsplit_once("!exists")
+            .filter(|(_, suffix)| suffix.chars().all(|character| character.is_ascii_digit()));
+        if let Some((name, _)) = consequent_existential {
             output_variable.name = BackendName::from(name);
         }
+        let (left, right) = if consequent_existential.is_some() {
+            (
+                externalize::term(value),
+                externalize::term(&Term::variable(output_variable)),
+            )
+        } else {
+            (
+                externalize::term(&Term::variable(output_variable)),
+                externalize::term(value),
+            )
+        };
         KorePattern::Equals {
             operand_sort: externalize::sort(&variable.sort),
             result_sort: externalize::sort(result_sort),
-            left: Box::new(externalize::term(value)),
-            right: Box::new(externalize::term(&Term::variable(output_variable))),
+            left: Box::new(left),
+            right: Box::new(right),
         }
     });
     let mut result = bindings.next()?;

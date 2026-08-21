@@ -24,7 +24,8 @@ use k_rust_backend::{
     definition::{BackendDefinition, DefinitionError},
     externalize,
     implication::{
-        ImplicationError, ImplicationResult, ImplicationStatus, check_implication_with_existentials,
+        ImplicationCondition, ImplicationError, ImplicationFailure, ImplicationResult,
+        ImplicationStatus, check_implication_with_existentials,
     },
     rewrite::{
         AppliedRule, ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
@@ -582,6 +583,12 @@ impl RpcService {
         validate_implication_variable_capture(&antecedent, &consequent)?;
         validate_implication_sorts(&antecedent, &consequent)?;
         let sort_variables = super::implication_sort_variables(&antecedent, &consequent);
+        if let Some(result) = special_implication_result(&antecedent, &consequent) {
+            let (_, result_sort) = definition
+                .internalize_predicate(&antecedent, &sort_variables)
+                .map_err(RpcFault::pattern)?;
+            return implication_result(&antecedent, &consequent, &result_sort, result);
+        }
         let (antecedent_pattern, antecedent_existentials) = definition
             .internalize_implication_pattern(&antecedent, &sort_variables)
             .map_err(RpcFault::pattern)?;
@@ -763,7 +770,10 @@ fn validate_singleton_implication_patterns(
 ) -> Result<(), RpcFault> {
     let antecedent = super::strip_exists(antecedent);
     if matches!(antecedent, KorePattern::Or { arguments, .. } if arguments.len() != 1)
-        || matches!(antecedent, KorePattern::Mu { .. } | KorePattern::Nu { .. })
+        || matches!(
+            antecedent,
+            KorePattern::Top { .. } | KorePattern::Mu { .. } | KorePattern::Nu { .. }
+        )
     {
         return Err(RpcFault::implication(
             "The check implication step expects the antecedent term to be function-like.",
@@ -785,6 +795,41 @@ fn validate_singleton_implication_patterns(
         ));
     }
     Ok(())
+}
+
+fn special_implication_result(
+    antecedent: &KorePattern,
+    consequent: &KorePattern,
+) -> Option<ImplicationResult> {
+    let antecedent = super::strip_exists(antecedent);
+    let consequent = super::strip_exists(consequent);
+    let condition = |predicates| {
+        Some(ImplicationCondition {
+            predicates,
+            substitution: Substitution::new(),
+        })
+    };
+    if matches!(antecedent, KorePattern::Bottom { .. }) {
+        Some(ImplicationResult {
+            status: ImplicationStatus::Valid,
+            condition: condition(vec![Predicate::False]),
+            failure: None,
+        })
+    } else if matches!(consequent, KorePattern::Top { .. }) {
+        Some(ImplicationResult {
+            status: ImplicationStatus::Valid,
+            condition: condition(Vec::new()),
+            failure: None,
+        })
+    } else if matches!(consequent, KorePattern::Bottom { .. }) {
+        Some(ImplicationResult {
+            status: ImplicationStatus::Invalid,
+            condition: condition(vec![Predicate::False]),
+            failure: Some(ImplicationFailure::ConsequentCondition),
+        })
+    } else {
+        None
+    }
 }
 
 fn validate_implication_variable_capture(
@@ -1537,6 +1582,7 @@ mod tests {
                 r#"[]
                 module TEST
                   sort SortK{} []
+                  symbol value{}() : SortK{} [constructor{}()]
                   symbol macroValue{}() : SortK{} [functional{}(), macro{}()]
                 endmodule []"#,
             )
@@ -1546,6 +1592,10 @@ mod tests {
     }
 
     fn implication_error(antecedent: &str, consequent: &str) -> Value {
+        implication_response(antecedent, consequent)["error"].clone()
+    }
+
+    fn implication_response(antecedent: &str, consequent: &str) -> Value {
         let mut service = implication_service();
         let antecedent = encode_kore(&parse_pattern(antecedent).unwrap()).unwrap();
         let consequent = encode_kore(&parse_pattern(consequent).unwrap()).unwrap();
@@ -1554,8 +1604,7 @@ mod tests {
             1,
             "implies",
             json!({ "antecedent": antecedent, "consequent": consequent }),
-        )["error"]
-            .clone()
+        )
     }
 
     #[test]
@@ -1599,6 +1648,93 @@ mod tests {
                 "message": "Implication check error",
                 "data": {
                     "context": [r#"\or{SortK{}}( ConfigX:SortK{}, \not{SortK{}}( ConfigX:SortK{} ) )"#],
+                    "error": "The check implication step expects the antecedent term to be function-like.",
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn implication_accepts_a_bottom_antecedent_as_vacuously_valid() {
+        let response = implication_response(r#"\bottom{SortK{}}()"#, "X:SortK{}");
+
+        assert_eq!(response["result"]["status"], "valid");
+        assert_eq!(
+            response["result"]["condition"]["predicate"]["term"]["tag"],
+            "Bottom"
+        );
+        assert_eq!(
+            response["result"]["condition"]["substitution"]["term"]["tag"],
+            "Top"
+        );
+    }
+
+    #[test]
+    fn implication_accepts_a_top_consequent_as_valid() {
+        let response = implication_response("X:SortK{}", r#"\top{SortK{}}()"#);
+
+        assert_eq!(response["result"]["status"], "valid");
+        assert_eq!(
+            response["result"]["condition"]["predicate"]["term"]["tag"],
+            "Top"
+        );
+        assert_eq!(
+            response["result"]["condition"]["substitution"]["term"]["tag"],
+            "Top"
+        );
+    }
+
+    #[test]
+    fn implication_retains_a_bottom_consequent_as_the_invalid_condition() {
+        let response = implication_response("X:SortK{}", r#"\bottom{SortK{}}()"#);
+
+        assert_eq!(response["result"]["status"], "invalid");
+        assert_eq!(
+            response["result"]["condition"]["predicate"]["term"]["tag"],
+            "Bottom"
+        );
+        assert_eq!(
+            response["result"]["condition"]["substitution"]["term"]["tag"],
+            "Top"
+        );
+    }
+
+    #[test]
+    fn implication_orients_configuration_substitutions_from_variable_to_value() {
+        let response = implication_response("X:SortK{}", "value{}()");
+        let substitution = &response["result"]["condition"]["substitution"]["term"];
+
+        assert_eq!(response["result"]["status"], "invalid");
+        assert_eq!(substitution["tag"], "Equals");
+        assert_eq!(substitution["first"]["tag"], "EVar");
+        assert_eq!(substitution["first"]["name"], "X");
+        assert_eq!(substitution["second"]["tag"], "App");
+        assert_eq!(substitution["second"]["name"], "value");
+    }
+
+    #[test]
+    fn implication_orients_fresh_consequent_existentials_toward_the_antecedent() {
+        let response =
+            implication_response("X:SortK{}", r#"\exists{SortK{}}(Z:SortK{}, Z:SortK{})"#);
+        let substitution = &response["result"]["condition"]["substitution"]["term"];
+
+        assert_eq!(response["result"]["status"], "valid");
+        assert_eq!(substitution["tag"], "Equals");
+        assert_eq!(substitution["first"]["name"], "X");
+        assert_eq!(substitution["second"]["name"], "Z");
+    }
+
+    #[test]
+    fn implication_rejects_a_top_antecedent_as_non_function_like() {
+        let error = implication_error(r#"\top{SortK{}}()"#, "X:SortK{}");
+
+        assert_eq!(
+            error,
+            json!({
+                "code": 4,
+                "message": "Implication check error",
+                "data": {
+                    "context": [r#"\top{SortK{}}()"#],
                     "error": "The check implication step expects the antecedent term to be function-like.",
                 },
             })
