@@ -2,7 +2,7 @@ use std::{
     collections::BTreeSet,
     env,
     error::Error,
-    fs,
+    fmt, fs,
     io::{self, Read},
     num::NonZeroUsize,
     path::{Path, PathBuf},
@@ -25,6 +25,7 @@ use k_rust::{
             Pattern as KorePattern, Sentence as KoreSentence, Sort as KoreSort,
             Symbol as KoreSymbol,
         },
+        json as kore_json,
         parser::parse_definition as parse_kore_definition,
         parser::parse_pattern as parse_kore_pattern,
         printer::Printer as KorePrinter,
@@ -33,6 +34,7 @@ use k_rust::{
     outer::{LoadOptions, SourceResolver, load_with_options},
 };
 use k_rust_backend::{
+    binary as backend_binary,
     builtin::BuiltinEffect,
     definition::BackendDefinition,
     externalize,
@@ -203,7 +205,7 @@ struct SearchArgs {
     #[arg(long, group = "search_mode")]
     search_one_or_more_steps: bool,
 
-    /// Match search results against this raw KORE pattern file.
+    /// Match search results against this text, JSON v1, or binary KORE pattern file.
     #[arg(long, requires = "search_mode", value_name = "KORE_FILE")]
     search_pattern: Option<PathBuf>,
 
@@ -273,7 +275,7 @@ struct KoreExecArgs {
     #[arg(short = 'm', long, value_name = "MODULE")]
     module: String,
 
-    /// Initial constrained KORE pattern.
+    /// Initial constrained text, JSON v1, or binary KORE pattern.
     #[arg(short = 'p', long, value_name = "PATTERN_KORE")]
     pattern: PathBuf,
 
@@ -769,17 +771,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
         )
     })?;
     let backend = BackendDefinition::internalize(&definition, &options.module)?;
-    let pattern_source = fs::read_to_string(&options.pattern)?;
-    let pattern = parse_kore_pattern(&pattern_source).map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "could not parse initial KORE pattern {}: {error}",
-                options.pattern.display()
-            ),
-        )
-    })?;
-    let initial = backend.internalize_pattern(&pattern, &[])?;
+    let initial = load_backend_pattern(&backend, &options.pattern, "initial")?;
     let output = run_backend(
         &backend,
         initial,
@@ -865,16 +857,7 @@ fn run_backend(
         .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
     if let Some(search) = search {
         let target = match search.pattern {
-            Some(path) => {
-                let source = fs::read_to_string(&path)?;
-                let syntax = parse_kore_pattern(&source).map_err(|error| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("could not parse search pattern {}: {error}", path.display()),
-                    )
-                })?;
-                backend.internalize_pattern(&syntax, &[])?
-            }
+            Some(path) => load_backend_pattern(backend, &path, "search")?,
             None => Pattern {
                 term: Term::variable(Variable::new("Result", initial.term.sort())),
                 constraints: Vec::new(),
@@ -959,6 +942,55 @@ fn run_backend(
             arguments: states,
         },
     })
+}
+
+fn load_backend_pattern(
+    definition: &BackendDefinition,
+    path: &Path,
+    purpose: &str,
+) -> Result<Pattern, Box<dyn Error>> {
+    let input = fs::read(path)?;
+    decode_backend_pattern(definition, path, purpose, &input)
+}
+
+fn decode_backend_pattern(
+    definition: &BackendDefinition,
+    path: &Path,
+    purpose: &str,
+    input: &[u8],
+) -> Result<Pattern, Box<dyn Error>> {
+    if input.starts_with(b"\x7fKORE") {
+        return backend_binary::decode_pattern(definition, input)
+            .map_err(|error| invalid_kore_pattern(path, purpose, "binary", error));
+    }
+    let source = std::str::from_utf8(input)
+        .map_err(|error| invalid_kore_pattern(path, purpose, "UTF-8", error))?;
+    let syntax = if source.trim_start().starts_with('{') {
+        kore_json::from_str(source)
+            .map_err(|error| invalid_kore_pattern(path, purpose, "JSON", error))?
+    } else {
+        parse_kore_pattern(source)
+            .map_err(|error| invalid_kore_pattern(path, purpose, "text", error))?
+    };
+    definition
+        .internalize_pattern(&syntax, &[])
+        .map_err(Into::into)
+}
+
+fn invalid_kore_pattern(
+    path: &Path,
+    purpose: &str,
+    encoding: &str,
+    error: impl fmt::Display,
+) -> Box<dyn Error> {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!(
+            "could not decode {purpose} {encoding} KORE pattern {}: {error}",
+            path.display()
+        ),
+    )
+    .into()
 }
 
 fn search_output(result: &PatternSearchResult, result_sort: &KoreSort) -> KorePattern {
@@ -1396,6 +1428,46 @@ fn emit_diagnostics(diagnostics: &[Diagnostic]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decodes_text_json_and_binary_backend_patterns() {
+        use k_rust::kore::binary::{ConstrainedPattern, encode_pattern};
+
+        let syntax = parse_kore_definition(
+            r#"[]
+            module MAIN
+              sort SortS{} []
+              symbol state{}(SortS{}) : SortS{} [constructor{}()]
+              symbol value{}() : SortS{} [constructor{}()]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let syntax = parse_kore_pattern("state{}(value{}())").unwrap();
+        let expected = definition.internalize_pattern(&syntax, &[]).unwrap();
+        let path = Path::new("state.kore");
+
+        let text =
+            decode_backend_pattern(&definition, path, "initial", b"state{}(value{}())").unwrap();
+        let json = decode_backend_pattern(
+            &definition,
+            path,
+            "initial",
+            kore_json::to_string(&syntax).unwrap().as_bytes(),
+        )
+        .unwrap();
+        let binary = decode_backend_pattern(
+            &definition,
+            path,
+            "initial",
+            &encode_pattern(&ConstrainedPattern::new(syntax, Vec::new())).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(text, expected);
+        assert_eq!(json, expected);
+        assert_eq!(binary, expected);
+    }
 
     #[test]
     fn parses_kast_options_in_any_order() {

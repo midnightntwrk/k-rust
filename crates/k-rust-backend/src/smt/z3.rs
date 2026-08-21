@@ -327,6 +327,40 @@ mod tests {
     }
 
     #[test]
+    fn proves_native_collection_sizes_are_nonnegative() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortList{} []
+                symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("<")]
+                symbol abstractSize{}(SortList{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("LIST.size")]
+                symbol translatedSize{}(SortList{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("LIST.size"), smtlib{}("list-size")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+
+        for size in ["abstractSize", "translatedSize"] {
+            let checked = [Predicate::Term(term(
+                &definition,
+                &format!(r#"lt{{}}(\dv{{SortInt{{}}}}("-1"), {size}{{}}(L:SortList{{}}))"#),
+            ))];
+            assert_eq!(
+                solver.check_predicates(&[], &Substitution::new(), &checked),
+                Ok(Validity::Valid),
+                "{size} should be nonnegative"
+            );
+        }
+    }
+
+    #[test]
     fn distinguishes_unsatisfiable_and_inconsistent_constraints() {
         let definition = definition();
         let solver = Z3Solver::new(&definition).unwrap();

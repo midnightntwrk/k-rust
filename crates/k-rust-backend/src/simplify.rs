@@ -1583,7 +1583,7 @@ fn apply_equation(
         RuleRhs::Predicates(_) => return Ok(EquationAttempt::NotApplicable),
     };
     let ensures = substitute_predicates(&rule.ensures, &substitution);
-    let ensures = simplify_rule_predicates(
+    let mut ensures = simplify_rule_predicates(
         definition,
         (&rule.attributes.unique_id, term),
         &ensures,
@@ -1610,9 +1610,9 @@ fn apply_equation(
                 Ok(Validity::Invalid) => {
                     return Ok(EquationAttempt::NotApplicable);
                 }
+                Ok(Validity::Valid) => ensures.clear(),
                 Ok(
-                    Validity::Valid
-                    | Validity::Indeterminate
+                    Validity::Indeterminate
                     | Validity::InconsistentGroundTruth
                     | Validity::Unknown(_),
                 )

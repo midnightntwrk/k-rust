@@ -1807,7 +1807,7 @@ fn apply_rule_with_match(
         &substitute_predicates(&rule.ensures, &substitution),
         &existential_substitution,
     );
-    let ensures = simplify_predicates_with_solver(
+    let mut ensures = simplify_predicates_with_solver(
         definition,
         &ensures,
         &condition_knowledge,
@@ -1823,7 +1823,8 @@ fn apply_rule_with_match(
                 Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
                     return RuleAttempt::Trivial;
                 }
-                Ok(Validity::Valid | Validity::Indeterminate) | Err(SmtError::Unavailable) => {}
+                Ok(Validity::Valid) => ensures.clear(),
+                Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => {}
                 Ok(Validity::Unknown(reason)) => {
                     return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
                         rule_id: rule.attributes.unique_id.clone(),

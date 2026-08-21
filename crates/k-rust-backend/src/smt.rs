@@ -389,6 +389,15 @@ impl SmtPrelude {
                 arguments.join(" "),
                 smt_sort(&symbol.result_sort)?
             ));
+            if collection_size_hook(symbol.attributes.hook.as_deref())
+                && symbol.argument_sorts.len() == 1
+                && symbol.result_sort == Sort::simple("SortInt")
+            {
+                declarations.push(format!(
+                    "(assert (forall ((KRUST-COLLECTION {})) (>= ({name} KRUST-COLLECTION) 0)))",
+                    arguments[0]
+                ));
+            }
         }
         for rule in smt_lemmas(definition) {
             declarations.push(format!("(assert {})", translate_smt_lemma(rule)?));
@@ -456,6 +465,9 @@ impl SmtPrelude {
                 "(declare-const {name} {})",
                 smt_sort(&term.sort())?
             ));
+            if collection_size_term(term) {
+                base.push(format!("(assert (>= {name} 0))"));
+            }
         }
         for (_, name) in &translation.predicate_mappings {
             base.push(format!("(declare-const {name} Bool)"));
@@ -472,6 +484,19 @@ impl SmtPrelude {
             mappings: translation.mappings,
         })
     }
+}
+
+fn collection_size_hook(hook: Option<&str>) -> bool {
+    matches!(hook, Some("LIST.size" | "MAP.size" | "SET.size"))
+}
+
+fn collection_size_term(term: &Term) -> bool {
+    matches!(
+        term.kind(),
+        TermKind::Application { symbol, .. }
+            if collection_size_hook(symbol.attributes.hook.as_deref())
+                && term.sort() == Sort::simple("SortInt")
+    )
 }
 
 #[cfg(feature = "z3")]
