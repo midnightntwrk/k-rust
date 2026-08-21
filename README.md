@@ -86,8 +86,8 @@ Implemented end to end:
 - In-process concrete and symbolic execution, `ONE`/`FINAL`/`STAR`/`PLUS` reachability search,
   simplification, implication and reachability checks, builtin collections, Z3
   satisfiability/validity queries, and satisfying-model extraction.
-- Native `krust kast`, `krust kcompile`, and experimental `krust krun` and `krust kprove`
-  commands.
+- Native `krust kast`, `krust kcompile`, `krust kore-exec`, and experimental `krust krun` and
+  `krust kprove` commands.
 - Bundled builtin sources pinned to K v7.1.337, so an installed CLI does not require a separate K
   source checkout. Explicit sources always take precedence.
 - Native, portable, and `wasm32-unknown-unknown` build gates.
@@ -166,6 +166,15 @@ krust krun definition.k --main-module MAIN --sort Exp --expression '1 + 2' \
 Without a target, each solution binds `Result` to a matching configuration. Pass
 `--search-pattern target.kore` to match solutions against a constrained raw KORE pattern; an empty
 solution set prints `#Bottom`, while a ground match prints `#Top`.
+
+Execute an already compiled textual KORE definition directly, using the same in-process backend
+and search options as `krun`:
+
+```console
+krust kore-exec definition.kore --module MAIN --pattern pgm.kore
+krust kore-exec definition.kore --module MAIN --pattern pgm.kore \
+  --search-final --search-pattern target.kore
+```
 
 Prove all modal reachability claims in a specification module, or select claims by label:
 

@@ -967,7 +967,7 @@ fn apply_rule_with_match(
         &mut inherited_knowledge,
         inherited_conditions.iter().cloned(),
     );
-    let (substitution, mut match_conditions) = match matching {
+    let (mut substitution, mut match_conditions) = match matching {
         MatchResult::Failed(_) => return RuleAttempt::NotApplicable,
         MatchResult::Indeterminate {
             substitution,
@@ -1188,11 +1188,21 @@ fn apply_rule_with_match(
         }
         MatchResult::Success(substitution) => (substitution, Vec::new()),
     };
-    if substitution
-        .keys()
-        .any(|variable| !rule.lhs.attributes().variables.contains(variable))
-    {
-        return RuleAttempt::NotApplicable;
+    let configuration_bindings = substitution
+        .iter()
+        .filter(|(variable, _)| !rule.lhs.attributes().variables.contains(*variable))
+        .map(|(variable, value)| {
+            (
+                variable.clone(),
+                Predicate::Equals(Term::variable(variable.clone()), value.clone()),
+            )
+        })
+        .collect::<Vec<_>>();
+    for (variable, condition) in configuration_bindings {
+        substitution.remove(&variable);
+        if !match_conditions.contains(&condition) {
+            match_conditions.push(condition);
+        }
     }
     inherited_conditions.append(&mut match_conditions);
     let inherited_conditions = simplify_predicates_with_solver(
@@ -3394,6 +3404,54 @@ mod tests {
         assert_eq!(
             rewritten_value(rewrite_step(&definition, &pattern, &mut fresh)),
             "done"
+        );
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn narrows_configuration_variables_from_repeated_rule_variables() {
+        let definition = definition(
+            r#"
+            symbol pair{}(SortS{}, SortS{}) : SortS{} [constructor{}()]
+            symbol arrow{}(SortS{}, SortS{}) : SortS{} [constructor{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    pair{}(T:SortS{}, T:SortS{}),
+                    \top{SortS{}}()
+                ),
+                \dv{SortS{}}("done")
+            ) [label{}("repeated-variable")]
+            "#,
+        );
+        let configuration = Pattern {
+            term: internal_term(
+                &definition,
+                "pair{}(X:SortS{}, arrow{}(Y:SortS{}, Z:SortS{}))",
+            ),
+            constraints: Vec::new(),
+        };
+        let expected_variable = internal_term(&definition, "X:SortS{}");
+        let expected_value = internal_term(&definition, "arrow{}(Y:SortS{}, Z:SortS{})");
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch { branches, .. } =
+            rewrite_step_with_solver(&definition, &configuration, &mut fresh, &solver)
+        else {
+            panic!("repeated-variable unification should narrow the configuration");
+        };
+        let [applied] = branches.as_slice() else {
+            panic!("expected one narrowed application, found {branches:?}");
+        };
+        assert!(matches!(
+            applied.pattern.term.kind(),
+            TermKind::DomainValue { value, .. } if value.as_ref() == "done"
+        ));
+        assert!(
+            applied
+                .pattern
+                .constraints
+                .contains(&Predicate::Equals(expected_variable, expected_value,))
         );
     }
 

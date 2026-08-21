@@ -345,6 +345,74 @@ endmodule
 }
 
 #[test]
+fn kore_exec_runs_a_compiled_definition_and_searches_it() {
+    let (root, _) = fixture();
+    let definition = root.join("definition.kore");
+    let program = root.join("program.kore");
+    let target = root.join("target.kore");
+    fs::write(
+        &definition,
+        r#"[]
+module MAIN
+  sort SortS{} []
+  symbol a{}() : SortS{} [constructor{}()]
+  symbol b{}() : SortS{} [constructor{}()]
+  axiom{} \rewrites{SortS{}}(
+    \and{SortS{}}(a{}(), \top{SortS{}}()),
+    b{}()
+  ) [label{}("a-to-b")]
+endmodule []
+"#,
+    )
+    .unwrap();
+    fs::write(&program, "a{}()").unwrap();
+    fs::write(&target, "Result:SortS{}").unwrap();
+
+    let execute = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--pattern",
+            program.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        execute.status.success(),
+        "{}",
+        String::from_utf8_lossy(&execute.stderr)
+    );
+    assert_eq!(String::from_utf8(execute.stdout).unwrap(), "b{}()\n");
+
+    let search = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--pattern",
+            program.to_str().unwrap(),
+            "--search-final",
+            "--search-pattern",
+            target.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        search.status.success(),
+        "{}",
+        String::from_utf8_lossy(&search.stderr)
+    );
+    let search = String::from_utf8(search.stdout).unwrap();
+    assert!(search.contains("Result:SortS{}"), "{search}");
+    assert!(search.contains("b{}()"), "{search}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kprove_proves_a_modal_claim_in_process() {
     let (root, definition) = fixture();
     let saved_proofs = root.join("proofs.kore");

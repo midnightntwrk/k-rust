@@ -16,7 +16,7 @@ use crate::{
         simplify_with_solver,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver},
-    substitution::Substitution,
+    substitution::{Substitution, compose, substitute},
 };
 
 /// Which nodes in the execution tree are returned by a search.
@@ -306,6 +306,19 @@ pub fn search_pattern_with_solver(
     );
     let mut matches = Vec::new();
     let mut incomplete = graph.incomplete;
+    let output_variables = target
+        .term
+        .attributes()
+        .variables
+        .iter()
+        .cloned()
+        .chain(
+            target
+                .constraints
+                .iter()
+                .flat_map(Predicate::free_variables),
+        )
+        .collect::<std::collections::BTreeSet<_>>();
 
     for state in graph.states {
         let substitution = match match_terms_in_definition(
@@ -331,6 +344,8 @@ pub fn search_pattern_with_solver(
 
         let mut constraints = state.pattern.constraints.clone();
         constraints.extend(substitute_predicates(&target.constraints, &substitution));
+        let (substitution, constraints) =
+            normalize_match_condition(substitution, constraints, &output_variables);
         let constraints = match simplify_predicates_with_solver(
             definition,
             &constraints,
@@ -384,6 +399,60 @@ pub fn search_pattern_with_solver(
         effects: graph.effects,
         incomplete,
     }
+}
+
+fn normalize_match_condition(
+    output: Substitution,
+    mut constraints: Vec<Predicate>,
+    output_variables: &std::collections::BTreeSet<crate::term::Variable>,
+) -> (Substitution, Vec<Predicate>) {
+    let mut solved = Substitution::new();
+    loop {
+        let mut binding = None;
+        for (index, constraint) in constraints.iter().enumerate() {
+            let Predicate::Equals(left, right) = constraint else {
+                continue;
+            };
+            let left = substitute(left, &solved);
+            let right = substitute(right, &solved);
+            if left == right {
+                binding = Some((index, None));
+                break;
+            }
+            let candidate = match (left.kind(), right.kind()) {
+                (crate::term::TermKind::Variable(variable), _)
+                    if !right.attributes().variables.contains(variable) =>
+                {
+                    Some((variable.clone(), right))
+                }
+                (_, crate::term::TermKind::Variable(variable))
+                    if !left.attributes().variables.contains(variable) =>
+                {
+                    Some((variable.clone(), left))
+                }
+                _ => None,
+            };
+            if let Some(candidate) = candidate {
+                binding = Some((index, Some(candidate)));
+                break;
+            }
+        }
+        let Some((index, binding)) = binding else {
+            break;
+        };
+        constraints.remove(index);
+        let Some((variable, value)) = binding else {
+            continue;
+        };
+        let binding = Substitution::from([(variable, value)]);
+        solved = compose(&binding, &solved);
+        constraints = substitute_predicates(&constraints, &binding);
+    }
+
+    let mut output = compose(&solved, &output);
+    output.retain(|variable, _| output_variables.contains(variable));
+    let constraints = substitute_predicates(&constraints, &solved);
+    (output, constraints)
 }
 
 fn simplification_options(options: SearchOptions) -> SimplificationOptions {
@@ -458,12 +527,12 @@ fn remaining_state(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, sync::Arc};
 
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
-    use crate::term::{Sort, Term, TermKind, Variable};
+    use crate::term::{Sort, Symbol, Term, TermKind, Variable};
 
     fn definition() -> BackendDefinition {
         let syntax = parse_definition(
@@ -715,5 +784,38 @@ mod tests {
         assert_eq!(result.matches.len(), 1);
         assert!(result.matches[0].constraints.is_empty());
         assert!(result.incomplete.is_empty());
+    }
+
+    #[test]
+    fn projects_solved_path_equalities_onto_search_variables() {
+        let sort = Sort::simple("SortS");
+        let result_variable = Variable::new("Result", sort.clone());
+        let configuration_variable = Variable::new("Configuration", sort.clone());
+        let left = Variable::new("Left", sort.clone());
+        let right = Variable::new("Right", sort.clone());
+        let value = Term::application(
+            Arc::new(Symbol::constructor(
+                "arrow",
+                vec![sort.clone(), sort.clone()],
+                sort,
+            )),
+            Vec::new(),
+            vec![Term::variable(left), Term::variable(right)],
+        );
+
+        let (output, constraints) = normalize_match_condition(
+            Substitution::from([(
+                result_variable.clone(),
+                Term::variable(configuration_variable.clone()),
+            )]),
+            vec![Predicate::Equals(
+                Term::variable(configuration_variable),
+                value.clone(),
+            )],
+            &BTreeSet::from([result_variable.clone()]),
+        );
+
+        assert_eq!(output, Substitution::from([(result_variable, value)]));
+        assert!(constraints.is_empty());
     }
 }
