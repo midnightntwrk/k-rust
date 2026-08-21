@@ -479,10 +479,21 @@ pub fn execute_with_solver_and_observer(
             }
             RewriteResult::Branch {
                 original,
-                branches,
-                remainder,
+                mut branches,
+                mut remainder,
             } => {
                 if options.branch_mode == ExecutionBranchMode::StopAtBranch {
+                    expand_stopped_branch_remainder(
+                        definition,
+                        &mut branches,
+                        &mut remainder,
+                        &mut fresh_counter,
+                        SimplificationOptions {
+                            max_iterations: options.max_simplification_iterations,
+                        },
+                        solver,
+                        (options.mode, options.assume_initial_defined),
+                    );
                     leaves.push(ExecutionLeaf {
                         pattern: original,
                         depth: state.depth,
@@ -511,6 +522,45 @@ pub fn execute_with_solver_and_observer(
         }
     }
     ExecutionResult { leaves, effects }
+}
+
+fn expand_stopped_branch_remainder(
+    definition: &BackendDefinition,
+    branches: &mut Vec<AppliedRule>,
+    remainder: &mut Option<RemainderBranch>,
+    fresh_counter: &mut u64,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    execution: (ExecutionMode, bool),
+) {
+    let (mode, assume_initial_defined) = execution;
+    while let Some(current) = remainder.take() {
+        match rewrite_step_with_mode(
+            definition,
+            &current.pattern,
+            fresh_counter,
+            simplification_options,
+            solver,
+            mode,
+            assume_initial_defined,
+        ) {
+            RewriteResult::Finished(applied) => branches.insert(0, applied),
+            RewriteResult::Branch {
+                branches: mut lower_branches,
+                remainder: lower_remainder,
+                ..
+            } => {
+                lower_branches.append(branches);
+                *branches = lower_branches;
+                *remainder = lower_remainder;
+            }
+            RewriteResult::Stuck(_) | RewriteResult::Indeterminate { .. } => {
+                *remainder = Some(current);
+                break;
+            }
+            RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => break,
+        }
+    }
 }
 
 fn selected_stop_rule(applied: &AppliedRule, selected: &BTreeSet<String>) -> Option<String> {
@@ -4899,6 +4949,74 @@ mod tests {
             remainder.pattern.constraints.as_slice(),
             [Predicate::Not(_)]
         ));
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn stopping_at_a_branch_expands_remainders_through_lower_priorities() {
+        let definition = symbolic_remainder_definition(
+            r#"
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(
+                    wrap{}(X:SortInt{}),
+                    \equals{SortBool{}, SortInt{}}(
+                        lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                \dv{SortInt{}}("negative")
+            ) [label{}("negative"), priority{}("10")]
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(
+                    wrap{}(X:SortInt{}),
+                    \equals{SortBool{}, SortInt{}}(
+                        lt{}(\dv{SortInt{}}("0"), X:SortInt{}),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                \dv{SortInt{}}("positive")
+            ) [label{}("positive"), priority{}("10")]
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
+                \dv{SortInt{}}("zero-a")
+            ) [label{}("zero-a"), priority{}("50")]
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
+                \dv{SortInt{}}("zero-b")
+            ) [label{}("zero-b"), priority{}("50")]
+            "#,
+        );
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+
+        let result = execute_with_solver(
+            &definition,
+            symbolic_subject(&definition),
+            ExecutionOptions {
+                branch_mode: ExecutionBranchMode::StopAtBranch,
+                ..ExecutionOptions::default()
+            },
+            &solver,
+        );
+
+        let [
+            ExecutionLeaf {
+                halt_reason:
+                    HaltReason::Branch {
+                        branches,
+                        remainder: None,
+                    },
+                ..
+            },
+        ] = result.leaves.as_slice()
+        else {
+            panic!("expected every priority branch and no uncovered remainder");
+        };
+        let mut labels = branches
+            .iter()
+            .map(|branch| branch.label.as_deref().unwrap())
+            .collect::<Vec<_>>();
+        labels.sort_unstable();
+        assert_eq!(labels, ["negative", "positive", "zero-a", "zero-b"]);
     }
 
     #[cfg(feature = "z3")]
