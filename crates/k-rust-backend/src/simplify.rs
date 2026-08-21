@@ -56,6 +56,7 @@ pub enum SimplificationError {
         rule_id: String,
         error: SmtError,
     },
+    SmtPredicate(SmtError),
     InconsistentGroundTruth {
         rule_id: String,
     },
@@ -307,6 +308,37 @@ pub fn simplify_predicate_with_solver(
         &active_conditions,
         solver,
     )
+}
+
+/// Simplify a standalone predicate and ask SMT whether the residual is globally true or false.
+pub fn simplify_and_decide_predicate_with_solver(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Result<Predicate, SimplificationError> {
+    let simplified =
+        simplify_predicate_with_solver(definition, predicate, known_predicates, options, solver)?;
+    if matches!(simplified, Predicate::True | Predicate::False) {
+        return Ok(simplified);
+    }
+    match solver.check_predicates(
+        known_predicates,
+        &Substitution::new(),
+        std::slice::from_ref(&simplified),
+    ) {
+        Ok(Validity::Valid) => Ok(Predicate::True),
+        Ok(Validity::Invalid) => Ok(Predicate::False),
+        Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => Ok(simplified),
+        Ok(Validity::InconsistentGroundTruth) => Err(SimplificationError::SmtPredicate(
+            SmtError::InconsistentGroundTruth,
+        )),
+        Ok(Validity::Unknown(reason)) => {
+            Err(SimplificationError::SmtPredicate(SmtError::Unknown(reason)))
+        }
+        Err(error) => Err(SimplificationError::SmtPredicate(error)),
+    }
 }
 
 fn simplify_predicate_with_budget(
@@ -2589,5 +2621,84 @@ mod tests {
         .unwrap();
 
         assert_eq!(result, Predicate::True);
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn standalone_predicate_simplification_uses_smt_for_the_residual() {
+        use crate::smt::Z3Solver;
+
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortList{} []
+                symbol size{}(SortList{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("LIST.size")]
+                symbol add{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+                symbol gt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let predicate = Predicate::Term(term(
+            &definition,
+            r#"gt{}(add{}(size{}(L:SortList{}), \dv{SortInt{}}("2")), \dv{SortInt{}}("0"))"#,
+        ));
+
+        let result = simplify_and_decide_predicate_with_solver(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &Z3Solver::new(&definition).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(result, Predicate::True);
+    }
+
+    #[test]
+    fn standalone_predicate_simplification_reports_smt_unknown() {
+        struct UnknownSolver;
+
+        impl SmtSolver for UnknownSolver {
+            fn is_sat(
+                &self,
+                _predicates: &[Predicate],
+                _substitution: &Substitution,
+            ) -> Result<crate::smt::Satisfiability, SmtError> {
+                unreachable!()
+            }
+
+            fn check_predicates(
+                &self,
+                _known: &[Predicate],
+                _substitution: &Substitution,
+                _checked: &[Predicate],
+            ) -> Result<Validity, SmtError> {
+                Ok(Validity::Unknown("incomplete arithmetic".into()))
+            }
+        }
+
+        let definition = definition("");
+        let predicate = Predicate::Term(term(&definition, "X:SortS{}"));
+        let result = simplify_and_decide_predicate_with_solver(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &UnknownSolver,
+        );
+
+        assert_eq!(
+            result,
+            Err(SimplificationError::SmtPredicate(SmtError::Unknown(
+                "incomplete arithmetic".into()
+            )))
+        );
     }
 }

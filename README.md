@@ -86,7 +86,7 @@ Implemented end to end:
 - In-process concrete and symbolic execution, `ONE`/`FINAL`/`STAR`/`PLUS` reachability search,
   simplification, implication and reachability checks, builtin collections, Z3
   satisfiability/validity queries, and satisfying-model extraction.
-- Native `krust kast`, `krust kcompile`, `krust kore-exec`,
+- Native `krust kast`, `krust kcompile`, `krust kore-exec`, `krust kore-simplify`,
   `krust kore-match-disjunction`, and experimental `krust krun` and `krust kprove` commands.
 - Bundled builtin sources pinned to K v7.1.337, so an installed CLI does not require a separate K
   source checkout. Explicit sources always take precedence.
@@ -181,6 +181,14 @@ krust kore-exec definition.kore --module MAIN --pattern pgm.kore
 krust kore-exec definition.kore --module MAIN --pattern pgm.kore \
   --search-final --search-pattern target.kore
 krust kore-exec definition.kore --module MAIN --pattern pgm.kore --output result.kore
+```
+
+Simplify an arbitrary text, KORE JSON v1, or binary KORE pattern. Unlike execution, this accepts
+pure ML predicates without requiring a configuration term:
+
+```console
+krust kore-simplify definition.kore --module MAIN --pattern predicate.json
+krust kore-simplify definition.kore --module MAIN --pattern predicate.kore --output result.kore
 ```
 
 Match a constrained KORE pattern against every alternative in a disjunction of configurations:

@@ -118,7 +118,8 @@ macro_rules! assert_rule_resolution_snapshot {
 }
 
 macro_rules! rule_snapshot {
-    ($name:ident, $source:expr) => {
+    ($(#[$attribute:meta])* $name:ident, $source:expr) => {
+        $(#[$attribute])*
         #[test]
         fn $name() {
             let source = indoc!($source);
@@ -249,6 +250,7 @@ fn loader_parses_rules_against_generated_rule_cells() {
     });
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn loader_parses_parenthesized_sequence_rewrites_before_cell_dots() {
     let source = indoc! {r#"
@@ -740,6 +742,7 @@ rule_snapshot!(
 );
 
 rule_snapshot!(
+    #[cfg(feature = "z3-inference")]
     infers_anonymous_collection_values_at_their_exact_kitem_sort,
     r#"
         module MAIN
@@ -754,6 +757,7 @@ rule_snapshot!(
 );
 
 rule_snapshot!(
+    #[cfg(feature = "z3-inference")]
     infers_shared_collection_values_at_kitem_instead_of_k,
     r#"
         module MAIN

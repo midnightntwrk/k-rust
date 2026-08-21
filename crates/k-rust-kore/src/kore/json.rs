@@ -130,11 +130,13 @@ enum JsonPattern {
     },
     And {
         sort: JsonSort,
-        patterns: Vec<JsonPattern>,
+        #[serde(flatten)]
+        arguments: JsonArguments,
     },
     Or {
         sort: JsonSort,
-        patterns: Vec<JsonPattern>,
+        #[serde(flatten)]
+        arguments: JsonArguments,
     },
     Not {
         sort: JsonSort,
@@ -227,6 +229,27 @@ enum JsonPattern {
     },
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum JsonArguments {
+    Variadic {
+        patterns: Vec<JsonPattern>,
+    },
+    Binary {
+        first: Box<JsonPattern>,
+        second: Box<JsonPattern>,
+    },
+}
+
+impl JsonArguments {
+    fn into_patterns(self) -> Vec<JsonPattern> {
+        match self {
+            Self::Variadic { patterns } => patterns,
+            Self::Binary { first, second } => vec![*first, *second],
+        }
+    }
+}
+
 impl From<&Pattern> for JsonPattern {
     fn from(pattern: &Pattern) -> Self {
         fn sorts(sort: &Sort) -> JsonSort {
@@ -258,11 +281,15 @@ impl From<&Pattern> for JsonPattern {
             Pattern::Bottom { sort } => Self::Bottom { sort: sorts(sort) },
             Pattern::And { sort, arguments } => Self::And {
                 sort: sorts(sort),
-                patterns: arguments.iter().map(Into::into).collect(),
+                arguments: JsonArguments::Variadic {
+                    patterns: arguments.iter().map(Into::into).collect(),
+                },
             },
             Pattern::Or { sort, arguments } => Self::Or {
                 sort: sorts(sort),
-                patterns: arguments.iter().map(Into::into).collect(),
+                arguments: JsonArguments::Variadic {
+                    patterns: arguments.iter().map(Into::into).collect(),
+                },
             },
             Pattern::Not { sort, argument } => Self::Not {
                 sort: sorts(sort),
@@ -425,19 +452,13 @@ impl TryFrom<JsonPattern> for Pattern {
             },
             JsonPattern::Top { sort } => Self::Top { sort: sort.into() },
             JsonPattern::Bottom { sort } => Self::Bottom { sort: sort.into() },
-            JsonPattern::And {
-                sort,
-                patterns: args,
-            } => Self::And {
+            JsonPattern::And { sort, arguments } => Self::And {
                 sort: sort.into(),
-                arguments: patterns(args)?,
+                arguments: patterns(arguments.into_patterns())?,
             },
-            JsonPattern::Or {
-                sort,
-                patterns: args,
-            } => Self::Or {
+            JsonPattern::Or { sort, arguments } => Self::Or {
                 sort: sort.into(),
-                arguments: patterns(args)?,
+                arguments: patterns(arguments.into_patterns())?,
             },
             JsonPattern::Not { sort, arg } => Self::Not {
                 sort: sort.into(),
@@ -569,5 +590,51 @@ fn associative(
             symbol,
             arguments,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kore::parser::parse_pattern;
+
+    #[test]
+    fn accepts_binary_and_or_fields_from_legacy_version_one_producers() {
+        let decoded = from_str(
+            r#"{
+                "format": "KORE",
+                "version": 1,
+                "term": {
+                    "tag": "And",
+                    "sort": { "tag": "SortApp", "name": "SortK", "args": [] },
+                    "first": {
+                        "tag": "EVar",
+                        "name": "X",
+                        "sort": { "tag": "SortApp", "name": "SortK", "args": [] }
+                    },
+                    "second": {
+                        "tag": "EVar",
+                        "name": "Y",
+                        "sort": { "tag": "SortApp", "name": "SortK", "args": [] }
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            decoded,
+            parse_pattern(r"\and{SortK{}}(X:SortK{}, Y:SortK{})").unwrap()
+        );
+    }
+
+    #[test]
+    fn serializes_variadic_and_or_fields_without_collapsing_arity() {
+        let pattern = parse_pattern(r"\or{SortK{}}()").unwrap();
+        let encoded = to_string(&pattern).unwrap();
+
+        assert!(encoded.contains(r#""patterns":[]"#));
+        assert!(!encoded.contains(r#""first""#));
+        assert_eq!(from_str(&encoded).unwrap(), pattern);
     }
 }

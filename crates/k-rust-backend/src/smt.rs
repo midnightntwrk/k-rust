@@ -490,6 +490,7 @@ fn collection_size_hook(hook: Option<&str>) -> bool {
     matches!(hook, Some("LIST.size" | "MAP.size" | "SET.size"))
 }
 
+#[cfg(feature = "z3")]
 fn collection_size_term(term: &Term) -> bool {
     matches!(
         term.kind(),

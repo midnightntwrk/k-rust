@@ -127,6 +127,19 @@ pub fn constrained_pattern(pattern: &Pattern) -> kore::Pattern {
 }
 
 pub fn predicate_pattern(predicate: &Predicate, result_sort: &Sort) -> kore::Pattern {
+    predicate_pattern_with_terms(predicate, result_sort, false)
+}
+
+/// Externalize a predicate as its direct KORE syntax, preserving bare term patterns.
+pub fn ml_pattern(predicate: &Predicate, result_sort: &Sort) -> kore::Pattern {
+    predicate_pattern_with_terms(predicate, result_sort, true)
+}
+
+fn predicate_pattern_with_terms(
+    predicate: &Predicate,
+    result_sort: &Sort,
+    preserve_terms: bool,
+) -> kore::Pattern {
     match predicate {
         Predicate::True => kore::Pattern::Top {
             sort: sort(result_sort),
@@ -134,6 +147,7 @@ pub fn predicate_pattern(predicate: &Predicate, result_sort: &Sort) -> kore::Pat
         Predicate::False => kore::Pattern::Bottom {
             sort: sort(result_sort),
         },
+        Predicate::Term(value) if preserve_terms => term(value),
         Predicate::Term(value) => kore::Pattern::Equals {
             operand_sort: sort(&value.sort()),
             result_sort: sort(result_sort),
@@ -167,41 +181,73 @@ pub fn predicate_pattern(predicate: &Predicate, result_sort: &Sort) -> kore::Pat
         },
         Predicate::Not(inner) => kore::Pattern::Not {
             sort: sort(result_sort),
-            argument: Box::new(predicate_pattern(inner, result_sort)),
+            argument: Box::new(predicate_pattern_with_terms(
+                inner,
+                result_sort,
+                preserve_terms,
+            )),
         },
         Predicate::And(inner) => kore::Pattern::And {
             sort: sort(result_sort),
             arguments: inner
                 .iter()
-                .map(|predicate| predicate_pattern(predicate, result_sort))
+                .map(|predicate| {
+                    predicate_pattern_with_terms(predicate, result_sort, preserve_terms)
+                })
                 .collect(),
         },
         Predicate::Or(inner) => kore::Pattern::Or {
             sort: sort(result_sort),
             arguments: inner
                 .iter()
-                .map(|predicate| predicate_pattern(predicate, result_sort))
+                .map(|predicate| {
+                    predicate_pattern_with_terms(predicate, result_sort, preserve_terms)
+                })
                 .collect(),
         },
         Predicate::Implies(left, right) => kore::Pattern::Implies {
             sort: sort(result_sort),
-            left: Box::new(predicate_pattern(left, result_sort)),
-            right: Box::new(predicate_pattern(right, result_sort)),
+            left: Box::new(predicate_pattern_with_terms(
+                left,
+                result_sort,
+                preserve_terms,
+            )),
+            right: Box::new(predicate_pattern_with_terms(
+                right,
+                result_sort,
+                preserve_terms,
+            )),
         },
         Predicate::Iff(left, right) => kore::Pattern::Iff {
             sort: sort(result_sort),
-            left: Box::new(predicate_pattern(left, result_sort)),
-            right: Box::new(predicate_pattern(right, result_sort)),
+            left: Box::new(predicate_pattern_with_terms(
+                left,
+                result_sort,
+                preserve_terms,
+            )),
+            right: Box::new(predicate_pattern_with_terms(
+                right,
+                result_sort,
+                preserve_terms,
+            )),
         },
         Predicate::Exists(variable, inner) => kore::Pattern::Exists {
             sort: sort(result_sort),
             variable: variable_pattern(variable),
-            body: Box::new(predicate_pattern(inner, result_sort)),
+            body: Box::new(predicate_pattern_with_terms(
+                inner,
+                result_sort,
+                preserve_terms,
+            )),
         },
         Predicate::Forall(variable, inner) => kore::Pattern::Forall {
             sort: sort(result_sort),
             variable: variable_pattern(variable),
-            body: Box::new(predicate_pattern(inner, result_sort)),
+            body: Box::new(predicate_pattern_with_terms(
+                inner,
+                result_sort,
+                preserve_terms,
+            )),
         },
     }
 }

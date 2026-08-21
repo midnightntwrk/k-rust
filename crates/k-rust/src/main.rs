@@ -25,7 +25,7 @@ use k_rust::{
             Pattern as KorePattern, Sentence as KoreSentence, Sort as KoreSort,
             Symbol as KoreSymbol,
         },
-        json as kore_json,
+        binary as kore_binary, json as kore_json,
         parser::parse_definition as parse_kore_definition,
         parser::parse_pattern as parse_kore_pattern,
         printer::Printer as KorePrinter,
@@ -48,6 +48,7 @@ use k_rust_backend::{
         IncompleteSearch, PatternMatch, PatternMatchError, PatternSearchResult, SearchOptions,
         SearchType, match_disjunction, search_pattern_with_solver,
     },
+    simplify::{SimplificationOptions, simplify_and_decide_predicate_with_solver},
     smt::{SmtError, Z3Solver},
     substitution::Substitution,
     term::{Sort as BackendSort, Term, Variable},
@@ -67,6 +68,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         Command::Kast(options) => kast(options.into()),
         Command::Krun(options) => krun(options.into()),
         Command::KoreExec(options) => kore_exec(options),
+        Command::KoreSimplify(options) => kore_simplify(options),
         Command::KoreMatchDisjunction(options) => kore_match_disjunction(options),
         Command::Kprove(options) => kprove(options.into()),
     }
@@ -94,6 +96,8 @@ enum Command {
     Krun(KrunArgs),
     /// Execute an already compiled KORE definition with the in-process Rust backend.
     KoreExec(KoreExecArgs),
+    /// Simplify an arbitrary KORE pattern with the in-process Rust backend.
+    KoreSimplify(KoreSimplifyArgs),
     /// Match a constrained KORE pattern against a disjunction of configurations.
     KoreMatchDisjunction(KoreMatchDisjunctionArgs),
     /// Compile and prove modal reachability claims with the in-process Rust backend.
@@ -317,6 +321,25 @@ struct KoreExecArgs {
 
     #[command(flatten)]
     search: SearchArgs,
+}
+
+#[derive(Debug, Args)]
+struct KoreSimplifyArgs {
+    /// Compiled textual KORE definition.
+    #[arg(value_name = "DEFINITION_KORE")]
+    definition: PathBuf,
+
+    /// Module to verify and use for simplification.
+    #[arg(short = 'm', long, value_name = "MODULE")]
+    module: String,
+
+    /// Text, JSON v1, or binary KORE pattern to simplify.
+    #[arg(short = 'p', long, value_name = "PATTERN_KORE")]
+    pattern: PathBuf,
+
+    /// Write the simplified KORE pattern to this file instead of standard output.
+    #[arg(short, long, value_name = "OUTPUT_KORE")]
+    output: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -829,6 +852,47 @@ fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn kore_simplify(options: KoreSimplifyArgs) -> Result<(), Box<dyn Error>> {
+    let definition_source = fs::read_to_string(&options.definition)?;
+    let definition = parse_kore_definition(&definition_source).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "could not parse KORE definition {}: {error}",
+                options.definition.display()
+            ),
+        )
+    })?;
+    let backend = BackendDefinition::internalize(&definition, &options.module)?;
+    let syntax = load_kore_syntax(&options.pattern, "simplification")?;
+    let output = simplify_kore_pattern(&backend, &syntax)?;
+    let output = KorePrinter::pretty(100).print_pattern(&output);
+    if let Some(path) = options.output {
+        fs::write(path, output)?;
+    } else {
+        println!("{output}");
+    }
+    Ok(())
+}
+
+fn simplify_kore_pattern(
+    definition: &BackendDefinition,
+    syntax: &KorePattern,
+) -> Result<KorePattern, Box<dyn Error>> {
+    let (predicate, result_sort) = definition.internalize_predicate(syntax, &[])?;
+    let solver = Z3Solver::new(definition)
+        .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
+    let simplified = simplify_and_decide_predicate_with_solver(
+        definition,
+        &predicate,
+        &[],
+        SimplificationOptions::default(),
+        &solver,
+    )
+    .map_err(|error| io::Error::other(format!("could not simplify KORE pattern: {error:?}")))?;
+    Ok(externalize::ml_pattern(&simplified, &result_sort))
+}
+
 fn kore_match_disjunction(options: KoreMatchDisjunctionArgs) -> Result<(), Box<dyn Error>> {
     let definition_source = fs::read_to_string(&options.definition)?;
     let definition = parse_kore_definition(&definition_source).map_err(|error| {
@@ -989,6 +1053,31 @@ fn load_backend_pattern(
 ) -> Result<Pattern, Box<dyn Error>> {
     let input = fs::read(path)?;
     decode_backend_pattern(definition, path, purpose, &input)
+}
+
+fn load_kore_syntax(path: &Path, purpose: &str) -> Result<KorePattern, Box<dyn Error>> {
+    let input = fs::read(path)?;
+    decode_kore_syntax(path, purpose, &input)
+}
+
+fn decode_kore_syntax(
+    path: &Path,
+    purpose: &str,
+    input: &[u8],
+) -> Result<KorePattern, Box<dyn Error>> {
+    if input.starts_with(b"\x7fKORE") {
+        return kore_binary::decode_term(input)
+            .map_err(|error| invalid_kore_pattern(path, purpose, "binary", error));
+    }
+    let source = std::str::from_utf8(input)
+        .map_err(|error| invalid_kore_pattern(path, purpose, "UTF-8", error))?;
+    if source.trim_start().starts_with('{') {
+        kore_json::from_str(source)
+            .map_err(|error| invalid_kore_pattern(path, purpose, "JSON", error))
+    } else {
+        parse_kore_pattern(source)
+            .map_err(|error| invalid_kore_pattern(path, purpose, "text", error))
+    }
 }
 
 fn decode_backend_pattern(
@@ -1507,6 +1596,73 @@ mod tests {
         assert_eq!(binary, expected);
     }
 
+    fn empty_predicate_definition() -> BackendDefinition {
+        let syntax = parse_kore_definition(
+            r#"[]
+            module MAIN
+              sort SortK{} []
+            endmodule []"#,
+        )
+        .unwrap();
+        BackendDefinition::internalize(&syntax, "MAIN").unwrap()
+    }
+
+    fn simplify_predicate(source: &str) -> KorePattern {
+        let syntax = parse_kore_pattern(source).unwrap();
+        simplify_kore_pattern(&empty_predicate_definition(), &syntax).unwrap()
+    }
+
+    #[test]
+    fn standalone_simplification_deduplicates_conjunctions() {
+        assert_eq!(
+            simplify_predicate(
+                r"\and{SortK{}}(\not{SortK{}}(X:SortK{}), \not{SortK{}}(X:SortK{}))"
+            ),
+            parse_kore_pattern(r"\not{SortK{}}(X:SortK{})").unwrap()
+        );
+    }
+
+    #[test]
+    fn standalone_simplification_detects_contradictions() {
+        assert_eq!(
+            simplify_predicate(r"\and{SortK{}}(\not{SortK{}}(X:SortK{}), X:SortK{})"),
+            parse_kore_pattern(r"\bottom{SortK{}}()").unwrap()
+        );
+    }
+
+    #[test]
+    fn standalone_simplification_eliminates_double_negation() {
+        assert_eq!(
+            simplify_predicate(r"\not{SortK{}}(\not{SortK{}}(X:SortK{}))"),
+            parse_kore_pattern("X:SortK{}").unwrap()
+        );
+    }
+
+    #[test]
+    fn decodes_text_json_and_binary_simplification_patterns() {
+        let syntax = parse_kore_pattern(r"\not{SortK{}}(X:SortK{})").unwrap();
+        let path = Path::new("predicate.kore");
+
+        let text =
+            decode_kore_syntax(path, "simplification", br"\not{SortK{}}(X:SortK{})").unwrap();
+        let json = decode_kore_syntax(
+            path,
+            "simplification",
+            kore_json::to_string(&syntax).unwrap().as_bytes(),
+        )
+        .unwrap();
+        let binary = decode_kore_syntax(
+            path,
+            "simplification",
+            &kore_binary::encode_term(&syntax).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(text, syntax);
+        assert_eq!(json, syntax);
+        assert_eq!(binary, syntax);
+    }
+
     #[test]
     fn parses_kast_options_in_any_order() {
         let cli = Cli::try_parse_from([
@@ -1673,6 +1829,30 @@ mod tests {
             .expect("search options should be present");
         assert_eq!(search.search_type, SearchType::Final);
         assert_eq!(search.pattern.as_deref(), Some(Path::new("target.kore")));
+    }
+
+    #[test]
+    fn parses_kore_simplify_options() {
+        let cli = Cli::try_parse_from([
+            "krust",
+            "kore-simplify",
+            "definition.kore",
+            "--module",
+            "MAIN",
+            "--pattern",
+            "predicate.json",
+            "--output",
+            "result.kore",
+        ])
+        .unwrap();
+        let Command::KoreSimplify(options) = cli.command else {
+            panic!("expected kore-simplify command");
+        };
+
+        assert_eq!(options.definition, Path::new("definition.kore"));
+        assert_eq!(options.module, "MAIN");
+        assert_eq!(options.pattern, Path::new("predicate.json"));
+        assert_eq!(options.output.as_deref(), Some(Path::new("result.kore")));
     }
 
     #[test]
