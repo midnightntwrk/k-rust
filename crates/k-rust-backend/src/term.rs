@@ -30,8 +30,15 @@ impl Sort {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum VariableKind {
+    Element,
+    Set,
+}
+
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Variable {
+    pub kind: VariableKind,
     pub sort: Sort,
     pub name: Name,
 }
@@ -39,7 +46,24 @@ pub struct Variable {
 impl Variable {
     pub fn new(name: impl Into<Name>, sort: Sort) -> Self {
         Self {
+            kind: VariableKind::Element,
             sort,
+            name: name.into(),
+        }
+    }
+
+    pub fn set(name: impl Into<Name>, sort: Sort) -> Self {
+        Self {
+            kind: VariableKind::Set,
+            sort,
+            name: name.into(),
+        }
+    }
+
+    pub fn with_name(&self, name: impl Into<Name>) -> Self {
+        Self {
+            kind: self.kind,
+            sort: self.sort.clone(),
             name: name.into(),
         }
     }

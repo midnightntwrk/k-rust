@@ -218,7 +218,10 @@ pub fn sort(value: &Sort) -> kore::Sort {
 
 fn variable_pattern(variable: &Variable) -> kore::Variable {
     kore::Variable {
-        kind: kore::VariableKind::Element,
+        kind: match variable.kind {
+            crate::term::VariableKind::Element => kore::VariableKind::Element,
+            crate::term::VariableKind::Set => kore::VariableKind::Set,
+        },
         name: variable.name.to_string(),
         sort: sort(&variable.sort),
     }
@@ -286,6 +289,22 @@ mod tests {
             definition.internalize_term(&external, &[]).unwrap(),
             internal
         );
+    }
+
+    #[test]
+    fn preserves_set_variable_kind_across_externalization() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} []
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let syntax = parse_pattern("@M:SortS{}").unwrap();
+        let internal = definition.internalize_term(&syntax, &[]).unwrap();
+
+        assert_eq!(term(&internal), syntax);
     }
 
     #[test]

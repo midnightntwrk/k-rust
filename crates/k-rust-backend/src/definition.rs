@@ -498,6 +498,18 @@ impl BackendDefinition {
         internalize_sort(sort, &self.sorts, &known)
     }
 
+    pub(crate) fn internalize_variable(
+        &self,
+        variable: &kore::Variable,
+        sort_variables: &[Name],
+    ) -> Result<Variable, DefinitionError> {
+        let sort = self.internalize_syntax_sort(&variable.sort, sort_variables)?;
+        Ok(match variable.kind {
+            kore::VariableKind::Element => Variable::new(variable.name.as_str(), sort),
+            kore::VariableKind::Set => Variable::set(variable.name.as_str(), sort),
+        })
+    }
+
     fn internalize_term_with(
         &self,
         pattern: &kore::Pattern,
@@ -508,10 +520,14 @@ impl BackendDefinition {
                 Sort::simple("SortString"),
                 value.as_str(),
             )),
-            kore::Pattern::Variable(variable) => Ok(Term::variable(Variable::new(
-                variable.name.as_str(),
-                internalize_sort(&variable.sort, &self.sorts, sort_variables)?,
-            ))),
+            kore::Pattern::Variable(variable) => {
+                let sort = internalize_sort(&variable.sort, &self.sorts, sort_variables)?;
+                let variable = match variable.kind {
+                    kore::VariableKind::Element => Variable::new(variable.name.as_str(), sort),
+                    kore::VariableKind::Set => Variable::set(variable.name.as_str(), sort),
+                };
+                Ok(Term::variable(variable))
+            }
             kore::Pattern::Application { symbol, arguments } => {
                 let arguments = arguments
                     .iter()
@@ -680,7 +696,12 @@ fn collect_finite_sort_constructors(
                             valid = false;
                             break;
                         };
-                        binders.insert(Variable::new(variable.name.as_str(), sort));
+                        binders.insert(match variable.kind {
+                            kore::VariableKind::Element => {
+                                Variable::new(variable.name.as_str(), sort)
+                            }
+                            kore::VariableKind::Set => Variable::set(variable.name.as_str(), sort),
+                        });
                         constructor = body;
                     }
                     if !valid {

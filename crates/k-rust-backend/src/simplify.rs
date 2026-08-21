@@ -1767,7 +1767,7 @@ mod tests {
         let x = term(&definition, "X:SortS{}");
         let y = term(&definition, "Y:SortS{}");
         let value = term(&definition, r#"\dv{SortS{}}("value")"#);
-        let defined = Predicate::Ceil(x.clone());
+        let defined = Predicate::Ceil(term(&definition, "f{}(X:SortS{})"));
         let first = Predicate::Not(Box::new(Predicate::Equals(x.clone(), y)));
         let second = Predicate::Not(Box::new(Predicate::Equals(x, value)));
 
@@ -1889,15 +1889,20 @@ mod tests {
     }
 
     #[test]
-    fn decomposes_constructor_ceil_and_discharges_fresh_existentials() {
+    fn constructor_ceil_distinguishes_element_and_set_variables() {
         let definition = definition("");
-        let ordinary = term(&definition, "X:SortS{}");
         let fresh_constructor = Term::application(
             definition.symbols["wrap"].clone(),
             Vec::new(),
             vec![Term::variable(Variable::new("Ex#X", Sort::simple("SortS")))],
         );
         let ordinary_constructor = term(&definition, "wrap{}(X:SortS{})");
+        let set_variable = Term::variable(Variable::set("X", Sort::simple("SortS")));
+        let set_constructor = Term::application(
+            definition.symbols["wrap"].clone(),
+            Vec::new(),
+            vec![set_variable.clone()],
+        );
 
         assert_eq!(
             simplify_predicate_with_solver(
@@ -1919,7 +1924,18 @@ mod tests {
                 &NoSolver,
             )
             .unwrap(),
-            Predicate::Ceil(ordinary),
+            Predicate::True,
+        );
+        assert_eq!(
+            simplify_predicate_with_solver(
+                &definition,
+                &Predicate::Ceil(set_constructor),
+                &[],
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .unwrap(),
+            Predicate::Ceil(set_variable),
         );
     }
 
@@ -2252,11 +2268,7 @@ mod tests {
         assert_eq!(
             result,
             Predicate::And(vec![
-                Predicate::Ceil(x.clone()),
-                Predicate::Ceil(y.clone()),
                 Predicate::Not(Box::new(Predicate::Equals(x.clone(), y.clone()))),
-                Predicate::Ceil(x),
-                Predicate::Ceil(y),
                 Predicate::Not(Box::new(Predicate::Equals(gx, gy))),
             ])
         );

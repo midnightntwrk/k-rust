@@ -9,7 +9,7 @@ use crate::{
     rule::{Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
     simplify::{SimplificationOptions, simplify_predicates_with_solver},
     smt::NoSolver,
-    term::{FunctionType, SymbolType, Term, TermKind},
+    term::{FunctionType, SymbolType, Term, TermKind, VariableKind},
 };
 
 pub(crate) fn discharge_rewrite_definedness(definition: &mut BackendDefinition) {
@@ -144,7 +144,9 @@ pub fn ceil_term(definition: &BackendDefinition, term: &Term) -> Vec<Predicate> 
             predicates
         }
         TermKind::DomainValue { .. } => Vec::new(),
-        TermKind::Variable(variable) if variable.name.starts_with("Ex#") => Vec::new(),
+        // KORE element variables range over elements and are therefore defined. Set variables
+        // range over arbitrary patterns, so their definedness remains an explicit obligation.
+        TermKind::Variable(variable) if variable.kind == VariableKind::Element => Vec::new(),
         TermKind::Variable(_) => vec![Predicate::Ceil(term.clone())],
     };
     deduplicate(&mut predicates);

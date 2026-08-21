@@ -27,7 +27,7 @@ use crate::{
     },
     smt::{SmtError, SmtSolver, Validity},
     substitution::{Substitution, substitute},
-    term::{Term, Variable},
+    term::Term,
     timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
 };
 
@@ -777,10 +777,7 @@ fn freshen_claim(
                 break name;
             }
         };
-        renaming.insert(
-            variable.clone(),
-            Term::variable(Variable::new(name, variable.sort)),
-        );
+        renaming.insert(variable.clone(), Term::variable(variable.with_name(name)));
     }
     let rename_pattern = |pattern: &Pattern| Pattern {
         term: substitute(&pattern.term, &renaming),

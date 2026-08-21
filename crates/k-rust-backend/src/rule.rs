@@ -350,12 +350,7 @@ pub fn internalize_axiom(
             let requires = rename_predicates(&requires, |variable| prefixed(variable, "Rule#"));
             let existential_variables = existentials
                 .iter()
-                .map(|variable| {
-                    Ok(Variable::new(
-                        variable.name.as_str(),
-                        definition.internalize_syntax_sort(&variable.sort, sort_parameters)?,
-                    ))
-                })
+                .map(|variable| definition.internalize_variable(variable, sort_parameters))
                 .collect::<Result<BTreeSet<_>, DefinitionError>>()?;
             let rhs_renaming = |variable: &Variable| {
                 if existential_variables.contains(variable) {
@@ -431,10 +426,8 @@ pub fn internalize_axiom(
             let mut lhs = definition.internalize_term(lhs, sort_parameters)?;
             let mut bindings = Substitution::new();
             for binder in binders {
-                let variable = Variable::new(
-                    binder.variable.name.as_str(),
-                    definition.internalize_syntax_sort(&binder.variable.sort, sort_parameters)?,
-                );
+                let variable =
+                    definition.internalize_variable(&binder.variable, sort_parameters)?;
                 let pattern = definition.internalize_term(&binder.pattern, sort_parameters)?;
                 if variable.sort != pattern.sort() {
                     return Err(DefinitionError::RulePattern(
@@ -648,17 +641,11 @@ fn internalize_one_predicate(
             Box::new(predicate(right)?),
         )),
         kore::Pattern::Exists { variable, body, .. } => Ok(Predicate::Exists(
-            Variable::new(
-                variable.name.as_str(),
-                definition.internalize_syntax_sort(&variable.sort, sort_parameters)?,
-            ),
+            definition.internalize_variable(variable, sort_parameters)?,
             Box::new(predicate(body)?),
         )),
         kore::Pattern::Forall { variable, body, .. } => Ok(Predicate::Forall(
-            Variable::new(
-                variable.name.as_str(),
-                definition.internalize_syntax_sort(&variable.sort, sort_parameters)?,
-            ),
+            definition.internalize_variable(variable, sort_parameters)?,
             Box::new(predicate(body)?),
         )),
         pattern if is_term_pattern(pattern) => Ok(Predicate::Term(term(pattern)?)),
@@ -850,7 +837,7 @@ fn visit_symbols(term: &Term, visitor: &mut impl FnMut(&crate::term::Symbol)) {
 }
 
 fn prefixed(variable: &Variable, prefix: &str) -> Variable {
-    Variable::new(format!("{prefix}{}", variable.name), variable.sort.clone())
+    variable.with_name(format!("{prefix}{}", variable.name))
 }
 
 fn rename_term(term: &Term, rename: impl Fn(&Variable) -> Variable) -> Term {

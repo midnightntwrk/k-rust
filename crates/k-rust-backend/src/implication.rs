@@ -408,7 +408,7 @@ fn freshen_existentials(
             }
             suffix += 1;
         };
-        let variable = Variable::new(name, original.sort.clone());
+        let variable = original.with_name(name);
         substitution.insert(
             original.clone(),
             crate::term::Term::variable(variable.clone()),

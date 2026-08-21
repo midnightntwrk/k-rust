@@ -72,12 +72,7 @@ pub(crate) fn internalize_reachability_claim(
     let (right, existential_syntax) = extract_existentials(right);
     let existentials = existential_syntax
         .into_iter()
-        .map(|variable| {
-            Ok(Variable::new(
-                variable.name.as_str(),
-                definition.internalize_syntax_sort(&variable.sort, &claim.parameters)?,
-            ))
-        })
+        .map(|variable| definition.internalize_variable(variable, &claim.parameters))
         .collect::<Result<BTreeSet<_>, DefinitionError>>()?;
     let rhs = distribute_term_or(right)
         .into_iter()

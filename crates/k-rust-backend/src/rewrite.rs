@@ -1120,7 +1120,7 @@ fn freshen_unbound_rule_variables(
             .strip_prefix("Rule#")
             .or_else(|| variable.name.strip_prefix("Eq#"))
             .unwrap_or(variable.name.as_ref());
-        let existential = Variable::new(format!("Ex#{base_name}"), variable.sort.clone());
+        let existential = variable.with_name(format!("Ex#{base_name}"));
         let fresh = fresh_variable(&existential, &mut names_to_avoid, fresh_counter);
         let TermKind::Variable(fresh_variable) = fresh.kind() else {
             unreachable!("fresh terms are variables")
@@ -2704,7 +2704,7 @@ fn alpha_normalize(predicate: &Predicate, next: &mut usize) -> Predicate {
         Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
             // NUL cannot occur in parsed KORE identifiers, so these canonical names cannot capture
             // a free source variable.
-            let normalized = Variable::new(format!("\0bound{next}"), variable.sort.clone());
+            let normalized = variable.with_name(format!("\0bound{next}"));
             *next += 1;
             let substitution = [(variable.clone(), Term::variable(normalized.clone()))]
                 .into_iter()
@@ -2833,7 +2833,7 @@ fn fresh_variable(
             break name;
         }
     };
-    Term::variable(Variable::new(name, variable.sort.clone()))
+    Term::variable(variable.with_name(name))
 }
 
 fn pattern_variable_names(pattern: &Pattern) -> BTreeSet<crate::term::Name> {
