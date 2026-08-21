@@ -48,6 +48,13 @@ pub struct Simplification {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PatternSimplification {
+    pub pattern: Pattern,
+    pub applied_rules: Vec<String>,
+    pub effects: Vec<BuiltinEffect>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SimplificationError {
     Cancelled,
     Builtin(BuiltinError),
@@ -114,6 +121,18 @@ pub fn simplify_pattern_with_solver(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<Pattern, SimplificationError> {
+    Ok(simplify_pattern_details_with_solver(definition, pattern, options, solver)?.pattern)
+}
+
+/// Simplify a constrained term while retaining the equation trace and builtin effects produced
+/// by term simplification. Execution needs this richer form when normalizing terminal, cut-point,
+/// and branching payloads before returning them to a caller.
+pub(crate) fn simplify_pattern_details_with_solver(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Result<PatternSimplification, SimplificationError> {
     let mut pattern = pattern.clone();
     let retained_substitution = normalize_pattern_substitution(&mut pattern);
     let simplified = simplify_with_solver(
@@ -143,7 +162,11 @@ pub fn simplify_pattern_with_solver(
         constraints,
     };
     normalize_pattern_substitution(&mut pattern);
-    Ok(pattern)
+    Ok(PatternSimplification {
+        pattern,
+        applied_rules: simplified.applied_rules,
+        effects: simplified.effects,
+    })
 }
 
 fn predicate_refutes_term(predicate: &Predicate, term: &Term) -> bool {
