@@ -37,7 +37,7 @@ use k_rust_backend::{
         SimplificationError, SimplificationOptions, simplify_and_decide_predicate_with_solver,
         simplify_pattern_with_solver,
     },
-    smt::{ModelResult, SmtError, SmtSolver, Z3Solver},
+    smt::{ModelResult, SmtError, SmtSolver, Z3Options, Z3Solver},
     substitution::{Substitution, extract_substitution, substitute},
     term::{Sort as BackendSort, Term, Variable},
 };
@@ -96,6 +96,7 @@ impl RequestControl {
 
 pub(super) struct RpcService {
     session: BackendSession,
+    smt_options: Z3Options,
 }
 
 #[derive(Debug)]
@@ -276,8 +277,16 @@ impl RpcFault {
 }
 
 impl RpcService {
+    #[cfg(test)]
     pub(super) fn new(session: BackendSession) -> Self {
-        Self { session }
+        Self::with_smt_options(session, Z3Options::default())
+    }
+
+    pub(super) fn with_smt_options(session: BackendSession, smt_options: Z3Options) -> Self {
+        Self {
+            session,
+            smt_options,
+        }
     }
 
     /// Handle one complete JSON-RPC message. Notifications intentionally produce no response.
@@ -404,7 +413,7 @@ impl RpcService {
             .internalize_pattern(&syntax, &[])
             .map_err(RpcFault::pattern)?;
         let configuration_variables = pattern_variables(&initial);
-        let solver = solver(&definition)?;
+        let solver = solver(&definition, self.smt_options)?;
         let result = execute_with_solver(
             &definition,
             initial,
@@ -522,7 +531,7 @@ impl RpcService {
         let _haskell_logging = params.haskell_logging;
         let definition = self.definition(params.module.as_deref())?;
         let syntax = params.state.0;
-        let solver = solver(&definition)?;
+        let solver = solver(&definition, self.smt_options)?;
         match definition.internalize_pattern(&syntax, &[]) {
             Ok(pattern) => {
                 let simplified = simplify_pattern_with_solver(
@@ -575,7 +584,7 @@ impl RpcService {
         else {
             return Ok(json!({ "satisfiable": "Unknown" }));
         };
-        let solver = solver(&definition)?;
+        let solver = solver(&definition, self.smt_options)?;
         match solver
             .get_model(&[predicate], &Substitution::new())
             .map_err(|error| RpcFault::backend(format!("could not obtain model: {error:?}")))?
@@ -636,7 +645,7 @@ impl RpcService {
         if result_sort != consequent_pattern.term.sort() {
             return Err(RpcFault::pattern("antecedent and consequent sorts differ"));
         }
-        let solver = solver(&definition)?;
+        let solver = solver(&definition, self.smt_options)?;
         let result = check_implication_with_existentials(
             &definition,
             &antecedent_pattern,
@@ -1287,8 +1296,8 @@ fn encode_kore(pattern: &KorePattern) -> Result<Value, RpcFault> {
         .map_err(|error| RpcFault::backend(format!("could not encode KORE JSON: {error}")))
 }
 
-fn solver(definition: &BackendDefinition) -> Result<Z3Solver, RpcFault> {
-    Z3Solver::new(definition)
+fn solver(definition: &BackendDefinition, options: Z3Options) -> Result<Z3Solver, RpcFault> {
+    Z3Solver::with_options(definition, options)
         .map_err(|error| RpcFault::backend(format!("could not initialize Z3: {error:?}")))
 }
 
@@ -1482,10 +1491,14 @@ fn implication_result(
 pub(super) fn serve(
     session: BackendSession,
     address: impl ToSocketAddrs,
+    smt_options: Z3Options,
 ) -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind(address)?;
     eprintln!("KORE JSON-RPC listening on {}", listener.local_addr()?);
-    let service = Arc::new(Mutex::new(RpcService::new(session)));
+    let service = Arc::new(Mutex::new(RpcService::with_smt_options(
+        session,
+        smt_options,
+    )));
     for connection in listener.incoming() {
         let stream = connection?;
         let service = Arc::clone(&service);

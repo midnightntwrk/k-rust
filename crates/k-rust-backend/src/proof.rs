@@ -360,19 +360,11 @@ pub fn prove_claim(
         }
 
         if let Some(remainder) = implication_remainder {
-            if extend_frontier(
-                &mut pending,
-                std::iter::once(state.remaining(remainder)),
-                options.breadth_limit,
-            ) {
-                return Ok(finish_at_breadth_limit(
-                    claim.mode,
-                    leaves,
-                    pending,
-                    explored_states,
-                ));
-            }
-            continue;
+            // This is the part of the current state not covered by the destination,
+            // not a new proof state. Continue the same iteration with the complement
+            // attached so that rewriting gets a chance to make progress. Re-enqueuing
+            // it would immediately repeat the same implication check forever.
+            state = state.remaining(remainder);
         }
 
         if state.depth >= options.max_depth {

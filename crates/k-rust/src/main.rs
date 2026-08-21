@@ -4,7 +4,7 @@ use std::{
     error::Error,
     fmt, fs,
     io::{self, Read},
-    num::NonZeroUsize,
+    num::{NonZeroU32, NonZeroUsize},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -59,7 +59,7 @@ use k_rust_backend::{
         SimplificationOptions, simplify_and_decide_predicate_with_solver,
         simplify_pattern_with_solver,
     },
-    smt::{ModelResult, SmtError, SmtSolver, Z3Solver},
+    smt::{ModelResult, SmtError, SmtSolver, Z3Options, Z3Solver},
     substitution::Substitution,
     term::{Name as BackendName, Sort as BackendSort, Term, TermKind, Variable},
 };
@@ -257,6 +257,30 @@ impl ExecutionTimeoutArgs {
     }
 }
 
+#[derive(Clone, Copy, Debug, Args)]
+struct SmtArgs {
+    /// Limit each Z3 query to this many milliseconds before retrying.
+    #[arg(
+        long = "smt-timeout",
+        default_value = "125",
+        value_name = "MILLISECONDS"
+    )]
+    timeout: NonZeroU32,
+
+    /// Retry an unknown Z3 result this many times, doubling the timeout each time.
+    #[arg(long = "smt-retry-limit", default_value_t = 3, value_name = "COUNT")]
+    retry_limit: u32,
+}
+
+impl SmtArgs {
+    fn options(self) -> Z3Options {
+        Z3Options {
+            timeout_ms: self.timeout.get(),
+            retry_limit: self.retry_limit,
+        }
+    }
+}
+
 #[derive(Debug, Args)]
 struct KrunArgs {
     /// K definition whose semantics should execute the program.
@@ -316,6 +340,9 @@ struct KrunArgs {
     timeout: ExecutionTimeoutArgs,
 
     #[command(flatten)]
+    smt: SmtArgs,
+
+    #[command(flatten)]
     source: SourceArgs,
 }
 
@@ -370,6 +397,9 @@ struct KoreExecArgs {
 
     #[command(flatten)]
     timeout: ExecutionTimeoutArgs,
+
+    #[command(flatten)]
+    smt: SmtArgs,
 }
 
 #[derive(Debug, Args)]
@@ -389,6 +419,9 @@ struct KoreSimplifyArgs {
     /// Write the simplified KORE pattern to this file instead of standard output.
     #[arg(short, long, value_name = "OUTPUT_KORE")]
     output: Option<PathBuf>,
+
+    #[command(flatten)]
+    smt: SmtArgs,
 }
 
 #[derive(Debug, Args)]
@@ -408,6 +441,9 @@ struct KoreGetModelArgs {
     /// Write the JSON result to this file instead of standard output.
     #[arg(short, long, value_name = "OUTPUT_JSON")]
     output: Option<PathBuf>,
+
+    #[command(flatten)]
+    smt: SmtArgs,
 }
 
 #[derive(Debug, Args)]
@@ -431,6 +467,9 @@ struct KoreImpliesArgs {
     /// Write the JSON result to this file instead of standard output.
     #[arg(short, long, value_name = "OUTPUT_JSON")]
     output: Option<PathBuf>,
+
+    #[command(flatten)]
+    smt: SmtArgs,
 }
 
 #[derive(Debug, Args)]
@@ -450,6 +489,9 @@ struct KoreRpcArgs {
     /// Interface on which the server listens.
     #[arg(long, default_value = "127.0.0.1", value_name = "ADDRESS")]
     host: String,
+
+    #[command(flatten)]
+    smt: SmtArgs,
 }
 
 #[derive(Debug, Args)]
@@ -538,6 +580,9 @@ struct KproveArgs {
     moving_average: bool,
 
     #[command(flatten)]
+    smt: SmtArgs,
+
+    #[command(flatten)]
     source: SourceArgs,
 }
 
@@ -622,6 +667,7 @@ struct KrunOptions {
     search: Option<KrunSearchOptions>,
     step_timeout: Option<Duration>,
     moving_average_timeout: bool,
+    smt: Z3Options,
 }
 
 #[derive(Debug)]
@@ -642,6 +688,7 @@ struct BackendRunOptions {
     search: Option<KrunSearchOptions>,
     step_timeout: Option<Duration>,
     moving_average_timeout: bool,
+    smt: Z3Options,
 }
 
 #[derive(Debug)]
@@ -660,6 +707,7 @@ struct KproveOptions {
     stuck_check: bool,
     step_timeout: Option<Duration>,
     moving_average_timeout: bool,
+    smt: Z3Options,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
@@ -756,6 +804,7 @@ impl From<KrunArgs> for KrunOptions {
             search: arguments.search.into_options(),
             step_timeout: arguments.timeout.timeout(),
             moving_average_timeout: arguments.timeout.moving_average,
+            smt: arguments.smt.options(),
         }
     }
 }
@@ -785,6 +834,7 @@ impl From<KproveArgs> for KproveOptions {
                 .step_timeout
                 .map(|seconds| Duration::from_secs(seconds.get() as u64)),
             moving_average_timeout: arguments.moving_average,
+            smt: arguments.smt.options(),
         }
     }
 }
@@ -929,6 +979,7 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
             search: options.search,
             step_timeout: options.step_timeout,
             moving_average_timeout: options.moving_average_timeout,
+            smt: options.smt,
         },
     )?;
     println!("{}", KorePrinter::pretty(100).print_pattern(&output));
@@ -975,6 +1026,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
             search: options.search.into_options(),
             step_timeout: options.timeout.timeout(),
             moving_average_timeout: options.timeout.moving_average,
+            smt: options.smt.options(),
         },
     )?;
     let output = KorePrinter::pretty(100).print_pattern(&output);
@@ -1000,6 +1052,7 @@ fn kore_rpc(options: KoreRpcArgs) -> Result<(), Box<dyn Error>> {
     rpc::serve(
         BackendSession::new(definition, options.module),
         (options.host.as_str(), options.port),
+        options.smt.options(),
     )
 }
 
@@ -1016,7 +1069,7 @@ fn kore_simplify(options: KoreSimplifyArgs) -> Result<(), Box<dyn Error>> {
     })?;
     let backend = BackendDefinition::internalize(&definition, &options.module)?;
     let syntax = load_kore_syntax(&options.pattern, "simplification")?;
-    let output = simplify_kore_pattern(&backend, &syntax)?;
+    let output = simplify_kore_pattern_with_options(&backend, &syntax, options.smt.options())?;
     let output = KorePrinter::pretty(100).print_pattern(&output);
     if let Some(path) = options.output {
         fs::write(path, output)?;
@@ -1026,11 +1079,20 @@ fn kore_simplify(options: KoreSimplifyArgs) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[cfg(test)]
 fn simplify_kore_pattern(
     definition: &BackendDefinition,
     syntax: &KorePattern,
 ) -> Result<KorePattern, Box<dyn Error>> {
-    let solver = Z3Solver::new(definition)
+    simplify_kore_pattern_with_options(definition, syntax, Z3Options::default())
+}
+
+fn simplify_kore_pattern_with_options(
+    definition: &BackendDefinition,
+    syntax: &KorePattern,
+    options: Z3Options,
+) -> Result<KorePattern, Box<dyn Error>> {
+    let solver = Z3Solver::with_options(definition, options)
         .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
     match definition.internalize_pattern(syntax, &[]) {
         Ok(pattern) => {
@@ -1076,7 +1138,7 @@ fn kore_get_model(options: KoreGetModelArgs) -> Result<(), Box<dyn Error>> {
     let model = match backend.internalize_model_predicate(&syntax, &[])? {
         None => (ModelResult::Unknown("no predicate".into()), None),
         Some((predicate, result_sort)) => {
-            let solver = Z3Solver::new(&backend)
+            let solver = Z3Solver::with_options(&backend, options.smt.options())
                 .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
             let result = solver
                 .get_model(&[predicate], &Substitution::new())
@@ -1205,7 +1267,7 @@ fn kore_implies_inner(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
             ))
             .into());
         }
-        let solver = Z3Solver::new(&backend)
+        let solver = Z3Solver::with_options(&backend, options.smt.options())
             .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
         check_implication_with_existentials(
             &backend,
@@ -1609,7 +1671,7 @@ fn run_backend(
     options: BackendRunOptions,
 ) -> Result<KorePattern, Box<dyn Error>> {
     let output_sort = externalize::sort(&initial.term.sort());
-    let solver = Z3Solver::new(backend)
+    let solver = Z3Solver::with_options(backend, options.smt)
         .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
     if let Some(search) = options.search {
         let target = match search.pattern {
@@ -1924,18 +1986,15 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             })
         })
         .transpose()?;
-    let solver = match smt_prelude.as_deref() {
-        Some(prelude) => Z3Solver::with_prelude(&backend, prelude),
-        None => Z3Solver::new(&backend),
-    }
-    .map_err(|error| {
-        io::Error::other(match error {
-            SmtError::InconsistentPrelude => {
-                "the definitions sent to the solver are inconsistent".to_owned()
-            }
-            error => format!("could not initialize Z3: {error:?}"),
-        })
-    })?;
+    let solver = Z3Solver::with_options_and_prelude(&backend, options.smt, smt_prelude.as_deref())
+        .map_err(|error| {
+            io::Error::other(match error {
+                SmtError::InconsistentPrelude => {
+                    "the definitions sent to the solver are inconsistent".to_owned()
+                }
+                error => format!("could not initialize Z3: {error:?}"),
+            })
+        })?;
     let selected = backend
         .reachability_claims
         .iter()
@@ -2421,6 +2480,7 @@ mod tests {
         assert!(options.search.is_none());
         assert_eq!(options.step_timeout, Some(Duration::from_millis(250)));
         assert!(options.moving_average_timeout);
+        assert_eq!(options.smt, Z3Options::default());
     }
 
     #[test]
@@ -2616,6 +2676,10 @@ mod tests {
             "31337",
             "--host",
             "0.0.0.0",
+            "--smt-timeout",
+            "1",
+            "--smt-retry-limit",
+            "5",
         ])
         .unwrap();
         let Command::KoreRpc(options) = cli.command else {
@@ -2626,6 +2690,13 @@ mod tests {
         assert_eq!(options.module, "MAIN");
         assert_eq!(options.port, 31_337);
         assert_eq!(options.host, "0.0.0.0");
+        assert_eq!(
+            options.smt.options(),
+            Z3Options {
+                timeout_ms: 1,
+                retry_limit: 5,
+            }
+        );
     }
 
     #[test]
@@ -2812,6 +2883,7 @@ mod tests {
         assert!(!options.stuck_check);
         assert_eq!(options.step_timeout, Some(Duration::from_secs(9)));
         assert!(options.moving_average_timeout);
+        assert_eq!(options.smt, Z3Options::default());
     }
 
     #[test]
