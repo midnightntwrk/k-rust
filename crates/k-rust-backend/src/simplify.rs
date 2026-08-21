@@ -2020,6 +2020,53 @@ mod tests {
     "#;
 
     #[test]
+    fn evaluates_overload_axioms_before_the_overloaded_function() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortGas{} []
+                symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+                symbol intAdd{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.add")]
+                symbol gasAdd{}(SortGas{}, SortGas{}) : SortGas{}
+                    [function{}(), total{}()]
+                axiom{}
+                    \equals{SortGas{}, SortGas{}}(
+                        gasAdd{}(
+                            inj{SortInt{}, SortGas{}}(K0:SortInt{}),
+                            inj{SortInt{}, SortGas{}}(K1:SortInt{})
+                        ),
+                        inj{SortInt{}, SortGas{}}(intAdd{}(K0:SortInt{}, K1:SortInt{}))
+                    )
+                    [symbol-overload{}(gasAdd{}(), intAdd{}())]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let frontend_term = |source: &str| {
+            let syntax = parse_pattern(source).expect("term should parse");
+            definition
+                .internalize_frontend_term(&syntax, &[])
+                .expect("frontend term should internalize")
+        };
+        let input = frontend_term(
+            r#"gasAdd{}(
+                inj{SortInt{}, SortGas{}}(\dv{SortInt{}}("2")),
+                inj{SortInt{}, SortGas{}}(\dv{SortInt{}}("3"))
+            )"#,
+        );
+        let expected = frontend_term(r#"inj{SortInt{}, SortGas{}}(\dv{SortInt{}}("5"))"#);
+
+        let result = simplify(&definition, &input, SimplificationOptions::default())
+            .expect("overloaded function should simplify");
+
+        assert_eq!(result.term, expected);
+        assert_eq!(result.applied_rules, ["UNKNOWN", "builtin:INT.add"]);
+    }
+
+    #[test]
     fn simplifies_children_before_their_parent_to_a_fixed_point() {
         let definition = definition(IDENTITY);
         let input = term(&definition, r#"wrap{}(f{}(f{}(\dv{SortS{}}("value"))))"#);

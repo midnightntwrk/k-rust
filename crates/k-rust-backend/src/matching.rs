@@ -2276,6 +2276,7 @@ mod tests {
                 sort SortLeft{} []
                 sort SortRight{} []
                 sort SortTop{} []
+                symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
                 symbol lower{}(SortSub{}) : SortSub{} [constructor{}()]
                 symbol upper{}(SortTop{}) : SortTop{} [constructor{}()]
                 symbol left{}(SortLeft{}) : SortLeft{} [constructor{}()]

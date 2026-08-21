@@ -310,17 +310,33 @@ pub fn classify_axiom(
             Ok(None)
         }
         kore::Pattern::Not { .. } if has_attribute(syntax_attributes, "constructor") => Ok(None),
+        kore::Pattern::Equals {
+            result_sort,
+            left,
+            right,
+            ..
+        } if has_attribute(syntax_attributes, "symbol-overload")
+            || has_attribute(syntax_attributes, "overload") =>
+        {
+            if !matches!(left.as_ref(), kore::Pattern::Application { .. }) {
+                return Err(AxiomError::MalformedEquation);
+            }
+            Ok(Some(ClassifiedAxiom::Function {
+                module,
+                sort_parameters,
+                requires: kore::Pattern::Top {
+                    sort: result_sort.clone(),
+                },
+                binders: Vec::new(),
+                lhs: (**left).clone(),
+                rhs: (**right).clone(),
+                attributes,
+            }))
+        }
         kore::Pattern::Equals { left, right, .. }
-            if [
-                "assoc",
-                "comm",
-                "idem",
-                "unit",
-                "symbol-overload",
-                "overload",
-            ]
-            .iter()
-            .any(|name| has_attribute(syntax_attributes, name))
+            if ["assoc", "comm", "idem", "unit"]
+                .iter()
+                .any(|name| has_attribute(syntax_attributes, name))
                 || (has_attribute(syntax_attributes, "simplification")
                     && is_injection(left)
                     && is_injection(right)) =>
