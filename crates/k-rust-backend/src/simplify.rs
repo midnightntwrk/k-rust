@@ -1110,50 +1110,13 @@ fn bool_value(term: &Term) -> Option<bool> {
 
 pub(crate) fn normalize_predicate(predicate: Predicate) -> Predicate {
     match predicate {
-        Predicate::Equals(left, right) => match (left.kind(), right.kind()) {
-            (
-                TermKind::Injection {
-                    source: left_source,
-                    target: left_target,
-                    term: left_term,
-                },
-                TermKind::Injection {
-                    source: right_source,
-                    target: right_target,
-                    term: right_term,
-                },
-            ) if left_source == right_source && left_target == right_target => {
-                normalize_predicate(Predicate::Equals(left_term.clone(), right_term.clone()))
-            }
-            (
-                TermKind::Application {
-                    symbol: left_symbol,
-                    sort_arguments: left_sorts,
-                    arguments: left_arguments,
-                },
-                TermKind::Application {
-                    symbol: right_symbol,
-                    sort_arguments: right_sorts,
-                    arguments: right_arguments,
-                },
-            ) if left_symbol == right_symbol
-                && left_sorts == right_sorts
-                && left_symbol.attributes.injective =>
-            {
-                normalize_predicate(Predicate::And(
-                    left_arguments
-                        .iter()
-                        .zip(right_arguments)
-                        .map(|(left, right)| Predicate::Equals(left.clone(), right.clone()))
-                        .collect(),
-                ))
-            }
-            _ => match predicates_truth(&[Predicate::Equals(left.clone(), right.clone())]) {
+        Predicate::Equals(left, right) => {
+            match predicates_truth(&[Predicate::Equals(left.clone(), right.clone())]) {
                 Truth::True => Predicate::True,
                 Truth::False => Predicate::False,
                 Truth::Unknown => Predicate::Equals(left, right),
-            },
-        },
+            }
+        }
         Predicate::Not(inner) => match *inner {
             Predicate::True => Predicate::False,
             Predicate::False => Predicate::True,
@@ -2752,29 +2715,28 @@ mod tests {
     }
 
     #[test]
-    fn decomposes_equalities_between_matching_injective_symbols() {
+    fn preserves_symbolic_equalities_between_matching_injective_symbols() {
         let definition = definition(
             r#"
             symbol pair{}(SortS{}, SortS{}) : SortS{}
                 [constructor{}(), injective{}()]
             "#,
         );
-        let x = term(&definition, "X:SortS{}");
-        let y = term(&definition, "Y:SortS{}");
         let one = term(&definition, r#"\dv{SortS{}}("1")"#);
         let left = term(&definition, r#"pair{}(X:SortS{}, \dv{SortS{}}("1"))"#);
         let right = term(&definition, r#"pair{}(Y:SortS{}, \dv{SortS{}}("1"))"#);
+        let predicate = Predicate::Equals(left, right);
 
         let result = simplify_predicate_with_solver(
             &definition,
-            &Predicate::Equals(left, right),
+            &predicate,
             &[],
             SimplificationOptions::default(),
             &NoSolver,
         )
         .unwrap();
 
-        assert_eq!(result, Predicate::Equals(x, y));
+        assert_eq!(result, predicate);
         assert_eq!(
             simplify_predicate_with_solver(
                 &definition,
@@ -2786,6 +2748,56 @@ mod tests {
             .unwrap(),
             Predicate::True,
         );
+    }
+
+    #[test]
+    fn preserves_a_symbolic_equality_between_singleton_k_sequences() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortState{} []
+                sort SortKItem{} []
+                sort SortK{} []
+                symbol peng{}() : SortState{} [constructor{}()]
+                symbol dotk{}() : SortK{} [constructor{}()]
+                symbol kseq{}(SortKItem{}, SortK{}) : SortK{}
+                    [constructor{}(), injective{}()]
+                symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+                axiom{R} \exists{R}(
+                    Value:SortKItem{},
+                    \equals{SortKItem{}, R}(
+                        Value:SortKItem{},
+                        inj{SortState{}, SortKItem{}}(From:SortState{})
+                    )
+                ) [subsort{SortState{}, SortKItem{}}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let syntax = parse_pattern(
+            r#"\not{SortK{}}(
+                \equals{SortK{}, SortK{}}(
+                    kseq{}(inj{SortState{}, SortKItem{}}(STATE:SortState{}), dotk{}()),
+                    kseq{}(inj{SortState{}, SortKItem{}}(peng{}()), dotk{}())
+                )
+            )"#,
+        )
+        .expect("predicate should parse");
+        let (predicate, _) = definition
+            .internalize_predicate(&syntax, &[])
+            .expect("predicate should internalize");
+
+        let result = simplify_predicate_with_solver(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(result, predicate);
     }
 
     #[test]
