@@ -551,10 +551,10 @@ impl BackendDefinition {
                     {
                         return Some(symbol.name.clone());
                     }
-                    pending.extend(arguments);
+                    pending.extend(arguments.iter().rev());
                 }
                 kore::Pattern::And { arguments, .. } | kore::Pattern::Or { arguments, .. } => {
-                    pending.extend(arguments);
+                    pending.extend(arguments.iter().rev());
                 }
                 kore::Pattern::Not { argument, .. }
                 | kore::Pattern::Next { argument, .. }
@@ -565,8 +565,8 @@ impl BackendDefinition {
                 | kore::Pattern::Rewrites { left, right, .. }
                 | kore::Pattern::Equals { left, right, .. }
                 | kore::Pattern::In { left, right, .. } => {
-                    pending.push(left);
                     pending.push(right);
+                    pending.push(left);
                 }
                 kore::Pattern::Exists { body, .. }
                 | kore::Pattern::Forall { body, .. }
@@ -1823,6 +1823,15 @@ mod tests {
                 expected
             );
         }
+
+        let pattern = parse_pattern(r#"\and{SortValue{}}(macroValue{}(), identity{}(value{}()))"#)
+            .expect("pattern should parse");
+        assert_eq!(
+            definition.validate_implication_pattern(&pattern),
+            Err(DefinitionError::MacroOrAliasInImplication(
+                "macroValue".into()
+            ))
+        );
     }
 
     #[test]

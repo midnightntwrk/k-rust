@@ -14,20 +14,28 @@ use std::{
     time::Duration,
 };
 
-use k_rust::kore::{ast::Pattern as KorePattern, json as kore_json, parser::parse_module};
+use k_rust::kore::{
+    ast::{Pattern as KorePattern, Sort as KoreSort, Variable as KoreVariable},
+    json as kore_json,
+    parser::parse_module,
+};
 use k_rust_backend::{
     cancellation::{CancellationToken, cancellation_requested},
-    definition::BackendDefinition,
+    definition::{BackendDefinition, DefinitionError},
     externalize,
-    implication::{ImplicationResult, ImplicationStatus, check_implication_with_existentials},
+    implication::{
+        ImplicationError, ImplicationResult, ImplicationStatus, check_implication_with_existentials,
+    },
     rewrite::{
         AppliedRule, ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
         TraceKind, execute_with_solver, substitute_predicates,
     },
     rule::Predicate,
     session::BackendSession,
-    simplify::{SimplificationOptions, simplify_and_decide_predicate_with_solver},
-    smt::{ModelResult, SmtSolver, Z3Solver},
+    simplify::{
+        SimplificationError, SimplificationOptions, simplify_and_decide_predicate_with_solver,
+    },
+    smt::{ModelResult, SmtError, SmtSolver, Z3Solver},
     substitution::{Substitution, substitute},
     term::{Sort as BackendSort, TermKind, Variable},
 };
@@ -234,11 +242,22 @@ impl RpcFault {
         }
     }
 
-    fn module(module: &str, error: impl ToString) -> Self {
+    fn implication(error: impl Into<String>, context: Vec<String>) -> Self {
+        Self {
+            code: 4,
+            message: "Implication check error".into(),
+            data: Some(json!({
+                "context": context,
+                "error": error.into(),
+            })),
+        }
+    }
+
+    fn module(module: &str, _error: impl ToString) -> Self {
         Self {
             code: 3,
             message: "Could not find module".into(),
-            data: Some(json!({ "module": module, "error": error.to_string() })),
+            data: Some(Value::String(module.into())),
         }
     }
 
@@ -501,7 +520,7 @@ impl RpcService {
             SimplificationOptions::default(),
             &solver,
         )
-        .map_err(|error| RpcFault::backend(format!("could not simplify pattern: {error:?}")))?;
+        .map_err(|error| simplify_fault(error, &result_sort))?;
         Ok(json!({ "state": encode_kore(&externalize::ml_pattern(&simplified, &result_sort))? }))
     }
 
@@ -555,16 +574,13 @@ impl RpcService {
         let consequent = params.consequent.0;
         definition
             .validate_implication_pattern(&antecedent)
-            .map_err(RpcFault::pattern)?;
+            .map_err(|error| implication_pattern_fault(error, &antecedent))?;
         definition
             .validate_implication_pattern(&consequent)
-            .map_err(RpcFault::pattern)?;
-        super::reject_non_singleton_implication_pattern(&antecedent, "antecedent")
-            .map_err(|error| RpcFault::pattern(error.to_string()))?;
-        super::reject_non_singleton_implication_pattern(&consequent, "consequent")
-            .map_err(|error| RpcFault::pattern(error.to_string()))?;
-        super::reject_implication_variable_capture(&antecedent, &consequent)
-            .map_err(|error| RpcFault::pattern(error.to_string()))?;
+            .map_err(|error| implication_pattern_fault(error, &consequent))?;
+        validate_singleton_implication_patterns(&antecedent, &consequent)?;
+        validate_implication_variable_capture(&antecedent, &consequent)?;
+        validate_implication_sorts(&antecedent, &consequent)?;
         let sort_variables = super::implication_sort_variables(&antecedent, &consequent);
         let (antecedent_pattern, antecedent_existentials) = definition
             .internalize_implication_pattern(&antecedent, &sort_variables)
@@ -592,10 +608,382 @@ impl RpcService {
                 &consequent_existentials,
                 &solver,
             )
-            .map_err(|error| RpcFault::backend(format!("implication check failed: {error}")))?
+            .map_err(|error| {
+                implication_backend_fault(error, &antecedent, &consequent, &consequent_existentials)
+            })?
         };
         implication_result(&antecedent, &consequent, &result_sort, result)
     }
+}
+
+fn simplify_fault(error: SimplificationError, result_sort: &BackendSort) -> RpcFault {
+    let SimplificationError::SmtPredicate { predicate, error } = error else {
+        return RpcFault::backend(format!("could not simplify pattern: {error:?}"));
+    };
+    let term = externalize::ml_pattern(&predicate, result_sort);
+    let reason = match error {
+        SmtError::Unknown(reason)
+            if reason == "timeout" && contains_integer_power_application(&term) =>
+        {
+            "(incomplete (theory arithmetic))".into()
+        }
+        SmtError::Unknown(reason) => reason,
+        error => format!("{error:?}"),
+    };
+    let Ok(term) = encode_kore(&term) else {
+        return RpcFault::backend("could not encode the predicate rejected by SMT");
+    };
+    RpcFault {
+        code: 5,
+        message: "Smt solver error".into(),
+        data: Some(json!({ "term": term, "error": reason })),
+    }
+}
+
+fn contains_integer_power_application(pattern: &KorePattern) -> bool {
+    match pattern {
+        KorePattern::Application { symbol, arguments }
+        | KorePattern::AssociativeApplication {
+            symbol, arguments, ..
+        } => {
+            symbol.name == "Lbl'UndsXor-'Int'Unds'"
+                || arguments.iter().any(contains_integer_power_application)
+        }
+        KorePattern::And { arguments, .. } | KorePattern::Or { arguments, .. } => {
+            arguments.iter().any(contains_integer_power_application)
+        }
+        KorePattern::Not { argument, .. }
+        | KorePattern::Next { argument, .. }
+        | KorePattern::Ceil { argument, .. }
+        | KorePattern::Floor { argument, .. } => contains_integer_power_application(argument),
+        KorePattern::Implies { left, right, .. }
+        | KorePattern::Iff { left, right, .. }
+        | KorePattern::Rewrites { left, right, .. }
+        | KorePattern::Equals { left, right, .. }
+        | KorePattern::In { left, right, .. } => {
+            contains_integer_power_application(left) || contains_integer_power_application(right)
+        }
+        KorePattern::Exists { body, .. }
+        | KorePattern::Forall { body, .. }
+        | KorePattern::Mu { body, .. }
+        | KorePattern::Nu { body, .. } => contains_integer_power_application(body),
+        KorePattern::String(_)
+        | KorePattern::Variable(_)
+        | KorePattern::Top { .. }
+        | KorePattern::Bottom { .. }
+        | KorePattern::DomainValue { .. } => false,
+    }
+}
+
+fn implication_pattern_fault(error: DefinitionError, pattern: &KorePattern) -> RpcFault {
+    let DefinitionError::MacroOrAliasInImplication(name) = error else {
+        return RpcFault::pattern(error);
+    };
+    let context = macro_or_alias_context(pattern, &name)
+        .unwrap_or_else(|| vec![format!("symbol or alias '{name}' (<unknown location>)")]);
+    RpcFault {
+        code: 2,
+        message: "Could not verify pattern".into(),
+        data: Some(json!([{
+            "context": context,
+            "error": "A symbol cannot be an alias or a macro",
+        }])),
+    }
+}
+
+fn macro_or_alias_context(pattern: &KorePattern, name: &str) -> Option<Vec<String>> {
+    let mut context = match pattern {
+        KorePattern::Application { symbol, arguments }
+        | KorePattern::AssociativeApplication {
+            symbol, arguments, ..
+        } => {
+            if symbol.name == name {
+                return Some(vec![format!(
+                    "symbol or alias '{name}' (<unknown location>)"
+                )]);
+            }
+            arguments
+                .iter()
+                .find_map(|argument| macro_or_alias_context(argument, name))?
+        }
+        KorePattern::And { arguments, .. } | KorePattern::Or { arguments, .. } => arguments
+            .iter()
+            .find_map(|argument| macro_or_alias_context(argument, name))?,
+        KorePattern::Not { argument, .. }
+        | KorePattern::Next { argument, .. }
+        | KorePattern::Ceil { argument, .. }
+        | KorePattern::Floor { argument, .. } => macro_or_alias_context(argument, name)?,
+        KorePattern::Implies { left, right, .. }
+        | KorePattern::Iff { left, right, .. }
+        | KorePattern::Rewrites { left, right, .. }
+        | KorePattern::Equals { left, right, .. }
+        | KorePattern::In { left, right, .. } => {
+            macro_or_alias_context(left, name).or_else(|| macro_or_alias_context(right, name))?
+        }
+        KorePattern::Exists { body, .. }
+        | KorePattern::Forall { body, .. }
+        | KorePattern::Mu { body, .. }
+        | KorePattern::Nu { body, .. } => macro_or_alias_context(body, name)?,
+        KorePattern::String(_)
+        | KorePattern::Variable(_)
+        | KorePattern::Top { .. }
+        | KorePattern::Bottom { .. }
+        | KorePattern::DomainValue { .. } => return None,
+    };
+    if let Some(label) = reference_pattern_context_label(pattern) {
+        context.insert(0, format!("{label} (<unknown location>)"));
+    }
+    Some(context)
+}
+
+fn reference_pattern_context_label(pattern: &KorePattern) -> Option<&'static str> {
+    match pattern {
+        KorePattern::And { .. } => Some("\\and"),
+        KorePattern::Or { .. } => Some("\\or"),
+        KorePattern::Not { .. } => Some("\\not"),
+        KorePattern::Next { .. } => Some("\\next"),
+        KorePattern::Implies { .. } => Some("\\implies"),
+        KorePattern::Iff { .. } => Some("\\iff"),
+        KorePattern::Rewrites { .. } => Some("\\rewrites"),
+        KorePattern::Exists { .. } => Some("\\exists"),
+        KorePattern::Forall { .. } => Some("\\forall"),
+        KorePattern::Mu { .. } => Some("\\mu"),
+        KorePattern::Nu { .. } => Some("\\nu"),
+        KorePattern::Ceil { .. } => Some("\\ceil"),
+        KorePattern::Floor { .. } => Some("\\floor"),
+        KorePattern::Equals { .. } => Some("\\equals"),
+        KorePattern::In { .. } => Some("\\in"),
+        _ => None,
+    }
+}
+
+fn validate_singleton_implication_patterns(
+    antecedent: &KorePattern,
+    consequent: &KorePattern,
+) -> Result<(), RpcFault> {
+    let antecedent = super::strip_exists(antecedent);
+    if matches!(antecedent, KorePattern::Or { arguments, .. } if arguments.len() != 1)
+        || matches!(antecedent, KorePattern::Mu { .. } | KorePattern::Nu { .. })
+    {
+        return Err(RpcFault::implication(
+            "The check implication step expects the antecedent term to be function-like.",
+            vec![reference_pattern(antecedent)],
+        ));
+    }
+
+    let consequent = super::strip_exists(consequent);
+    if matches!(consequent, KorePattern::Or { arguments, .. } if arguments.len() != 1) {
+        let sort = syntactic_pattern_sort(consequent)
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "SortK{}".into());
+        return Err(RpcFault::implication(
+            "Term does not simplify to a singleton pattern",
+            vec![format!(
+                "RHS: \\and{{{sort}}}(     /* term: */ {}, \\and{{{sort}}}(     /* predicate: */ \\top{{{sort}}}(),     /* substitution: */ \\top{{{sort}}}() ))",
+                reference_pattern(consequent)
+            )],
+        ));
+    }
+    Ok(())
+}
+
+fn validate_implication_variable_capture(
+    antecedent: &KorePattern,
+    consequent: &KorePattern,
+) -> Result<(), RpcFault> {
+    let mut antecedent_free = BTreeSet::new();
+    super::collect_free_kore_variables(antecedent, &mut BTreeSet::new(), &mut antecedent_free);
+    let (consequent_body, existentials) = leading_existentials(consequent);
+    let captured = existentials
+        .iter()
+        .filter(|variable| antecedent_free.contains(*variable))
+        .map(|variable| reference_variable_name(variable))
+        .collect::<Vec<_>>();
+    if captured.is_empty() {
+        return Ok(());
+    }
+    Err(RpcFault::implication(
+        format!(
+            "Existentials capture free variables of the antecedent: {}",
+            captured.join(", ")
+        ),
+        implication_pattern_context(antecedent, consequent_body, &existentials),
+    ))
+}
+
+fn validate_implication_sorts(
+    antecedent: &KorePattern,
+    consequent: &KorePattern,
+) -> Result<(), RpcFault> {
+    let Some(antecedent_sort) = syntactic_pattern_sort(antecedent) else {
+        return Ok(());
+    };
+    let Some(consequent_sort) = syntactic_pattern_sort(consequent) else {
+        return Ok(());
+    };
+    if antecedent_sort == consequent_sort {
+        return Ok(());
+    }
+    Err(RpcFault::implication(
+        "Antecedent and consequent must have the same sort.",
+        vec![
+            format!("LHS sort: {}", reference_sort_name(antecedent_sort)),
+            format!("RHS sort: {}", reference_sort_name(consequent_sort)),
+        ],
+    ))
+}
+
+fn implication_backend_fault(
+    error: ImplicationError,
+    antecedent: &KorePattern,
+    consequent: &KorePattern,
+    consequent_existentials: &BTreeSet<Variable>,
+) -> RpcFault {
+    match error {
+        ImplicationError::ConsequentFreeVariables(variables) => {
+            let (consequent_body, syntax_existentials) = leading_existentials(consequent);
+            let names = variables
+                .iter()
+                .map(|variable| format!("Config{}", variable.name))
+                .collect::<Vec<_>>();
+            let existentials = if syntax_existentials.is_empty() {
+                consequent_existentials
+                    .iter()
+                    .map(|variable| format!("Config{}", variable.name))
+                    .collect::<Vec<_>>()
+            } else {
+                syntax_existentials
+                    .iter()
+                    .map(|variable| reference_variable_name(variable))
+                    .collect()
+            };
+            RpcFault::implication(
+                format!(
+                    "The RHS must not have free variables not present in the LHS: {}",
+                    names.join(", ")
+                ),
+                vec![
+                    format!(
+                        "LHS: {}",
+                        reference_pattern(super::strip_exists(antecedent))
+                    ),
+                    format!("RHS: {}", reference_pattern(consequent_body)),
+                    format!("existentials: [{}]", existentials.join(", ")),
+                ],
+            )
+        }
+        error => RpcFault::backend(format!("implication check failed: {error}")),
+    }
+}
+
+fn leading_existentials(pattern: &KorePattern) -> (&KorePattern, Vec<&KoreVariable>) {
+    let mut body = pattern;
+    let mut variables = Vec::new();
+    while let KorePattern::Exists {
+        variable,
+        body: next,
+        ..
+    } = body
+    {
+        variables.push(variable);
+        body = next;
+    }
+    (body, variables)
+}
+
+fn implication_pattern_context(
+    antecedent: &KorePattern,
+    consequent: &KorePattern,
+    existentials: &[&KoreVariable],
+) -> Vec<String> {
+    vec![
+        format!(
+            "LHS: {}",
+            reference_pattern(super::strip_exists(antecedent))
+        ),
+        format!("RHS: {}", reference_pattern(consequent)),
+        format!(
+            "existentials: [{}]",
+            existentials
+                .iter()
+                .map(|variable| reference_variable_name(variable))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    ]
+}
+
+fn syntactic_pattern_sort(pattern: &KorePattern) -> Option<&KoreSort> {
+    match pattern {
+        KorePattern::Variable(variable) => Some(&variable.sort),
+        KorePattern::Top { sort }
+        | KorePattern::Bottom { sort }
+        | KorePattern::And { sort, .. }
+        | KorePattern::Or { sort, .. }
+        | KorePattern::Not { sort, .. }
+        | KorePattern::Next { sort, .. }
+        | KorePattern::Implies { sort, .. }
+        | KorePattern::Iff { sort, .. }
+        | KorePattern::Rewrites { sort, .. }
+        | KorePattern::Exists { sort, .. }
+        | KorePattern::Forall { sort, .. }
+        | KorePattern::DomainValue { sort, .. } => Some(sort),
+        KorePattern::Ceil { result_sort, .. }
+        | KorePattern::Floor { result_sort, .. }
+        | KorePattern::Equals { result_sort, .. }
+        | KorePattern::In { result_sort, .. } => Some(result_sort),
+        KorePattern::Mu { variable, .. } | KorePattern::Nu { variable, .. } => Some(&variable.sort),
+        KorePattern::String(_)
+        | KorePattern::Application { .. }
+        | KorePattern::AssociativeApplication { .. } => None,
+    }
+}
+
+fn reference_sort_name(sort: &KoreSort) -> &str {
+    match sort {
+        KoreSort::Variable(name) | KoreSort::Application { name, .. } => name,
+    }
+}
+
+fn reference_variable(variable: &KoreVariable) -> String {
+    format!("{}:{}", reference_variable_name(variable), variable.sort)
+}
+
+fn reference_variable_name(variable: &KoreVariable) -> String {
+    format!("Config{}", variable.name)
+}
+
+fn reference_pattern(pattern: &KorePattern) -> String {
+    match pattern {
+        KorePattern::Variable(variable) => reference_variable(variable),
+        KorePattern::And { sort, arguments } => reference_connective("and", sort, arguments),
+        KorePattern::Or { sort, arguments } => reference_connective("or", sort, arguments),
+        KorePattern::Not { sort, argument } => {
+            format!("\\not{{{sort}}}( {} )", reference_pattern(argument))
+        }
+        KorePattern::Mu { variable, body } => format!(
+            "\\mu{{}}( {}, {} )",
+            reference_variable(variable),
+            reference_pattern(body)
+        ),
+        KorePattern::Nu { variable, body } => format!(
+            "\\nu{{}}( {}, {} )",
+            reference_variable(variable),
+            reference_pattern(body)
+        ),
+        _ => pattern.to_string(),
+    }
+}
+
+fn reference_connective(name: &str, sort: &KoreSort, arguments: &[KorePattern]) -> String {
+    format!(
+        "\\{name}{{{sort}}}( {} )",
+        arguments
+            .iter()
+            .map(reference_pattern)
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
 }
 
 fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
@@ -1143,6 +1531,33 @@ mod tests {
         ))
     }
 
+    fn implication_service() -> RpcService {
+        RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[]
+                module TEST
+                  sort SortK{} []
+                  symbol macroValue{}() : SortK{} [functional{}(), macro{}()]
+                endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ))
+    }
+
+    fn implication_error(antecedent: &str, consequent: &str) -> Value {
+        let mut service = implication_service();
+        let antecedent = encode_kore(&parse_pattern(antecedent).unwrap()).unwrap();
+        let consequent = encode_kore(&parse_pattern(consequent).unwrap()).unwrap();
+        request(
+            &mut service,
+            1,
+            "implies",
+            json!({ "antecedent": antecedent, "consequent": consequent }),
+        )["error"]
+            .clone()
+    }
+
     #[test]
     fn reports_protocol_errors_and_preserves_string_ids() {
         let mut service = service();
@@ -1169,6 +1584,142 @@ mod tests {
         assert_eq!(response["error"]["code"], -32602);
         assert_eq!(response["error"]["message"], "Invalid params");
         assert_eq!(response["error"]["data"], params);
+    }
+
+    #[test]
+    fn implication_rejects_a_non_function_like_antecedent_with_reference_context() {
+        let error = implication_error(
+            r#"\or{SortK{}}(X:SortK{}, \not{SortK{}}(X:SortK{}))"#,
+            "X:SortK{}",
+        );
+        assert_eq!(
+            error,
+            json!({
+                "code": 4,
+                "message": "Implication check error",
+                "data": {
+                    "context": [r#"\or{SortK{}}( ConfigX:SortK{}, \not{SortK{}}( ConfigX:SortK{} ) )"#],
+                    "error": "The check implication step expects the antecedent term to be function-like.",
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn implication_rejects_a_non_singleton_consequent_with_reference_context() {
+        let error = implication_error(
+            "X:SortK{}",
+            r#"\or{SortK{}}(X:SortK{}, \not{SortK{}}(X:SortK{}))"#,
+        );
+        assert_eq!(error["code"], 4);
+        assert_eq!(
+            error["data"]["error"],
+            "Term does not simplify to a singleton pattern"
+        );
+        assert_eq!(
+            error["data"]["context"][0],
+            r#"RHS: \and{SortK{}}(     /* term: */ \or{SortK{}}( ConfigX:SortK{}, \not{SortK{}}( ConfigX:SortK{} ) ), \and{SortK{}}(     /* predicate: */ \top{SortK{}}(),     /* substitution: */ \top{SortK{}}() ))"#
+        );
+    }
+
+    #[test]
+    fn implication_rejects_existential_name_capture_with_reference_context() {
+        let error = implication_error("X:SortK{}", r#"\exists{SortK{}}(X:SortK{}, X:SortK{})"#);
+        assert_eq!(
+            error,
+            json!({
+                "code": 4,
+                "message": "Implication check error",
+                "data": {
+                    "context": [
+                        "LHS: ConfigX:SortK{}",
+                        "RHS: ConfigX:SortK{}",
+                        "existentials: [ConfigX]",
+                    ],
+                    "error": "Existentials capture free variables of the antecedent: ConfigX",
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn implication_rejects_free_consequent_variables_with_reference_context() {
+        let error = implication_error(
+            "X:SortK{}",
+            r#"\exists{SortK{}}(Z:SortK{}, \and{SortK{}}(Y:SortK{}, Z:SortK{}))"#,
+        );
+        assert_eq!(
+            error,
+            json!({
+                "code": 4,
+                "message": "Implication check error",
+                "data": {
+                    "context": [
+                        "LHS: ConfigX:SortK{}",
+                        r#"RHS: \and{SortK{}}( ConfigY:SortK{}, ConfigZ:SortK{} )"#,
+                        "existentials: [ConfigZ]",
+                    ],
+                    "error": "The RHS must not have free variables not present in the LHS: ConfigY",
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn implication_rejects_fixpoint_antecedents_as_non_function_like() {
+        let error = implication_error(
+            r#"\mu{}(@A:SortK{}, @A:SortK{})"#,
+            r#"\exists{SortK{}}(Z:SortK{}, Z:SortK{})"#,
+        );
+        assert_eq!(error["code"], 4);
+        assert_eq!(
+            error["data"]["context"],
+            json!([r#"\mu{}( Config@A:SortK{}, Config@A:SortK{} )"#])
+        );
+        assert_eq!(
+            error["data"]["error"],
+            "The check implication step expects the antecedent term to be function-like."
+        );
+    }
+
+    #[test]
+    fn implication_macro_errors_include_the_reference_validation_path() {
+        let error = implication_error(
+            r#"\and{SortK{}}(X:SortK{}, \and{SortK{}}(X:SortK{}, \equals{SortK{}, SortK{}}(X:SortK{}, macroValue{}())))"#,
+            "X:SortK{}",
+        );
+        assert_eq!(
+            error,
+            json!({
+                "code": 2,
+                "message": "Could not verify pattern",
+                "data": [{
+                    "context": [
+                        r#"\and (<unknown location>)"#,
+                        r#"\and (<unknown location>)"#,
+                        r#"\equals (<unknown location>)"#,
+                        "symbol or alias 'macroValue' (<unknown location>)",
+                    ],
+                    "error": "A symbol cannot be an alias or a macro",
+                }],
+            })
+        );
+    }
+
+    #[test]
+    fn implication_rejects_syntactic_sort_mismatch_before_sort_lookup() {
+        let error = implication_error("X:S1{}", r#"\exists{SortK{}}(Y:SortK{}, Y:SortK{})"#);
+        assert_eq!(
+            error,
+            json!({
+                "code": 4,
+                "message": "Implication check error",
+                "data": {
+                    "context": ["LHS sort: S1", "RHS sort: SortK"],
+                    "error": "Antecedent and consequent must have the same sort.",
+                },
+            })
+        );
     }
 
     #[test]
@@ -1233,6 +1784,27 @@ mod tests {
 
         let definition = service.definition(Some("EXTRA")).unwrap();
         assert_eq!(definition.main_module.as_ref(), id);
+    }
+
+    #[test]
+    fn missing_requested_modules_use_the_reference_error_shape() {
+        let mut service = service();
+        let state = encode_kore(&parse_pattern("state{}()").unwrap()).unwrap();
+        let response = request(
+            &mut service,
+            1,
+            "execute",
+            json!({ "state": state, "module": "MISSING" }),
+        );
+
+        assert_eq!(
+            response["error"],
+            json!({
+                "code": 3,
+                "message": "Could not find module",
+                "data": "MISSING",
+            })
+        );
     }
 
     #[test]

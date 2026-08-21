@@ -58,7 +58,10 @@ pub enum SimplificationError {
         rule_id: String,
         error: SmtError,
     },
-    SmtPredicate(SmtError),
+    SmtPredicate {
+        predicate: Box<Predicate>,
+        error: SmtError,
+    },
     InconsistentGroundTruth {
         rule_id: String,
     },
@@ -333,13 +336,18 @@ pub fn simplify_and_decide_predicate_with_solver(
         Ok(Validity::Valid) => Ok(Predicate::True),
         Ok(Validity::Invalid) => Ok(Predicate::False),
         Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => Ok(simplified),
-        Ok(Validity::InconsistentGroundTruth) => Err(SimplificationError::SmtPredicate(
-            SmtError::InconsistentGroundTruth,
-        )),
-        Ok(Validity::Unknown(reason)) => {
-            Err(SimplificationError::SmtPredicate(SmtError::Unknown(reason)))
-        }
-        Err(error) => Err(SimplificationError::SmtPredicate(error)),
+        Ok(Validity::InconsistentGroundTruth) => Err(SimplificationError::SmtPredicate {
+            predicate: Box::new(simplified),
+            error: SmtError::InconsistentGroundTruth,
+        }),
+        Ok(Validity::Unknown(reason)) => Err(SimplificationError::SmtPredicate {
+            predicate: Box::new(simplified),
+            error: SmtError::Unknown(reason),
+        }),
+        Err(error) => Err(SimplificationError::SmtPredicate {
+            predicate: Box::new(simplified),
+            error,
+        }),
     }
 }
 
@@ -375,27 +383,54 @@ fn simplify_predicate_with_budget(
             active_conditions,
             solver,
         )
-        .map(|result| result.term)
     };
     let simplified = match predicate {
         Predicate::True => Predicate::True,
         Predicate::False => Predicate::False,
-        Predicate::Term(term) => Predicate::Term(simplify_term(term)?),
+        Predicate::Term(term) => {
+            let simplified = simplify_term(term)?;
+            with_simplification_constraints(
+                simplified.constraints,
+                Predicate::Term(simplified.term),
+            )
+        }
         Predicate::Equals(left, right) => {
-            Predicate::Equals(simplify_term(left)?, simplify_term(right)?)
+            let left = simplify_term(left)?;
+            let right = simplify_term(right)?;
+            let mut constraints = left.constraints;
+            constraints.extend(right.constraints);
+            let equality = normalize_hooked_boolean_predicate(
+                definition,
+                Predicate::Equals(left.term, right.term),
+            );
+            with_simplification_constraints(constraints, equality)
         }
         Predicate::Ceil(term) => {
-            let term = simplify_term(term)?;
-            let unchanged = Predicate::Ceil(term.clone());
-            let expanded = ceil_term(definition, &term);
+            let simplified = simplify_term(term)?;
+            let unchanged = Predicate::Ceil(simplified.term.clone());
+            let expanded = ceil_term(definition, &simplified.term);
             if expanded.as_slice() == [unchanged.clone()] {
-                unchanged
+                with_simplification_constraints(simplified.constraints, unchanged)
             } else {
-                Predicate::And(expanded)
+                let mut constraints = simplified.constraints;
+                constraints.extend(expanded);
+                Predicate::And(constraints)
             }
         }
-        Predicate::Floor(term) => Predicate::Floor(simplify_term(term)?),
-        Predicate::In(left, right) => Predicate::In(simplify_term(left)?, simplify_term(right)?),
+        Predicate::Floor(term) => {
+            let simplified = simplify_term(term)?;
+            with_simplification_constraints(
+                simplified.constraints,
+                Predicate::Floor(simplified.term),
+            )
+        }
+        Predicate::In(left, right) => {
+            let left = simplify_term(left)?;
+            let right = simplify_term(right)?;
+            let mut constraints = left.constraints;
+            constraints.extend(right.constraints);
+            with_simplification_constraints(constraints, Predicate::In(left.term, right.term))
+        }
         Predicate::Not(inner) => {
             let mut inner_remaining = *remaining;
             Predicate::Not(Box::new(simplify_predicate_with_budget(
@@ -551,6 +586,18 @@ fn simplify_predicate_with_budget(
         active_conditions,
         solver,
     )
+}
+
+fn with_simplification_constraints(
+    mut constraints: Vec<Predicate>,
+    predicate: Predicate,
+) -> Predicate {
+    if constraints.is_empty() {
+        predicate
+    } else {
+        constraints.push(predicate);
+        Predicate::And(constraints)
+    }
 }
 
 fn conjunctively_contains(predicates: &[Predicate], target: &Predicate) -> bool {
@@ -912,19 +959,26 @@ fn normalize_hooked_boolean_predicate(
             _ => {}
         }
     }
-    let negate = match symbol.attributes.hook.as_deref() {
-        Some("KEQUAL.eq") => !value,
-        Some("KEQUAL.ne") => value,
+    let (negate, unwrap_k_sequence) = match symbol.attributes.hook.as_deref() {
+        Some("KEQUAL.eq") => (!value, true),
+        Some("KEQUAL.ne") => (value, true),
+        Some("INT.eq") => (!value, false),
+        Some("INT.ne") => (value, false),
         _ => return Predicate::Equals(left, right),
     };
     let [left_operand, right_operand] = arguments.as_slice() else {
         return Predicate::Equals(left, right);
     };
-    let (Some(left_operand), Some(right_operand)) = (
-        k_sequence_item(left_operand),
-        k_sequence_item(right_operand),
-    ) else {
-        return Predicate::Equals(left, right);
+    let (left_operand, right_operand) = if unwrap_k_sequence {
+        let (Some(left_operand), Some(right_operand)) = (
+            k_sequence_item(left_operand),
+            k_sequence_item(right_operand),
+        ) else {
+            return Predicate::Equals(left, right);
+        };
+        (left_operand, right_operand)
+    } else {
+        (left_operand, right_operand)
     };
     let equality = Predicate::Equals(left_operand.clone(), right_operand.clone());
     let condition = if negate {
@@ -1021,8 +1075,15 @@ pub(crate) fn normalize_predicate(predicate: Predicate) -> Predicate {
                 match normalize_predicate(predicate) {
                     Predicate::True => {}
                     Predicate::False => return Predicate::False,
-                    Predicate::And(nested) => normalized.extend(nested),
-                    predicate => normalized.push(predicate),
+                    Predicate::And(nested) => {
+                        for predicate in nested {
+                            if !normalized.contains(&predicate) {
+                                normalized.push(predicate);
+                            }
+                        }
+                    }
+                    predicate if !normalized.contains(&predicate) => normalized.push(predicate),
+                    _ => {}
                 }
             }
             match normalized.len() {
@@ -2003,6 +2064,39 @@ mod tests {
     }
 
     #[test]
+    fn predicate_term_simplification_preserves_result_constraints() {
+        let definition = definition(
+            r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(
+                        X:SortS{},
+                        \equals{SortS{}, SortS{}}(X:SortS{}, Y:SortS{})
+                    )
+                )
+            ) [label{}("constrained"), simplification{}()]
+            "#,
+        );
+        let value = term(&definition, r#"\dv{SortS{}}("value")"#);
+        let input = term(&definition, r#"f{}(\dv{SortS{}}("value"))"#);
+        let term_result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+        let predicate_result = simplify_predicate_with_solver(
+            &definition,
+            &Predicate::Equals(input, value),
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(term_result.constraints.len(), 1);
+        assert_eq!(predicate_result, term_result.constraints[0]);
+    }
+
+    #[test]
     fn evaluates_hooked_functions_bottom_up() {
         let syntax = parse_definition(
             r#"[]
@@ -2310,6 +2404,50 @@ mod tests {
             Predicate::And(vec![
                 Predicate::Not(Box::new(Predicate::Equals(x.clone(), y.clone()))),
                 Predicate::Not(Box::new(Predicate::Equals(gx, gy))),
+            ])
+        );
+    }
+
+    #[test]
+    fn normalizes_symbolic_integer_equality_and_keeps_operand_definedness() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortBool{} [hasDomainValues{}()]
+                sort SortInt{} [hasDomainValues{}()]
+                symbol eq{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.eq")]
+                symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.pow")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let variable = term(&definition, "X:SortInt{}");
+        let power = term(&definition, r#"pow{}(X:SortInt{}, \dv{SortInt{}}("256"))"#);
+        let predicate = Predicate::Equals(
+            Term::domain_value(Sort::simple("SortBool"), "true"),
+            term(
+                &definition,
+                r#"eq{}(X:SortInt{}, pow{}(X:SortInt{}, \dv{SortInt{}}("256")))"#,
+            ),
+        );
+
+        let result = simplify_predicate_with_solver(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(
+            result,
+            Predicate::And(vec![
+                Predicate::Ceil(power.clone()),
+                Predicate::Equals(variable, power),
             ])
         );
     }
@@ -2704,9 +2842,10 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(SimplificationError::SmtPredicate(SmtError::Unknown(
-                "incomplete arithmetic".into()
-            )))
+            Err(SimplificationError::SmtPredicate {
+                predicate: Box::new(predicate),
+                error: SmtError::Unknown("incomplete arithmetic".into()),
+            })
         );
     }
 }
