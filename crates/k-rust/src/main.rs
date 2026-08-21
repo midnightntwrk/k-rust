@@ -61,6 +61,8 @@ use k_rust_backend::{
     term::{Name as BackendName, Sort as BackendSort, Term, Variable},
 };
 
+mod rpc;
+
 fn main() {
     let cli = Cli::parse();
     if let Err(error) = run(cli) {
@@ -78,6 +80,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         Command::KoreSimplify(options) => kore_simplify(options),
         Command::KoreGetModel(options) => kore_get_model(options),
         Command::KoreImplies(options) => kore_implies(options),
+        Command::KoreRpc(options) => kore_rpc(options),
         Command::KoreMatchDisjunction(options) => kore_match_disjunction(options),
         Command::Kprove(options) => kprove(options.into()),
     }
@@ -111,6 +114,8 @@ enum Command {
     KoreGetModel(KoreGetModelArgs),
     /// Check implication between two constrained KORE patterns.
     KoreImplies(KoreImpliesArgs),
+    /// Serve the in-process backend over KORE's raw-socket JSON-RPC protocol.
+    KoreRpc(KoreRpcArgs),
     /// Match a constrained KORE pattern against a disjunction of configurations.
     KoreMatchDisjunction(KoreMatchDisjunctionArgs),
     /// Compile and prove modal reachability claims with the in-process Rust backend.
@@ -423,6 +428,25 @@ struct KoreImpliesArgs {
     /// Write the JSON result to this file instead of standard output.
     #[arg(short, long, value_name = "OUTPUT_JSON")]
     output: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct KoreRpcArgs {
+    /// Compiled textual KORE definition.
+    #[arg(value_name = "DEFINITION_KORE")]
+    definition: PathBuf,
+
+    /// Default module used by requests that do not select one.
+    #[arg(short = 'm', long, value_name = "MODULE")]
+    module: String,
+
+    /// TCP port on which the raw JSON-RPC server listens. Use 0 for an ephemeral port.
+    #[arg(long = "server-port", value_name = "PORT")]
+    port: u16,
+
+    /// Interface on which the server listens.
+    #[arg(long, default_value = "127.0.0.1", value_name = "ADDRESS")]
+    host: String,
 }
 
 #[derive(Debug, Args)]
@@ -957,6 +981,23 @@ fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
         println!("{output}");
     }
     Ok(())
+}
+
+fn kore_rpc(options: KoreRpcArgs) -> Result<(), Box<dyn Error>> {
+    let definition_source = fs::read_to_string(&options.definition)?;
+    let definition = parse_kore_definition(&definition_source).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "could not parse KORE definition {}: {error}",
+                options.definition.display()
+            ),
+        )
+    })?;
+    rpc::serve(
+        BackendSession::new(definition, options.module),
+        (options.host.as_str(), options.port),
+    )
 }
 
 fn kore_simplify(options: KoreSimplifyArgs) -> Result<(), Box<dyn Error>> {
@@ -2494,6 +2535,30 @@ mod tests {
         assert_eq!(options.antecedent, Path::new("left.json"));
         assert_eq!(options.consequent, Path::new("right.json"));
         assert_eq!(options.output.as_deref(), Some(Path::new("result.json")));
+    }
+
+    #[test]
+    fn parses_kore_rpc_options() {
+        let cli = Cli::try_parse_from([
+            "krust",
+            "kore-rpc",
+            "definition.kore",
+            "--module",
+            "MAIN",
+            "--server-port",
+            "31337",
+            "--host",
+            "0.0.0.0",
+        ])
+        .unwrap();
+        let Command::KoreRpc(options) = cli.command else {
+            panic!("expected kore-rpc command");
+        };
+
+        assert_eq!(options.definition, Path::new("definition.kore"));
+        assert_eq!(options.module, "MAIN");
+        assert_eq!(options.port, 31_337);
+        assert_eq!(options.host, "0.0.0.0");
     }
 
     #[test]

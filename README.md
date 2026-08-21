@@ -196,6 +196,18 @@ as module IDs for the command, while the backend also assigns the KORE RPC-compa
 krust kore-exec definition.kore --module NEW --add-module new-rules.kore --pattern pgm.json
 ```
 
+Serve that same in-process backend through the KORE JSON-RPC 2.0 protocol used by K tooling:
+
+```console
+krust kore-rpc definition.kore --module MAIN --server-port 31337
+```
+
+The service uses newline-delimited JSON over a persistent raw TCP socket (not HTTP). Requests may
+call `execute`, `simplify`, `implies`, `add-module`, and `get-model`; module additions remain visible
+to later requests and connections for the lifetime of the server. It binds to `127.0.0.1` by
+default; pass `--host 0.0.0.0` to expose it on every interface or `--server-port 0` to request an
+ephemeral port.
+
 Simplify an arbitrary text, KORE JSON v1, or binary KORE pattern. Unlike execution, this accepts
 pure ML predicates without requiring a configuration term:
 
@@ -431,6 +443,8 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
   concrete parameters normally supplied by parser inference.
 - Emit the optional legacy priority aliases supported by `ModuleToKORE` compatibility modes.
 - Measure Z3-path usage across a substantially larger real-definition corpus.
+- Complete KORE RPC parity for cancellation, definedness assumptions, failed-rewrite and legacy
+  Haskell logging, and separate predicate/substitution projection from combined backend constraints.
 - Revisit package splitting only if real build or release pressure justifies it.
 
 ## License
