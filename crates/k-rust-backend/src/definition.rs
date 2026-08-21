@@ -202,6 +202,7 @@ pub enum DefinitionError {
     MalformedCollection(String),
     MalformedAlias(String),
     AliasCycle(Vec<String>),
+    MacroOrAliasInImplication(String),
     ExpectedTerm(&'static str),
     EmptyAssociativeApplication(String),
     Axiom(AxiomError),
@@ -497,6 +498,88 @@ impl BackendDefinition {
             internalize_rule_model_predicate(self, &pattern, sort_variables)?
                 .map(|predicate| (predicate, result_sort)),
         )
+    }
+
+    /// Internalize one side of an implication, peeling its leading existential binders.
+    pub fn internalize_implication_pattern(
+        &self,
+        pattern: &kore::Pattern,
+        sort_variables: &[Name],
+    ) -> Result<(Pattern, BTreeSet<Variable>), DefinitionError> {
+        self.validate_implication_pattern(pattern)?;
+        let pattern = expand_aliases(pattern, &self.aliases)?;
+        let mut body = &pattern;
+        let mut existentials = BTreeSet::new();
+        while let kore::Pattern::Exists {
+            variable,
+            body: next,
+            ..
+        } = body
+        {
+            existentials.insert(self.internalize_variable(variable, sort_variables)?);
+            body = next;
+        }
+        let (term, constraints) = internalize_rule_pattern(self, body, sort_variables)?;
+        Ok((Pattern { term, constraints }, existentials))
+    }
+
+    /// Reject syntax that the implication RPC boundary does not permit.
+    pub fn validate_implication_pattern(
+        &self,
+        pattern: &kore::Pattern,
+    ) -> Result<(), DefinitionError> {
+        if let Some(name) = self.macro_or_alias_in_pattern(pattern) {
+            Err(DefinitionError::MacroOrAliasInImplication(name))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn macro_or_alias_in_pattern(&self, pattern: &kore::Pattern) -> Option<String> {
+        let mut pending = vec![pattern];
+        while let Some(pattern) = pending.pop() {
+            match pattern {
+                kore::Pattern::Application { symbol, arguments }
+                | kore::Pattern::AssociativeApplication {
+                    symbol, arguments, ..
+                } => {
+                    if self.aliases.contains_key(&symbol.name)
+                        || self
+                            .symbols
+                            .get(symbol.name.as_str())
+                            .is_some_and(|symbol| symbol.attributes.macro_or_alias)
+                    {
+                        return Some(symbol.name.clone());
+                    }
+                    pending.extend(arguments);
+                }
+                kore::Pattern::And { arguments, .. } | kore::Pattern::Or { arguments, .. } => {
+                    pending.extend(arguments);
+                }
+                kore::Pattern::Not { argument, .. }
+                | kore::Pattern::Next { argument, .. }
+                | kore::Pattern::Ceil { argument, .. }
+                | kore::Pattern::Floor { argument, .. } => pending.push(argument),
+                kore::Pattern::Implies { left, right, .. }
+                | kore::Pattern::Iff { left, right, .. }
+                | kore::Pattern::Rewrites { left, right, .. }
+                | kore::Pattern::Equals { left, right, .. }
+                | kore::Pattern::In { left, right, .. } => {
+                    pending.push(left);
+                    pending.push(right);
+                }
+                kore::Pattern::Exists { body, .. }
+                | kore::Pattern::Forall { body, .. }
+                | kore::Pattern::Mu { body, .. }
+                | kore::Pattern::Nu { body, .. } => pending.push(body),
+                kore::Pattern::String(_)
+                | kore::Pattern::Variable(_)
+                | kore::Pattern::Top { .. }
+                | kore::Pattern::Bottom { .. }
+                | kore::Pattern::DomainValue { .. } => {}
+            }
+        }
+        None
     }
 
     /// Internalize the alternatives of a top-level KORE disjunction.
@@ -1704,6 +1787,42 @@ mod tests {
             BackendDefinition::internalize(&syntax, "MAIN").unwrap_err(),
             DefinitionError::AliasCycle(vec!["loop".into(), "loop".into()])
         );
+    }
+
+    #[test]
+    fn implication_patterns_reject_aliases_and_macros() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortValue{} []
+                symbol value{}() : SortValue{} [constructor{}()]
+                symbol macroValue{}() : SortValue{} [constructor{}(), macro{}()]
+                alias identity{}(SortValue{}) : SortValue{}
+                    where identity{}(X:SortValue{}) := X:SortValue{} []
+            endmodule []
+        "#})
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+
+        for (source, expected) in [
+            (
+                "identity{}(value{}())",
+                DefinitionError::MacroOrAliasInImplication("identity".into()),
+            ),
+            (
+                "macroValue{}()",
+                DefinitionError::MacroOrAliasInImplication("macroValue".into()),
+            ),
+        ] {
+            let pattern = parse_pattern(source).expect("pattern should parse");
+            assert_eq!(
+                definition
+                    .internalize_implication_pattern(&pattern, &[])
+                    .unwrap_err(),
+                expected
+            );
+        }
     }
 
     #[test]

@@ -87,8 +87,8 @@ Implemented end to end:
   simplification, implication and reachability checks, builtin collections, Z3
   satisfiability/validity queries, and satisfying-model extraction.
 - Native `krust kast`, `krust kcompile`, `krust kore-exec`, `krust kore-simplify`,
-  `krust kore-get-model`, `krust kore-match-disjunction`, and experimental `krust krun` and
-  `krust kprove` commands.
+  `krust kore-get-model`, `krust kore-implies`, `krust kore-match-disjunction`, and experimental
+  `krust krun` and `krust kprove` commands.
 - Bundled builtin sources pinned to K v7.1.337, so an installed CLI does not require a separate K
   source checkout. Explicit sources always take precedence.
 - Native, portable, and `wasm32-unknown-unknown` build gates.
@@ -198,6 +198,14 @@ distinguishes `Sat`, `Unsat`, and `Unknown` and includes a typed KORE substituti
 ```console
 krust kore-get-model definition.kore --module MAIN --pattern predicate.json
 krust kore-get-model definition.kore --module MAIN --pattern predicate.kore --output model.json
+```
+
+Check whether one constrained KORE pattern implies another. The JSON result includes the original
+implication, its `valid`, `invalid`, or `unknown` status, and any matching condition:
+
+```console
+krust kore-implies definition.kore --module MAIN \
+  --antecedent left.json --consequent right.json
 ```
 
 Match a constrained KORE pattern against every alternative in a disjunction of configurations:

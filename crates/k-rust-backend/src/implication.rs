@@ -461,7 +461,7 @@ fn discharge_consequent(
             return Ok(if had_match_remainder {
                 invalid()
             } else {
-                condition_invalid()
+                condition_invalid_with_substitution(substitution)
             });
         }
         Truth::Unknown => {}
@@ -471,7 +471,7 @@ fn discharge_consequent(
         match solver.check_predicates(&antecedent.constraints, &Substitution::new(), &obligations) {
             Ok(Validity::Valid) => valid(substitution),
             Ok(Validity::Invalid) if had_match_remainder => partial(substitution, obligations),
-            Ok(Validity::Invalid) => condition_invalid(),
+            Ok(Validity::Invalid) => condition_invalid_with_substitution(substitution),
             Ok(Validity::InconsistentGroundTruth) => vacuously_valid(),
             Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) if had_match_remainder => {
                 partial(substitution, obligations)
@@ -630,6 +630,20 @@ fn condition_invalid() -> ImplicationResult {
     ImplicationResult {
         status: ImplicationStatus::Invalid,
         condition: None,
+        failure: Some(ImplicationFailure::ConsequentCondition),
+    }
+}
+
+fn condition_invalid_with_substitution(substitution: Substitution) -> ImplicationResult {
+    if substitution.is_empty() {
+        return condition_invalid();
+    }
+    ImplicationResult {
+        status: ImplicationStatus::Invalid,
+        condition: Some(ImplicationCondition {
+            predicates: Vec::new(),
+            substitution,
+        }),
         failure: Some(ImplicationFailure::ConsequentCondition),
     }
 }
@@ -837,6 +851,41 @@ mod tests {
                 "X",
                 Sort::simple("SortInt"),
             ))]
+        );
+    }
+
+    #[test]
+    fn invalid_consequent_conditions_retain_the_match_substitution() {
+        let definition = definition();
+        let antecedent = pattern(&definition, "X:SortInt{}");
+        let mut consequent = pattern(&definition, "Y:SortInt{}");
+        let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
+        let y = crate::term::Variable::new("Y", Sort::simple("SortInt"));
+        consequent
+            .constraints
+            .push(Predicate::Not(Box::new(Predicate::Equals(
+                Term::variable(x.clone()),
+                Term::variable(y.clone()),
+            ))));
+
+        let result = check_implication_with_existentials(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &BTreeSet::from([y]),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(result.status, ImplicationStatus::Invalid);
+        let condition = result
+            .condition
+            .expect("the successful term match is retained");
+        assert!(condition.predicates.is_empty());
+        assert_eq!(
+            condition.substitution.values().collect::<Vec<_>>(),
+            [&Term::variable(x)]
         );
     }
 

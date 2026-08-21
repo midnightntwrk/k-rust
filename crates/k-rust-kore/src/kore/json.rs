@@ -47,6 +47,21 @@ struct Envelope {
 
 pub fn from_str(input: &str) -> Result<Pattern, Error> {
     let envelope: Envelope = serde_json::from_str(input)?;
+    decode_envelope(envelope)
+}
+
+/// Decode KORE JSON without serde_json's nesting limit.
+///
+/// Callers must provide enough stack for deeply nested syntax. The regular [`from_str`] remains
+/// bounded for untrusted and stack-constrained environments.
+pub fn from_str_unbounded(input: &str) -> Result<Pattern, Error> {
+    let mut deserializer = serde_json::Deserializer::from_str(input);
+    deserializer.disable_recursion_limit();
+    let envelope = Envelope::deserialize(&mut deserializer)?;
+    decode_envelope(envelope)
+}
+
+fn decode_envelope(envelope: Envelope) -> Result<Pattern, Error> {
     if envelope.format != FORMAT {
         return Err(Error::UnsupportedFormat(envelope.format));
     }
@@ -636,5 +651,18 @@ mod tests {
         assert!(encoded.contains(r#""patterns":[]"#));
         assert!(!encoded.contains(r#""first""#));
         assert_eq!(from_str(&encoded).unwrap(), pattern);
+    }
+
+    #[test]
+    fn explicitly_decodes_deep_kore_json_without_the_default_limit() {
+        let sort = r#"{"tag":"SortApp","name":"SortK","args":[]}"#;
+        let mut term = format!(r#"{{"tag":"Top","sort":{sort}}}"#);
+        for _ in 0..140 {
+            term = format!(r#"{{"tag":"Not","sort":{sort},"arg":{term}}}"#);
+        }
+        let source = format!(r#"{{"format":"KORE","version":1,"term":{term}}}"#);
+
+        assert!(from_str(&source).is_err());
+        assert!(from_str_unbounded(&source).is_ok());
     }
 }

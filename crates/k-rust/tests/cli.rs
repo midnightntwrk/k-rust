@@ -622,6 +622,54 @@ endmodule []
 }
 
 #[test]
+fn kore_implies_returns_the_matching_condition() {
+    let (root, _) = fixture();
+    let definition = root.join("definition.kore");
+    let antecedent = root.join("antecedent.kore");
+    let consequent = root.join("consequent.kore");
+    fs::write(
+        &definition,
+        "[]\nmodule MAIN\n  sort SortK{} []\nendmodule []\n",
+    )
+    .unwrap();
+    fs::write(&antecedent, "X:SortK{}").unwrap();
+    fs::write(&consequent, r"\exists{SortK{}}(Z:SortK{}, Z:SortK{})").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-implies",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--antecedent",
+            antecedent.to_str().unwrap(),
+            "--consequent",
+            consequent.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(output["status"], "valid");
+    assert_eq!(
+        output["condition"]["substitution"]["term"]["first"]["name"],
+        "X"
+    );
+    assert_eq!(
+        output["condition"]["substitution"]["term"]["second"]["name"],
+        "Z"
+    );
+    assert_eq!(output["condition"]["predicate"]["term"]["tag"], "Top");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kore_match_disjunction_matches_each_configuration_and_writes_its_result() {
     let (root, _) = fixture();
     let definition = root.join("definition.kore");

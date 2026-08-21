@@ -23,7 +23,7 @@ use k_rust::{
         ast::{
             Attributes as KoreAttributes, Definition as KoreDefinition, Module as KoreModule,
             Pattern as KorePattern, Sentence as KoreSentence, Sort as KoreSort,
-            Symbol as KoreSymbol,
+            Symbol as KoreSymbol, Variable as KoreVariable,
         },
         binary as kore_binary, json as kore_json,
         parser::parse_definition as parse_kore_definition,
@@ -38,6 +38,10 @@ use k_rust_backend::{
     builtin::BuiltinEffect,
     definition::BackendDefinition,
     externalize,
+    implication::{
+        ImplicationCondition, ImplicationResult, ImplicationStatus,
+        check_implication_with_existentials,
+    },
     proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
     rewrite::{
         ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
@@ -51,7 +55,7 @@ use k_rust_backend::{
     simplify::{SimplificationOptions, simplify_and_decide_predicate_with_solver},
     smt::{ModelResult, SmtError, SmtSolver, Z3Solver},
     substitution::Substitution,
-    term::{Sort as BackendSort, Term, Variable},
+    term::{Name as BackendName, Sort as BackendSort, Term, Variable},
 };
 
 fn main() {
@@ -70,6 +74,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         Command::KoreExec(options) => kore_exec(options),
         Command::KoreSimplify(options) => kore_simplify(options),
         Command::KoreGetModel(options) => kore_get_model(options),
+        Command::KoreImplies(options) => kore_implies(options),
         Command::KoreMatchDisjunction(options) => kore_match_disjunction(options),
         Command::Kprove(options) => kprove(options.into()),
     }
@@ -101,6 +106,8 @@ enum Command {
     KoreSimplify(KoreSimplifyArgs),
     /// Obtain a satisfying model for the predicate portion of a KORE pattern.
     KoreGetModel(KoreGetModelArgs),
+    /// Check implication between two constrained KORE patterns.
+    KoreImplies(KoreImpliesArgs),
     /// Match a constrained KORE pattern against a disjunction of configurations.
     KoreMatchDisjunction(KoreMatchDisjunctionArgs),
     /// Compile and prove modal reachability claims with the in-process Rust backend.
@@ -358,6 +365,29 @@ struct KoreGetModelArgs {
     /// Text, JSON v1, or binary KORE pattern whose predicate should be solved.
     #[arg(short = 'p', long, value_name = "PATTERN_KORE")]
     pattern: PathBuf,
+
+    /// Write the JSON result to this file instead of standard output.
+    #[arg(short, long, value_name = "OUTPUT_JSON")]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct KoreImpliesArgs {
+    /// Compiled textual KORE definition.
+    #[arg(value_name = "DEFINITION_KORE")]
+    definition: PathBuf,
+
+    /// Module to verify and use for implication.
+    #[arg(short = 'm', long, value_name = "MODULE")]
+    module: String,
+
+    /// Antecedent text, JSON v1, or binary KORE pattern.
+    #[arg(long, value_name = "PATTERN_KORE")]
+    antecedent: PathBuf,
+
+    /// Consequent text, JSON v1, or binary KORE pattern.
+    #[arg(long, value_name = "PATTERN_KORE")]
+    consequent: PathBuf,
 
     /// Write the JSON result to this file instead of standard output.
     #[arg(short, long, value_name = "OUTPUT_JSON")]
@@ -993,6 +1023,388 @@ fn model_substitution(
     Some(result)
 }
 
+fn kore_implies(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
+    // Real compiled configurations can contain patterns hundreds of nodes deep. Keep the entire
+    // decode/verify/drop lifecycle on a suitably sized stack instead of overflowing the platform's
+    // relatively small main-thread stack.
+    let worker = std::thread::Builder::new()
+        .name("krust-kore-implies".into())
+        .stack_size(64 * 1024 * 1024)
+        .spawn(move || kore_implies_inner(options).map_err(|error| error.to_string()))?;
+    match worker.join() {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(io::Error::other(error).into()),
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
+fn kore_implies_inner(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
+    let definition_source = fs::read_to_string(&options.definition)?;
+    let definition = parse_kore_definition(&definition_source).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "could not parse KORE definition {}: {error}",
+                options.definition.display()
+            ),
+        )
+    })?;
+    let backend = BackendDefinition::internalize(&definition, &options.module)?;
+    let antecedent_syntax = load_kore_syntax(&options.antecedent, "antecedent")?;
+    let consequent_syntax = load_kore_syntax(&options.consequent, "consequent")?;
+    backend
+        .validate_implication_pattern(&antecedent_syntax)
+        .map_err(|error| io::Error::other(format!("invalid implication antecedent: {error}")))?;
+    backend
+        .validate_implication_pattern(&consequent_syntax)
+        .map_err(|error| io::Error::other(format!("invalid implication consequent: {error}")))?;
+    reject_non_singleton_implication_pattern(&antecedent_syntax, "antecedent")?;
+    reject_non_singleton_implication_pattern(&consequent_syntax, "consequent")?;
+    reject_implication_variable_capture(&antecedent_syntax, &consequent_syntax)?;
+
+    let sort_variables = implication_sort_variables(&antecedent_syntax, &consequent_syntax);
+    let (antecedent, antecedent_existentials) = backend
+        .internalize_implication_pattern(&antecedent_syntax, &sort_variables)
+        .map_err(|error| io::Error::other(format!("invalid implication antecedent: {error}")))?;
+    let result_sort = antecedent.term.sort();
+    let result = if matches!(strip_exists(&consequent_syntax), KorePattern::Not { .. }) {
+        ImplicationResult {
+            status: ImplicationStatus::Invalid,
+            condition: None,
+            failure: None,
+        }
+    } else {
+        let (consequent, consequent_existentials) = backend
+            .internalize_implication_pattern(&consequent_syntax, &sort_variables)
+            .map_err(|error| {
+                io::Error::other(format!("invalid implication consequent: {error}"))
+            })?;
+        if antecedent.term.sort() != consequent.term.sort() {
+            return Err(io::Error::other(format!(
+                "antecedent and consequent sorts differ: {:?} and {:?}",
+                antecedent.term.sort(),
+                consequent.term.sort()
+            ))
+            .into());
+        }
+        let solver = Z3Solver::new(&backend)
+            .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
+        check_implication_with_existentials(
+            &backend,
+            &antecedent,
+            &antecedent_existentials,
+            &consequent,
+            &consequent_existentials,
+            &solver,
+        )?
+    };
+    let output = implication_output(&antecedent_syntax, &consequent_syntax, &result_sort, result)?;
+    if let Some(path) = options.output {
+        fs::write(path, output)?;
+    } else {
+        println!("{output}");
+    }
+    Ok(())
+}
+
+fn implication_output(
+    antecedent: &KorePattern,
+    consequent: &KorePattern,
+    result_sort: &BackendSort,
+    result: ImplicationResult,
+) -> Result<String, Box<dyn Error>> {
+    let status = match result.status {
+        ImplicationStatus::Valid => "valid",
+        ImplicationStatus::Invalid => "invalid",
+        ImplicationStatus::Indeterminate => "unknown",
+    };
+    let implication = KorePattern::Implies {
+        sort: externalize::sort(result_sort),
+        left: Box::new(antecedent.clone()),
+        right: Box::new(consequent.clone()),
+    };
+    let mut output = serde_json::json!({
+        "status": status,
+        "implication": kore_json_value(&implication)?,
+    });
+    if let Some(condition) = result.condition {
+        output["condition"] = implication_condition_output(&condition, result_sort)?;
+    }
+    Ok(serde_json::to_string_pretty(&output)?)
+}
+
+fn implication_condition_output(
+    condition: &ImplicationCondition,
+    result_sort: &BackendSort,
+) -> Result<serde_json::Value, Box<dyn Error>> {
+    let substitution = implication_substitution(&condition.substitution, result_sort)
+        .unwrap_or_else(|| KorePattern::Top {
+            sort: externalize::sort(result_sort),
+        });
+    let predicate = match condition.predicates.as_slice() {
+        [] => KorePattern::Top {
+            sort: externalize::sort(result_sort),
+        },
+        [predicate] => externalize::predicate_pattern(predicate, result_sort),
+        predicates => KorePattern::And {
+            sort: externalize::sort(result_sort),
+            arguments: predicates
+                .iter()
+                .map(|predicate| externalize::predicate_pattern(predicate, result_sort))
+                .collect(),
+        },
+    };
+    Ok(serde_json::json!({
+        "substitution": kore_json_value(&substitution)?,
+        "predicate": kore_json_value(&predicate)?,
+    }))
+}
+
+fn implication_substitution(
+    substitution: &Substitution,
+    result_sort: &BackendSort,
+) -> Option<KorePattern> {
+    let mut bindings = substitution.iter().collect::<Vec<_>>();
+    bindings.sort_by_key(|(variable, _)| (variable.name.clone(), variable.sort.clone()));
+    let mut bindings = bindings.into_iter().map(|(variable, value)| {
+        let mut output_variable = variable.clone();
+        if let Some((name, suffix)) = variable.name.as_ref().rsplit_once("!exists")
+            && suffix.chars().all(|character| character.is_ascii_digit())
+        {
+            output_variable.name = BackendName::from(name);
+        }
+        KorePattern::Equals {
+            operand_sort: externalize::sort(&variable.sort),
+            result_sort: externalize::sort(result_sort),
+            left: Box::new(externalize::term(value)),
+            right: Box::new(externalize::term(&Term::variable(output_variable))),
+        }
+    });
+    let mut result = bindings.next()?;
+    for binding in bindings {
+        result = KorePattern::And {
+            sort: externalize::sort(result_sort),
+            arguments: vec![result, binding],
+        };
+    }
+    Some(result)
+}
+
+fn kore_json_value(pattern: &KorePattern) -> Result<serde_json::Value, Box<dyn Error>> {
+    Ok(serde_json::from_str(&kore_json::to_string(pattern)?)?)
+}
+
+fn reject_non_singleton_implication_pattern(
+    pattern: &KorePattern,
+    side: &str,
+) -> Result<(), Box<dyn Error>> {
+    match strip_exists(pattern) {
+        KorePattern::Or { arguments, .. } if arguments.len() != 1 => Err(io::Error::other(
+            format!("implication {side} must contain exactly one pattern"),
+        )
+        .into()),
+        KorePattern::Mu { .. } | KorePattern::Nu { .. } if side == "antecedent" => {
+            Err(io::Error::other("implication antecedent must be function-like").into())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn strip_exists(mut pattern: &KorePattern) -> &KorePattern {
+    while let KorePattern::Exists { body, .. } = pattern {
+        pattern = body;
+    }
+    pattern
+}
+
+fn implication_sort_variables(
+    antecedent: &KorePattern,
+    consequent: &KorePattern,
+) -> Vec<BackendName> {
+    let mut variables = BTreeSet::new();
+    collect_pattern_sort_variables(antecedent, &mut variables);
+    collect_pattern_sort_variables(consequent, &mut variables);
+    variables.into_iter().map(BackendName::from).collect()
+}
+
+fn collect_sort_variables(sort: &KoreSort, output: &mut BTreeSet<String>) {
+    match sort {
+        KoreSort::Variable(name) => {
+            output.insert(name.clone());
+        }
+        KoreSort::Application { arguments, .. } => {
+            for argument in arguments {
+                collect_sort_variables(argument, output);
+            }
+        }
+    }
+}
+
+fn collect_pattern_sort_variables(pattern: &KorePattern, output: &mut BTreeSet<String>) {
+    let recurse =
+        |pattern, output: &mut BTreeSet<String>| collect_pattern_sort_variables(pattern, output);
+    match pattern {
+        KorePattern::String(_) => {}
+        KorePattern::Variable(variable) => collect_sort_variables(&variable.sort, output),
+        KorePattern::Application { symbol, arguments }
+        | KorePattern::AssociativeApplication {
+            symbol, arguments, ..
+        } => {
+            for sort in &symbol.sort_parameters {
+                collect_sort_variables(sort, output);
+            }
+            for argument in arguments {
+                recurse(argument, output);
+            }
+        }
+        KorePattern::Top { sort }
+        | KorePattern::Bottom { sort }
+        | KorePattern::Not { sort, .. }
+        | KorePattern::Next { sort, .. }
+        | KorePattern::And { sort, .. }
+        | KorePattern::Or { sort, .. }
+        | KorePattern::Rewrites { sort, .. }
+        | KorePattern::Implies { sort, .. }
+        | KorePattern::Iff { sort, .. }
+        | KorePattern::Exists { sort, .. }
+        | KorePattern::Forall { sort, .. } => collect_sort_variables(sort, output),
+        KorePattern::Mu { variable, .. } | KorePattern::Nu { variable, .. } => {
+            collect_sort_variables(&variable.sort, output);
+        }
+        KorePattern::Ceil {
+            operand_sort,
+            result_sort,
+            ..
+        }
+        | KorePattern::Floor {
+            operand_sort,
+            result_sort,
+            ..
+        }
+        | KorePattern::Equals {
+            operand_sort,
+            result_sort,
+            ..
+        }
+        | KorePattern::In {
+            operand_sort,
+            result_sort,
+            ..
+        } => {
+            collect_sort_variables(operand_sort, output);
+            collect_sort_variables(result_sort, output);
+        }
+        KorePattern::DomainValue { sort, .. } => collect_sort_variables(sort, output),
+    }
+    match pattern {
+        KorePattern::Not { argument, .. }
+        | KorePattern::Next { argument, .. }
+        | KorePattern::Ceil { argument, .. }
+        | KorePattern::Floor { argument, .. } => recurse(argument, output),
+        KorePattern::And { arguments, .. } | KorePattern::Or { arguments, .. } => {
+            for argument in arguments {
+                recurse(argument, output);
+            }
+        }
+        KorePattern::Rewrites { left, right, .. }
+        | KorePattern::Implies { left, right, .. }
+        | KorePattern::Iff { left, right, .. }
+        | KorePattern::Equals { left, right, .. }
+        | KorePattern::In { left, right, .. } => {
+            recurse(left, output);
+            recurse(right, output);
+        }
+        KorePattern::Exists { variable, body, .. }
+        | KorePattern::Forall { variable, body, .. }
+        | KorePattern::Mu { variable, body }
+        | KorePattern::Nu { variable, body } => {
+            collect_sort_variables(&variable.sort, output);
+            recurse(body, output);
+        }
+        _ => {}
+    }
+}
+
+fn reject_implication_variable_capture(
+    antecedent: &KorePattern,
+    consequent: &KorePattern,
+) -> Result<(), Box<dyn Error>> {
+    let mut antecedent_free = BTreeSet::new();
+    collect_free_kore_variables(antecedent, &mut BTreeSet::new(), &mut antecedent_free);
+    let mut captured = Vec::new();
+    let mut body = consequent;
+    while let KorePattern::Exists {
+        variable,
+        body: next,
+        ..
+    } = body
+    {
+        if antecedent_free.contains(variable) {
+            captured.push(variable.name.clone());
+        }
+        body = next;
+    }
+    if captured.is_empty() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "consequent existentials capture antecedent variables: {}",
+            captured.join(", ")
+        ))
+        .into())
+    }
+}
+
+fn collect_free_kore_variables(
+    pattern: &KorePattern,
+    bound: &mut BTreeSet<KoreVariable>,
+    output: &mut BTreeSet<KoreVariable>,
+) {
+    match pattern {
+        KorePattern::Variable(variable) => {
+            if !bound.contains(variable) {
+                output.insert(variable.clone());
+            }
+        }
+        KorePattern::Application { arguments, .. }
+        | KorePattern::AssociativeApplication { arguments, .. }
+        | KorePattern::And { arguments, .. }
+        | KorePattern::Or { arguments, .. } => {
+            for argument in arguments {
+                collect_free_kore_variables(argument, bound, output);
+            }
+        }
+        KorePattern::Not { argument, .. }
+        | KorePattern::Next { argument, .. }
+        | KorePattern::Ceil { argument, .. }
+        | KorePattern::Floor { argument, .. } => {
+            collect_free_kore_variables(argument, bound, output);
+        }
+        KorePattern::Rewrites { left, right, .. }
+        | KorePattern::Implies { left, right, .. }
+        | KorePattern::Iff { left, right, .. }
+        | KorePattern::Equals { left, right, .. }
+        | KorePattern::In { left, right, .. } => {
+            collect_free_kore_variables(left, bound, output);
+            collect_free_kore_variables(right, bound, output);
+        }
+        KorePattern::Exists { variable, body, .. }
+        | KorePattern::Forall { variable, body, .. }
+        | KorePattern::Mu { variable, body }
+        | KorePattern::Nu { variable, body } => {
+            let inserted = bound.insert(variable.clone());
+            collect_free_kore_variables(body, bound, output);
+            if inserted {
+                bound.remove(variable);
+            }
+        }
+        KorePattern::String(_)
+        | KorePattern::Top { .. }
+        | KorePattern::Bottom { .. }
+        | KorePattern::DomainValue { .. } => {}
+    }
+}
+
 fn kore_match_disjunction(options: KoreMatchDisjunctionArgs) -> Result<(), Box<dyn Error>> {
     let definition_source = fs::read_to_string(&options.definition)?;
     let definition = parse_kore_definition(&definition_source).map_err(|error| {
@@ -1172,7 +1584,7 @@ fn decode_kore_syntax(
     let source = std::str::from_utf8(input)
         .map_err(|error| invalid_kore_pattern(path, purpose, "UTF-8", error))?;
     if source.trim_start().starts_with('{') {
-        kore_json::from_str(source)
+        kore_json::from_str_unbounded(source)
             .map_err(|error| invalid_kore_pattern(path, purpose, "JSON", error))
     } else {
         parse_kore_pattern(source)
@@ -1977,6 +2389,33 @@ mod tests {
         assert_eq!(options.module, "MAIN");
         assert_eq!(options.pattern, Path::new("state.json"));
         assert_eq!(options.output.as_deref(), Some(Path::new("model.json")));
+    }
+
+    #[test]
+    fn parses_kore_implies_options() {
+        let cli = Cli::try_parse_from([
+            "krust",
+            "kore-implies",
+            "definition.kore",
+            "--module",
+            "MAIN",
+            "--antecedent",
+            "left.json",
+            "--consequent",
+            "right.json",
+            "--output",
+            "result.json",
+        ])
+        .unwrap();
+        let Command::KoreImplies(options) = cli.command else {
+            panic!("expected kore-implies command");
+        };
+
+        assert_eq!(options.definition, Path::new("definition.kore"));
+        assert_eq!(options.module, "MAIN");
+        assert_eq!(options.antecedent, Path::new("left.json"));
+        assert_eq!(options.consequent, Path::new("right.json"));
+        assert_eq!(options.output.as_deref(), Some(Path::new("result.json")));
     }
 
     #[test]
