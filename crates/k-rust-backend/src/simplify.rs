@@ -1042,9 +1042,12 @@ fn normalize_hooked_boolean_predicate(
         ) else {
             return Predicate::Equals(left, right);
         };
-        (left_operand, right_operand)
+        let Some(aligned) = align_subsort_operands(definition, left_operand, right_operand) else {
+            return Predicate::Equals(left, right);
+        };
+        aligned
     } else {
-        (left_operand, right_operand)
+        (left_operand.clone(), right_operand.clone())
     };
     let equality = Predicate::Equals(left_operand.clone(), right_operand.clone());
     let condition = if negate {
@@ -1052,10 +1055,43 @@ fn normalize_hooked_boolean_predicate(
     } else {
         equality
     };
-    let mut predicates = ceil_term(definition, left_operand);
-    predicates.extend(ceil_term(definition, right_operand));
+    let mut predicates = ceil_term(definition, &left_operand);
+    predicates.extend(ceil_term(definition, &right_operand));
     predicates.push(condition);
     normalize_predicate(Predicate::And(predicates))
+}
+
+fn align_subsort_operands(
+    definition: &BackendDefinition,
+    left: &Term,
+    right: &Term,
+) -> Option<(Term, Term)> {
+    let left_sort = left.sort();
+    let right_sort = right.sort();
+    if left_sort == right_sort {
+        return Some((left.clone(), right.clone()));
+    }
+    if definition
+        .sort_graph
+        .check_subsort(&left_sort, &right_sort)
+        .ok()?
+    {
+        return Some((
+            Term::injection(left_sort, right_sort, left.clone()),
+            right.clone(),
+        ));
+    }
+    if definition
+        .sort_graph
+        .check_subsort(&right_sort, &left_sort)
+        .ok()?
+    {
+        return Some((
+            left.clone(),
+            Term::injection(right_sort, left_sort, right.clone()),
+        ));
+    }
+    None
 }
 
 fn bool_value(term: &Term) -> Option<bool> {
@@ -2562,6 +2598,77 @@ mod tests {
                 Predicate::Not(Box::new(Predicate::Equals(x.clone(), y.clone()))),
                 Predicate::Not(Box::new(Predicate::Equals(gx, gy))),
             ])
+        );
+    }
+
+    #[test]
+    fn aligns_singleton_k_equality_operands_at_their_declared_supersort() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortBool{} [hasDomainValues{}()]
+                sort SortSubElement{} []
+                sort SortElement{} []
+                sort SortKItem{} []
+                sort SortK{} []
+                symbol sub{}() : SortSubElement{} [constructor{}()]
+                symbol dotk{}() : SortK{} [constructor{}()]
+                symbol kseq{}(SortKItem{}, SortK{}) : SortK{}
+                    [constructor{}(), injective{}()]
+                symbol notEqual{}(SortK{}, SortK{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("KEQUAL.ne")]
+                symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+                axiom{R} \exists{R}(
+                    Value:SortElement{},
+                    \equals{SortElement{}, R}(
+                        Value:SortElement{},
+                        inj{SortSubElement{}, SortElement{}}(From:SortSubElement{})
+                    )
+                ) [subsort{SortSubElement{}, SortElement{}}()]
+                axiom{R} \exists{R}(
+                    Value:SortKItem{},
+                    \equals{SortKItem{}, R}(
+                        Value:SortKItem{},
+                        inj{SortElement{}, SortKItem{}}(From:SortElement{})
+                    )
+                ) [subsort{SortElement{}, SortKItem{}}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let element = term(&definition, "X:SortElement{}");
+        let sub_element = term(&definition, "sub{}()");
+        let condition = term(
+            &definition,
+            r#"notEqual{}(
+                kseq{}(inj{SortElement{}, SortKItem{}}(X:SortElement{}), dotk{}()),
+                kseq{}(inj{SortSubElement{}, SortKItem{}}(sub{}()), dotk{}())
+            )"#,
+        );
+
+        let result = simplify_predicate_with_solver(
+            &definition,
+            &Predicate::Equals(
+                condition,
+                Term::domain_value(Sort::simple("SortBool"), "true"),
+            ),
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(
+            result,
+            Predicate::Not(Box::new(Predicate::Equals(
+                element,
+                Term::injection(
+                    Sort::simple("SortSubElement"),
+                    Sort::simple("SortElement"),
+                    sub_element,
+                ),
+            )))
         );
     }
 
