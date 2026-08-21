@@ -40,11 +40,12 @@ use k_rust_backend::{
     rewrite::{ExecutionOptions, HaltReason, Pattern, execute_with_solver_and_observer},
     rule::Predicate,
     search::{
-        IncompleteSearch, PatternSearchResult, SearchOptions, SearchType,
-        search_pattern_with_solver,
+        IncompleteSearch, PatternMatch, PatternMatchError, PatternSearchResult, SearchOptions,
+        SearchType, match_disjunction, search_pattern_with_solver,
     },
     smt::{SmtError, Z3Solver},
-    term::{Term, Variable},
+    substitution::Substitution,
+    term::{Sort as BackendSort, Term, Variable},
 };
 
 fn main() {
@@ -61,6 +62,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         Command::Kast(options) => kast(options.into()),
         Command::Krun(options) => krun(options.into()),
         Command::KoreExec(options) => kore_exec(options),
+        Command::KoreMatchDisjunction(options) => kore_match_disjunction(options),
         Command::Kprove(options) => kprove(options.into()),
     }
 }
@@ -87,6 +89,8 @@ enum Command {
     Krun(KrunArgs),
     /// Execute an already compiled KORE definition with the in-process Rust backend.
     KoreExec(KoreExecArgs),
+    /// Match a constrained KORE pattern against a disjunction of configurations.
+    KoreMatchDisjunction(KoreMatchDisjunctionArgs),
     /// Compile and prove modal reachability claims with the in-process Rust backend.
     Kprove(KproveArgs),
 }
@@ -264,6 +268,29 @@ struct KoreExecArgs {
 
     #[command(flatten)]
     search: SearchArgs,
+}
+
+#[derive(Debug, Args)]
+struct KoreMatchDisjunctionArgs {
+    /// Compiled textual KORE definition.
+    #[arg(value_name = "DEFINITION_KORE")]
+    definition: PathBuf,
+
+    /// Module to verify and use for matching.
+    #[arg(short = 'm', long, value_name = "MODULE")]
+    module: String,
+
+    /// KORE file containing a disjunction of constrained configurations.
+    #[arg(long, value_name = "DISJUNCTION_KORE")]
+    disjunction: PathBuf,
+
+    /// Constrained KORE pattern to match against each configuration.
+    #[arg(long = "match", value_name = "PATTERN_KORE")]
+    pattern: PathBuf,
+
+    /// Write the resulting KORE predicate to this file instead of standard output.
+    #[arg(short, long, value_name = "OUTPUT_KORE")]
+    output: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -707,6 +734,59 @@ fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn kore_match_disjunction(options: KoreMatchDisjunctionArgs) -> Result<(), Box<dyn Error>> {
+    let definition_source = fs::read_to_string(&options.definition)?;
+    let definition = parse_kore_definition(&definition_source).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "could not parse KORE definition {}: {error}",
+                options.definition.display()
+            ),
+        )
+    })?;
+    let backend = BackendDefinition::internalize(&definition, &options.module)?;
+
+    let target_source = fs::read_to_string(&options.pattern)?;
+    let target = parse_kore_pattern(&target_source).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "could not parse match pattern {}: {error}",
+                options.pattern.display()
+            ),
+        )
+    })?;
+    let target = backend.internalize_pattern(&target, &[])?;
+
+    let disjunction_source = fs::read_to_string(&options.disjunction)?;
+    let disjunction = parse_kore_pattern(&disjunction_source).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "could not parse configuration disjunction {}: {error}",
+                options.disjunction.display()
+            ),
+        )
+    })?;
+    let alternatives = backend.internalize_disjunction(&disjunction, &[])?;
+    let matches =
+        match_disjunction(&backend, &target, &alternatives).map_err(pattern_match_error)?;
+    let output_sort = externalize::sort(&target.term.sort());
+    let output = pattern_matches_output(&matches, &output_sort, &target.term.sort());
+    let output = KorePrinter::pretty(100).print_pattern(&output);
+    if let Some(path) = options.output {
+        fs::write(path, output)?;
+    } else {
+        println!("{output}");
+    }
+    Ok(())
+}
+
+fn pattern_match_error(error: PatternMatchError) -> io::Error {
+    io::Error::other(format!("KORE pattern match was indeterminate: {error:?}"))
+}
+
 fn run_backend(
     backend: &BackendDefinition,
     initial: Pattern,
@@ -807,43 +887,87 @@ fn run_backend(
 }
 
 fn search_output(result: &PatternSearchResult, result_sort: &KoreSort) -> KorePattern {
-    let mut solutions = result
+    let solutions = result
         .matches
         .iter()
         .map(|found| {
-            let predicates = found
-                .substitution
-                .iter()
-                .map(|(variable, value)| {
-                    Predicate::Equals(Term::variable(variable.clone()), value.clone())
-                })
-                .chain(found.constraints.iter().cloned())
-                .map(|predicate| {
-                    externalize::predicate_pattern(&predicate, &found.state.pattern.term.sort())
-                })
-                .collect::<Vec<_>>();
-            match predicates.len() {
-                0 => KorePattern::Top {
-                    sort: result_sort.clone(),
-                },
-                1 => predicates.into_iter().next().unwrap(),
-                _ => KorePattern::And {
-                    sort: result_sort.clone(),
-                    arguments: predicates,
-                },
-            }
+            match_condition_output(
+                &found.substitution,
+                &found.constraints,
+                result_sort,
+                &found.state.pattern.term.sort(),
+            )
         })
         .collect::<Vec<_>>();
-    match solutions.len() {
-        0 => KorePattern::Bottom {
+    disjoin_outputs(solutions, result_sort)
+}
+
+fn pattern_matches_output(
+    matches: &[PatternMatch],
+    result_sort: &KoreSort,
+    predicate_sort: &BackendSort,
+) -> KorePattern {
+    let solutions = matches
+        .iter()
+        .map(|found| {
+            match_condition_output(
+                &found.substitution,
+                &found.constraints,
+                result_sort,
+                predicate_sort,
+            )
+        })
+        .collect::<Vec<_>>();
+    disjoin_outputs(solutions, result_sort)
+}
+
+fn match_condition_output(
+    substitution: &Substitution,
+    constraints: &[Predicate],
+    result_sort: &KoreSort,
+    predicate_sort: &BackendSort,
+) -> KorePattern {
+    let mut bindings = substitution.iter().collect::<Vec<_>>();
+    bindings.sort_by(|(left, _), (right, _)| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| left.sort.cmp(&right.sort))
+    });
+    let predicates = bindings
+        .into_iter()
+        .map(|(variable, value)| Predicate::Equals(Term::variable(variable.clone()), value.clone()))
+        .chain(constraints.iter().cloned())
+        .map(|predicate| externalize::predicate_pattern(&predicate, predicate_sort))
+        .collect::<Vec<_>>();
+    let mut predicates = predicates.into_iter();
+    let Some(mut result) = predicates.next() else {
+        return KorePattern::Top {
             sort: result_sort.clone(),
-        },
-        1 => solutions.pop().unwrap(),
-        _ => KorePattern::Or {
+        };
+    };
+    for predicate in predicates {
+        result = KorePattern::And {
             sort: result_sort.clone(),
-            arguments: solutions,
-        },
+            arguments: vec![result, predicate],
+        };
     }
+    result
+}
+
+fn disjoin_outputs(solutions: Vec<KorePattern>, result_sort: &KoreSort) -> KorePattern {
+    let mut solutions = solutions.into_iter();
+    let Some(mut result) = solutions.next() else {
+        return KorePattern::Bottom {
+            sort: result_sort.clone(),
+        };
+    };
+    for solution in solutions {
+        result = KorePattern::Or {
+            sort: result_sort.clone(),
+            arguments: vec![result, solution],
+        };
+    }
+    result
 }
 
 fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
@@ -1338,6 +1462,33 @@ mod tests {
             .expect("search options should be present");
         assert_eq!(search.search_type, SearchType::Final);
         assert_eq!(search.pattern.as_deref(), Some(Path::new("target.kore")));
+    }
+
+    #[test]
+    fn parses_kore_match_disjunction_options() {
+        let cli = Cli::try_parse_from([
+            "krust",
+            "kore-match-disjunction",
+            "definition.kore",
+            "--module",
+            "MAIN",
+            "--disjunction",
+            "states.kore",
+            "--match",
+            "target.kore",
+            "--output",
+            "result.kore",
+        ])
+        .unwrap();
+        let Command::KoreMatchDisjunction(options) = cli.command else {
+            panic!("expected kore-match-disjunction command");
+        };
+
+        assert_eq!(options.definition, Path::new("definition.kore"));
+        assert_eq!(options.module, "MAIN");
+        assert_eq!(options.disjunction, Path::new("states.kore"));
+        assert_eq!(options.pattern, Path::new("target.kore"));
+        assert_eq!(options.output.as_deref(), Some(Path::new("result.kore")));
     }
 
     #[test]

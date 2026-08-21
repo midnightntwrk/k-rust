@@ -1,6 +1,6 @@
 //! Reachability search over the symbolic execution tree.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 
 use crate::{
     builtin::BuiltinEffect,
@@ -94,11 +94,86 @@ pub struct SearchMatch {
     pub state: SearchState,
 }
 
+/// The condition under which a subject is an instance of a search pattern.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PatternMatch {
+    pub substitution: Substitution,
+    pub constraints: Vec<Predicate>,
+}
+
+/// A pattern match which could not be decided by the available simplifier and solver.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PatternMatchError {
+    Indeterminate {
+        substitution: Substitution,
+        remainder: Vec<(crate::term::Term, crate::term::Term)>,
+    },
+    Simplification(SimplificationError),
+    Smt(SmtError),
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PatternSearchResult {
     pub matches: Vec<SearchMatch>,
     pub effects: Vec<BuiltinEffect>,
     pub incomplete: Vec<IncompleteSearch>,
+}
+
+/// Match a constrained pattern against each alternative in a disjunction.
+pub fn match_disjunction(
+    definition: &BackendDefinition,
+    target: &Pattern,
+    subjects: &[Pattern],
+) -> Result<Vec<PatternMatch>, PatternMatchError> {
+    match_disjunction_using(
+        definition,
+        target,
+        subjects,
+        SimplificationOptions::default(),
+        &NoSolver,
+        true,
+    )
+}
+
+/// Match a constrained pattern against each alternative using the supplied SMT solver.
+pub fn match_disjunction_with_solver(
+    definition: &BackendDefinition,
+    target: &Pattern,
+    subjects: &[Pattern],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Result<Vec<PatternMatch>, PatternMatchError> {
+    match_disjunction_using(definition, target, subjects, options, solver, false)
+}
+
+fn match_disjunction_using(
+    definition: &BackendDefinition,
+    target: &Pattern,
+    subjects: &[Pattern],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    retain_unknown: bool,
+) -> Result<Vec<PatternMatch>, PatternMatchError> {
+    let output_variables = pattern_variables(target);
+    let mut matches = Vec::new();
+    for subject in subjects {
+        let Some(found) = match_pattern_with_variables(
+            definition,
+            target,
+            subject,
+            &output_variables,
+            options,
+            solver,
+            retain_unknown,
+        )?
+        else {
+            continue;
+        };
+        if !matches.contains(&found) {
+            matches.push(found);
+        }
+    }
+    Ok(matches)
 }
 
 pub fn search_graph(
@@ -306,33 +381,24 @@ pub fn search_pattern_with_solver(
     );
     let mut matches = Vec::new();
     let mut incomplete = graph.incomplete;
-    let output_variables = target
-        .term
-        .attributes()
-        .variables
-        .iter()
-        .cloned()
-        .chain(
-            target
-                .constraints
-                .iter()
-                .flat_map(Predicate::free_variables),
-        )
-        .collect::<std::collections::BTreeSet<_>>();
+    let output_variables = pattern_variables(target);
 
     for state in graph.states {
-        let substitution = match match_terms_in_definition(
-            MatchMode::Implies,
+        let found = match match_pattern_with_variables(
             definition,
-            &target.term,
-            &state.pattern.term,
+            target,
+            &state.pattern,
+            &output_variables,
+            simplification_options(options),
+            solver,
+            false,
         ) {
-            MatchResult::Success(substitution) => substitution,
-            MatchResult::Failed(_) => continue,
-            MatchResult::Indeterminate {
+            Ok(Some(found)) => found,
+            Ok(None) => continue,
+            Err(PatternMatchError::Indeterminate {
                 substitution,
                 remainder,
-            } => {
+            }) => {
                 incomplete.push(IncompleteSearch::Match {
                     state,
                     substitution,
@@ -340,48 +406,19 @@ pub fn search_pattern_with_solver(
                 });
                 continue;
             }
-        };
-
-        let mut constraints = state.pattern.constraints.clone();
-        constraints.extend(substitute_predicates(&target.constraints, &substitution));
-        let (substitution, constraints) =
-            normalize_match_condition(substitution, constraints, &output_variables);
-        let constraints = match simplify_predicates_with_solver(
-            definition,
-            &constraints,
-            &[],
-            simplification_options(options),
-            solver,
-        ) {
-            Ok(constraints) => constraints,
-            Err(error) => {
+            Err(PatternMatchError::Simplification(error)) => {
                 incomplete.push(IncompleteSearch::Simplification { state, error });
                 continue;
             }
+            Err(PatternMatchError::Smt(error)) => {
+                incomplete.push(IncompleteSearch::Smt { state, error });
+                continue;
+            }
         };
-        match predicates_truth(&constraints) {
-            Truth::False => continue,
-            Truth::True => {}
-            Truth::Unknown => match solver.is_sat(&constraints, &substitution) {
-                Ok(Satisfiability::Unsat) => continue,
-                Ok(Satisfiability::Sat) => {}
-                Ok(Satisfiability::Unknown(reason)) => {
-                    incomplete.push(IncompleteSearch::Smt {
-                        state,
-                        error: SmtError::Unknown(reason),
-                    });
-                    continue;
-                }
-                Err(error) => {
-                    incomplete.push(IncompleteSearch::Smt { state, error });
-                    continue;
-                }
-            },
-        }
 
         let found = SearchMatch {
-            substitution,
-            constraints,
+            substitution: found.substitution,
+            constraints: found.constraints,
             state,
         };
         if !matches.iter().any(|existing: &SearchMatch| {
@@ -401,10 +438,81 @@ pub fn search_pattern_with_solver(
     }
 }
 
+fn pattern_variables(pattern: &Pattern) -> BTreeSet<crate::term::Variable> {
+    pattern
+        .term
+        .attributes()
+        .variables
+        .iter()
+        .cloned()
+        .chain(
+            pattern
+                .constraints
+                .iter()
+                .flat_map(Predicate::free_variables),
+        )
+        .collect()
+}
+
+fn match_pattern_with_variables(
+    definition: &BackendDefinition,
+    target: &Pattern,
+    subject: &Pattern,
+    output_variables: &BTreeSet<crate::term::Variable>,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    retain_unknown: bool,
+) -> Result<Option<PatternMatch>, PatternMatchError> {
+    let substitution = match match_terms_in_definition(
+        MatchMode::Implies,
+        definition,
+        &target.term,
+        &subject.term,
+    ) {
+        MatchResult::Success(substitution) => substitution,
+        MatchResult::Failed(_) => return Ok(None),
+        MatchResult::Indeterminate {
+            substitution,
+            remainder,
+        } => {
+            return Err(PatternMatchError::Indeterminate {
+                substitution,
+                remainder,
+            });
+        }
+    };
+
+    let mut constraints = subject.constraints.clone();
+    constraints.extend(substitute_predicates(&target.constraints, &substitution));
+    let (substitution, constraints) =
+        normalize_match_condition(substitution, constraints, output_variables);
+    let constraints =
+        simplify_predicates_with_solver(definition, &constraints, &[], options, solver)
+            .map_err(PatternMatchError::Simplification)?;
+    match predicates_truth(&constraints) {
+        Truth::False => return Ok(None),
+        Truth::True => {}
+        Truth::Unknown if retain_unknown => {}
+        Truth::Unknown => match solver.is_sat(&constraints, &substitution) {
+            Ok(Satisfiability::Unsat) => return Ok(None),
+            Ok(Satisfiability::Sat) => {}
+            Ok(Satisfiability::Unknown(reason)) => {
+                return Err(PatternMatchError::Smt(SmtError::Unknown(reason)));
+            }
+            Err(error) => return Err(PatternMatchError::Smt(error)),
+        },
+    }
+
+    Ok(Some(PatternMatch {
+        substitution,
+        constraints,
+    }))
+}
+
 fn normalize_match_condition(
     output: Substitution,
     mut constraints: Vec<Predicate>,
-    output_variables: &std::collections::BTreeSet<crate::term::Variable>,
+    output_variables: &BTreeSet<crate::term::Variable>,
 ) -> (Substitution, Vec<Predicate>) {
     let mut solved = Substitution::new();
     loop {
@@ -726,6 +834,83 @@ mod tests {
             BTreeSet::from(["final1".into(), "final2".into()])
         );
         assert!(result.incomplete.is_empty());
+    }
+
+    #[test]
+    fn matches_each_disjunction_alternative_independently() {
+        let definition = definition();
+        let result_variable = Variable::new("Result", Sort::simple("SortS"));
+        let target = Pattern {
+            term: Term::variable(result_variable.clone()),
+            constraints: Vec::new(),
+        };
+        let subjects = [
+            pattern(&definition, "final1{}()"),
+            pattern(&definition, "final2{}()"),
+        ];
+
+        let matches = match_disjunction(&definition, &target, &subjects).unwrap();
+
+        assert_eq!(matches.len(), 2);
+        assert_eq!(
+            matches
+                .iter()
+                .map(|found| match found.substitution[&result_variable].kind() {
+                    TermKind::Application { symbol, .. } => symbol.name.to_string(),
+                    other => panic!("expected an application, found {other:?}"),
+                })
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["final1".into(), "final2".into()])
+        );
+        assert!(matches.iter().all(|found| found.constraints.is_empty()));
+    }
+
+    #[test]
+    fn disjunction_matching_returns_top_only_for_an_exact_alternative() {
+        let definition = definition();
+        let target = initial(&definition);
+        let absent = [
+            pattern(&definition, "final1{}()"),
+            pattern(&definition, "final2{}()"),
+        ];
+        let present = [pattern(&definition, "final1{}()"), initial(&definition)];
+
+        assert!(
+            match_disjunction(&definition, &target, &absent)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            match_disjunction(&definition, &target, &present).unwrap(),
+            vec![PatternMatch {
+                substitution: Substitution::new(),
+                constraints: Vec::new(),
+            }]
+        );
+    }
+
+    #[test]
+    fn disjunction_matching_retains_predicates_without_an_smt_decision() {
+        let definition = definition();
+        let variable = Term::variable(Variable::new("X", Sort::simple("SortS")));
+        let unresolved = Predicate::Not(Box::new(Predicate::Equals(
+            variable,
+            pattern(&definition, "final1{}()").term,
+        )));
+        let subject = Pattern {
+            term: initial(&definition).term,
+            constraints: vec![unresolved.clone()],
+        };
+
+        let matches = match_disjunction(&definition, &initial(&definition), &[subject]).unwrap();
+
+        assert_eq!(
+            matches,
+            vec![PatternMatch {
+                substitution: Substitution::new(),
+                constraints: vec![unresolved],
+            }]
+        );
     }
 
     #[test]

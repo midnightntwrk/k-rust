@@ -239,12 +239,11 @@ fn application(
 }
 
 fn collection(symbols: &CollectionSymbols, mut components: Vec<kore::Pattern>) -> kore::Pattern {
-    if components.is_empty() {
+    let Some(mut result) = components.pop() else {
         return application(&symbols.unit, Vec::new(), Vec::new());
-    }
-    let mut result = components.remove(0);
-    for component in components {
-        result = application(&symbols.concat, Vec::new(), vec![result, component]);
+    };
+    while let Some(component) = components.pop() {
+        result = application(&symbols.concat, Vec::new(), vec![component, result]);
     }
     result
 }
@@ -287,6 +286,38 @@ mod tests {
             definition.internalize_term(&external, &[]).unwrap(),
             internal
         );
+    }
+
+    #[test]
+    fn externalizes_ordered_collections_right_associatively() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortInt{} [hasDomainValues{}()]
+                sort SortList{} [hook{}("LIST.List")]
+                symbol listUnit{}() : SortList{}
+                    [function{}(), total{}(), hook{}("LIST.unit"), unit{}()]
+                symbol listItem{}(SortInt{}) : SortList{}
+                    [function{}(), total{}(), hook{}("LIST.element"), element{}()]
+                symbol listConcat{}(SortList{}, SortList{}) : SortList{}
+                    [function{}(), total{}(), hook{}("LIST.concat"), assoc{}()]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let syntax = parse_pattern(
+            r#"listConcat{}(
+                listItem{}(\dv{SortInt{}}("1")),
+                listConcat{}(
+                    listItem{}(\dv{SortInt{}}("2")),
+                    listItem{}(\dv{SortInt{}}("3"))
+                )
+            )"#,
+        )
+        .unwrap();
+        let internal = definition.internalize_term(&syntax, &[]).unwrap();
+
+        assert_eq!(term(&internal), syntax);
     }
 
     #[test]

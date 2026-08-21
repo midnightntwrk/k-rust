@@ -413,6 +413,57 @@ endmodule []
 }
 
 #[test]
+fn kore_match_disjunction_matches_each_configuration_and_writes_its_result() {
+    let (root, _) = fixture();
+    let definition = root.join("definition.kore");
+    let disjunction = root.join("disjunction.kore");
+    let pattern = root.join("pattern.kore");
+    let result = root.join("result.kore");
+    fs::write(
+        &definition,
+        r#"[]
+module MAIN
+  sort SortS{} []
+  symbol a{}() : SortS{} [constructor{}()]
+  symbol b{}() : SortS{} [constructor{}()]
+endmodule []
+"#,
+    )
+    .unwrap();
+    fs::write(&disjunction, r#"\or{SortS{}}(a{}(), b{}())"#).unwrap();
+    fs::write(&pattern, "Result:SortS{}").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-match-disjunction",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--disjunction",
+            disjunction.to_str().unwrap(),
+            "--match",
+            pattern.to_str().unwrap(),
+            "--output",
+            result.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty());
+    let result = fs::read_to_string(result).unwrap();
+    assert!(result.starts_with(r#"\or{SortS{}}("#), "{result}");
+    assert!(result.contains("Result:SortS{}"), "{result}");
+    assert!(result.contains("a{}()"), "{result}");
+    assert!(result.contains("b{}()"), "{result}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kprove_proves_a_modal_claim_in_process() {
     let (root, definition) = fixture();
     let saved_proofs = root.join("proofs.kore");

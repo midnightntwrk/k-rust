@@ -469,6 +469,26 @@ impl BackendDefinition {
         Ok(Pattern { term, constraints })
     }
 
+    /// Internalize the alternatives of a top-level KORE disjunction.
+    pub fn internalize_disjunction(
+        &self,
+        pattern: &kore::Pattern,
+        sort_variables: &[Name],
+    ) -> Result<Vec<Pattern>, DefinitionError> {
+        let pattern = expand_aliases(pattern, &self.aliases)?;
+        let mut alternatives = Vec::new();
+        flatten_or(&pattern, &mut alternatives);
+        alternatives
+            .into_iter()
+            .filter(|alternative| !matches!(alternative, kore::Pattern::Bottom { .. }))
+            .map(|alternative| {
+                let (term, constraints) =
+                    internalize_rule_pattern(self, alternative, sort_variables)?;
+                Ok(Pattern { term, constraints })
+            })
+            .collect()
+    }
+
     pub(crate) fn internalize_syntax_sort(
         &self,
         sort: &kore::Sort,
