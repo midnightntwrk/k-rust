@@ -1,6 +1,6 @@
 [package]
 name = "k-rust"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.85"
 description = "A Rust implementation of the K Framework frontend"
@@ -18,8 +18,8 @@ required-features = ["cli"]
 [dependencies]
 clap = { workspace = true, optional = true }
 gmp-mpfr-sys = { workspace = true, optional = true }
-k-rust-kore.workspace = true
 k-rust-backend.workspace = true
+k-rust-kore.workspace = true
 num-bigint.workspace = true
 num-traits.workspace = true
 petgraph.workspace = true
