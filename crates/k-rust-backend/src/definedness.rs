@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use rustc_hash::FxHashSet;
+
 use crate::{
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
@@ -245,13 +247,8 @@ fn not_in_collection(
 }
 
 fn deduplicate(predicates: &mut Vec<Predicate>) {
-    let mut unique = Vec::with_capacity(predicates.len());
-    for predicate in predicates.drain(..) {
-        if !unique.contains(&predicate) {
-            unique.push(predicate);
-        }
-    }
-    *predicates = unique;
+    let mut seen = FxHashSet::with_capacity_and_hasher(predicates.len(), Default::default());
+    predicates.retain(|predicate| seen.insert(predicate.clone()));
 }
 
 #[cfg(test)]
@@ -261,6 +258,20 @@ mod tests {
     use super::*;
     use crate::rewrite::{Pattern, RewriteResult, rewrite_step};
     use crate::term::Sort;
+
+    #[test]
+    fn definedness_deduplication_preserves_first_occurrence_order() {
+        let sort = Sort::simple("SortS");
+        let x = Term::variable(crate::term::Variable::new("X", sort.clone()));
+        let y = Term::variable(crate::term::Variable::new("Y", sort));
+        let first = Predicate::Ceil(x);
+        let second = Predicate::Ceil(y);
+        let mut predicates = vec![first.clone(), second.clone(), first.clone(), second.clone()];
+
+        deduplicate(&mut predicates);
+
+        assert_eq!(predicates, vec![first, second]);
+    }
 
     fn definition(extra_axioms: &str) -> BackendDefinition {
         let source = r#"[]

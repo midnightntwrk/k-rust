@@ -2,9 +2,12 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
+    hash::{Hash, Hasher},
     sync::Arc,
     time::Duration,
 };
+
+use rustc_hash::{FxHashMap, FxHasher};
 
 use crate::{
     builtin::BuiltinEffect,
@@ -3261,9 +3264,26 @@ fn alpha_normalize(predicate: &Predicate, next: &mut usize) -> Predicate {
 }
 
 fn extend_unique(predicates: &mut Vec<Predicate>, added: impl IntoIterator<Item = Predicate>) {
+    let hash = |predicate: &Predicate| {
+        let mut hasher = FxHasher::default();
+        predicate.hash(&mut hasher);
+        hasher.finish()
+    };
+    let mut positions = FxHashMap::<u64, Vec<usize>>::default();
+    for (position, predicate) in predicates.iter().enumerate() {
+        positions.entry(hash(predicate)).or_default().push(position);
+    }
     for predicate in added {
-        if !predicates.contains(&predicate) {
+        let predicate_hash = hash(&predicate);
+        let duplicate = positions.get(&predicate_hash).is_some_and(|candidates| {
+            candidates
+                .iter()
+                .any(|&index| predicates[index] == predicate)
+        });
+        if !duplicate {
+            let position = predicates.len();
             predicates.push(predicate);
+            positions.entry(predicate_hash).or_default().push(position);
         }
     }
 }
@@ -3621,6 +3641,28 @@ mod tests {
 
     use super::*;
     use crate::cancellation::CancellationToken;
+
+    #[test]
+    fn large_unique_extensions_preserve_first_occurrence_order() {
+        let sort = Sort::simple("SortS");
+        let mut predicates = (0..20)
+            .map(|index| {
+                Predicate::Equals(
+                    Term::variable(Variable::new(format!("X{index}"), sort.clone())),
+                    Term::domain_value(sort.clone(), index.to_string()),
+                )
+            })
+            .collect::<Vec<_>>();
+        let original = predicates.clone();
+
+        extend_unique(
+            &mut predicates,
+            [original[19].clone(), Predicate::True, original[0].clone()],
+        );
+
+        assert_eq!(&predicates[..20], original);
+        assert_eq!(predicates[20], Predicate::True);
+    }
 
     #[test]
     fn rule_diagnostics_omit_term_alias_binders() {

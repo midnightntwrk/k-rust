@@ -994,6 +994,7 @@ dependencies = [
  "petgraph",
  "proptest",
  "ripemd",
+ "rustc-hash",
  "sha2",
  "sha3",
  "z3",

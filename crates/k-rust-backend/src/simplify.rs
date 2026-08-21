@@ -1,9 +1,11 @@
 //! Recursive equation simplification to a bounded fixed point.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+
+use rustc_hash::FxHashSet;
 
 use crate::{
     builtin::{
@@ -116,10 +118,15 @@ pub fn simplify_with_solver(
 ) -> Result<Simplification, SimplificationError> {
     let mut remaining = options.max_iterations;
     let active_conditions = BTreeSet::new();
+    let path_condition = PathConditionReplacements::new(known_predicates);
+    let assumptions = TermAssumptions {
+        predicates: known_predicates,
+        path_condition: &path_condition,
+    };
     simplify_with_budget(
         definition,
         term,
-        known_predicates,
+        &assumptions,
         options.max_iterations,
         &mut remaining,
         &active_conditions,
@@ -214,9 +221,14 @@ pub fn simplify_predicates_with_solver(
     )
 }
 
-struct PredicateAssumptions<'a> {
+struct TermAssumptions<'a> {
     predicates: &'a [Predicate],
-    conjuncts: &'a HashSet<Predicate>,
+    path_condition: &'a PathConditionReplacements,
+}
+
+struct PredicateAssumptions<'a> {
+    terms: TermAssumptions<'a>,
+    conjuncts: &'a FxHashSet<Predicate>,
     excluded: Option<&'a Predicate>,
 }
 
@@ -227,8 +239,8 @@ impl PredicateAssumptions<'_> {
     }
 }
 
-fn predicate_conjunct_index(predicates: &[Predicate]) -> HashSet<Predicate> {
-    fn insert(predicate: &Predicate, index: &mut HashSet<Predicate>) {
+fn predicate_conjunct_index(predicates: &[Predicate]) -> FxHashSet<Predicate> {
+    fn insert(predicate: &Predicate, index: &mut FxHashSet<Predicate>) {
         if let Predicate::And(conjuncts) = predicate {
             for conjunct in conjuncts {
                 insert(conjunct, index);
@@ -238,7 +250,7 @@ fn predicate_conjunct_index(predicates: &[Predicate]) -> HashSet<Predicate> {
         }
     }
 
-    let mut index = HashSet::new();
+    let mut index = FxHashSet::default();
     for predicate in predicates {
         insert(predicate, &mut index);
     }
@@ -255,25 +267,67 @@ fn simplify_predicates_with_budget(
     solver: &dyn SmtSolver,
 ) -> Result<Vec<Predicate>, SimplificationError> {
     let mut conjuncts = Vec::new();
-    let mut conjunct_index = HashSet::new();
+    let mut conjunct_index = FxHashSet::default();
     for predicate in predicates {
         extend_conjuncts(&mut conjuncts, &mut conjunct_index, predicate);
     }
     let known_index = predicate_conjunct_index(known_predicates);
     let mut all_assumptions = known_index.clone();
     all_assumptions.extend(conjunct_index.iter().cloned());
-    let simplified = conjuncts
+    let mut assumptions = known_predicates.to_vec();
+    let additional_positions = conjuncts
+        .iter()
+        .map(|predicate| {
+            if known_index.contains(predicate) {
+                None
+            } else {
+                let position = assumptions.len();
+                assumptions.push(predicate.clone());
+                Some(position)
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut known_equalities = Vec::new();
+    collect_conjunctive_equalities(known_predicates, &mut known_equalities);
+    let mut all_equalities = known_equalities;
+    let additional_equality_positions = conjuncts
         .iter()
         .enumerate()
         .map(|(index, predicate)| {
-            let mut assumptions = known_predicates.to_vec();
-            for (other_index, assumption) in conjuncts.iter().enumerate() {
-                if other_index != index && !known_index.contains(assumption) {
-                    assumptions.push(assumption.clone());
-                }
-            }
+            additional_positions[index]?;
+            let Predicate::Equals(left, right) = predicate else {
+                return None;
+            };
+            let position = all_equalities.len();
+            all_equalities.push((left, right));
+            Some(position)
+        })
+        .collect::<Vec<_>>();
+    let full_path_condition =
+        PathConditionReplacements::from_equalities(all_equalities.iter().copied());
+    let mut simplified = Vec::with_capacity(conjuncts.len());
+    for (index, predicate) in conjuncts.iter().enumerate() {
+        let excluded = additional_positions[index]
+            .map(|position| std::mem::replace(&mut assumptions[position], Predicate::True));
+        let result = {
+            let excluded_path_condition = additional_equality_positions[index].map(|excluded| {
+                PathConditionReplacements::from_equalities(
+                    all_equalities
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(position, equality)| {
+                            (position != excluded).then_some(*equality)
+                        }),
+                )
+            });
+            let path_condition = excluded_path_condition
+                .as_ref()
+                .unwrap_or(&full_path_condition);
             let assumptions = PredicateAssumptions {
-                predicates: &assumptions,
+                terms: TermAssumptions {
+                    predicates: &assumptions,
+                    path_condition,
+                },
                 conjuncts: &all_assumptions,
                 excluded: (!known_index.contains(predicate)).then_some(predicate),
             };
@@ -287,8 +341,12 @@ fn simplify_predicates_with_budget(
                 active_conditions,
                 solver,
             )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+        };
+        if let (Some(position), Some(excluded)) = (additional_positions[index], excluded) {
+            assumptions[position] = excluded;
+        }
+        simplified.push(result?);
+    }
     let mut simplified = if violates_finite_constructor_domain(definition, &simplified) {
         vec![Predicate::False]
     } else {
@@ -322,7 +380,7 @@ fn simplify_predicates_with_budget(
 
 fn extend_conjuncts(
     conjuncts: &mut Vec<Predicate>,
-    index: &mut HashSet<Predicate>,
+    index: &mut FxHashSet<Predicate>,
     predicate: &Predicate,
 ) {
     if let Predicate::And(nested) = predicate {
@@ -436,8 +494,12 @@ pub fn simplify_predicate_with_solver(
     let mut remaining = options.max_iterations;
     let active_conditions = BTreeSet::new();
     let known_index = predicate_conjunct_index(known_predicates);
+    let path_condition = PathConditionReplacements::new(known_predicates);
     let assumptions = PredicateAssumptions {
-        predicates: known_predicates,
+        terms: TermAssumptions {
+            predicates: known_predicates,
+            path_condition: &path_condition,
+        },
         conjuncts: &known_index,
         excluded: None,
     };
@@ -511,7 +573,7 @@ fn simplify_predicate_with_budget(
         simplify_with_budget(
             definition,
             term,
-            assumptions.predicates,
+            &assumptions.terms,
             limit,
             &mut term_remaining,
             active_conditions,
@@ -582,7 +644,7 @@ fn simplify_predicate_with_budget(
             let inner = simplify_predicates_with_budget(
                 definition,
                 inner,
-                assumptions.predicates,
+                assumptions.terms.predicates,
                 limit,
                 &mut inner_remaining,
                 active_conditions,
@@ -664,7 +726,7 @@ fn simplify_predicate_with_budget(
     if let Some(simplified) = apply_ceil_theory(
         definition,
         &simplified,
-        assumptions.predicates,
+        assumptions.terms.predicates,
         SimplificationOptions {
             max_iterations: limit,
         },
@@ -691,7 +753,7 @@ fn simplify_predicate_with_budget(
     let Some(simplified) = apply_predicate_theory(
         definition,
         &simplified,
-        assumptions.predicates,
+        assumptions.terms.predicates,
         SimplificationOptions {
             max_iterations: limit,
         },
@@ -1289,7 +1351,7 @@ pub(crate) fn normalize_predicate(predicate: Predicate) -> Predicate {
 fn simplify_with_budget(
     definition: &BackendDefinition,
     term: &Term,
-    known_predicates: &[Predicate],
+    assumptions: &TermAssumptions<'_>,
     limit: usize,
     remaining: &mut usize,
     active_conditions: &BTreeSet<(String, Term)>,
@@ -1303,7 +1365,7 @@ fn simplify_with_budget(
         if cancellation_requested() {
             return Err(SimplificationError::Cancelled);
         }
-        term = replace_from_path_condition(&term, known_predicates);
+        term = assumptions.path_condition.apply(&term);
         if term.attributes().evaluated {
             return Ok(Simplification {
                 term,
@@ -1315,7 +1377,7 @@ fn simplify_with_budget(
         let children = simplify_children(
             definition,
             &term,
-            known_predicates,
+            assumptions,
             limit,
             remaining,
             active_conditions,
@@ -1324,7 +1386,7 @@ fn simplify_with_budget(
         let root = simplify_root(
             definition,
             &children.term,
-            known_predicates,
+            assumptions.predicates,
             SimplificationOptions {
                 max_iterations: limit,
             },
@@ -1356,40 +1418,58 @@ fn simplify_with_budget(
     }
 }
 
-fn replace_from_path_condition(term: &Term, predicates: &[Predicate]) -> Term {
-    let mut substitution = Substitution::new();
-    let mut replacements = Vec::new();
-    let mut equalities = Vec::new();
-    collect_conjunctive_equalities(predicates, &mut equalities);
-    for (left, right) in equalities {
-        let binding = match (left.kind(), right.kind()) {
-            (TermKind::Variable(variable), _) => Some((variable, right)),
-            (_, TermKind::Variable(variable)) => Some((variable, left)),
-            _ => None,
-        };
-        if let Some((variable, replacement)) = binding {
-            let replacement = substitute(replacement, &substitution);
-            if !replacement.attributes().variables.contains(variable) {
-                let binding = Substitution::from([(variable.clone(), replacement)]);
-                substitution = compose(&binding, &substitution);
+struct PathConditionReplacements {
+    substitution: Substitution,
+    replacements: Vec<(Term, Term)>,
+}
+
+impl PathConditionReplacements {
+    fn new(predicates: &[Predicate]) -> Self {
+        let mut equalities = Vec::new();
+        collect_conjunctive_equalities(predicates, &mut equalities);
+        Self::from_equalities(equalities)
+    }
+
+    fn from_equalities<'a>(equalities: impl IntoIterator<Item = (&'a Term, &'a Term)>) -> Self {
+        let mut substitution = Substitution::new();
+        let mut replacements = Vec::new();
+        for (left, right) in equalities {
+            let binding = match (left.kind(), right.kind()) {
+                (TermKind::Variable(variable), _) => Some((variable, right)),
+                (_, TermKind::Variable(variable)) => Some((variable, left)),
+                _ => None,
+            };
+            if let Some((variable, replacement)) = binding {
+                let replacement = substitute(replacement, &substitution);
+                if !replacement.attributes().variables.contains(variable) {
+                    let binding = Substitution::from([(variable.clone(), replacement)]);
+                    substitution = compose(&binding, &substitution);
+                }
+            } else if is_scalar_domain_value(left) {
+                replacements.push((right.clone(), left.clone()));
+            } else if is_scalar_domain_value(right) {
+                replacements.push((left.clone(), right.clone()));
             }
-        } else if is_scalar_domain_value(left) {
-            replacements.push((right.clone(), left.clone()));
-        } else if is_scalar_domain_value(right) {
-            replacements.push((left.clone(), right.clone()));
+        }
+        let replacements = replacements
+            .into_iter()
+            .map(|(original, replacement)| {
+                (
+                    substitute(&original, &substitution),
+                    substitute(&replacement, &substitution),
+                )
+            })
+            .collect::<Vec<_>>();
+        Self {
+            substitution,
+            replacements,
         }
     }
-    let replacements = replacements
-        .into_iter()
-        .map(|(original, replacement)| {
-            (
-                substitute(&original, &substitution),
-                substitute(&replacement, &substitution),
-            )
-        })
-        .collect::<Vec<_>>();
-    let term = substitute(term, &substitution);
-    replace_terms_bottom_up(&term, &replacements)
+
+    fn apply(&self, term: &Term) -> Term {
+        let term = substitute(term, &self.substitution);
+        replace_terms_bottom_up(&term, &self.replacements)
+    }
 }
 
 fn collect_conjunctive_equalities<'a>(
@@ -1478,7 +1558,7 @@ fn replace_terms_bottom_up(term: &Term, replacements: &[(Term, Term)]) -> Term {
 fn simplify_children(
     definition: &BackendDefinition,
     term: &Term,
-    known_predicates: &[Predicate],
+    assumptions: &TermAssumptions<'_>,
     limit: usize,
     remaining: &mut usize,
     active_conditions: &BTreeSet<(String, Term)>,
@@ -1496,7 +1576,7 @@ fn simplify_children(
         let result = simplify_with_budget(
             definition,
             term,
-            known_predicates,
+            assumptions,
             limit,
             &mut child_remaining,
             active_conditions,
