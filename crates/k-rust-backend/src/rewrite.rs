@@ -96,7 +96,7 @@ pub struct ExecutionOptions {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutionBranchMode {
-    StopAtUnconditional,
+    StopAtBranch,
     ExploreAll,
 }
 
@@ -105,7 +105,7 @@ impl Default for ExecutionOptions {
         Self {
             max_depth: 1_000,
             max_simplification_iterations: 100,
-            branch_mode: ExecutionBranchMode::StopAtUnconditional,
+            branch_mode: ExecutionBranchMode::ExploreAll,
         }
     }
 }
@@ -282,13 +282,7 @@ pub fn execute_with_solver_and_observer(
                 branches,
                 remainder,
             } => {
-                let unconditional = remainder.is_none()
-                    && branches.len() > 1
-                    && branches
-                        .iter()
-                        .all(|branch| branch.pattern.constraints == original.constraints);
-                if options.branch_mode == ExecutionBranchMode::StopAtUnconditional && unconditional
-                {
+                if options.branch_mode == ExecutionBranchMode::StopAtBranch {
                     leaves.push(ExecutionLeaf {
                         pattern: original,
                         depth: state.depth,
@@ -4368,11 +4362,18 @@ mod tests {
     }
 
     #[test]
-    fn stops_at_an_unconditional_rewrite_branch() {
+    fn stops_at_a_rewrite_branch_when_requested() {
         let definition = unconditional_branch_definition();
         let initial = subject(&definition, "value");
 
-        let result = execute(&definition, initial.clone(), ExecutionOptions::default());
+        let result = execute(
+            &definition,
+            initial.clone(),
+            ExecutionOptions {
+                branch_mode: ExecutionBranchMode::StopAtBranch,
+                ..ExecutionOptions::default()
+            },
+        );
 
         assert_eq!(result.leaves.len(), 1);
         assert_eq!(result.leaves[0].pattern, initial);
@@ -4384,16 +4385,13 @@ mod tests {
     }
 
     #[test]
-    fn explores_each_rewrite_branch_when_requested() {
+    fn explores_each_rewrite_branch_by_default() {
         let definition = unconditional_branch_definition();
 
         let result = execute(
             &definition,
             subject(&definition, "value"),
-            ExecutionOptions {
-                branch_mode: ExecutionBranchMode::ExploreAll,
-                ..ExecutionOptions::default()
-            },
+            ExecutionOptions::default(),
         );
         assert_eq!(result.leaves.len(), 2);
         assert!(

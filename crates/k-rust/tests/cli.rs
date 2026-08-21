@@ -236,7 +236,7 @@ endmodule
 }
 
 #[test]
-fn krun_stops_at_an_unconditional_branch_point() {
+fn krun_explores_by_default_and_can_stop_at_a_branch_point() {
     let (root, definition) = fixture();
     fs::write(
         &definition,
@@ -265,6 +265,32 @@ endmodule
             "a",
             "--depth",
             "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(output.contains("Lbld'Unds'MAIN'Unds'State{}()"), "{output}");
+    assert!(output.contains("Lble'Unds'MAIN'Unds'State{}()"), "{output}");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+            "--depth",
+            "10",
+            "--execute-to-branch",
         ])
         .output()
         .unwrap();
@@ -357,10 +383,15 @@ module MAIN
   sort SortS{} []
   symbol a{}() : SortS{} [constructor{}()]
   symbol b{}() : SortS{} [constructor{}()]
+  symbol c{}() : SortS{} [constructor{}()]
   axiom{} \rewrites{SortS{}}(
     \and{SortS{}}(a{}(), \top{SortS{}}()),
     b{}()
   ) [label{}("a-to-b")]
+  axiom{} \rewrites{SortS{}}(
+    \and{SortS{}}(a{}(), \top{SortS{}}()),
+    c{}()
+  ) [label{}("a-to-c")]
 endmodule []
 "#,
     )
@@ -384,7 +415,29 @@ endmodule []
         "{}",
         String::from_utf8_lossy(&execute.stderr)
     );
-    assert_eq!(String::from_utf8(execute.stdout).unwrap(), "b{}()\n");
+    let execute = String::from_utf8(execute.stdout).unwrap();
+    assert!(execute.starts_with(r#"\or{SortS{}}("#), "{execute}");
+    assert!(execute.contains("b{}()"), "{execute}");
+    assert!(execute.contains("c{}()"), "{execute}");
+
+    let branch = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--pattern",
+            program.to_str().unwrap(),
+            "--execute-to-branch",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        branch.status.success(),
+        "{}",
+        String::from_utf8_lossy(&branch.stderr)
+    );
+    assert_eq!(String::from_utf8(branch.stdout).unwrap(), "a{}()\n");
 
     let search = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
@@ -408,6 +461,7 @@ endmodule []
     let search = String::from_utf8(search.stdout).unwrap();
     assert!(search.contains("Result:SortS{}"), "{search}");
     assert!(search.contains("b{}()"), "{search}");
+    assert!(search.contains("c{}()"), "{search}");
 
     fs::remove_dir_all(root).unwrap();
 }

@@ -152,6 +152,9 @@ krust krun definition.k --main-module MAIN --sort Exp --expression '1 + 2'
 krust krun definition.k --main-module MAIN --sort Exp program.exp --depth 1000
 ```
 
+Execution explores every rewrite branch by default. Pass `--execute-to-branch` to return the
+configuration at the first branch point instead.
+
 Search final states, every reachable state, states after exactly one step, or states after one or
 more steps:
 

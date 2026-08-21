@@ -37,7 +37,10 @@ use k_rust_backend::{
     definition::BackendDefinition,
     externalize,
     proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
-    rewrite::{ExecutionOptions, HaltReason, Pattern, execute_with_solver_and_observer},
+    rewrite::{
+        ExecutionBranchMode, ExecutionOptions, HaltReason, Pattern,
+        execute_with_solver_and_observer,
+    },
     rule::Predicate,
     search::{
         IncompleteSearch, PatternMatch, PatternMatchError, PatternSearchResult, SearchOptions,
@@ -241,6 +244,10 @@ struct KrunArgs {
     #[arg(long, default_value_t = 1_000, value_name = "STEPS")]
     depth: u64,
 
+    /// Stop and return the current configuration when execution first branches.
+    #[arg(long)]
+    execute_to_branch: bool,
+
     #[command(flatten)]
     search: SearchArgs,
 
@@ -265,6 +272,10 @@ struct KoreExecArgs {
     /// Maximum number of semantic rewrite steps per execution branch.
     #[arg(long, default_value_t = 1_000, value_name = "STEPS")]
     depth: u64,
+
+    /// Stop and return the current configuration when execution first branches.
+    #[arg(long)]
+    execute_to_branch: bool,
 
     #[command(flatten)]
     search: SearchArgs,
@@ -416,6 +427,7 @@ struct KrunOptions {
     expression: Option<String>,
     program_file: Option<PathBuf>,
     depth: u64,
+    execute_to_branch: bool,
     search: Option<KrunSearchOptions>,
 }
 
@@ -530,6 +542,7 @@ impl From<KrunArgs> for KrunOptions {
             expression: arguments.expression,
             program_file: arguments.program_file,
             depth: arguments.depth,
+            execute_to_branch: arguments.execute_to_branch,
             search: arguments.search.into_options(),
         }
     }
@@ -695,6 +708,7 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
             constraints: Vec::new(),
         },
         options.depth,
+        options.execute_to_branch,
         options.search,
     )?;
     println!("{}", KorePrinter::pretty(100).print_pattern(&output));
@@ -728,6 +742,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
         &backend,
         initial,
         options.depth,
+        options.execute_to_branch,
         options.search.into_options(),
     )?;
     println!("{}", KorePrinter::pretty(100).print_pattern(&output));
@@ -791,6 +806,7 @@ fn run_backend(
     backend: &BackendDefinition,
     initial: Pattern,
     depth: u64,
+    execute_to_branch: bool,
     search: Option<KrunSearchOptions>,
 ) -> Result<KorePattern, Box<dyn Error>> {
     let output_sort = externalize::sort(&initial.term.sort());
@@ -847,6 +863,11 @@ fn run_backend(
         initial,
         ExecutionOptions {
             max_depth: depth,
+            branch_mode: if execute_to_branch {
+                ExecutionBranchMode::StopAtBranch
+            } else {
+                ExecutionBranchMode::ExploreAll
+            },
             ..ExecutionOptions::default()
         },
         &solver,
@@ -1386,6 +1407,7 @@ mod tests {
             "1 + 2",
             "--depth",
             "42",
+            "--execute-to-branch",
         ])
         .unwrap();
         let Command::Krun(options) = cli.command else {
@@ -1398,6 +1420,7 @@ mod tests {
         assert_eq!(options.sort, "Exp");
         assert_eq!(options.expression.as_deref(), Some("1 + 2"));
         assert_eq!(options.depth, 42);
+        assert!(options.execute_to_branch);
         assert!(options.search.is_none());
     }
 
