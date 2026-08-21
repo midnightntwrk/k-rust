@@ -55,7 +55,7 @@ pub enum ProofSearchOrder {
 impl Default for ProofOptions {
     fn default() -> Self {
         Self {
-            max_depth: 1_000,
+            max_depth: u64::MAX,
             min_depth: 0,
             breadth_limit: None,
             max_counterexamples: 1,

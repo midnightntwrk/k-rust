@@ -241,8 +241,8 @@ struct KrunArgs {
     program_file: Option<PathBuf>,
 
     /// Maximum number of semantic rewrite steps per execution branch.
-    #[arg(long, default_value_t = 1_000, value_name = "STEPS")]
-    depth: u64,
+    #[arg(long, value_name = "STEPS")]
+    depth: Option<u64>,
 
     /// Maximum number of live execution or search branches.
     #[arg(long = "breadth", value_name = "BRANCHES")]
@@ -278,8 +278,12 @@ struct KoreExecArgs {
     pattern: PathBuf,
 
     /// Maximum number of semantic rewrite steps per execution branch.
-    #[arg(long, default_value_t = 1_000, value_name = "STEPS")]
-    depth: u64,
+    #[arg(long, value_name = "STEPS")]
+    depth: Option<u64>,
+
+    /// Write the resulting KORE pattern to this file instead of standard output.
+    #[arg(short, long, value_name = "OUTPUT_KORE")]
+    output: Option<PathBuf>,
 
     /// Maximum number of live execution or search branches.
     #[arg(long = "breadth", value_name = "BRANCHES")]
@@ -339,8 +343,8 @@ struct KproveArgs {
     claims: Vec<String>,
 
     /// Maximum number of rewrite or circularity steps per proof branch.
-    #[arg(long, default_value_t = 1_000, value_name = "STEPS")]
-    depth: u64,
+    #[arg(long, value_name = "STEPS")]
+    depth: Option<u64>,
 
     /// Maximum number of live parallel proof branches.
     #[arg(long = "breadth", value_name = "BRANCHES")]
@@ -575,7 +579,7 @@ impl From<KrunArgs> for KrunOptions {
             sort: arguments.sort,
             expression: arguments.expression,
             program_file: arguments.program_file,
-            depth: arguments.depth,
+            depth: arguments.depth.unwrap_or(u64::MAX),
             breadth_limit: arguments.breadth_limit,
             execute_to_branch: arguments.execute_to_branch,
             strategy: arguments.strategy.into(),
@@ -596,7 +600,7 @@ impl From<KproveArgs> for KproveOptions {
                 .common(arguments.definition, arguments.module),
             definition_module,
             claims: arguments.claims,
-            depth: arguments.depth,
+            depth: arguments.depth.unwrap_or(u64::MAX),
             breadth_limit: arguments.breadth_limit,
             max_counterexamples: arguments.max_counterexamples.get(),
             save_proofs: arguments.save_proofs,
@@ -779,13 +783,18 @@ fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
     let output = run_backend(
         &backend,
         initial,
-        options.depth,
+        options.depth.unwrap_or(u64::MAX),
         options.breadth_limit,
         options.execute_to_branch,
         options.strategy.into(),
         options.search.into_options(),
     )?;
-    println!("{}", KorePrinter::pretty(100).print_pattern(&output));
+    let output = KorePrinter::pretty(100).print_pattern(&output);
+    if let Some(path) = options.output {
+        fs::write(path, output)?;
+    } else {
+        println!("{output}");
+    }
     Ok(())
 }
 
@@ -1517,6 +1526,8 @@ mod tests {
             "program.kore",
             "--depth",
             "42",
+            "--output",
+            "result.kore",
             "--search-final",
             "--search-pattern",
             "target.kore",
@@ -1529,13 +1540,49 @@ mod tests {
         assert_eq!(options.definition, Path::new("definition.kore"));
         assert_eq!(options.module, "MAIN");
         assert_eq!(options.pattern, Path::new("program.kore"));
-        assert_eq!(options.depth, 42);
+        assert_eq!(options.depth, Some(42));
+        assert_eq!(options.output.as_deref(), Some(Path::new("result.kore")));
         let search = options
             .search
             .into_options()
             .expect("search options should be present");
         assert_eq!(search.search_type, SearchType::Final);
         assert_eq!(search.pattern.as_deref(), Some(Path::new("target.kore")));
+    }
+
+    #[test]
+    fn execution_depth_is_unlimited_by_default() {
+        let krun = Cli::try_parse_from([
+            "krust",
+            "krun",
+            "definition.k",
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Exp",
+            "--expression",
+            "0",
+        ])
+        .unwrap();
+        let Command::Krun(krun) = krun.command else {
+            panic!("expected krun command");
+        };
+        assert_eq!(KrunOptions::from(krun).depth, u64::MAX);
+
+        let kore_exec = Cli::try_parse_from([
+            "krust",
+            "kore-exec",
+            "definition.kore",
+            "--module",
+            "MAIN",
+            "--pattern",
+            "program.kore",
+        ])
+        .unwrap();
+        let Command::KoreExec(kore_exec) = kore_exec.command else {
+            panic!("expected kore-exec command");
+        };
+        assert_eq!(kore_exec.depth, None);
     }
 
     #[test]

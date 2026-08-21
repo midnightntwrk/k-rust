@@ -111,7 +111,7 @@ pub enum ExecutionBranchMode {
 impl Default for ExecutionOptions {
     fn default() -> Self {
         Self {
-            max_depth: 1_000,
+            max_depth: u64::MAX,
             max_breadth: None,
             max_simplification_iterations: 100,
             mode: ExecutionMode::All,

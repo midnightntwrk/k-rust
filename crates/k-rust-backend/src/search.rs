@@ -45,7 +45,7 @@ impl Default for SearchOptions {
     fn default() -> Self {
         Self {
             search_type: SearchType::Final,
-            max_depth: 1_000,
+            max_depth: u64::MAX,
             max_breadth: None,
             max_results: None,
             max_simplification_iterations: 100,

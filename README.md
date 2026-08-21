@@ -180,6 +180,7 @@ and search options as `krun`:
 krust kore-exec definition.kore --module MAIN --pattern pgm.kore
 krust kore-exec definition.kore --module MAIN --pattern pgm.kore \
   --search-final --search-pattern target.kore
+krust kore-exec definition.kore --module MAIN --pattern pgm.kore --output result.kore
 ```
 
 Match a constrained KORE pattern against every alternative in a disjunction of configurations:

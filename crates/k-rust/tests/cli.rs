@@ -430,6 +430,30 @@ endmodule []
     assert!(execute.contains("d{}()"), "{execute}");
     assert!(execute.contains("e{}()"), "{execute}");
 
+    let result_file = root.join("result.kore");
+    let file_output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--pattern",
+            program.to_str().unwrap(),
+            "--output",
+            result_file.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        file_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&file_output.stderr)
+    );
+    assert!(file_output.stdout.is_empty());
+    let file_output = fs::read_to_string(result_file).unwrap();
+    assert!(file_output.contains("d{}()"), "{file_output}");
+    assert!(file_output.contains("e{}()"), "{file_output}");
+
     let branch = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
             "kore-exec",
