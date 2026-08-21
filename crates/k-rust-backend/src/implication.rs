@@ -477,7 +477,7 @@ fn discharge_consequent(
         Truth::True => return Ok(valid(substitution)),
         Truth::False => {
             return Ok(if had_match_remainder {
-                invalid()
+                invalid_with_bottom_condition()
             } else {
                 condition_invalid_with_substitution(substitution)
             });
@@ -646,10 +646,24 @@ fn invalid() -> ImplicationResult {
     }
 }
 
+fn invalid_with_bottom_condition() -> ImplicationResult {
+    ImplicationResult {
+        status: ImplicationStatus::Invalid,
+        condition: Some(ImplicationCondition {
+            predicates: vec![Predicate::False],
+            substitution: Substitution::new(),
+        }),
+        failure: Some(ImplicationFailure::TermMismatch),
+    }
+}
+
 fn condition_invalid() -> ImplicationResult {
     ImplicationResult {
         status: ImplicationStatus::Invalid,
-        condition: None,
+        condition: Some(ImplicationCondition {
+            predicates: vec![Predicate::False],
+            substitution: Substitution::new(),
+        }),
         failure: Some(ImplicationFailure::ConsequentCondition),
     }
 }
@@ -871,6 +885,29 @@ mod tests {
         assert_eq!(result.status, ImplicationStatus::Invalid);
         assert_eq!(condition.substitution, Substitution::from([(x, value)]));
         assert!(condition.predicates.is_empty());
+    }
+
+    #[test]
+    fn retains_a_refuted_match_remainder_as_a_bottom_condition() {
+        let definition = definition();
+        let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
+        let value = int(&definition, "0");
+        let antecedent = Pattern {
+            term: Term::variable(x.clone()),
+            constraints: vec![Predicate::Not(Box::new(Predicate::Equals(
+                Term::variable(x),
+                value.clone(),
+            )))],
+        };
+        let consequent = Pattern {
+            term: value,
+            constraints: vec![Predicate::False],
+        };
+
+        let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
+            .expect("implication should be checked");
+
+        assert_eq!(result, invalid_with_bottom_condition());
     }
 
     #[test]
@@ -1107,6 +1144,22 @@ mod tests {
         assert_eq!(
             check_implication(&definition, &antecedent, &consequent, &solver),
             Ok(valid(Substitution::new()))
+        );
+
+        let solver = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Invalid),
+        };
+        assert_eq!(
+            check_implication(&definition, &antecedent, &consequent, &solver),
+            Ok(condition_invalid())
+        );
+        assert_eq!(
+            condition_invalid()
+                .condition
+                .expect("a refuted condition should be retained")
+                .predicates,
+            vec![Predicate::False]
         );
     }
 

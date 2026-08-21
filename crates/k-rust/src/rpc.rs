@@ -593,31 +593,47 @@ impl RpcService {
             .internalize_implication_pattern(&antecedent, &sort_variables)
             .map_err(RpcFault::pattern)?;
         let result_sort = antecedent_pattern.term.sort();
-        let result = if matches!(super::strip_exists(&consequent), KorePattern::Not { .. }) {
-            ImplicationResult {
+        if matches!(super::strip_exists(&consequent), KorePattern::Not { .. }) {
+            let result = ImplicationResult {
                 status: ImplicationStatus::Invalid,
                 condition: None,
                 failure: None,
-            }
+            };
+            let antecedent = normalized_implication_syntax(&antecedent, &antecedent_pattern);
+            return implication_result(&antecedent, &consequent, &result_sort, result);
+        }
+        let (consequent_pattern, consequent_existentials) = definition
+            .internalize_implication_pattern(&consequent, &sort_variables)
+            .map_err(RpcFault::pattern)?;
+        if result_sort != consequent_pattern.term.sort() {
+            return Err(RpcFault::pattern("antecedent and consequent sorts differ"));
+        }
+        let solver = solver(&definition)?;
+        let result = check_implication_with_existentials(
+            &definition,
+            &antecedent_pattern,
+            &antecedent_existentials,
+            &consequent_pattern,
+            &consequent_existentials,
+            &solver,
+        )
+        .map_err(|error| {
+            implication_backend_fault(error, &antecedent, &consequent, &consequent_existentials)
+        })?;
+        let vacuous_antecedent = result.status == ImplicationStatus::Valid
+            && result.condition.as_ref().is_some_and(|condition| {
+                condition.predicates.as_slice() == [Predicate::False]
+                    && condition.substitution.is_empty()
+            });
+        let antecedent = if vacuous_antecedent {
+            antecedent
         } else {
-            let (consequent_pattern, consequent_existentials) = definition
-                .internalize_implication_pattern(&consequent, &sort_variables)
-                .map_err(RpcFault::pattern)?;
-            if result_sort != consequent_pattern.term.sort() {
-                return Err(RpcFault::pattern("antecedent and consequent sorts differ"));
-            }
-            let solver = solver(&definition)?;
-            check_implication_with_existentials(
-                &definition,
-                &antecedent_pattern,
-                &antecedent_existentials,
-                &consequent_pattern,
-                &consequent_existentials,
-                &solver,
-            )
-            .map_err(|error| {
-                implication_backend_fault(error, &antecedent, &consequent, &consequent_existentials)
-            })?
+            normalized_implication_syntax(&antecedent, &antecedent_pattern)
+        };
+        let consequent = if vacuous_antecedent {
+            consequent
+        } else {
+            normalized_implication_syntax(&consequent, &consequent_pattern)
         };
         implication_result(&antecedent, &consequent, &result_sort, result)
     }
@@ -829,6 +845,74 @@ fn special_implication_result(
         })
     } else {
         None
+    }
+}
+
+fn normalized_implication_syntax(original: &KorePattern, pattern: &Pattern) -> KorePattern {
+    fn leaf_count(pattern: &KorePattern) -> usize {
+        match pattern {
+            KorePattern::And { arguments, .. } => arguments.iter().map(leaf_count).sum(),
+            _ => 1,
+        }
+    }
+
+    fn replace_constraint_leaves(
+        pattern: &KorePattern,
+        terms_remaining: &mut usize,
+        constraints: &mut impl Iterator<Item = KorePattern>,
+    ) -> KorePattern {
+        match pattern {
+            KorePattern::And { sort, arguments } => KorePattern::And {
+                sort: sort.clone(),
+                arguments: arguments
+                    .iter()
+                    .map(|argument| {
+                        replace_constraint_leaves(argument, terms_remaining, constraints)
+                    })
+                    .collect(),
+            },
+            _ if *terms_remaining > 0 => {
+                *terms_remaining -= 1;
+                pattern.clone()
+            }
+            _ => constraints.next().unwrap_or_else(|| pattern.clone()),
+        }
+    }
+
+    fn normalize_body(original: &KorePattern, pattern: &Pattern) -> KorePattern {
+        let result_sort = pattern.term.sort();
+        let mut constraints = pattern
+            .constraints
+            .iter()
+            .map(|predicate| externalize::predicate_pattern(predicate, &result_sort))
+            .collect::<Vec<_>>();
+        constraints.sort();
+        let leaves = leaf_count(original);
+        if constraints.is_empty() || constraints.len() >= leaves {
+            return original.clone();
+        }
+        let mut terms_remaining = leaves - constraints.len();
+        let mut constraints = constraints.into_iter();
+        let normalized =
+            replace_constraint_leaves(original, &mut terms_remaining, &mut constraints);
+        if terms_remaining == 0 && constraints.next().is_none() {
+            normalized
+        } else {
+            original.clone()
+        }
+    }
+
+    match original {
+        KorePattern::Exists {
+            sort,
+            variable,
+            body,
+        } => KorePattern::Exists {
+            sort: sort.clone(),
+            variable: variable.clone(),
+            body: Box::new(normalized_implication_syntax(body, pattern)),
+        },
+        _ => normalize_body(original, pattern),
     }
 }
 
@@ -1338,10 +1422,18 @@ fn implication_result(
         "status": status,
     });
     if let Some(condition) = result.condition {
-        let substitution = super::implication_substitution(&condition.substitution, result_sort)
-            .unwrap_or_else(|| KorePattern::Top {
-                sort: externalize::sort(result_sort),
-            });
+        let antecedent_variable = match super::strip_exists(antecedent) {
+            KorePattern::Variable(variable) => Some(variable.name.as_str()),
+            _ => None,
+        };
+        let substitution = super::implication_substitution(
+            &condition.substitution,
+            result_sort,
+            antecedent_variable,
+        )
+        .unwrap_or_else(|| KorePattern::Top {
+            sort: externalize::sort(result_sort),
+        });
         let predicate =
             constraints_pattern(&condition.predicates, result_sort).unwrap_or_else(|| {
                 KorePattern::Top {
@@ -1722,6 +1814,66 @@ mod tests {
         assert_eq!(substitution["tag"], "Equals");
         assert_eq!(substitution["first"]["name"], "X");
         assert_eq!(substitution["second"]["name"], "Z");
+    }
+
+    #[test]
+    fn implication_keeps_nested_consequent_existentials_on_the_left() {
+        let sort = BackendSort::simple("SortK");
+        let variable = Variable::new("X!exists0", sort.clone());
+        let value = Term::domain_value(sort.clone(), "value");
+        let substitution = Substitution::from([(variable, value)]);
+
+        let output = crate::implication_substitution(&substitution, &sort, None)
+            .expect("the binding should externalize");
+        let output = encode_kore(&output).unwrap();
+
+        assert_eq!(output["term"]["first"]["tag"], "EVar");
+        assert_eq!(output["term"]["first"]["name"], "X");
+        assert_eq!(output["term"]["second"]["tag"], "DV");
+        assert_eq!(output["term"]["second"]["value"], "value");
+    }
+
+    #[test]
+    fn implication_normalization_preserves_conjunction_shape() {
+        let sort = BackendSort::simple("SortK");
+        let configuration = Term::variable(Variable::new("CONFIG", sort.clone()));
+        let x = Term::variable(Variable::new("X", sort.clone()));
+        let constraints = vec![
+            Predicate::Equals(Term::domain_value(sort.clone(), "3"), x.clone()),
+            Predicate::Equals(Term::domain_value(sort.clone(), "0"), x),
+        ];
+        let mut canonical = constraints
+            .iter()
+            .map(|predicate| externalize::predicate_pattern(predicate, &sort))
+            .collect::<Vec<_>>();
+        canonical.sort();
+        let original = KorePattern::And {
+            sort: externalize::sort(&sort),
+            arguments: vec![
+                externalize::term(&configuration),
+                KorePattern::And {
+                    sort: externalize::sort(&sort),
+                    arguments: canonical.iter().cloned().rev().collect(),
+                },
+            ],
+        };
+
+        let normalized = normalized_implication_syntax(
+            &original,
+            &Pattern {
+                term: configuration.clone(),
+                constraints,
+            },
+        );
+        let KorePattern::And { arguments, .. } = normalized else {
+            panic!("the outer conjunction should be preserved");
+        };
+        assert_eq!(arguments.len(), 2);
+        assert_eq!(arguments[0], externalize::term(&configuration));
+        let KorePattern::And { arguments, .. } = &arguments[1] else {
+            panic!("the nested conjunction should be preserved");
+        };
+        assert_eq!(arguments, &canonical);
     }
 
     #[test]

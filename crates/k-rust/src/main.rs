@@ -58,7 +58,7 @@ use k_rust_backend::{
     simplify::{SimplificationOptions, simplify_and_decide_predicate_with_solver},
     smt::{ModelResult, SmtError, SmtSolver, Z3Solver},
     substitution::Substitution,
-    term::{Name as BackendName, Sort as BackendSort, Term, Variable},
+    term::{Name as BackendName, Sort as BackendSort, Term, TermKind, Variable},
 };
 
 mod rpc;
@@ -1224,7 +1224,12 @@ fn implication_output(
         "implication": kore_json_value(&implication)?,
     });
     if let Some(condition) = result.condition {
-        output["condition"] = implication_condition_output(&condition, result_sort)?;
+        let antecedent_variable = match strip_exists(antecedent) {
+            KorePattern::Variable(variable) => Some(variable.name.as_str()),
+            _ => None,
+        };
+        output["condition"] =
+            implication_condition_output(&condition, result_sort, antecedent_variable)?;
     }
     Ok(serde_json::to_string_pretty(&output)?)
 }
@@ -1232,11 +1237,13 @@ fn implication_output(
 fn implication_condition_output(
     condition: &ImplicationCondition,
     result_sort: &BackendSort,
+    antecedent_variable: Option<&str>,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
-    let substitution = implication_substitution(&condition.substitution, result_sort)
-        .unwrap_or_else(|| KorePattern::Top {
-            sort: externalize::sort(result_sort),
-        });
+    let substitution =
+        implication_substitution(&condition.substitution, result_sort, antecedent_variable)
+            .unwrap_or_else(|| KorePattern::Top {
+                sort: externalize::sort(result_sort),
+            });
     let predicate = match condition.predicates.as_slice() {
         [] => KorePattern::Top {
             sort: externalize::sort(result_sort),
@@ -1259,6 +1266,7 @@ fn implication_condition_output(
 fn implication_substitution(
     substitution: &Substitution,
     result_sort: &BackendSort,
+    antecedent_variable: Option<&str>,
 ) -> Option<KorePattern> {
     let mut bindings = substitution.iter().collect::<Vec<_>>();
     bindings.sort_by_key(|(variable, _)| (variable.name.clone(), variable.sort.clone()));
@@ -1272,7 +1280,12 @@ fn implication_substitution(
         if let Some((name, _)) = consequent_existential {
             output_variable.name = BackendName::from(name);
         }
-        let (left, right) = if consequent_existential.is_some() {
+        let prefer_antecedent = consequent_existential.is_some()
+            && matches!(
+                value.kind(),
+                TermKind::Variable(value) if antecedent_variable == Some(value.name.as_ref())
+            );
+        let (left, right) = if prefer_antecedent {
             (
                 externalize::term(value),
                 externalize::term(&Term::variable(output_variable)),
