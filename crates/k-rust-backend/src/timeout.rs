@@ -5,6 +5,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::cancellation::cancellation_requested;
+
 const DEFAULT_MOVING_AVERAGE: Duration = Duration::from_secs(3);
 const PREVIOUS_WEIGHT: f64 = 0.95;
 
@@ -18,11 +20,12 @@ thread_local! {
 /// hot hook API small and mirrors the fact that backend simplification is synchronous and
 /// thread-confined; nested timers restore the previous deadline when they leave scope.
 pub(crate) fn interruption_requested() -> bool {
-    ACTIVE_DEADLINE.with(|deadline| {
-        deadline
-            .get()
-            .is_some_and(|deadline| Instant::now() >= deadline)
-    })
+    cancellation_requested()
+        || ACTIVE_DEADLINE.with(|deadline| {
+            deadline
+                .get()
+                .is_some_and(|deadline| Instant::now() >= deadline)
+        })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

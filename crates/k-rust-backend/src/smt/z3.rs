@@ -15,6 +15,7 @@ use super::{
     ModelResult, Satisfiability, SmtError, SmtPrelude, SmtSolver, TranslatedQuery, Validity,
 };
 use crate::{
+    cancellation::cancellation_requested,
     rule::Predicate,
     substitution::Substitution,
     term::{Sort, Term, Variable},
@@ -82,6 +83,9 @@ impl Z3Solver {
     fn solve(&self, script: &str) -> Satisfiability {
         let mut timeout = self.options.timeout_ms;
         for attempt in 0..=self.options.retry_limit {
+            if cancellation_requested() {
+                return Satisfiability::Unknown("request cancelled".into());
+            }
             let solver = Solver::new();
             let mut parameters = Params::new();
             parameters.set_u32("timeout", timeout);
@@ -122,6 +126,9 @@ impl Z3Solver {
     ) -> Result<ModelResult, SmtError> {
         let mut timeout = self.options.timeout_ms;
         for attempt in 0..=self.options.retry_limit {
+            if cancellation_requested() {
+                return Ok(ModelResult::Unknown("request cancelled".into()));
+            }
             let solver = Solver::new();
             let mut parameters = Params::new();
             parameters.set_u32("timeout", timeout);

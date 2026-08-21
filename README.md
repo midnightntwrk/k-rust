@@ -204,9 +204,10 @@ krust kore-rpc definition.kore --module MAIN --server-port 31337
 
 The service uses newline-delimited JSON over a persistent raw TCP socket (not HTTP). Requests may
 call `execute`, `simplify`, `implies`, `add-module`, and `get-model`; module additions remain visible
-to later requests and connections for the lifetime of the server. It binds to `127.0.0.1` by
-default; pass `--host 0.0.0.0` to expose it on every interface or `--server-port 0` to request an
-ephemeral port.
+to later requests and connections for the lifetime of the server. A standalone `cancel` request or
+notification cooperatively interrupts the active request on that connection with the reference
+`Request cancelled` error. The server binds to `127.0.0.1` by default; pass `--host 0.0.0.0` to
+expose it on every interface or `--server-port 0` to request an ephemeral port.
 
 Simplify an arbitrary text, KORE JSON v1, or binary KORE pattern. Unlike execution, this accepts
 pure ML predicates without requiring a configuration term:
@@ -443,8 +444,8 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
   concrete parameters normally supplied by parser inference.
 - Emit the optional legacy priority aliases supported by `ModuleToKORE` compatibility modes.
 - Measure Z3-path usage across a substantially larger real-definition corpus.
-- Complete KORE RPC parity for cancellation, definedness assumptions, and failed-rewrite and
-  legacy Haskell logging.
+- Complete KORE RPC parity for definedness assumptions and failed-rewrite and legacy Haskell
+  logging.
 - Revisit package splitting only if real build or release pressure justifies it.
 
 ## License

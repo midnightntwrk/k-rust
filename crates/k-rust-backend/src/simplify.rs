@@ -9,6 +9,7 @@ use crate::{
     builtin::{
         BuiltinEffect, BuiltinError, BuiltinResult, evaluate as evaluate_builtin, k_sequence_item,
     },
+    cancellation::cancellation_requested,
     definedness::ceil_term,
     definition::BackendDefinition,
     matching::{
@@ -48,6 +49,7 @@ pub struct Simplification {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SimplificationError {
+    Cancelled,
     Builtin(BuiltinError),
     ConflictingResults {
         rule_ids: Vec<String>,
@@ -350,6 +352,9 @@ fn simplify_predicate_with_budget(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Predicate, SimplificationError> {
+    if cancellation_requested() {
+        return Err(SimplificationError::Cancelled);
+    }
     if conjunctively_contains(known_predicates, predicate) {
         return Ok(Predicate::True);
     }
@@ -1091,6 +1096,9 @@ fn simplify_with_budget(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Simplification, SimplificationError> {
+    if cancellation_requested() {
+        return Err(SimplificationError::Cancelled);
+    }
     let term = replace_from_path_condition(term, known_predicates);
     let children = simplify_children(
         definition,

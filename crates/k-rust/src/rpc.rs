@@ -1,17 +1,22 @@
 //! Stateful KORE JSON-RPC 2.0 dispatch and raw TCP transport.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, VecDeque},
     error::Error,
     io::{self, BufRead, BufReader, BufWriter, Write},
     net::{TcpListener, TcpStream, ToSocketAddrs},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU8, Ordering},
+        mpsc,
+    },
     thread,
     time::Duration,
 };
 
 use k_rust::kore::{ast::Pattern as KorePattern, json as kore_json, parser::parse_module};
 use k_rust_backend::{
+    cancellation::{CancellationToken, cancellation_requested},
     definition::BackendDefinition,
     externalize,
     implication::{ImplicationResult, ImplicationStatus, check_implication_with_existentials},
@@ -31,6 +36,53 @@ use serde_json::{Map, Value, json};
 
 const JSON_RPC_VERSION: &str = "2.0";
 const CONNECTION_STACK_SIZE: usize = 64 * 1024 * 1024;
+const REQUEST_PENDING: u8 = 0;
+const REQUEST_CANCELLED: u8 = 1;
+const REQUEST_COMPLETED: u8 = 2;
+
+struct RequestControl {
+    token: CancellationToken,
+    state: AtomicU8,
+    cancellation_response: Option<String>,
+}
+
+impl RequestControl {
+    fn new(message: &str) -> Self {
+        Self {
+            token: CancellationToken::new(),
+            state: AtomicU8::new(REQUEST_PENDING),
+            cancellation_response: cancellation_response(message),
+        }
+    }
+
+    fn cancel(&self) -> bool {
+        if self
+            .state
+            .compare_exchange(
+                REQUEST_PENDING,
+                REQUEST_CANCELLED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
+            return false;
+        }
+        self.token.cancel();
+        true
+    }
+
+    fn complete(&self) -> bool {
+        self.state
+            .compare_exchange(
+                REQUEST_PENDING,
+                REQUEST_COMPLETED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+}
 
 pub(super) struct RpcService {
     session: BackendSession,
@@ -134,6 +186,22 @@ struct GetModelParams {
 }
 
 impl RpcFault {
+    fn cancelled() -> Self {
+        Self {
+            code: -32000,
+            message: "Request cancelled".into(),
+            data: Some(Value::Null),
+        }
+    }
+
+    fn cancel_unsupported_in_batch() -> Self {
+        Self {
+            code: -32001,
+            message: "Cancel request unsupported in batch mode".into(),
+            data: Some(Value::Null),
+        }
+    }
+
     fn invalid_request(data: Option<Value>) -> Self {
         Self {
             code: -32600,
@@ -252,20 +320,26 @@ impl RpcService {
     }
 
     fn dispatch(&mut self, method: &str, params: Value) -> Result<Value, RpcFault> {
-        match method {
+        if cancellation_requested() {
+            return Err(RpcFault::cancelled());
+        }
+        let result = match method {
             "execute" => self.execute(decode_params(params)?),
             "simplify" => self.simplify(decode_params(params)?),
             "implies" => self.implies(decode_params(params)?),
             "add-module" => self.add_module(decode_params(params)?),
             "get-model" => self.get_model(decode_params(params)?),
-            "cancel" => Err(RpcFault::backend(
-                "request cancellation is not yet supported by the Rust backend",
-            )),
+            "cancel" => Err(RpcFault::cancel_unsupported_in_batch()),
             _ => Err(RpcFault {
                 code: -32601,
                 message: "Method not found".into(),
                 data: None,
             }),
+        };
+        if cancellation_requested() {
+            Err(RpcFault::cancelled())
+        } else {
+            result
         }
     }
 
@@ -327,6 +401,7 @@ impl RpcService {
             .ok_or_else(|| RpcFault::backend("execution produced no result"))?;
         let mut output = Map::new();
         let (reason, next_states, rule) = match &leaf.halt_reason {
+            HaltReason::Cancelled => return Err(RpcFault::cancelled()),
             HaltReason::Stuck => ("stuck", None, None),
             HaltReason::Trivial | HaltReason::Vacuous => ("vacuous", None, None),
             HaltReason::DepthBound => ("depth-bound", None, None),
@@ -728,7 +803,7 @@ pub(super) fn serve(
             .name("krust-kore-rpc".into())
             .stack_size(CONNECTION_STACK_SIZE)
             .spawn(move || {
-                if let Err(error) = serve_connection(stream, &service) {
+                if let Err(error) = serve_connection(stream, service) {
                     eprintln!("KORE JSON-RPC connection failed: {error}");
                 }
             })?;
@@ -736,22 +811,123 @@ pub(super) fn serve(
     Ok(())
 }
 
-fn serve_connection(stream: TcpStream, service: &Mutex<RpcService>) -> Result<(), Box<dyn Error>> {
+fn serve_connection(
+    stream: TcpStream,
+    service: Arc<Mutex<RpcService>>,
+) -> Result<(), Box<dyn Error>> {
     let reader = BufReader::new(stream.try_clone()?);
-    let mut writer = BufWriter::new(stream);
+    let writer = Arc::new(Mutex::new(BufWriter::new(stream)));
+    let controls = Arc::new(Mutex::new(VecDeque::<Arc<RequestControl>>::new()));
+    let (sender, receiver) = mpsc::channel::<(String, Arc<RequestControl>)>();
+    let worker_writer = Arc::clone(&writer);
+    let worker_controls = Arc::clone(&controls);
+    let worker = thread::Builder::new()
+        .name("krust-kore-rpc-worker".into())
+        .stack_size(CONNECTION_STACK_SIZE)
+        .spawn(move || -> io::Result<()> {
+            for (line, control) in receiver {
+                let response = control.token.scope(|| {
+                    service
+                        .lock()
+                        .map_err(|_| io::Error::other("KORE JSON-RPC session lock was poisoned"))
+                        .map(|mut service| service.handle_line(&line))
+                })?;
+                if control.complete()
+                    && let Some(response) = response
+                {
+                    write_response(&worker_writer, &response)?;
+                }
+                let removed = worker_controls
+                    .lock()
+                    .map_err(|_| io::Error::other("KORE JSON-RPC request queue was poisoned"))?
+                    .pop_front();
+                debug_assert!(removed.is_some_and(|queued| Arc::ptr_eq(&queued, &control)));
+            }
+            Ok(())
+        })?;
+
+    let mut read_error = None;
     for line in reader.lines() {
-        let line = line?;
-        let response = service
+        let line = match line {
+            Ok(line) => line,
+            Err(error) => {
+                read_error = Some(error);
+                break;
+            }
+        };
+        if is_standalone_cancel(&line) {
+            let active = controls
+                .lock()
+                .map_err(|_| io::Error::other("KORE JSON-RPC request queue was poisoned"))?
+                .front()
+                .cloned();
+            if let Some(active) = active
+                && active.cancel()
+                && let Some(response) = &active.cancellation_response
+            {
+                write_response(&writer, response)?;
+            }
+            continue;
+        }
+        let control = Arc::new(RequestControl::new(&line));
+        controls
             .lock()
-            .map_err(|_| io::Error::other("KORE JSON-RPC session lock was poisoned"))?
-            .handle_line(&line);
-        if let Some(response) = response {
-            writer.write_all(response.as_bytes())?;
-            writer.write_all(b"\n")?;
-            writer.flush()?;
+            .map_err(|_| io::Error::other("KORE JSON-RPC request queue was poisoned"))?
+            .push_back(Arc::clone(&control));
+        if sender.send((line, control)).is_err() {
+            break;
         }
     }
+    drop(sender);
+    worker
+        .join()
+        .map_err(|_| io::Error::other("KORE JSON-RPC worker panicked"))??;
+    if let Some(error) = read_error {
+        return Err(error.into());
+    }
     Ok(())
+}
+
+fn write_response(writer: &Mutex<BufWriter<TcpStream>>, response: &str) -> io::Result<()> {
+    let mut writer = writer
+        .lock()
+        .map_err(|_| io::Error::other("KORE JSON-RPC response writer was poisoned"))?;
+    writer.write_all(response.as_bytes())?;
+    writer.write_all(b"\n")?;
+    writer.flush()
+}
+
+fn is_standalone_cancel(message: &str) -> bool {
+    let Ok(Value::Object(request)) = parse_json_value(message) else {
+        return false;
+    };
+    request.get("jsonrpc").and_then(Value::as_str) == Some(JSON_RPC_VERSION)
+        && request.get("method").and_then(Value::as_str) == Some("cancel")
+        && request
+            .get("id")
+            .is_none_or(|id| id.is_null() || id.is_number() || id.is_string())
+}
+
+fn cancellation_response(message: &str) -> Option<String> {
+    let message = parse_json_value(message).ok()?;
+    let response = match message {
+        Value::Object(request) => cancellation_error_for_request(&request),
+        Value::Array(requests) => {
+            let responses = requests
+                .iter()
+                .filter_map(Value::as_object)
+                .filter_map(cancellation_error_for_request)
+                .collect::<Vec<_>>();
+            (!responses.is_empty()).then_some(Value::Array(responses))
+        }
+        _ => None,
+    }?;
+    serde_json::to_string(&response).ok()
+}
+
+fn cancellation_error_for_request(request: &Map<String, Value>) -> Option<Value> {
+    let id = request.get("id")?.clone();
+    Some(RpcFault::cancelled().into_value(id))
 }
 
 #[cfg(test)]
@@ -762,7 +938,10 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use k_rust::kore::{ast::Symbol, parser::parse_definition};
+    use k_rust::kore::{
+        ast::Symbol,
+        parser::{parse_definition, parse_pattern},
+    };
     use k_rust_backend::term::Term;
 
     use super::*;
@@ -831,6 +1010,30 @@ mod tests {
         assert_eq!(
             service.handle_line(r#"[{"jsonrpc":"2.0","method":"cancel"}]"#),
             None
+        );
+    }
+
+    #[test]
+    fn cancel_requests_inside_batches_report_the_reference_error() {
+        let mut service = service();
+        let response: Value = serde_json::from_str(
+            &service
+                .handle_line(r#"[{"jsonrpc":"2.0","id":7,"method":"cancel"}]"#)
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            response,
+            json!([{
+                "jsonrpc": "2.0",
+                "id": 7,
+                "error": {
+                    "code": -32001,
+                    "message": "Cancel request unsupported in batch mode",
+                    "data": null,
+                },
+            }])
         );
     }
 
@@ -994,7 +1197,7 @@ mod tests {
         let server_service = Arc::clone(&service);
         let worker = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            serve_connection(stream, &server_service).unwrap();
+            serve_connection(stream, server_service).unwrap();
         });
 
         let mut client = TcpStream::connect(address).unwrap();
@@ -1027,6 +1230,86 @@ mod tests {
         );
         assert_eq!(responses[0]["error"]["code"], -32601);
         assert_eq!(responses[1]["result"]["satisfiable"], "Sat");
+    }
+
+    #[test]
+    fn standalone_cancel_interrupts_the_active_request_and_keeps_the_connection_alive() {
+        let definition = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                    wrap{}(X:SortS{})
+                ) [label{}("loop"), UNIQUE'Unds'ID{}("loop")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let service = Arc::new(Mutex::new(RpcService::new(BackendSession::new(
+            definition, "MAIN",
+        ))));
+        let server_service = Arc::clone(&service);
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            serve_connection(stream, server_service).unwrap();
+        });
+
+        let mut client = TcpStream::connect(address).unwrap();
+        let mut responses = BufReader::new(client.try_clone().unwrap());
+        let state =
+            encode_kore(&parse_pattern(r#"wrap{}(\dv{SortS{}}("zero"))"#).unwrap()).unwrap();
+        writeln!(
+            client,
+            "{}",
+            json!({
+                "jsonrpc": "2.0",
+                "id": "slow-request",
+                "method": "execute",
+                "params": { "state": state },
+            })
+        )
+        .unwrap();
+        thread::sleep(Duration::from_millis(10));
+        writeln!(
+            client,
+            "{}",
+            json!({ "jsonrpc": "2.0", "id": "cancel-command", "method": "cancel" })
+        )
+        .unwrap();
+
+        let mut line = String::new();
+        responses.read_line(&mut line).unwrap();
+        let cancelled: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(
+            cancelled,
+            json!({
+                "jsonrpc": "2.0",
+                "id": "slow-request",
+                "error": {
+                    "code": -32000,
+                    "message": "Request cancelled",
+                    "data": null,
+                },
+            })
+        );
+
+        writeln!(
+            client,
+            "{}",
+            json!({ "jsonrpc": "2.0", "id": 8, "method": "missing" })
+        )
+        .unwrap();
+        line.clear();
+        responses.read_line(&mut line).unwrap();
+        let next: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(next["id"], 8);
+        assert_eq!(next["error"]["code"], -32601);
+
+        client.shutdown(Shutdown::Write).unwrap();
+        server.join().unwrap();
     }
 
     fn request(service: &mut RpcService, id: u64, method: &str, params: Value) -> Value {

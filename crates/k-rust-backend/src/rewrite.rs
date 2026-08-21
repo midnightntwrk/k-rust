@@ -8,6 +8,7 @@ use std::{
 
 use crate::{
     builtin::BuiltinEffect,
+    cancellation::cancellation_requested,
     definedness::ceil_term,
     definition::{BackendDefinition, ConstructorHead, constructor_head},
     matching::{
@@ -155,6 +156,7 @@ pub enum TraceKind {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HaltReason {
+    Cancelled,
     Stuck,
     Trivial,
     Vacuous,
@@ -236,8 +238,18 @@ pub fn execute_with_solver_and_observer(
     }
     while let Some(mut state) = pending.pop_front() {
         let mut step_timer = timeout_controller.begin_step();
-        macro_rules! finish_if_timed_out {
+        macro_rules! finish_if_interrupted {
             () => {
+                if cancellation_requested() {
+                    step_timer.discard_measurement();
+                    leaves.push(ExecutionLeaf {
+                        pattern: state.pattern,
+                        depth: state.depth,
+                        trace: state.trace,
+                        halt_reason: HaltReason::Cancelled,
+                    });
+                    continue;
+                }
                 if let Some(mode) = step_timer.timed_out() {
                     step_timer.discard_measurement();
                     leaves.push(ExecutionLeaf {
@@ -250,6 +262,7 @@ pub fn execute_with_solver_and_observer(
                 }
             };
         }
+        finish_if_interrupted!();
         let simplified_constraints = simplify_predicates_with_solver(
             definition,
             &state.pattern.constraints,
@@ -259,7 +272,7 @@ pub fn execute_with_solver_and_observer(
             },
             solver,
         );
-        finish_if_timed_out!();
+        finish_if_interrupted!();
         match simplified_constraints {
             Ok(constraints) => state.pattern.constraints = constraints,
             Err(error) => {
@@ -290,7 +303,7 @@ pub fn execute_with_solver_and_observer(
             },
             solver,
         );
-        finish_if_timed_out!();
+        finish_if_interrupted!();
         match simplified {
             Ok(simplified) => {
                 state.pattern.term = simplified.term;
@@ -339,7 +352,7 @@ pub fn execute_with_solver_and_observer(
             solver,
             options.mode,
         );
-        finish_if_timed_out!();
+        finish_if_interrupted!();
         match rewritten {
             RewriteResult::Stuck(pattern) => leaves.push(ExecutionLeaf {
                 pattern,
@@ -3239,6 +3252,7 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
+    use crate::cancellation::CancellationToken;
 
     #[test]
     fn rule_diagnostics_omit_term_alias_binders() {
@@ -5142,6 +5156,27 @@ mod tests {
                 ..
             }] if timeout.is_zero()
         ));
+    }
+
+    #[test]
+    fn execution_stops_before_work_when_the_request_is_cancelled() {
+        let definition = definition("");
+        let initial = subject(&definition, "zero");
+        let token = CancellationToken::new();
+        token.cancel();
+
+        let result =
+            token.scope(|| execute(&definition, initial.clone(), ExecutionOptions::default()));
+
+        assert_eq!(
+            result.leaves,
+            [ExecutionLeaf {
+                pattern: initial,
+                depth: 0,
+                trace: Vec::new(),
+                halt_reason: HaltReason::Cancelled,
+            }]
+        );
     }
 
     #[test]

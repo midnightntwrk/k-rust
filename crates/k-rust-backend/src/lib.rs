@@ -4,6 +4,7 @@ mod alias;
 
 pub mod binary;
 pub mod builtin;
+pub mod cancellation;
 pub mod claim;
 pub mod definedness;
 pub mod definition;

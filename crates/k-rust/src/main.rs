@@ -1626,7 +1626,7 @@ fn run_backend(
     if let Some(leaf) = execution.leaves.iter().find(|leaf| {
         matches!(
             leaf.halt_reason,
-            HaltReason::Indeterminate(_) | HaltReason::Simplification(_)
+            HaltReason::Cancelled | HaltReason::Indeterminate(_) | HaltReason::Simplification(_)
         )
     }) {
         return Err(io::Error::other(format!(
