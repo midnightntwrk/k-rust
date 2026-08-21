@@ -122,23 +122,7 @@ pub fn compose(new: &Substitution, old: &Substitution) -> Substitution {
 pub fn extract_substitution(constraints: &[Predicate]) -> (Substitution, Vec<Predicate>) {
     let mut potential = BTreeMap::<Variable, Vec<(usize, Term)>>::new();
     for (index, constraint) in constraints.iter().enumerate() {
-        let Predicate::Equals(left, right) = constraint else {
-            continue;
-        };
-        let candidate = match (left.kind(), right.kind()) {
-            (TermKind::Variable(variable), _)
-                if !right.attributes().variables.contains(variable) =>
-            {
-                Some((variable.clone(), right.clone()))
-            }
-            (_, TermKind::Variable(variable))
-                if !left.attributes().variables.contains(variable) =>
-            {
-                Some((variable.clone(), left.clone()))
-            }
-            _ => None,
-        };
-        if let Some((variable, value)) = candidate {
+        if let Some((variable, value)) = substitution_binding(constraint) {
             potential.entry(variable).or_default().push((index, value));
         }
     }
@@ -223,6 +207,65 @@ pub fn extract_substitution(constraints: &[Predicate]) -> (Substitution, Vec<Pre
     (substitution, remaining)
 }
 
+pub(crate) fn substitution_binding(predicate: &Predicate) -> Option<(Variable, Term)> {
+    let (left, right) = substitution_equality(predicate)?;
+    match (left.kind(), right.kind()) {
+        (TermKind::Variable(variable), _) if !right.attributes().variables.contains(variable) => {
+            Some((variable.clone(), right.clone()))
+        }
+        (_, TermKind::Variable(variable)) if !left.attributes().variables.contains(variable) => {
+            Some((variable.clone(), left.clone()))
+        }
+        _ => None,
+    }
+}
+
+fn substitution_equality(predicate: &Predicate) -> Option<(&Term, &Term)> {
+    let Predicate::Equals(left, right) = predicate else {
+        return None;
+    };
+    let boolean = |term: &Term| match term.kind() {
+        TermKind::DomainValue { sort, value } if sort == &crate::term::Sort::simple("SortBool") => {
+            match value.as_ref() {
+                "true" => Some(true),
+                "false" => Some(false),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    if let Some(expected) = boolean(right)
+        && let Some(operands) = hooked_equality(left, expected)
+    {
+        return Some(operands);
+    }
+    if let Some(expected) = boolean(left)
+        && let Some(operands) = hooked_equality(right, expected)
+    {
+        return Some(operands);
+    }
+    Some((left, right))
+}
+
+fn hooked_equality(term: &Term, expected: bool) -> Option<(&Term, &Term)> {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        return None;
+    };
+    let hook = symbol.attributes.hook.as_deref()?;
+    let equality = matches!(hook, "INT.eq" | "KEQUAL.eq") && expected;
+    let negated_equality = matches!(hook, "INT.ne" | "KEQUAL.ne") && !expected;
+    if !(equality || negated_equality) {
+        return None;
+    }
+    let [left, right] = arguments.as_slice() else {
+        return None;
+    };
+    Some((left, right))
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -248,6 +291,18 @@ mod tests {
             Arc::new(Symbol::constructor("con1", vec![sort()], sort())),
             Vec::new(),
             vec![argument],
+        )
+    }
+
+    fn integer_equality(left: Term, right: Term) -> Predicate {
+        let int_sort = sort();
+        let bool_sort = Sort::simple("SortBool");
+        let mut symbol =
+            Symbol::constructor("intEq", vec![int_sort.clone(), int_sort], bool_sort.clone());
+        symbol.attributes.hook = Some("INT.eq".into());
+        Predicate::Equals(
+            Term::application(Arc::new(symbol), Vec::new(), vec![left, right]),
+            Term::domain_value(bool_sort, "true"),
         )
     }
 
@@ -293,6 +348,17 @@ mod tests {
         assert!(remaining.is_empty());
         assert_eq!(substitution[&variable("X")], value.clone());
         assert_eq!(substitution[&variable("Y")], con1(value));
+    }
+
+    #[test]
+    fn extracts_substitutions_from_hooked_integer_equalities() {
+        let value = Term::domain_value(sort(), "value");
+        let constraint = integer_equality(var("X"), value.clone());
+
+        let (substitution, remaining) = extract_substitution(&[constraint]);
+
+        assert_eq!(substitution, Substitution::from([(variable("X"), value)]));
+        assert!(remaining.is_empty());
     }
 
     #[test]

@@ -1122,20 +1122,23 @@ fn model_substitution(
             .cmp(&right.name)
             .then_with(|| left.sort.cmp(&right.sort))
     });
-    let mut bindings = bindings.into_iter().map(|(variable, value)| {
-        externalize::predicate_pattern(
-            &Predicate::Equals(Term::variable(variable.clone()), value.clone()),
-            result_sort,
-        )
-    });
-    let mut result = bindings.next()?;
-    for binding in bindings {
-        result = KorePattern::And {
+    let bindings = bindings
+        .into_iter()
+        .map(|(variable, value)| {
+            externalize::predicate_pattern(
+                &Predicate::Equals(Term::variable(variable.clone()), value.clone()),
+                result_sort,
+            )
+        })
+        .collect::<Vec<_>>();
+    match bindings.as_slice() {
+        [] => None,
+        [binding] => Some(binding.clone()),
+        _ => Some(KorePattern::And {
             sort: externalize::sort(result_sort),
-            arguments: vec![result, binding],
-        };
+            arguments: bindings,
+        }),
     }
-    Some(result)
 }
 
 fn kore_implies(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
@@ -2651,6 +2654,38 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&unknown).unwrap()["satisfiable"],
             "Unknown"
+        );
+    }
+
+    #[test]
+    fn model_substitution_flattens_multiple_bindings() {
+        let value_sort = BackendSort::simple("SortInt");
+        let result_sort = BackendSort::simple("SortBool");
+        let substitution = Substitution::from([
+            (
+                Variable::new("X", value_sort.clone()),
+                Term::domain_value(value_sort.clone(), "1"),
+            ),
+            (
+                Variable::new("Y", value_sort.clone()),
+                Term::domain_value(value_sort.clone(), "2"),
+            ),
+            (
+                Variable::new("Z", value_sort.clone()),
+                Term::domain_value(value_sort, "3"),
+            ),
+        ]);
+
+        let KorePattern::And { arguments, .. } =
+            model_substitution(&substitution, &result_sort).unwrap()
+        else {
+            panic!("multiple model bindings should form a conjunction");
+        };
+        assert_eq!(arguments.len(), 3);
+        assert!(
+            arguments
+                .iter()
+                .all(|argument| matches!(argument, KorePattern::Equals { .. }))
         );
     }
 

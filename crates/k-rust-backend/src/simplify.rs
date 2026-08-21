@@ -18,7 +18,7 @@ use crate::{
     },
     rewrite::{
         Pattern, Truth, check_concreteness, normalize_pattern_substitution, predicates_truth,
-        substitute_predicates, violates_finite_constructor_domain,
+        retain_substitution_predicates, substitute_predicates, violates_finite_constructor_domain,
     },
     rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
     smt::{NoSolver, SmtError, SmtSolver, Validity},
@@ -115,7 +115,7 @@ pub fn simplify_pattern_with_solver(
     solver: &dyn SmtSolver,
 ) -> Result<Pattern, SimplificationError> {
     let mut pattern = pattern.clone();
-    normalize_pattern_substitution(&mut pattern);
+    let retained_substitution = normalize_pattern_substitution(&mut pattern);
     let simplified = simplify_with_solver(
         definition,
         &pattern.term,
@@ -129,14 +129,33 @@ pub fn simplify_pattern_with_solver(
             constraints.push(constraint);
         }
     }
-    let constraints =
+    let mut constraints =
         simplify_predicates_with_solver(definition, &constraints, &[], options, solver)?;
+    if constraints
+        .iter()
+        .any(|constraint| predicate_refutes_term(constraint, &simplified.term))
+    {
+        constraints = vec![Predicate::False];
+    }
+    retain_substitution_predicates(&mut constraints, &retained_substitution);
     let mut pattern = Pattern {
         term: simplified.term,
         constraints,
     };
     normalize_pattern_substitution(&mut pattern);
     Ok(pattern)
+}
+
+fn predicate_refutes_term(predicate: &Predicate, term: &Term) -> bool {
+    match predicate {
+        Predicate::Not(inner) => {
+            matches!(inner.as_ref(), Predicate::Term(candidate) if candidate == term)
+        }
+        Predicate::And(conjuncts) => conjuncts
+            .iter()
+            .any(|conjunct| predicate_refutes_term(conjunct, term)),
+        _ => false,
+    }
 }
 
 pub fn simplify_predicates_with_solver(
@@ -1518,7 +1537,7 @@ fn simplify_root(
     }
     if let Some(result) = apply_theory(
         definition,
-        &definition.function_theory,
+        (&definition.function_theory, IndeterminateEquation::Block),
         term,
         known_predicates,
         options,
@@ -1529,7 +1548,10 @@ fn simplify_root(
     }
     if let Some(result) = apply_theory(
         definition,
-        &definition.simplification_theory,
+        (
+            &definition.simplification_theory,
+            IndeterminateEquation::Continue,
+        ),
         term,
         known_predicates,
         options,
@@ -1572,15 +1594,22 @@ fn builtin_effect_result(
     }
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum IndeterminateEquation {
+    Block,
+    Continue,
+}
+
 fn apply_theory(
     definition: &BackendDefinition,
-    theory: &Theory,
+    theory: (&Theory, IndeterminateEquation),
     term: &Term,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Option<Simplification>, SimplificationError> {
+    let (theory, indeterminate_equation) = theory;
     let groups = applicable_groups(theory, &term_index(term));
     for rules in groups.values() {
         let mut results = Vec::new();
@@ -1600,9 +1629,14 @@ fn apply_theory(
                 EquationAttempt::Applied(result) => results.push(result),
             }
         }
-        if indeterminate && results.is_empty() {
+        if indeterminate
+            && results.is_empty()
+            && indeterminate_equation == IndeterminateEquation::Block
+        {
             // A rule at this priority may apply after the symbolic subject becomes more concrete.
-            // Preserve the application and do not fall through to lower-priority equations.
+            // Function evaluation must preserve the application and must not fall through to an
+            // owise or otherwise lower-priority equation. K simplification equations are hints:
+            // the reference backend continues past indeterminate matches in that theory.
             return Ok(None);
         }
         match results.len() {
@@ -2321,7 +2355,7 @@ mod tests {
     }
 
     #[test]
-    fn preserves_symbolic_functions_blocked_by_a_higher_priority_match() {
+    fn simplification_equations_continue_past_indeterminate_higher_priority_matches() {
         let definition = definition(
             r#"
             symbol a{}() : SortS{} [constructor{}()]
@@ -2345,8 +2379,11 @@ mod tests {
 
         let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
 
-        assert_eq!(result.term, input);
-        assert!(result.applied_rules.is_empty());
+        assert_eq!(
+            result.term,
+            term(&definition, r#"\dv{SortS{}}("fallback")"#)
+        );
+        assert_eq!(result.applied_rules, ["fallback"]);
     }
 
     #[test]
@@ -2378,6 +2415,39 @@ mod tests {
             term(&definition, r#"\dv{SortS{}}("fallback")"#)
         );
         assert_eq!(result.applied_rules, ["fallback"]);
+    }
+
+    #[test]
+    fn applies_concrete_symbolic_canonicalization_equations() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortInt{} [hasDomainValues{}()]
+                symbol add{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), functional{}(), hook{}("INT.add")]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortInt{}, R}(
+                        add{}(I:SortInt{}, B:SortInt{}),
+                        \and{SortInt{}}(add{}(B:SortInt{}, I:SortInt{}), \top{SortInt{}}())
+                    )
+                ) [
+                    label{}("concrete-left"),
+                    concrete{}(I:SortInt{}),
+                    symbolic{}(B:SortInt{}),
+                    simplification{}("51")
+                ]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let input = term(&definition, r#"add{}(\dv{SortInt{}}("1"), X:SortInt{})"#);
+        let expected = term(&definition, r#"add{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+        assert_eq!(result.term, expected);
+        assert_eq!(result.applied_rules, ["concrete-left"]);
     }
 
     #[test]
@@ -2677,7 +2747,7 @@ mod tests {
     }
 
     #[test]
-    fn preserves_unknown_requires_without_falling_through_to_lower_priority() {
+    fn simplification_equations_continue_past_unknown_conditions() {
         let definition = definition(
             r#"
             axiom{R} \implies{R}(
@@ -2700,8 +2770,11 @@ mod tests {
 
         let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
 
-        assert_eq!(result.term, input);
-        assert!(result.applied_rules.is_empty());
+        assert_eq!(
+            result.term,
+            term(&definition, r#"\dv{SortS{}}("fallback")"#)
+        );
+        assert_eq!(result.applied_rules, ["fallback"]);
     }
 
     #[test]

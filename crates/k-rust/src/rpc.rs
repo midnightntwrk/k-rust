@@ -38,8 +38,8 @@ use k_rust_backend::{
         simplify_pattern_with_solver,
     },
     smt::{ModelResult, SmtError, SmtSolver, Z3Solver},
-    substitution::{Substitution, substitute},
-    term::{Sort as BackendSort, TermKind, Variable},
+    substitution::{Substitution, extract_substitution, substitute},
+    term::{Sort as BackendSort, Term, Variable},
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -441,7 +441,9 @@ impl RpcService {
                     branches
                         .iter()
                         .rev()
-                        .map(|applied| execute_applied_state(applied, &configuration_variables))
+                        .map(|applied| {
+                            execute_applied_state(&definition, applied, &configuration_variables)
+                        })
                         .collect::<Result<Vec<_>, _>>()?,
                 ),
                 None,
@@ -451,7 +453,9 @@ impl RpcService {
                 Some(
                     next_states
                         .iter()
-                        .map(|applied| execute_state(&applied.pattern, &configuration_variables))
+                        .map(|applied| {
+                            execute_state(&definition, &applied.pattern, &configuration_variables)
+                        })
                         .collect::<Result<Vec<_>, _>>()?,
                 ),
                 Some(rule.clone()),
@@ -465,7 +469,7 @@ impl RpcService {
         }
         output.insert(
             "state".into(),
-            execute_state(&leaf.pattern, &configuration_variables)?,
+            execute_state(&definition, &leaf.pattern, &configuration_variables)?,
         );
         if let Some(next_states) = next_states {
             output.insert("next-states".into(), Value::Array(next_states));
@@ -1282,6 +1286,7 @@ fn solver(definition: &BackendDefinition) -> Result<Z3Solver, RpcFault> {
 }
 
 fn execute_state(
+    definition: &BackendDefinition,
     pattern: &Pattern,
     configuration_variables: &BTreeSet<Variable>,
 ) -> Result<Value, RpcFault> {
@@ -1291,7 +1296,9 @@ fn execute_state(
     let term = substitute(&pattern.term, &substitution);
     state.insert("term".into(), encode_kore(&externalize::term(&term))?);
     let predicates = substitute_predicates(&predicates, &substitution);
-    if let Some(predicate) = constraints_pattern(&predicates, &pattern.term.sort()) {
+    if let Some(predicate) =
+        execution_constraints_pattern(definition, &predicates, &pattern.term.sort())
+    {
         state.insert("predicate".into(), encode_kore(&predicate)?);
     }
     if let Some(substitution) = super::model_substitution(&substitution, &pattern.term.sort()) {
@@ -1301,17 +1308,20 @@ fn execute_state(
 }
 
 fn execute_applied_state(
+    definition: &BackendDefinition,
     applied: &AppliedRule,
     configuration_variables: &BTreeSet<Variable>,
 ) -> Result<Value, RpcFault> {
-    let mut state = execute_state(&applied.pattern, configuration_variables)?;
+    let mut state = execute_state(definition, &applied.pattern, configuration_variables)?;
     let object = state
         .as_object_mut()
         .expect("execute_state always returns an object");
     object.insert("rule-id".into(), Value::String(applied.unique_id.clone()));
-    if let Some(rule_predicate) =
-        constraints_pattern(&applied.rule_predicates, &applied.pattern.term.sort())
-    {
+    if let Some(rule_predicate) = execution_constraints_pattern(
+        definition,
+        &applied.rule_predicates,
+        &applied.pattern.term.sort(),
+    ) {
         object.insert("rule-predicate".into(), encode_kore(&rule_predicate)?);
     }
     let (_, state_substitution) =
@@ -1370,37 +1380,16 @@ fn split_constraints(
     constraints: &[Predicate],
     configuration_variables: &BTreeSet<Variable>,
 ) -> (Vec<Predicate>, Substitution) {
-    let mut predicates = Vec::new();
+    let (extracted, mut predicates) = extract_substitution(constraints);
     let mut substitution = Substitution::new();
-    for constraint in constraints {
-        let binding = match constraint {
-            Predicate::Equals(left, right) => {
-                variable_binding(left, right, configuration_variables)
-                    .or_else(|| variable_binding(right, left, configuration_variables))
-            }
-            _ => None,
-        };
-        if let Some((variable, value)) = binding
-            && !substitution.contains_key(&variable)
-        {
+    for (variable, value) in extracted {
+        if configuration_variables.contains(&variable) {
             substitution.insert(variable, value);
         } else {
-            predicates.push(constraint.clone());
+            predicates.push(Predicate::Equals(Term::variable(variable), value));
         }
     }
     (predicates, substitution)
-}
-
-fn variable_binding(
-    variable: &k_rust_backend::term::Term,
-    value: &k_rust_backend::term::Term,
-    configuration_variables: &BTreeSet<Variable>,
-) -> Option<(Variable, k_rust_backend::term::Term)> {
-    let TermKind::Variable(variable) = variable.kind() else {
-        return None;
-    };
-    (configuration_variables.contains(variable) && !value.attributes().variables.contains(variable))
-        .then(|| (variable.clone(), value.clone()))
 }
 
 fn constraints_pattern(
@@ -1411,6 +1400,24 @@ fn constraints_pattern(
         .iter()
         .filter(|predicate| !matches!(predicate, Predicate::True))
         .map(|predicate| externalize::predicate_pattern(predicate, result_sort));
+    let first = predicates.next()?;
+    Some(predicates.fold(first, |left, right| KorePattern::And {
+        sort: externalize::sort(result_sort),
+        arguments: vec![left, right],
+    }))
+}
+
+fn execution_constraints_pattern(
+    definition: &BackendDefinition,
+    constraints: &[Predicate],
+    result_sort: &BackendSort,
+) -> Option<KorePattern> {
+    let mut predicates = constraints
+        .iter()
+        .filter(|predicate| !matches!(predicate, Predicate::True))
+        .map(|predicate| {
+            externalize::booster_predicate_pattern(definition, predicate, result_sort)
+        });
     let first = predicates.next()?;
     Some(predicates.fold(first, |left, right| KorePattern::And {
         sort: externalize::sort(result_sort),
@@ -2352,6 +2359,8 @@ mod tests {
 
     #[test]
     fn projects_solved_configuration_equalities_as_substitutions() {
+        let definition =
+            BackendDefinition::internalize(&parse_definition(DEFINITION).unwrap(), "TEST").unwrap();
         let sort = BackendSort::simple("SortState");
         let variable = Variable::new("X", sort.clone());
         let value = Term::domain_value(sort.clone(), "resolved");
@@ -2363,13 +2372,66 @@ mod tests {
             )],
         };
 
-        let state = execute_state(&pattern, &BTreeSet::from([variable])).unwrap();
+        let state = execute_state(&definition, &pattern, &BTreeSet::from([variable])).unwrap();
         assert_eq!(state["term"]["term"]["tag"], "DV");
         assert_eq!(state["term"]["term"]["value"], "resolved");
         assert_eq!(state["substitution"]["term"]["tag"], "Equals");
         assert_eq!(state["substitution"]["term"]["first"]["name"], "X");
         assert_eq!(state["substitution"]["term"]["second"]["value"], "resolved");
         assert!(state.get("predicate").is_none());
+    }
+
+    #[test]
+    fn projects_saturated_configuration_substitutions() {
+        let definition =
+            BackendDefinition::internalize(&parse_definition(DEFINITION).unwrap(), "TEST").unwrap();
+        let sort = BackendSort::simple("SortState");
+        let x = Variable::new("X", sort.clone());
+        let y = Variable::new("Y", sort.clone());
+        let value = Term::domain_value(sort.clone(), "resolved");
+        let pattern = Pattern {
+            term: Term::variable(y.clone()),
+            constraints: vec![
+                Predicate::Equals(Term::variable(y.clone()), Term::variable(x.clone())),
+                Predicate::Equals(Term::variable(x.clone()), value),
+            ],
+        };
+
+        let state = execute_state(&definition, &pattern, &BTreeSet::from([x, y])).unwrap();
+
+        assert_eq!(state["term"]["term"]["value"], "resolved");
+        assert_eq!(state["substitution"]["term"]["tag"], "And");
+        let bindings = state["substitution"]["term"]["patterns"]
+            .as_array()
+            .unwrap();
+        assert_eq!(bindings.len(), 2);
+        assert!(bindings.iter().all(|binding| binding["tag"] == "Equals"));
+        assert!(
+            bindings
+                .iter()
+                .all(|binding| binding["second"]["value"] == "resolved")
+        );
+        assert!(state.get("predicate").is_none());
+    }
+
+    #[test]
+    fn retains_a_cycle_breaking_equation_outside_the_rpc_substitution() {
+        let sort = BackendSort::simple("SortState");
+        let x = Variable::new("X", sort.clone());
+        let y = Variable::new("Y", sort);
+        let constraints = vec![
+            Predicate::Equals(Term::variable(y.clone()), Term::variable(x.clone())),
+            Predicate::Equals(Term::variable(x.clone()), Term::variable(y.clone())),
+        ];
+
+        let (predicates, substitution) =
+            split_constraints(&constraints, &BTreeSet::from([x.clone(), y.clone()]));
+
+        assert_eq!(
+            substitution,
+            Substitution::from([(y.clone(), Term::variable(x))])
+        );
+        assert_eq!(predicates, [constraints[1].clone()]);
     }
 
     #[test]

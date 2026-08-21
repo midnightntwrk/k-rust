@@ -21,7 +21,7 @@ use crate::{
         simplify_with_solver,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
-    substitution::{Substitution, compose, extract_substitution, substitute},
+    substitution::{Substitution, compose, extract_substitution, substitute, substitution_binding},
     term::{Sort, Symbol, SymbolType, Term, TermKind, Variable},
     timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
     unification::{UnificationFailure, UnificationResult, unify_term_pairs},
@@ -41,10 +41,7 @@ pub fn normalize_pattern_substitution(pattern: &mut Pattern) -> Substitution {
         return substitution;
     }
     pattern.term = substitute(&pattern.term, &substitution);
-    let mut constraints = substitution
-        .iter()
-        .map(|(variable, value)| Predicate::Equals(Term::variable(variable.clone()), value.clone()))
-        .collect::<Vec<_>>();
+    let mut constraints = substitution_predicates(&substitution);
     for predicate in substitute_predicates(&remaining, &substitution) {
         if !constraints.contains(&predicate) {
             constraints.push(predicate);
@@ -52,6 +49,30 @@ pub fn normalize_pattern_substitution(pattern: &mut Pattern) -> Substitution {
     }
     pattern.constraints = constraints;
     substitution
+}
+
+fn substitution_predicates(substitution: &Substitution) -> Vec<Predicate> {
+    substitution
+        .iter()
+        .map(|(variable, value)| Predicate::Equals(Term::variable(variable.clone()), value.clone()))
+        .collect()
+}
+
+pub(crate) fn retain_substitution_predicates(
+    constraints: &mut Vec<Predicate>,
+    substitution: &Substitution,
+) {
+    for (variable, value) in substitution {
+        let represented = constraints.iter().any(|predicate| {
+            substitution_binding(predicate).is_some_and(|(represented, _)| represented == *variable)
+        });
+        if !represented {
+            constraints.insert(
+                0,
+                Predicate::Equals(Term::variable(variable.clone()), value.clone()),
+            );
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -287,7 +308,9 @@ pub fn execute_with_solver_and_observer(
             };
         }
         finish_if_interrupted!();
-        normalize_pattern_substitution(&mut state.pattern);
+        let retained_substitution = normalize_pattern_substitution(&mut state.pattern);
+        let pattern_before_constraint_simplification = state.pattern.clone();
+        let mut deferred_initial_vacuity = None;
         let simplified_constraints = simplify_predicates_with_solver(
             definition,
             &state.pattern.constraints,
@@ -299,7 +322,8 @@ pub fn execute_with_solver_and_observer(
         );
         finish_if_interrupted!();
         match simplified_constraints {
-            Ok(constraints) => {
+            Ok(mut constraints) => {
+                retain_substitution_predicates(&mut constraints, &retained_substitution);
                 state.pattern.constraints = constraints;
                 normalize_pattern_substitution(&mut state.pattern);
             }
@@ -314,13 +338,21 @@ pub fn execute_with_solver_and_observer(
             }
         }
         if predicates_truth(&state.pattern.constraints) == Truth::False {
-            leaves.push(ExecutionLeaf {
-                pattern: state.pattern,
-                depth: state.depth,
-                trace: state.trace,
-                halt_reason: HaltReason::Vacuous,
-            });
-            continue;
+            if state.depth == 0 && !retained_substitution.is_empty() {
+                // Booster applies an input substitution before rewriting, but a contradiction
+                // exposed only by that substitution does not prevent the first rewrite attempt.
+                // If no rule applies, the simplified state below is still returned as vacuous.
+                deferred_initial_vacuity = Some(state.pattern.clone());
+                state.pattern = pattern_before_constraint_simplification;
+            } else {
+                leaves.push(ExecutionLeaf {
+                    pattern: state.pattern,
+                    depth: state.depth,
+                    trace: state.trace,
+                    halt_reason: HaltReason::Vacuous,
+                });
+                continue;
+            }
         }
         let simplified = simplify_with_solver(
             definition,
@@ -384,12 +416,18 @@ pub fn execute_with_solver_and_observer(
         );
         finish_if_interrupted!();
         match rewritten {
-            RewriteResult::Stuck(pattern) => leaves.push(ExecutionLeaf {
-                pattern,
-                depth: state.depth,
-                trace: state.trace,
-                halt_reason: HaltReason::Stuck,
-            }),
+            RewriteResult::Stuck(pattern) => {
+                let (pattern, halt_reason) = deferred_initial_vacuity
+                    .map_or((pattern, HaltReason::Stuck), |pattern| {
+                        (pattern, HaltReason::Vacuous)
+                    });
+                leaves.push(ExecutionLeaf {
+                    pattern,
+                    depth: state.depth,
+                    trace: state.trace,
+                    halt_reason,
+                });
+            }
             RewriteResult::Trivial(pattern) => leaves.push(ExecutionLeaf {
                 pattern,
                 depth: state.depth,
@@ -4072,6 +4110,71 @@ mod tests {
         let execution = execute(&definition, subject, ExecutionOptions::default());
         assert!(matches!(
             execution.leaves.as_slice(),
+            [ExecutionLeaf {
+                depth: 0,
+                halt_reason: HaltReason::Vacuous,
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn input_substitution_contradictions_are_checked_after_the_first_rewrite_attempt() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol b{}() : SortState{} [constructor{}()]
+                symbol d{}() : SortState{} [constructor{}()]
+                hooked-symbol intEq{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.eq")]
+                hooked-symbol intNe{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.ne")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(b{}(), \top{SortState{}}()),
+                    d{}()
+                ) [label{}("step")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let pattern = |state: &str| {
+            let syntax = parse_pattern(&format!(
+                r#"\and{{SortState{{}}}}(
+                    {state}{{}}(),
+                    \and{{SortState{{}}}}(
+                        \equals{{SortBool{{}}, SortState{{}}}}(
+                            intEq{{}}(N:SortInt{{}}, \dv{{SortInt{{}}}}("0")),
+                            \dv{{SortBool{{}}}}("true")
+                        ),
+                        \equals{{SortBool{{}}, SortState{{}}}}(
+                            intNe{{}}(N:SortInt{{}}, \dv{{SortInt{{}}}}("0")),
+                            \dv{{SortBool{{}}}}("true")
+                        )
+                    )
+                )"#
+            ))
+            .unwrap();
+            definition.internalize_pattern(&syntax, &[]).unwrap()
+        };
+
+        let rewritten = execute(&definition, pattern("b"), ExecutionOptions::default());
+        let stuck = execute(&definition, pattern("d"), ExecutionOptions::default());
+
+        assert!(matches!(
+            rewritten.leaves.as_slice(),
+            [ExecutionLeaf {
+                pattern: Pattern { term, constraints },
+                depth: 1,
+                halt_reason: HaltReason::Vacuous,
+                ..
+            }] if term == &internal_term(&definition, "d{}()")
+                && constraints.iter().any(|predicate| matches!(predicate, Predicate::False))
+        ));
+        assert!(matches!(
+            stuck.leaves.as_slice(),
             [ExecutionLeaf {
                 depth: 0,
                 halt_reason: HaltReason::Vacuous,

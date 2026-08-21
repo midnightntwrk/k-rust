@@ -3,6 +3,7 @@
 use k_rust_kore::kore::ast as kore;
 
 use crate::{
+    definition::BackendDefinition,
     rewrite::{Pattern, Truth, predicates_truth},
     rule::Predicate,
     term::{CollectionSymbols, Sort, Term, TermKind, Variable},
@@ -138,6 +139,136 @@ pub fn constrained_pattern(pattern: &Pattern) -> kore::Pattern {
 
 pub fn predicate_pattern(predicate: &Predicate, result_sort: &Sort) -> kore::Pattern {
     predicate_pattern_with_terms(predicate, result_sort, false)
+}
+
+/// Externalize a Booster path constraint through its Boolean term representation.
+///
+/// Booster stores path predicates as `SortBool` terms and wraps each one in an ML equality to
+/// `true`. Substitutions remain ordinary typed ML equalities and use [`predicate_pattern`]
+/// directly instead.
+pub fn booster_predicate_pattern(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    result_sort: &Sort,
+) -> kore::Pattern {
+    predicate_as_boolean_term(definition, predicate).map_or_else(
+        || predicate_pattern(predicate, result_sort),
+        |term| predicate_pattern(&Predicate::Term(term), result_sort),
+    )
+}
+
+fn predicate_as_boolean_term(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+) -> Option<Term> {
+    let boolean_sort = definition.sorts.iter().find_map(|(name, info)| {
+        (info.hook.as_deref() == Some("BOOL.Bool") && info.parameters.is_empty())
+            .then(|| Sort::simple(name.clone()))
+    })?;
+    let boolean =
+        |value| Term::domain_value(boolean_sort.clone(), if value { "true" } else { "false" });
+    let hooked = |hook: &str, arguments: Vec<Term>| {
+        definition
+            .symbols
+            .values()
+            .find(|symbol| {
+                symbol.attributes.hook.as_deref() == Some(hook)
+                    && symbol.sort_variables.is_empty()
+                    && symbol.argument_sorts == arguments.iter().map(Term::sort).collect::<Vec<_>>()
+            })
+            .map(|symbol| Term::application(symbol.clone(), Vec::new(), arguments))
+    };
+    let recurse = |predicate| predicate_as_boolean_term(definition, predicate);
+    match predicate {
+        Predicate::True => Some(boolean(true)),
+        Predicate::False => Some(boolean(false)),
+        Predicate::Term(term) if term.sort() == boolean_sort => Some(term.clone()),
+        Predicate::Equals(left, right) => {
+            let bool_value = |term: &Term| match term.kind() {
+                TermKind::DomainValue { sort, value } if sort == &boolean_sort => {
+                    match value.as_ref() {
+                        "true" => Some(true),
+                        "false" => Some(false),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            if left.sort() == boolean_sort
+                && let Some(value) = bool_value(right)
+            {
+                return if value {
+                    Some(left.clone())
+                } else {
+                    hooked("BOOL.not", vec![left.clone()])
+                };
+            }
+            if right.sort() == boolean_sort
+                && let Some(value) = bool_value(left)
+            {
+                return if value {
+                    Some(right.clone())
+                } else {
+                    hooked("BOOL.not", vec![right.clone()])
+                };
+            }
+            definition
+                .symbols
+                .values()
+                .find(|symbol| {
+                    symbol
+                        .attributes
+                        .hook
+                        .as_deref()
+                        .is_some_and(|hook| hook.ends_with(".eq"))
+                        && symbol.sort_variables.is_empty()
+                        && symbol.result_sort == boolean_sort
+                        && symbol.argument_sorts == [left.sort(), right.sort()]
+                })
+                .map(|symbol| {
+                    Term::application(
+                        symbol.clone(),
+                        Vec::new(),
+                        vec![left.clone(), right.clone()],
+                    )
+                })
+        }
+        Predicate::Not(inner) => hooked("BOOL.not", vec![recurse(inner)?]),
+        Predicate::And(inner) => {
+            let mut terms = inner
+                .iter()
+                .map(recurse)
+                .collect::<Option<Vec<_>>>()?
+                .into_iter();
+            let mut result = terms.next().unwrap_or_else(|| boolean(true));
+            for term in terms {
+                result = hooked("BOOL.and", vec![result, term])?;
+            }
+            Some(result)
+        }
+        Predicate::Or(inner) => {
+            let mut terms = inner
+                .iter()
+                .map(recurse)
+                .collect::<Option<Vec<_>>>()?
+                .into_iter();
+            let mut result = terms.next().unwrap_or_else(|| boolean(false));
+            for term in terms {
+                result = hooked("BOOL.or", vec![result, term])?;
+            }
+            Some(result)
+        }
+        Predicate::Implies(left, right) => {
+            hooked("BOOL.implies", vec![recurse(left)?, recurse(right)?])
+        }
+        Predicate::Iff(left, right) => hooked("BOOL.eq", vec![recurse(left)?, recurse(right)?]),
+        Predicate::Term(_)
+        | Predicate::Ceil(_)
+        | Predicate::Floor(_)
+        | Predicate::In(_, _)
+        | Predicate::Exists(_, _)
+        | Predicate::Forall(_, _) => None,
+    }
 }
 
 /// Externalize a predicate as its direct KORE syntax, preserving bare term patterns.
@@ -493,6 +624,58 @@ mod tests {
             kore::Pattern::Equals { left, right, .. }
                 if matches!(left.as_ref(), kore::Pattern::DomainValue { value, .. } if value == "false")
                     && matches!(right.as_ref(), kore::Pattern::Variable(variable) if variable.name == "P")
+        ));
+    }
+
+    #[test]
+    fn booster_constraints_reify_typed_equalities_as_boolean_terms() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-symbol intEq{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.eq")]
+                hooked-symbol boolEq{}(SortBool{}, SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.eq")]
+                symbol condition{}() : SortBool{} [function{}(), total{}()]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let int_sort = Sort::simple("SortInt");
+        let result_sort = Sort::simple("SortGeneratedTopCell");
+        let x = Term::variable(Variable::new("X", int_sort.clone()));
+        let one = Term::domain_value(int_sort, "1");
+
+        let pattern =
+            booster_predicate_pattern(&definition, &Predicate::Equals(x, one), &result_sort);
+
+        assert!(matches!(
+            pattern,
+            kore::Pattern::Equals {
+                operand_sort,
+                left,
+                right,
+                ..
+            } if operand_sort == sort(&Sort::simple("SortBool"))
+                && matches!(left.as_ref(), kore::Pattern::DomainValue { value, .. } if value == "true")
+                && matches!(right.as_ref(), kore::Pattern::Application { symbol, .. } if symbol.name == "intEq")
+        ));
+
+        let condition = definition
+            .internalize_term(&parse_pattern("condition{}()").unwrap(), &[])
+            .unwrap();
+        let truth = Term::domain_value(Sort::simple("SortBool"), "true");
+        let pattern = booster_predicate_pattern(
+            &definition,
+            &Predicate::Equals(condition, truth),
+            &result_sort,
+        );
+        assert!(matches!(
+            pattern,
+            kore::Pattern::Equals { right, .. }
+                if matches!(right.as_ref(), kore::Pattern::Application { symbol, .. } if symbol.name == "condition")
         ));
     }
 }
