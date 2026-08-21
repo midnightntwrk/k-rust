@@ -10,8 +10,8 @@ use crate::{
     definedness::ceil_term,
     definition::{BackendDefinition, ConstructorHead, constructor_head},
     matching::{
-        FailReason, MatchMode, MatchResult, match_collection_remainders_all_in_definition,
-        match_terms_in_definition,
+        FailReason, MatchMode, MatchResult, match_terms_in_definition,
+        unify_collection_remainders_all_in_definition,
     },
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
     simplify::{
@@ -1372,7 +1372,7 @@ fn apply_rule_with_match(
                             )
                         }));
                     }
-                    if let Some(matches) = match_collection_remainders_all_in_definition(
+                    if let Some(matches) = unify_collection_remainders_all_in_definition(
                         MatchMode::Rewrite,
                         definition,
                         substitution.clone(),
@@ -3170,6 +3170,48 @@ mod tests {
         )
         .expect("map definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN").expect("map definition should internalize")
+    }
+
+    fn closed_map_narrowing_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortKey{} [hasDomainValues{}()]
+                sort SortValue{} [hasDomainValues{}()]
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                sort SortState{} []
+                symbol mapUnit{}() : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.unit")]
+                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                symbol mapState{}(SortMap{}) : SortState{} [constructor{}()]
+                symbol done{}() : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        mapState{}(
+                            mapConcat{}(
+                                mapItem{}(
+                                    \dv{SortKey{}}("first"),
+                                    \dv{SortValue{}}("first-value")
+                                ),
+                                mapItem{}(
+                                    \dv{SortKey{}}("second"),
+                                    \dv{SortValue{}}("second-value")
+                                )
+                            )
+                        ),
+                        \top{SortState{}}()
+                    ),
+                    done{}()
+                ) [label{}("closed-map")]
+            endmodule []"#,
+        )
+        .expect("closed map definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("closed map definition should internalize")
     }
 
     fn symbolic_map_key_definition() -> BackendDefinition {
@@ -5518,6 +5560,64 @@ mod tests {
                 .iter()
                 .all(|branch| branch.pattern.constraints.is_empty())
         );
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn narrows_an_open_configuration_map_against_a_closed_rule_map() {
+        let definition = closed_map_narrowing_definition();
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                "mapState{}(mapConcat{}(mapItem{}(KEY:SortKey{}, VALUE:SortValue{}), REST:SortMap{}))",
+            ),
+            constraints: Vec::new(),
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(_),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("symmetric Map unification should narrow both entry choices");
+        };
+        assert_eq!(branches.len(), 2);
+        assert!(
+            branches
+                .iter()
+                .all(|branch| branch.pattern.term == internal_term(&definition, "done{}()"))
+        );
+
+        for (key, value, remainder_key, remainder_value) in [
+            ("first", "first-value", "second", "second-value"),
+            ("second", "second-value", "first", "first-value"),
+        ] {
+            let key_binding = Predicate::Equals(
+                internal_term(&definition, "KEY:SortKey{}"),
+                internal_term(&definition, &format!(r#"\dv{{SortKey{{}}}}("{key}")"#)),
+            );
+            let value_binding = Predicate::Equals(
+                internal_term(&definition, "VALUE:SortValue{}"),
+                internal_term(&definition, &format!(r#"\dv{{SortValue{{}}}}("{value}")"#)),
+            );
+            let rest_binding = Predicate::Equals(
+                internal_term(&definition, "REST:SortMap{}"),
+                internal_term(
+                    &definition,
+                    &format!(
+                        r#"mapItem{{}}(\dv{{SortKey{{}}}}("{remainder_key}"), \dv{{SortValue{{}}}}("{remainder_value}"))"#
+                    ),
+                ),
+            );
+            assert!(branches.iter().any(|branch| {
+                branch.pattern.constraints.contains(&key_binding)
+                    && branch.pattern.constraints.contains(&value_binding)
+                    && branch.pattern.constraints.contains(&rest_binding)
+            }));
+        }
     }
 
     #[cfg(feature = "z3")]

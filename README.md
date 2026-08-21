@@ -391,9 +391,10 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 - Emit the optional legacy priority aliases supported by `ModuleToKORE` compatibility modes.
 - Extend symmetric unification across the remaining opaque AC collection equations and add
   preemptive interruption inside non-Z3 native hooks. First-order constructor/injective terms,
-  occurs checks, opaque function constraints, symbolic condition remainders, proof checkpoints,
-  and cooperative timeout, order, breadth, depth, counterexample, vacuity, and stuck controls are
-  implemented; multi-opaque collection equations remain conservative.
+  occurs checks, opaque function constraints, symmetric closed/open List, Set, and Map narrowing,
+  symbolic condition remainders, proof checkpoints, and cooperative timeout, order, breadth,
+  depth, counterexample, vacuity, and stuck controls are implemented; multi-opaque collection
+  equations remain conservative.
 - Measure Z3-path usage across a substantially larger real-definition corpus.
 - Revisit package splitting only if real build or release pressure justifies it.
 

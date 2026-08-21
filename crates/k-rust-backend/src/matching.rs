@@ -450,6 +450,107 @@ pub(crate) fn match_collection_remainders_all_in_definition(
     Some(solutions)
 }
 
+/// Enumerate symmetric collection unifiers for every deferred pair.
+///
+/// Ordinary matching deliberately binds only variables from the pattern. Rewriting can also
+/// narrow a symbolic configuration, so a closed rule-side collection must be allowed to solve an
+/// open subject-side collection. Prefer the ordinary orientation when it succeeds, preserving the
+/// reference backend's rule-variable bias, and try the reverse orientation only when it cannot
+/// decide the equation. Lists have a deterministic concatenation theory; Sets and Maps retain all
+/// AC permutations.
+pub(crate) fn unify_collection_remainders_all_in_definition(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    initial: Substitution,
+    remainder: &[(Term, Term)],
+) -> Option<Vec<Substitution>> {
+    let mut solutions = vec![initial];
+    for (left, right) in remainder {
+        let mut next = Vec::new();
+        for substitution in solutions {
+            let direct = match_collection_pair_all_in_definition(
+                mode,
+                definition,
+                left,
+                right,
+                &substitution,
+            );
+            let found = match direct {
+                Some(found) if !found.is_empty() => found,
+                direct => {
+                    let reverse = match_collection_pair_all_in_definition(
+                        mode,
+                        definition,
+                        right,
+                        left,
+                        &substitution,
+                    );
+                    match (direct, reverse) {
+                        (_, Some(found)) => found,
+                        (Some(found), None) => found,
+                        (None, None) => return None,
+                    }
+                }
+            };
+            next.extend(found);
+        }
+        solutions = next;
+    }
+    solutions.sort();
+    solutions.dedup();
+    Some(solutions)
+}
+
+fn match_collection_pair_all_in_definition(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+    initial: &Substitution,
+) -> Option<Vec<Substitution>> {
+    match_list_terms_all_in_definition(mode, definition, pattern, subject, initial)
+        .or_else(|| match_set_terms_all_in_definition(mode, definition, pattern, subject, initial))
+        .or_else(|| match_map_terms_all_in_definition(mode, definition, pattern, subject, initial))
+}
+
+fn match_list_terms_all_in_definition(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+    initial: &Substitution,
+) -> Option<Vec<Substitution>> {
+    let pattern = substitute(pattern, initial);
+    let subject = substitute(subject, initial);
+    let (
+        TermKind::List {
+            definition: pattern_definition,
+            ..
+        },
+        TermKind::List {
+            definition: subject_definition,
+            ..
+        },
+    ) = (pattern.kind(), subject.kind())
+    else {
+        return None;
+    };
+    if pattern_definition != subject_definition {
+        return Some(Vec::new());
+    }
+    match match_terms_with_context(
+        mode,
+        &definition.sort_graph,
+        Some(definition),
+        &pattern,
+        &subject,
+    ) {
+        MatchResult::Success(found) => Some(vec![compose(&found, initial)]),
+        MatchResult::Failed(_) => Some(Vec::new()),
+        MatchResult::Indeterminate { .. } => None,
+    }
+}
+
 /// Expand implication remainders where a closed destination map is unified with an open current
 /// map. Each returned branch is one AC entry permutation expressed as ordinary term equalities;
 /// the implication layer can simplify and existentially quantify those equations uniformly with
@@ -1868,7 +1969,7 @@ fn collection_definition_matches(left: &TermKind, right: &TermKind) -> bool {
 mod tests {
     use std::sync::Arc;
 
-    use k_rust_kore::kore::parser::parse_definition;
+    use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use crate::term::{
         CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Symbol, SymbolAttributes,
@@ -2084,6 +2185,41 @@ mod tests {
             .sort_graph
             .insert("SortRight", [Name::from("SortSub")]);
         definition
+    }
+
+    fn collection_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortElement{} [hasDomainValues{}()]
+                sort SortKey{} [hasDomainValues{}()]
+                sort SortValue{} [hasDomainValues{}()]
+                hooked-sort SortList{}
+                    [hook{}("LIST.List"), unit{}(listUnit{}()), element{}(listItem{}()), concat{}(listConcat{}())]
+                hooked-sort SortSet{}
+                    [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                symbol listUnit{}() : SortList{} [function{}(), total{}(), hook{}("LIST.unit")]
+                symbol listItem{}(SortElement{}) : SortList{} [function{}(), total{}(), hook{}("LIST.element")]
+                symbol listConcat{}(SortList{}, SortList{}) : SortList{} [function{}(), hook{}("LIST.concat"), assoc{}()]
+                symbol setUnit{}() : SortSet{} [function{}(), total{}(), hook{}("SET.unit")]
+                symbol setItem{}(SortElement{}) : SortSet{} [function{}(), total{}(), hook{}("SET.element")]
+                symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{} [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}()]
+                symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{} [function{}(), total{}(), hook{}("MAP.element")]
+                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{} [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+            endmodule []"#,
+        )
+        .expect("collection definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("collection definition should internalize")
+    }
+
+    fn internal_term(definition: &BackendDefinition, source: &str) -> Term {
+        definition
+            .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
+            .expect("term should internalize")
     }
 
     fn expected(mode: MatchMode) -> [[Outcome; 9]; 9] {
@@ -2335,6 +2471,142 @@ mod tests {
         assert_eq!(
             match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
             MatchResult::Success(Substitution::from([(remainder, expected)]))
+        );
+    }
+
+    #[test]
+    fn symmetrically_unifies_a_closed_list_with_an_open_list() {
+        let definition = collection_definition();
+        let first = r#"\dv{SortElement{}}("first")"#;
+        let second = r#"\dv{SortElement{}}("second")"#;
+        let closed = internal_term(
+            &definition,
+            &format!("listConcat{{}}(listItem{{}}({first}), listItem{{}}({second}))"),
+        );
+        let open = internal_term(
+            &definition,
+            "listConcat{}(listItem{}(ELEMENT:SortElement{}), REST:SortList{})",
+        );
+        let expected_rest = internal_term(&definition, &format!("listItem{{}}({second})"));
+
+        assert_eq!(
+            unify_collection_remainders_all_in_definition(
+                MatchMode::Rewrite,
+                &definition,
+                Substitution::new(),
+                &[(closed, open)],
+            ),
+            Some(vec![Substitution::from([
+                (
+                    Variable::new("ELEMENT", Sort::simple("SortElement")),
+                    internal_term(&definition, first),
+                ),
+                (
+                    Variable::new("REST", Sort::simple("SortList")),
+                    expected_rest,
+                ),
+            ])])
+        );
+    }
+
+    #[test]
+    fn symmetrically_enumerates_set_selections_from_a_closed_set() {
+        let definition = collection_definition();
+        let first = r#"\dv{SortElement{}}("first")"#;
+        let second = r#"\dv{SortElement{}}("second")"#;
+        let closed = internal_term(
+            &definition,
+            &format!("setConcat{{}}(setItem{{}}({first}), setItem{{}}({second}))"),
+        );
+        let open = internal_term(
+            &definition,
+            "setConcat{}(setItem{}(ELEMENT:SortElement{}), REST:SortSet{})",
+        );
+        let element = Variable::new("ELEMENT", Sort::simple("SortElement"));
+        let rest = Variable::new("REST", Sort::simple("SortSet"));
+        let mut expected = vec![
+            Substitution::from([
+                (element.clone(), internal_term(&definition, first)),
+                (
+                    rest.clone(),
+                    internal_term(&definition, &format!("setItem{{}}({second})")),
+                ),
+            ]),
+            Substitution::from([
+                (element, internal_term(&definition, second)),
+                (
+                    rest,
+                    internal_term(&definition, &format!("setItem{{}}({first})")),
+                ),
+            ]),
+        ];
+        expected.sort();
+
+        assert_eq!(
+            unify_collection_remainders_all_in_definition(
+                MatchMode::Rewrite,
+                &definition,
+                Substitution::new(),
+                &[(closed, open)],
+            ),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn symmetrically_enumerates_map_selections_from_a_closed_map() {
+        let definition = collection_definition();
+        let first_key = r#"\dv{SortKey{}}("first")"#;
+        let first_value = r#"\dv{SortValue{}}("first-value")"#;
+        let second_key = r#"\dv{SortKey{}}("second")"#;
+        let second_value = r#"\dv{SortValue{}}("second-value")"#;
+        let closed = internal_term(
+            &definition,
+            &format!(
+                "mapConcat{{}}(mapItem{{}}({first_key}, {first_value}), mapItem{{}}({second_key}, {second_value}))"
+            ),
+        );
+        let open = internal_term(
+            &definition,
+            "mapConcat{}(mapItem{}(KEY:SortKey{}, VALUE:SortValue{}), REST:SortMap{})",
+        );
+        let key = Variable::new("KEY", Sort::simple("SortKey"));
+        let value = Variable::new("VALUE", Sort::simple("SortValue"));
+        let rest = Variable::new("REST", Sort::simple("SortMap"));
+        let mut expected = vec![
+            Substitution::from([
+                (key.clone(), internal_term(&definition, first_key)),
+                (value.clone(), internal_term(&definition, first_value)),
+                (
+                    rest.clone(),
+                    internal_term(
+                        &definition,
+                        &format!("mapItem{{}}({second_key}, {second_value})"),
+                    ),
+                ),
+            ]),
+            Substitution::from([
+                (key, internal_term(&definition, second_key)),
+                (value, internal_term(&definition, second_value)),
+                (
+                    rest,
+                    internal_term(
+                        &definition,
+                        &format!("mapItem{{}}({first_key}, {first_value})"),
+                    ),
+                ),
+            ]),
+        ];
+        expected.sort();
+
+        assert_eq!(
+            unify_collection_remainders_all_in_definition(
+                MatchMode::Rewrite,
+                &definition,
+                Substitution::new(),
+                &[(closed, open)],
+            ),
+            Some(expected)
         );
     }
 
