@@ -916,7 +916,7 @@ pub(crate) fn recover_indeterminate_match(
 }
 
 enum GeneralUnificationRecovery {
-    Unified(Substitution, Vec<Predicate>),
+    Unified(Vec<(Substitution, Vec<Predicate>)>),
     Bottom,
     Unsupported,
 }
@@ -931,16 +931,58 @@ fn recover_general_unification(
 ) -> GeneralUnificationRecovery {
     match unify_term_pairs(definition, substitution, remainder.iter().cloned()) {
         UnificationResult::Bottom(_) => GeneralUnificationRecovery::Bottom,
-        UnificationResult::Unsupported { .. } => GeneralUnificationRecovery::Unsupported,
+        UnificationResult::Unsupported {
+            substitution,
+            constraints,
+            remainder,
+        } => {
+            let Some(solutions) = unify_collection_remainders_all_in_definition(
+                MatchMode::Rewrite,
+                definition,
+                substitution,
+                &remainder,
+            ) else {
+                return GeneralUnificationRecovery::Unsupported;
+            };
+            if solutions.is_empty() {
+                return GeneralUnificationRecovery::Bottom;
+            }
+            GeneralUnificationRecovery::Unified(finalize_general_unification(
+                rule,
+                pattern,
+                solutions,
+                &constraints,
+                fresh_counter,
+            ))
+        }
         UnificationResult::Unified(unified) => {
-            let (substitution, _) =
-                freshen_unbound_rule_variables(rule, pattern, unified.substitution, fresh_counter);
-            GeneralUnificationRecovery::Unified(
-                substitution.clone(),
-                substitute_predicates(&unified.constraints, &substitution),
-            )
+            GeneralUnificationRecovery::Unified(finalize_general_unification(
+                rule,
+                pattern,
+                vec![unified.substitution],
+                &unified.constraints,
+                fresh_counter,
+            ))
         }
     }
+}
+
+fn finalize_general_unification(
+    rule: &RewriteRule,
+    pattern: &Pattern,
+    solutions: Vec<Substitution>,
+    constraints: &[Predicate],
+    fresh_counter: &mut u64,
+) -> Vec<(Substitution, Vec<Predicate>)> {
+    solutions
+        .into_iter()
+        .map(|substitution| {
+            let (substitution, _) =
+                freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter);
+            let constraints = substitute_predicates(constraints, &substitution);
+            (substitution, constraints)
+        })
+        .collect()
 }
 
 /// Recover first-order narrowing when a functional pattern is matched by a symbolic
@@ -1414,8 +1456,30 @@ fn apply_rule_with_match(
                             &remainder,
                             fresh_counter,
                         ) {
-                            GeneralUnificationRecovery::Unified(substitution, constraints) => {
-                                (substitution, constraints)
+                            GeneralUnificationRecovery::Unified(mut solutions) => {
+                                if solutions.len() == 1 {
+                                    solutions.pop().expect("one unification solution")
+                                } else {
+                                    return combine_rule_attempts(solutions.into_iter().map(
+                                        |(substitution, mut constraints)| {
+                                            let mut conditions = inherited_conditions.clone();
+                                            conditions.append(&mut constraints);
+                                            apply_rule_with_match(
+                                                definition,
+                                                rule,
+                                                pattern,
+                                                fresh_counter,
+                                                simplification_options,
+                                                solver,
+                                                Some(PartialRuleMatch {
+                                                    substitution,
+                                                    conditions,
+                                                    remainder: Vec::new(),
+                                                }),
+                                            )
+                                        },
+                                    ));
+                                }
                             }
                             GeneralUnificationRecovery::Bottom => {
                                 return RuleAttempt::NotApplicable;
@@ -3188,7 +3252,10 @@ mod tests {
                 symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
                     [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
                 symbol mapState{}(SortMap{}) : SortState{} [constructor{}()]
+                symbol mixedState{}(SortValue{}, SortMap{}) : SortState{} [constructor{}()]
+                symbol select{}(SortValue{}) : SortValue{} [function{}(), total{}()]
                 symbol done{}() : SortState{} [constructor{}()]
+                symbol selected{}(SortValue{}) : SortState{} [constructor{}()]
                 axiom{} \rewrites{SortState{}}(
                     \and{SortState{}}(
                         mapState{}(
@@ -3207,6 +3274,25 @@ mod tests {
                     ),
                     done{}()
                 ) [label{}("closed-map")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        mixedState{}(
+                            select{}(RULE:SortValue{}),
+                            mapConcat{}(
+                                mapItem{}(
+                                    \dv{SortKey{}}("first"),
+                                    \dv{SortValue{}}("first-value")
+                                ),
+                                mapItem{}(
+                                    \dv{SortKey{}}("second"),
+                                    \dv{SortValue{}}("second-value")
+                                )
+                            )
+                        ),
+                        \top{SortState{}}()
+                    ),
+                    selected{}(RULE:SortValue{})
+                ) [label{}("mixed-unification")]
             endmodule []"#,
         )
         .expect("closed map definition should parse");
@@ -5618,6 +5704,72 @@ mod tests {
                     && branch.pattern.constraints.contains(&rest_binding)
             }));
         }
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn composes_function_and_collection_unification_before_rewriting() {
+        let definition = closed_map_narrowing_definition();
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                "mixedState{}(CONFIG:SortValue{}, mapConcat{}(mapItem{}(KEY:SortKey{}, VALUE:SortValue{}), REST:SortMap{}))",
+            ),
+            constraints: Vec::new(),
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(_),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("mixed first-order and collection equations should produce rewrite branches");
+        };
+        assert_eq!(branches.len(), 2);
+
+        let mut selected_keys = Vec::new();
+        for branch in &branches {
+            let TermKind::Application {
+                symbol, arguments, ..
+            } = branch.pattern.term.kind()
+            else {
+                panic!("rewrite result should be selected(RULE)");
+            };
+            assert_eq!(symbol.name.as_ref(), "selected");
+            let [fresh_rule] = arguments.as_slice() else {
+                panic!("selected should retain exactly one fresh rule variable");
+            };
+            assert!(matches!(fresh_rule.kind(), TermKind::Variable(variable)
+                if variable.name.starts_with("Ex#RULE")));
+            let configuration_binding = Predicate::Equals(
+                internal_term(&definition, "CONFIG:SortValue{}"),
+                Term::application(
+                    definition.symbols["select"].clone(),
+                    Vec::new(),
+                    vec![fresh_rule.clone()],
+                ),
+            );
+            assert!(branch.pattern.constraints.contains(&configuration_binding));
+
+            let key_binding = branch.pattern.constraints.iter().find_map(|predicate| {
+                let Predicate::Equals(left, right) = predicate else {
+                    return None;
+                };
+                (left == &internal_term(&definition, "KEY:SortKey{}")).then_some(right.clone())
+            });
+            selected_keys.push(key_binding.expect("each branch should constrain the Map key"));
+        }
+        selected_keys.sort();
+        assert_eq!(
+            selected_keys,
+            [
+                internal_term(&definition, r#"\dv{SortKey{}}("first")"#),
+                internal_term(&definition, r#"\dv{SortKey{}}("second")"#),
+            ]
+        );
     }
 
     #[cfg(feature = "z3")]
