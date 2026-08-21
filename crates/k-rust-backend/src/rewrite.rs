@@ -2024,7 +2024,7 @@ fn apply_rule_with_match(
         RuleRhs::Bottom => return RuleAttempt::Trivial,
         RuleRhs::Predicates(_) => return RuleAttempt::NotApplicable,
     };
-    let existential_substitution = freshen_existentials(rule, pattern, fresh_counter);
+    let existential_substitution = freshen_existentials(rule, pattern);
     let rhs = substitute(&substitute(rhs, &substitution), &existential_substitution);
     let mut condition_knowledge = match_knowledge;
     extend_unique(&mut condition_knowledge, unclear_requires.iter().cloned());
@@ -3140,20 +3140,55 @@ fn sort_name(sort: &Sort) -> Option<&str> {
     }
 }
 
-fn freshen_existentials(
-    rule: &RewriteRule,
-    pattern: &Pattern,
-    fresh_counter: &mut u64,
-) -> Substitution {
+fn freshen_existentials(rule: &RewriteRule, pattern: &Pattern) -> Substitution {
     let mut names_to_avoid = pattern_variable_names(pattern);
     rule.existentials
         .iter()
         .cloned()
         .map(|variable| {
-            let fresh = fresh_variable(&variable, &mut names_to_avoid, fresh_counter);
+            let fresh = freshen_existential(&variable, &mut names_to_avoid);
             (variable, fresh)
         })
         .collect()
+}
+
+/// Give an existential introduced by a rewrite the same externally meaningful name Booster does.
+///
+/// `Ex#` is provenance used only while a rule is internalized. At application time Booster strips
+/// that marker, keeps the original name when it is available, and increments a trailing decimal
+/// counter only while the name collides with a variable in the current pattern. In particular,
+/// names may be reused after an earlier variable disappears from the state.
+fn freshen_existential(
+    variable: &Variable,
+    names_to_avoid: &mut BTreeSet<crate::term::Name>,
+) -> Term {
+    let mut name = variable
+        .name
+        .strip_prefix("Ex#")
+        .or_else(|| variable.name.strip_prefix("Rule#"))
+        .unwrap_or(variable.name.as_ref())
+        .to_owned();
+    while !names_to_avoid.insert(name.as_str().into()) {
+        name = increment_name_counter(&name);
+    }
+    Term::variable(variable.with_name(name))
+}
+
+fn increment_name_counter(name: &str) -> String {
+    let digits = name.bytes().rev().take_while(u8::is_ascii_digit).count();
+    if digits == 0 {
+        return format!("{name}0");
+    }
+    let prefix = &name[..name.len() - digits];
+    let counter = &name[name.len() - digits..];
+    match counter
+        .parse::<u64>()
+        .ok()
+        .and_then(|value| value.checked_add(1))
+    {
+        Some(counter) => format!("{prefix}{counter}"),
+        None => format!("{name}0"),
+    }
 }
 
 fn fresh_variable(
@@ -5364,7 +5399,7 @@ mod tests {
     }
 
     #[test]
-    fn freshens_existential_variables_on_each_application() {
+    fn freshens_existentials_against_the_current_pattern() {
         let definition = definition(
             r#"
             axiom{} \rewrites{SortS{}}(
@@ -5376,12 +5411,8 @@ mod tests {
         let pattern = subject(&definition, "value");
         let mut fresh = 0;
         let first = rewrite_step(&definition, &pattern, &mut fresh);
-        let second = rewrite_step(&definition, &pattern, &mut fresh);
-        let names = [first, second].map(|result| {
-            let RewriteResult::Finished(applied) = result else {
-                panic!("rule should apply");
-            };
-            applied
+        let first_name = match &first {
+            RewriteResult::Finished(applied) => applied
                 .pattern
                 .term
                 .attributes()
@@ -5390,9 +5421,35 @@ mod tests {
                 .next()
                 .unwrap()
                 .name
-                .clone()
-        });
-        assert_ne!(names[0], names[1]);
+                .clone(),
+            _ => panic!("rule should apply"),
+        };
+        assert_eq!(first_name.as_ref(), "Y");
+
+        let RewriteResult::Finished(first) = first else {
+            unreachable!();
+        };
+        let second = rewrite_step(&definition, &first.pattern, &mut fresh);
+        let second_name = match second {
+            RewriteResult::Finished(applied) => {
+                let variables = &applied.pattern.term.attributes().variables;
+                assert_eq!(variables.len(), 1);
+                variables.iter().next().unwrap().name.clone()
+            }
+            _ => panic!("rule should apply again"),
+        };
+        assert_eq!(second_name.as_ref(), "Y0");
+
+        let repeated = rewrite_step(&definition, &pattern, &mut fresh);
+        let repeated_name = match repeated {
+            RewriteResult::Finished(applied) => {
+                let variables = &applied.pattern.term.attributes().variables;
+                assert_eq!(variables.len(), 1);
+                variables.iter().next().unwrap().name.clone()
+            }
+            _ => panic!("rule should apply to the original pattern again"),
+        };
+        assert_eq!(repeated_name, first_name);
     }
 
     #[test]

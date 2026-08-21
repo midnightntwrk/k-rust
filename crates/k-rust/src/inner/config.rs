@@ -231,6 +231,17 @@ pub(super) fn add_k_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {
         false,
         false,
     )?;
+    // KSEQ retains `.` as a deprecated spelling of the empty K sequence. It is
+    // deliberately parse-only in the reference frontend (`unparseAvoid`), so
+    // both spellings lower to the same KAST node and printers continue to emit
+    // the canonical `.K` form.
+    grammar.add(
+        Sort::new("K"),
+        vec![ProductionItem::Terminal(".".into())],
+        Some(Label::new("#EmptyK")),
+        false,
+        false,
+    )?;
     // Configuration initializers and rule bodies share the same concrete K-sequence syntax.
     // Keep it here so rule grammar construction does not install a duplicate production.
     grammar.add(

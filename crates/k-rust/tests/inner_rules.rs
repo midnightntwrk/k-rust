@@ -286,6 +286,46 @@ fn loader_parses_parenthesized_sequence_rewrites_before_cell_dots() {
 }
 
 #[test]
+fn loader_parses_legacy_empty_k_before_cell_dots() {
+    let source = indoc! {r##"
+        module MAIN
+          syntax State ::= "a" | ".State"
+          syntax KItem ::= "#setAStateSymbolic" [klabel(setAStateSymbolic)]
+          syntax Bool ::= condition(State) [function, total, no-evaluators]
+          configuration <k> #setAStateSymbolic </k>
+                        <a-state> .State </a-state>
+
+          rule <k> #setAStateSymbolic => . ... </k>
+               <a-state> _ => ?X </a-state>
+               ensures condition(?X)
+        endmodule
+    "##};
+    let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+    let loaded = load(
+        ResolvedSource::new("legacy-empty-k.k", source),
+        "MAIN",
+        &mut resolver,
+    )
+    .unwrap();
+    let rules = loaded
+        .definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(sentence_summary)
+        .collect::<Vec<_>>();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(rules);
+    });
+}
+
+#[test]
 fn loader_parses_rewrites_between_bags_inside_collection_cells() {
     let source = indoc! {r#"
         module MAIN

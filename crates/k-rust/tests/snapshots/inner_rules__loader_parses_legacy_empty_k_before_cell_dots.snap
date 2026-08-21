@@ -1,0 +1,42 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+description: "K definition:\n\nmodule MAIN\n  syntax State ::= \"a\" | \".State\"\n  syntax KItem ::= \"#setAStateSymbolic\" [klabel(setAStateSymbolic)]\n  syntax Bool ::= condition(State) [function, total, no-evaluators]\n  configuration <k> #setAStateSymbolic </k>\n                <a-state> .State </a-state>\n\n  rule <k> #setAStateSymbolic => . ... </k>\n       <a-state> _ => ?X </a-state>\n       ensures condition(?X)\nendmodule\n"
+---
+[
+    SentenceSummary {
+        kind: "rule",
+        body: "#cells(`<k>`(#noDots(.KList),`#setAStateSymbolic_MAIN_KItem`(.KList)=>.K,#dots(.KList)),`<a-state>`(#noDots(.KList),#SemanticCastToState(_)=>#SemanticCastToState(?X),#noDots(.KList)))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "`condition(_)_MAIN_Bool_State`(#SemanticCastToState(?X))",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "initAStateCell(.KList)=>`<a-state>`(#noDots(.KList),`.State_MAIN_State`(.KList),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "initGeneratedTopCell(.KList)=>`<generatedTop>`(#noDots(.KList),#cells(initKCell(.KList),initAStateCell(.KList)),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "initKCell(.KList)=>`<k>`(#noDots(.KList),`#setAStateSymbolic_MAIN_KItem`(.KList),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+]

@@ -19,6 +19,7 @@ Configuration(
         error: NoParse {
             position: 4,
             expected: [
+                "\".\"",
                 "\".Bag\"",
                 "\".K\"",
                 "\"<\"",
