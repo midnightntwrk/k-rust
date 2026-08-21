@@ -90,6 +90,7 @@ pub enum IndeterminateReason {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExecutionOptions {
     pub max_depth: u64,
+    pub max_breadth: Option<usize>,
     pub max_simplification_iterations: usize,
     pub mode: ExecutionMode,
     pub branch_mode: ExecutionBranchMode,
@@ -111,6 +112,7 @@ impl Default for ExecutionOptions {
     fn default() -> Self {
         Self {
             max_depth: 1_000,
+            max_breadth: None,
             max_simplification_iterations: 100,
             mode: ExecutionMode::All,
             branch_mode: ExecutionBranchMode::ExploreAll,
@@ -141,6 +143,7 @@ pub enum HaltReason {
     Vacuous,
     Branch { branches: Vec<AppliedRule> },
     DepthBound,
+    BreadthBound,
     Indeterminate(IndeterminateReason),
     Simplification(SimplificationError),
 }
@@ -191,6 +194,15 @@ pub fn execute_with_solver_and_observer(
     }]);
     let mut leaves = Vec::new();
     let mut effects = Vec::new();
+    if options.max_breadth == Some(0) {
+        return ExecutionResult {
+            leaves: pending
+                .drain(..)
+                .map(execution_state_at_breadth_bound)
+                .collect(),
+            effects,
+        };
+    }
     while let Some(mut state) = pending.pop_front() {
         match simplify_predicates_with_solver(
             definition,
@@ -284,7 +296,13 @@ pub fn execute_with_solver_and_observer(
             }),
             RewriteResult::Finished(applied) => {
                 record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
-                pending.push_back(next_state(state.depth, state.trace, applied))
+                enqueue_execution_states(
+                    &mut pending,
+                    vec![next_state(state.depth, state.trace, applied)],
+                );
+                if execution_breadth_exceeded(&mut pending, &mut leaves, options.max_breadth) {
+                    break;
+                }
             }
             RewriteResult::Branch {
                 original,
@@ -300,17 +318,51 @@ pub fn execute_with_solver_and_observer(
                     });
                     continue;
                 }
+                let mut next =
+                    Vec::with_capacity(branches.len() + usize::from(remainder.is_some()));
                 for applied in branches {
                     record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
-                    pending.push_back(next_state(state.depth, state.trace.clone(), applied));
+                    next.push(next_state(state.depth, state.trace.clone(), applied));
                 }
                 if let Some(remainder) = remainder {
-                    pending.push_back(remaining_state(state.depth, state.trace, remainder));
+                    next.push(remaining_state(state.depth, state.trace, remainder));
+                }
+                enqueue_execution_states(&mut pending, next);
+                if execution_breadth_exceeded(&mut pending, &mut leaves, options.max_breadth) {
+                    break;
                 }
             }
         }
     }
     ExecutionResult { leaves, effects }
+}
+
+fn enqueue_execution_states(pending: &mut VecDeque<ExecutionState>, next: Vec<ExecutionState>) {
+    for state in next.into_iter().rev() {
+        pending.push_front(state);
+    }
+}
+
+fn execution_breadth_exceeded(
+    pending: &mut VecDeque<ExecutionState>,
+    leaves: &mut Vec<ExecutionLeaf>,
+    max_breadth: Option<usize>,
+) -> bool {
+    if !max_breadth.is_some_and(|bound| pending.len() > bound) {
+        return false;
+    }
+    leaves.clear();
+    leaves.extend(pending.drain(..).map(execution_state_at_breadth_bound));
+    true
+}
+
+fn execution_state_at_breadth_bound(state: ExecutionState) -> ExecutionLeaf {
+    ExecutionLeaf {
+        pattern: state.pattern,
+        depth: state.depth,
+        trace: state.trace,
+        halt_reason: HaltReason::BreadthBound,
+    }
 }
 
 fn record_effects(
@@ -4571,6 +4623,58 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["left", "right"]
         );
+    }
+
+    #[test]
+    fn breadth_bound_returns_the_live_execution_frontier() {
+        let definition = unconditional_branch_definition();
+
+        let result = execute(
+            &definition,
+            subject(&definition, "value"),
+            ExecutionOptions {
+                max_breadth: Some(1),
+                ..ExecutionOptions::default()
+            },
+        );
+
+        assert_eq!(result.leaves.len(), 2);
+        assert!(
+            result
+                .leaves
+                .iter()
+                .all(|leaf| leaf.depth == 1 && leaf.halt_reason == HaltReason::BreadthBound)
+        );
+        assert_eq!(
+            result
+                .leaves
+                .iter()
+                .map(|leaf| match leaf.pattern.term.kind() {
+                    TermKind::DomainValue { value, .. } => value.as_ref(),
+                    other => panic!("expected a domain value, found {other:?}"),
+                })
+                .collect::<Vec<_>>(),
+            vec!["left", "right"]
+        );
+    }
+
+    #[test]
+    fn zero_breadth_returns_the_initial_configuration() {
+        let definition = unconditional_branch_definition();
+        let initial = subject(&definition, "value");
+
+        let result = execute(
+            &definition,
+            initial.clone(),
+            ExecutionOptions {
+                max_breadth: Some(0),
+                ..ExecutionOptions::default()
+            },
+        );
+
+        assert_eq!(result.leaves.len(), 1);
+        assert_eq!(result.leaves[0].pattern, initial);
+        assert_eq!(result.leaves[0].halt_reason, HaltReason::BreadthBound);
     }
 
     #[test]

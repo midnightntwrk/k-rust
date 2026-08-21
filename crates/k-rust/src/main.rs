@@ -244,6 +244,10 @@ struct KrunArgs {
     #[arg(long, default_value_t = 1_000, value_name = "STEPS")]
     depth: u64,
 
+    /// Maximum number of live execution or search branches.
+    #[arg(long = "breadth", value_name = "BRANCHES")]
+    breadth_limit: Option<usize>,
+
     /// Stop and return the current configuration when execution first branches.
     #[arg(long)]
     execute_to_branch: bool,
@@ -276,6 +280,10 @@ struct KoreExecArgs {
     /// Maximum number of semantic rewrite steps per execution branch.
     #[arg(long, default_value_t = 1_000, value_name = "STEPS")]
     depth: u64,
+
+    /// Maximum number of live execution or search branches.
+    #[arg(long = "breadth", value_name = "BRANCHES")]
+    breadth_limit: Option<usize>,
 
     /// Stop and return the current configuration when execution first branches.
     #[arg(long)]
@@ -451,6 +459,7 @@ struct KrunOptions {
     expression: Option<String>,
     program_file: Option<PathBuf>,
     depth: u64,
+    breadth_limit: Option<usize>,
     execute_to_branch: bool,
     strategy: ExecutionMode,
     search: Option<KrunSearchOptions>,
@@ -567,6 +576,7 @@ impl From<KrunArgs> for KrunOptions {
             expression: arguments.expression,
             program_file: arguments.program_file,
             depth: arguments.depth,
+            breadth_limit: arguments.breadth_limit,
             execute_to_branch: arguments.execute_to_branch,
             strategy: arguments.strategy.into(),
             search: arguments.search.into_options(),
@@ -734,6 +744,7 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
             constraints: Vec::new(),
         },
         options.depth,
+        options.breadth_limit,
         options.execute_to_branch,
         options.strategy,
         options.search,
@@ -769,6 +780,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
         &backend,
         initial,
         options.depth,
+        options.breadth_limit,
         options.execute_to_branch,
         options.strategy.into(),
         options.search.into_options(),
@@ -834,6 +846,7 @@ fn run_backend(
     backend: &BackendDefinition,
     initial: Pattern,
     depth: u64,
+    breadth_limit: Option<usize>,
     execute_to_branch: bool,
     strategy: ExecutionMode,
     search: Option<KrunSearchOptions>,
@@ -865,6 +878,7 @@ fn run_backend(
             SearchOptions {
                 search_type: search.search_type,
                 max_depth: depth,
+                max_breadth: breadth_limit,
                 max_results: search.bound,
                 ..SearchOptions::default()
             },
@@ -892,6 +906,7 @@ fn run_backend(
         initial,
         ExecutionOptions {
             max_depth: depth,
+            max_breadth: breadth_limit,
             mode: strategy,
             branch_mode: if execute_to_branch {
                 ExecutionBranchMode::StopAtBranch
@@ -1437,6 +1452,8 @@ mod tests {
             "1 + 2",
             "--depth",
             "42",
+            "--breadth",
+            "7",
             "--execute-to-branch",
             "--strategy",
             "any",
@@ -1452,6 +1469,7 @@ mod tests {
         assert_eq!(options.sort, "Exp");
         assert_eq!(options.expression.as_deref(), Some("1 + 2"));
         assert_eq!(options.depth, 42);
+        assert_eq!(options.breadth_limit, Some(7));
         assert!(options.execute_to_branch);
         assert_eq!(options.strategy, ExecutionMode::Any);
         assert!(options.search.is_none());

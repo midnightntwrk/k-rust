@@ -36,6 +36,7 @@ pub enum SearchType {
 pub struct SearchOptions {
     pub search_type: SearchType,
     pub max_depth: u64,
+    pub max_breadth: Option<usize>,
     pub max_results: Option<usize>,
     pub max_simplification_iterations: usize,
 }
@@ -45,6 +46,7 @@ impl Default for SearchOptions {
         Self {
             search_type: SearchType::Final,
             max_depth: 1_000,
+            max_breadth: None,
             max_results: None,
             max_simplification_iterations: 100,
         }
@@ -61,6 +63,7 @@ pub struct SearchState {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IncompleteSearch {
     DepthBound(SearchState),
+    BreadthBound(Vec<SearchState>),
     Indeterminate {
         state: SearchState,
         reason: IndeterminateReason,
@@ -210,6 +213,15 @@ pub fn search_graph_with_solver_and_observer(
     let mut incomplete = Vec::new();
     let mut fresh_counter = 0;
 
+    if options.max_breadth == Some(0) {
+        incomplete.push(IncompleteSearch::BreadthBound(pending.drain(..).collect()));
+        return SearchResult {
+            states,
+            effects,
+            incomplete,
+        };
+    }
+
     if options.max_results == Some(0) {
         return SearchResult {
             states,
@@ -321,6 +333,9 @@ pub fn search_graph_with_solver_and_observer(
             RewriteResult::Finished(applied) => {
                 record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
                 pending.push_back(next_state(state.depth, state.trace, applied));
+                if search_breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth) {
+                    break;
+                }
             }
             RewriteResult::Branch {
                 branches,
@@ -334,6 +349,9 @@ pub fn search_graph_with_solver_and_observer(
                 if let Some(remainder) = remainder {
                     pending.push_back(remaining_state(state.depth, state.trace, remainder));
                 }
+                if search_breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth) {
+                    break;
+                }
             }
         }
     }
@@ -343,6 +361,18 @@ pub fn search_graph_with_solver_and_observer(
         effects,
         incomplete,
     }
+}
+
+fn search_breadth_exceeded(
+    pending: &mut VecDeque<SearchState>,
+    incomplete: &mut Vec<IncompleteSearch>,
+    max_breadth: Option<usize>,
+) -> bool {
+    if !max_breadth.is_some_and(|bound| pending.len() > bound) {
+        return false;
+    }
+    incomplete.push(IncompleteSearch::BreadthBound(pending.drain(..).collect()));
+    true
 }
 
 /// Search the selected execution states for instances of `target`.
@@ -780,6 +810,64 @@ mod tests {
 
         assert_eq!(names(&result), BTreeSet::from(["next1".into()]));
         assert!(result.incomplete.is_empty());
+    }
+
+    #[test]
+    fn breadth_bound_reports_the_live_search_frontier() {
+        let definition = definition();
+        let result = search_graph(
+            &definition,
+            initial(&definition),
+            SearchOptions {
+                max_breadth: Some(1),
+                ..SearchOptions::default()
+            },
+        );
+
+        assert!(result.states.is_empty());
+        let [IncompleteSearch::BreadthBound(frontier)] = result.incomplete.as_slice() else {
+            panic!(
+                "expected a breadth-bound frontier, found {:?}",
+                result.incomplete
+            );
+        };
+        assert_eq!(
+            frontier
+                .iter()
+                .map(|state| match state.pattern.term.kind() {
+                    TermKind::Application { symbol, .. } => symbol.name.as_ref(),
+                    other => panic!("expected an application, found {other:?}"),
+                })
+                .collect::<Vec<_>>(),
+            vec!["next1", "next2"]
+        );
+    }
+
+    #[test]
+    fn zero_breadth_reports_the_initial_search_frontier() {
+        let definition = definition();
+        let result = search_graph(
+            &definition,
+            initial(&definition),
+            SearchOptions {
+                max_breadth: Some(0),
+                ..SearchOptions::default()
+            },
+        );
+
+        assert!(result.states.is_empty());
+        let [IncompleteSearch::BreadthBound(frontier)] = result.incomplete.as_slice() else {
+            panic!(
+                "expected a breadth-bound frontier, found {:?}",
+                result.incomplete
+            );
+        };
+        assert_eq!(frontier.len(), 1);
+        assert_eq!(frontier[0].depth, 0);
+        assert!(matches!(
+            frontier[0].pattern.term.kind(),
+            TermKind::Application { symbol, .. } if symbol.name.as_ref() == "initial"
+        ));
     }
 
     #[test]

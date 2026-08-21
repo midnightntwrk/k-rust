@@ -384,6 +384,8 @@ module MAIN
   symbol a{}() : SortS{} [constructor{}()]
   symbol b{}() : SortS{} [constructor{}()]
   symbol c{}() : SortS{} [constructor{}()]
+  symbol d{}() : SortS{} [constructor{}()]
+  symbol e{}() : SortS{} [constructor{}()]
   axiom{} \rewrites{SortS{}}(
     \and{SortS{}}(a{}(), \top{SortS{}}()),
     b{}()
@@ -392,6 +394,14 @@ module MAIN
     \and{SortS{}}(a{}(), \top{SortS{}}()),
     c{}()
   ) [label{}("a-to-c")]
+  axiom{} \rewrites{SortS{}}(
+    \and{SortS{}}(b{}(), \top{SortS{}}()),
+    d{}()
+  ) [label{}("b-to-d")]
+  axiom{} \rewrites{SortS{}}(
+    \and{SortS{}}(c{}(), \top{SortS{}}()),
+    e{}()
+  ) [label{}("c-to-e")]
 endmodule []
 "#,
     )
@@ -417,8 +427,8 @@ endmodule []
     );
     let execute = String::from_utf8(execute.stdout).unwrap();
     assert!(execute.starts_with(r#"\or{SortS{}}("#), "{execute}");
-    assert!(execute.contains("b{}()"), "{execute}");
-    assert!(execute.contains("c{}()"), "{execute}");
+    assert!(execute.contains("d{}()"), "{execute}");
+    assert!(execute.contains("e{}()"), "{execute}");
 
     let branch = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
@@ -457,7 +467,31 @@ endmodule []
         "{}",
         String::from_utf8_lossy(&any.stderr)
     );
-    assert_eq!(String::from_utf8(any.stdout).unwrap(), "b{}()\n");
+    assert_eq!(String::from_utf8(any.stdout).unwrap(), "d{}()\n");
+
+    let breadth = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--pattern",
+            program.to_str().unwrap(),
+            "--breadth",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        breadth.status.success(),
+        "{}",
+        String::from_utf8_lossy(&breadth.stderr)
+    );
+    let breadth = String::from_utf8(breadth.stdout).unwrap();
+    assert!(breadth.contains("b{}()"), "{breadth}");
+    assert!(breadth.contains("c{}()"), "{breadth}");
+    assert!(!breadth.contains("d{}()"), "{breadth}");
+    assert!(!breadth.contains("e{}()"), "{breadth}");
 
     let search = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
@@ -480,8 +514,29 @@ endmodule []
     );
     let search = String::from_utf8(search.stdout).unwrap();
     assert!(search.contains("Result:SortS{}"), "{search}");
-    assert!(search.contains("b{}()"), "{search}");
-    assert!(search.contains("c{}()"), "{search}");
+    assert!(search.contains("d{}()"), "{search}");
+    assert!(search.contains("e{}()"), "{search}");
+
+    let bounded_search = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--pattern",
+            program.to_str().unwrap(),
+            "--search-final",
+            "--breadth",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    assert!(!bounded_search.status.success());
+    assert!(
+        String::from_utf8_lossy(&bounded_search.stderr).contains("BreadthBound"),
+        "{}",
+        String::from_utf8_lossy(&bounded_search.stderr)
+    );
 
     fs::remove_dir_all(root).unwrap();
 }
