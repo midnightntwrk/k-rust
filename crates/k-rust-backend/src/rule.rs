@@ -386,7 +386,7 @@ pub fn internalize_axiom(
             ..
         } => {
             if !is_term_pattern(lhs) {
-                let lhs = internalize_one_predicate(definition, lhs, sort_parameters)?;
+                let lhs = internalize_predicate(definition, lhs, sort_parameters)?;
                 let requires = internalize_predicates(definition, requires, sort_parameters)?;
                 let rhs = internalize_predicates(definition, rhs, sort_parameters)?;
                 let rename = |variable: &Variable| prefixed(variable, "Eq#");
@@ -585,10 +585,10 @@ fn internalize_predicates(
         kore::Pattern::Or { arguments, .. } => Ok(vec![Predicate::Or(
             arguments
                 .iter()
-                .map(|argument| internalize_one_predicate(definition, argument, sort_parameters))
+                .map(|argument| internalize_predicate(definition, argument, sort_parameters))
                 .collect::<Result<Vec<_>, _>>()?,
         )]),
-        _ => Ok(vec![internalize_one_predicate(
+        _ => Ok(vec![internalize_predicate(
             definition,
             pattern,
             sort_parameters,
@@ -596,14 +596,14 @@ fn internalize_predicates(
     }
 }
 
-fn internalize_one_predicate(
+pub(crate) fn internalize_predicate(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
 ) -> Result<Predicate, DefinitionError> {
     let term = |pattern: &kore::Pattern| definition.internalize_term(pattern, sort_parameters);
     let predicate =
-        |pattern: &kore::Pattern| internalize_one_predicate(definition, pattern, sort_parameters);
+        |pattern: &kore::Pattern| internalize_predicate(definition, pattern, sort_parameters);
     match pattern {
         kore::Pattern::Top { .. } => Ok(Predicate::True),
         kore::Pattern::Bottom { .. } => Ok(Predicate::False),

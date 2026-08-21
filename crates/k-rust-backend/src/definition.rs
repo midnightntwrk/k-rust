@@ -16,7 +16,8 @@ use crate::{
     rewrite::Pattern,
     rule::{
         AxiomError, ClassifiedAxiom, InternalizedRule, PredicateTheory, RuleKind, RulePatternError,
-        Theory, classify_axiom, insert_theory, internalize_axiom, internalize_rule_pattern,
+        Theory, classify_axiom, insert_theory, internalize_axiom,
+        internalize_predicate as internalize_rule_predicate, internalize_rule_pattern,
     },
     smt::{SExpr, SmtType},
     term::{
@@ -469,6 +470,19 @@ impl BackendDefinition {
         Ok(Pattern { term, constraints })
     }
 
+    /// Internalize an arbitrary KORE pattern as an ML predicate and retain its result sort.
+    pub fn internalize_predicate(
+        &self,
+        pattern: &kore::Pattern,
+        sort_variables: &[Name],
+    ) -> Result<(crate::rule::Predicate, Sort), DefinitionError> {
+        let pattern = expand_aliases(pattern, &self.aliases)?;
+        let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
+        let result_sort = self.internalize_pattern_result_sort(&pattern, &known)?;
+        let predicate = internalize_rule_predicate(self, &pattern, sort_variables)?;
+        Ok((predicate, result_sort))
+    }
+
     /// Internalize the alternatives of a top-level KORE disjunction.
     pub fn internalize_disjunction(
         &self,
@@ -595,6 +609,43 @@ impl BackendDefinition {
             kore::Pattern::Floor { .. } => Err(DefinitionError::ExpectedTerm("floor")),
             kore::Pattern::Equals { .. } => Err(DefinitionError::ExpectedTerm("equals")),
             kore::Pattern::In { .. } => Err(DefinitionError::ExpectedTerm("in")),
+        }
+    }
+
+    fn internalize_pattern_result_sort(
+        &self,
+        pattern: &kore::Pattern,
+        sort_variables: &BTreeSet<Name>,
+    ) -> Result<Sort, DefinitionError> {
+        let syntax_sort = match pattern {
+            kore::Pattern::Variable(variable) => Some(&variable.sort),
+            kore::Pattern::Top { sort }
+            | kore::Pattern::Bottom { sort }
+            | kore::Pattern::Not { sort, .. }
+            | kore::Pattern::Next { sort, .. }
+            | kore::Pattern::And { sort, .. }
+            | kore::Pattern::Or { sort, .. }
+            | kore::Pattern::Rewrites { sort, .. }
+            | kore::Pattern::Implies { sort, .. }
+            | kore::Pattern::Iff { sort, .. }
+            | kore::Pattern::Exists { sort, .. }
+            | kore::Pattern::Forall { sort, .. } => Some(sort),
+            kore::Pattern::Ceil { result_sort, .. }
+            | kore::Pattern::Floor { result_sort, .. }
+            | kore::Pattern::Equals { result_sort, .. }
+            | kore::Pattern::In { result_sort, .. } => Some(result_sort),
+            kore::Pattern::Mu { variable, .. } | kore::Pattern::Nu { variable, .. } => {
+                Some(&variable.sort)
+            }
+            kore::Pattern::DomainValue { sort, .. } => Some(sort),
+            kore::Pattern::String(_) => return Ok(Sort::simple("SortString")),
+            kore::Pattern::Application { .. } | kore::Pattern::AssociativeApplication { .. } => {
+                None
+            }
+        };
+        match syntax_sort {
+            Some(sort) => internalize_sort(sort, &self.sorts, sort_variables),
+            None => Ok(self.internalize_term_with(pattern, sort_variables)?.sort()),
         }
     }
 
