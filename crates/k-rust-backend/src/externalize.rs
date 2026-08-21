@@ -151,18 +151,26 @@ fn predicate_pattern_with_terms(
         Predicate::Term(value) => kore::Pattern::Equals {
             operand_sort: sort(&value.sort()),
             result_sort: sort(result_sort),
-            left: Box::new(term(value)),
-            right: Box::new(kore::Pattern::DomainValue {
+            left: Box::new(kore::Pattern::DomainValue {
                 sort: sort(&value.sort()),
                 value: "true".into(),
             }),
+            right: Box::new(term(value)),
         },
-        Predicate::Equals(left, right) => kore::Pattern::Equals {
-            operand_sort: sort(&left.sort()),
-            result_sort: sort(result_sort),
-            left: Box::new(term(left)),
-            right: Box::new(term(right)),
-        },
+        Predicate::Equals(left, right) => {
+            let (left, right) = if is_boolean_domain_value(right) && !is_boolean_domain_value(left)
+            {
+                (right, left)
+            } else {
+                (left, right)
+            };
+            kore::Pattern::Equals {
+                operand_sort: sort(&left.sort()),
+                result_sort: sort(result_sort),
+                left: Box::new(term(left)),
+                right: Box::new(term(right)),
+            }
+        }
         Predicate::Ceil(value) => kore::Pattern::Ceil {
             operand_sort: sort(&value.sort()),
             result_sort: sort(result_sort),
@@ -250,6 +258,18 @@ fn predicate_pattern_with_terms(
             )),
         },
     }
+}
+
+fn is_boolean_domain_value(term: &Term) -> bool {
+    matches!(
+        term.kind(),
+        TermKind::DomainValue {
+            sort: Sort::Application { name, arguments },
+            value,
+        } if name.as_ref() == "SortBool"
+            && arguments.is_empty()
+            && matches!(value.as_ref(), "true" | "false")
+    )
 }
 
 pub fn sort(value: &Sort) -> kore::Sort {
@@ -400,6 +420,42 @@ mod tests {
                     name: "SortInt".into(),
                     arguments: Vec::new(),
                 } && arguments.len() == 2
+        ));
+    }
+
+    #[test]
+    fn bare_predicates_compare_true_before_the_predicate_term() {
+        let boolean_sort = Sort::simple("SortBool");
+        let value = Term::domain_value(boolean_sort.clone(), "condition");
+
+        assert_eq!(
+            predicate_pattern(&Predicate::Term(value.clone()), &boolean_sort),
+            kore::Pattern::Equals {
+                operand_sort: sort(&boolean_sort),
+                result_sort: sort(&boolean_sort),
+                left: Box::new(kore::Pattern::DomainValue {
+                    sort: sort(&boolean_sort),
+                    value: "true".into(),
+                }),
+                right: Box::new(term(&value)),
+            }
+        );
+    }
+
+    #[test]
+    fn boolean_equalities_place_domain_values_first() {
+        let boolean_sort = Sort::simple("SortBool");
+        let value = Term::variable(Variable::new("P", boolean_sort.clone()));
+        let false_value = Term::domain_value(boolean_sort.clone(), "false");
+
+        assert!(matches!(
+            predicate_pattern(
+                &Predicate::Equals(value, false_value),
+                &Sort::simple("SortGeneratedTopCell"),
+            ),
+            kore::Pattern::Equals { left, right, .. }
+                if matches!(left.as_ref(), kore::Pattern::DomainValue { value, .. } if value == "false")
+                    && matches!(right.as_ref(), kore::Pattern::Variable(variable) if variable.name == "P")
         ));
     }
 }

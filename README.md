@@ -443,8 +443,8 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
   concrete parameters normally supplied by parser inference.
 - Emit the optional legacy priority aliases supported by `ModuleToKORE` compatibility modes.
 - Measure Z3-path usage across a substantially larger real-definition corpus.
-- Complete KORE RPC parity for cancellation, definedness assumptions, failed-rewrite and legacy
-  Haskell logging, and separate predicate/substitution projection from combined backend constraints.
+- Complete KORE RPC parity for cancellation, definedness assumptions, and failed-rewrite and
+  legacy Haskell logging.
 - Revisit package splitting only if real build or release pressure justifies it.
 
 ## License

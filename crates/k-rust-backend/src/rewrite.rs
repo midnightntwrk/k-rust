@@ -38,6 +38,12 @@ pub struct AppliedRule {
     pub label: Option<String>,
     pub unique_id: String,
     pub substitution: Substitution,
+    /// Rule-variable bindings suitable for execution diagnostics. Variables introduced solely as
+    /// term aliases (`P #as X`) are implementation details and are omitted from this view.
+    pub rule_substitution: Substitution,
+    /// Conditions introduced by this rule application, before they are merged with the incoming
+    /// path constraints. RPC diagnostics use this provenance to report `rule-predicate` exactly.
+    pub rule_predicates: Vec<Predicate>,
     pub effects: Vec<BuiltinEffect>,
 }
 
@@ -1940,11 +1946,19 @@ fn apply_rule_with_match(
             }
         }
     }
+    let alias_variables = term_alias_variables(&rule.lhs);
+    let rule_substitution = substitution
+        .iter()
+        .filter(|(variable, _)| !alias_variables.contains(*variable))
+        .map(|(variable, value)| (variable.clone(), value.clone()))
+        .collect();
+    let mut rule_predicates = Vec::new();
+    extend_unique(&mut rule_predicates, match_conditions.iter().cloned());
+    extend_unique(&mut rule_predicates, unclear_requires.iter().cloned());
+    extend_unique(&mut rule_predicates, rhs_constraints);
+    extend_unique(&mut rule_predicates, ensures);
     let mut constraints = pattern.constraints.clone();
-    extend_unique(&mut constraints, match_conditions.iter().cloned());
-    extend_unique(&mut constraints, unclear_requires.iter().cloned());
-    extend_unique(&mut constraints, rhs_constraints);
-    extend_unique(&mut constraints, ensures);
+    extend_unique(&mut constraints, rule_predicates.iter().cloned());
     let remainder = if applicability == Predicate::True {
         Predicate::False
     } else {
@@ -1959,10 +1973,68 @@ fn apply_rule_with_match(
             label: rule.attributes.label.clone(),
             unique_id: rule.attributes.unique_id.clone(),
             substitution,
+            rule_substitution,
+            rule_predicates,
             effects,
         },
         remainder,
     }])
+}
+
+fn term_alias_variables(term: &Term) -> BTreeSet<Variable> {
+    fn collect(term: &Term, output: &mut BTreeSet<Variable>) {
+        match term.kind() {
+            TermKind::And(left, right) => {
+                if let TermKind::Variable(variable) = left.kind() {
+                    output.insert(variable.clone());
+                }
+                if let TermKind::Variable(variable) = right.kind() {
+                    output.insert(variable.clone());
+                }
+                collect(left, output);
+                collect(right, output);
+            }
+            TermKind::Application { arguments, .. } => {
+                for argument in arguments {
+                    collect(argument, output);
+                }
+            }
+            TermKind::Injection { term, .. } => collect(term, output),
+            TermKind::Map { entries, rest, .. } => {
+                for (key, value) in entries {
+                    collect(key, output);
+                    collect(value, output);
+                }
+                if let Some(rest) = rest {
+                    collect(rest, output);
+                }
+            }
+            TermKind::List { heads, rest, .. } => {
+                for head in heads {
+                    collect(head, output);
+                }
+                if let Some((middle, tails)) = rest {
+                    collect(middle, output);
+                    for tail in tails {
+                        collect(tail, output);
+                    }
+                }
+            }
+            TermKind::Set { elements, rest, .. } => {
+                for element in elements {
+                    collect(element, output);
+                }
+                if let Some(rest) = rest {
+                    collect(rest, output);
+                }
+            }
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+        }
+    }
+
+    let mut variables = BTreeSet::new();
+    collect(term, &mut variables);
+    variables
 }
 
 /// Narrow a concrete rule-map key against symbolic keys in a closed configuration map.
@@ -2959,7 +3031,8 @@ fn pattern_free_variables(pattern: &Pattern) -> BTreeSet<Variable> {
         .collect()
 }
 
-pub(crate) fn substitute_predicates(
+/// Apply a saturated substitution throughout a predicate collection.
+pub fn substitute_predicates(
     predicates: &[Predicate],
     substitution: &Substitution,
 ) -> Vec<Predicate> {
@@ -3166,6 +3239,31 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
+
+    #[test]
+    fn rule_diagnostics_omit_term_alias_binders() {
+        let sort = Sort::simple("SortS");
+        let alias = Variable::new("Rule#Alias", sort.clone());
+        let ordinary = Variable::new("Rule#Ordinary", sort.clone());
+        let lhs = Term::application(
+            std::sync::Arc::new(Symbol::constructor(
+                "pair",
+                vec![sort.clone(), sort.clone()],
+                sort.clone(),
+            )),
+            Vec::new(),
+            vec![
+                Term::and(
+                    Term::domain_value(sort.clone(), "value"),
+                    Term::variable(alias.clone()),
+                ),
+                Term::variable(ordinary.clone()),
+            ],
+        );
+
+        assert_eq!(term_alias_variables(&lhs), BTreeSet::from([alias]));
+        assert!(!term_alias_variables(&lhs).contains(&ordinary));
+    }
 
     fn existential_equality(bound: &str, free: &str) -> Predicate {
         let sort = Sort::simple("SortS");

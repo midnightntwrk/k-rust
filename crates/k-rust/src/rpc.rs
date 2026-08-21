@@ -1,6 +1,7 @@
 //! Stateful KORE JSON-RPC 2.0 dispatch and raw TCP transport.
 
 use std::{
+    collections::BTreeSet,
     error::Error,
     io::{self, BufRead, BufReader, BufWriter, Write},
     net::{TcpListener, TcpStream, ToSocketAddrs},
@@ -16,14 +17,14 @@ use k_rust_backend::{
     implication::{ImplicationResult, ImplicationStatus, check_implication_with_existentials},
     rewrite::{
         AppliedRule, ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
-        TraceKind, execute_with_solver,
+        TraceKind, execute_with_solver, substitute_predicates,
     },
     rule::Predicate,
     session::BackendSession,
     simplify::{SimplificationOptions, simplify_and_decide_predicate_with_solver},
     smt::{ModelResult, SmtSolver, Z3Solver},
-    substitution::Substitution,
-    term::Sort as BackendSort,
+    substitution::{Substitution, substitute},
+    term::{Sort as BackendSort, TermKind, Variable},
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -42,10 +43,23 @@ struct RpcFault {
     data: Option<Value>,
 }
 
+#[derive(Debug)]
+struct KoreJson(KorePattern);
+
+impl<'de> Deserialize<'de> for KoreJson {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        let source = serde_json::to_string(&value).map_err(serde::de::Error::custom)?;
+        kore_json::from_str_unbounded(&source)
+            .map(Self)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 struct ExecuteParams {
-    state: Value,
+    state: KoreJson,
     #[serde(default)]
     max_depth: Option<u64>,
     #[serde(default)]
@@ -73,7 +87,7 @@ struct ExecuteParams {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 struct SimplifyParams {
-    state: Value,
+    state: KoreJson,
     #[serde(default)]
     module: Option<String>,
     #[serde(default)]
@@ -85,8 +99,8 @@ struct SimplifyParams {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 struct ImpliesParams {
-    antecedent: Value,
-    consequent: Value,
+    antecedent: KoreJson,
+    consequent: KoreJson,
     #[serde(default)]
     module: Option<String>,
     #[serde(default)]
@@ -110,7 +124,7 @@ struct AddModuleParams {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 struct GetModelParams {
-    state: Value,
+    state: KoreJson,
     #[serde(default)]
     module: Option<String>,
     #[serde(default)]
@@ -179,7 +193,7 @@ impl RpcService {
 
     /// Handle one complete JSON-RPC message. Notifications intentionally produce no response.
     pub(super) fn handle_line(&mut self, line: &str) -> Option<String> {
-        let message = match serde_json::from_str::<Value>(line) {
+        let message = match parse_json_value(line) {
             Ok(message) => message,
             Err(_) => {
                 let error = RpcFault {
@@ -273,7 +287,7 @@ impl RpcService {
             step_timeout,
             assume_state_defined,
             log_successful_rewrites,
-            log_failed_rewrites,
+            log_failed_rewrites: _log_failed_rewrites,
             booster_only,
             haskell_logging,
         } = params;
@@ -284,16 +298,12 @@ impl RpcService {
                 "assume-state-defined is not yet supported by the Rust backend",
             ));
         }
-        if log_failed_rewrites {
-            return Err(RpcFault::backend(
-                "failed rewrite logging is not yet supported by the Rust backend",
-            ));
-        }
         let definition = self.definition(module.as_deref())?;
-        let syntax = decode_kore(&state)?;
+        let syntax = state.0;
         let initial = definition
             .internalize_pattern(&syntax, &[])
             .map_err(RpcFault::pattern)?;
+        let configuration_variables = pattern_variables(&initial);
         let solver = solver(&definition)?;
         let result = execute_with_solver(
             &definition,
@@ -328,7 +338,8 @@ impl RpcService {
                 Some(
                     branches
                         .iter()
-                        .map(execute_applied_state)
+                        .rev()
+                        .map(|applied| execute_applied_state(applied, &configuration_variables))
                         .collect::<Result<Vec<_>, _>>()?,
                 ),
                 None,
@@ -338,7 +349,7 @@ impl RpcService {
                 Some(
                     next_states
                         .iter()
-                        .map(execute_applied_state)
+                        .map(|applied| execute_state(&applied.pattern, &configuration_variables))
                         .collect::<Result<Vec<_>, _>>()?,
                 ),
                 Some(rule.clone()),
@@ -350,7 +361,10 @@ impl RpcService {
         if let Some(rule) = rule {
             output.insert("rule".into(), Value::String(rule));
         }
-        output.insert("state".into(), execute_state(&leaf.pattern)?);
+        output.insert(
+            "state".into(),
+            execute_state(&leaf.pattern, &configuration_variables)?,
+        );
         if let Some(next_states) = next_states {
             output.insert("next-states".into(), Value::Array(next_states));
         }
@@ -379,7 +393,7 @@ impl RpcService {
         let _booster_only = params.booster_only;
         reject_haskell_logging(&params.haskell_logging)?;
         let definition = self.definition(params.module.as_deref())?;
-        let syntax = decode_kore(&params.state)?;
+        let syntax = params.state.0;
         let (predicate, result_sort) = definition
             .internalize_predicate(&syntax, &[])
             .map_err(RpcFault::pattern)?;
@@ -410,7 +424,7 @@ impl RpcService {
         let _booster_only = params.booster_only;
         reject_haskell_logging(&params.haskell_logging)?;
         let definition = self.definition(params.module.as_deref())?;
-        let syntax = decode_kore(&params.state)?;
+        let syntax = params.state.0;
         let Some((predicate, result_sort)) = definition
             .internalize_model_predicate(&syntax, &[])
             .map_err(RpcFault::pattern)?
@@ -443,8 +457,8 @@ impl RpcService {
             ));
         }
         let definition = self.definition(params.module.as_deref())?;
-        let antecedent = decode_kore(&params.antecedent)?;
-        let consequent = decode_kore(&params.consequent)?;
+        let antecedent = params.antecedent.0;
+        let consequent = params.consequent.0;
         definition
             .validate_implication_pattern(&antecedent)
             .map_err(RpcFault::pattern)?;
@@ -494,6 +508,14 @@ fn decode_params<T: for<'de> Deserialize<'de>>(params: Value) -> Result<T, RpcFa
     serde_json::from_value(params.clone()).map_err(|_| RpcFault::invalid_params(params))
 }
 
+fn parse_json_value(source: &str) -> serde_json::Result<Value> {
+    let mut deserializer = serde_json::Deserializer::from_str(source);
+    deserializer.disable_recursion_limit();
+    let value = Value::deserialize(&mut deserializer)?;
+    deserializer.end()?;
+    Ok(value)
+}
+
 fn reject_haskell_logging(entries: &[String]) -> Result<(), RpcFault> {
     if entries.is_empty() {
         Ok(())
@@ -502,13 +524,6 @@ fn reject_haskell_logging(entries: &[String]) -> Result<(), RpcFault> {
             "Haskell log entry selection is not supported by the Rust backend",
         ))
     }
-}
-
-fn decode_kore(value: &Value) -> Result<KorePattern, RpcFault> {
-    let source = serde_json::to_string(value)
-        .map_err(|error| RpcFault::pattern(format!("invalid KORE JSON: {error}")))?;
-    kore_json::from_str_unbounded(&source)
-        .map_err(|error| RpcFault::pattern(format!("invalid KORE JSON: {error}")))
 }
 
 fn encode_kore(pattern: &KorePattern) -> Result<Value, RpcFault> {
@@ -523,30 +538,126 @@ fn solver(definition: &BackendDefinition) -> Result<Z3Solver, RpcFault> {
         .map_err(|error| RpcFault::backend(format!("could not initialize Z3: {error:?}")))
 }
 
-fn execute_state(pattern: &Pattern) -> Result<Value, RpcFault> {
+fn execute_state(
+    pattern: &Pattern,
+    configuration_variables: &BTreeSet<Variable>,
+) -> Result<Value, RpcFault> {
     let mut state = Map::new();
-    state.insert(
-        "term".into(),
-        encode_kore(&externalize::term(&pattern.term))?,
-    );
-    if let Some(predicate) = constraints_pattern(&pattern.constraints, &pattern.term.sort()) {
+    let (predicates, substitution) =
+        split_constraints(&pattern.constraints, configuration_variables);
+    let term = substitute(&pattern.term, &substitution);
+    state.insert("term".into(), encode_kore(&externalize::term(&term))?);
+    let predicates = substitute_predicates(&predicates, &substitution);
+    if let Some(predicate) = constraints_pattern(&predicates, &pattern.term.sort()) {
         state.insert("predicate".into(), encode_kore(&predicate)?);
+    }
+    if let Some(substitution) = super::model_substitution(&substitution, &pattern.term.sort()) {
+        state.insert("substitution".into(), encode_kore(&substitution)?);
     }
     Ok(Value::Object(state))
 }
 
-fn execute_applied_state(applied: &AppliedRule) -> Result<Value, RpcFault> {
-    let mut state = execute_state(&applied.pattern)?;
+fn execute_applied_state(
+    applied: &AppliedRule,
+    configuration_variables: &BTreeSet<Variable>,
+) -> Result<Value, RpcFault> {
+    let mut state = execute_state(&applied.pattern, configuration_variables)?;
     let object = state
         .as_object_mut()
         .expect("execute_state always returns an object");
     object.insert("rule-id".into(), Value::String(applied.unique_id.clone()));
-    if let Some(substitution) =
-        super::implication_substitution(&applied.substitution, &applied.pattern.term.sort())
+    if let Some(rule_predicate) =
+        constraints_pattern(&applied.rule_predicates, &applied.pattern.term.sort())
     {
+        object.insert("rule-predicate".into(), encode_kore(&rule_predicate)?);
+    }
+    let (_, state_substitution) =
+        split_constraints(&applied.pattern.constraints, configuration_variables);
+    if let Some(substitution) = externalize_rule_substitution(
+        &applied.rule_substitution,
+        &state_substitution,
+        &applied.pattern.term.sort(),
+    ) {
         object.insert("rule-substitution".into(), encode_kore(&substitution)?);
     }
     Ok(state)
+}
+
+fn externalize_rule_substitution(
+    substitution: &Substitution,
+    state_substitution: &Substitution,
+    result_sort: &BackendSort,
+) -> Option<KorePattern> {
+    let substitution = substitution
+        .iter()
+        .map(|(variable, value)| {
+            let name = if let Some(name) = variable.name.strip_prefix("Rule#") {
+                format!("Rule{name}")
+            } else if let Some(name) = variable.name.strip_prefix("Ex#") {
+                format!("Ex{name}")
+            } else {
+                variable.name.to_string()
+            };
+            (
+                variable.with_name(name),
+                substitute(value, state_substitution),
+            )
+        })
+        .collect();
+    super::model_substitution(&substitution, result_sort)
+}
+
+fn pattern_variables(pattern: &Pattern) -> BTreeSet<Variable> {
+    pattern
+        .term
+        .attributes()
+        .variables
+        .iter()
+        .cloned()
+        .chain(
+            pattern
+                .constraints
+                .iter()
+                .flat_map(Predicate::free_variables),
+        )
+        .collect()
+}
+
+fn split_constraints(
+    constraints: &[Predicate],
+    configuration_variables: &BTreeSet<Variable>,
+) -> (Vec<Predicate>, Substitution) {
+    let mut predicates = Vec::new();
+    let mut substitution = Substitution::new();
+    for constraint in constraints {
+        let binding = match constraint {
+            Predicate::Equals(left, right) => {
+                variable_binding(left, right, configuration_variables)
+                    .or_else(|| variable_binding(right, left, configuration_variables))
+            }
+            _ => None,
+        };
+        if let Some((variable, value)) = binding
+            && !substitution.contains_key(&variable)
+        {
+            substitution.insert(variable, value);
+        } else {
+            predicates.push(constraint.clone());
+        }
+    }
+    (predicates, substitution)
+}
+
+fn variable_binding(
+    variable: &k_rust_backend::term::Term,
+    value: &k_rust_backend::term::Term,
+    configuration_variables: &BTreeSet<Variable>,
+) -> Option<(Variable, k_rust_backend::term::Term)> {
+    let TermKind::Variable(variable) = variable.kind() else {
+        return None;
+    };
+    (configuration_variables.contains(variable) && !value.attributes().variables.contains(variable))
+        .then(|| (variable.clone(), value.clone()))
 }
 
 fn constraints_pattern(
@@ -652,6 +763,7 @@ mod tests {
     };
 
     use k_rust::kore::{ast::Symbol, parser::parse_definition};
+    use k_rust_backend::term::Term;
 
     use super::*;
 
@@ -689,6 +801,24 @@ mod tests {
         .unwrap();
         assert_eq!(missing["id"], "request-7");
         assert_eq!(missing["error"]["code"], -32601);
+    }
+
+    #[test]
+    fn malformed_kore_envelopes_are_invalid_params() {
+        let mut service = service();
+        let params = json!({ "state": "aaaa", "max-depth": 1 });
+        let response = request(&mut service, 1, "execute", params.clone());
+
+        assert_eq!(response["error"]["code"], -32602);
+        assert_eq!(response["error"]["message"], "Invalid params");
+        assert_eq!(response["error"]["data"], params);
+    }
+
+    #[test]
+    fn protocol_parser_accepts_deep_json_without_serde_recursion_limits() {
+        let depth = 300;
+        let source = format!("{}null{}", "[".repeat(depth), "]".repeat(depth));
+        assert!(parse_json_value(&source).is_ok());
     }
 
     #[test]
@@ -778,6 +908,45 @@ mod tests {
                 "result": { "tag": "success", "rule-id": "rule-id" },
             }])
         );
+    }
+
+    #[test]
+    fn projects_solved_configuration_equalities_as_substitutions() {
+        let sort = BackendSort::simple("SortState");
+        let variable = Variable::new("X", sort.clone());
+        let value = Term::domain_value(sort.clone(), "resolved");
+        let pattern = Pattern {
+            term: Term::variable(variable.clone()),
+            constraints: vec![Predicate::Equals(
+                Term::variable(variable.clone()),
+                value.clone(),
+            )],
+        };
+
+        let state = execute_state(&pattern, &BTreeSet::from([variable])).unwrap();
+        assert_eq!(state["term"]["term"]["tag"], "DV");
+        assert_eq!(state["term"]["term"]["value"], "resolved");
+        assert_eq!(state["substitution"]["term"]["tag"], "Equals");
+        assert_eq!(state["substitution"]["term"]["first"]["name"], "X");
+        assert_eq!(state["substitution"]["term"]["second"]["value"], "resolved");
+        assert!(state.get("predicate").is_none());
+    }
+
+    #[test]
+    fn externalizes_rule_provenance_and_applies_state_substitutions() {
+        let sort = BackendSort::simple("SortState");
+        let rule_variable = Variable::new("Rule#X", sort.clone());
+        let state_variable = Variable::new("X", sort.clone());
+        let rule_substitution =
+            Substitution::from([(rule_variable, Term::variable(state_variable.clone()))]);
+        let state_substitution =
+            Substitution::from([(state_variable, Term::domain_value(sort.clone(), "resolved"))]);
+
+        let pattern =
+            externalize_rule_substitution(&rule_substitution, &state_substitution, &sort).unwrap();
+        let pattern = encode_kore(&pattern).unwrap();
+        assert_eq!(pattern["term"]["first"]["name"], "RuleX");
+        assert_eq!(pattern["term"]["second"]["value"], "resolved");
     }
 
     #[test]
