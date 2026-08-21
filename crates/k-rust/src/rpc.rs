@@ -367,11 +367,6 @@ impl RpcService {
         } = params;
         let _booster_only = booster_only;
         reject_haskell_logging(&haskell_logging)?;
-        if assume_state_defined {
-            return Err(RpcFault::backend(
-                "assume-state-defined is not yet supported by the Rust backend",
-            ));
-        }
         let definition = self.definition(module.as_deref())?;
         let syntax = state.0;
         let initial = definition
@@ -390,6 +385,7 @@ impl RpcService {
                 terminal_rules: terminal_rules.into_iter().collect(),
                 step_timeout: step_timeout.map(Duration::from_millis),
                 moving_average_timeout: moving_average_step_timeout,
+                assume_initial_defined: assume_state_defined,
                 ..ExecutionOptions::default()
             },
             &solver,
@@ -525,12 +521,10 @@ impl RpcService {
 
     fn implies(&mut self, params: ImpliesParams) -> Result<Value, RpcFault> {
         let _booster_only = params.booster_only;
+        // The reference proxy uses `assume-defined` as a backend-routing hint. The unified Rust
+        // backend already runs the in-process implication path it selects.
+        let _assume_defined = params.assume_defined;
         reject_haskell_logging(&params.haskell_logging)?;
-        if params.assume_defined {
-            return Err(RpcFault::backend(
-                "assume-defined is not yet supported by the Rust backend",
-            ));
-        }
         let definition = self.definition(params.module.as_deref())?;
         let antecedent = params.antecedent.0;
         let consequent = params.consequent.0;
@@ -1082,6 +1076,44 @@ mod tests {
     }
 
     #[test]
+    fn execute_can_assume_the_current_configuration_is_defined() {
+        let definition = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+                symbol partial{}(SortS{}) : SortS{} [function{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                    \dv{SortS{}}("done")
+                ) [label{}("variable-match"), UNIQUE'Unds'ID{}("variable-match")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let mut service = RpcService::new(BackendSession::new(definition, "MAIN"));
+        let state =
+            encode_kore(&parse_pattern(r#"wrap{}(partial{}(\dv{SortS{}}("value")))"#).unwrap())
+                .unwrap();
+
+        let response = request(
+            &mut service,
+            1,
+            "execute",
+            json!({
+                "state": state,
+                "max-depth": 1,
+                "assume-state-defined": true,
+            }),
+        );
+
+        assert_eq!(response["result"]["reason"], "depth-bound");
+        assert_eq!(response["result"]["depth"], 1);
+        assert_eq!(response["result"]["state"]["term"]["term"]["tag"], "DV");
+        assert_eq!(response["result"]["state"]["term"]["term"]["value"], "done");
+        assert!(response["result"]["state"].get("predicate").is_none());
+    }
+
+    #[test]
     fn emits_requested_successful_rewrite_logs() {
         let mut service = service();
         let state = encode_kore(&KorePattern::Application {
@@ -1172,7 +1204,11 @@ mod tests {
             &mut service,
             2,
             "implies",
-            json!({ "antecedent": state, "consequent": state }),
+            json!({
+                "antecedent": state,
+                "consequent": state,
+                "assume-defined": true,
+            }),
         );
         assert_eq!(implies["result"]["status"], "valid");
         assert_eq!(

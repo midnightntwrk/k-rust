@@ -108,6 +108,8 @@ pub struct ExecutionOptions {
     pub terminal_rules: BTreeSet<String>,
     pub step_timeout: Option<Duration>,
     pub moving_average_timeout: bool,
+    /// Treat the current configuration and its partial subterms as defined while matching rules.
+    pub assume_initial_defined: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -134,6 +136,7 @@ impl Default for ExecutionOptions {
             terminal_rules: BTreeSet::new(),
             step_timeout: None,
             moving_average_timeout: false,
+            assume_initial_defined: false,
         }
     }
 }
@@ -351,6 +354,7 @@ pub fn execute_with_solver_and_observer(
             },
             solver,
             options.mode,
+            options.assume_initial_defined,
         );
         finish_if_interrupted!();
         match rewritten {
@@ -576,6 +580,7 @@ pub(crate) fn rewrite_step_with_options(
         simplification_options,
         solver,
         ExecutionMode::All,
+        false,
     )
 }
 
@@ -586,6 +591,7 @@ fn rewrite_step_with_mode(
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     mode: ExecutionMode,
+    assume_initial_defined: bool,
 ) -> RewriteResult {
     if predicates_truth(&pattern.constraints) == Truth::False {
         return RewriteResult::Vacuous(pattern.clone());
@@ -597,6 +603,7 @@ fn rewrite_step_with_mode(
             fresh_counter,
             simplification_options,
             solver,
+            assume_initial_defined,
         ),
         ExecutionMode::Any => rewrite_step_any(
             definition,
@@ -614,6 +621,7 @@ fn rewrite_step_all(
     fresh_counter: &mut u64,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
+    assume_initial_defined: bool,
 ) -> RewriteResult {
     let index = term_index(&pattern.term);
     let priority_groups = applicable_groups(definition, &index);
@@ -631,6 +639,7 @@ fn rewrite_step_all(
                 fresh_counter,
                 simplification_options,
                 solver,
+                assume_initial_defined,
             ) {
                 RuleAttempt::NotApplicable => {}
                 RuleAttempt::Trivial => saw_trivial = true,
@@ -745,6 +754,7 @@ fn rewrite_step_any(
             fresh_counter,
             simplification_options,
             solver,
+            false,
         ) {
             RuleAttempt::NotApplicable => {}
             RuleAttempt::Trivial => saw_trivial = true,
@@ -1391,6 +1401,7 @@ fn apply_rule(
     fresh_counter: &mut u64,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
+    assume_initial_defined: bool,
 ) -> RuleAttempt {
     apply_rule_with_match(
         definition,
@@ -1399,6 +1410,7 @@ fn apply_rule(
         fresh_counter,
         simplification_options,
         solver,
+        assume_initial_defined,
         None,
     )
 }
@@ -1411,6 +1423,7 @@ fn apply_rule_with_match(
     fresh_counter: &mut u64,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
+    assume_initial_defined: bool,
     matched: Option<PartialRuleMatch>,
 ) -> RuleAttempt {
     let (matching, mut inherited_conditions) = if let Some(matched) = matched {
@@ -1429,7 +1442,11 @@ fn apply_rule_with_match(
             Vec::new(),
         )
     };
-    let mut inherited_knowledge = pattern.constraints.clone();
+    let mut path_knowledge = pattern.constraints.clone();
+    if assume_initial_defined {
+        extend_unique(&mut path_knowledge, ceil_term(definition, &pattern.term));
+    }
+    let mut inherited_knowledge = path_knowledge.clone();
     extend_unique(
         &mut inherited_knowledge,
         inherited_conditions.iter().cloned(),
@@ -1474,6 +1491,7 @@ fn apply_rule_with_match(
                                 fresh_counter,
                                 simplification_options,
                                 solver,
+                                assume_initial_defined,
                                 Some(matched),
                             )
                         }));
@@ -1494,6 +1512,7 @@ fn apply_rule_with_match(
                                 fresh_counter,
                                 simplification_options,
                                 solver,
+                                assume_initial_defined,
                                 Some(matched),
                             )
                         }));
@@ -1517,6 +1536,7 @@ fn apply_rule_with_match(
                                 fresh_counter,
                                 simplification_options,
                                 solver,
+                                assume_initial_defined,
                                 Some(matched),
                             )
                         }));
@@ -1540,6 +1560,7 @@ fn apply_rule_with_match(
                                 fresh_counter,
                                 simplification_options,
                                 solver,
+                                assume_initial_defined,
                                 Some(matched),
                             )
                         }));
@@ -1558,6 +1579,7 @@ fn apply_rule_with_match(
                                 fresh_counter,
                                 simplification_options,
                                 solver,
+                                assume_initial_defined,
                                 Some(matched),
                             )
                         }));
@@ -1594,6 +1616,7 @@ fn apply_rule_with_match(
                                 fresh_counter,
                                 simplification_options,
                                 solver,
+                                assume_initial_defined,
                                 Some(PartialRuleMatch {
                                     substitution,
                                     conditions,
@@ -1634,6 +1657,7 @@ fn apply_rule_with_match(
                                                 fresh_counter,
                                                 simplification_options,
                                                 solver,
+                                                assume_initial_defined,
                                                 Some(PartialRuleMatch {
                                                     substitution,
                                                     conditions,
@@ -1737,7 +1761,7 @@ fn apply_rule_with_match(
     let inherited_conditions = simplify_predicates_with_solver(
         definition,
         &inherited_conditions,
-        &pattern.constraints,
+        &path_knowledge,
         simplification_options,
         solver,
     )
@@ -1757,7 +1781,7 @@ fn apply_rule_with_match(
     {
         extend_unique(&mut definedness_conditions, ceil_term(definition, value));
     }
-    let mut definedness_knowledge = pattern.constraints.clone();
+    let mut definedness_knowledge = path_knowledge.clone();
     extend_unique(&mut definedness_knowledge, match_conditions.iter().cloned());
     let definedness_conditions = simplify_predicates_with_solver(
         definition,
@@ -1805,7 +1829,7 @@ fn apply_rule_with_match(
         });
     }
     let requires = substitute_predicates(&rule.requires, &substitution);
-    let mut match_knowledge = pattern.constraints.clone();
+    let mut match_knowledge = path_knowledge;
     extend_unique(&mut match_knowledge, match_conditions.iter().cloned());
     let requires = simplify_predicates_with_solver(
         definition,
@@ -4392,7 +4416,7 @@ mod tests {
 
     #[cfg(feature = "z3")]
     #[test]
-    fn requires_definedness_when_a_variable_matches_a_partial_function() {
+    fn requires_definedness_unless_the_configuration_is_assumed_defined() {
         let definition = definition(
             r#"
             symbol partial{}(SortS{}) : SortS{} [function{}()]
@@ -4440,6 +4464,24 @@ mod tests {
             branch.substitution.values().collect::<Vec<_>>(),
             [&function]
         );
+
+        let mut fresh = 0;
+        let RewriteResult::Finished(assumed_defined) = rewrite_step_with_mode(
+            &definition,
+            &subject,
+            &mut fresh,
+            SimplificationOptions::default(),
+            &solver,
+            ExecutionMode::All,
+            true,
+        ) else {
+            panic!("the defined configuration should rewrite without a side branch");
+        };
+        assert_eq!(
+            assumed_defined.pattern.term,
+            internal_term(&definition, r#"\dv{SortS{}}("done")"#)
+        );
+        assert!(assumed_defined.pattern.constraints.is_empty());
     }
 
     #[test]

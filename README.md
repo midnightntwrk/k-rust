@@ -209,6 +209,10 @@ notification cooperatively interrupts the active request on that connection with
 `Request cancelled` error. The server binds to `127.0.0.1` by default; pass `--host 0.0.0.0` to
 expose it on every interface or `--server-port 0` to request an ephemeral port.
 
+`execute` also honors `assume-state-defined` by treating partial subterms of the current
+configuration as defined while matching rewrite rules. `implies` accepts `assume-defined` as the
+reference proxy's backend-routing hint; the unified Rust service already uses that in-process path.
+
 Simplify an arbitrary text, KORE JSON v1, or binary KORE pattern. Unlike execution, this accepts
 pure ML predicates without requiring a configuration term:
 
@@ -444,8 +448,7 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
   concrete parameters normally supplied by parser inference.
 - Emit the optional legacy priority aliases supported by `ModuleToKORE` compatibility modes.
 - Measure Z3-path usage across a substantially larger real-definition corpus.
-- Complete KORE RPC parity for definedness assumptions and failed-rewrite and legacy Haskell
-  logging.
+- Complete KORE RPC parity for failed-rewrite and legacy Haskell logging.
 - Revisit package splitting only if real build or release pressure justifies it.
 
 ## License
