@@ -435,19 +435,26 @@ impl RpcService {
             HaltReason::BreadthBound => ("aborted", None, None),
             HaltReason::Timeout(_) => ("timeout", None, None),
             HaltReason::Indeterminate(_) | HaltReason::Simplification(_) => ("aborted", None, None),
-            HaltReason::Branch { branches } => (
-                "branching",
-                Some(
-                    branches
-                        .iter()
-                        .rev()
-                        .map(|applied| {
-                            execute_applied_state(&definition, applied, &configuration_variables)
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                ),
-                None,
-            ),
+            HaltReason::Branch {
+                branches,
+                remainder,
+            } => {
+                let mut next_states = branches
+                    .iter()
+                    .rev()
+                    .map(|applied| {
+                        execute_applied_state(&definition, applied, &configuration_variables)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if let Some(remainder) = remainder {
+                    next_states.push(execute_state(
+                        &definition,
+                        &remainder.pattern,
+                        &configuration_variables,
+                    )?);
+                }
+                ("branching", Some(next_states), None)
+            }
             HaltReason::CutPointRule { rule, next_states } => (
                 "cut-point-rule",
                 Some(
@@ -1720,6 +1727,33 @@ mod tests {
         ))
     }
 
+    fn symbolic_branch_service() -> RpcService {
+        RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[]
+                module TEST
+                  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                  symbol wrap{}(SortInt{}) : SortInt{} [constructor{}()]
+                  symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("<")]
+                  axiom{} \rewrites{SortInt{}}(
+                    \and{SortInt{}}(
+                      wrap{}(X:SortInt{}),
+                      \equals{SortBool{}, SortInt{}}(
+                        lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                      )
+                    ),
+                    \dv{SortInt{}}("-1")
+                  ) [label{}("TEST.negative"), UNIQUE'Unds'ID{}("negative-rule")]
+                endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ))
+    }
+
     fn implication_error(antecedent: &str, consequent: &str) -> Value {
         implication_response(antecedent, consequent)["error"].clone()
     }
@@ -2154,6 +2188,30 @@ mod tests {
         assert_eq!(response["result"]["reason"], "depth-bound");
         assert_eq!(response["result"]["depth"], 0);
         assert_eq!(response["result"]["state"]["term"]["format"], "KORE");
+    }
+
+    #[test]
+    fn execute_returns_the_satisfiable_remainder_at_a_symbolic_branch() {
+        let mut service = symbolic_branch_service();
+        let state = encode_kore(&parse_pattern("wrap{}(X:SortInt{})").unwrap()).unwrap();
+
+        let response = request(
+            &mut service,
+            1,
+            "execute",
+            json!({
+                "state": state,
+                "max-depth": 1,
+            }),
+        );
+
+        assert_eq!(response["result"]["reason"], "branching");
+        assert_eq!(response["result"]["depth"], 0);
+        let next_states = response["result"]["next-states"].as_array().unwrap();
+        assert_eq!(next_states.len(), 2);
+        assert_eq!(next_states[0]["rule-id"], "negative-rule");
+        assert!(next_states[1].get("rule-id").is_none());
+        assert!(next_states[1].get("predicate").is_some());
     }
 
     #[test]

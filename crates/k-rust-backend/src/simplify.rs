@@ -960,6 +960,21 @@ fn normalize_hooked_boolean_predicate(
     definition: &BackendDefinition,
     predicate: Predicate,
 ) -> Predicate {
+    if let Predicate::Term(term) = &predicate {
+        let normalized = normalize_hooked_boolean_predicate(
+            definition,
+            Predicate::Equals(
+                term.clone(),
+                Term::domain_value(crate::term::Sort::simple("SortBool"), "true"),
+            ),
+        );
+        return match &normalized {
+            Predicate::Equals(left, right) if left == term && bool_value(right) == Some(true) => {
+                Predicate::Term(term.clone())
+            }
+            _ => normalized,
+        };
+    }
     let Predicate::Equals(left, right) = predicate else {
         return predicate;
     };
@@ -2548,6 +2563,41 @@ mod tests {
                 Predicate::Not(Box::new(Predicate::Equals(gx, gy))),
             ])
         );
+    }
+
+    #[test]
+    fn normalizes_nested_boolean_term_negation_to_an_equality() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                symbol notBool{}(SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.not")]
+                symbol equalsInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.eq")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let variable = term(&definition, "X:SortInt{}");
+        let zero = term(&definition, r#"\dv{SortInt{}}("0")"#);
+        let condition = term(
+            &definition,
+            r#"notBool{}(notBool{}(equalsInt{}(X:SortInt{}, \dv{SortInt{}}("0"))))"#,
+        );
+
+        let result = simplify_predicate_with_solver(
+            &definition,
+            &Predicate::Term(condition),
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(result, Predicate::Equals(variable, zero));
     }
 
     #[test]

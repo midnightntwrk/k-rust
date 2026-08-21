@@ -207,6 +207,7 @@ pub enum HaltReason {
     Vacuous,
     Branch {
         branches: Vec<AppliedRule>,
+        remainder: Option<RemainderBranch>,
     },
     CutPointRule {
         rule: String,
@@ -486,7 +487,10 @@ pub fn execute_with_solver_and_observer(
                         pattern: original,
                         depth: state.depth,
                         trace: state.trace,
-                        halt_reason: HaltReason::Branch { branches },
+                        halt_reason: HaltReason::Branch {
+                            branches,
+                            remainder,
+                        },
                     });
                     continue;
                 }
@@ -716,10 +720,18 @@ fn rewrite_step_all(
                 }
             }
         }
-        let remainder = applied
+        let raw_remainder = applied
             .iter()
             .map(|application| application.remainder.clone())
             .collect::<Vec<_>>();
+        let remainder = simplify_predicates_with_solver(
+            definition,
+            &raw_remainder,
+            &pattern.constraints,
+            simplification_options,
+            solver,
+        )
+        .unwrap_or(raw_remainder);
         let remainder_result = if applied.is_empty() || predicates_truth(&remainder) == Truth::False
         {
             Ok(Satisfiability::Unsat)
@@ -4841,6 +4853,56 @@ mod tests {
 
     #[cfg(feature = "z3")]
     #[test]
+    fn stopping_at_a_symbolic_branch_preserves_its_remainder() {
+        let definition = symbolic_remainder_definition(
+            r#"
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(
+                    wrap{}(X:SortInt{}),
+                    \equals{SortBool{}, SortInt{}}(
+                        lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                \dv{SortInt{}}("negative")
+            ) [label{}("negative")]
+            "#,
+        );
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+
+        let result = execute_with_solver(
+            &definition,
+            symbolic_subject(&definition),
+            ExecutionOptions {
+                branch_mode: ExecutionBranchMode::StopAtBranch,
+                ..ExecutionOptions::default()
+            },
+            &solver,
+        );
+
+        let [
+            ExecutionLeaf {
+                halt_reason:
+                    HaltReason::Branch {
+                        branches,
+                        remainder: Some(remainder),
+                    },
+                ..
+            },
+        ] = result.leaves.as_slice()
+        else {
+            panic!("expected an applied branch and its symbolic remainder");
+        };
+        assert_eq!(branches.len(), 1);
+        assert_eq!(remainder.rule_ids, ["negative"]);
+        assert!(matches!(
+            remainder.pattern.constraints.as_slice(),
+            [Predicate::Not(_)]
+        ));
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
     fn carries_a_symbolic_remainder_to_lower_priority_rules() {
         let definition = symbolic_remainder_definition(
             r#"
@@ -5486,10 +5548,15 @@ mod tests {
         assert_eq!(result.leaves.len(), 1);
         assert_eq!(result.leaves[0].pattern, initial);
         assert_eq!(result.leaves[0].depth, 0);
-        let HaltReason::Branch { branches } = &result.leaves[0].halt_reason else {
+        let HaltReason::Branch {
+            branches,
+            remainder,
+        } = &result.leaves[0].halt_reason
+        else {
             panic!("expected an unconditional branch point");
         };
         assert_eq!(branches.len(), 2);
+        assert!(remainder.is_none());
     }
 
     #[test]
