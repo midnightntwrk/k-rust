@@ -498,7 +498,7 @@ impl RpcService {
                 .map(|entry| {
                     json!({
                         "tag": "rewrite",
-                        "origin": "kore-rpc",
+                        "origin": "booster",
                         "result": {
                             "tag": "success",
                             "rule-id": entry.unique_id,
@@ -506,8 +506,8 @@ impl RpcService {
                     })
                 })
                 .collect::<Vec<_>>();
-            if log_failed_rewrites && let Some(failure) = failed_rewrite_log(&leaf.halt_reason) {
-                logs.push(failure);
+            if log_failed_rewrites {
+                logs.extend(execute_failed_rewrite_logs(&leaf.halt_reason));
             }
             if !logs.is_empty() {
                 output.insert("logs".into(), Value::Array(logs));
@@ -1181,9 +1181,27 @@ fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
     }
     Some(json!({
         "tag": "rewrite",
-        "origin": "kore-rpc",
+        "origin": "booster",
         "result": result,
     }))
+}
+
+fn execute_failed_rewrite_logs(reason: &HaltReason) -> Vec<Value> {
+    let Some(failure) = failed_rewrite_log(reason) else {
+        return Vec::new();
+    };
+    // Booster first attempts the unsimplified term, then simplifies and retries a stuck or
+    // indeterminate match. The Rust executor simplifies before its attempt, so reproduce the two
+    // externally observable failures here without repeating the backend work.
+    if matches!(
+        reason,
+        HaltReason::Stuck
+            | HaltReason::Indeterminate(k_rust_backend::rewrite::IndeterminateReason::Match { .. })
+    ) {
+        vec![failure.clone(), failure]
+    } else {
+        vec![failure]
+    }
 }
 
 fn attach_legacy_log_entries(method: &str, requested: &[String], result: &mut Value) {
@@ -2291,7 +2309,7 @@ mod tests {
             response["result"]["logs"],
             json!([{
                 "tag": "rewrite",
-                "origin": "kore-rpc",
+                "origin": "booster",
                 "result": { "tag": "success", "rule-id": "rule-id" },
             }])
         );
@@ -2317,7 +2335,7 @@ mod tests {
             json!([
                 {
                     "tag": "rewrite",
-                    "origin": "kore-rpc",
+                    "origin": "booster",
                     "result": {
                         "tag": "success",
                         "rule-id": "rule-id",
@@ -2325,7 +2343,15 @@ mod tests {
                 },
                 {
                     "tag": "rewrite",
-                    "origin": "kore-rpc",
+                    "origin": "booster",
+                    "result": {
+                        "tag": "failure",
+                        "reason": "No applicable rules found",
+                    },
+                },
+                {
+                    "tag": "rewrite",
+                    "origin": "booster",
                     "result": {
                         "tag": "failure",
                         "reason": "No applicable rules found",
@@ -2349,14 +2375,15 @@ mod tests {
 
     #[test]
     fn failed_rewrite_logs_preserve_the_uncertain_rule_id() {
-        let log = failed_rewrite_log(&HaltReason::Indeterminate(
-            k_rust_backend::rewrite::IndeterminateReason::Match {
+        let reason =
+            HaltReason::Indeterminate(k_rust_backend::rewrite::IndeterminateReason::Match {
                 rule_id: "uncertain-rule".into(),
                 substitution: Substitution::new(),
                 remainder: Vec::new(),
-            },
-        ))
-        .unwrap();
+            });
+        let logs = execute_failed_rewrite_logs(&reason);
+        assert_eq!(logs.len(), 2, "Booster retries uncertain matches once");
+        let log = &logs[0];
 
         assert_eq!(log["result"]["tag"], "failure");
         assert_eq!(
