@@ -13,7 +13,7 @@ use crate::{
     term::{Name, Term, TermKind, Variable},
 };
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Predicate {
     True,
     False,

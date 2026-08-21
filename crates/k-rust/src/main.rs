@@ -1180,9 +1180,7 @@ fn model_substitution(
 ) -> Option<KorePattern> {
     let mut bindings = substitution.iter().collect::<Vec<_>>();
     bindings.sort_by(|(left, _), (right, _)| {
-        left.name
-            .cmp(&right.name)
-            .then_with(|| left.sort.cmp(&right.sort))
+        compare_natural_names(&left.name, &right.name).then_with(|| left.sort.cmp(&right.sort))
     });
     let bindings = bindings
         .into_iter()
@@ -1201,6 +1199,39 @@ fn model_substitution(
             arguments: bindings,
         }),
     }
+}
+
+fn compare_natural_names(left: &str, right: &str) -> std::cmp::Ordering {
+    let (left_prefix, left_number) = trailing_number(left);
+    let (right_prefix, right_number) = trailing_number(right);
+    if left_prefix == right_prefix && !left_number.is_empty() && !right_number.is_empty() {
+        let left_value = left_number.trim_start_matches('0');
+        let right_value = right_number.trim_start_matches('0');
+        let left_value = if left_value.is_empty() {
+            "0"
+        } else {
+            left_value
+        };
+        let right_value = if right_value.is_empty() {
+            "0"
+        } else {
+            right_value
+        };
+        return left_value
+            .len()
+            .cmp(&right_value.len())
+            .then_with(|| left_value.cmp(right_value))
+            .then_with(|| left_number.len().cmp(&right_number.len()))
+            .then_with(|| left.cmp(right));
+    }
+    left.cmp(right)
+}
+
+fn trailing_number(name: &str) -> (&str, &str) {
+    let prefix_length = name
+        .trim_end_matches(|character: char| character.is_ascii_digit())
+        .len();
+    (&name[..prefix_length], &name[prefix_length..])
 }
 
 fn kore_implies(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
@@ -2757,6 +2788,22 @@ mod tests {
             arguments
                 .iter()
                 .all(|argument| matches!(argument, KorePattern::Equals { .. }))
+        );
+    }
+
+    #[test]
+    fn generated_variable_names_use_natural_numeric_order() {
+        assert_eq!(
+            compare_natural_names("RuleVar_Gen2", "RuleVar_Gen10"),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(
+            compare_natural_names("RuleVar_Gen02", "RuleVar_Gen2"),
+            std::cmp::Ordering::Greater
+        );
+        assert_eq!(
+            compare_natural_names("RuleVar_A", "RuleVar_B"),
+            std::cmp::Ordering::Less
         );
     }
 

@@ -1690,17 +1690,28 @@ fn execution_constraints_pattern(
     constraints: &[Predicate],
     result_sort: &BackendSort,
 ) -> Option<KorePattern> {
-    let mut predicates = constraints
+    let mut constraints = constraints
         .iter()
         .filter(|predicate| !matches!(predicate, Predicate::True))
-        .map(|predicate| {
-            externalize::booster_predicate_pattern(definition, predicate, result_sort)
-        });
+        .collect::<Vec<_>>();
+    constraints.sort_by(|left, right| {
+        left.free_variables()
+            .cmp(&right.free_variables())
+            .then_with(|| left.cmp(right))
+    });
+    let mut predicates = constraints.into_iter().map(|predicate| {
+        externalize::booster_predicate_pattern(definition, predicate, result_sort)
+    });
     let first = predicates.next()?;
-    Some(predicates.fold(first, |left, right| KorePattern::And {
-        sort: externalize::sort(result_sort),
-        arguments: vec![left, right],
-    }))
+    let remaining = predicates.collect::<Vec<_>>();
+    if remaining.is_empty() {
+        Some(first)
+    } else {
+        Some(KorePattern::And {
+            sort: externalize::sort(result_sort),
+            arguments: std::iter::once(first).chain(remaining).collect(),
+        })
+    }
 }
 
 fn rule_constraints_pattern(
