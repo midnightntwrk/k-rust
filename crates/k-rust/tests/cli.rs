@@ -566,6 +566,69 @@ endmodule []
 }
 
 #[test]
+fn kore_exec_adds_a_rule_module_before_execution() {
+    let (root, _) = fixture();
+    let definition = root.join("definition.kore");
+    let added_module = root.join("new-module.kore");
+    let program = root.join("program.kore");
+    fs::write(
+        &definition,
+        r#"[]
+module MAIN
+  sort SortState{} [hasDomainValues{}()]
+  symbol state{}(SortState{}) : SortState{} [constructor{}()]
+  axiom{} \rewrites{SortState{}}(
+    \and{SortState{}}(state{}(\dv{SortState{}}("a")), \top{SortState{}}()),
+    \and{SortState{}}(state{}(\dv{SortState{}}("d")), \top{SortState{}}())
+  ) [label{}("MAIN.AD")]
+endmodule []
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &added_module,
+        r#"module NEW
+  import MAIN []
+  axiom{} \rewrites{SortState{}}(
+    \and{SortState{}}(state{}(\dv{SortState{}}("d")), \top{SortState{}}()),
+    \and{SortState{}}(state{}(\dv{SortState{}}("e")), \top{SortState{}}())
+  ) [label{}("NEW.DE")]
+  axiom{} \rewrites{SortState{}}(
+    \and{SortState{}}(state{}(\dv{SortState{}}("e")), \top{SortState{}}()),
+    \and{SortState{}}(state{}(\dv{SortState{}}("f")), \top{SortState{}}())
+  ) [label{}("NEW.EF")]
+endmodule []"#,
+    )
+    .unwrap();
+    fs::write(&program, r#"state{}(\dv{SortState{}}("a"))"#).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            definition.to_str().unwrap(),
+            "--module",
+            "NEW",
+            "--add-module",
+            added_module.to_str().unwrap(),
+            "--pattern",
+            program.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "state{}(\\dv{SortState{}}(\"f\"))\n"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kore_get_model_returns_a_typed_substitution() {
     let (root, _) = fixture();
     let definition = root.join("definition.kore");

@@ -184,6 +184,14 @@ krust kore-exec definition.kore --module MAIN --pattern pgm.kore \
 krust kore-exec definition.kore --module MAIN --pattern pgm.kore --output result.kore
 ```
 
+Rule-only modules can be added transactionally before execution. Their source names are available
+as module IDs for the command, while the backend also assigns the KORE RPC-compatible
+`m<sha256>` identifier internally:
+
+```console
+krust kore-exec definition.kore --module NEW --add-module new-rules.kore --pattern pgm.json
+```
+
 Simplify an arbitrary text, KORE JSON v1, or binary KORE pattern. Unlike execution, this accepts
 pure ML predicates without requiring a configuration term:
 

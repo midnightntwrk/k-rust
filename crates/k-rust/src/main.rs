@@ -26,8 +26,10 @@ use k_rust::{
             Symbol as KoreSymbol, Variable as KoreVariable,
         },
         binary as kore_binary, json as kore_json,
-        parser::parse_definition as parse_kore_definition,
-        parser::parse_pattern as parse_kore_pattern,
+        parser::{
+            parse_definition as parse_kore_definition, parse_module as parse_kore_module,
+            parse_pattern as parse_kore_pattern,
+        },
         printer::Printer as KorePrinter,
     },
     native::FileResolver,
@@ -52,6 +54,7 @@ use k_rust_backend::{
         IncompleteSearch, PatternMatch, PatternMatchError, PatternSearchResult, SearchOptions,
         SearchType, match_disjunction, search_pattern_with_solver,
     },
+    session::BackendSession,
     simplify::{SimplificationOptions, simplify_and_decide_predicate_with_solver},
     smt::{ModelResult, SmtError, SmtSolver, Z3Solver},
     substitution::Substitution,
@@ -296,6 +299,10 @@ struct KoreExecArgs {
     /// Module to verify and execute.
     #[arg(short = 'm', long, value_name = "MODULE")]
     module: String,
+
+    /// Rule-only textual KORE module to add before execution. May be repeated.
+    #[arg(long = "add-module", value_name = "MODULE_KORE")]
+    added_modules: Vec<PathBuf>,
 
     /// Initial constrained text, JSON v1, or binary KORE pattern.
     #[arg(short = 'p', long, value_name = "PATTERN_KORE")]
@@ -880,7 +887,21 @@ fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
             ),
         )
     })?;
-    let backend = BackendDefinition::internalize(&definition, &options.module)?;
+    let mut session = BackendSession::new(definition, &options.module);
+    for path in &options.added_modules {
+        let source = fs::read_to_string(path)?;
+        let module = parse_kore_module(&source).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "could not parse added KORE module {}: {error}",
+                    path.display()
+                ),
+            )
+        })?;
+        session.add_module(&source, module, true)?;
+    }
+    let backend = session.definition(None)?;
     let initial = load_backend_pattern(&backend, &options.pattern, "initial")?;
     let output = run_backend(
         &backend,
@@ -2309,6 +2330,10 @@ mod tests {
             "definition.kore",
             "--module",
             "MAIN",
+            "--add-module",
+            "rules-one.kore",
+            "--add-module",
+            "rules-two.kore",
             "--pattern",
             "program.kore",
             "--depth",
@@ -2330,6 +2355,13 @@ mod tests {
 
         assert_eq!(options.definition, Path::new("definition.kore"));
         assert_eq!(options.module, "MAIN");
+        assert_eq!(
+            options.added_modules,
+            [
+                PathBuf::from("rules-one.kore"),
+                PathBuf::from("rules-two.kore")
+            ]
+        );
         assert_eq!(options.pattern, Path::new("program.kore"));
         assert_eq!(options.depth, Some(42));
         assert_eq!(options.output.as_deref(), Some(Path::new("result.kore")));

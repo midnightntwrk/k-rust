@@ -14,6 +14,7 @@ pub mod proof;
 pub mod rewrite;
 pub mod rule;
 pub mod search;
+pub mod session;
 pub mod simplify;
 pub mod smt;
 pub mod substitution;
