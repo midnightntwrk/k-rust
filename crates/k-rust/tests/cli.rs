@@ -566,6 +566,62 @@ endmodule []
 }
 
 #[test]
+fn kore_get_model_returns_a_typed_substitution() {
+    let (root, _) = fixture();
+    let definition = root.join("definition.kore");
+    let predicate = root.join("predicate.kore");
+    fs::write(
+        &definition,
+        r#"[]
+module MAIN
+  sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+  symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+    [function{}(), total{}(), smt-hook{}("<")]
+endmodule []
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &predicate,
+        r#"\equals{SortBool{}, SortBool{}}(
+  \dv{SortBool{}}("true"),
+  lt{}(X:SortInt{}, \dv{SortInt{}}("5"))
+)"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-get-model",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--pattern",
+            predicate.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(output["satisfiable"], "Sat");
+    assert_eq!(output["substitution"]["format"], "KORE");
+    assert_eq!(output["substitution"]["term"]["tag"], "Equals");
+    assert_eq!(output["substitution"]["term"]["first"]["name"], "X");
+    assert_eq!(
+        output["substitution"]["term"]["second"]["sort"]["name"],
+        "SortInt"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kore_match_disjunction_matches_each_configuration_and_writes_its_result() {
     let (root, _) = fixture();
     let definition = root.join("definition.kore");

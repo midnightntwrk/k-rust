@@ -669,6 +669,66 @@ pub(crate) fn internalize_predicate(
     }
 }
 
+pub(crate) fn internalize_model_predicate(
+    definition: &BackendDefinition,
+    pattern: &kore::Pattern,
+    sort_parameters: &[Name],
+) -> Result<Option<Predicate>, DefinitionError> {
+    let recurse =
+        |pattern: &kore::Pattern| internalize_model_predicate(definition, pattern, sort_parameters);
+    Ok(match pattern {
+        kore::Pattern::Equals { .. }
+        | kore::Pattern::Ceil { .. }
+        | kore::Pattern::Floor { .. }
+        | kore::Pattern::In { .. } => {
+            Some(internalize_predicate(definition, pattern, sort_parameters)?)
+        }
+        kore::Pattern::And { arguments, .. } => {
+            let predicates = arguments
+                .iter()
+                .map(recurse)
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            (!predicates.is_empty()).then_some(Predicate::And(predicates))
+        }
+        kore::Pattern::Or { arguments, .. } => {
+            let predicates = arguments
+                .iter()
+                .map(recurse)
+                .collect::<Result<Option<Vec<_>>, _>>()?;
+            predicates.map(Predicate::Or)
+        }
+        kore::Pattern::Not { argument, .. } => {
+            recurse(argument)?.map(|inner| Predicate::Not(Box::new(inner)))
+        }
+        kore::Pattern::Implies { left, right, .. } => match (recurse(left)?, recurse(right)?) {
+            (Some(left), Some(right)) => Some(Predicate::Implies(Box::new(left), Box::new(right))),
+            _ => None,
+        },
+        kore::Pattern::Iff { left, right, .. } => match (recurse(left)?, recurse(right)?) {
+            (Some(left), Some(right)) => Some(Predicate::Iff(Box::new(left), Box::new(right))),
+            _ => None,
+        },
+        kore::Pattern::Exists { variable, body, .. } => recurse(body)?
+            .map(|inner| {
+                definition
+                    .internalize_variable(variable, sort_parameters)
+                    .map(|variable| Predicate::Exists(variable, Box::new(inner)))
+            })
+            .transpose()?,
+        kore::Pattern::Forall { variable, body, .. } => recurse(body)?
+            .map(|inner| {
+                definition
+                    .internalize_variable(variable, sort_parameters)
+                    .map(|variable| Predicate::Forall(variable, Box::new(inner)))
+            })
+            .transpose()?,
+        _ => None,
+    })
+}
+
 fn flatten_and<'a>(pattern: &'a kore::Pattern, output: &mut Vec<&'a kore::Pattern>) {
     if let kore::Pattern::And { arguments, .. } = pattern {
         for argument in arguments {

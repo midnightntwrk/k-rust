@@ -87,7 +87,8 @@ Implemented end to end:
   simplification, implication and reachability checks, builtin collections, Z3
   satisfiability/validity queries, and satisfying-model extraction.
 - Native `krust kast`, `krust kcompile`, `krust kore-exec`, `krust kore-simplify`,
-  `krust kore-match-disjunction`, and experimental `krust krun` and `krust kprove` commands.
+  `krust kore-get-model`, `krust kore-match-disjunction`, and experimental `krust krun` and
+  `krust kprove` commands.
 - Bundled builtin sources pinned to K v7.1.337, so an installed CLI does not require a separate K
   source checkout. Explicit sources always take precedence.
 - Native, portable, and `wasm32-unknown-unknown` build gates.
@@ -189,6 +190,14 @@ pure ML predicates without requiring a configuration term:
 ```console
 krust kore-simplify definition.kore --module MAIN --pattern predicate.json
 krust kore-simplify definition.kore --module MAIN --pattern predicate.kore --output result.kore
+```
+
+Ask Z3 for a satisfying assignment to the predicate portion of a KORE pattern. The JSON result
+distinguishes `Sat`, `Unsat`, and `Unknown` and includes a typed KORE substitution when one exists:
+
+```console
+krust kore-get-model definition.kore --module MAIN --pattern predicate.json
+krust kore-get-model definition.kore --module MAIN --pattern predicate.kore --output model.json
 ```
 
 Match a constrained KORE pattern against every alternative in a disjunction of configurations:

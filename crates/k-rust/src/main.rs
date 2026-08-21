@@ -49,7 +49,7 @@ use k_rust_backend::{
         SearchType, match_disjunction, search_pattern_with_solver,
     },
     simplify::{SimplificationOptions, simplify_and_decide_predicate_with_solver},
-    smt::{SmtError, Z3Solver},
+    smt::{ModelResult, SmtError, SmtSolver, Z3Solver},
     substitution::Substitution,
     term::{Sort as BackendSort, Term, Variable},
 };
@@ -69,6 +69,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         Command::Krun(options) => krun(options.into()),
         Command::KoreExec(options) => kore_exec(options),
         Command::KoreSimplify(options) => kore_simplify(options),
+        Command::KoreGetModel(options) => kore_get_model(options),
         Command::KoreMatchDisjunction(options) => kore_match_disjunction(options),
         Command::Kprove(options) => kprove(options.into()),
     }
@@ -98,6 +99,8 @@ enum Command {
     KoreExec(KoreExecArgs),
     /// Simplify an arbitrary KORE pattern with the in-process Rust backend.
     KoreSimplify(KoreSimplifyArgs),
+    /// Obtain a satisfying model for the predicate portion of a KORE pattern.
+    KoreGetModel(KoreGetModelArgs),
     /// Match a constrained KORE pattern against a disjunction of configurations.
     KoreMatchDisjunction(KoreMatchDisjunctionArgs),
     /// Compile and prove modal reachability claims with the in-process Rust backend.
@@ -339,6 +342,25 @@ struct KoreSimplifyArgs {
 
     /// Write the simplified KORE pattern to this file instead of standard output.
     #[arg(short, long, value_name = "OUTPUT_KORE")]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct KoreGetModelArgs {
+    /// Compiled textual KORE definition.
+    #[arg(value_name = "DEFINITION_KORE")]
+    definition: PathBuf,
+
+    /// Module to verify and use for model extraction.
+    #[arg(short = 'm', long, value_name = "MODULE")]
+    module: String,
+
+    /// Text, JSON v1, or binary KORE pattern whose predicate should be solved.
+    #[arg(short = 'p', long, value_name = "PATTERN_KORE")]
+    pattern: PathBuf,
+
+    /// Write the JSON result to this file instead of standard output.
+    #[arg(short, long, value_name = "OUTPUT_JSON")]
     output: Option<PathBuf>,
 }
 
@@ -891,6 +913,84 @@ fn simplify_kore_pattern(
     )
     .map_err(|error| io::Error::other(format!("could not simplify KORE pattern: {error:?}")))?;
     Ok(externalize::ml_pattern(&simplified, &result_sort))
+}
+
+fn kore_get_model(options: KoreGetModelArgs) -> Result<(), Box<dyn Error>> {
+    let definition_source = fs::read_to_string(&options.definition)?;
+    let definition = parse_kore_definition(&definition_source).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "could not parse KORE definition {}: {error}",
+                options.definition.display()
+            ),
+        )
+    })?;
+    let backend = BackendDefinition::internalize(&definition, &options.module)?;
+    let syntax = load_kore_syntax(&options.pattern, "model")?;
+    let model = match backend.internalize_model_predicate(&syntax, &[])? {
+        None => (ModelResult::Unknown("no predicate".into()), None),
+        Some((predicate, result_sort)) => {
+            let solver = Z3Solver::new(&backend)
+                .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
+            let result = solver
+                .get_model(&[predicate], &Substitution::new())
+                .map_err(|error| io::Error::other(format!("could not obtain model: {error:?}")))?;
+            (result, Some(result_sort))
+        }
+    };
+    let output = model_output(model.0, model.1.as_ref())?;
+    if let Some(path) = options.output {
+        fs::write(path, output)?;
+    } else {
+        println!("{output}");
+    }
+    Ok(())
+}
+
+fn model_output(
+    result: ModelResult,
+    result_sort: Option<&BackendSort>,
+) -> Result<String, Box<dyn Error>> {
+    let (satisfiable, substitution) = match result {
+        ModelResult::Sat(substitution) => {
+            let pattern = result_sort.and_then(|sort| model_substitution(&substitution, sort));
+            ("Sat", pattern)
+        }
+        ModelResult::Unsat => ("Unsat", None),
+        ModelResult::Unknown(_) => ("Unknown", None),
+    };
+    let mut output = serde_json::json!({ "satisfiable": satisfiable });
+    if let Some(substitution) = substitution {
+        output["substitution"] = serde_json::from_str(&kore_json::to_string(&substitution)?)?;
+    }
+    Ok(serde_json::to_string_pretty(&output)?)
+}
+
+fn model_substitution(
+    substitution: &Substitution,
+    result_sort: &BackendSort,
+) -> Option<KorePattern> {
+    let mut bindings = substitution.iter().collect::<Vec<_>>();
+    bindings.sort_by(|(left, _), (right, _)| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| left.sort.cmp(&right.sort))
+    });
+    let mut bindings = bindings.into_iter().map(|(variable, value)| {
+        externalize::predicate_pattern(
+            &Predicate::Equals(Term::variable(variable.clone()), value.clone()),
+            result_sort,
+        )
+    });
+    let mut result = bindings.next()?;
+    for binding in bindings {
+        result = KorePattern::And {
+            sort: externalize::sort(result_sort),
+            arguments: vec![result, binding],
+        };
+    }
+    Some(result)
 }
 
 fn kore_match_disjunction(options: KoreMatchDisjunctionArgs) -> Result<(), Box<dyn Error>> {
@@ -1853,6 +1953,59 @@ mod tests {
         assert_eq!(options.module, "MAIN");
         assert_eq!(options.pattern, Path::new("predicate.json"));
         assert_eq!(options.output.as_deref(), Some(Path::new("result.kore")));
+    }
+
+    #[test]
+    fn parses_kore_get_model_options() {
+        let cli = Cli::try_parse_from([
+            "krust",
+            "kore-get-model",
+            "definition.kore",
+            "--module",
+            "MAIN",
+            "--pattern",
+            "state.json",
+            "--output",
+            "model.json",
+        ])
+        .unwrap();
+        let Command::KoreGetModel(options) = cli.command else {
+            panic!("expected kore-get-model command");
+        };
+
+        assert_eq!(options.definition, Path::new("definition.kore"));
+        assert_eq!(options.module, "MAIN");
+        assert_eq!(options.pattern, Path::new("state.json"));
+        assert_eq!(options.output.as_deref(), Some(Path::new("model.json")));
+    }
+
+    #[test]
+    fn model_output_distinguishes_sat_unsat_and_unknown() {
+        let variable = Variable::new("X", BackendSort::simple("SortInt"));
+        let substitution = Substitution::from([(
+            variable,
+            Term::domain_value(BackendSort::simple("SortInt"), "42"),
+        )]);
+
+        let sat = model_output(
+            ModelResult::Sat(substitution),
+            Some(&BackendSort::simple("SortBool")),
+        )
+        .unwrap();
+        let unsat = model_output(ModelResult::Unsat, None).unwrap();
+        let unknown = model_output(ModelResult::Unknown("timeout".into()), None).unwrap();
+
+        let sat: serde_json::Value = serde_json::from_str(&sat).unwrap();
+        assert_eq!(sat["satisfiable"], "Sat");
+        assert_eq!(sat["substitution"]["format"], "KORE");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&unsat).unwrap()["satisfiable"],
+            "Unsat"
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&unknown).unwrap()["satisfiable"],
+            "Unknown"
+        );
     }
 
     #[test]

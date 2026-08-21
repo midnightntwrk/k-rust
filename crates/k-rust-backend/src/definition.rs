@@ -17,6 +17,7 @@ use crate::{
     rule::{
         AxiomError, ClassifiedAxiom, InternalizedRule, PredicateTheory, RuleKind, RulePatternError,
         Theory, classify_axiom, insert_theory, internalize_axiom,
+        internalize_model_predicate as internalize_rule_model_predicate,
         internalize_predicate as internalize_rule_predicate, internalize_rule_pattern,
     },
     smt::{SExpr, SmtType},
@@ -481,6 +482,21 @@ impl BackendDefinition {
         let result_sort = self.internalize_pattern_result_sort(&pattern, &known)?;
         let predicate = internalize_rule_predicate(self, &pattern, sort_variables)?;
         Ok((predicate, result_sort))
+    }
+
+    /// Extract the predicate portion used by the backend get-model operation.
+    pub fn internalize_model_predicate(
+        &self,
+        pattern: &kore::Pattern,
+        sort_variables: &[Name],
+    ) -> Result<Option<(crate::rule::Predicate, Sort)>, DefinitionError> {
+        let pattern = expand_aliases(pattern, &self.aliases)?;
+        let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
+        let result_sort = self.internalize_pattern_result_sort(&pattern, &known)?;
+        Ok(
+            internalize_rule_model_predicate(self, &pattern, sort_variables)?
+                .map(|predicate| (predicate, result_sort)),
+        )
     }
 
     /// Internalize the alternatives of a top-level KORE disjunction.
@@ -1402,6 +1418,34 @@ mod tests {
         .expect("overload definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN")
             .expect("overload definition should internalize")
+    }
+
+    #[test]
+    fn model_predicates_require_an_atomic_ml_condition() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let term_only =
+            parse_pattern(r"\and{SortBool{}}(\not{SortBool{}}(X:SortBool{}), X:SortBool{})")
+                .unwrap();
+        let predicate = parse_pattern(
+            r"\equals{SortBool{}, SortBool{}}(\not{SortBool{}}(X:SortBool{}), X:SortBool{})",
+        )
+        .unwrap();
+
+        assert_eq!(
+            definition.internalize_model_predicate(&term_only, &[]),
+            Ok(None)
+        );
+        assert!(matches!(
+            definition.internalize_model_predicate(&predicate, &[]),
+            Ok(Some((crate::rule::Predicate::Iff(..), _)))
+        ));
     }
 
     #[test]
