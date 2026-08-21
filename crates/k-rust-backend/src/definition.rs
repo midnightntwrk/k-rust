@@ -642,6 +642,7 @@ impl BackendDefinition {
                 Ok(Term::variable(variable))
             }
             kore::Pattern::Application { symbol, arguments } => {
+                self.validate_application_shape(symbol, arguments.len())?;
                 let arguments = arguments
                     .iter()
                     .map(|argument| self.internalize_term_with(argument, sort_variables))
@@ -709,6 +710,32 @@ impl BackendDefinition {
             kore::Pattern::Equals { .. } => Err(DefinitionError::ExpectedTerm("equals")),
             kore::Pattern::In { .. } => Err(DefinitionError::ExpectedTerm("in")),
         }
+    }
+
+    fn validate_application_shape(
+        &self,
+        syntax: &kore::Symbol,
+        argument_count: usize,
+    ) -> Result<(), DefinitionError> {
+        let symbol = self
+            .symbols
+            .get(syntax.name.as_str())
+            .ok_or_else(|| DefinitionError::UnknownSymbol(syntax.name.clone()))?;
+        if syntax.sort_parameters.len() != symbol.sort_variables.len() {
+            return Err(DefinitionError::WrongSortArgumentCount {
+                symbol: syntax.name.clone(),
+                expected: symbol.sort_variables.len(),
+                actual: syntax.sort_parameters.len(),
+            });
+        }
+        if argument_count != symbol.argument_sorts.len() {
+            return Err(DefinitionError::WrongSymbolArity {
+                symbol: syntax.name.clone(),
+                expected: symbol.argument_sorts.len(),
+                actual: argument_count,
+            });
+        }
+        Ok(())
     }
 
     fn internalize_pattern_result_sort(
@@ -1701,6 +1728,22 @@ mod tests {
                 && expected == Sort::simple("SortKey")
                 && actual == Sort::simple("SortValue")
         ));
+    }
+
+    #[test]
+    fn validates_application_shape_before_internalizing_children() {
+        let definition = definition();
+        let pattern = parse_pattern("box{SortKey{}}(box{SortKey{}}(value{}()), value{}())")
+            .expect("pattern should parse");
+
+        assert_eq!(
+            definition.internalize_term(&pattern, &[]).unwrap_err(),
+            DefinitionError::WrongSymbolArity {
+                symbol: "box".into(),
+                expected: 1,
+                actual: 2,
+            }
+        );
     }
 
     #[test]

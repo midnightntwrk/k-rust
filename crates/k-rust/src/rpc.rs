@@ -427,7 +427,7 @@ impl RpcService {
         let syntax = state.0;
         let initial = definition
             .internalize_pattern(&syntax, &[])
-            .map_err(RpcFault::pattern)?;
+            .map_err(|error| pattern_fault(error, &syntax))?;
         let configuration_variables = pattern_variables(&initial);
         let solver = solver(&definition, self.smt_options)?;
         let result = execute_with_solver(
@@ -562,11 +562,11 @@ impl RpcService {
                 }));
             }
             Err(DefinitionError::RulePattern(RulePatternError::MissingTerm)) => {}
-            Err(error) => return Err(RpcFault::pattern(error)),
+            Err(error) => return Err(pattern_fault(error, &syntax)),
         }
         let (predicate, result_sort) = definition
             .internalize_predicate(&syntax, &[])
-            .map_err(RpcFault::pattern)?;
+            .map_err(|error| pattern_fault(error, &syntax))?;
         let simplified = simplify_and_decide_predicate_with_solver(
             &definition,
             &predicate,
@@ -604,7 +604,7 @@ impl RpcService {
         let syntax = params.state.0;
         let Some((predicate, result_sort)) = definition
             .internalize_model_predicate(&syntax, &[])
-            .map_err(RpcFault::pattern)?
+            .map_err(|error| pattern_fault(error, &syntax))?
         else {
             return Ok(json!({ "satisfiable": "Unknown" }));
         };
@@ -772,6 +772,143 @@ fn implication_pattern_fault(error: DefinitionError, pattern: &KorePattern) -> R
             "context": context,
             "error": "A symbol cannot be an alias or a macro",
         }])),
+    }
+}
+
+fn pattern_fault(error: DefinitionError, pattern: &KorePattern) -> RpcFault {
+    let detail = match &error {
+        DefinitionError::WrongSymbolArity {
+            symbol,
+            expected,
+            actual,
+        } => find_application(pattern, symbol, Some(*actual), None).map(|(term, _)| {
+            (
+                term,
+                format!(
+                    "Inconsistent pattern. Symbol '{symbol}' expected {expected} arguments but got {actual}"
+                ),
+            )
+        }),
+        DefinitionError::IncorrectArgumentSort {
+            symbol,
+            index,
+            expected,
+            actual,
+        } => {
+            let actual_sort = externalize::sort(actual).to_string();
+            find_application(pattern, symbol, None, Some((*index, actual_sort.as_str())))
+                .and_then(|(_, arguments)| arguments.get(*index))
+                .map(|term| {
+                    (
+                        term,
+                        format!(
+                            "Incorrect sort: expected {} but got {actual_sort}",
+                            externalize::sort(expected)
+                        ),
+                    )
+                })
+        }
+        _ => None,
+    };
+    let Some((term, message)) = detail else {
+        return RpcFault::pattern(error);
+    };
+    let Ok(term) = encode_kore(term) else {
+        return RpcFault::pattern(error);
+    };
+    RpcFault {
+        code: 2,
+        message: "Could not verify pattern".into(),
+        data: Some(json!([{ "term": term, "error": message }])),
+    }
+}
+
+fn find_application<'a>(
+    pattern: &'a KorePattern,
+    symbol_name: &str,
+    actual_arity: Option<usize>,
+    argument_sort: Option<(usize, &str)>,
+) -> Option<(&'a KorePattern, &'a [KorePattern])> {
+    let nested = match pattern {
+        KorePattern::Application { arguments, .. }
+        | KorePattern::AssociativeApplication { arguments, .. }
+        | KorePattern::And { arguments, .. }
+        | KorePattern::Or { arguments, .. } => arguments.iter().find_map(|argument| {
+            find_application(argument, symbol_name, actual_arity, argument_sort)
+        }),
+        KorePattern::Not { argument, .. }
+        | KorePattern::Next { argument, .. }
+        | KorePattern::Ceil { argument, .. }
+        | KorePattern::Floor { argument, .. } => {
+            find_application(argument, symbol_name, actual_arity, argument_sort)
+        }
+        KorePattern::Implies { left, right, .. }
+        | KorePattern::Iff { left, right, .. }
+        | KorePattern::Rewrites { left, right, .. }
+        | KorePattern::Equals { left, right, .. }
+        | KorePattern::In { left, right, .. } => {
+            find_application(left, symbol_name, actual_arity, argument_sort)
+                .or_else(|| find_application(right, symbol_name, actual_arity, argument_sort))
+        }
+        KorePattern::Exists { body, .. }
+        | KorePattern::Forall { body, .. }
+        | KorePattern::Mu { body, .. }
+        | KorePattern::Nu { body, .. } => {
+            find_application(body, symbol_name, actual_arity, argument_sort)
+        }
+        KorePattern::String(_)
+        | KorePattern::Variable(_)
+        | KorePattern::Top { .. }
+        | KorePattern::Bottom { .. }
+        | KorePattern::DomainValue { .. } => None,
+    };
+    if nested.is_some() {
+        return nested;
+    }
+    let (symbol, arguments) = match pattern {
+        KorePattern::Application { symbol, arguments }
+        | KorePattern::AssociativeApplication {
+            symbol, arguments, ..
+        } => (symbol, arguments.as_slice()),
+        _ => return None,
+    };
+    if symbol.name != symbol_name || actual_arity.is_some_and(|arity| arguments.len() != arity) {
+        return None;
+    }
+    if let Some((index, expected_sort)) = argument_sort
+        && arguments
+            .get(index)
+            .and_then(explicit_pattern_sort)
+            .is_some_and(|sort| sort.to_string() != expected_sort)
+    {
+        return None;
+    }
+    Some((pattern, arguments))
+}
+
+fn explicit_pattern_sort(pattern: &KorePattern) -> Option<&KoreSort> {
+    match pattern {
+        KorePattern::Variable(variable) => Some(&variable.sort),
+        KorePattern::DomainValue { sort, .. }
+        | KorePattern::Top { sort }
+        | KorePattern::Bottom { sort }
+        | KorePattern::Not { sort, .. }
+        | KorePattern::Next { sort, .. }
+        | KorePattern::And { sort, .. }
+        | KorePattern::Or { sort, .. }
+        | KorePattern::Rewrites { sort, .. }
+        | KorePattern::Implies { sort, .. }
+        | KorePattern::Iff { sort, .. }
+        | KorePattern::Exists { sort, .. }
+        | KorePattern::Forall { sort, .. } => Some(sort),
+        KorePattern::Ceil { result_sort, .. }
+        | KorePattern::Floor { result_sort, .. }
+        | KorePattern::Equals { result_sort, .. }
+        | KorePattern::In { result_sort, .. } => Some(result_sort),
+        KorePattern::Mu { variable, .. } | KorePattern::Nu { variable, .. } => Some(&variable.sort),
+        KorePattern::Application { .. }
+        | KorePattern::AssociativeApplication { .. }
+        | KorePattern::String(_) => None,
     }
 }
 
@@ -1851,6 +1988,50 @@ mod tests {
         assert_eq!(response["error"]["code"], -32602);
         assert_eq!(response["error"]["message"], "Invalid params");
         assert_eq!(response["error"]["data"], params);
+    }
+
+    #[test]
+    fn pattern_verification_errors_identify_the_offending_kore_subterm() {
+        let mut arity_service = service();
+        let invalid_application = parse_pattern("state{}(next{}())").unwrap();
+        let arity_error = request(
+            &mut arity_service,
+            1,
+            "execute",
+            json!({ "state": encode_kore(&invalid_application).unwrap() }),
+        );
+        assert_eq!(
+            arity_error["error"],
+            json!({
+                "code": 2,
+                "message": "Could not verify pattern",
+                "data": [{
+                    "term": encode_kore(&invalid_application).unwrap(),
+                    "error": "Inconsistent pattern. Symbol 'state' expected 0 arguments but got 1",
+                }],
+            })
+        );
+
+        let mut sort_service = symbolic_branch_service();
+        let invalid_argument = parse_pattern(r#"\dv{SortBool{}}("true")"#).unwrap();
+        let invalid_application = parse_pattern(r#"wrap{}(\dv{SortBool{}}("true"))"#).unwrap();
+        let sort_error = request(
+            &mut sort_service,
+            2,
+            "execute",
+            json!({ "state": encode_kore(&invalid_application).unwrap() }),
+        );
+        assert_eq!(
+            sort_error["error"],
+            json!({
+                "code": 2,
+                "message": "Could not verify pattern",
+                "data": [{
+                    "term": encode_kore(&invalid_argument).unwrap(),
+                    "error": "Incorrect sort: expected SortInt{} but got SortBool{}",
+                }],
+            })
+        );
     }
 
     #[test]
