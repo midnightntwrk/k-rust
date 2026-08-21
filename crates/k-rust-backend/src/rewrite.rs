@@ -21,7 +21,7 @@ use crate::{
         simplify_with_solver,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
-    substitution::{Substitution, compose, substitute},
+    substitution::{Substitution, compose, extract_substitution, substitute},
     term::{Sort, Symbol, SymbolType, Term, TermKind, Variable},
     timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
     unification::{UnificationFailure, UnificationResult, unify_term_pairs},
@@ -31,6 +31,27 @@ use crate::{
 pub struct Pattern {
     pub term: Term,
     pub constraints: Vec<Predicate>,
+}
+
+/// Apply the acyclic substitution encoded by a pattern's equality constraints while retaining
+/// canonical equality predicates for later RPC projection.
+pub fn normalize_pattern_substitution(pattern: &mut Pattern) -> Substitution {
+    let (substitution, remaining) = extract_substitution(&pattern.constraints);
+    if substitution.is_empty() {
+        return substitution;
+    }
+    pattern.term = substitute(&pattern.term, &substitution);
+    let mut constraints = substitution
+        .iter()
+        .map(|(variable, value)| Predicate::Equals(Term::variable(variable.clone()), value.clone()))
+        .collect::<Vec<_>>();
+    for predicate in substitute_predicates(&remaining, &substitution) {
+        if !constraints.contains(&predicate) {
+            constraints.push(predicate);
+        }
+    }
+    pattern.constraints = constraints;
+    substitution
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -266,6 +287,7 @@ pub fn execute_with_solver_and_observer(
             };
         }
         finish_if_interrupted!();
+        normalize_pattern_substitution(&mut state.pattern);
         let simplified_constraints = simplify_predicates_with_solver(
             definition,
             &state.pattern.constraints,
@@ -277,7 +299,10 @@ pub fn execute_with_solver_and_observer(
         );
         finish_if_interrupted!();
         match simplified_constraints {
-            Ok(constraints) => state.pattern.constraints = constraints,
+            Ok(constraints) => {
+                state.pattern.constraints = constraints;
+                normalize_pattern_substitution(&mut state.pattern);
+            }
             Err(error) => {
                 leaves.push(ExecutionLeaf {
                     pattern: state.pattern,
@@ -311,6 +336,7 @@ pub fn execute_with_solver_and_observer(
             Ok(simplified) => {
                 state.pattern.term = simplified.term;
                 state.pattern.constraints.extend(simplified.constraints);
+                normalize_pattern_substitution(&mut state.pattern);
                 record_effects(&mut effects, simplified.effects, &mut observe);
                 state
                     .trace

@@ -1,8 +1,13 @@
 //! Saturating substitutions over immutable backend terms.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::term::{Term, TermKind, Variable};
+use petgraph::{algo::kosaraju_scc, graph::DiGraph};
+
+use crate::{
+    rule::Predicate,
+    term::{Term, TermKind, Variable},
+};
 
 pub type Substitution = BTreeMap<Variable, Term>;
 
@@ -109,6 +114,115 @@ pub fn compose(new: &Substitution, old: &Substitution) -> Substitution {
     result
 }
 
+/// Extract every unambiguous, acyclic variable equality as a saturated substitution.
+///
+/// Duplicate bindings remain predicates. For each dependency cycle, the lexicographically first
+/// variable is retained as an equality, matching the reference backend's deterministic cycle
+/// breaking while allowing the rest of the component to become substitutions.
+pub fn extract_substitution(constraints: &[Predicate]) -> (Substitution, Vec<Predicate>) {
+    let mut potential = BTreeMap::<Variable, Vec<(usize, Term)>>::new();
+    for (index, constraint) in constraints.iter().enumerate() {
+        let Predicate::Equals(left, right) = constraint else {
+            continue;
+        };
+        let candidate = match (left.kind(), right.kind()) {
+            (TermKind::Variable(variable), _)
+                if !right.attributes().variables.contains(variable) =>
+            {
+                Some((variable.clone(), right.clone()))
+            }
+            (_, TermKind::Variable(variable))
+                if !left.attributes().variables.contains(variable) =>
+            {
+                Some((variable.clone(), left.clone()))
+            }
+            _ => None,
+        };
+        if let Some((variable, value)) = candidate {
+            potential.entry(variable).or_default().push((index, value));
+        }
+    }
+    let mut candidates = potential
+        .into_iter()
+        .filter_map(|(variable, bindings)| {
+            let [(index, value)] = bindings.as_slice() else {
+                return None;
+            };
+            Some((variable, (*index, value.clone())))
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    loop {
+        let variables = candidates.keys().cloned().collect::<Vec<_>>();
+        let indexes = variables
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(index, variable)| (variable, index))
+            .collect::<BTreeMap<_, _>>();
+        let mut graph = DiGraph::<(), ()>::new();
+        let nodes = variables
+            .iter()
+            .map(|_| graph.add_node(()))
+            .collect::<Vec<_>>();
+        for (variable, (_, value)) in &candidates {
+            let source = nodes[indexes[variable]];
+            for dependency in &value.attributes().variables {
+                if let Some(index) = indexes.get(dependency) {
+                    graph.add_edge(source, nodes[*index], ());
+                }
+            }
+        }
+        let mut removed = BTreeSet::new();
+        for component in kosaraju_scc(&graph) {
+            let cyclic = component.len() > 1
+                || component
+                    .first()
+                    .is_some_and(|node| graph.contains_edge(*node, *node));
+            if cyclic {
+                let variable = component
+                    .iter()
+                    .map(|node| variables[node.index()].clone())
+                    .min()
+                    .expect("a strongly connected component is nonempty");
+                removed.insert(variable);
+            }
+        }
+        if removed.is_empty() {
+            break;
+        }
+        candidates.retain(|variable, _| !removed.contains(variable));
+    }
+
+    let mut substitution = candidates
+        .iter()
+        .map(|(variable, (_, value))| (variable.clone(), value.clone()))
+        .collect::<Substitution>();
+    for _ in 0..substitution.len() {
+        let previous = substitution.clone();
+        for (variable, value) in &previous {
+            let mut others = previous.clone();
+            others.remove(variable);
+            substitution.insert(variable.clone(), substitute(value, &others));
+        }
+        if substitution == previous {
+            break;
+        }
+    }
+
+    let selected = candidates
+        .values()
+        .map(|(index, _)| *index)
+        .collect::<BTreeSet<_>>();
+    let remaining = constraints
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !selected.contains(index))
+        .map(|(_, predicate)| predicate.clone())
+        .collect();
+    (substitution, remaining)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -164,5 +278,49 @@ mod tests {
             compose(&new, &old),
             Substitution::from([(variable("X"), var("Z")), (variable("Y"), var("Z")),])
         );
+    }
+
+    #[test]
+    fn extracts_and_saturates_acyclic_constraint_substitutions() {
+        let value = Term::domain_value(sort(), "value");
+        let constraints = vec![
+            Predicate::Equals(var("Y"), con1(var("X"))),
+            Predicate::Equals(var("X"), value.clone()),
+        ];
+
+        let (substitution, remaining) = extract_substitution(&constraints);
+
+        assert!(remaining.is_empty());
+        assert_eq!(substitution[&variable("X")], value.clone());
+        assert_eq!(substitution[&variable("Y")], con1(value));
+    }
+
+    #[test]
+    fn breaks_cycles_and_retains_one_equation_per_component() {
+        let constraints = vec![
+            Predicate::Equals(var("Y"), con1(var("X"))),
+            Predicate::Equals(var("X"), var("Y")),
+        ];
+
+        let (substitution, remaining) = extract_substitution(&constraints);
+
+        assert_eq!(
+            substitution,
+            Substitution::from([(variable("Y"), con1(var("X")))])
+        );
+        assert_eq!(remaining, [Predicate::Equals(var("X"), var("Y"))]);
+    }
+
+    #[test]
+    fn retains_ambiguous_bindings_as_predicates() {
+        let constraints = vec![
+            Predicate::Equals(var("X"), var("Y")),
+            Predicate::Equals(var("X"), con1(var("Y"))),
+        ];
+
+        let (substitution, remaining) = extract_substitution(&constraints);
+
+        assert!(substitution.is_empty());
+        assert_eq!(remaining, constraints);
     }
 }

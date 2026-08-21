@@ -17,8 +17,8 @@ use crate::{
         match_term_pairs_in_definition, match_terms_in_definition,
     },
     rewrite::{
-        Pattern, Truth, check_concreteness, predicates_truth, substitute_predicates,
-        violates_finite_constructor_domain,
+        Pattern, Truth, check_concreteness, normalize_pattern_substitution, predicates_truth,
+        substitute_predicates, violates_finite_constructor_domain,
     },
     rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
     smt::{NoSolver, SmtError, SmtSolver, Validity},
@@ -114,6 +114,8 @@ pub fn simplify_pattern_with_solver(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<Pattern, SimplificationError> {
+    let mut pattern = pattern.clone();
+    normalize_pattern_substitution(&mut pattern);
     let simplified = simplify_with_solver(
         definition,
         &pattern.term,
@@ -121,7 +123,7 @@ pub fn simplify_pattern_with_solver(
         options,
         solver,
     )?;
-    let mut constraints = pattern.constraints.clone();
+    let mut constraints = pattern.constraints;
     for constraint in simplified.constraints {
         if !constraints.contains(&constraint) {
             constraints.push(constraint);
@@ -129,10 +131,12 @@ pub fn simplify_pattern_with_solver(
     }
     let constraints =
         simplify_predicates_with_solver(definition, &constraints, &[], options, solver)?;
-    Ok(Pattern {
+    let mut pattern = Pattern {
         term: simplified.term,
         constraints,
-    })
+    };
+    normalize_pattern_substitution(&mut pattern);
+    Ok(pattern)
 }
 
 pub fn simplify_predicates_with_solver(

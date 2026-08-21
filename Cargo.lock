@@ -991,6 +991,7 @@ dependencies = [
  "k256",
  "num-bigint",
  "num-traits",
+ "petgraph",
  "proptest",
  "ripemd",
  "sha2",
