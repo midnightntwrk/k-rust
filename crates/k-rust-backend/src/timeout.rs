@@ -8,6 +8,23 @@ use std::{
 const DEFAULT_MOVING_AVERAGE: Duration = Duration::from_secs(3);
 const PREVIOUS_WEIGHT: f64 = 0.95;
 
+thread_local! {
+    static ACTIVE_DEADLINE: Cell<Option<Instant>> = const { Cell::new(None) };
+}
+
+/// Return whether the active rewrite/proof step has exhausted its deadline.
+///
+/// Native hooks call this at cooperative interruption points. A thread-local deadline keeps the
+/// hot hook API small and mirrors the fact that backend simplification is synchronous and
+/// thread-confined; nested timers restore the previous deadline when they leave scope.
+pub(crate) fn interruption_requested() -> bool {
+    ACTIVE_DEADLINE.with(|deadline| {
+        deadline
+            .get()
+            .is_some_and(|deadline| Instant::now() >= deadline)
+    })
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StepTimeoutMode {
     Manual(Duration),
@@ -43,10 +60,23 @@ impl StepTimeoutController {
     }
 
     pub(crate) fn begin_step(&self) -> StepTimer<'_> {
+        let started = Instant::now();
+        let mode = self.timeout_mode();
+        let deadline = mode.and_then(|mode| started.checked_add(mode.timeout()));
+        let previous_deadline = ACTIVE_DEADLINE.with(|active| {
+            let previous = active.get();
+            active.set(match (previous, deadline) {
+                (Some(previous), Some(deadline)) => Some(previous.min(deadline)),
+                (Some(previous), None) => Some(previous),
+                (None, deadline) => deadline,
+            });
+            previous
+        });
         StepTimer {
             controller: self,
-            started: Instant::now(),
-            mode: self.timeout_mode(),
+            started,
+            mode,
+            previous_deadline,
             record_elapsed: true,
         }
     }
@@ -82,6 +112,7 @@ pub(crate) struct StepTimer<'a> {
     controller: &'a StepTimeoutController,
     started: Instant,
     mode: Option<StepTimeoutMode>,
+    previous_deadline: Option<Instant>,
     record_elapsed: bool,
 }
 
@@ -98,6 +129,7 @@ impl StepTimer<'_> {
 
 impl Drop for StepTimer<'_> {
     fn drop(&mut self) {
+        ACTIVE_DEADLINE.with(|active| active.set(self.previous_deadline));
         if self.record_elapsed {
             self.controller.record(self.started.elapsed());
         }
@@ -149,5 +181,36 @@ mod tests {
         timer.discard_measurement();
         drop(timer);
         assert_eq!(controller.moving_average_micros.get(), None);
+    }
+
+    #[test]
+    fn exposes_and_restores_the_active_step_deadline() {
+        assert!(!interruption_requested());
+        let controller = StepTimeoutController::new(StepTimeoutOptions {
+            manual: Some(Duration::ZERO),
+            moving_average: false,
+        });
+        {
+            let _timer = controller.begin_step();
+            assert!(interruption_requested());
+        }
+        assert!(!interruption_requested());
+    }
+
+    #[test]
+    fn nested_steps_preserve_the_earliest_deadline() {
+        let outer = StepTimeoutController::new(StepTimeoutOptions {
+            manual: Some(Duration::ZERO),
+            moving_average: false,
+        });
+        let inner = StepTimeoutController::new(StepTimeoutOptions::default());
+
+        let _outer_timer = outer.begin_step();
+        assert!(interruption_requested());
+        {
+            let _inner_timer = inner.begin_step();
+            assert!(interruption_requested());
+        }
+        assert!(interruption_requested());
     }
 }

@@ -1422,6 +1422,58 @@ mod tests {
     }
 
     #[test]
+    fn interrupts_native_hook_evaluation_at_the_step_deadline() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.pow")]
+                symbol state{}(SortInt{}) : SortState{} [constructor{}()]
+                symbol done{}() : SortState{} [constructor{}()]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(
+                        \top{SortState{}}(),
+                        state{}(
+                            pow{}(
+                                \dv{SortInt{}}("2"),
+                                \dv{SortInt{}}("10")
+                            )
+                        )
+                    ),
+                    weakExistsFinally{SortState{}}(
+                        \and{SortState{}}(done{}(), \top{SortState{}}())
+                    )
+                ) [label{}("native-hook-timeout")]
+            endmodule []"#,
+        )
+        .expect("native hook claim should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("native hook claim should internalize");
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions {
+                step_timeout: Some(Duration::ZERO),
+                ..ProofOptions::default()
+            },
+            &NoSolver,
+        )
+        .expect("timeout should be a proof outcome");
+
+        assert_eq!(result.status, ProofStatus::Indeterminate);
+        assert!(matches!(
+            result.leaves.as_slice(),
+            [ProofLeaf {
+                outcome: ProofLeafOutcome::TimedOut(StepTimeoutMode::Manual(timeout)),
+                ..
+            }] if timeout.is_zero()
+        ));
+    }
+
+    #[test]
     fn accepts_trusted_claims_without_exploration() {
         let claims = modal_claim(ReachabilityMode::AllPath, "a", "b", true);
         let definition = definition("", &claims);

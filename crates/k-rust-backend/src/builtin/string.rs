@@ -3,7 +3,9 @@
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
-use super::{BuiltinError, BuiltinResult, bool_term, expect_arity, int_term, read_int};
+use super::{
+    BuiltinError, BuiltinResult, bool_term, check_interrupted, expect_arity, int_term, read_int,
+};
 use crate::term::{Sort, Term, TermKind};
 
 pub(super) fn evaluate(
@@ -69,7 +71,17 @@ fn substring(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     let count = usize::try_from(end.max(0))
         .unwrap_or(usize::MAX)
         .saturating_sub(start);
-    let result = value.chars().skip(start).take(count).collect::<String>();
+    let mut result = String::new();
+    for (index, character) in value.chars().enumerate() {
+        if index % 1024 == 0 {
+            check_interrupted()?;
+        }
+        if index >= start && index - start < count {
+            result.push(character);
+        } else if index >= start.saturating_add(count) {
+            break;
+        }
+    }
     Ok(BuiltinResult::Value(string_term(result)))
 }
 
@@ -78,9 +90,14 @@ fn length(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     let Some(value) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    Ok(BuiltinResult::Value(int_term(BigInt::from(
-        value.chars().count(),
-    ))))
+    let mut length = 0_usize;
+    for _ in value.chars() {
+        if length % 1024 == 0 {
+            check_interrupted()?;
+        }
+        length += 1;
+    }
+    Ok(BuiltinResult::Value(int_term(BigInt::from(length))))
 }
 
 fn find(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
@@ -98,13 +115,19 @@ fn find(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     let found = if needle.is_empty() {
         (start <= haystack.len()).then_some(start)
     } else {
-        haystack
-            .get(start..)
-            .and_then(|tail| {
-                tail.windows(needle.len())
-                    .position(|window| window == needle)
-            })
-            .map(|offset| start + offset)
+        let mut found = None;
+        if let Some(tail) = haystack.get(start..) {
+            for (offset, window) in tail.windows(needle.len()).enumerate() {
+                if offset % 1024 == 0 {
+                    check_interrupted()?;
+                }
+                if window == needle {
+                    found = Some(start + offset);
+                    break;
+                }
+            }
+        }
+        found
     };
     Ok(BuiltinResult::Value(int_term(BigInt::from(
         found

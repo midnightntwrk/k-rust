@@ -376,6 +376,8 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 - LSP, `kserver`, and Bison parser generation are outside the current CLI scope.
 - Like the reference backend, AC unification remains conservative when more than one unmatched
   opaque Set or Map chunk remains after common chunks are cancelled.
+- Step deadlines cooperatively interrupt native hooks. Long-running Rust loops check the deadline
+  while working; one-shot third-party cryptographic operations are checked at hook boundaries.
 
 ## TODOs
 
@@ -391,11 +393,6 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete parameters normally supplied by parser inference.
 - Emit the optional legacy priority aliases supported by `ModuleToKORE` compatibility modes.
-- Add preemptive interruption inside non-Z3 native hooks. First-order constructor/injective terms,
-  occurs checks, opaque function constraints, symmetric closed/open List, Set, and Map narrowing,
-  common opaque AC chunk cancellation, mixed first-order/collection equations, symbolic condition
-  remainders, proof checkpoints, and cooperative timeout, order, breadth, depth, counterexample,
-  vacuity, and stuck controls are implemented.
 - Measure Z3-path usage across a substantially larger real-definition corpus.
 - Revisit package splitting only if real build or release pressure justifies it.
 

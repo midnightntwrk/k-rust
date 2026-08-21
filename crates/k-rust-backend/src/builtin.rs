@@ -10,10 +10,14 @@ mod map;
 mod set;
 mod string;
 
-use crate::term::{Sort, SymbolType, Term, TermKind};
+use crate::{
+    term::{Sort, SymbolType, Term, TermKind},
+    timeout::interruption_requested,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BuiltinError {
+    Interrupted,
     WrongArity {
         hook: String,
         expected: usize,
@@ -77,12 +81,13 @@ fn evaluate_hook_with_sort(
     arguments: &[Term],
     result_sort: Option<&Sort>,
 ) -> Result<BuiltinResult, BuiltinError> {
+    check_interrupted()?;
     match hook {
         "INT.ediv" => return int_partial_binary(hook, arguments, euclidean_division),
         "INT.emod" => return int_partial_binary(hook, arguments, euclidean_modulus),
         "INT.tdiv" => return int_partial_binary(hook, arguments, truncating_division),
         "INT.tmod" => return int_partial_binary(hook, arguments, truncating_modulus),
-        "INT.pow" => return int_partial_binary(hook, arguments, int_pow),
+        "INT.pow" => return int_pow(arguments),
         "INT.powmod" => return int_powmod(arguments),
         "INT.log2" => return int_log2(arguments),
         _ => {}
@@ -135,6 +140,14 @@ fn evaluate_hook_with_sort(
         _ => Ok(None),
     }?;
     Ok(result.into())
+}
+
+fn check_interrupted() -> Result<(), BuiltinError> {
+    if interruption_requested() {
+        Err(BuiltinError::Interrupted)
+    } else {
+        Ok(())
+    }
 }
 
 fn io_log_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
@@ -287,11 +300,29 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
     Some((left - remainder) / right)
 }
 
-fn int_pow(base: BigInt, exponent: BigInt) -> Option<BigInt> {
+fn int_pow(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity("INT.pow", arguments, 2)?;
+    let Some((mut base, exponent)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
     if exponent.sign() == Sign::Minus {
-        return None;
+        return Ok(BuiltinResult::Bottom);
     }
-    exponent.to_u32().map(|exponent| base.pow(exponent))
+    let Some(mut exponent) = exponent.to_u32() else {
+        return Ok(BuiltinResult::Bottom);
+    };
+    let mut result = BigInt::one();
+    while exponent != 0 {
+        check_interrupted()?;
+        if exponent & 1 == 1 {
+            result *= &base;
+        }
+        exponent >>= 1;
+        if exponent != 0 {
+            base = &base * &base;
+        }
+    }
+    Ok(BuiltinResult::Value(int_term(result)))
 }
 
 fn int_powmod(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
@@ -308,33 +339,45 @@ fn int_powmod(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     }
     let modulus = modulus.abs();
     let (base, exponent) = if exponent.sign() == Sign::Minus {
-        let Some(inverse) = modular_inverse(&base, &modulus) else {
+        let Some(inverse) = modular_inverse(&base, &modulus)? else {
             return Ok(BuiltinResult::Bottom);
         };
         (inverse, -exponent)
     } else {
         (base, exponent)
     };
-    Ok(BuiltinResult::Value(int_term(
-        base.modpow(&exponent, &modulus),
-    )))
+    let mut base = euclidean_modulus(base, modulus.clone()).expect("non-zero modulus");
+    let mut exponent = exponent;
+    let mut result = BigInt::one();
+    while !exponent.is_zero() {
+        check_interrupted()?;
+        if (&exponent & BigInt::one()) == BigInt::one() {
+            result = (result * &base) % &modulus;
+        }
+        exponent >>= 1;
+        if !exponent.is_zero() {
+            base = (&base * &base) % &modulus;
+        }
+    }
+    Ok(BuiltinResult::Value(int_term(result % modulus)))
 }
 
-fn modular_inverse(value: &BigInt, modulus: &BigInt) -> Option<BigInt> {
+fn modular_inverse(value: &BigInt, modulus: &BigInt) -> Result<Option<BigInt>, BuiltinError> {
     let (mut old_r, mut r) = (value.clone(), modulus.clone());
     let (mut old_s, mut s) = (BigInt::one(), BigInt::zero());
     while !r.is_zero() {
+        check_interrupted()?;
         let quotient = &old_r / &r;
         (old_r, r) = (r.clone(), old_r - &quotient * r);
         (old_s, s) = (s.clone(), old_s - quotient * s);
     }
     if old_r.abs() != BigInt::one() {
-        return None;
+        return Ok(None);
     }
     if old_r.sign() == Sign::Minus {
         old_s = -old_s;
     }
-    euclidean_modulus(old_s, modulus.clone())
+    Ok(euclidean_modulus(old_s, modulus.clone()))
 }
 
 fn int_log2(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
@@ -559,10 +602,13 @@ fn is_rigid_non_application(kind: &TermKind) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{sync::Arc, time::Duration};
 
     use super::*;
-    use crate::term::{FunctionType, Symbol, SymbolAttributes, Variable};
+    use crate::{
+        term::{FunctionType, Symbol, SymbolAttributes, Variable},
+        timeout::{StepTimeoutController, StepTimeoutOptions},
+    };
 
     fn hooked(hook: &str, result_sort: Sort, arguments: Vec<Term>) -> Term {
         let argument_sorts = arguments.iter().map(Term::sort).collect();
@@ -707,6 +753,20 @@ mod tests {
         assert_eq!(
             evaluate_int("INT.powmod", &[2, -1, 4]),
             BuiltinResult::Bottom
+        );
+    }
+
+    #[test]
+    fn native_hooks_observe_the_active_step_deadline() {
+        let controller = StepTimeoutController::new(StepTimeoutOptions {
+            manual: Some(Duration::ZERO),
+            moving_average: false,
+        });
+        let _timer = controller.begin_step();
+
+        assert_eq!(
+            evaluate_hook("INT.pow", &[int_term(2.into()), int_term(10.into())]),
+            Err(BuiltinError::Interrupted)
         );
     }
 

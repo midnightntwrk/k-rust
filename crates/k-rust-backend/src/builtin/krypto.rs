@@ -7,7 +7,7 @@ use ripemd::Ripemd160;
 use sha2::{Digest, Sha256, Sha512_256};
 use sha3::{Keccak256, Sha3_256};
 
-use super::{BuiltinError, BuiltinResult, bytes, expect_arity, read_int};
+use super::{BuiltinError, BuiltinResult, bytes, check_interrupted, expect_arity, read_int};
 use crate::term::{Sort, Term};
 
 pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
@@ -62,7 +62,12 @@ where
     let Some(input) = bytes::read_bytes(&arguments[0]) else {
         return Ok(None);
     };
-    Ok(Some(D::digest(input).to_vec()))
+    let mut digest = D::new();
+    for chunk in input.chunks(64 * 1024) {
+        check_interrupted()?;
+        digest.update(chunk);
+    }
+    Ok(Some(digest.finalize().to_vec()))
 }
 
 fn ecdsa_public_key(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {

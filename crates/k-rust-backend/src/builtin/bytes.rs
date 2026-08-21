@@ -3,7 +3,7 @@
 use num_bigint::{BigInt, Sign};
 use num_traits::{ToPrimitive, Zero};
 
-use super::{BuiltinError, BuiltinResult, expect_arity, int_term, read_int};
+use super::{BuiltinError, BuiltinResult, check_interrupted, expect_arity, int_term, read_int};
 use crate::term::{Sort, Term, TermKind};
 
 #[derive(Clone, Copy)]
@@ -241,7 +241,10 @@ fn int_to_bytes(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     };
     let mut current = value.clone();
     let mut bytes = Vec::with_capacity(length);
-    for _ in 0..length {
+    for index in 0..length {
+        if index % 1024 == 0 {
+            check_interrupted()?;
+        }
         bytes.push((&current & BigInt::from(0xff_u16)).to_u8().unwrap());
         current >>= 8;
     }
@@ -266,7 +269,10 @@ fn bytes_to_int(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
         bytes.reverse();
     }
     let mut unsigned = BigInt::zero();
-    for byte in bytes.iter().rev() {
+    for (index, byte) in bytes.iter().rev().enumerate() {
+        if index % 1024 == 0 {
+            check_interrupted()?;
+        }
         unsigned = (unsigned << 8) + BigInt::from(*byte);
     }
     if matches!(signedness, Signedness::Signed) && bytes.last().is_some_and(|byte| byte & 0x80 != 0)
