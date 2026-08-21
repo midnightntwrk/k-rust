@@ -3,7 +3,7 @@
 use std::{
     collections::{BTreeSet, VecDeque},
     error::Error,
-    io::{self, BufRead, BufReader, BufWriter, Write},
+    io::{self, BufWriter, Read, Write},
     net::{TcpListener, TcpStream, ToSocketAddrs},
     sync::{
         Arc, Mutex,
@@ -949,7 +949,7 @@ fn serve_connection(
     stream: TcpStream,
     service: Arc<Mutex<RpcService>>,
 ) -> Result<(), Box<dyn Error>> {
-    let reader = BufReader::new(stream.try_clone()?);
+    let mut reader = stream.try_clone()?;
     let writer = Arc::new(Mutex::new(BufWriter::new(stream)));
     let controls = Arc::new(Mutex::new(VecDeque::<Arc<RequestControl>>::new()));
     let (sender, receiver) = mpsc::channel::<(String, Arc<RequestControl>)>();
@@ -980,16 +980,18 @@ fn serve_connection(
             Ok(())
         })?;
 
+    let mut buffer = Vec::new();
     let mut read_error = None;
-    for line in reader.lines() {
-        let line = match line {
-            Ok(line) => line,
+    loop {
+        let message = match read_json_message(&mut reader, &mut buffer) {
+            Ok(Some(message)) => message,
+            Ok(None) => break,
             Err(error) => {
                 read_error = Some(error);
                 break;
             }
         };
-        if is_standalone_cancel(&line) {
+        if is_standalone_cancel(&message) {
             let active = controls
                 .lock()
                 .map_err(|_| io::Error::other("KORE JSON-RPC request queue was poisoned"))?
@@ -1003,12 +1005,12 @@ fn serve_connection(
             }
             continue;
         }
-        let control = Arc::new(RequestControl::new(&line));
+        let control = Arc::new(RequestControl::new(&message));
         controls
             .lock()
             .map_err(|_| io::Error::other("KORE JSON-RPC request queue was poisoned"))?
             .push_back(Arc::clone(&control));
-        if sender.send((line, control)).is_err() {
+        if sender.send((message, control)).is_err() {
             break;
         }
     }
@@ -1020,6 +1022,48 @@ fn serve_connection(
         return Err(error.into());
     }
     Ok(())
+}
+
+fn read_json_message(reader: &mut impl Read, buffer: &mut Vec<u8>) -> io::Result<Option<String>> {
+    loop {
+        let mut deserializer = serde_json::Deserializer::from_slice(buffer);
+        deserializer.disable_recursion_limit();
+        let mut values = deserializer.into_iter::<Value>();
+        match values.next() {
+            Some(Ok(_)) => {
+                let consumed = values.byte_offset();
+                let message = buffer.drain(..consumed).collect::<Vec<_>>();
+                return String::from_utf8(message).map(Some).map_err(|error| {
+                    io::Error::new(io::ErrorKind::InvalidData, error.utf8_error())
+                });
+            }
+            Some(Err(error)) if !error.is_eof() => {
+                let consumed = buffer
+                    .iter()
+                    .position(|byte| *byte == b'\n')
+                    .map_or(buffer.len(), |newline| newline + 1);
+                let message = buffer.drain(..consumed).collect::<Vec<_>>();
+                return String::from_utf8(message).map(Some).map_err(|error| {
+                    io::Error::new(io::ErrorKind::InvalidData, error.utf8_error())
+                });
+            }
+            Some(Err(_)) | None => {}
+        }
+
+        let mut chunk = [0; 4096];
+        let read = reader.read(&mut chunk)?;
+        if read == 0 {
+            if buffer.iter().all(u8::is_ascii_whitespace) {
+                buffer.clear();
+                return Ok(None);
+            }
+            let message = std::mem::take(buffer);
+            return String::from_utf8(message)
+                .map(Some)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.utf8_error()));
+        }
+        buffer.extend_from_slice(&chunk[..read]);
+    }
 }
 
 fn write_response(writer: &Mutex<BufWriter<TcpStream>>, response: &str) -> io::Result<()> {
@@ -1067,7 +1111,7 @@ fn cancellation_error_for_request(request: &Map<String, Value>) -> Option<Value>
 #[cfg(test)]
 mod tests {
     use std::{
-        io::{Read, Write},
+        io::{BufRead, BufReader, Read, Write},
         net::{Shutdown, TcpListener, TcpStream},
         sync::{Arc, Mutex},
     };
@@ -1548,6 +1592,37 @@ mod tests {
         );
         assert_eq!(responses[0]["error"]["code"], -32601);
         assert_eq!(responses[1]["result"]["satisfiable"], "Sat");
+    }
+
+    #[test]
+    fn serves_a_complete_request_without_waiting_for_a_newline_or_eof() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let service = Arc::new(Mutex::new(service()));
+        let server_service = Arc::clone(&service);
+        let worker = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            serve_connection(stream, server_service).unwrap();
+        });
+
+        let mut client = TcpStream::connect(address).unwrap();
+        let mut response = BufReader::new(client.try_clone().unwrap());
+        write!(
+            client,
+            "{}",
+            json!({ "jsonrpc": "2.0", "id": 7, "method": "missing" })
+        )
+        .unwrap();
+        client.flush().unwrap();
+
+        let mut line = String::new();
+        response.read_line(&mut line).unwrap();
+        let response: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(response["id"], 7);
+        assert_eq!(response["error"]["code"], -32601);
+
+        client.shutdown(Shutdown::Write).unwrap();
+        worker.join().unwrap();
     }
 
     #[test]
