@@ -439,6 +439,26 @@ endmodule []
     );
     assert_eq!(String::from_utf8(branch.stdout).unwrap(), "a{}()\n");
 
+    let any = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--pattern",
+            program.to_str().unwrap(),
+            "--strategy",
+            "any",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        any.status.success(),
+        "{}",
+        String::from_utf8_lossy(&any.stderr)
+    );
+    assert_eq!(String::from_utf8(any.stdout).unwrap(), "b{}()\n");
+
     let search = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
             "kore-exec",

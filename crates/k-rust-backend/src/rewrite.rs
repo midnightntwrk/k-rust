@@ -91,7 +91,14 @@ pub enum IndeterminateReason {
 pub struct ExecutionOptions {
     pub max_depth: u64,
     pub max_simplification_iterations: usize,
+    pub mode: ExecutionMode,
     pub branch_mode: ExecutionBranchMode,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExecutionMode {
+    All,
+    Any,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -105,6 +112,7 @@ impl Default for ExecutionOptions {
         Self {
             max_depth: 1_000,
             max_simplification_iterations: 100,
+            mode: ExecutionMode::All,
             branch_mode: ExecutionBranchMode::ExploreAll,
         }
     }
@@ -250,7 +258,7 @@ pub fn execute_with_solver_and_observer(
             });
             continue;
         }
-        match rewrite_step_with_options(
+        match rewrite_step_with_mode(
             definition,
             &state.pattern,
             &mut fresh_counter,
@@ -258,6 +266,7 @@ pub fn execute_with_solver_and_observer(
                 max_iterations: options.max_simplification_iterations,
             },
             solver,
+            options.mode,
         ) {
             RewriteResult::Stuck(pattern) => leaves.push(ExecutionLeaf {
                 pattern,
@@ -391,6 +400,49 @@ pub(crate) fn rewrite_step_with_options(
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> RewriteResult {
+    rewrite_step_with_mode(
+        definition,
+        pattern,
+        fresh_counter,
+        simplification_options,
+        solver,
+        ExecutionMode::All,
+    )
+}
+
+fn rewrite_step_with_mode(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    fresh_counter: &mut u64,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    mode: ExecutionMode,
+) -> RewriteResult {
+    match mode {
+        ExecutionMode::All => rewrite_step_all(
+            definition,
+            pattern,
+            fresh_counter,
+            simplification_options,
+            solver,
+        ),
+        ExecutionMode::Any => rewrite_step_any(
+            definition,
+            pattern,
+            fresh_counter,
+            simplification_options,
+            solver,
+        ),
+    }
+}
+
+fn rewrite_step_all(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    fresh_counter: &mut u64,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> RewriteResult {
     let index = term_index(&pattern.term);
     let priority_groups = applicable_groups(definition, &index);
     if priority_groups.is_empty() {
@@ -490,6 +542,117 @@ pub(crate) fn rewrite_step_with_options(
         RewriteResult::Trivial(pattern.clone())
     } else {
         RewriteResult::Stuck(pattern.clone())
+    }
+}
+
+fn rewrite_step_any(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    fresh_counter: &mut u64,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> RewriteResult {
+    let index = term_index(&pattern.term);
+    let priority_groups = applicable_groups(definition, &index);
+    if priority_groups.is_empty() {
+        return RewriteResult::Stuck(pattern.clone());
+    }
+
+    let mut remaining = pattern.clone();
+    let mut remainder_conditions = Vec::new();
+    let mut applied = Vec::new();
+    let mut saw_trivial = false;
+    for rule in priority_groups.values().flatten() {
+        if predicates_truth(&remaining.constraints) == Truth::False {
+            break;
+        }
+        match apply_rule(
+            definition,
+            rule,
+            &remaining,
+            fresh_counter,
+            simplification_options,
+            solver,
+        ) {
+            RuleAttempt::NotApplicable => {}
+            RuleAttempt::Trivial => saw_trivial = true,
+            RuleAttempt::Applied(results) => {
+                for application in results {
+                    extend_unique(
+                        &mut remainder_conditions,
+                        std::iter::once(application.remainder.clone()),
+                    );
+                    extend_unique(
+                        &mut remaining.constraints,
+                        std::iter::once(application.remainder),
+                    );
+                    applied.push(application.applied);
+                }
+                if let Ok(constraints) = simplify_predicates_with_solver(
+                    definition,
+                    &remaining.constraints,
+                    &pattern.constraints,
+                    simplification_options,
+                    solver,
+                ) {
+                    remaining.constraints = constraints;
+                }
+            }
+            RuleAttempt::Indeterminate(reason) => {
+                return RewriteResult::Indeterminate {
+                    pattern: remaining,
+                    reason,
+                };
+            }
+        }
+    }
+
+    if applied.is_empty() {
+        return if saw_trivial {
+            RewriteResult::Trivial(pattern.clone())
+        } else {
+            RewriteResult::Stuck(pattern.clone())
+        };
+    }
+
+    let remainder_result = if predicates_truth(&remaining.constraints) == Truth::False
+        || violates_finite_constructor_domain(definition, &remaining.constraints)
+    {
+        Ok(Satisfiability::Unsat)
+    } else {
+        solver.is_sat(&remaining.constraints, &Substitution::new())
+    };
+    if !matches!(
+        remainder_result,
+        Ok(Satisfiability::Unsat | Satisfiability::Sat)
+    ) {
+        return RewriteResult::Indeterminate {
+            pattern: pattern.clone(),
+            reason: IndeterminateReason::Remainder {
+                rule_ids: applied
+                    .iter()
+                    .map(|application| application.unique_id.clone())
+                    .collect(),
+                predicates: remainder_conditions,
+                satisfiability: remainder_result,
+            },
+        };
+    }
+    let remainder = matches!(remainder_result, Ok(Satisfiability::Sat)).then(|| RemainderBranch {
+        pattern: remaining,
+        rule_ids: applied
+            .iter()
+            .map(|application| application.unique_id.clone())
+            .collect(),
+    });
+    if applied.len() == 1 && remainder.is_none() {
+        RewriteResult::Finished(applied.pop().unwrap())
+    } else {
+        RewriteResult::Branch {
+            original: pattern.clone(),
+            branches: applied,
+            remainder,
+        }
     }
 }
 
@@ -4407,6 +4570,92 @@ mod tests {
                 .map(|leaf| leaf.trace[0].label.as_deref().unwrap())
                 .collect::<Vec<_>>(),
             vec!["left", "right"]
+        );
+    }
+
+    #[test]
+    fn any_mode_uses_the_first_applicable_rule() {
+        let definition = unconditional_branch_definition();
+
+        let result = execute(
+            &definition,
+            subject(&definition, "value"),
+            ExecutionOptions {
+                mode: ExecutionMode::Any,
+                ..ExecutionOptions::default()
+            },
+        );
+
+        assert_eq!(result.leaves.len(), 1);
+        assert_eq!(result.leaves[0].depth, 1);
+        assert!(matches!(
+            result.leaves[0].pattern.term.kind(),
+            TermKind::DomainValue { value, .. } if value.as_ref() == "left"
+        ));
+        assert_eq!(result.leaves[0].trace[0].label.as_deref(), Some("left"));
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn any_mode_passes_only_the_first_rules_remainder_to_later_rules() {
+        let definition = definition(
+            r#"
+            symbol fallback{}(SortS{}) : SortS{} [constructor{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(\dv{SortS{}}("a")),
+                    \top{SortS{}}()
+                ),
+                \dv{SortS{}}("first")
+            ) [label{}("specific")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                fallback{}(X:SortS{})
+            ) [label{}("fallback")]
+            "#,
+        );
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let result = execute_with_solver(
+            &definition,
+            Pattern {
+                term: internal_term(&definition, "wrap{}(Y:SortS{})"),
+                constraints: Vec::new(),
+            },
+            ExecutionOptions {
+                mode: ExecutionMode::Any,
+                ..ExecutionOptions::default()
+            },
+            &solver,
+        );
+
+        assert_eq!(result.leaves.len(), 2);
+        let specific = result
+            .leaves
+            .iter()
+            .find(|leaf| {
+                matches!(
+                    leaf.pattern.term.kind(),
+                    TermKind::DomainValue { value, .. } if value.as_ref() == "first"
+                )
+            })
+            .expect("the first rule should own its matching branch");
+        let fallback = result
+            .leaves
+            .iter()
+            .find(|leaf| {
+                matches!(
+                    leaf.pattern.term.kind(),
+                    TermKind::Application { symbol, .. } if symbol.name.as_ref() == "fallback"
+                )
+            })
+            .expect("the later rule should receive the first rule's remainder");
+        assert!(!specific.pattern.constraints.is_empty());
+        assert!(
+            fallback
+                .pattern
+                .constraints
+                .iter()
+                .any(|predicate| matches!(predicate, Predicate::Not(_)))
         );
     }
 

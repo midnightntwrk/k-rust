@@ -153,7 +153,8 @@ krust krun definition.k --main-module MAIN --sort Exp program.exp --depth 1000
 ```
 
 Execution explores every rewrite branch by default. Pass `--execute-to-branch` to return the
-configuration at the first branch point instead.
+configuration at the first branch point instead. Pass `--strategy any` for ordered,
+first-applicable rewriting instead of the default `--strategy all`.
 
 Search final states, every reachable state, states after exactly one step, or states after one or
 more steps:

@@ -38,7 +38,7 @@ use k_rust_backend::{
     externalize,
     proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
     rewrite::{
-        ExecutionBranchMode, ExecutionOptions, HaltReason, Pattern,
+        ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
         execute_with_solver_and_observer,
     },
     rule::Predicate,
@@ -248,6 +248,10 @@ struct KrunArgs {
     #[arg(long)]
     execute_to_branch: bool,
 
+    /// Choose all rewrites or ordered first-applicable rewriting.
+    #[arg(long, value_enum, default_value_t = ExecutionStrategyArg::All)]
+    strategy: ExecutionStrategyArg,
+
     #[command(flatten)]
     search: SearchArgs,
 
@@ -276,6 +280,10 @@ struct KoreExecArgs {
     /// Stop and return the current configuration when execution first branches.
     #[arg(long)]
     execute_to_branch: bool,
+
+    /// Choose all rewrites or ordered first-applicable rewriting.
+    #[arg(long, value_enum, default_value_t = ExecutionStrategyArg::All)]
+    strategy: ExecutionStrategyArg,
 
     #[command(flatten)]
     search: SearchArgs,
@@ -411,6 +419,22 @@ enum OutputFormat {
     Json,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
+enum ExecutionStrategyArg {
+    #[default]
+    All,
+    Any,
+}
+
+impl From<ExecutionStrategyArg> for ExecutionMode {
+    fn from(strategy: ExecutionStrategyArg) -> Self {
+        match strategy {
+            ExecutionStrategyArg::All => Self::All,
+            ExecutionStrategyArg::Any => Self::Any,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct KastOptions {
     common: CommonOptions,
@@ -428,6 +452,7 @@ struct KrunOptions {
     program_file: Option<PathBuf>,
     depth: u64,
     execute_to_branch: bool,
+    strategy: ExecutionMode,
     search: Option<KrunSearchOptions>,
 }
 
@@ -543,6 +568,7 @@ impl From<KrunArgs> for KrunOptions {
             program_file: arguments.program_file,
             depth: arguments.depth,
             execute_to_branch: arguments.execute_to_branch,
+            strategy: arguments.strategy.into(),
             search: arguments.search.into_options(),
         }
     }
@@ -709,6 +735,7 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
         },
         options.depth,
         options.execute_to_branch,
+        options.strategy,
         options.search,
     )?;
     println!("{}", KorePrinter::pretty(100).print_pattern(&output));
@@ -743,6 +770,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
         initial,
         options.depth,
         options.execute_to_branch,
+        options.strategy.into(),
         options.search.into_options(),
     )?;
     println!("{}", KorePrinter::pretty(100).print_pattern(&output));
@@ -807,6 +835,7 @@ fn run_backend(
     initial: Pattern,
     depth: u64,
     execute_to_branch: bool,
+    strategy: ExecutionMode,
     search: Option<KrunSearchOptions>,
 ) -> Result<KorePattern, Box<dyn Error>> {
     let output_sort = externalize::sort(&initial.term.sort());
@@ -863,6 +892,7 @@ fn run_backend(
         initial,
         ExecutionOptions {
             max_depth: depth,
+            mode: strategy,
             branch_mode: if execute_to_branch {
                 ExecutionBranchMode::StopAtBranch
             } else {
@@ -1408,6 +1438,8 @@ mod tests {
             "--depth",
             "42",
             "--execute-to-branch",
+            "--strategy",
+            "any",
         ])
         .unwrap();
         let Command::Krun(options) = cli.command else {
@@ -1421,6 +1453,7 @@ mod tests {
         assert_eq!(options.expression.as_deref(), Some("1 + 2"));
         assert_eq!(options.depth, 42);
         assert!(options.execute_to_branch);
+        assert_eq!(options.strategy, ExecutionMode::Any);
         assert!(options.search.is_none());
     }
 
