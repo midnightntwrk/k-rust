@@ -323,6 +323,14 @@ impl RpcService {
         if cancellation_requested() {
             return Err(RpcFault::cancelled());
         }
+        let requested_logs = params
+            .get("haskell-logging")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
         let result = match method {
             "execute" => self.execute(decode_params(params)?),
             "simplify" => self.simplify(decode_params(params)?),
@@ -339,7 +347,10 @@ impl RpcService {
         if cancellation_requested() {
             Err(RpcFault::cancelled())
         } else {
-            result
+            result.map(|mut result| {
+                attach_legacy_log_entries(method, &requested_logs, &mut result);
+                result
+            })
         }
     }
 
@@ -361,12 +372,11 @@ impl RpcService {
             step_timeout,
             assume_state_defined,
             log_successful_rewrites,
-            log_failed_rewrites: _log_failed_rewrites,
+            log_failed_rewrites,
             booster_only,
             haskell_logging,
         } = params;
         let _booster_only = booster_only;
-        reject_haskell_logging(&haskell_logging)?;
         let definition = self.definition(module.as_deref())?;
         let syntax = state.0;
         let initial = definition
@@ -439,8 +449,8 @@ impl RpcService {
         if let Some(next_states) = next_states {
             output.insert("next-states".into(), Value::Array(next_states));
         }
-        if log_successful_rewrites {
-            let logs = leaf
+        if log_successful_rewrites || log_failed_rewrites {
+            let mut logs = leaf
                 .trace
                 .iter()
                 .filter(|entry| entry.kind == TraceKind::Rewrite)
@@ -454,15 +464,30 @@ impl RpcService {
                         },
                     })
                 })
-                .collect();
-            output.insert("logs".into(), Value::Array(logs));
+                .collect::<Vec<_>>();
+            if log_failed_rewrites && let Some(failure) = failed_rewrite_log(&leaf.halt_reason) {
+                logs.push(failure);
+            }
+            if !logs.is_empty() {
+                output.insert("logs".into(), Value::Array(logs));
+            }
+        }
+        if !haskell_logging.is_empty() {
+            output.insert(
+                "haskell-log-entries".into(),
+                Value::Array(legacy_execution_log_entries(
+                    &haskell_logging,
+                    &leaf.trace,
+                    &leaf.halt_reason,
+                )),
+            );
         }
         Ok(Value::Object(output))
     }
 
     fn simplify(&mut self, params: SimplifyParams) -> Result<Value, RpcFault> {
         let _booster_only = params.booster_only;
-        reject_haskell_logging(&params.haskell_logging)?;
+        let _haskell_logging = params.haskell_logging;
         let definition = self.definition(params.module.as_deref())?;
         let syntax = params.state.0;
         let (predicate, result_sort) = definition
@@ -481,7 +506,7 @@ impl RpcService {
     }
 
     fn add_module(&mut self, params: AddModuleParams) -> Result<Value, RpcFault> {
-        reject_haskell_logging(&params.haskell_logging)?;
+        let _haskell_logging = params.haskell_logging;
         let module = parse_module(&params.module)
             .map_err(|error| RpcFault::backend(format!("could not parse module: {error}")))?;
         let id = self
@@ -493,7 +518,7 @@ impl RpcService {
 
     fn get_model(&mut self, params: GetModelParams) -> Result<Value, RpcFault> {
         let _booster_only = params.booster_only;
-        reject_haskell_logging(&params.haskell_logging)?;
+        let _haskell_logging = params.haskell_logging;
         let definition = self.definition(params.module.as_deref())?;
         let syntax = params.state.0;
         let Some((predicate, result_sort)) = definition
@@ -524,7 +549,7 @@ impl RpcService {
         // The reference proxy uses `assume-defined` as a backend-routing hint. The unified Rust
         // backend already runs the in-process implication path it selects.
         let _assume_defined = params.assume_defined;
-        reject_haskell_logging(&params.haskell_logging)?;
+        let _haskell_logging = params.haskell_logging;
         let definition = self.definition(params.module.as_deref())?;
         let antecedent = params.antecedent.0;
         let consequent = params.consequent.0;
@@ -573,6 +598,131 @@ impl RpcService {
     }
 }
 
+fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
+    let (reason, rule_id) = match reason {
+        HaltReason::Stuck => ("No applicable rules found", None),
+        HaltReason::Indeterminate(indeterminate) => match indeterminate {
+            k_rust_backend::rewrite::IndeterminateReason::Match { rule_id, .. } => {
+                ("Uncertain about unification of rule", Some(rule_id))
+            }
+            k_rust_backend::rewrite::IndeterminateReason::Requires { rule_id, .. }
+            | k_rust_backend::rewrite::IndeterminateReason::Concreteness { rule_id, .. }
+            | k_rust_backend::rewrite::IndeterminateReason::Smt { rule_id, .. } => {
+                ("Uncertain about a condition in rule", Some(rule_id))
+            }
+            k_rust_backend::rewrite::IndeterminateReason::Remainder { rule_ids, .. } => (
+                "Uncertain about the remainder after applying a rule",
+                rule_ids.first(),
+            ),
+        },
+        HaltReason::Simplification(_) => ("Internal match error", None),
+        _ => return None,
+    };
+    let mut result = Map::from_iter([
+        ("tag".into(), Value::String("failure".into())),
+        ("reason".into(), Value::String(reason.into())),
+    ]);
+    if let Some(rule_id) = rule_id {
+        result.insert("rule-id".into(), Value::String(rule_id.clone()));
+    }
+    Some(json!({
+        "tag": "rewrite",
+        "origin": "kore-rpc",
+        "result": result,
+    }))
+}
+
+fn attach_legacy_log_entries(method: &str, requested: &[String], result: &mut Value) {
+    if requested.is_empty() {
+        return;
+    }
+    let Some(result) = result.as_object_mut() else {
+        return;
+    };
+    let (method_name, method_context) = match method {
+        "execute" => ("Execute", "execute"),
+        "simplify" => ("Simplify", "simplify"),
+        "implies" => ("Implies", "implies"),
+        "add-module" => ("AddModule", "add-module"),
+        "get-model" => ("GetModel", "get-model"),
+        _ => return,
+    };
+    let mut entries = Vec::new();
+    if legacy_log_selected(requested, &["Proxy", method_name]) {
+        entries.push(json!({
+            "context": ["proxy", method_context],
+            "message": if method == "execute" {
+                "Starting execute request".to_owned()
+            } else {
+                format!("{method_context} request")
+            },
+        }));
+    }
+    if let Some(Value::Array(existing)) = result.remove("haskell-log-entries") {
+        entries.extend(existing);
+    }
+    result.insert("haskell-log-entries".into(), Value::Array(entries));
+}
+
+fn legacy_execution_log_entries(
+    requested: &[String],
+    trace: &[k_rust_backend::rewrite::TraceEntry],
+    halt_reason: &HaltReason,
+) -> Vec<Value> {
+    let mut entries = trace
+        .iter()
+        .filter_map(|entry| {
+            let (name, context) = match entry.kind {
+                TraceKind::Rewrite | TraceKind::Claim => {
+                    ("Rewrite", json!({ "rewrite": entry.unique_id }))
+                }
+                TraceKind::Simplification => (
+                    "Simplification",
+                    json!({ "simplification": entry.unique_id }),
+                ),
+                TraceKind::Remainder => ("Remainder", Value::String("remainder".into())),
+            };
+            legacy_log_selected(requested, &["Booster", "Execute", name, "Success"]).then(|| {
+                json!({
+                    "context": ["booster", "execute", context, "success"],
+                    "message": {
+                        "tag": "success",
+                        "rule-id": entry.unique_id,
+                    },
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+    if let Some(failure) = failed_rewrite_log(halt_reason) {
+        let indeterminate = matches!(halt_reason, HaltReason::Indeterminate(_));
+        let names = if indeterminate {
+            &["Booster", "Execute", "Failure", "Indeterminate", "Abort"][..]
+        } else {
+            &["Booster", "Execute", "Failure"][..]
+        };
+        if legacy_log_selected(requested, names) {
+            let result = failure["result"].clone();
+            let mut context = vec![json!("booster"), json!("execute")];
+            if let Some(rule_id) = result.get("rule-id") {
+                context.push(json!({ "rewrite": rule_id }));
+            }
+            context.push(json!("failure"));
+            if indeterminate {
+                context.push(json!("indeterminate"));
+                context.push(json!("abort"));
+            }
+            entries.push(json!({ "context": context, "message": result }));
+        }
+    }
+    entries
+}
+
+fn legacy_log_selected(requested: &[String], contexts: &[&str]) -> bool {
+    contexts
+        .iter()
+        .any(|context| requested.iter().any(|requested| requested == context))
+}
+
 fn decode_params<T: for<'de> Deserialize<'de>>(params: Value) -> Result<T, RpcFault> {
     serde_json::from_value(params.clone()).map_err(|_| RpcFault::invalid_params(params))
 }
@@ -583,16 +733,6 @@ fn parse_json_value(source: &str) -> serde_json::Result<Value> {
     let value = Value::deserialize(&mut deserializer)?;
     deserializer.end()?;
     Ok(value)
-}
-
-fn reject_haskell_logging(entries: &[String]) -> Result<(), RpcFault> {
-    if entries.is_empty() {
-        Ok(())
-    } else {
-        Err(RpcFault::backend(
-            "Haskell log entry selection is not supported by the Rust backend",
-        ))
-    }
 }
 
 fn encode_kore(pattern: &KorePattern) -> Result<Value, RpcFault> {
@@ -1146,6 +1286,137 @@ mod tests {
     }
 
     #[test]
+    fn emits_failed_rewrite_logs_only_when_a_step_actually_fails() {
+        let mut service = service();
+        let state = encode_kore(&parse_pattern("state{}()").unwrap()).unwrap();
+        let response = request(
+            &mut service,
+            1,
+            "execute",
+            json!({
+                "state": state,
+                "log-successful-rewrites": true,
+                "log-failed-rewrites": true,
+            }),
+        );
+
+        assert_eq!(
+            response["result"]["logs"],
+            json!([
+                {
+                    "tag": "rewrite",
+                    "origin": "kore-rpc",
+                    "result": {
+                        "tag": "success",
+                        "rule-id": "rule-id",
+                    },
+                },
+                {
+                    "tag": "rewrite",
+                    "origin": "kore-rpc",
+                    "result": {
+                        "tag": "failure",
+                        "reason": "No applicable rules found",
+                    },
+                },
+            ])
+        );
+
+        let next = encode_kore(&parse_pattern("next{}()").unwrap()).unwrap();
+        let without_failures = request(
+            &mut service,
+            2,
+            "execute",
+            json!({
+                "state": next,
+                "log-successful-rewrites": true,
+            }),
+        );
+        assert!(without_failures["result"].get("logs").is_none());
+    }
+
+    #[test]
+    fn failed_rewrite_logs_preserve_the_uncertain_rule_id() {
+        let log = failed_rewrite_log(&HaltReason::Indeterminate(
+            k_rust_backend::rewrite::IndeterminateReason::Match {
+                rule_id: "uncertain-rule".into(),
+                substitution: Substitution::new(),
+                remainder: Vec::new(),
+            },
+        ))
+        .unwrap();
+
+        assert_eq!(log["result"]["tag"], "failure");
+        assert_eq!(
+            log["result"]["reason"],
+            "Uncertain about unification of rule"
+        );
+        assert_eq!(log["result"]["rule-id"], "uncertain-rule");
+    }
+
+    #[test]
+    fn captures_selected_legacy_context_logs_in_band() {
+        let mut service = service();
+        let state = encode_kore(&parse_pattern("state{}()").unwrap()).unwrap();
+        let proxy = request(
+            &mut service,
+            1,
+            "execute",
+            json!({
+                "state": state,
+                "max-depth": 1,
+                "haskell-logging": ["Proxy"],
+            }),
+        );
+        let proxy_entries = proxy["result"]["haskell-log-entries"].as_array().unwrap();
+        assert!(!proxy_entries.is_empty());
+        assert!(proxy_entries.iter().all(|entry| {
+            entry["context"]
+                .as_array()
+                .is_some_and(|context| context.iter().any(|part| part == "proxy"))
+        }));
+
+        let rewrite = request(
+            &mut service,
+            2,
+            "execute",
+            json!({
+                "state": state,
+                "max-depth": 1,
+                "haskell-logging": ["Rewrite"],
+            }),
+        );
+        assert_eq!(
+            rewrite["result"]["haskell-log-entries"][0]["context"][2]["rewrite"],
+            "rule-id"
+        );
+        assert_eq!(
+            rewrite["result"]["haskell-log-entries"][0]["message"]["tag"],
+            "success"
+        );
+
+        let unknown = request(
+            &mut service,
+            3,
+            "execute",
+            json!({
+                "state": state,
+                "max-depth": 1,
+                "haskell-logging": ["UnknownEntryType"],
+            }),
+        );
+        assert_eq!(unknown["result"]["haskell-log-entries"], json!([]));
+
+        let control = request(
+            &mut service,
+            4,
+            "execute",
+            json!({ "state": state, "max-depth": 1 }),
+        );
+        assert!(control["result"].get("haskell-log-entries").is_none());
+    }
+
+    #[test]
     fn projects_solved_configuration_equalities_as_substitutions() {
         let sort = BackendSort::simple("SortState");
         let variable = Variable::new("X", sort.clone());
@@ -1197,8 +1468,19 @@ mod tests {
         .unwrap();
         let model_state = trivial_model_state();
 
-        let simplify = request(&mut service, 1, "simplify", json!({ "state": state }));
+        let simplify = request(
+            &mut service,
+            1,
+            "simplify",
+            json!({ "state": state, "haskell-logging": ["Simplify"] }),
+        );
         assert_eq!(simplify["result"]["state"]["term"]["tag"], "App");
+        assert!(
+            !simplify["result"]["haskell-log-entries"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
 
         let implies = request(
             &mut service,
