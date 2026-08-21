@@ -144,12 +144,13 @@ fn simplify_predicates_with_budget(
                     assumptions.push(assumption.clone());
                 }
             }
+            let mut predicate_remaining = *remaining;
             simplify_predicate_with_budget(
                 definition,
                 predicate,
                 &assumptions,
                 limit,
-                remaining,
+                &mut predicate_remaining,
                 active_conditions,
                 solver,
             )
@@ -326,13 +327,14 @@ fn simplify_predicate_with_budget(
     ) {
         return Ok(Predicate::False);
     }
-    let mut simplify_term = |term: &Term| {
+    let simplify_term = |term: &Term| {
+        let mut term_remaining = *remaining;
         simplify_with_budget(
             definition,
             term,
             known_predicates,
             limit,
-            remaining,
+            &mut term_remaining,
             active_conditions,
             solver,
         )
@@ -357,22 +359,26 @@ fn simplify_predicate_with_budget(
         }
         Predicate::Floor(term) => Predicate::Floor(simplify_term(term)?),
         Predicate::In(left, right) => Predicate::In(simplify_term(left)?, simplify_term(right)?),
-        Predicate::Not(inner) => Predicate::Not(Box::new(simplify_predicate_with_budget(
-            definition,
-            inner,
-            known_predicates,
-            limit,
-            remaining,
-            active_conditions,
-            solver,
-        )?)),
+        Predicate::Not(inner) => {
+            let mut inner_remaining = *remaining;
+            Predicate::Not(Box::new(simplify_predicate_with_budget(
+                definition,
+                inner,
+                known_predicates,
+                limit,
+                &mut inner_remaining,
+                active_conditions,
+                solver,
+            )?))
+        }
         Predicate::And(inner) => {
+            let mut inner_remaining = *remaining;
             let inner = simplify_predicates_with_budget(
                 definition,
                 inner,
                 known_predicates,
                 limit,
-                remaining,
+                &mut inner_remaining,
                 active_conditions,
                 solver,
             )?;
@@ -382,12 +388,13 @@ fn simplify_predicate_with_budget(
             let inner = inner
                 .iter()
                 .map(|predicate| {
+                    let mut predicate_remaining = *remaining;
                     simplify_predicate_with_budget(
                         definition,
                         predicate,
                         known_predicates,
                         limit,
-                        remaining,
+                        &mut predicate_remaining,
                         active_conditions,
                         solver,
                     )
@@ -396,21 +403,23 @@ fn simplify_predicate_with_budget(
             Predicate::Or(inner)
         }
         Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            let mut left_remaining = *remaining;
             let left = simplify_predicate_with_budget(
                 definition,
                 left,
                 known_predicates,
                 limit,
-                remaining,
+                &mut left_remaining,
                 active_conditions,
                 solver,
             )?;
+            let mut right_remaining = *remaining;
             let right = simplify_predicate_with_budget(
                 definition,
                 right,
                 known_predicates,
                 limit,
-                remaining,
+                &mut right_remaining,
                 active_conditions,
                 solver,
             )?;
@@ -421,12 +430,13 @@ fn simplify_predicate_with_budget(
             }
         }
         Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
+            let mut inner_remaining = *remaining;
             let inner = simplify_predicate_with_budget(
                 definition,
                 inner,
                 known_predicates,
                 limit,
-                remaining,
+                &mut inner_remaining,
                 active_conditions,
                 solver,
             )?;
@@ -1242,12 +1252,17 @@ fn simplify_children(
     let mut applied_rules = Vec::new();
     let mut effects = Vec::new();
     let mut child = |term: &Term| {
+        // The iteration limit bounds one fixed-point lineage, not the total amount of productive
+        // work in an entire term. Siblings receive independent copies of the current budget, while
+        // descendants produced by a rewrite inherit that rewrite's reduced budget. This permits
+        // wide finite constructor trees without allowing an expanding equation to reset its cap.
+        let mut child_remaining = *remaining;
         let result = simplify_with_budget(
             definition,
             term,
             known_predicates,
             limit,
-            remaining,
+            &mut child_remaining,
             active_conditions,
             solver,
         )?;
@@ -1636,6 +1651,7 @@ mod tests {
             module MAIN
                 sort SortS{{}} [hasDomainValues{{}}()]
                 symbol wrap{{}}(SortS{{}}) : SortS{{}} [constructor{{}}()]
+                symbol budgetPair{{}}(SortS{{}}, SortS{{}}) : SortS{{}} [constructor{{}}()]
                 symbol f{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
                 {axioms}
             endmodule []"#
@@ -2510,5 +2526,56 @@ mod tests {
             ),
             Err(SimplificationError::IterationLimit { limit: 3, .. })
         ));
+    }
+
+    #[test]
+    fn iteration_limit_is_local_to_each_fixed_point_chain() {
+        // Distilled from the pinned backend's function-evaluation-demo/NatList.demo: that finite
+        // computation performs well over 100 reductions across independent constructor branches.
+        let definition = definition(IDENTITY);
+        let mut inputs = vec![r#"f{}(\dv{SortS{}}("value"))"#.to_owned(); 128];
+        let mut expected = vec![r#"\dv{SortS{}}("value")"#.to_owned(); 128];
+        while inputs.len() > 1 {
+            inputs = inputs
+                .chunks_exact(2)
+                .map(|pair| format!("budgetPair{{}}({}, {})", pair[0], pair[1]))
+                .collect();
+            expected = expected
+                .chunks_exact(2)
+                .map(|pair| format!("budgetPair{{}}({}, {})", pair[0], pair[1]))
+                .collect();
+        }
+        let input = term(&definition, &inputs[0]);
+        let expected = term(&definition, &expected[0]);
+
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+        assert_eq!(result.term, expected);
+        assert_eq!(result.applied_rules.len(), 128);
+    }
+
+    #[test]
+    fn predicate_iteration_limit_is_local_to_each_branch() {
+        let definition = definition(IDENTITY);
+        let value = term(&definition, r#"\dv{SortS{}}("value")"#);
+        let predicates = (0..128)
+            .map(|_| {
+                Predicate::Equals(
+                    term(&definition, r#"f{}(\dv{SortS{}}("value"))"#),
+                    value.clone(),
+                )
+            })
+            .collect();
+
+        let result = simplify_predicate_with_solver(
+            &definition,
+            &Predicate::Or(predicates),
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(result, Predicate::True);
     }
 }
