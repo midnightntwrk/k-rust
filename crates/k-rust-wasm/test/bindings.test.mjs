@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import {
+  compileBackend,
   compileDefinition,
+  createBackend,
   default as init,
   formatKoreDefinition,
   parseKast,
@@ -15,6 +17,26 @@ import {
 
 const bytes = readFileSync(new URL('../generated/bindings_bg.wasm', import.meta.url))
 await init(bytes)
+
+const backendDefinition = String.raw`[]
+module MAIN
+  sort SortS{} []
+  symbol a{}() : SortS{} [constructor{}()]
+  symbol b{}() : SortS{} [constructor{}()]
+  symbol c{}() : SortS{} [constructor{}()]
+  axiom{} \rewrites{SortS{}}(
+    \and{SortS{}}(a{}(), \top{SortS{}}()),
+    \and{SortS{}}(b{}(), \top{SortS{}}())
+  ) [label{}("a-to-b")]
+  axiom{} \rewrites{SortS{}}(
+    \and{SortS{}}(b{}(), \top{SortS{}}()),
+    \and{SortS{}}(c{}(), \top{SortS{}}())
+  ) [label{}("b-to-c")]
+  claim{} \implies{SortS{}}(
+    \and{SortS{}}(\top{SortS{}}(), a{}()),
+    weakExistsFinally{SortS{}}(\and{SortS{}}(c{}(), \top{SortS{}}()))
+  ) [label{}("reaches-c")]
+endmodule []`
 
 test('compiles a portable definition into all KORE artifacts', () => {
   const compiled = compileDefinition({
@@ -141,4 +163,38 @@ test('round-trips KAST and KORE through typed JSON', () => {
     formatKoreDefinition('[] module TEST sort S{} [] endmodule []'),
     /module TEST[\s\S]*sort S\{\}/,
   )
+})
+
+test('runs portable backend operations and reports the SMT boundary', () => {
+  const backend = createBackend({ definitionKore: backendDefinition, moduleName: 'MAIN' })
+  const a = parseKore('a{}()').kore
+  const c = parseKore('c{}()').kore
+
+  assert.equal(backend.capabilities.smt, false)
+  assert.equal(printKore(backend.execute({ state: a, maxDepth: 2 }).leaves[0].state), 'c{}()')
+  assert.equal(printKore(backend.simplify({ state: a })), 'a{}()')
+  assert.equal(backend.implies({ antecedent: c, consequent: c }).status, 'valid')
+  assert.equal(backend.prove({ claim: 'reaches-c' }).status, 'proven')
+  assert.throws(
+    () => backend.getModel({ state: parseKore('\\top{SortS{}}()').kore }),
+    /no Z3|SMT-enabled native build/i,
+  )
+  assert.throws(
+    () => backend.execute({ state: a, stepTimeoutMs: 10 }),
+    /monotonic clock|step timeouts/i,
+  )
+  backend.free()
+})
+
+test('compileBackend compiles and creates a portable session', () => {
+  const backend = compileBackend({
+    definition: `module MAIN
+      syntax State ::= "a" [symbol(a)]
+    endmodule`,
+    moduleName: 'MAIN',
+    includePrelude: false,
+  })
+  assert.equal(backend.capabilities.execution, true)
+  assert.equal(backend.capabilities.smt, false)
+  backend.free()
 })

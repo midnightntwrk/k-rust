@@ -322,6 +322,11 @@ pipeline as `krust kcompile` without filesystem output. It returns `definitionKo
 functions remain available from `native.js` for hosts that want the lowest possible wrapper
 overhead.
 
+`compileBackend(options)` compiles and immediately creates a persistent native backend;
+`createBackend({ definitionKore, moduleName })` starts from existing KORE. The backend exposes
+execution, simplification, implication checking, model generation, reachability proving, and
+stateful module addition. Native sessions cache Z3 preludes per selected module.
+
 ## WebAssembly and TypeScript
 
 The separate `@midnightntwrk/k-rust-wasm` package exposes the portable frontend through standard
@@ -362,6 +367,10 @@ artifacts. Definitions that require native Z3 inference return an explicit unsup
 error rather than silently choosing a different result. Because the standard prelude itself needs
 Z3 while parsing rules, the WASM package defaults `includePrelude` to `false`; portable dependencies
 must be passed explicitly through `sources`.
+
+The WASM facade also exports `compileBackend` and `createBackend` with the same persistent API.
+Concrete execution and proofs work in-process; `capabilities.smt` and `capabilities.stepTimeouts`
+are `false`, and SMT-only model generation or host-clock-dependent timeouts fail explicitly.
 
 ## Compatibility evidence
 
@@ -429,7 +438,8 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 - Context/freezer labels are semantically equivalent but can differ in numeric suffix assignment
   from Java when Java's `HashSet` traversal changes encounter order. The exact corpus does not
   normalize arbitrary user labels.
-- The WASM-compatible feature set intentionally omits Z3 inference and MPFR constant folding.
+- The WASM-compatible feature set intentionally omits Z3 inference, MPFR constant folding, and
+  host-clock-dependent step timeouts.
 - Coverage instrumentation and the optional unsafe-`anywhere` removal mode are not exposed by the
   CLI. They are identity stages unless explicitly requested in Java.
 - LSP, `kserver`, and Bison parser generation are outside the current CLI scope.

@@ -1,5 +1,7 @@
 import initBindings, {
+  compileBackendWasm,
   compileDefinitionWasm,
+  createBackendWasm,
   formatKoreDefinitionWasm,
   initSync as initBindingsSync,
   parseKastWasm,
@@ -7,6 +9,7 @@ import initBindings, {
   parseProgramWasm,
   printKastWasm,
   printKoreWasm,
+  WasmBackend as WasmBackendBinding,
 } from '../generated/bindings.js'
 
 export interface KastSort {
@@ -143,6 +146,151 @@ export interface SerializedKore {
   kore: Kore
 }
 
+export interface BackendCapabilities {
+  execution: boolean
+  simplification: boolean
+  implication: boolean
+  modelGeneration: boolean
+  proving: boolean
+  moduleAddition: boolean
+  smt: boolean
+  stepTimeouts: boolean
+}
+
+export interface CreateBackendOptions {
+  definitionKore: string
+  moduleName: string
+  smtTimeoutMs?: number
+  smtRetryLimit?: number
+}
+
+export interface ExecuteOptions {
+  state: Kore
+  moduleName?: string
+  maxDepth?: number
+  maxBreadth?: number
+  maxSimplificationIterations?: number
+  strategy?: 'all' | 'any'
+  stopAtBranch?: boolean
+  cutPointRules?: string[]
+  terminalRules?: string[]
+  stepTimeoutMs?: number
+  movingAverageTimeout?: boolean
+  assumeStateDefined?: boolean
+}
+
+export interface BackendTraceEntry {
+  depth: number
+  kind: 'simplification' | 'rewrite' | 'claim' | 'remainder'
+  label?: string
+  uniqueId: string
+}
+
+export interface ExecutionLeaf {
+  state: Kore
+  depth: number
+  reason: string
+  detail?: string
+  trace: BackendTraceEntry[]
+}
+
+export interface ExecutionResult {
+  leaves: ExecutionLeaf[]
+}
+
+export interface PatternOptions {
+  state: Kore
+  moduleName?: string
+}
+
+export interface ImplicationOptions {
+  antecedent: Kore
+  consequent: Kore
+  moduleName?: string
+}
+
+export interface ImplicationResult {
+  status: 'valid' | 'invalid' | 'unknown'
+  condition?: Kore
+  failure?: string
+}
+
+export interface ModelResult {
+  satisfiable: 'sat' | 'unsat' | 'unknown'
+  substitution?: Kore
+  reason?: string
+}
+
+export interface ProveOptions {
+  moduleName?: string
+  claim?: string
+  maxDepth?: number
+  minDepth?: number
+  breadthLimit?: number
+  maxCounterexamples?: number
+  maxSimplificationIterations?: number
+  allowVacuous?: boolean
+  depthFirst?: boolean
+  stuckCheck?: boolean
+  stepTimeoutMs?: number
+  movingAverageTimeout?: boolean
+}
+
+export interface ProofLeaf {
+  state: Kore
+  depth: number
+  outcome: string
+}
+
+export interface ProofResult {
+  claim: string
+  status: 'proven' | 'disproved' | 'indeterminate' | 'depth-bound' | 'breadth-bound'
+  exploredStates: number
+  unexploredStates: number
+  leaves: ProofLeaf[]
+}
+
+/** A persistent portable backend. Check `capabilities.smt` before SMT-only operations. */
+export class Backend {
+  readonly #wasm: WasmBackendBinding
+
+  constructor(wasm: WasmBackendBinding) {
+    this.#wasm = wasm
+  }
+
+  get capabilities(): BackendCapabilities {
+    return JSON.parse(this.#wasm.capabilities) as BackendCapabilities
+  }
+
+  execute(options: ExecuteOptions): ExecutionResult {
+    return JSON.parse(this.#wasm.execute(JSON.stringify(options))) as ExecutionResult
+  }
+
+  simplify(options: PatternOptions): Kore {
+    return JSON.parse(this.#wasm.simplify(JSON.stringify(options))) as Kore
+  }
+
+  implies(options: ImplicationOptions): ImplicationResult {
+    return JSON.parse(this.#wasm.implies(JSON.stringify(options))) as ImplicationResult
+  }
+
+  getModel(options: PatternOptions): ModelResult {
+    return JSON.parse(this.#wasm.getModel(JSON.stringify(options))) as ModelResult
+  }
+
+  prove(options: ProveOptions = {}): ProofResult {
+    return JSON.parse(this.#wasm.prove(JSON.stringify(options))) as ProofResult
+  }
+
+  addModule(module: string, options: { nameAsId?: boolean } = {}): string {
+    return this.#wasm.addModule(module, options.nameAsId)
+  }
+
+  free(): void {
+    this.#wasm.free()
+  }
+}
+
 export type WasmInitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module
 
 let initialized = false
@@ -163,6 +311,25 @@ export default init
 export function initSync(module: BufferSource | WebAssembly.Module): void {
   initBindingsSync({ module })
   initialized = true
+}
+
+/** Create a persistent portable backend from compiled textual KORE. */
+export function createBackend(options: CreateBackendOptions): Backend {
+  assertInitialized()
+  return new Backend(createBackendWasm(JSON.stringify(options)))
+}
+
+/** Compile an in-memory K definition and immediately create its persistent backend. */
+export function compileBackend(options: CompileDefinitionOptions): Backend {
+  assertInitialized()
+  return new Backend(
+    compileBackendWasm(
+      JSON.stringify({
+        ...options,
+        sources: normalizeSources(options.sources),
+      }),
+    ),
+  )
 }
 
 /** Parse a concrete K program with an in-memory definition and virtual source graph. */

@@ -66,6 +66,37 @@ The package exposes `initSync` for hosts that load the packaged `.wasm` bytes th
 is synchronous after initialization; use a worker when large or untrusted definitions must not
 block the main thread.
 
+## Backend example
+
+`compileBackend` compiles K source and creates a reusable in-process backend. `createBackend`
+accepts an already compiled textual KORE definition instead.
+
+```typescript
+import init, { compileBackend } from '@midnightntwrk/k-rust-wasm'
+
+await init()
+
+const backend = compileBackend({
+  definition: `
+    module REACHABILITY
+      syntax State ::= "a" [symbol(a)]
+    endmodule
+  `,
+  moduleName: 'REACHABILITY',
+  includePrelude: false,
+})
+
+console.log(backend.capabilities) // includes smt: false
+backend.free()
+```
+
+Portable `execute`, `simplify`, `implies`, `prove`, and `addModule` operations are available.
+Reachability claims present in portable input KORE can therefore be proved without leaving WASM.
+`getModel` always throws an actionable SMT capability error, and operations that actually require
+an SMT decision report an indeterminate/error result instead of pretending to have native Z3.
+Step timeouts are also unavailable because `wasm32-unknown-unknown` has no host monotonic clock;
+inspect `backend.capabilities` before enabling optional behavior.
+
 This portable build intentionally excludes native Z3 inference and MPFR folding. Parsing or
 compilation that needs Z3 returns an explicit error instead of silently changing semantics. The
 standard prelude itself needs Z3 during rule parsing, so this package defaults `includePrelude` to

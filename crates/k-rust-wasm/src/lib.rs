@@ -3,6 +3,9 @@
 use std::{collections::BTreeMap, path::Path};
 
 use k_rust::{
+    backend::{
+        Backend, BackendOptions, ExecuteRequest, ImplicationRequest, PatternRequest, ProveRequest,
+    },
     definition::checks::check_definition,
     diagnostic::{Diagnostic, Severity},
     inner::ProgramParser,
@@ -49,6 +52,15 @@ struct CompileDefinitionOptions {
     markdown_selector: Option<String>,
     include_prelude: Option<bool>,
     kore_width: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateBackendOptions {
+    definition_kore: String,
+    module_name: String,
+    smt_timeout_ms: Option<u32>,
+    smt_retry_limit: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -99,6 +111,91 @@ struct WasmDiagnostic {
     start_column: Option<u32>,
     end_line: Option<u32>,
     end_column: Option<u32>,
+}
+
+/// A persistent portable backend. SMT-dependent operations report an explicit capability error.
+#[wasm_bindgen]
+pub struct WasmBackend {
+    inner: Backend,
+}
+
+#[wasm_bindgen]
+impl WasmBackend {
+    #[wasm_bindgen(getter)]
+    pub fn capabilities(&self) -> Result<String, JsError> {
+        serialize(&self.inner.capabilities()).map_err(js_error)
+    }
+
+    pub fn execute(&mut self, options: &str) -> Result<String, JsError> {
+        let request = serde_json::from_str::<ExecuteRequest>(options).map_err(js_error)?;
+        serialize(&self.inner.execute(request).map_err(js_error)?).map_err(js_error)
+    }
+
+    pub fn simplify(&mut self, options: &str) -> Result<String, JsError> {
+        let request = serde_json::from_str::<PatternRequest>(options).map_err(js_error)?;
+        serialize(&self.inner.simplify(request).map_err(js_error)?).map_err(js_error)
+    }
+
+    pub fn implies(&mut self, options: &str) -> Result<String, JsError> {
+        let request = serde_json::from_str::<ImplicationRequest>(options).map_err(js_error)?;
+        serialize(&self.inner.implies(request).map_err(js_error)?).map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = getModel)]
+    pub fn get_model(&mut self, options: &str) -> Result<String, JsError> {
+        let request = serde_json::from_str::<PatternRequest>(options).map_err(js_error)?;
+        serialize(&self.inner.get_model(request).map_err(js_error)?).map_err(js_error)
+    }
+
+    pub fn prove(&mut self, options: &str) -> Result<String, JsError> {
+        let request = serde_json::from_str::<ProveRequest>(options).map_err(js_error)?;
+        serialize(&self.inner.prove(request).map_err(js_error)?).map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = addModule)]
+    pub fn add_module(
+        &mut self,
+        module: &str,
+        name_as_id: Option<bool>,
+    ) -> Result<String, JsError> {
+        self.inner
+            .add_module(module, name_as_id.unwrap_or(false))
+            .map_err(js_error)
+    }
+}
+
+/// Create a persistent portable backend from an already compiled textual KORE definition.
+#[wasm_bindgen(js_name = createBackendWasm)]
+pub fn create_backend_wasm(options: &str) -> Result<WasmBackend, JsError> {
+    let options: CreateBackendOptions = serde_json::from_str(options).map_err(js_error)?;
+    let defaults = BackendOptions::default();
+    let inner = Backend::new(
+        &options.definition_kore,
+        options.module_name,
+        BackendOptions {
+            smt_timeout_ms: options.smt_timeout_ms.unwrap_or(defaults.smt_timeout_ms),
+            smt_retry_limit: options.smt_retry_limit.unwrap_or(defaults.smt_retry_limit),
+        },
+    )
+    .map_err(js_error)?;
+    Ok(WasmBackend { inner })
+}
+
+/// Compile an in-memory K definition and immediately create its portable backend.
+#[wasm_bindgen(js_name = compileBackendWasm)]
+pub fn compile_backend_wasm(options: &str) -> Result<WasmBackend, JsError> {
+    let module_name = serde_json::from_str::<CompileDefinitionOptions>(options)
+        .map_err(js_error)?
+        .module_name;
+    let compiled = compile_definition(options).map_err(js_error)?;
+    let compiled: Value = serde_json::from_str(&compiled).map_err(js_error)?;
+    let definition_kore = compiled
+        .get("definitionKore")
+        .and_then(Value::as_str)
+        .ok_or_else(|| JsError::new("compiler output did not contain definitionKore"))?;
+    let inner =
+        Backend::new(definition_kore, module_name, BackendOptions::default()).map_err(js_error)?;
+    Ok(WasmBackend { inner })
 }
 
 /// Compile an in-memory K definition into backend-facing KORE artifacts.
