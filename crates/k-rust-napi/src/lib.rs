@@ -1,8 +1,11 @@
 //! Node-API bindings for the user-facing parts of the `k-rust` frontend.
 
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, path::Path, sync::Mutex};
 
 use k_rust::{
+    backend::{
+        Backend, BackendOptions, ExecuteRequest, ImplicationRequest, PatternRequest, ProveRequest,
+    },
     builtin::embedded,
     definition::checks::check_definition,
     diagnostic::{Diagnostic, Severity},
@@ -89,6 +92,104 @@ pub struct NativeCompiledDefinition {
     pub syntax_definition_kore: String,
     pub macros_kore: String,
     pub diagnostics: Vec<NativeDiagnostic>,
+}
+
+#[napi(object)]
+pub struct NativeCreateBackendOptions {
+    pub definition_kore: String,
+    pub module_name: String,
+    pub smt_timeout_ms: Option<u32>,
+    pub smt_retry_limit: Option<u32>,
+}
+
+/// A persistent, Z3-enabled in-process backend.
+#[napi]
+pub struct NativeBackend {
+    inner: Mutex<Backend>,
+}
+
+#[napi]
+impl NativeBackend {
+    #[napi(getter)]
+    pub fn capabilities(&self) -> Result<String> {
+        serialize_native(&self.lock()?.capabilities())
+    }
+
+    #[napi]
+    pub fn execute(&self, options: String) -> Result<String> {
+        let request = deserialize_native::<ExecuteRequest>(&options)?;
+        serialize_native(&self.lock()?.execute(request).map_err(napi_error)?)
+    }
+
+    #[napi]
+    pub fn simplify(&self, options: String) -> Result<String> {
+        let request = deserialize_native::<PatternRequest>(&options)?;
+        serialize_native(&self.lock()?.simplify(request).map_err(napi_error)?)
+    }
+
+    #[napi]
+    pub fn implies(&self, options: String) -> Result<String> {
+        let request = deserialize_native::<ImplicationRequest>(&options)?;
+        serialize_native(&self.lock()?.implies(request).map_err(napi_error)?)
+    }
+
+    #[napi(js_name = "getModel")]
+    pub fn get_model(&self, options: String) -> Result<String> {
+        let request = deserialize_native::<PatternRequest>(&options)?;
+        serialize_native(&self.lock()?.get_model(request).map_err(napi_error)?)
+    }
+
+    #[napi]
+    pub fn prove(&self, options: String) -> Result<String> {
+        let request = deserialize_native::<ProveRequest>(&options)?;
+        serialize_native(&self.lock()?.prove(request).map_err(napi_error)?)
+    }
+
+    #[napi(js_name = "addModule")]
+    pub fn add_module(&self, module: String, name_as_id: Option<bool>) -> Result<String> {
+        self.lock()?
+            .add_module(&module, name_as_id.unwrap_or(false))
+            .map_err(napi_error)
+    }
+}
+
+impl NativeBackend {
+    fn lock(&self) -> Result<std::sync::MutexGuard<'_, Backend>> {
+        self.inner
+            .lock()
+            .map_err(|_| Error::from_reason("backend session lock was poisoned"))
+    }
+}
+
+/// Create a persistent backend from an already compiled textual KORE definition.
+#[napi]
+pub fn create_backend_native(options: NativeCreateBackendOptions) -> Result<NativeBackend> {
+    let defaults = BackendOptions::default();
+    let backend = Backend::new(
+        &options.definition_kore,
+        options.module_name,
+        BackendOptions {
+            smt_timeout_ms: options.smt_timeout_ms.unwrap_or(defaults.smt_timeout_ms),
+            smt_retry_limit: options.smt_retry_limit.unwrap_or(defaults.smt_retry_limit),
+        },
+    )
+    .map_err(napi_error)?;
+    Ok(NativeBackend {
+        inner: Mutex::new(backend),
+    })
+}
+
+/// Compile an in-memory K definition and immediately create its persistent backend.
+#[napi]
+pub fn compile_backend_native(options: NativeCompileDefinitionOptions) -> Result<NativeBackend> {
+    let module_name = options.module_name.clone();
+    let compiled = compile_definition_native(options)?;
+    create_backend_native(NativeCreateBackendOptions {
+        definition_kore: compiled.definition_kore,
+        module_name,
+        smt_timeout_ms: None,
+        smt_retry_limit: None,
+    })
 }
 
 /// Compile an in-memory K definition into backend-facing KORE artifacts.
@@ -237,6 +338,14 @@ fn kore_printer(width: Option<u32>) -> KorePrinter {
 
 fn napi_error(error: impl std::fmt::Display) -> Error {
     Error::from_reason(error.to_string())
+}
+
+fn deserialize_native<T: serde::de::DeserializeOwned>(json: &str) -> Result<T> {
+    serde_json::from_str(json).map_err(napi_error)
+}
+
+fn serialize_native(value: &impl serde::Serialize) -> Result<String> {
+    serde_json::to_string(value).map_err(napi_error)
 }
 
 fn compile_error(error: CompileError) -> Error {

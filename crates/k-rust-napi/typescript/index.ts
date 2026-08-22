@@ -1,11 +1,14 @@
 import {
+  compileBackendNative,
   compileDefinitionNative,
+  createBackendNative,
   formatKoreDefinitionNative,
   parseKastNative,
   parseKoreNative,
   parseProgramNative,
   printKastNative,
   printKoreNative,
+  type NativeBackend,
   type NativeDiagnostic,
   type NativeCompileDefinitionOptions,
   type NativeParseProgramOptions,
@@ -137,6 +140,176 @@ export interface SerializedKast {
 export interface SerializedKore {
   text: string
   kore: Kore
+}
+
+export interface BackendCapabilities {
+  execution: boolean
+  simplification: boolean
+  implication: boolean
+  modelGeneration: boolean
+  proving: boolean
+  moduleAddition: boolean
+  smt: boolean
+  stepTimeouts: boolean
+}
+
+export interface CreateBackendOptions {
+  definitionKore: string
+  moduleName: string
+  smtTimeoutMs?: number
+  smtRetryLimit?: number
+}
+
+export type ExecutionStrategy = 'all' | 'any'
+
+export interface ExecuteOptions {
+  state: Kore
+  moduleName?: string
+  maxDepth?: number
+  maxBreadth?: number
+  maxSimplificationIterations?: number
+  strategy?: ExecutionStrategy
+  stopAtBranch?: boolean
+  cutPointRules?: string[]
+  terminalRules?: string[]
+  stepTimeoutMs?: number
+  movingAverageTimeout?: boolean
+  assumeStateDefined?: boolean
+}
+
+export interface BackendTraceEntry {
+  depth: number
+  kind: 'simplification' | 'rewrite' | 'claim' | 'remainder'
+  label?: string
+  uniqueId: string
+}
+
+export interface ExecutionLeaf {
+  state: Kore
+  depth: number
+  reason:
+    | 'cancelled'
+    | 'stuck'
+    | 'trivial'
+    | 'vacuous'
+    | 'branch'
+    | 'cut-point'
+    | 'terminal'
+    | 'depth-bound'
+    | 'breadth-bound'
+    | 'indeterminate'
+    | 'simplification-error'
+    | 'timeout'
+  detail?: string
+  trace: BackendTraceEntry[]
+}
+
+export interface ExecutionResult {
+  leaves: ExecutionLeaf[]
+}
+
+export interface PatternOptions {
+  state: Kore
+  moduleName?: string
+}
+
+export interface ImplicationOptions {
+  antecedent: Kore
+  consequent: Kore
+  moduleName?: string
+}
+
+export interface ImplicationResult {
+  status: 'valid' | 'invalid' | 'unknown'
+  condition?: Kore
+  failure?: string
+}
+
+export interface ModelResult {
+  satisfiable: 'sat' | 'unsat' | 'unknown'
+  substitution?: Kore
+  reason?: string
+}
+
+export interface ProveOptions {
+  moduleName?: string
+  /** Claim label, unique id, or zero-based `#index`. Optional when there is exactly one claim. */
+  claim?: string
+  maxDepth?: number
+  minDepth?: number
+  breadthLimit?: number
+  maxCounterexamples?: number
+  maxSimplificationIterations?: number
+  allowVacuous?: boolean
+  depthFirst?: boolean
+  stuckCheck?: boolean
+  stepTimeoutMs?: number
+  movingAverageTimeout?: boolean
+}
+
+export interface ProofLeaf {
+  state: Kore
+  depth: number
+  outcome: string
+}
+
+export interface ProofResult {
+  claim: string
+  status: 'proven' | 'disproved' | 'indeterminate' | 'depth-bound' | 'breadth-bound'
+  exploredStates: number
+  unexploredStates: number
+  leaves: ProofLeaf[]
+}
+
+/** A persistent native backend with cached parsed modules and Z3 preludes. */
+export class Backend {
+  readonly #native: NativeBackend
+
+  constructor(native: NativeBackend) {
+    this.#native = native
+  }
+
+  get capabilities(): BackendCapabilities {
+    return JSON.parse(this.#native.capabilities) as BackendCapabilities
+  }
+
+  execute(options: ExecuteOptions): ExecutionResult {
+    return JSON.parse(this.#native.execute(JSON.stringify(options))) as ExecutionResult
+  }
+
+  simplify(options: PatternOptions): Kore {
+    return JSON.parse(this.#native.simplify(JSON.stringify(options))) as Kore
+  }
+
+  implies(options: ImplicationOptions): ImplicationResult {
+    return JSON.parse(this.#native.implies(JSON.stringify(options))) as ImplicationResult
+  }
+
+  getModel(options: PatternOptions): ModelResult {
+    return JSON.parse(this.#native.getModel(JSON.stringify(options))) as ModelResult
+  }
+
+  prove(options: ProveOptions = {}): ProofResult {
+    return JSON.parse(this.#native.prove(JSON.stringify(options))) as ProofResult
+  }
+
+  addModule(module: string, options: { nameAsId?: boolean } = {}): string {
+    return this.#native.addModule(module, options.nameAsId)
+  }
+}
+
+/** Create a persistent native backend from compiled textual KORE. */
+export function createBackend(options: CreateBackendOptions): Backend {
+  return new Backend(createBackendNative(options))
+}
+
+/** Compile an in-memory K definition and immediately create a persistent native backend. */
+export function compileBackend(options: CompileDefinitionOptions): Backend {
+  const nativeOptions: NativeCompileDefinitionOptions = {
+    ...options,
+    sources: normalizeSources(options.sources),
+  }
+  return new Backend(compileBackendNative(nativeOptions))
 }
 
 /** Parse a concrete K program with an in-memory definition and virtual source graph. */

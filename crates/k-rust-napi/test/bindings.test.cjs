@@ -2,13 +2,35 @@ const assert = require('node:assert/strict')
 const test = require('node:test')
 
 const {
+  compileBackend,
   compileDefinition,
+  createBackend,
   parseKast,
   parseKore,
   parseProgram,
   printKast,
   printKore,
 } = require('../dist/index.js')
+
+const backendDefinition = String.raw`[]
+module MAIN
+  sort SortS{} []
+  symbol a{}() : SortS{} [constructor{}()]
+  symbol b{}() : SortS{} [constructor{}()]
+  symbol c{}() : SortS{} [constructor{}()]
+  axiom{} \rewrites{SortS{}}(
+    \and{SortS{}}(a{}(), \top{SortS{}}()),
+    \and{SortS{}}(b{}(), \top{SortS{}}())
+  ) [label{}("a-to-b")]
+  axiom{} \rewrites{SortS{}}(
+    \and{SortS{}}(b{}(), \top{SortS{}}()),
+    \and{SortS{}}(c{}(), \top{SortS{}}())
+  ) [label{}("b-to-c")]
+  claim{} \implies{SortS{}}(
+    \and{SortS{}}(\top{SortS{}}(), a{}()),
+    weakExistsFinally{SortS{}}(\and{SortS{}}(c{}(), \top{SortS{}}()))
+  ) [label{}("reaches-c")]
+endmodule []`
 
 test('parses programs through virtual requires', () => {
   const parsed = parseProgram({
@@ -82,4 +104,41 @@ test('round-trips KAST and KORE through typed JSON', () => {
 
   const kore = parseKore('X:S')
   assert.equal(printKore(kore.kore), kore.text)
+})
+
+test('runs the complete persistent native backend API', () => {
+  const backend = createBackend({ definitionKore: backendDefinition, moduleName: 'MAIN' })
+  const a = parseKore('a{}()').kore
+  const c = parseKore('c{}()').kore
+
+  assert.equal(backend.capabilities.smt, true)
+  const execution = backend.execute({ state: a, maxDepth: 2 })
+  assert.equal(printKore(execution.leaves[0].state), 'c{}()')
+  assert.equal(printKore(backend.simplify({ state: a })), 'a{}()')
+  assert.equal(backend.implies({ antecedent: c, consequent: c }).status, 'valid')
+  assert.equal(backend.getModel({ state: parseKore('\\top{SortS{}}()').kore }).satisfiable, 'unknown')
+  assert.equal(backend.prove({ claim: 'reaches-c' }).status, 'proven')
+
+  const added = String.raw`module EXTRA
+    import MAIN []
+    axiom{} \rewrites{SortS{}}(
+      \and{SortS{}}(c{}(), \top{SortS{}}()),
+      \and{SortS{}}(a{}(), \top{SortS{}}())
+    ) [label{}("c-to-a")]
+  endmodule []`
+  backend.addModule(added, { nameAsId: true })
+  const addedExecution = backend.execute({ state: c, moduleName: 'EXTRA', maxDepth: 1 })
+  assert.equal(printKore(addedExecution.leaves[0].state), 'a{}()')
+})
+
+test('compileBackend compiles and creates a native session', () => {
+  const backend = compileBackend({
+    definition: `module MAIN
+      syntax State ::= "a" [symbol(a)]
+    endmodule`,
+    moduleName: 'MAIN',
+    includePrelude: false,
+  })
+  assert.equal(backend.capabilities.execution, true)
+  assert.equal(backend.capabilities.smt, true)
 })
