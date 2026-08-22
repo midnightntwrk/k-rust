@@ -1,15 +1,18 @@
 //! Rewrite-step timeout selection and moving-average accounting.
 
-use std::{
-    cell::Cell,
-    time::{Duration, Instant},
-};
+use std::time::Duration;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::{cell::Cell, time::Instant};
 
 use crate::cancellation::cancellation_requested;
 
+#[cfg(not(target_arch = "wasm32"))]
 const DEFAULT_MOVING_AVERAGE: Duration = Duration::from_secs(3);
+#[cfg(not(target_arch = "wasm32"))]
 const PREVIOUS_WEIGHT: f64 = 0.95;
 
+#[cfg(not(target_arch = "wasm32"))]
 thread_local! {
     static ACTIVE_DEADLINE: Cell<Option<Instant>> = const { Cell::new(None) };
 }
@@ -20,12 +23,21 @@ thread_local! {
 /// hot hook API small and mirrors the fact that backend simplification is synchronous and
 /// thread-confined; nested timers restore the previous deadline when they leave scope.
 pub(crate) fn interruption_requested() -> bool {
-    cancellation_requested()
-        || ACTIVE_DEADLINE.with(|deadline| {
+    if cancellation_requested() {
+        return true;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        ACTIVE_DEADLINE.with(|deadline| {
             deadline
                 .get()
                 .is_some_and(|deadline| Instant::now() >= deadline)
         })
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        false
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -50,40 +62,57 @@ pub struct StepTimeoutOptions {
 }
 
 pub(crate) struct StepTimeoutController {
+    #[cfg(not(target_arch = "wasm32"))]
     options: StepTimeoutOptions,
+    #[cfg(not(target_arch = "wasm32"))]
     moving_average_micros: Cell<Option<u64>>,
 }
 
 impl StepTimeoutController {
     pub(crate) fn new(options: StepTimeoutOptions) -> Self {
+        #[cfg(target_arch = "wasm32")]
+        let _ = options;
         Self {
+            #[cfg(not(target_arch = "wasm32"))]
             options,
+            #[cfg(not(target_arch = "wasm32"))]
             moving_average_micros: Cell::new(None),
         }
     }
 
     pub(crate) fn begin_step(&self) -> StepTimer<'_> {
-        let started = Instant::now();
-        let mode = self.timeout_mode();
-        let deadline = mode.and_then(|mode| started.checked_add(mode.timeout()));
-        let previous_deadline = ACTIVE_DEADLINE.with(|active| {
-            let previous = active.get();
-            active.set(match (previous, deadline) {
-                (Some(previous), Some(deadline)) => Some(previous.min(deadline)),
-                (Some(previous), None) => Some(previous),
-                (None, deadline) => deadline,
+        #[cfg(target_arch = "wasm32")]
+        {
+            return StepTimer {
+                _controller: std::marker::PhantomData,
+                record_elapsed: false,
+            };
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let started = Instant::now();
+            let mode = self.timeout_mode();
+            let deadline = mode.and_then(|mode| started.checked_add(mode.timeout()));
+            let previous_deadline = ACTIVE_DEADLINE.with(|active| {
+                let previous = active.get();
+                active.set(match (previous, deadline) {
+                    (Some(previous), Some(deadline)) => Some(previous.min(deadline)),
+                    (Some(previous), None) => Some(previous),
+                    (None, deadline) => deadline,
+                });
+                previous
             });
-            previous
-        });
-        StepTimer {
-            controller: self,
-            started,
-            mode,
-            previous_deadline,
-            record_elapsed: true,
+            StepTimer {
+                controller: self,
+                started,
+                mode,
+                previous_deadline,
+                record_elapsed: true,
+            }
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn timeout_mode(&self) -> Option<StepTimeoutMode> {
         let average = self
             .moving_average_micros
@@ -101,6 +130,7 @@ impl StepTimeoutController {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn record(&self, elapsed: Duration) {
         let elapsed = u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX);
         let next = self.moving_average_micros.get().map_or(elapsed, |average| {
@@ -112,17 +142,30 @@ impl StepTimeoutController {
 }
 
 pub(crate) struct StepTimer<'a> {
+    #[cfg(target_arch = "wasm32")]
+    _controller: std::marker::PhantomData<&'a StepTimeoutController>,
+    #[cfg(not(target_arch = "wasm32"))]
     controller: &'a StepTimeoutController,
+    #[cfg(not(target_arch = "wasm32"))]
     started: Instant,
+    #[cfg(not(target_arch = "wasm32"))]
     mode: Option<StepTimeoutMode>,
+    #[cfg(not(target_arch = "wasm32"))]
     previous_deadline: Option<Instant>,
     record_elapsed: bool,
 }
 
 impl StepTimer<'_> {
     pub(crate) fn timed_out(&self) -> Option<StepTimeoutMode> {
-        self.mode
-            .filter(|mode| self.started.elapsed() >= mode.timeout())
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.mode
+                .filter(|mode| self.started.elapsed() >= mode.timeout())
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            None
+        }
     }
 
     pub(crate) fn discard_measurement(&mut self) {
@@ -132,9 +175,12 @@ impl StepTimer<'_> {
 
 impl Drop for StepTimer<'_> {
     fn drop(&mut self) {
-        ACTIVE_DEADLINE.with(|active| active.set(self.previous_deadline));
-        if self.record_elapsed {
-            self.controller.record(self.started.elapsed());
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            ACTIVE_DEADLINE.with(|active| active.set(self.previous_deadline));
+            if self.record_elapsed {
+                self.controller.record(self.started.elapsed());
+            }
         }
     }
 }
