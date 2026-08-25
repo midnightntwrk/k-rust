@@ -4,86 +4,502 @@
   "title": "Execution pattern result and witness v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "resultId", "queryId", "testId", "inputs", "outcome", "completeCoverage", "pathResults", "witnesses", "bounds", "failures"],
+  "required": [
+    "schemaVersion",
+    "resultId",
+    "queryId",
+    "testId",
+    "inputs",
+    "outcome",
+    "completeCoverage",
+    "pathResults",
+    "witnesses",
+    "bounds",
+    "failures"
+  ],
   "properties": {
-    "schemaVersion": {"const": 1},
-    "resultId": {"$ref": "common.schema.json#/$defs/digest"},
-    "queryId": {"type": "string", "minLength": 1},
-    "testId": {"type": "string", "minLength": 1},
+    "schemaVersion": {
+      "const": 1
+    },
+    "resultId": {
+      "$ref": "common.schema.json#/$defs/digest"
+    },
+    "queryId": {
+      "$ref": "common.schema.json#/$defs/digest"
+    },
+    "testId": {
+      "type": "string",
+      "minLength": 1
+    },
     "inputs": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["definitionDigest", "observerDigest", "observationManifestDigest", "patternDigest", "programDigest", "parserDigest", "startSymbol", "executionMode", "compatibilityProfileDigest", "executionProfileDigest", "solverProfileDigest", "transformationId", "optionsDigest", "searchPolicy", "replayInvocationDigest", "artifacts"],
+      "required": [
+        "definitionDigest",
+        "observerDigest",
+        "observationManifestDigest",
+        "patternSource",
+        "patternPlan",
+        "patternQuery",
+        "programDigest",
+        "parserDigest",
+        "startSymbol",
+        "executionMode",
+        "compatibilityProfileDigest",
+        "executionProfileDigest",
+        "solverProfileDigest",
+        "transformationId",
+        "optionsDigest",
+        "searchPolicy",
+        "replayInvocationDigest",
+        "artifacts"
+      ],
       "properties": {
-        "definitionDigest": {"$ref": "common.schema.json#/$defs/digest"},
-        "observerDigest": {"$ref": "common.schema.json#/$defs/digest"},
-        "observationManifestDigest": {"$ref": "common.schema.json#/$defs/digest"},
-        "patternDigest": {"$ref": "common.schema.json#/$defs/digest"},
-        "programDigest": {"$ref": "common.schema.json#/$defs/digest"},
-        "parserDigest": {"$ref": "common.schema.json#/$defs/digest"},
-        "startSymbol": {"type": "string", "minLength": 1},
-        "executionMode": {"type": "string", "enum": ["concrete", "symbolic"]},
-        "compatibilityProfileDigest": {"$ref": "common.schema.json#/$defs/digest"},
-        "executionProfileDigest": {"$ref": "common.schema.json#/$defs/digest"},
-        "solverProfileDigest": {"oneOf": [{"$ref": "common.schema.json#/$defs/digest"}, {"type": "null"}]},
-        "transformationId": {"$ref": "common.schema.json#/$defs/digest"},
-        "optionsDigest": {"$ref": "common.schema.json#/$defs/digest"},
-        "searchPolicy": {"type": "string", "enum": ["exhaustive", "existential-first"]},
-        "replayInvocationDigest": {"$ref": "common.schema.json#/$defs/digest"},
-        "artifacts": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/artifactRef"}}
+        "definitionDigest": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "observerDigest": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "observationManifestDigest": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "programDigest": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "parserDigest": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "startSymbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionMode": {
+          "type": "string",
+          "enum": [
+            "concrete",
+            "symbolic"
+          ]
+        },
+        "compatibilityProfileDigest": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "executionProfileDigest": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "solverProfileDigest": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "transformationId": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "optionsDigest": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "searchPolicy": {
+          "type": "string",
+          "enum": [
+            "exhaustive",
+            "existential-first"
+          ]
+        },
+        "replayInvocationDigest": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/artifactRef"
+          }
+        },
+        "patternSource": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "digest"
+          ],
+          "properties": {
+            "role": {
+              "const": "pattern-source"
+            },
+            "digest": {
+              "$ref": "common.schema.json#/$defs/digest"
+            }
+          }
+        },
+        "patternPlan": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "digest"
+          ],
+          "properties": {
+            "role": {
+              "const": "pattern-plan"
+            },
+            "digest": {
+              "$ref": "common.schema.json#/$defs/digest"
+            }
+          }
+        },
+        "patternQuery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "digest"
+          ],
+          "properties": {
+            "role": {
+              "const": "pattern-query"
+            },
+            "digest": {
+              "$ref": "common.schema.json#/$defs/digest"
+            }
+          }
+        }
       }
     },
-    "outcome": {"type": "string", "enum": ["match", "no-match", "unknown", "error"]},
-    "completeCoverage": {"type": "boolean"},
-    "bounds": {"$ref": "common.schema.json#/$defs/bounds"},
-    "failures": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/failure"}},
-    "pathResults": {"type": "array", "items": {"$ref": "#/$defs/pathResult"}},
-    "primaryWitness": {"$ref": "#/$defs/witness"},
-    "witnesses": {"type": "array", "items": {"$ref": "#/$defs/witness"}}
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "match",
+        "no-match",
+        "unknown",
+        "error"
+      ]
+    },
+    "completeCoverage": {
+      "type": "boolean"
+    },
+    "bounds": {
+      "$ref": "common.schema.json#/$defs/bounds"
+    },
+    "failures": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/patternTestFailure"
+      }
+    },
+    "pathResults": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pathResult"
+      }
+    },
+    "primaryWitness": {
+      "$ref": "#/$defs/witness"
+    },
+    "witnesses": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/witness"
+      }
+    }
   },
   "allOf": [
-    {"if": {"properties": {"outcome": {"const": "match"}}}, "then": {"properties": {"witnesses": {"minItems": 1}}}},
-    {"if": {"properties": {"outcome": {"enum": ["no-match", "unknown", "error"]}}}, "then": {"properties": {"witnesses": {"maxItems": 0}}, "not": {"required": ["primaryWitness"]}}},
-    {"if": {"properties": {"outcome": {"const": "no-match"}}}, "then": {"properties": {"completeCoverage": {"const": true}}}},
-    {"if": {"properties": {"outcome": {"const": "unknown"}}}, "then": {"properties": {"completeCoverage": {"const": false}}}}
-    ,{"if": {"properties": {"outcome": {"enum": ["match", "no-match"]}}}, "then": {"properties": {"pathResults": {"minItems": 1}}}}
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "match"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "witnesses": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "enum": [
+              "no-match",
+              "unknown",
+              "error"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "witnesses": {
+            "maxItems": 0
+          }
+        },
+        "not": {
+          "required": [
+            "primaryWitness"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "no-match"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "completeCoverage": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "unknown"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "completeCoverage": {
+            "const": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "enum": [
+              "match",
+              "no-match"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "pathResults": {
+            "minItems": 1
+          }
+        }
+      }
+    }
   ],
   "$defs": {
     "pathResult": {
-      "type": "object", "additionalProperties": false,
-      "required": ["pathOrdinal", "pathKey", "pathIdentityDigest", "status", "completeCoverage", "stopReason", "executionStopReason", "executionTerminal", "traceDigest", "failures"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pathOrdinal",
+        "pathKey",
+        "pathIdentityDigest",
+        "status",
+        "completeCoverage",
+        "stopReason",
+        "executionStopReason",
+        "executionTerminal",
+        "traceDigest",
+        "failures"
+      ],
       "properties": {
-        "pathOrdinal": {"type": "integer", "minimum": 0},
-        "pathKey": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
-        "pathIdentityDigest": {"$ref": "common.schema.json#/$defs/digest"},
-        "status": {"type": "string", "enum": ["match", "no-match", "unknown", "error"]},
-        "completeCoverage": {"type": "boolean"},
-        "stopReason": {"type": "string", "enum": ["terminal", "stuck", "match-found", "depth-limit", "time-limit", "branch-limit", "result-limit", "resource-limit", "solver-unknown", "error"]},
-        "executionStopReason": {"type": "string", "enum": ["terminal", "stuck", "query-satisfied", "depth-limit", "time-limit", "branch-limit", "result-limit", "resource-limit", "solver-unknown", "error"]},
-        "executionTerminal": {"$ref": "common.schema.json#/$defs/executionTerminal"},
-        "traceDigest": {"$ref": "common.schema.json#/$defs/digest"},
-        "failures": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/failure"}}
+        "pathOrdinal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pathKey": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pathIdentityDigest": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "match",
+            "no-match",
+            "unknown",
+            "error"
+          ]
+        },
+        "completeCoverage": {
+          "type": "boolean"
+        },
+        "stopReason": {
+          "type": "string",
+          "enum": [
+            "terminal",
+            "stuck",
+            "match-found",
+            "depth-limit",
+            "time-limit",
+            "branch-limit",
+            "result-limit",
+            "resource-limit",
+            "solver-unknown",
+            "error"
+          ]
+        },
+        "executionStopReason": {
+          "type": "string",
+          "enum": [
+            "terminal",
+            "stuck",
+            "query-satisfied",
+            "depth-limit",
+            "time-limit",
+            "branch-limit",
+            "result-limit",
+            "resource-limit",
+            "solver-unknown",
+            "error"
+          ]
+        },
+        "executionTerminal": {
+          "$ref": "common.schema.json#/$defs/executionTerminal"
+        },
+        "traceDigest": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "failures": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/patternPathFailure"
+          }
+        }
       }
     },
     "witness": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["pathOrdinal", "eventIndices", "events", "bindings", "pathPredicate", "stopReason", "executionStopReason"],
+      "required": [
+        "pathOrdinal",
+        "armOrdinal",
+        "eventIndices",
+        "events",
+        "bindings",
+        "pathPredicate",
+        "stopReason",
+        "executionStopReason"
+      ],
       "properties": {
-        "pathOrdinal": {"type": "integer", "minimum": 0},
-        "pathKey": {"type": "string", "minLength": 1},
-        "replayKey": {"$ref": "common.schema.json#/$defs/digest"},
-        "alternativeArm": {"type": "integer", "minimum": 0},
-        "eventIndices": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 0}},
-        "events": {"type": "array", "minItems": 1, "items": {"$ref": "event-trace.schema.json#/$defs/event"}},
-        "bindings": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/binding"}},
-        "pathPredicate": {"$ref": "common.schema.json#/$defs/term"},
-        "stopReason": {"type": "string", "enum": ["terminal", "stuck", "match-found", "depth-limit", "time-limit", "branch-limit", "result-limit", "resource-limit", "solver-unknown", "error"]}
-        ,"executionStopReason": {"type": "string", "enum": ["terminal", "stuck", "query-satisfied", "depth-limit", "time-limit", "branch-limit", "result-limit", "resource-limit", "solver-unknown", "error"]}
+        "pathOrdinal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pathKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "replayKey": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "eventIndices": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "events": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "event-trace.schema.json#/$defs/event"
+          }
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/binding"
+          }
+        },
+        "pathPredicate": {
+          "$ref": "common.schema.json#/$defs/term"
+        },
+        "stopReason": {
+          "type": "string",
+          "enum": [
+            "terminal",
+            "stuck",
+            "match-found",
+            "depth-limit",
+            "time-limit",
+            "branch-limit",
+            "result-limit",
+            "resource-limit",
+            "solver-unknown",
+            "error"
+          ]
+        },
+        "executionStopReason": {
+          "type": "string",
+          "enum": [
+            "terminal",
+            "stuck",
+            "query-satisfied",
+            "depth-limit",
+            "time-limit",
+            "branch-limit",
+            "result-limit",
+            "resource-limit",
+            "solver-unknown",
+            "error"
+          ]
+        },
+        "armOrdinal": {
+          "type": "integer",
+          "minimum": 0
+        }
       },
       "oneOf": [
-        {"required": ["pathKey", "replayKey"]},
-        {"allOf": [{"not": {"required": ["pathKey"]}}, {"not": {"required": ["replayKey"]}}]}
+        {
+          "required": [
+            "pathKey",
+            "replayKey"
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "not": {
+                "required": [
+                  "pathKey"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "replayKey"
+                ]
+              }
+            }
+          ]
+        }
       ]
     }
   }

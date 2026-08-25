@@ -3,8 +3,18 @@
   "testId": "write-only",
   "pathOrdinal": 0,
   "pathKey": "root",
-  "pathPredicate": {"encoding": "portable-term-v1", "sort": "Bool", "node": {"kind": "token", "text": "true"}},
+  "pathPredicate": {
+    "encoding": "portable-term-v1",
+    "sort": "Bool",
+    "node": {
+      "kind": "token",
+      "text": "true"
+    }
+  },
   "complete": false,
   "stopReason": "depth-limit",
-  "events": []
+  "events": [],
+  "pathIdentityDigest": "cafc2e514adfa9cc3775320297912eadcf90d8040dc377db6d3a8b8f250a2a96",
+  "executionTerminal": null,
+  "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4"
 }

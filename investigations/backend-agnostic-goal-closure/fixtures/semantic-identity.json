@@ -1,25 +1,182 @@
 {
   "schemaVersion": 1,
-  "baselineFamilyId": "11b8ef84d8525ea99fb4735e03c32f0ec35027261b602fe570be427568c58e6e",
-  "definitionDigest": "dffed3602448130c506c2047f488c8139014b7fe3d309b4e1f42a1b0640a377c",
-  "transformationId": "bc8a3a0d6bc80638c2e385ba7e1f2c04925cd016a4268aa19560ac1c17101f97",
-  "generatedLineageId": "ce02cb36868ebc60ccbddb036a090e8d1e6de8441acff7a3ae4d57c3c61ba444",
+  "baselineFamilyId": "bc68f6d17f003a9953ae2bef766bd07894c9397886c9c30345ef957b669652c8",
+  "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+  "transformationId": "bf74f4a9122cf3eba20b77772ae919ab828a0f34bb2670de63cfe3d8908c7690",
+  "generatedLineageId": "96272c7eaad94c8442a01f716dd19d0f3f7c1acce36a5268b274405aadcf0b42",
   "digestInputs": {
-    "baselineFamily": {"familyName": "memory-fixture", "entryModules": ["MEMORY"], "compatibilityProfile": "portable-v1"},
-    "inputLineage": {"baselineFamilyId": "11b8ef84d8525ea99fb4735e03c32f0ec35027261b602fe570be427568c58e6e", "module": "MEMORY", "source": "repo://fixtures/memory.k", "location": {"startLine": 10, "startColumn": 1, "endLine": 12, "endColumn": 20}, "kind": "rule", "occurrenceOrdinal": 0},
-    "sentenceBody": {"body": {"encoding": "portable-term-v1", "sort": "RuleBody", "node": {"kind": "application", "label": "memoryWriteRule", "args": []}}, "requires": {"encoding": "portable-term-v1", "sort": "Bool", "node": {"kind": "token", "text": "true"}}, "ensures": {"encoding": "portable-term-v1", "sort": "Bool", "node": {"kind": "token", "text": "true"}}},
-    "sentenceContent": {"lineageId": "26913e0a4cca0b6a90df5e7107efb69e39c7660daa7373c3ebff69a6c91d1e55", "module": "MEMORY", "label": "write", "kind": "rule", "source": "repo://fixtures/memory.k", "location": {"startLine": 10, "startColumn": 1, "endLine": 12, "endColumn": 20}, "generated": false, "bodyFingerprint": "a7358d72c526718df5aaaa4dfabd07863ad8bbd3d20a7166f399c1cc2b731198", "attributes": [], "transformationChain": []},
-    "definition": {"schemaVersion": 1, "baselineFamilyId": "11b8ef84d8525ea99fb4735e03c32f0ec35027261b602fe570be427568c58e6e", "modules": [{"name": "MEMORY", "ordinal": 0, "imports": [], "sentenceContentFingerprints": ["dce9439e430c320155b6393e90d01cc459c254879a31332b6502de987d827359"]}]},
-    "transformation": {"kind": "observation", "operatorId": "memory-events", "operatorVersion": 1, "inputDefinitionDigest": "dffed3602448130c506c2047f488c8139014b7fe3d309b4e1f42a1b0640a377c", "manifestDigest": "61a01df2c29076ceee7bdcc1d38dbd5de42d4dc214e2e02f0002211d8ada0607"},
-    "generatedLineage": {"transformationId": "bc8a3a0d6bc80638c2e385ba7e1f2c04925cd016a4268aa19560ac1c17101f97", "parentLineages": ["26913e0a4cca0b6a90df5e7107efb69e39c7660daa7373c3ebff69a6c91d1e55"], "anchorIdentity": "26913e0a4cca0b6a90df5e7107efb69e39c7660daa7373c3ebff69a6c91d1e55", "role": "observation-update", "ordinal": 0}
+    "baselineFamily": {
+      "familyName": "portable-memory",
+      "entryModules": [
+        "MEMORY"
+      ],
+      "compatibilityProfile": "portable-v1"
+    },
+    "inputLineage": {
+      "baselineFamilyId": "bc68f6d17f003a9953ae2bef766bd07894c9397886c9c30345ef957b669652c8",
+      "module": "MEMORY",
+      "source": "repo://fixtures/portable-memory.k",
+      "location": {
+        "startLine": 10,
+        "startColumn": 1,
+        "endLine": 12,
+        "endColumn": 20
+      },
+      "kind": "rule",
+      "sourceOccurrenceOrdinal": 0
+    },
+    "sentenceBody": {
+      "body": {
+        "encoding": "portable-term-v1",
+        "sort": "RuleBody",
+        "node": {
+          "kind": "rewrite",
+          "left": {
+            "encoding": "portable-term-v1",
+            "sort": "State",
+            "node": {
+              "kind": "application",
+              "label": "write",
+              "args": [
+                {
+                  "encoding": "portable-term-v1",
+                  "sort": "Address",
+                  "node": {
+                    "kind": "variable",
+                    "name": "A"
+                  }
+                },
+                {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "variable",
+                    "name": "V"
+                  }
+                }
+              ],
+              "symbolId": "1c56e5d8146aa05409e9f268784a2bbfea05c81a695ad98e6dfc94ce3321b4fa"
+            }
+          },
+          "right": {
+            "encoding": "portable-term-v1",
+            "sort": "State",
+            "node": {
+              "kind": "application",
+              "label": "stored",
+              "args": [
+                {
+                  "encoding": "portable-term-v1",
+                  "sort": "Address",
+                  "node": {
+                    "kind": "variable",
+                    "name": "A"
+                  }
+                },
+                {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "variable",
+                    "name": "V"
+                  }
+                }
+              ],
+              "symbolId": "b9990f6d671fc8bf8f4820f7914bdd488950d0208ea98101d44b286957f2731d"
+            }
+          }
+        }
+      },
+      "requires": {
+        "encoding": "portable-term-v1",
+        "sort": "Bool",
+        "node": {
+          "kind": "token",
+          "text": "true"
+        }
+      },
+      "ensures": null
+    },
+    "sentenceContent": {
+      "lineageId": "e388ef9b3e1284e7640b5bbb03909825e3092b5be0b4fa776dc6b0b84ddc8975",
+      "module": "MEMORY",
+      "label": "write",
+      "kind": "rule",
+      "source": "repo://fixtures/portable-memory.k",
+      "location": {
+        "startLine": 10,
+        "startColumn": 1,
+        "endLine": 12,
+        "endColumn": 20
+      },
+      "generated": false,
+      "bodyFingerprint": "09bbfa52554defd583cbb08a9623b0a3a4e833458b4c717ea6cb5bacfc26d0d5",
+      "attributes": [
+        {
+          "name": "transition",
+          "value": null
+        }
+      ],
+      "transformationChain": []
+    },
+    "definition": {
+      "schemaVersion": 1,
+      "representation": "portable-mutation-semantic-slice-v1",
+      "baselineFamilyId": "bc68f6d17f003a9953ae2bef766bd07894c9397886c9c30345ef957b669652c8",
+      "modules": [
+        {
+          "name": "MEMORY",
+          "ordinal": 0,
+          "imports": [],
+          "sentenceContentFingerprints": [
+            "8a9932e736e445c599d4a7d99c1ee7da2bf73bbe2a237a3871199a080b40d55c",
+            "57f07f4ff11c7f4e0e78b16997f3e6f6db5ba6fa88fcbe983a9f4d3e54ddf665"
+          ]
+        }
+      ]
+    },
+    "transformation": {
+      "kind": "mutation",
+      "operatorId": "memory-representation",
+      "operatorVersion": 1,
+      "inputDefinitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+      "manifestDigest": "a096b584722267b1fb92145f44fc1f57455177ea7a548c03d3e80344bd237510"
+    },
+    "generatedLineage": {
+      "transformationId": "bf74f4a9122cf3eba20b77772ae919ab828a0f34bb2670de63cfe3d8908c7690",
+      "parentLineages": [],
+      "anchorIdentity": "19253e76577fb6b82d623f618128c035c40a4705857fdbc4a927a119d6ca4fda",
+      "role": "insert-module-end",
+      "ordinal": 1
+    }
   },
-  "sentences": [{
-    "lineageId": "26913e0a4cca0b6a90df5e7107efb69e39c7660daa7373c3ebff69a6c91d1e55",
-    "contentFingerprint": "dce9439e430c320155b6393e90d01cc459c254879a31332b6502de987d827359",
-    "bodyFingerprint": "a7358d72c526718df5aaaa4dfabd07863ad8bbd3d20a7166f399c1cc2b731198",
-    "module": "MEMORY", "label": "write", "kind": "rule",
-    "source": "repo://fixtures/memory.k",
-    "location": {"startLine": 10, "startColumn": 1, "endLine": 12, "endColumn": 20},
-    "generated": false, "transformationChain": []
-  }]
+  "transformationEvidence": {
+    "inputDefinition": {
+      "role": "definition",
+      "digest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4"
+    },
+    "outputDefinition": {
+      "role": "mutant-definition",
+      "digest": "3853456bf0ff02e21e83c7c668e7aed96ffab5f872d17eb359780908945b67e5"
+    }
+  },
+  "sentences": [
+    {
+      "lineageId": "e388ef9b3e1284e7640b5bbb03909825e3092b5be0b4fa776dc6b0b84ddc8975",
+      "contentFingerprint": "8a9932e736e445c599d4a7d99c1ee7da2bf73bbe2a237a3871199a080b40d55c",
+      "bodyFingerprint": "09bbfa52554defd583cbb08a9623b0a3a4e833458b4c717ea6cb5bacfc26d0d5",
+      "module": "MEMORY",
+      "label": "write",
+      "kind": "rule",
+      "source": "repo://fixtures/portable-memory.k",
+      "location": {
+        "startLine": 10,
+        "startColumn": 1,
+        "endLine": 12,
+        "endColumn": 20
+      },
+      "generated": false,
+      "transformationChain": []
+    }
+  ]
 }

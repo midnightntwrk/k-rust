@@ -5,41 +5,74 @@
       "id": "label-free-counter-rhs",
       "manifest": {
         "schemaVersion": 1,
-        "manifestId": "0000000000000000000000000000000000000000000000000000000000000000",
-        "inputDefinitionDigest": "f2c4a6bb9b0e0ebd6b8ab9ef61d558a5b3f439956832877398ecf2ed9bc2a174",
+        "manifestId": "697019fb448d7d0b47e69c7edfea32377ff13719b80d6303fd2502390ac1b9f2",
+        "inputDefinitionDigest": "a3d85b7940dbfacf6462ce275eaa72f5b8667ba71dbd73fe5111c5ae5f25bfbe",
         "observerDigest": "7777777777777777777777777777777777777777777777777777777777777777",
-        "compatibilityProfileDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+        "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
         "selectionMode": "explicit",
         "selections": [
           {
             "selectionId": "counter-rhs",
             "selector": {
               "kind": "structural-term",
-              "sentenceKinds": ["rule"],
+              "sentenceKinds": [
+                "rule"
+              ],
               "label": null,
-              "termPath": [{"kind": "field", "name": "body"}, {"kind": "field", "name": "rhs"}],
+              "termPath": [
+                {
+                  "kind": "field",
+                  "name": "body"
+                },
+                {
+                  "kind": "field",
+                  "name": "rhs"
+                }
+              ],
               "termSort": "Counter",
               "termHeadLabel": "counter"
             },
             "expectedCardinality": 1,
-            "matchedLineages": ["3ff2a56bea69ade54713c054c6174255bc642eee3fc042ea93102a800d6c3e80"],
+            "matchedLineages": [
+              "279aaf198cb8464d20a915bf2c5372d08bd976dbc04499c974211cace7232bc2"
+            ],
             "emissions": [
               {
                 "constructor": "counterRhsObserved",
                 "declarationOrdinal": 0,
                 "semanticSite": null,
                 "payloadBindings": [
-                  {"name": "RHS", "sort": "Counter", "sourcePath": [{"kind": "field", "name": "body"}, {"kind": "field", "name": "rhs"}]}
+                  {
+                    "name": "RHS",
+                    "sort": "Counter",
+                    "sourcePath": [
+                      {
+                        "kind": "field",
+                        "name": "body"
+                      },
+                      {
+                        "kind": "field",
+                        "name": "rhs"
+                      }
+                    ]
+                  }
                 ]
               }
             ]
           }
         ],
         "eventVocabulary": [
-          {"constructor": "counterRhsObserved", "payloadSorts": ["Counter"], "originMode": "emitting-sentence"}
+          {
+            "constructor": "counterRhsObserved",
+            "payloadSorts": [
+              "Counter"
+            ],
+            "originMode": "emitting-sentence"
+          }
         ],
-        "transformationId": "0000000000000000000000000000000000000000000000000000000000000000",
-        "outputDefinitionDigest": "8888888888888888888888888888888888888888888888888888888888888888"
+        "transformationId": "bba27ecc06923fb9cefe6ab85c69907fa428862217e496207e8f78ff961c8c85",
+        "outputDefinitionDigest": "8888888888888888888888888888888888888888888888888888888888888888",
+        "eventVocabularyDigest": "ffdb64f2d9fe295e6198be372bcb3ec4c299618fb71fcf355183b1143ea4f4b3"
       },
       "expectedSiteIds": []
     },
@@ -47,41 +80,74 @@
       "id": "labeled-branch-rhs",
       "manifest": {
         "schemaVersion": 1,
-        "manifestId": "0000000000000000000000000000000000000000000000000000000000000000",
-        "inputDefinitionDigest": "f2c4a6bb9b0e0ebd6b8ab9ef61d558a5b3f439956832877398ecf2ed9bc2a174",
+        "manifestId": "c3275c6d7552179db7b80a0bd8bd6d1333c95751f4edbcad4fe79684b528f4df",
+        "inputDefinitionDigest": "a3d85b7940dbfacf6462ce275eaa72f5b8667ba71dbd73fe5111c5ae5f25bfbe",
         "observerDigest": "7777777777777777777777777777777777777777777777777777777777777777",
-        "compatibilityProfileDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+        "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
         "selectionMode": "explicit",
         "selections": [
           {
             "selectionId": "labeled-branch",
             "selector": {
               "kind": "structural-term",
-              "sentenceKinds": ["rule"],
+              "sentenceKinds": [
+                "rule"
+              ],
               "label": "branch",
-              "termPath": [{"kind": "field", "name": "body"}, {"kind": "field", "name": "rhs"}],
+              "termPath": [
+                {
+                  "kind": "field",
+                  "name": "body"
+                },
+                {
+                  "kind": "field",
+                  "name": "rhs"
+                }
+              ],
               "termSort": "Control",
               "termHeadLabel": "selected"
             },
             "expectedCardinality": 1,
-            "matchedLineages": ["f129a58a69882de51f1028f0be1ebd2aa0e56ae6b26ba2f000b83f68d3cb53af"],
+            "matchedLineages": [
+              "939680f84a4555713169ff5f695843e7a826cfc57a759c9f4bc45053f3d3c7c5"
+            ],
             "emissions": [
               {
                 "constructor": "branchRhsObserved",
                 "declarationOrdinal": 0,
                 "semanticSite": null,
                 "payloadBindings": [
-                  {"name": "RHS", "sort": "Control", "sourcePath": [{"kind": "field", "name": "body"}, {"kind": "field", "name": "rhs"}]}
+                  {
+                    "name": "RHS",
+                    "sort": "Control",
+                    "sourcePath": [
+                      {
+                        "kind": "field",
+                        "name": "body"
+                      },
+                      {
+                        "kind": "field",
+                        "name": "rhs"
+                      }
+                    ]
+                  }
                 ]
               }
             ]
           }
         ],
         "eventVocabulary": [
-          {"constructor": "branchRhsObserved", "payloadSorts": ["Control"], "originMode": "emitting-sentence"}
+          {
+            "constructor": "branchRhsObserved",
+            "payloadSorts": [
+              "Control"
+            ],
+            "originMode": "emitting-sentence"
+          }
         ],
-        "transformationId": "0000000000000000000000000000000000000000000000000000000000000000",
-        "outputDefinitionDigest": "9999999999999999999999999999999999999999999999999999999999999999"
+        "transformationId": "dbc46d3c607b11d84ff0e0fcccc53d4533171b2e40f48b9e8ae9f15527e19ec1",
+        "outputDefinitionDigest": "9999999999999999999999999999999999999999999999999999999999999999",
+        "eventVocabularyDigest": "1bdfffbd783cc616fa64a0e566f8b0631088084fd1433d728b7f35d99e16e123"
       },
       "expectedSiteIds": []
     },
@@ -89,26 +155,33 @@
       "id": "multi-rule-body",
       "manifest": {
         "schemaVersion": 1,
-        "manifestId": "0000000000000000000000000000000000000000000000000000000000000000",
-        "inputDefinitionDigest": "f2c4a6bb9b0e0ebd6b8ab9ef61d558a5b3f439956832877398ecf2ed9bc2a174",
+        "manifestId": "d5173815ec20b52ca7602f2560efbb79917734ee808bd7433ce6473fe0c122f4",
+        "inputDefinitionDigest": "a3d85b7940dbfacf6462ce275eaa72f5b8667ba71dbd73fe5111c5ae5f25bfbe",
         "observerDigest": "7777777777777777777777777777777777777777777777777777777777777777",
-        "compatibilityProfileDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+        "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
         "selectionMode": "explicit",
         "selections": [
           {
             "selectionId": "all-rule-bodies",
             "selector": {
               "kind": "structural-term",
-              "sentenceKinds": ["rule"],
+              "sentenceKinds": [
+                "rule"
+              ],
               "label": null,
-              "termPath": [{"kind": "field", "name": "body"}],
+              "termPath": [
+                {
+                  "kind": "field",
+                  "name": "body"
+                }
+              ],
               "termSort": "RuleBody",
               "termHeadLabel": null
             },
             "expectedCardinality": 2,
             "matchedLineages": [
-              "3ff2a56bea69ade54713c054c6174255bc642eee3fc042ea93102a800d6c3e80",
-              "f129a58a69882de51f1028f0be1ebd2aa0e56ae6b26ba2f000b83f68d3cb53af"
+              "279aaf198cb8464d20a915bf2c5372d08bd976dbc04499c974211cace7232bc2",
+              "939680f84a4555713169ff5f695843e7a826cfc57a759c9f4bc45053f3d3c7c5"
             ],
             "emissions": [
               {
@@ -116,30 +189,69 @@
                 "declarationOrdinal": 0,
                 "semanticSite": null,
                 "payloadBindings": [
-                  {"name": "BODY", "sort": "RuleBody", "sourcePath": [{"kind": "field", "name": "body"}]}
+                  {
+                    "name": "BODY",
+                    "sort": "RuleBody",
+                    "sourcePath": [
+                      {
+                        "kind": "field",
+                        "name": "body"
+                      }
+                    ]
+                  }
                 ]
               },
               {
                 "constructor": "ruleSiteObserved",
                 "declarationOrdinal": 1,
-                "semanticSite": {"role": "rule-body", "termPath": [{"kind": "field", "name": "body"}]},
+                "semanticSite": {
+                  "role": "rule-body",
+                  "termPath": [
+                    {
+                      "kind": "field",
+                      "name": "body"
+                    }
+                  ]
+                },
                 "payloadBindings": [
-                  {"name": "BODY", "sort": "RuleBody", "sourcePath": [{"kind": "field", "name": "body"}]}
+                  {
+                    "name": "BODY",
+                    "sort": "RuleBody",
+                    "sourcePath": [
+                      {
+                        "kind": "field",
+                        "name": "body"
+                      }
+                    ]
+                  }
                 ]
               }
             ]
           }
         ],
         "eventVocabulary": [
-          {"constructor": "ruleObserved", "payloadSorts": ["RuleBody"], "originMode": "emitting-sentence"},
-          {"constructor": "ruleSiteObserved", "payloadSorts": ["RuleBody"], "originMode": "emitting-sentence-and-semantic-site"}
+          {
+            "constructor": "ruleObserved",
+            "payloadSorts": [
+              "RuleBody"
+            ],
+            "originMode": "emitting-sentence"
+          },
+          {
+            "constructor": "ruleSiteObserved",
+            "payloadSorts": [
+              "RuleBody"
+            ],
+            "originMode": "emitting-sentence-and-semantic-site"
+          }
         ],
-        "transformationId": "0000000000000000000000000000000000000000000000000000000000000000",
-        "outputDefinitionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "transformationId": "43fabba6f6d803ae2aad94a67a0db77726cf6e89a3858cc461f3854267216a4c",
+        "outputDefinitionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "eventVocabularyDigest": "350896f590e3174753c60ce08b7bcb472edd62d1417139cdd38c274f15b9abb8"
       },
       "expectedSiteIds": [
-        "0000000000000000000000000000000000000000000000000000000000000000",
-        "0000000000000000000000000000000000000000000000000000000000000000"
+        "90239cd1254a77f72be44713fa7b2fc2d385a8ca547483ad3f88ee223495e564",
+        "316fc637d948b594a688bc5a29f28112eb68dc0f537bd14829913f6b08f4320f"
       ]
     }
   ]

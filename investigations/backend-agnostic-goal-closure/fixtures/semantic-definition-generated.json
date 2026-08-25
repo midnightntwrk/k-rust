@@ -3,41 +3,219 @@
   "representation": "portable-mutation-semantic-slice-v1",
   "family": {
     "familyName": "portable-generated-orthogonality",
-    "entryModules": ["GENERATED"],
+    "entryModules": [
+      "GENERATED"
+    ],
     "compatibilityProfile": "portable-v1"
   },
-  "baselineFamilyId": "0000000000000000000000000000000000000000000000000000000000000000",
-  "definitionDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "baselineFamilyId": "e4e16b28649b10e0414627f3aa8057141e23bcae631ad7affee836e145ddb500",
+  "definitionDigest": "eccd44c097d2a8eed84a18ea6af5de556787ab89d0de333aad8c598cd437b5ec",
   "modules": [
     {
       "name": "GENERATED",
       "ordinal": 0,
-      "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "fingerprint": "72c10e690dc972964dfe7604f16e49e3622472f7b99397e1b9d65c7e62130f27",
       "imports": [],
       "sentences": [
         {
           "sourceOccurrenceOrdinal": 0,
           "generatedIdentity": null,
-          "provenance": {"lineageId": "0000000000000000000000000000000000000000000000000000000000000000", "contentFingerprint": "0000000000000000000000000000000000000000000000000000000000000000", "bodyFingerprint": "0000000000000000000000000000000000000000000000000000000000000000", "module": "GENERATED", "label": "source-rule", "kind": "rule", "source": "repo://fixtures/generated-orthogonality.k", "location": {"startLine": 1, "startColumn": 1, "endLine": 1, "endColumn": 20}, "generated": false, "transformationChain": []},
-          "value": {"encoding": "portable-semantic-sentence-v1", "module": "GENERATED", "kind": "rule", "label": "source-rule", "source": "repo://fixtures/generated-orthogonality.k", "location": {"startLine": 1, "startColumn": 1, "endLine": 1, "endColumn": 20}, "body": {"encoding": "portable-term-v1", "sort": "RuleBody", "node": {"kind": "token", "text": "source-rule"}}, "requires": null, "ensures": null, "attributes": []}
+          "provenance": {
+            "lineageId": "814cc7a0a58a7d78ad4811862d81042c0ef771a669c19be532d8f64822396c73",
+            "contentFingerprint": "96f3ad3cf97d2122f52270630f3b8e8bd366c92f9d186d339b92d247b0cbb046",
+            "bodyFingerprint": "bf6f47b83dbc1383d3b5400853d08b410539ac3c56c0bdf9481731a8836a583d",
+            "module": "GENERATED",
+            "label": "source-rule",
+            "kind": "rule",
+            "source": "repo://fixtures/generated-orthogonality.k",
+            "location": {
+              "startLine": 1,
+              "startColumn": 1,
+              "endLine": 1,
+              "endColumn": 20
+            },
+            "generated": false,
+            "transformationChain": []
+          },
+          "value": {
+            "encoding": "portable-semantic-sentence-v1",
+            "module": "GENERATED",
+            "kind": "rule",
+            "label": "source-rule",
+            "source": "repo://fixtures/generated-orthogonality.k",
+            "location": {
+              "startLine": 1,
+              "startColumn": 1,
+              "endLine": 1,
+              "endColumn": 20
+            },
+            "body": {
+              "encoding": "portable-term-v1",
+              "sort": "RuleBody",
+              "node": {
+                "kind": "token",
+                "text": "source-rule"
+              }
+            },
+            "requires": null,
+            "ensures": null,
+            "attributes": []
+          }
         },
         {
           "sourceOccurrenceOrdinal": 0,
           "generatedIdentity": null,
-          "provenance": {"lineageId": "1111111111111111111111111111111111111111111111111111111111111111", "contentFingerprint": "1111111111111111111111111111111111111111111111111111111111111111", "bodyFingerprint": "1111111111111111111111111111111111111111111111111111111111111111", "module": "GENERATED", "label": "source-claim", "kind": "claim", "source": "repo://fixtures/generated-orthogonality.k", "location": {"startLine": 2, "startColumn": 1, "endLine": 2, "endColumn": 20}, "generated": false, "transformationChain": []},
-          "value": {"encoding": "portable-semantic-sentence-v1", "module": "GENERATED", "kind": "claim", "label": "source-claim", "source": "repo://fixtures/generated-orthogonality.k", "location": {"startLine": 2, "startColumn": 1, "endLine": 2, "endColumn": 20}, "body": {"encoding": "portable-term-v1", "sort": "RuleBody", "node": {"kind": "token", "text": "source-claim"}}, "requires": null, "ensures": null, "attributes": []}
+          "provenance": {
+            "lineageId": "d67d30f009f622175bd278b255ac5152f9d9236ca9c9344b3c7ffc093bafd908",
+            "contentFingerprint": "90c5acb7a76adb7254c51c93369188827e96f9776f86ed5c12b782b74c1f9277",
+            "bodyFingerprint": "a8c12e4a44d80dd98881c8d20771ff400ba59a04ea1443049fd53475d326df51",
+            "module": "GENERATED",
+            "label": "source-claim",
+            "kind": "claim",
+            "source": "repo://fixtures/generated-orthogonality.k",
+            "location": {
+              "startLine": 2,
+              "startColumn": 1,
+              "endLine": 2,
+              "endColumn": 20
+            },
+            "generated": false,
+            "transformationChain": []
+          },
+          "value": {
+            "encoding": "portable-semantic-sentence-v1",
+            "module": "GENERATED",
+            "kind": "claim",
+            "label": "source-claim",
+            "source": "repo://fixtures/generated-orthogonality.k",
+            "location": {
+              "startLine": 2,
+              "startColumn": 1,
+              "endLine": 2,
+              "endColumn": 20
+            },
+            "body": {
+              "encoding": "portable-term-v1",
+              "sort": "RuleBody",
+              "node": {
+                "kind": "token",
+                "text": "source-claim"
+              }
+            },
+            "requires": null,
+            "ensures": null,
+            "attributes": []
+          }
         },
         {
           "sourceOccurrenceOrdinal": null,
-          "generatedIdentity": {"transformationId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "parentLineages": ["0000000000000000000000000000000000000000000000000000000000000000"], "anchorIdentity": "0000000000000000000000000000000000000000000000000000000000000000", "role": "derived-rule", "ordinal": 0},
-          "provenance": {"lineageId": "2222222222222222222222222222222222222222222222222222222222222222", "contentFingerprint": "2222222222222222222222222222222222222222222222222222222222222222", "bodyFingerprint": "2222222222222222222222222222222222222222222222222222222222222222", "module": "GENERATED", "label": "generated-rule", "kind": "rule", "source": "generated://fixture/derived-rule", "location": {"startLine": 1, "startColumn": 1, "endLine": 1, "endColumn": 1}, "generated": true, "transformationChain": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]},
-          "value": {"encoding": "portable-semantic-sentence-v1", "module": "GENERATED", "kind": "rule", "label": "generated-rule", "source": "generated://fixture/derived-rule", "location": {"startLine": 1, "startColumn": 1, "endLine": 1, "endColumn": 1}, "body": {"encoding": "portable-term-v1", "sort": "RuleBody", "node": {"kind": "token", "text": "generated-rule"}}, "requires": null, "ensures": null, "attributes": []}
+          "generatedIdentity": {
+            "transformationId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "parentLineages": [
+              "814cc7a0a58a7d78ad4811862d81042c0ef771a669c19be532d8f64822396c73"
+            ],
+            "anchorIdentity": "814cc7a0a58a7d78ad4811862d81042c0ef771a669c19be532d8f64822396c73",
+            "role": "derived-rule",
+            "ordinal": 0
+          },
+          "provenance": {
+            "lineageId": "64b5c5c0a2784a0a813ab64343052e8699a00be11de223c1b7c6d7c0a79ffa55",
+            "contentFingerprint": "fabee8d786a1be181e26df7afde31462a0f830f3c0ffc006d1d393b422ffe698",
+            "bodyFingerprint": "07ca79b4be82ed3a65f4d5e1a542cf5f9c323ec83f236502792222c885dea152",
+            "module": "GENERATED",
+            "label": "generated-rule",
+            "kind": "rule",
+            "source": "generated://fixture/derived-rule",
+            "location": {
+              "startLine": 1,
+              "startColumn": 1,
+              "endLine": 1,
+              "endColumn": 1
+            },
+            "generated": true,
+            "transformationChain": [
+              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ]
+          },
+          "value": {
+            "encoding": "portable-semantic-sentence-v1",
+            "module": "GENERATED",
+            "kind": "rule",
+            "label": "generated-rule",
+            "source": "generated://fixture/derived-rule",
+            "location": {
+              "startLine": 1,
+              "startColumn": 1,
+              "endLine": 1,
+              "endColumn": 1
+            },
+            "body": {
+              "encoding": "portable-term-v1",
+              "sort": "RuleBody",
+              "node": {
+                "kind": "token",
+                "text": "generated-rule"
+              }
+            },
+            "requires": null,
+            "ensures": null,
+            "attributes": []
+          }
         },
         {
           "sourceOccurrenceOrdinal": null,
-          "generatedIdentity": {"transformationId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "parentLineages": ["1111111111111111111111111111111111111111111111111111111111111111"], "anchorIdentity": "1111111111111111111111111111111111111111111111111111111111111111", "role": "derived-claim", "ordinal": 1},
-          "provenance": {"lineageId": "3333333333333333333333333333333333333333333333333333333333333333", "contentFingerprint": "3333333333333333333333333333333333333333333333333333333333333333", "bodyFingerprint": "3333333333333333333333333333333333333333333333333333333333333333", "module": "GENERATED", "label": "generated-claim", "kind": "claim", "source": "generated://fixture/derived-claim", "location": {"startLine": 1, "startColumn": 1, "endLine": 1, "endColumn": 1}, "generated": true, "transformationChain": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]},
-          "value": {"encoding": "portable-semantic-sentence-v1", "module": "GENERATED", "kind": "claim", "label": "generated-claim", "source": "generated://fixture/derived-claim", "location": {"startLine": 1, "startColumn": 1, "endLine": 1, "endColumn": 1}, "body": {"encoding": "portable-term-v1", "sort": "RuleBody", "node": {"kind": "token", "text": "generated-claim"}}, "requires": null, "ensures": null, "attributes": []}
+          "generatedIdentity": {
+            "transformationId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "parentLineages": [
+              "d67d30f009f622175bd278b255ac5152f9d9236ca9c9344b3c7ffc093bafd908"
+            ],
+            "anchorIdentity": "d67d30f009f622175bd278b255ac5152f9d9236ca9c9344b3c7ffc093bafd908",
+            "role": "derived-claim",
+            "ordinal": 1
+          },
+          "provenance": {
+            "lineageId": "bfcd7f39907d2555511ce368b76a43d851ef80bb1c0727319f48b467bb082923",
+            "contentFingerprint": "ddcc3fdc9da8f33e177450a0aa3b8fb075214a825bf4563a46fa3bead7e59e26",
+            "bodyFingerprint": "6fc71541bc4b9b8ed2052dec8da73ae91727fd75510cdad300983500cda1bd60",
+            "module": "GENERATED",
+            "label": "generated-claim",
+            "kind": "claim",
+            "source": "generated://fixture/derived-claim",
+            "location": {
+              "startLine": 1,
+              "startColumn": 1,
+              "endLine": 1,
+              "endColumn": 1
+            },
+            "generated": true,
+            "transformationChain": [
+              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ]
+          },
+          "value": {
+            "encoding": "portable-semantic-sentence-v1",
+            "module": "GENERATED",
+            "kind": "claim",
+            "label": "generated-claim",
+            "source": "generated://fixture/derived-claim",
+            "location": {
+              "startLine": 1,
+              "startColumn": 1,
+              "endLine": 1,
+              "endColumn": 1
+            },
+            "body": {
+              "encoding": "portable-term-v1",
+              "sort": "RuleBody",
+              "node": {
+                "kind": "token",
+                "text": "generated-claim"
+              }
+            },
+            "requires": null,
+            "ensures": null,
+            "attributes": []
+          }
         }
       ]
     }

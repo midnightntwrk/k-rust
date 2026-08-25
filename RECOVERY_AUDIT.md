@@ -15,7 +15,12 @@ It must not be represented as the lost original history.
 
 The handoff supplied 814 files, one of which was transfer-only `.DS_Store` metadata.
 The restored project payload therefore contains 813 handoff files plus this audit and the unchanged original recovery provenance note.
-The handoff's blanket `0777` transfer permissions were normalized to `0644` for ordinary files, `0755` for shebang-bearing scripts, and `0755` for directories; file bytes were not changed.
+The handoff's blanket `0777` transfer permissions were normalized to `0644` for ordinary files, `0755` for shebang-bearing scripts, and `0755` for directories; that permission normalization did not change file bytes.
+
+Post-import verification found that the assembled handoff had allowed older all-worktree replay variants to supersede 34 files in the byte-pinned backend investigation.
+Those 34 paths were restored from the verified 618-file tree.
+All 473 paths in `investigations/backend-agnostic-goal-closure/` that are covered by the final-session identity ledger now match it byte-for-byte.
+Four additional historical query/witness files supplied by the external-worktree union remain present outside that 473-path ledger.
 
 The underlying 618-file archive is preserved at `/home/sebastiengllmt/recovery/k-in-k2-continuation-handoff-20260826/original-artifact/k-in-k2-recovered-20260824.tar.gz` with SHA-256 `1b87e7160540cb7c9a608ce35413512dae6389b50028d1b0937635bb5fd410a8`.
 The external-worktree recovery accounting is preserved at `/home/sebastiengllmt/recovery/k-in-k2-continuation-handoff-20260826/recovery-evidence/k-in-k2-external-worktree-audit-20260825.md`.
@@ -30,6 +35,14 @@ Recovery exhausted the available Git-object, session, journal, and full raw-sour
 Neither path is present in this checkpoint.
 The intermediate Java source, near-final JSON, partial final stdout, and their checksums remain in `/home/sebastiengllmt/recovery/k-in-k2-continuation-handoff-20260826/recovery-evidence/k-in-k2-best-effort-missing-final-files-20260826/`.
 They may be used for an explicit forward reconstruction, but must not be described as byte-exact recovered finals.
+
+## Local verification
+
+The reconciled tree passes `bun test oracle/test p1/test p2/test p3/test` with 10 tests and no failures.
+All recovered shell scripts pass `bash -n`.
+The backend investigation's official Draft 2020-12 schema and fixture validation passes when run with `jsonschema` 4.26.0 in an ephemeral Python 3.13 Nix environment.
+The complete backend verifier reaches the project-level evidence inventory and then fails on the intentionally absent R3-G-04 `results.json` listed above.
+This is the declared recovery boundary, not a schema or recovered-source failure.
 
 ## Provenance path translation
 

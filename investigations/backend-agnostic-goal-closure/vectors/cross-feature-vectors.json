@@ -4,25 +4,71 @@
   "cases": [
     {
       "id": "unchanged-final-result-killed-by-event-pattern",
-      "mutation": {"instanceId": "1111111111111111111111111111111111111111111111111111111111111111", "editCount": 2, "atomic": true},
-      "baseline": {"finalResultDigest": "2222222222222222222222222222222222222222222222222222222222222222", "patternOutcome": "match", "witnessIndices": [0, 2]},
-      "mutant": {"finalResultDigest": "2222222222222222222222222222222222222222222222222222222222222222", "patternOutcome": "no-match", "completeCoverage": true},
-      "oracles": [{"kind": "final-result", "outcome": "agree"}, {"kind": "execution-pattern", "outcome": "distinguish"}],
-      "expected": {"mutantStatus": "killed", "killingOracle": "execution-pattern", "scoreEntries": 1}
+      "mutation": {
+        "instanceId": "fd349fa899a92f5563991fa123605c57d7f9e47d74e9ba9e27d3fc513f697fdf",
+        "editCount": 2,
+        "atomic": true
+      },
+      "baseline": {
+        "finalResultDigest": "4d42bd4c33cc61d505afd5f62d510c7ade52de22dbcd3068c3511ce71b38d21c",
+        "patternOutcome": "match",
+        "witnessIndices": [
+          0,
+          2
+        ]
+      },
+      "mutant": {
+        "finalResultDigest": "4d42bd4c33cc61d505afd5f62d510c7ade52de22dbcd3068c3511ce71b38d21c",
+        "patternOutcome": "no-match",
+        "completeCoverage": true
+      },
+      "oracles": [
+        {
+          "kind": "final-result",
+          "outcome": "agree"
+        },
+        {
+          "kind": "execution-pattern",
+          "outcome": "distinguish"
+        }
+      ],
+      "expected": {
+        "mutantStatus": "killed",
+        "killingOracle": "execution-pattern",
+        "scoreEntries": 1
+      }
     },
     {
       "id": "observation-does-not-retarget-mutation",
-      "mutationTargetLineages": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
-      "baselineObservationRevision": "3333333333333333333333333333333333333333333333333333333333333333",
-      "mutantObservationRevision": "3333333333333333333333333333333333333333333333333333333333333333",
-      "eventOriginalLineages": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
-      "expected": {"sameObservationRevision": true, "allEventOriginsResolveToMutationTargets": true}
+      "mutationTargetLineages": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ],
+      "baselineObservationRevision": "a67585913ac13a0b7f55c06ab07ab0020863ce8b91640b609b1728cf6de0e17b",
+      "mutantObservationRevision": "a67585913ac13a0b7f55c06ab07ab0020863ce8b91640b609b1728cf6de0e17b",
+      "eventOriginalLineages": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ],
+      "expected": {
+        "sameObservationRevision": true,
+        "allEventOriginsResolveToMutationTargets": true
+      }
     },
     {
       "id": "pattern-unknown-cannot-kill-or-survive",
-      "baseline": {"patternOutcome": "no-match", "completeCoverage": true},
-      "mutant": {"patternOutcome": "unknown", "completeCoverage": false},
-      "expected": {"mutantStatus": "unknown", "scoreIncluded": false}
+      "baseline": {
+        "patternOutcome": "no-match",
+        "completeCoverage": true
+      },
+      "mutant": {
+        "patternOutcome": "unknown",
+        "completeCoverage": false
+      },
+      "expected": {
+        "mutantStatus": "unknown",
+        "scoreIncluded": false
+      }
     }
   ]
 }

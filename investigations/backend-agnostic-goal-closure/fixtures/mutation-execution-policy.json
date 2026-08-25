@@ -1,19 +1,172 @@
 {
   "schemaVersion": 1,
-  "policyId": "0000000000000000000000000000000000000000000000000000000000000000",
-  "isolation": {"baselineState": "immutable", "mutantState": "fresh-per-mutant", "sharedWritableState": false, "observerState": "fresh-per-test-path"},
+  "policyId": "fd0a65534f3759045a9b1a7e5939e48eabd3747e5d248d4b9435e1f9d48f3790",
+  "isolation": {
+    "baselineState": "immutable",
+    "mutantState": "fresh-per-mutant",
+    "sharedWritableState": false,
+    "observerState": "fresh-per-test-path"
+  },
   "cacheKey": {
     "domain": "k-in-k/mutation-cache-key/v1",
-    "baselineDefinitionDigest": "0000000000000000000000000000000000000000000000000000000000000000",
-    "compatibilityProfileDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "baselineDefinitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+    "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
     "operatorId": "coupled-memory-representation",
     "operatorVersion": 1,
-    "patchId": "0000000000000000000000000000000000000000000000000000000000000000",
-    "backendProfileDigest": "0000000000000000000000000000000000000000000000000000000000000000",
-    "solverProfileDigest": null,
-    "optionsDigest": "0000000000000000000000000000000000000000000000000000000000000000",
-    "testManifestDigest": "0000000000000000000000000000000000000000000000000000000000000000",
-    "oracleManifestDigest": "0000000000000000000000000000000000000000000000000000000000000000",
-    "keyDigest": "0000000000000000000000000000000000000000000000000000000000000000"
+    "patchId": "59a23fcbf18f4dd81782afccce44a936e5a313b042d555f5c026298a56f0396a",
+    "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+    "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+    "optionsDigest": "4a65d55c2f2034df587cee79a7500e3edcaaf646c610bd3a4cefb0690ec9e8e4",
+    "testManifestDigest": "550ebb1267e6b8e5ab91e1e92075458f917376cccbe1b0411d734a43cbda902a",
+    "oracleManifestDigest": "bb0f2cca22cabd01a6a8208bfb10b0616966f54cf07702acdde546d75cbd005b",
+    "keyDigest": "1e6ae9785914b4979e989a720d4f2dc33046b2b6ee60fd7a388685061e3f2666",
+    "patternQueries": [
+      {
+        "patternSource": {
+          "role": "pattern-source",
+          "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+        },
+        "patternPlan": {
+          "role": "pattern-plan",
+          "digest": "8a2359f706a8434cc3eaaf274850134e6095a79721b442c29e0765ef1ce080d0"
+        },
+        "patternQuery": {
+          "role": "pattern-query",
+          "digest": "117f9df30cc586da7c800df5d28522d1b74403aae300071e92242515d6b761cc"
+        }
+      },
+      {
+        "patternSource": {
+          "role": "pattern-source",
+          "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+        },
+        "patternPlan": {
+          "role": "pattern-plan",
+          "digest": "8a2359f706a8434cc3eaaf274850134e6095a79721b442c29e0765ef1ce080d0"
+        },
+        "patternQuery": {
+          "role": "pattern-query",
+          "digest": "117f9df30cc586da7c800df5d28522d1b74403aae300071e92242515d6b761cc"
+        }
+      },
+      {
+        "patternSource": {
+          "role": "pattern-source",
+          "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+        },
+        "patternPlan": {
+          "role": "pattern-plan",
+          "digest": "3a9db24b23b99a7a5a57e10fd4ef4591d553bc6bd1e6dc15fcceac9588b90dbd"
+        },
+        "patternQuery": {
+          "role": "pattern-query",
+          "digest": "078960b20beff8c8d087be6163897925d85fe257c808ffdbac80662fc32ff88e"
+        }
+      },
+      {
+        "patternSource": {
+          "role": "pattern-source",
+          "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+        },
+        "patternPlan": {
+          "role": "pattern-plan",
+          "digest": "3a9db24b23b99a7a5a57e10fd4ef4591d553bc6bd1e6dc15fcceac9588b90dbd"
+        },
+        "patternQuery": {
+          "role": "pattern-query",
+          "digest": "078960b20beff8c8d087be6163897925d85fe257c808ffdbac80662fc32ff88e"
+        }
+      }
+    ],
+    "oracleDeclarations": [
+      {
+        "role": "oracle-declaration",
+        "digest": "62d3b23ceae3815f5ef6b8816b5b4c0b3a5cdbe2eeb662fa71b0dc2daf499229"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "0adfb5dce75f82deaa7a367f8ec570602d1dd15e21b691c15103b0f7deee5ed2"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "620614bb14bdbf6a7570961788346a3cea37457c7a7d560a4ae7668125909ee8"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "7b43d3266f64df19fa62f0304c90d07e321f66ca64811c0b76e4460b0688b3e4"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "a2982f647f827c02471e4bb095add3d8c76eb3466b140756d86a18555f8a4b79"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "9f12bc9a028afe398506730a121957e56c611d5fe25641475dcac5c89bdfabe3"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "0a6b2e7bef9cdd6c38266990ab8e06ed9705c09d46788e17c31d115f6943b187"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "8b78abbe6046cc7248cdc0b9506e84c68d2c0d7f1879f5356aa53b19d412773d"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "a3c9866456fe58eb299424a7bb1d85116b65264dcbbff1bd5ffbf2ccaf22c8f7"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "848da1ff023d4cf849bd84dc3881efddaf9dda0694f2ea1d7bf3b364bc3ce0d4"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "f88b081e8d43eab9fa00c392588a8aeb3189716969d39731cc6be1611e3b6a08"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "e16419d7d37bbf4e48e2e33a261f150f0674cb18d1c8fab390321018a219e8f7"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "65ae3e3c775dc834554e9d681c442a6ecf8351948a0028402951464e27a1e173"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "0708a92bb9cf6b08ff22cfa6f0ea7a39e21a7f8eb8db8cf5c9b4975d02385ec5"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "a05a8590d959e4d7a16badc8e4b04cb74c03460c279ae7036184a0a54d0819d7"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "3e31e60d487664f40ec87758999103edde516b6e2f1f122602e840394df1df6e"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "e0fed4ac975c88d02f935a021ca4761952470eb64f79a224ddb6a87ab8d6aaf4"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "c5ed3a2148604b92a693fb7ad11972cdd2479654318c04516dfb130f3b965166"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "629bb5af563e94950207a1dd43f22b6bdb1b7e4871b7de675467b7372629ef3b"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "480d3bf5f6ca072913611be8ca55709860b031ba30cc68d636bc0d6ee56e83ed"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "eced003b56004b436020ce8b6f0ad9e86b3a8db487ac65cc7ea297bf6601bb65"
+      },
+      {
+        "role": "oracle-declaration",
+        "digest": "a91bccd98d8ae998cee252f01c488725ea2d6d4af675b3e362116cb833b5126c"
+      }
+    ]
   }
 }

@@ -4,67 +4,311 @@
   "title": "Execution-pattern corpus result v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "resultId", "manifestDigest", "outcome", "completeCoverage", "components", "counts", "failures"],
+  "required": [
+    "schemaVersion",
+    "resultId",
+    "manifestDigest",
+    "outcome",
+    "completeCoverage",
+    "components",
+    "counts",
+    "failures"
+  ],
   "properties": {
-    "schemaVersion": {"const": 1},
-    "resultId": {"$ref": "common.schema.json#/$defs/digest"},
-    "manifestDigest": {"$ref": "common.schema.json#/$defs/digest"},
-    "outcome": {"type": "string", "enum": ["match", "no-match", "unknown", "error"]},
-    "completeCoverage": {"type": "boolean"},
+    "schemaVersion": {
+      "const": 1
+    },
+    "resultId": {
+      "$ref": "common.schema.json#/$defs/digest"
+    },
+    "manifestDigest": {
+      "$ref": "common.schema.json#/$defs/digest"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "match",
+        "no-match",
+        "unknown",
+        "error"
+      ]
+    },
+    "completeCoverage": {
+      "type": "boolean"
+    },
     "components": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["testId", "status", "patternResultDigest", "matchingPathOrdinals", "matchingPathKeys", "pathResults", "failures", "skipReason"],
+        "required": [
+          "testId",
+          "status",
+          "patternResultDigest",
+          "matchingPathOrdinals",
+          "matchingPathKeys",
+          "pathResults",
+          "failures",
+          "skipReason"
+        ],
         "properties": {
-          "testId": {"type": "string", "minLength": 1},
-          "status": {"type": "string", "enum": ["match", "no-match", "unknown", "error", "skipped"]},
-          "patternResultDigest": {"oneOf": [{"$ref": "common.schema.json#/$defs/digest"}, {"type": "null"}]},
-          "matchingPathOrdinals": {"type": "array", "items": {"type": "integer", "minimum": 0}},
-          "matchingPathKeys": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "testId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "match",
+              "no-match",
+              "unknown",
+              "error",
+              "skipped"
+            ]
+          },
+          "patternResultDigest": {
+            "oneOf": [
+              {
+                "$ref": "common.schema.json#/$defs/digest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "matchingPathOrdinals": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "matchingPathKeys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
           "pathResults": {
             "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["pathOrdinal", "pathKey", "pathIdentityDigest", "status", "completeCoverage", "stopReason", "executionStopReason", "patternResultDigest", "failures"],
+              "required": [
+                "pathOrdinal",
+                "pathKey",
+                "pathIdentityDigest",
+                "status",
+                "completeCoverage",
+                "stopReason",
+                "executionStopReason",
+                "patternResultDigest",
+                "failures"
+              ],
               "properties": {
-                "pathOrdinal": {"type": "integer", "minimum": 0},
-                "pathKey": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
-                "pathIdentityDigest": {"$ref": "common.schema.json#/$defs/digest"},
-                "status": {"type": "string", "enum": ["match", "no-match", "unknown", "error"]},
-                "completeCoverage": {"type": "boolean"},
-                "stopReason": {"type": "string", "enum": ["terminal", "stuck", "match-found", "depth-limit", "time-limit", "branch-limit", "result-limit", "resource-limit", "solver-unknown", "error"]},
-                "executionStopReason": {"type": "string", "enum": ["terminal", "stuck", "query-satisfied", "depth-limit", "time-limit", "branch-limit", "result-limit", "resource-limit", "solver-unknown", "error"]},
-                "patternResultDigest": {"$ref": "common.schema.json#/$defs/digest"},
-                "failures": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/failure"}}
+                "pathOrdinal": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "pathKey": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "pathIdentityDigest": {
+                  "$ref": "common.schema.json#/$defs/digest"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "match",
+                    "no-match",
+                    "unknown",
+                    "error"
+                  ]
+                },
+                "completeCoverage": {
+                  "type": "boolean"
+                },
+                "stopReason": {
+                  "type": "string",
+                  "enum": [
+                    "terminal",
+                    "stuck",
+                    "match-found",
+                    "depth-limit",
+                    "time-limit",
+                    "branch-limit",
+                    "result-limit",
+                    "resource-limit",
+                    "solver-unknown",
+                    "error"
+                  ]
+                },
+                "executionStopReason": {
+                  "type": "string",
+                  "enum": [
+                    "terminal",
+                    "stuck",
+                    "query-satisfied",
+                    "depth-limit",
+                    "time-limit",
+                    "branch-limit",
+                    "result-limit",
+                    "resource-limit",
+                    "solver-unknown",
+                    "error"
+                  ]
+                },
+                "patternResultDigest": {
+                  "$ref": "common.schema.json#/$defs/digest"
+                },
+                "failures": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "common.schema.json#/$defs/patternPathFailure"
+                  }
+                }
               },
               "allOf": [
-                {"if": {"properties": {"status": {"const": "no-match"}}}, "then": {"properties": {"completeCoverage": {"const": true}, "stopReason": {"enum": ["terminal", "stuck"]}, "failures": {"maxItems": 0}}}},
-                {"if": {"properties": {"status": {"enum": ["unknown", "error"]}}}, "then": {"properties": {"completeCoverage": {"const": false}, "failures": {"minItems": 1}}}},
-                {"if": {"properties": {"stopReason": {"const": "match-found"}}}, "then": {"properties": {"status": {"const": "match"}, "completeCoverage": {"const": false}}}}
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "const": "no-match"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "completeCoverage": {
+                        "const": true
+                      },
+                      "stopReason": {
+                        "enum": [
+                          "terminal",
+                          "stuck"
+                        ]
+                      },
+                      "failures": {
+                        "maxItems": 0
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "enum": [
+                          "unknown",
+                          "error"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "completeCoverage": {
+                        "const": false
+                      },
+                      "failures": {
+                        "minItems": 1
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "stopReason": {
+                        "const": "match-found"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "status": {
+                        "const": "match"
+                      },
+                      "completeCoverage": {
+                        "const": false
+                      }
+                    }
+                  }
+                }
               ]
             }
           },
-          "failures": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/failure"}},
-          "skipReason": {"oneOf": [{"type": "null"}, {"type": "string", "enum": ["corpus-match-found", "shared-setup-failed"]}]}
+          "failures": {
+            "type": "array",
+            "items": {
+              "$ref": "common.schema.json#/$defs/patternTestFailure"
+            }
+          },
+          "skipReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "corpus-match-found",
+                  "shared-setup-failed"
+                ]
+              }
+            ]
+          }
         }
       }
     },
     "counts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["match", "noMatch", "unknown", "error", "skipped"],
+      "required": [
+        "match",
+        "noMatch",
+        "unknown",
+        "error",
+        "skipped"
+      ],
       "properties": {
-        "match": {"type": "integer", "minimum": 0},
-        "noMatch": {"type": "integer", "minimum": 0},
-        "unknown": {"type": "integer", "minimum": 0},
-        "error": {"type": "integer", "minimum": 0},
-        "skipped": {"type": "integer", "minimum": 0}
+        "match": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "noMatch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unknown": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "error": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
-    "failures": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/failure"}}
+    "failures": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/corpusSharedSetupFailure"
+      }
+    }
   }
 }

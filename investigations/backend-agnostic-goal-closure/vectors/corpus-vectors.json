@@ -2,22 +2,272 @@
   "schemaVersion": 1,
   "packageVersion": "backend-agnostic-k-in-k-v1",
   "cases": [
-    {"id": "complete-corpus-absence", "earlyStopAfterMatch": false, "globalFailure": false, "components": [{"testId": "a", "status": "no-match"}, {"testId": "b", "status": "no-match"}], "expected": {"outcome": "no-match", "completeCoverage": true, "collectedTestIds": ["a", "b"], "matchingTestIds": []}},
-    {"id": "corpus-unknown-retained", "earlyStopAfterMatch": false, "globalFailure": false, "components": [{"testId": "a", "status": "no-match"}, {"testId": "b", "status": "unknown"}], "expected": {"outcome": "unknown", "completeCoverage": false, "collectedTestIds": ["a", "b"], "matchingTestIds": []}},
-    {"id": "match-dominates-local-unknown", "earlyStopAfterMatch": false, "globalFailure": false, "components": [{"testId": "a", "status": "unknown"}, {"testId": "b", "status": "match"}], "expected": {"outcome": "match", "completeCoverage": false, "collectedTestIds": ["a", "b"], "matchingTestIds": ["b"]}},
-    {"id": "local-error-is-incomplete-not-global", "earlyStopAfterMatch": false, "globalFailure": false, "components": [{"testId": "a", "status": "no-match"}, {"testId": "b", "status": "error"}], "expected": {"outcome": "unknown", "completeCoverage": false, "collectedTestIds": ["a", "b"], "matchingTestIds": []}},
-    {"id": "invalid-shared-setup-is-global-error", "earlyStopAfterMatch": false, "globalFailure": true, "components": [{"testId": "a", "status": "skipped"}, {"testId": "b", "status": "skipped"}], "expected": {"outcome": "error", "completeCoverage": false, "collectedTestIds": ["a", "b"], "matchingTestIds": []}},
-    {"id": "early-match-retains-skipped-tests", "earlyStopAfterMatch": true, "globalFailure": false, "components": [{"testId": "a", "status": "match"}, {"testId": "b", "status": "skipped"}, {"testId": "c", "status": "skipped"}], "expected": {"outcome": "match", "completeCoverage": false, "collectedTestIds": ["a", "b", "c"], "matchingTestIds": ["a"]}},
-    {"id": "collect-all-after-match-by-default", "earlyStopAfterMatch": false, "globalFailure": false, "components": [{"testId": "a", "status": "match"}, {"testId": "b", "status": "no-match"}, {"testId": "c", "status": "unknown"}], "expected": {"outcome": "match", "completeCoverage": false, "collectedTestIds": ["a", "b", "c"], "matchingTestIds": ["a"]}}
+    {
+      "id": "complete-corpus-absence",
+      "earlyStopAfterMatch": false,
+      "globalFailure": false,
+      "components": [
+        {
+          "testId": "a",
+          "status": "no-match"
+        },
+        {
+          "testId": "b",
+          "status": "no-match"
+        }
+      ],
+      "expected": {
+        "outcome": "no-match",
+        "completeCoverage": true,
+        "collectedTestIds": [
+          "a",
+          "b"
+        ],
+        "matchingTestIds": []
+      }
+    },
+    {
+      "id": "corpus-unknown-retained",
+      "earlyStopAfterMatch": false,
+      "globalFailure": false,
+      "components": [
+        {
+          "testId": "a",
+          "status": "no-match"
+        },
+        {
+          "testId": "b",
+          "status": "unknown"
+        }
+      ],
+      "expected": {
+        "outcome": "unknown",
+        "completeCoverage": false,
+        "collectedTestIds": [
+          "a",
+          "b"
+        ],
+        "matchingTestIds": []
+      }
+    },
+    {
+      "id": "match-dominates-local-unknown",
+      "earlyStopAfterMatch": false,
+      "globalFailure": false,
+      "components": [
+        {
+          "testId": "a",
+          "status": "unknown"
+        },
+        {
+          "testId": "b",
+          "status": "match"
+        }
+      ],
+      "expected": {
+        "outcome": "match",
+        "completeCoverage": false,
+        "collectedTestIds": [
+          "a",
+          "b"
+        ],
+        "matchingTestIds": [
+          "b"
+        ]
+      }
+    },
+    {
+      "id": "local-error-is-incomplete-not-global",
+      "earlyStopAfterMatch": false,
+      "globalFailure": false,
+      "components": [
+        {
+          "testId": "a",
+          "status": "no-match"
+        },
+        {
+          "testId": "b",
+          "status": "error"
+        }
+      ],
+      "expected": {
+        "outcome": "unknown",
+        "completeCoverage": false,
+        "collectedTestIds": [
+          "a",
+          "b"
+        ],
+        "matchingTestIds": []
+      }
+    },
+    {
+      "id": "invalid-shared-setup-is-global-error",
+      "earlyStopAfterMatch": false,
+      "globalFailure": true,
+      "components": [
+        {
+          "testId": "a",
+          "status": "skipped"
+        },
+        {
+          "testId": "b",
+          "status": "skipped"
+        }
+      ],
+      "expected": {
+        "outcome": "error",
+        "completeCoverage": false,
+        "collectedTestIds": [
+          "a",
+          "b"
+        ],
+        "matchingTestIds": []
+      }
+    },
+    {
+      "id": "early-match-retains-skipped-tests",
+      "earlyStopAfterMatch": true,
+      "globalFailure": false,
+      "components": [
+        {
+          "testId": "a",
+          "status": "match"
+        },
+        {
+          "testId": "b",
+          "status": "skipped"
+        },
+        {
+          "testId": "c",
+          "status": "skipped"
+        }
+      ],
+      "expected": {
+        "outcome": "match",
+        "completeCoverage": false,
+        "collectedTestIds": [
+          "a",
+          "b",
+          "c"
+        ],
+        "matchingTestIds": [
+          "a"
+        ]
+      }
+    },
+    {
+      "id": "collect-all-after-match-by-default",
+      "earlyStopAfterMatch": false,
+      "globalFailure": false,
+      "components": [
+        {
+          "testId": "a",
+          "status": "match"
+        },
+        {
+          "testId": "b",
+          "status": "no-match"
+        },
+        {
+          "testId": "c",
+          "status": "unknown"
+        }
+      ],
+      "expected": {
+        "outcome": "match",
+        "completeCoverage": false,
+        "collectedTestIds": [
+          "a",
+          "b",
+          "c"
+        ],
+        "matchingTestIds": [
+          "a"
+        ]
+      }
+    }
   ],
   "schemaCases": [
-    {"id": "schema-shaped-early-corpus-match", "question": "corpus-exists", "earlyStopAfterMatch": true, "components": [
-      {"testId": "a", "status": "match", "patternResultDigest": "1111111111111111111111111111111111111111111111111111111111111111", "matchingPathKeys": ["p0"], "pathResults": [{"pathKey": "p0", "status": "match", "completeCoverage": false, "stopReason": "match-found", "patternResultDigest": "1111111111111111111111111111111111111111111111111111111111111111", "failures": []}], "failures": [], "skipReason": null},
-      {"testId": "b", "status": "skipped", "patternResultDigest": null, "matchingPathKeys": [], "pathResults": [], "failures": [], "skipReason": "corpus-match-found"}
-    ], "failures": [], "expected": {"outcome": "match", "completeCoverage": false}},
-    {"id": "schema-shaped-shared-setup-error", "question": "corpus-exists", "earlyStopAfterMatch": false, "components": [
-      {"testId": "a", "status": "skipped", "patternResultDigest": null, "matchingPathKeys": [], "pathResults": [], "failures": [], "skipReason": "shared-setup-failed"},
-      {"testId": "b", "status": "skipped", "patternResultDigest": null, "matchingPathKeys": [], "pathResults": [], "failures": [], "skipReason": "shared-setup-failed"}
-    ], "failures": [{"stage": "input", "classification": "malformed", "scope": "campaign", "retryability": "never", "details": {}}], "expected": {"outcome": "error", "completeCoverage": false}}
+    {
+      "id": "schema-shaped-early-corpus-match",
+      "question": "corpus-exists",
+      "earlyStopAfterMatch": true,
+      "components": [
+        {
+          "testId": "a",
+          "status": "match",
+          "patternResultDigest": "fd349fa899a92f5563991fa123605c57d7f9e47d74e9ba9e27d3fc513f697fdf",
+          "matchingPathKeys": [
+            "p0"
+          ],
+          "pathResults": [
+            {
+              "pathKey": "p0",
+              "status": "match",
+              "completeCoverage": false,
+              "stopReason": "match-found",
+              "patternResultDigest": "fd349fa899a92f5563991fa123605c57d7f9e47d74e9ba9e27d3fc513f697fdf",
+              "failures": []
+            }
+          ],
+          "failures": [],
+          "skipReason": null
+        },
+        {
+          "testId": "b",
+          "status": "skipped",
+          "patternResultDigest": null,
+          "matchingPathKeys": [],
+          "pathResults": [],
+          "failures": [],
+          "skipReason": "corpus-match-found"
+        }
+      ],
+      "failures": [],
+      "expected": {
+        "outcome": "match",
+        "completeCoverage": false
+      }
+    },
+    {
+      "id": "schema-shaped-shared-setup-error",
+      "question": "corpus-exists",
+      "earlyStopAfterMatch": false,
+      "components": [
+        {
+          "testId": "a",
+          "status": "skipped",
+          "patternResultDigest": null,
+          "matchingPathKeys": [],
+          "pathResults": [],
+          "failures": [],
+          "skipReason": "shared-setup-failed"
+        },
+        {
+          "testId": "b",
+          "status": "skipped",
+          "patternResultDigest": null,
+          "matchingPathKeys": [],
+          "pathResults": [],
+          "failures": [],
+          "skipReason": "shared-setup-failed"
+        }
+      ],
+      "failures": [
+        {
+          "stage": "input",
+          "classification": "malformed",
+          "scope": "campaign",
+          "retryability": "never",
+          "details": {},
+          "context": "corpus-shared-setup",
+          "semanticEvidence": []
+        }
+      ],
+      "expected": {
+        "outcome": "error",
+        "completeCoverage": false
+      }
+    }
   ]
 }
