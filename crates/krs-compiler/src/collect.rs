@@ -26,16 +26,19 @@ use krs_syntax::{
     InitializerFunction, ProvenanceAnchor, ProvenanceRole, RuleItem, SortDeclaration, SortsEntry,
     StateClaimItem, StateContextAliasItem, StateRuleItem, SubsortDeclaration, TokenDeclaration,
     TokenRange, parse_alias_attribute, parse_associativity_declaration, parse_bracket_attribute,
+    parse_cells_expression_source_with_trivia, parse_cells_pattern_source_with_trivia,
     parse_claim_attribute, parse_configuration_attribute, parse_constructor_attribute,
     parse_constructors_attribute, parse_equation_attribute, parse_function_attribute,
-    parse_init_attribute, parse_precedence_declaration, parse_priority_attribute,
-    parse_rule_attribute, parse_rule_block, parse_seqstrict_attribute,
-    parse_simplification_attribute, parse_sort_attribute, parse_sorts_declaration,
-    parse_strict_attribute, parse_subsort_attribute, parse_symbol_attribute,
-    parse_term_expression_source, parse_token_attribute,
+    parse_init_attribute, parse_map_expression_source_with_trivia,
+    parse_map_pattern_source_with_trivia, parse_precedence_declaration, parse_priority_attribute,
+    parse_rule_attribute, parse_rule_block, parse_rule_block_source_with_trivia,
+    parse_seqstrict_attribute, parse_simplification_attribute, parse_sort_attribute,
+    parse_sorts_declaration, parse_strict_attribute, parse_subsort_attribute,
+    parse_symbol_attribute, parse_term_expression_source, parse_token_attribute,
 };
 use proc_macro2::TokenStream;
 use sha2::{Digest, Sha256};
+use syn::visit::Visit;
 use syn::{Attribute, ImplItem, Item, Meta};
 
 use crate::{CollectionError, CollectionErrorKind};
@@ -2524,6 +2527,7 @@ fn load_source_document(
             format!("cannot parse authored Rust source `{display_hint}`: {error}"),
         )
     })?;
+    validate_dsl_trivia(&syntax, &text)?;
     let mut invocations = Vec::new();
     collect_invocations(&syntax.items, &mut invocations)?;
     Ok(SourceDocument {
@@ -2531,6 +2535,144 @@ fn load_source_document(
         file,
         invocations,
     })
+}
+
+struct DslTriviaVisitor<'source> {
+    source: &'source str,
+    error: Option<CollectionError>,
+}
+
+impl<'ast> Visit<'ast> for DslTriviaVisitor<'_> {
+    fn visit_macro(&mut self, invocation: &'ast syn::Macro) {
+        if self.error.is_some() {
+            return;
+        }
+        let Some(name) = invocation
+            .path
+            .segments
+            .last()
+            .map(|segment| &segment.ident)
+        else {
+            return;
+        };
+        let result = match name.to_string().as_str() {
+            "rules" => macro_body_source(self.source, invocation).and_then(|body| {
+                parse_rule_block_source_with_trivia(body.source)
+                    .map(|_| ())
+                    .map_err(|error| source_syntax_at(error, body.byte_offset))
+            }),
+            "cells" => macro_body_source(self.source, invocation).and_then(validate_cells_trivia),
+            "map" => macro_body_source(self.source, invocation).and_then(validate_map_trivia),
+            _ => Ok(()),
+        };
+        if let Err(error) = result {
+            self.error = Some(error);
+            return;
+        }
+        syn::visit::visit_macro(self, invocation);
+    }
+}
+
+fn validate_dsl_trivia(syntax: &syn::File, source: &str) -> Result<(), CollectionError> {
+    let mut visitor = DslTriviaVisitor {
+        source,
+        error: None,
+    };
+    visitor.visit_file(syntax);
+    visitor.error.map_or(Ok(()), Err)
+}
+
+#[derive(Clone, Copy)]
+struct MacroBody<'source> {
+    source: &'source str,
+    byte_offset: usize,
+}
+
+fn validate_cells_trivia(body: MacroBody<'_>) -> Result<(), CollectionError> {
+    let expression = parse_cells_expression_source_with_trivia(body.source);
+    if expression.is_ok() {
+        return Ok(());
+    }
+    let expression_error = expression.expect_err("the success case returned above");
+    if matches!(
+        expression_error.kind(),
+        krs_syntax::SyntaxErrorKind::UnsupportedDslBlockComment { .. }
+    ) {
+        return Err(source_syntax_at(expression_error, body.byte_offset));
+    }
+    match parse_cells_pattern_source_with_trivia(body.source) {
+        Err(error)
+            if matches!(
+                error.kind(),
+                krs_syntax::SyntaxErrorKind::UnsupportedDslBlockComment { .. }
+            ) =>
+        {
+            Err(source_syntax_at(error, body.byte_offset))
+        }
+        Ok(_) | Err(_) => Ok(()),
+    }
+}
+
+fn validate_map_trivia(body: MacroBody<'_>) -> Result<(), CollectionError> {
+    let expression = parse_map_expression_source_with_trivia(body.source);
+    if expression.is_ok() {
+        return Ok(());
+    }
+    let expression_error = expression.expect_err("the success case returned above");
+    if matches!(
+        expression_error.kind(),
+        krs_syntax::SyntaxErrorKind::UnsupportedDslBlockComment { .. }
+    ) {
+        return Err(source_syntax_at(expression_error, body.byte_offset));
+    }
+    match parse_map_pattern_source_with_trivia(body.source) {
+        Err(error)
+            if matches!(
+                error.kind(),
+                krs_syntax::SyntaxErrorKind::UnsupportedDslBlockComment { .. }
+            ) =>
+        {
+            Err(source_syntax_at(error, body.byte_offset))
+        }
+        Ok(_) | Err(_) => Ok(()),
+    }
+}
+
+fn macro_body_source<'source>(
+    source: &'source str,
+    invocation: &syn::Macro,
+) -> Result<MacroBody<'source>, CollectionError> {
+    let start = invocation.delimiter.span().open().end();
+    let end = invocation.delimiter.span().close().start();
+    let start = position_to_byte(
+        source,
+        u32::try_from(start.line).map_err(|_| coordinate_overflow())?,
+        u32::try_from(
+            start
+                .column
+                .checked_add(1)
+                .ok_or_else(coordinate_overflow)?,
+        )
+        .map_err(|_| coordinate_overflow())?,
+    )?;
+    let end = position_to_byte(
+        source,
+        u32::try_from(end.line).map_err(|_| coordinate_overflow())?,
+        u32::try_from(end.column.checked_add(1).ok_or_else(coordinate_overflow)?)
+            .map_err(|_| coordinate_overflow())?,
+    )?;
+    source
+        .get(start..end)
+        .map(|body| MacroBody {
+            source: body,
+            byte_offset: start,
+        })
+        .ok_or_else(|| {
+            CollectionError::new(
+                CollectionErrorKind::SourcePositionOutOfBounds,
+                "a DSL macro delimiter span is outside the exact authored source",
+            )
+        })
 }
 
 fn resolve_display_source(
@@ -3838,10 +3980,26 @@ fn with_declaration_metadata(
 
 #[allow(clippy::needless_pass_by_value)]
 fn source_syntax(error: krs_syntax::SyntaxError) -> CollectionError {
-    CollectionError::new(
-        CollectionErrorKind::SourceSyntax,
-        format!("shared KRS source parser rejected authored source: {error}"),
-    )
+    source_syntax_at(error, 0)
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn source_syntax_at(error: krs_syntax::SyntaxError, byte_offset: usize) -> CollectionError {
+    let range = error.source_range().and_then(|range| {
+        Some((
+            byte_offset.checked_add(range.start())?,
+            byte_offset.checked_add(range.end())?,
+        ))
+    });
+    let detail = range.map_or_else(
+        || format!("shared KRS source parser rejected authored source: {error}"),
+        |(start, end)| {
+            format!(
+                "shared KRS source parser rejected authored source at bytes {start}..{end}: {error}"
+            )
+        },
+    );
+    CollectionError::new(CollectionErrorKind::SourceSyntax, detail)
 }
 
 fn token_coordinates(range: TokenRange) -> Result<Coordinates, CollectionError> {

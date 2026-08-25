@@ -15,7 +15,7 @@ quote = "1.0.47"
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10.9"
-syn = { version = "2.0.119", features = ["full", "parsing"] }
+syn = { version = "2.0.119", features = ["full", "parsing", "visit"] }
 
 [lints]
 workspace = true

@@ -552,6 +552,128 @@ fn duplicate_reparsed_invocations_are_rejected_as_ambiguous() {
 }
 
 #[test]
+fn collection_rejects_block_comments_in_every_dsl_body_at_exact_bytes() {
+    let cases = [
+        (
+            "dsl_block_rules",
+            r"#[k::sort]
+pub trait Expr {}
+k::rules! {
+    for Expr;
+    use Op::*;
+    eval: Neg { value } /*krs-f7-block*/ => value;
+}
+",
+            "rules!",
+        ),
+        (
+            "dsl_block_cells",
+            r"#[k::sort]
+pub trait Expr {}
+fn fixture() {
+    let _ = cells! { k: KCell(value /*krs-f7-block*/, ..tail), ..state };
+}
+",
+            "cells!",
+        ),
+        (
+            "dsl_block_map",
+            r"#[k::sort]
+pub trait Expr {}
+fn fixture() {
+    let _ = map! { name /*krs-f7-block*/ -> value, rest @ .. };
+}
+",
+            "map!",
+        ),
+    ];
+    for (name, source, diagnostic_macro) in cases {
+        let package = TestPackage::new(name, source);
+        let error = collect_host_descriptors(
+            [package.context("KRS-F7-COLLECTOR")],
+            [package.sort("Expr", expr_type, vec![])],
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), CollectionErrorKind::SourceSyntax);
+        let start = source.find("/*krs-f7-block*/").unwrap();
+        let end = start + "/*krs-f7-block*/".len();
+        assert!(
+            error.detail().contains(&format!("bytes {start}..{end}")),
+            "{}",
+            error.detail()
+        );
+        assert!(error.detail().contains(diagnostic_macro), "{error}");
+    }
+}
+
+#[test]
+fn line_comment_dsl_reparse_preserves_identity_payload_topology_and_exact_anchors() {
+    let baseline_source = r"#[k::sort]
+pub trait Expr {}
+";
+    let commented_source = r"#[k::sort]
+pub trait Expr {}
+k::rules! {
+    for Expr;
+    use Op::*;
+    // The comment is trivia, not rule payload.
+    eval: Neg { value } => value;
+}
+fn fixture() {
+    let _ = cells! {
+        k: KCell(value, // preserve the continuation
+            ..tail),
+        ..state
+    };
+    let _ = map! {
+        name -> value, // preserve the remainder
+        rest @ ..
+    };
+}
+";
+    let baseline = TestPackage::new("dsl_line_comments", baseline_source);
+    let commented = TestPackage::new("dsl_line_comments", commented_source);
+    let baseline_bundle = collect_host_descriptors(
+        [baseline.context("KRS-F7-COLLECTOR")],
+        [baseline.sort("Expr", expr_type, vec![])],
+    )
+    .unwrap();
+    let commented_bundle = collect_host_descriptors(
+        [commented.context("KRS-F7-COLLECTOR")],
+        [commented.sort("Expr", expr_type, vec![])],
+    )
+    .unwrap();
+    let baseline_descriptor = &baseline_bundle.descriptors[0];
+    let commented_descriptor = &commented_bundle.descriptors[0];
+    assert_eq!(baseline_descriptor.id, commented_descriptor.id);
+    assert_eq!(baseline_descriptor.payload, commented_descriptor.payload);
+    let topology = |descriptor: &krs_ir::Descriptor| {
+        descriptor
+            .provenance
+            .origins()
+            .iter()
+            .map(|origin| origin.key.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        topology(baseline_descriptor),
+        topology(commented_descriptor)
+    );
+    let authored_range = |descriptor: &krs_ir::Descriptor| {
+        let krs_ir::OriginFrame::Ranged { range, .. } = &descriptor.origin().frames()[0] else {
+            panic!("the primary frame must remain authored")
+        };
+        (range.start_byte, range.end_byte)
+    };
+    assert_eq!(
+        authored_range(baseline_descriptor),
+        authored_range(commented_descriptor)
+    );
+    let (start, end) = authored_range(commented_descriptor);
+    assert_eq!(&commented_source[start as usize..end as usize], "Expr");
+}
+
+#[test]
 fn zero_and_multiple_rule_bindings_are_preserved_without_synthesis() {
     let package = TestPackage::new(
         "bindings",
