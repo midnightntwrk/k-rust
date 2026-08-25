@@ -10,9 +10,13 @@ more time trying to manufacture an exact checkout of `9d507b0`: the surviving
 forensic routes have been exhausted, but all authored source, documentation,
 configuration, and test paths needed to continue are present.
 
-Feature work resumes only after the reconstructed workspace passes the full
-qualification sequence. The first feature package after that baseline is the
-compiler-collector integration named in `LAST_KNOWN_PROMPT.md`.
+The implementation seams are now reconstructed through the macro fixtures,
+compiler, CLI, and native adapter. Recovery is in qualification, not source
+triage. Feature work resumes only after the full workspace, F7, C7, and M4
+oracles pass from a clean signed commit. Then continue the interrupted
+readability program: finish the normative `draft/readability/spec`, make its
+IMP specimen executable with expansion and semantic parity, and qualify the
+same authoring layer on KWasm before moving to larger K corpora.
 
 ## Authorities and path translation
 
@@ -103,7 +107,13 @@ remote and deliberately contains no reconstructed original objects:
   coverage;
 - `302c765` — audit advancement to the native adapter seam;
 - `43db2b4` — schema-9 `k-rust` adapter, KRS-owned preparation compatibility
-  layer, focused adapter tests, and retained M3D fixture reconciliation.
+  layer, focused adapter tests, and retained M3D fixture reconciliation;
+- `3d2632e` — audit advancement beyond the adapter seam;
+- `a53053b` — direct-evidence collision provenance recovery and restored CLI
+  collector-planning qualification;
+- `1ffb361` — recovered macro fixture inventory, initializer import hygiene,
+  nonlinear-binding qualification, and missing negative-fixture
+  reconstruction.
 
 Every new commit and the import tag verify against the configured ED25519 Git
 signing key. Valid signed original commit objects survive in the evidence
@@ -176,12 +186,39 @@ Clippy gate pass. Seven expander update events are recorded after the
 rollout payloads are not transferred as standalone patch files, but their
 metadata and the final expected hash remain useful constraints.
 
-The complete fixture suite is not yet green: its positive fixture now reaches
-the separate `krs-k-rust` adapter seam, and `duplicate_binder` shows that at
-least one later expander transition is still required. Reconstruct those
-transitions against the final pin and fixtures after the adapter seam is
-coherent. Do not block functional recovery if the untransferred payloads make
-exact hash recovery impossible.
+Commit `1ffb361` completes functional macro recovery. It restores the exact
+`fbccdc7` fixture runner (SHA-256
+`6148a08697e1c0125ecfb7e7ace82837a9edd29deb2c8a4e80a42db8d400d6`), its
+full negative-fixture manifest, and its full positive fixture, reconciled
+forward only for the later `map![key -> value]` spelling. It also extends the
+existing consumed-island import mechanism to bare `k!` and `map!` invocations
+inside `#[init]`, so generated qualification retains author lint credit
+without placing an allowance on authored imports.
+
+`duplicate_binder` is intentionally a positive nonlinear-pattern fixture:
+`term![Foo(value, value)]` introduces one binding with two occurrences. The
+older runner's rejection expectation was stale and must not be restored.
+
+Six negative fixture blobs named by the exact runner were absent from every
+recoverable object store. Their original Git and SHA-256 identities remain in
+the forensic ledgers, but their bytes do not. They are therefore explicitly
+functional reconstructions: each exercises its original real macro path and
+produces the pinned local diagnostic for malformed state reuse, wrapper/state
+family mismatch, invalid labels, host-literal conditions, unbound condition
+references, or result-only references.
+
+The demonstrated macro gates are now:
+
+- two unit tests, six fixture tests, and doc tests;
+- positive fixture check, Clippy, execution, and deterministic repeat;
+- the full negative diagnostic inventory, including real collection and
+  type-identity cases;
+- Rust 1.88 all-target checking;
+- current-toolchain all-target Clippy with warnings denied.
+
+The resulting expander does not match the expected post-C7 stable hash and is
+not claimed byte-exact. Its behavior is qualified and its reconstruction
+boundary is recorded; do not chase the final hash by regressing the fixtures.
 
 ### Cargo dependency seam
 
@@ -287,13 +324,19 @@ those map arrows and expectations tied to the recovered current emitter/native
 pin were reconciled. These are explicit functional-reconstruction edits, not
 portrayed as recovered original bytes.
 
-The adapter is no longer the workspace blocker. A locked all-target workspace
-check now compiles through `krs` and reaches `krs-cli`; its sole observed error
-is a stale `LoweringError::NameCollision { second_origin, .. }` match after the
-recovered compiler error shape retained only `first` and `second` owner names.
-Reconcile that diagnostic provenance deliberately, then resume macro fixture
-qualification. A stable-ledger mismatch remains a classification signal, not
-authority to replace a later file wholesale.
+Commit `a53053b` closes the CLI seam. Direct transcript evidence proves that
+schema 9 retained `LoweringError::NameCollision::second_origin: OriginStack`;
+the compiler now passes the authored second declaration's origin through every
+collision preflight, and a focused test pins the exact reported origin. The
+same commit restores the six collector-planning tests by reconciling fallible
+canonical JSON, request-factory shadowing, and real Cargo library-target
+metadata.
+
+The CLI now passes its active and MSRV all-target checks, focused tests, and
+Clippy gates. Production `check`, `expand`, `emit-k`, and native `build`
+integration have also passed. A locked all-target workspace check passes after
+the macro milestone. A stable-ledger mismatch remains a classification signal,
+not authority to replace a later file wholesale.
 
 ### M4 ledgers
 
@@ -323,6 +366,7 @@ Observed on 2026-08-25:
 | Ambient Rust | 1.98.0. |
 | MSRV Rust | Correct, 1.88.0 installed through rustup. |
 | MSRV Clippy | Not installed for the rustup 1.88.0 toolchain; the ambient 1.98 Clippy gate passes with warnings denied. |
+| MSRV rustfmt | Not installed for the rustup 1.88.0 toolchain. Do not install it merely to erase this environmental distinction. |
 | K executables | Cached exact K 7.1.337, kore-exec 0.1.155, and LLVM backend 0.1.140 binaries verified directly; `kup shell` remains the preferred entry when network/cache configuration permits. |
 
 The required Cargo registry dependencies are now present. Locked commands use
@@ -331,6 +375,12 @@ the frozen root lock without regeneration. The adapter enables
 in `LIBRARY_PATH` and `LD_LIBRARY_PATH`; this is an environment requirement,
 not an unavailable frontend capability or a reason to change dependency
 topology.
+
+On this machine the required directory is:
+
+```text
+/nix/store/bncr69nhmgvphbynb1a3g4a2jb9b8vj0-z3-4.12.5-lib/lib
+```
 
 ## K ecosystem reference map
 
@@ -390,20 +440,21 @@ components, ambient Z3, and full locked metadata resolution are verified.
 system-Z3 override is an explicit machine prerequisite, not an undocumented
 lock refresh.
 
-### Phase 2 — restore the macro implementation — baseline complete, fixture qualification next
+### Phase 2 — restore the macro implementation — complete
 
-1. The exact `fbccdc7` expander is committed and its isolated unit, MSRV, and
-   Clippy gates pass.
-2. Reconcile the seven known later transitions or reimplement their behavior
-   against the final `lib.rs`, syntax APIs, final pin, and fixtures.
-3. After compiler recovery, run the positive/negative fixtures, formatting,
-   Clippy with warnings denied, and all macro tests.
+1. The exact `fbccdc7` expander baseline is committed.
+2. The required later behavior is reconstructed without claiming the missing
+   post-C7 byte identity: initializer import hygiene, the full fixture runner
+   and manifest, the later positive fixture, nonlinear binding semantics, and
+   six focused missing negative sources.
+3. Unit, fixture, positive Clippy/run/repeat, negative diagnostic, MSRV check,
+   and current Clippy gates pass.
 
-Exit criterion: the macro crate and fixtures are green. Reaching the final
-stable expander hash is preferred exact recovery; a different hash requires a
-documented functional-reconstruction commit.
+Exit criterion met by signed commit `1ffb361`. The exact runner is retained;
+the expander and six missing fixture sources are documented functional
+reconstructions.
 
-### Phase 3 — reconcile the recovered late IR line — compiler and adapter complete
+### Phase 3 — reconcile the recovered late IR line — source reconstruction complete
 
 1. `krs-ir` unit and integration targets now compile and pass on both
    toolchains; obsolete tests and goldens are reconciled.
@@ -412,25 +463,39 @@ documented functional-reconstruction commit.
    gates pass.
 3. `krs-k-rust` is aligned with that Definition IR and the pinned native
    frontend through the documented KRS compatibility preparation layer.
-4. `krs` now passes the locked all-target workspace check. Reconcile the one
-   stale `krs-cli` name-collision diagnostic match, then qualify its tests
-   without starting collector-trivia feature work.
+4. `krs-cli` is aligned with direct-evidence collision provenance and the
+   restored collector-planning suite. Production check/expand/emit/build
+   integration passes.
+5. The locked all-target workspace check passes after the macro milestone.
 
-Exit criterion: `cargo check --workspace --all-targets --locked` and the full
-workspace test suite pass. No recovery-only compatibility shim remains
-unexplained.
+Source-reconstruction criterion met: the locked workspace check and every
+focused crate gate pass, and every recovery-only compatibility layer is
+explained. The full integrated workspace test run is deliberately the first
+Phase 4 qualification gate rather than a source-reconstruction blocker.
 
-### Phase 4 — establish the new green recovery baseline
+### Phase 4 — establish the new green recovery baseline — active
 
 Run, in order:
 
-1. formatting, workspace check, Clippy `-D warnings`, tests, docs, and doc
-   tests on the default toolchain;
-2. all required `cargo +1.88.0 check` gates;
-3. the focused F7 syntax/trivia suite;
-4. the isolated C7 pinned-K qualification;
-5. the complete M4.1-M4.8 oracle inside the pinned K shell;
-6. a second clean M4 run after any justified source-ledger refresh.
+1. Run the full default-toolchain workspace tests, Clippy `-D warnings`, docs,
+   and doc tests from the clean `1ffb361` checkpoint. The locked all-target
+   check already passes. Classify the existing formatter diff before changing
+   it: the installed rustfmt disagrees with recovered historical formatting in
+   files outside the macro repair, while Rust 1.88 rustfmt is unavailable.
+2. Run all required Rust 1.88 workspace checks. Targeted IR, compiler, adapter,
+   CLI, and macro MSRV gates already pass.
+3. Run the complete syntax suite and the existing focused F7
+   trivia/source-API oracles. Collector integration remains Phase 5 feature
+   work.
+4. Resume the exact interrupted package shown in `LAST_KNOWN_PROMPT.md` by
+   qualifying `tests/c7`: bare precedence must accept `!!true`, explicit
+   `non_assoc` must reject same-tier nesting, and emitted K must contain the
+   one expected `syntax non-assoc` sentence. The implementation and fixture
+   are already present; do not re-design C7/Q8.
+5. Run the complete M4.1-M4.8 oracle inside the pinned K environment with the
+   recorded Z3 library paths.
+6. Classify the 267-entry source-ledger differences. Refresh only identities
+   justified by recovery/F7 work, then run M4 again from a clean tree.
 
 The semantic target is the recorded 23/31/246/16 result, 21 bounded proofs,
 seven compatibility probes, and evidence hash
@@ -442,21 +507,40 @@ Commit coherent repairs separately, then mark the final fully green commit as
 the reconstructed post-F7 baseline. This commit receives a new identity and
 must not claim to be `9d507b0`.
 
-### Phase 5 — resume the interrupted project work
+### Phase 5 — finish the readability specification and qualify IMP
 
-Only after Phase 4, implement the next package recorded by the final session:
+Only after Phase 4:
 
-1. switch byte-exact compiler-collector source re-parsing to the new
-   trivia-aware syntax seams;
-2. enforce line-comments-only DSL bodies during real collection;
-3. prove descriptor semantics and provenance identities remain unchanged;
-4. commit that package independently;
-5. proceed to formatter rendering/snapshots, settle comment-column versus
-   fixed-gutter placement from snapshot evidence, add `krs fmt`, and continue
-   readable IMP parity;
-6. after IMP is qualified, validate the authoring layer against KWasm, then
-   KMIR, then KEVM-sized corpus slices; use Kontrol only when shaping the
-   product-facing proving/CLI workflow.
+1. Treat `draft/readability/spec/imp.rs` as the normative surface,
+   `decisions.md` as the implementation contract, and `open-questions.md` as
+   an explicit decision boundary. Do not silently settle its genuinely open
+   items.
+2. Complete the specimen build list in the order already recorded by the spec:
+   `sorts!`, grammar surface, wrapper-free configuration, `rules!`, map facade,
+   formatter, then diagnostics. Preserve the four F3 method gates throughout.
+3. Integrate the F7 trivia/source APIs into real collector re-parsing, enforce
+   line-comments-only DSL bodies there, and prove semantic payloads, stable
+   identities, provenance-key topology, and byte-exact anchors are unchanged.
+4. Build formatter rendering and snapshots, bring the one remaining
+   trailing-comment-column choice to the user with concrete snapshots, and
+   then add `krs fmt`.
+5. Make the normative IMP specimen compile; require deterministic `krs
+   expand`, resolved-IR and emitted-K parity with the current hand-written M4
+   port, and the full IMP behavior/search/proof qualification.
+
+Exit criterion: the normative authoring specimen, its expansion, and the
+complete IMP oracle are green from a clean signed commit.
+
+### Phase 6 — extend the qualified authoring layer to WASM and larger corpora
+
+1. Use KWasm first for the requested WASM qualification and the smallest
+   real-language portability check.
+2. Move next to KMIR for current-K multi-cell and rule-shape stress, then KEVM
+   for scale.
+3. Use Kontrol only when shaping product-facing proving and CLI workflows.
+
+Each corpus is an acceptance oracle, not a source of silent KRS syntax changes;
+record any new construct as a spec decision before implementing it.
 
 The normative formatter target remains:
 
@@ -486,20 +570,18 @@ implementation authority.
 
 ## Immediate next action
 
-Proceed in this order:
+Proceed in this order, stopping on the first unexplained semantic failure:
 
-1. Reconcile `krs-cli`'s stale name-collision diagnostic match with the
-   recovered compiler error model. Preserve an honest authored range when one
-   can be resolved; do not manufacture `second_origin` metadata that schema 9
-   no longer carries.
-2. Re-run the locked all-target workspace check and focused CLI tests.
-3. Return to the macro positive/negative fixtures now that native compilation
-   is available. Classify failures against the seven recorded post-`fbccdc7`
-   expander transitions and implement their required behavior without chasing
-   an unattainable byte hash.
-4. Run the complete Phase 4 workspace, syntax/F7, pinned-K C7, and M4 gates.
-   Only a clean, behaviorally matched result becomes the signed reconstructed
-   post-F7 baseline.
+1. Run the remaining full workspace tests, workspace Clippy/docs/doc tests,
+   and Rust 1.88 workspace checks from signed commit `1ffb361`.
+2. Run and classify the full syntax/F7 suite.
+3. Run the pinned-K `tests/c7/verify.py` package recovered from the interrupted
+   session; repair only evidence-backed failures.
+4. Run the complete M4 oracle with the recorded Z3 environment, reconcile the
+   source ledger without changing behavioral pins, and repeat from clean.
+5. Sign the resulting green commit as the reconstructed post-F7 baseline.
+6. Begin Phase 5 at the normative readability spec, qualify the new surface on
+   IMP, then execute the KWasm-first Phase 6 ladder.
 
 ## Audit hygiene
 
