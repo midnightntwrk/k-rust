@@ -1,102 +1,58 @@
 # KRS authoring surface — normative spec
 
-**This folder is the settled outcome of the readability investigation
-(`draft/readability/`, docs 00–16, concluded 2026-08-21). If you are here
-to build, this folder is sufficient: do not read the sibling deliberation
-docs except to chase a rationale citation.** They record how the design
-was reached, including many superseded intermediate forms; treating them
-as instructions will mislead you.
+**This folder is the implemented outcome of the readability investigation (`draft/readability/`, docs 00–16, concluded 2026-08-21).**
+If you are extending the authoring layer, this folder is the contract; read the sibling deliberation documents only to chase a rationale citation.
+They record superseded intermediate forms and are not implementation instructions.
 
 ## The deliverable
 
-Make `imp.rs` (in this folder) real: a layer-1 **authoring surface** of
-attribute macros and function-like macros such that this file compiles,
-expands deterministically (`krs expand`) to the layer-2 **reference
-surface** shown in `imp.expanded.rs` (the shape of today's hand-written
-`tests/m4/rust-definition/src/imp.rs`), and drives the same K-parity
-oracle. Plus one co-deliverable: **`krs fmt`**, the formatter that
-enforces the surface's canonical layout (decision F1).
+`imp.rs` is the compiling layer-1 **authoring surface**.
+It expands deterministically through `krs expand` to the exact layer-2 **reference surface** in `imp.expanded.rs`, and the M4 gate proves that this route drives the same K semantics as the reference IMP definition.
+`krs fmt` is the co-delivered formatter that enforces the canonical authoring layout from F1/F5–F7.
 
 | File | Status | Role |
 |---|---|---|
-| [`imp.rs`](imp.rs) | **normative** | the target authoring surface — what authors write; the acceptance specimen |
-| [`imp.expanded.rs`](imp.expanded.rs) | reference | what it expands to (see "Known deltas" below) |
+| [`imp.rs`](imp.rs) | **normative, implemented** | the authoring surface that authors write and review |
+| [`imp.expanded.rs`](imp.expanded.rs) | **generated reference** | the byte-exact reviewed `krs expand` projection |
 | [`decisions.md`](decisions.md) | **normative** | every settled decision as an implementable rule (A architecture, B sorts, C grammar, D configuration, E rules, F tooling) |
 | [`open-questions.md`](open-questions.md) | **normative** | what is deliberately undecided — surface these, never resolve them silently |
 
-Precedence on conflict: `imp.rs` > `decisions.md` > everything else. A
-conflict is a bug in this folder — report it rather than interpreting
-around it.
+Precedence on conflict: `imp.rs` > `decisions.md` > everything else.
+A conflict is a bug in this folder and must not be interpreted around.
 
-## What exists today vs. what to build
+## Implementation status
 
-Grounded in the real implementation (`crates/krs-macros`, `crates/krs-syntax`,
-`crates/krs-compiler`). Already real, keep the spelling: `#[k::constructors]`
-enums, the variant strictness helpers, the `cells!`/`map!` grammars, the
-attribute-argument forms, the collector's provenance re-parse, the m1 LSP
-oracle. To build (decision IDs from `decisions.md`):
+The readable IMP surface is implemented in `crates/krs-macros`, `crates/krs-syntax`, `crates/krs-compiler`, `crates/krs-fmt`, and `crates/krs-cli`.
+The production acceptance specimen is `tests/m4/rust-definition/src/imp.rs`.
 
-1. **`k::sorts!`** with `impl` membership lines, bracket attribute,
-   generated trait + alias pairs (B1–B4); sort recognition in
-   rule-parsing becomes name-resolution-based, not `Term<…>`
-   token-shape-based (B2 — prototype-gated, r3 caveat).
-2. **Grammar surface**: syntax-first attribute as driver (C3), the
-   enum-level `#[k::precedence(…)]` chain with total membership checking
-   (C7), template-spacing-derived pretty-print + `#[k::format]` (C5),
-   bare/field-list strictness (C6).
-3. **Wrapper-free configuration**: injectable `Cell`/`KCell`, `#[k::cell]`
-   leaves, init-fn-derived config vars (D1–D2; open-questions §11 on the
-   leaf discriminator).
-4. **`k::rules!`** — the core: `for Sort;` k-head anchoring with framed
-   tail, splice/erase right-hand forms, block-local `use`, clause-derived
-   labels, occurrence-based sort inference + `where` narrowing, the
-   `for Machine` cell-record form, expansion to independent framed
-   two-sided `#[k::rule]` fns (E1–E8). Prerequisite: head resolution for
-   `use Family::*;` globs (block-local and module-scope; today variant
-   re-imports are rejected as rule heads — there is a negative fixture).
-5. **`map::update`** and the `k::builtin::map` facade (open-questions
-   §16 — build work).
-6. **`krs fmt`** per F1/F5–F7 / doc 16 §Verdict. Its layout-independent
-   krs-syntax trivia facade and source APIs are implemented; renderer and
-   CLI integration remain.
-7. **Diagnostics**: the fail-fast set (F4) and the overlap diagnostic
-   (F2; mechanism open — open-questions §5).
+- `k::sorts!` generates the selected `<Sort>Sort` membership trait plus the short `Term<dyn <Sort>Sort>` alias, with bracket and membership declarations from B1–B4.
+- The syntax-first grammar surface, exhaustive enum precedence chains, derived formats, and named strictness from C1–C10 compile and lower through M4.
+- Wrapper-free configuration uses an explicit `#[k::cell]` marker on every leaf field; the expansion injects `Cell`/`KCell`, and the init function supplies configuration variables and the main computation input.
+- `k::rules!` supports the complete `for Sort` and `for Machine` IMP forms, block-local constructor imports, inferred and narrowed binders, splice/erase results, clause labels, and deterministic layer-2 expansion.
+- `k::builtin::map::update` and its alias-safe facade are implemented.
+- `krs fmt` provides Rustfmt-first elide/splice formatting, whole-table alignment, one-cell-per-line machine records, trivia preservation, Cargo-workspace discovery, `--stdin`, `--check`, unified diffs, editor integration, idempotence, and Rustfmt-fixpoint enforcement.
+- Semantic lowering rejects overlapping readable rules after sort inference with a deterministic, cross-table, sort-aware pattern-unification diagnostic.
 
-Suggested order: (1)–(3) are contained macro/collector work; (4) is the
-substantial piece and gates on the head-resolution prerequisite; (6)'s
-renderer can build on the delivered trivia/source-API foundation; nothing
-blocks on (7)'s open mechanism beyond emitting *some* overlap error.
+The only unresolved IMP formatter presentation choice is the trailing-clause-comment policy: aligned comment column or fixed two-space gutter.
+Both behaviors have stable snapshots; `aligned` is the current provisional default pending the explicit decision in `open-questions.md` §4.
+The next qualification target is a representative readable KWasm port, which must expose any remaining language-scale gaps rather than reopening implemented IMP decisions.
 
 ## Acceptance oracles
 
-- **Expansion fidelity**: `krs expand` on `imp.rs` produces the reference
-  surface — `imp.expanded.rs` in shape (see deltas below), and the
-  resolved IR / emitted `.k` must match what today's hand-written M4 port
-  produces. The emitted `.k` is checked against the original
-  `inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/{expr,calc,imp}.k`
-  — full K parity of all 27 rules, labels, strictness, formats, bracket,
-  and both precedence chains was verified by hand in round 6 and must
-  hold mechanically. (One recorded deliberate divergence: the 18 eval
-  clauses acquire labels `[eval-neg]`… that K's expr.k lacks.)
+- **Expansion fidelity**: `krs expand` on the M4 `imp.rs` produces `imp.expanded.rs` byte-for-byte, and the resolved IR / emitted `.k` matches the reference route.
+  The emitted `.k` is checked mechanically against `inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/{expr,calc,imp}.k` for all 27 rules, labels, strictness, formats, bracket, and both precedence chains.
+  The recorded deliberate divergence is that the 18 eval clauses acquire labels `[eval-neg]`… that K's `expr.k` lacks.
 - **The four method gates** (F3): LSP goldens, byte-exact provenance
   re-parse, frozen `ProvenanceRole` seam, stable identities.
-- **Formatter invariants** (F1): `krs_fmt` idempotent, output re-parses,
-  `rustfmt(krs_fmt(x)) == krs_fmt(x)`, `imp.rs` here is a fixed point.
-- **Density**: `imp.rs` is 308 raw / ~129 code lines against K's 108 —
-  the surface exists to hold roughly that ratio (~1.2× K). A construct
-  change that regresses it materially needs a decision, not a commit.
+- **Formatter invariants** (F1): `krs_fmt` is idempotent, output re-parses, the ordered comment and DSL token payloads survive, `rustfmt(krs_fmt(x)) == krs_fmt(x)`, the readable corpus is fixed, and label-renaming edit stability is pinned.
+- **Density**: `imp.rs` contains 139 non-comment, nonblank lines against K's 108 (~1.3× K).
+  A construct change that materially regresses this ratio requires an explicit decision.
 
-## Known deltas between `imp.rs` and `imp.expanded.rs`
+## Expansion synchronization
 
-`imp.expanded.rs` was written against the round-1/2 baseline and is
-normative **in shape, not byte-for-byte** (recorded in the result
-README's round-6 corrections): clause-derived labels mean the expansion
-of this `imp.rs` emits e.g. `pub fn r#while` with no `label =` argument
-where the file shows `pub fn while_loop` + `label = "while"`; rule heads
-are enum-qualified (`Op::…`) under the round-4 enum families; precedence
-expands to per-variant `group = …` + chain blocks per C7. When the
-expansion is implemented, regenerate this file from `imp.rs` and make it
-the golden.
+`imp.expanded.rs` is synchronized byte-for-byte with `tests/m4/goldens/imp.expanded.rs`.
+The M4 gate performs two live expansions, compares them to each other and to that golden, and separately compiles the same bytes as `tests/m4/expanded-definition/src/imp.rs`.
+Any readable-surface change must regenerate all three projections in one reviewed change.
 
 ## Where the history lives
 

@@ -250,6 +250,13 @@ pub enum DescriptorLoweringError {
         /// Stable diagnostic detail.
         detail: String,
     },
+    /// Two readable head-rule patterns can match one configuration state.
+    OverlappingRules {
+        /// First rule in deterministic stable-identity order.
+        first: Box<StableItemId>,
+        /// Second rule in deterministic stable-identity order.
+        second: Box<StableItemId>,
+    },
     /// A compiler-generated module, semantic, or source-map identity was invalid.
     InvalidGeneratedIdentity(String),
     /// Whole-theory validation rejected the constructed graph.
@@ -290,6 +297,10 @@ impl fmt::Display for DescriptorLoweringError {
             Self::UnsupportedShape { node, detail } => {
                 write!(formatter, "unsupported M2 {node}: {detail}")
             }
+            Self::OverlappingRules { first, second } => write!(
+                formatter,
+                "readable rules {first:?} and {second:?} have overlapping left-hand patterns; refine a pattern or add disjoint `where` sorts"
+            ),
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
             Self::InvalidSemanticTheory(error) => error.fmt(formatter),
         }
@@ -343,6 +354,11 @@ pub fn lower_descriptor_bundle(
 ) -> Result<SemanticTheory, DescriptorLoweringError> {
     let mut descriptors = bundle.descriptors.iter().collect::<Vec<_>>();
     descriptors.sort_by(|left, right| left.id.cmp(&right.id));
+    let head_rule_ids = descriptors
+        .iter()
+        .filter(|descriptor| matches!(descriptor.payload, DescriptorPayload::HeadRule(_)))
+        .map(|descriptor| descriptor.id.clone())
+        .collect::<BTreeSet<_>>();
     let mut declarations = BTreeMap::new();
     for descriptor in &descriptors {
         descriptor.validate_v6_contract().map_err(|error| {
@@ -436,6 +452,13 @@ pub fn lower_descriptor_bundle(
         )?);
     }
     modules.sort_by(|left, right| left.id().cmp(right.id()));
+    if let Some((first, second)) = crate::overlap::first_head_rule_overlap(&modules, &head_rule_ids)
+    {
+        return Err(DescriptorLoweringError::OverlappingRules {
+            first: Box::new(first),
+            second: Box::new(second),
+        });
+    }
     Ok(SemanticTheory::new(modules)?)
 }
 

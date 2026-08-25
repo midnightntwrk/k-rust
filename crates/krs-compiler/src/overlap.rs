@@ -1,0 +1,548 @@
+//! Sort-aware overlap checking for readable computation-head rules.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use krs_ir::{
+    BuiltinSort, FixedConfigurationRewrite, MapOperation, SemanticApplicationRef, SemanticId,
+    SemanticModule, SemanticRule, SemanticRuleBody, SemanticSortRef, SemanticTerm,
+    SemanticTermKind, StableItemId,
+};
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct VariableKey {
+    rule: usize,
+    ordinal: usize,
+}
+
+#[derive(Clone, Debug)]
+enum Pattern {
+    Variable {
+        key: VariableKey,
+        sort: SemanticSortRef,
+    },
+    Application {
+        sort: SemanticSortRef,
+        application: SemanticApplicationRef,
+        arguments: Vec<Self>,
+    },
+    Token {
+        sort: SemanticSortRef,
+        value: String,
+    },
+    KSequence {
+        sort: SemanticSortRef,
+        items: Vec<Self>,
+    },
+    Map {
+        sort: SemanticSortRef,
+        operation: MapOperation,
+        arguments: Vec<Self>,
+    },
+}
+
+impl Pattern {
+    fn sort(&self) -> &SemanticSortRef {
+        match self {
+            Self::Variable { sort, .. }
+            | Self::Application { sort, .. }
+            | Self::Token { sort, .. }
+            | Self::KSequence { sort, .. }
+            | Self::Map { sort, .. } => sort,
+        }
+    }
+}
+
+#[derive(Default)]
+struct VariableCatalog {
+    by_rule: [BTreeMap<SemanticId, VariableKey>; 2],
+}
+
+impl VariableCatalog {
+    fn key(&mut self, rule: usize, id: &SemanticId) -> VariableKey {
+        if let Some(key) = self.by_rule[rule].get(id) {
+            return *key;
+        }
+        let key = VariableKey {
+            rule,
+            ordinal: self.by_rule[rule].len(),
+        };
+        self.by_rule[rule].insert(id.clone(), key);
+        key
+    }
+}
+
+#[derive(Default)]
+struct SortGraph {
+    candidates: BTreeSet<SemanticSortRef>,
+    parents: BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+}
+
+impl SortGraph {
+    fn from_modules(modules: &[SemanticModule]) -> Self {
+        let mut graph = Self::default();
+        graph
+            .candidates
+            .extend(BuiltinSort::ALL.into_iter().map(SemanticSortRef::Builtin));
+        for module in modules {
+            graph.candidates.extend(
+                module
+                    .sorts()
+                    .iter()
+                    .map(|sort| SemanticSortRef::Declared(sort.id().clone())),
+            );
+            for edge in module.subsorts() {
+                graph.candidates.insert(edge.subsort().clone());
+                graph.candidates.insert(edge.supersort().clone());
+                graph
+                    .parents
+                    .entry(edge.subsort().clone())
+                    .or_default()
+                    .insert(edge.supersort().clone());
+            }
+        }
+        graph
+    }
+
+    fn is_subsort(&self, candidate: &SemanticSortRef, expected: &SemanticSortRef) -> bool {
+        if candidate == expected {
+            return true;
+        }
+        let mut pending = vec![candidate];
+        let mut visited = BTreeSet::new();
+        while let Some(sort) = pending.pop() {
+            if !visited.insert(sort.clone()) {
+                continue;
+            }
+            let Some(parents) = self.parents.get(sort) else {
+                continue;
+            };
+            if parents.contains(expected) {
+                return true;
+            }
+            pending.extend(parents);
+        }
+        false
+    }
+
+    fn compatible(&self, left: &SemanticSortRef, right: &SemanticSortRef) -> bool {
+        self.candidates
+            .iter()
+            .any(|candidate| self.is_subsort(candidate, left) && self.is_subsort(candidate, right))
+    }
+}
+
+struct Unifier<'graph> {
+    graph: &'graph SortGraph,
+    substitutions: BTreeMap<VariableKey, Pattern>,
+    requirements: BTreeMap<VariableKey, BTreeSet<SemanticSortRef>>,
+}
+
+impl<'graph> Unifier<'graph> {
+    fn new(graph: &'graph SortGraph) -> Self {
+        Self {
+            graph,
+            substitutions: BTreeMap::new(),
+            requirements: BTreeMap::new(),
+        }
+    }
+
+    fn unify(&mut self, left: Pattern, right: Pattern) -> bool {
+        let left = self.resolve(left);
+        let right = self.resolve(right);
+        match (left, right) {
+            (
+                Pattern::Variable {
+                    key: left,
+                    sort: left_sort,
+                },
+                Pattern::Variable {
+                    key: right,
+                    sort: right_sort,
+                },
+            ) => self.unify_variables(left, left_sort, right, right_sort),
+            (Pattern::Variable { key, sort }, term) | (term, Pattern::Variable { key, sort }) => {
+                self.bind(key, sort, term)
+            }
+            (
+                Pattern::Application {
+                    sort: left_sort,
+                    application: left_application,
+                    arguments: left_arguments,
+                },
+                Pattern::Application {
+                    sort: right_sort,
+                    application: right_application,
+                    arguments: right_arguments,
+                },
+            ) => {
+                left_application == right_application
+                    && self.graph.compatible(&left_sort, &right_sort)
+                    && self.unify_arguments(left_arguments, right_arguments)
+            }
+            (
+                Pattern::Token {
+                    sort: left_sort,
+                    value: left_value,
+                },
+                Pattern::Token {
+                    sort: right_sort,
+                    value: right_value,
+                },
+            ) => left_value == right_value && self.graph.compatible(&left_sort, &right_sort),
+            (
+                Pattern::KSequence {
+                    sort: left_sort,
+                    items: left_items,
+                },
+                Pattern::KSequence {
+                    sort: right_sort,
+                    items: right_items,
+                },
+            ) => {
+                self.graph.compatible(&left_sort, &right_sort)
+                    && self.unify_arguments(left_items, right_items)
+            }
+            (
+                Pattern::Map {
+                    sort: left_sort,
+                    operation: left_operation,
+                    arguments: left_arguments,
+                },
+                Pattern::Map {
+                    sort: right_sort,
+                    operation: right_operation,
+                    arguments: right_arguments,
+                },
+            ) => {
+                if !self.graph.compatible(&left_sort, &right_sort) {
+                    return false;
+                }
+                match (left_operation, right_operation) {
+                    // Framed item requirements may be satisfied by distinct
+                    // entries, so key/value terms cannot prove disjointness.
+                    (MapOperation::Item, MapOperation::Item) => true,
+                    (left, right) if left == right => {
+                        self.unify_arguments(left_arguments, right_arguments)
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    fn unify_arguments(&mut self, left: Vec<Pattern>, right: Vec<Pattern>) -> bool {
+        left.len() == right.len()
+            && left
+                .into_iter()
+                .zip(right)
+                .all(|(left, right)| self.unify(left, right))
+    }
+
+    fn unify_variables(
+        &mut self,
+        left: VariableKey,
+        left_sort: SemanticSortRef,
+        right: VariableKey,
+        right_sort: SemanticSortRef,
+    ) -> bool {
+        self.add_requirement(left, left_sort);
+        self.add_requirement(right, right_sort);
+        if left == right {
+            return true;
+        }
+        let (root, merged) = if left < right {
+            (left, right)
+        } else {
+            (right, left)
+        };
+        let merged_requirements = self.requirements.remove(&merged).unwrap_or_default();
+        let root_requirements = self.requirements.entry(root).or_default();
+        root_requirements.extend(merged_requirements);
+        if !requirements_compatible(self.graph, root_requirements) {
+            return false;
+        }
+        let root_sort = root_requirements
+            .iter()
+            .next()
+            .cloned()
+            .expect("both variables contributed a sort");
+        self.substitutions.insert(
+            merged,
+            Pattern::Variable {
+                key: root,
+                sort: root_sort,
+            },
+        );
+        true
+    }
+
+    fn bind(&mut self, key: VariableKey, sort: SemanticSortRef, term: Pattern) -> bool {
+        self.add_requirement(key, sort);
+        if self.occurs(key, &term, &mut BTreeSet::new()) {
+            return false;
+        }
+        let requirements = self.requirements.get(&key).cloned().unwrap_or_default();
+        if !requirements
+            .iter()
+            .all(|required| self.graph.is_subsort(term.sort(), required))
+        {
+            return false;
+        }
+        self.substitutions.insert(key, term);
+        true
+    }
+
+    fn add_requirement(&mut self, key: VariableKey, sort: SemanticSortRef) {
+        self.requirements.entry(key).or_default().insert(sort);
+    }
+
+    fn resolve(&self, mut pattern: Pattern) -> Pattern {
+        let mut visited = BTreeSet::new();
+        while let Pattern::Variable { key, .. } = &pattern {
+            if !visited.insert(*key) {
+                break;
+            }
+            let Some(replacement) = self.substitutions.get(key) else {
+                break;
+            };
+            pattern = replacement.clone();
+        }
+        pattern
+    }
+
+    fn occurs(
+        &self,
+        needle: VariableKey,
+        pattern: &Pattern,
+        visited: &mut BTreeSet<VariableKey>,
+    ) -> bool {
+        match pattern {
+            Pattern::Variable { key, .. } => {
+                if *key == needle {
+                    return true;
+                }
+                if !visited.insert(*key) {
+                    return false;
+                }
+                self.substitutions
+                    .get(key)
+                    .is_some_and(|term| self.occurs(needle, term, visited))
+            }
+            Pattern::Application { arguments, .. }
+            | Pattern::KSequence {
+                items: arguments, ..
+            }
+            | Pattern::Map { arguments, .. } => arguments
+                .iter()
+                .any(|term| self.occurs(needle, term, visited)),
+            Pattern::Token { .. } => false,
+        }
+    }
+}
+
+fn requirements_compatible(graph: &SortGraph, requirements: &BTreeSet<SemanticSortRef>) -> bool {
+    graph.candidates.iter().any(|candidate| {
+        requirements
+            .iter()
+            .all(|required| graph.is_subsort(candidate, required))
+    })
+}
+
+fn pattern(term: &SemanticTerm, rule: usize, catalog: &mut VariableCatalog) -> Pattern {
+    match term.kind() {
+        SemanticTermKind::Variable { variable } => Pattern::Variable {
+            key: catalog.key(rule, variable),
+            sort: term.sort().clone(),
+        },
+        SemanticTermKind::Application {
+            application,
+            arguments,
+        } => Pattern::Application {
+            sort: term.sort().clone(),
+            application: application.clone(),
+            arguments: arguments
+                .iter()
+                .map(|argument| pattern(argument, rule, catalog))
+                .collect(),
+        },
+        SemanticTermKind::Token { value } => Pattern::Token {
+            sort: term.sort().clone(),
+            value: value.clone(),
+        },
+        SemanticTermKind::KSequence { items, .. } => Pattern::KSequence {
+            sort: term.sort().clone(),
+            items: items
+                .iter()
+                .map(|item| pattern(item, rule, catalog))
+                .collect(),
+        },
+        SemanticTermKind::Map {
+            operation,
+            arguments,
+        } => Pattern::Map {
+            sort: term.sort().clone(),
+            operation: *operation,
+            arguments: arguments
+                .iter()
+                .map(|argument| pattern(argument, rule, catalog))
+                .collect(),
+        },
+        SemanticTermKind::Rewrite { .. } => {
+            unreachable!("configuration clause pre-patterns are never rewrites")
+        }
+    }
+}
+
+fn configuration_body(
+    rule: &SemanticRule,
+) -> Option<&FixedConfigurationRewrite<SemanticId, SemanticTerm>> {
+    match rule.relational_body() {
+        SemanticRuleBody::Configuration(body) => Some(body),
+        SemanticRuleBody::Term(_) => None,
+    }
+}
+
+fn rules_overlap(left: &SemanticRule, right: &SemanticRule, graph: &SortGraph) -> bool {
+    let (Some(left), Some(right)) = (configuration_body(left), configuration_body(right)) else {
+        return false;
+    };
+    if left.configuration() != right.configuration() {
+        return false;
+    }
+    let right_cells = right
+        .clauses()
+        .iter()
+        .map(|clause| (clause.cell(), clause.before()))
+        .collect::<BTreeMap<_, _>>();
+    let mut catalog = VariableCatalog::default();
+    let mut unifier = Unifier::new(graph);
+    left.clauses().iter().all(|left_clause| {
+        right_cells
+            .get(left_clause.cell())
+            .is_none_or(|right_term| {
+                unifier.unify(
+                    pattern(left_clause.before(), 0, &mut catalog),
+                    pattern(right_term, 1, &mut catalog),
+                )
+            })
+    })
+}
+
+/// Returns the first deterministic pair of overlapping readable head rules.
+pub(crate) fn first_head_rule_overlap(
+    modules: &[SemanticModule],
+    head_rule_ids: &BTreeSet<StableItemId>,
+) -> Option<(StableItemId, StableItemId)> {
+    if head_rule_ids.len() < 2 {
+        return None;
+    }
+    let graph = SortGraph::from_modules(modules);
+    let mut rules = modules
+        .iter()
+        .flat_map(SemanticModule::rules)
+        .filter(|rule| head_rule_ids.contains(rule.id()))
+        .collect::<Vec<_>>();
+    rules.sort_by(|left, right| left.id().cmp(right.id()));
+    for (index, left) in rules.iter().enumerate() {
+        for right in &rules[index + 1..] {
+            if rules_overlap(left, right, &graph) {
+                return Some((left.id().clone(), right.id().clone()));
+            }
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use krs_ir::{ApplicationRef, ItemKind, PackageId};
+
+    fn declared(name: &str, kind: ItemKind) -> StableItemId {
+        StableItemId::new(
+            PackageId::new("OVERLAP", "overlap", "0.1.0", "test").unwrap(),
+            ["fixture"],
+            name,
+            kind,
+            "",
+        )
+        .unwrap()
+    }
+
+    fn application(name: &str, arguments: Vec<Pattern>) -> Pattern {
+        Pattern::Application {
+            sort: SemanticSortRef::Builtin(BuiltinSort::KSequence),
+            application: ApplicationRef::Declared(declared(name, ItemKind::Constructor)),
+            arguments,
+        }
+    }
+
+    fn variable(rule: usize, ordinal: usize, sort: BuiltinSort) -> Pattern {
+        Pattern::Variable {
+            key: VariableKey { rule, ordinal },
+            sort: SemanticSortRef::Builtin(sort),
+        }
+    }
+
+    fn token(value: &str, sort: BuiltinSort) -> Pattern {
+        Pattern::Token {
+            sort: SemanticSortRef::Builtin(sort),
+            value: value.into(),
+        }
+    }
+
+    #[test]
+    fn distinct_constructors_and_literal_values_are_disjoint() {
+        let graph = SortGraph::default_with_builtins();
+        assert!(!Unifier::new(&graph).unify(
+            application("Left", Vec::new()),
+            application("Right", Vec::new())
+        ));
+        assert!(!Unifier::new(&graph).unify(
+            token("true", BuiltinSort::Bool),
+            token("false", BuiltinSort::Bool)
+        ));
+    }
+
+    #[test]
+    fn incompatible_where_refinements_are_disjoint() {
+        let graph = SortGraph::default_with_builtins();
+        assert!(!Unifier::new(&graph).unify(
+            variable(0, 0, BuiltinSort::Bool),
+            variable(1, 0, BuiltinSort::Int)
+        ));
+    }
+
+    #[test]
+    fn repeated_bindings_participate_in_unification() {
+        let graph = SortGraph::default_with_builtins();
+        let repeated = application(
+            "Pair",
+            vec![
+                variable(0, 0, BuiltinSort::Bool),
+                variable(0, 0, BuiltinSort::Bool),
+            ],
+        );
+        let contradictory = application(
+            "Pair",
+            vec![
+                token("true", BuiltinSort::Bool),
+                token("false", BuiltinSort::Bool),
+            ],
+        );
+        assert!(!Unifier::new(&graph).unify(repeated, contradictory));
+    }
+
+    impl SortGraph {
+        fn default_with_builtins() -> Self {
+            Self {
+                candidates: BuiltinSort::ALL
+                    .into_iter()
+                    .map(SemanticSortRef::Builtin)
+                    .collect(),
+                parents: BTreeMap::new(),
+            }
+        }
+    }
+}

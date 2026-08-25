@@ -47,9 +47,9 @@ mod baseline {
         for Expr;
         use Op::*;
 
-        fold:   Wrap { value } => value where value: Value;
+        fold  : Wrap { value } => value        where value: Value;
         splice: Pair(lhs, rhs) => k![lhs, rhs];
-        erase:  Ready() => ();
+        erase : Ready()        => ();
     }
 
     k::rules! {
@@ -92,14 +92,8 @@ mod reordered {
 
     impl Machine {
         #[k::init]
-        pub fn init(
-            pgm: Expr,
-            env: Map<Id, Value>,
-        ) -> Self {
-            Self {
-                k: k![pgm],
-                env,
-            }
+        pub fn init(pgm: Expr, env: Map<Id, Value>) -> Self {
+            Self { k: k![pgm], env }
         }
     }
 
@@ -150,10 +144,9 @@ mod reordered {
         for Expr;
         use Op::*;
 
-        erase: Ready() => ();
+        erase : Ready()        => ();
         splice: Pair(lhs, rhs) => k![lhs, rhs];
-        fold: Wrap { value } => value
-            where value: Value;
+        fold  : Wrap { value } => value        where value: Value;
     }
 }
 
@@ -203,9 +196,9 @@ mod renamed {
         for Expression;
         use Operator::*;
 
-        simplify: Boxed { value } => value where value: Evaluated;
+        simplify     : Boxed { value }  => value        where value: Evaluated;
         continue_with: Joined(lhs, rhs) => k![lhs, rhs];
-        finish: Finished() => ();
+        finish       : Finished()       => ();
     }
 
     k::rules! {
@@ -304,10 +297,12 @@ fn identity_fixture_reaches_every_readable_payload_class() {
         panic!("Wrap grammar was not a production")
     };
     assert!(wrap_grammar.template_key.is_some());
-    assert!(wrap_grammar.attributes.iter().any(|attribute| matches!(
-        attribute,
-        k::HostProductionAttribute::Strictness { .. }
-    )));
+    assert!(
+        wrap_grammar
+            .attributes
+            .iter()
+            .any(|attribute| matches!(attribute, k::HostProductionAttribute::Strictness { .. }))
+    );
 
     assert!(matches!(
         baseline_descriptor("__krs_grammar_Op_precedence").payload,
@@ -340,9 +335,11 @@ fn identity_fixture_reaches_every_readable_payload_class() {
     };
     assert!(fold.head_sort.is_some());
     assert!(fold.configuration.is_none());
-    assert!(fold.bindings.iter().any(|binding| {
-        binding.name == "value" && binding.refinement.is_some()
-    }));
+    assert!(
+        fold.bindings
+            .iter()
+            .any(|binding| { binding.name == "value" && binding.refinement.is_some() })
+    );
     assert!(matches!(fold.result, k::HostHeadRuleResult::Replace(_)));
 
     let splice = baseline_descriptor("splice");
@@ -473,19 +470,11 @@ fn readable_semantic_renames_change_the_exact_affected_identities() {
         ),
         (
             ("grammar", "__krs_grammar_Op_Wrap", "enum:Op"),
-            (
-                "grammar",
-                "__krs_grammar_Operator_Boxed",
-                "enum:Operator",
-            ),
+            ("grammar", "__krs_grammar_Operator_Boxed", "enum:Operator"),
         ),
         (
             ("grammar", "__krs_grammar_Op_Pair", "enum:Op"),
-            (
-                "grammar",
-                "__krs_grammar_Operator_Joined",
-                "enum:Operator",
-            ),
+            ("grammar", "__krs_grammar_Operator_Joined", "enum:Operator"),
         ),
         (
             ("grammar", "__krs_grammar_Op_Ready", "enum:Op"),
@@ -519,7 +508,10 @@ fn readable_semantic_renames_change_the_exact_affected_identities() {
                 "enum-associativity:Operator",
             ),
         ),
-        (("configuration", "Machine", ""), ("configuration", "State", "")),
+        (
+            ("configuration", "Machine", ""),
+            ("configuration", "State", ""),
+        ),
         (("rule", "fold", ""), ("rule", "simplify", "")),
         (("rule", "splice", ""), ("rule", "continue_with", "")),
         (("rule", "erase", ""), ("rule", "finish", "")),
@@ -529,7 +521,10 @@ fn readable_semantic_renames_change_the_exact_affected_identities() {
         let old = identity(old.0, old.1, old.2);
         let new = identity(new.0, new.1, new.2);
         assert!(baseline.contains(&old), "missing old identity {old:?}");
-        assert!(!renamed.contains(&old), "rename retained stale identity {old:?}");
+        assert!(
+            !renamed.contains(&old),
+            "rename retained stale identity {old:?}"
+        );
         assert!(renamed.contains(&new), "missing renamed identity {new:?}");
     }
 }

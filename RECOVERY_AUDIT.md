@@ -12,13 +12,14 @@ functionally reconstructed and independently qualified, and the complete M4
 gate passed twice back-to-back without source, pin, lockfile, environment, or
 tool revision changes.
 
-The implementation seams are reconstructed through the macro fixtures,
-compiler, CLI, native adapter, independent M3D oracle, and recovered M4
-definition/proof packages. Recovery archaeology stops at this baseline. The
-next development phase is the interrupted readability program: finish the
-normative `draft/readability/spec`, make its IMP specimen executable with
-expansion and semantic parity, and qualify the same authoring layer on KWasm
-before moving to larger K corpora.
+The implementation seams are reconstructed through the macro fixtures, compiler, CLI, native adapter, independent M3D oracle, and recovered M4 definition/proof packages.
+Recovery archaeology is closed.
+
+The active development objective is the known project end state, not reconstruction of intermediate worktree state:
+
+1. finish and sign the readable-IMP milestone, including `krs fmt`, overlap rejection, synchronized normative specimens, and the complete M4 gate;
+2. qualify a representative readable KRS port against KWasm;
+3. use only gaps exposed by that port to extend the authoring contract, with KMIR and KEVM available as later stress corpora.
 
 ## Authorities and path translation
 
@@ -122,6 +123,8 @@ remote and deliberately contains no reconstructed original objects:
 - `24b6a64` — full workspace, MSRV, syntax/F7, and C7/Q8 qualification, with
   the missing M3D package isolated as the remaining source gap.
 - `1546c2b` — independently reconstructed and qualified M3D oracle package.
+- `95fc96d` — signed green post-F7 M4 recovery baseline.
+- `5ff228f` — signed collector integration of the F7 source/trivia contract.
 
 Every new commit and the import tag verify against the configured ED25519 Git
 signing key. Valid signed original commit objects survive in the evidence
@@ -663,37 +666,36 @@ The final deterministic native artifact pins are:
 Phase 4 is complete. The new baseline receives a new signed identity and does
 not claim to be `9d507b0`.
 
-### Phase 5 — finish the readability specification and qualify IMP
+### Phase 5 — readable IMP milestone
 
-Only after Phase 4:
+Implementation and final qualification are complete.
 
-1. Treat `draft/readability/spec/imp.rs` as the normative surface,
-   `decisions.md` as the implementation contract, and `open-questions.md` as
-   an explicit decision boundary. Do not silently settle its genuinely open
-   items.
-2. Complete the specimen build list in the order already recorded by the spec:
-   `sorts!`, grammar surface, wrapper-free configuration, `rules!`, map facade,
-   formatter, then diagnostics. Preserve the four F3 method gates throughout.
-3. Integrate the F7 trivia/source APIs into real collector re-parsing, enforce
-   line-comments-only DSL bodies there, and prove semantic payloads, stable
-   identities, provenance-key topology, and byte-exact anchors are unchanged.
-4. Build formatter rendering and snapshots, bring the one remaining
-   trailing-comment-column choice to the user with concrete snapshots, and
-   then add `krs fmt`.
-5. Make the normative IMP specimen compile; require deterministic `krs
-   expand`, resolved-IR and emitted-K parity with the current hand-written M4
-   port, and the full IMP behavior/search/proof qualification.
+The readable-IMP milestone establishes:
 
-Exit criterion: the normative authoring specimen, its expansion, and the
-complete IMP oracle are green from a clean signed commit.
+- the normative `draft/readability/spec` now describes the compiling surface rather than the preimplementation build list;
+- readable sorts, grammar, wrapper-free configuration, rules, map update, F7 collection, and all four F3 method gates are present in the production M4 package;
+- `krs fmt` is integrated as a Rustfmt-first workspace formatter with editor, stdin, check, discovery, diff, trivia, fixpoint, corpus, and edit-stability coverage;
+- readable-rule overlap checking runs after semantic sort inference and rejects deterministic cross-table overlaps;
+- `draft/readability/spec/imp.expanded.rs` is byte-identical to the live deterministic M4 expansion golden;
+- workspace formatting, the intended warnings-denied Clippy gate, all workspace tests, the focused overlap regression, formatter corpus tests, live expansion comparison, and Rust 1.88 workspace checks pass;
+- the complete M4 gate passes at protocol 15 and Definition IR schema 9: 124 descriptors, 98 parsed and 244 compiled sentences, native KORE parity at 1,206/1,206 sentences, 23 parses, 31 executions, 246 bounded-depth states, 16 searches, 8 rejections, one expected failure, all 21 proof specifications and 20 unique native claims, and all seven compatibility probes;
+- the M4 behavior evidence remains
+  `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`,
+  and the compatibility report remains
+  `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6`.
+
+The final source-ledger, Rust formatting, diff-hygiene, and three-specimen formatter-corpus checks also pass. `aligned` remains the explicitly provisional trailing-comment default; the fixed two-space gutter remains available until the user freezes that presentation choice.
+
+Phase 5 is complete: the normative authoring specimen, its byte-exact expansion, and the complete IMP oracle are green from the signed milestone containing this record.
 
 ### Phase 6 — extend the qualified authoring layer to WASM and larger corpora
 
-1. Use KWasm first for the requested WASM qualification and the smallest
-   real-language portability check.
-2. Move next to KMIR for current-K multi-cell and rule-shape stress, then KEVM
-   for scale.
-3. Use Kontrol only when shaping product-facing proving and CLI workflows.
+1. Read KWasm's repository instructions and inventory its syntax, configuration, rule, builtin, module, and claim shapes before selecting the port slice.
+2. Select the smallest representative slice that exercises real KWasm configuration and operational rules, not a synthetic formatter-only sample.
+3. Express that slice in readable KRS, preserve an explicit mapping to the source KWasm modules, and qualify Rust visibility, collection/provenance, stable identity, deterministic expansion, emitted K, and observable behavior.
+4. Record any unsupported shape as a concrete spec gap, implement only what the selected KWasm evidence requires, and rerun both IMP and KWasm gates after each extension.
+5. Move next to KMIR for current-K multi-cell and rule-shape stress, then KEVM for scale.
+6. Use Kontrol only when shaping product-facing proving and CLI workflows.
 
 Each corpus is an acceptance oracle, not a source of silent KRS syntax changes;
 record any new construct as a spec decision before implementing it.
@@ -726,9 +728,8 @@ implementation authority.
 
 ## Immediate next action
 
-Begin Phase 5 at the normative readability spec. Implement and qualify the
-new surface on IMP, then execute the KWasm-first Phase 6 ladder. Do not reopen
-recovery forensics unless genuinely new evidence or media appears.
+Begin the KWasm inventory and representative readable port from the signed readable-IMP milestone.
+Do not reopen recovery forensics unless genuinely new evidence or media appears.
 
 ## Audit hygiene
 

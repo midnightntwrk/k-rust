@@ -498,7 +498,7 @@ def expected_source_ledger_paths() -> set[str]:
     M4 gate source fail closed, not merely edits to already-known files.
     """
 
-    paths = {"Cargo.toml", "Cargo.lock", "Krs.lock"}
+    paths = {"Cargo.toml", "Cargo.lock", "Krs.lock", "rust-analyzer.toml"}
     crates = ROOT / "crates"
     for path in crates.rglob("*"):
         if not path.is_file() or not is_crate_source(path):
@@ -730,7 +730,7 @@ definition_ir = 9
 kast_json = 4
 
 [cargo]
-lock_sha256 = "83c15d6a7b176cb465a7f79156449d41b3d33c7859bc7e89dd0f6fe9a14bbb8a"
+lock_sha256 = "dd7385849355c0f71f6578e2b9df1e5c78b184cbee40fb654772edb193dd98a2"
 msrv = "1.88.0"
 
 [k]

@@ -1,18 +1,12 @@
 //! IMP authoring surface — **normative specimen**.
 //!
-//! This file is the settled target of the readability investigation: what a
-//! human (or agent) writes and reviews once the layer-1 authoring surface
-//! exists. It is `result/imp_round9.rs` with the one pinned section
-//! resolved (the `for Machine` rule table — candidate A, decided
-//! 2026-08-21; see `decisions.md` §E7). It does not compile today: see
-//! `README.md` for the build gap list. The `[rN]`/`[…]` tags in section
-//! banners resolve in `decisions.md`.
+//! This file is the settled, compiling layer-1 authoring specimen: what a human or agent writes and reviews.
+//! Its executable counterpart is `tests/m4/rust-definition/src/imp.rs`; both exercise the same readable constructs and remain formatter fixed points.
+//! The `for Machine` rule table is candidate A, decided 2026-08-21; see `decisions.md` §E7.
+//! The `[rN]`/`[…]` tags in section banners resolve in `decisions.md`.
 //!
-//! Reference points: the original K definition is
-//! `inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/{expr,calc,imp}.k`
-//! (145 raw / 108 code lines); this file is 1.2× K by code lines. Its
-//! expansion target is `imp.expanded.rs` (layer 2, the reference surface —
-//! today's `tests/m4/rust-definition/src/imp.rs` shape).
+//! The reference K definition is `inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/{expr,calc,imp}.k`.
+//! The byte-exact layer-2 expansion target is `imp.expanded.rs`.
 
 use k::KResult;
 use k::builtin::{Bool, Id, Int, KSequence, Map, bool, int, map};
@@ -175,7 +169,7 @@ pub struct Machine {
 impl Machine {
     #[k::init]
     pub fn init(pgm: Stmt, env: Map<Id, Value>) -> Self {
-        Self { k: k![pgm], env }
+        Self { k: k::k![pgm], env }
     }
 }
 
@@ -194,35 +188,35 @@ k::rules! {
     for Expr;
     use Op::*;
 
-    eval_neg:     Neg { value }           => int::sub(0, value);
-    eval_not:     Not { value }           => bool::not(value);
+    eval_neg    : Neg { value }          => int::sub(0, value);
+    eval_not    : Not { value }          => bool::not(value);
 
-    eval_add:     Add { lhs, rhs }        => int::add(lhs, rhs);
-    eval_sub:     Sub { lhs, rhs }        => int::sub(lhs, rhs);
-    eval_mul:     Mul { lhs, rhs }        => int::mul(lhs, rhs);
-    eval_div:     Div { lhs, rhs }        => int::div(lhs, rhs);
+    eval_add    : Add { lhs, rhs }       => int::add(lhs, rhs);
+    eval_sub    : Sub { lhs, rhs }       => int::sub(lhs, rhs);
+    eval_mul    : Mul { lhs, rhs }       => int::mul(lhs, rhs);
+    eval_div    : Div { lhs, rhs }       => int::div(lhs, rhs);
 
-    eval_ge:      Ge { lhs, rhs }         => int::ge(lhs, rhs);
-    eval_gt:      Gt { lhs, rhs }         => int::gt(lhs, rhs);
-    eval_le:      Le { lhs, rhs }         => int::le(lhs, rhs);
-    eval_lt:      Lt { lhs, rhs }         => int::lt(lhs, rhs);
+    eval_ge     : Ge { lhs, rhs }        => int::ge(lhs, rhs);
+    eval_gt     : Gt { lhs, rhs }        => int::gt(lhs, rhs);
+    eval_le     : Le { lhs, rhs }        => int::le(lhs, rhs);
+    eval_lt     : Lt { lhs, rhs }        => int::lt(lhs, rhs);
 
-    eval_bool_eq: Eq { lhs, rhs }         => bool::eq(lhs, rhs)  where lhs: Bool, rhs: Bool;
-    eval_int_eq:  Eq { lhs, rhs }         => int::eq(lhs, rhs)   where lhs: Int,  rhs: Int;
-    eval_bool_ne: Ne { lhs, rhs }         => bool::ne(lhs, rhs)  where lhs: Bool, rhs: Bool;
-    eval_int_ne:  Ne { lhs, rhs }         => int::ne(lhs, rhs)   where lhs: Int,  rhs: Int;
+    eval_bool_eq: Eq { lhs, rhs }        => bool::eq(lhs, rhs) where lhs: Bool, rhs: Bool;
+    eval_int_eq : Eq { lhs, rhs }        => int::eq(lhs, rhs)  where lhs: Int, rhs: Int;
+    eval_bool_ne: Ne { lhs, rhs }        => bool::ne(lhs, rhs) where lhs: Bool, rhs: Bool;
+    eval_int_ne : Ne { lhs, rhs }        => int::ne(lhs, rhs)  where lhs: Int, rhs: Int;
 
-    and_true:     And { lhs: true, rhs }  => rhs;
-    and_false:    And { lhs: false, .. }  => false;
-    or_true:      Or { lhs: true, .. }    => true;
-    or_false:     Or { lhs: false, rhs }  => rhs;
+    and_true    : And { lhs: true, rhs } => rhs;
+    and_false   : And { lhs: false, .. } => false;
+    or_true     : Or { lhs: true, .. }   => true;
+    or_false    : Or { lhs: false, rhs } => rhs;
 }
 
 // ---------------------------------------------------------------------------
 // Control flow (calc.k CALC + imp.k IMP)
 //
 // Same anchoring as above [r6c]: the header sort constrains the pattern;
-// the right side is a Stmt, a spliced sequence (`k![…]` — K's `~>`), or
+// the right side is a Stmt, a spliced sequence (`k::k![…]` — K's `~>`), or
 // `()` (K's `.K`). Clauses are unordered and expand to independent named
 // rules — overlap is a diagnostic, never first-wins; labels default to the
 // clause name with `_` → `-` (`r#while` names the K label `while`). [r5]
@@ -233,23 +227,23 @@ k::rules! {
     use StmtSyntax::*;
 
     /// Expose the right-associated statement pair as K sequencing.
-    step:     Sequence(s1, s2) => k![s1, s2];
+    step    : Sequence(s1, s2)         => k::k![s1, s2];
 
     /// Select the branch of an evaluated conditional.
-    if_true:  IfThenElse(true, s1, _)  => s1;
+    if_true : IfThenElse(true, s1, _)  => s1;
     if_false: IfThenElse(false, _, s2) => s2;
 
     /// Normalize the no-else form with an explicit empty branch.
-    if_else:  IfThen(c, s) => IfThenElse(c, s, EmptyBlock());
+    if_else : IfThen(c, s)             => IfThenElse(c, s, EmptyBlock());
 
     /// Unfold one loop test without making the constructor strict.
-    r#while:  While(c, s) => IfThen(c, Block(Sequence(s, While(c, s))));
+    r#while : While(c, s)              => IfThen(c, Block(Sequence(s, While(c, s))));
 
     /// Expose a nonempty block body followed by an empty block.
-    block:    Block(s) => k![s, EmptyBlock()];
+    block   : Block(s)                 => k::k![s, EmptyBlock()];
 
     /// Remove an empty block from the computation cell.
-    done:     EmptyBlock() => ();
+    done    : EmptyBlock()             => ();
 }
 
 // ---------------------------------------------------------------------------

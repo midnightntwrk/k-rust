@@ -11,11 +11,8 @@ bug — report it, don't guess.
 
 ## A. Architecture
 
-- **A1 — Two surfaces.** Layer 1 (authoring, this spec's `imp.rs`) is what
-  humans/agents write; it expands to layer 2 (reference, `imp.expanded.rs`
-  — the shape of today's `tests/m4/rust-definition/src/imp.rs`) via a
-  deterministic `krs expand`. Layer 2's ceremony is constitutive (stable
-  identity, provenance anchors) and is not to be "cleaned up". [08; r6]
+- **A1 — Two surfaces.** Layer 1 (authoring, this spec's `imp.rs`) is what humans and agents write; deterministic `krs expand` projects it to the byte-exact layer-2 reference in `imp.expanded.rs`.
+  Layer 2's ceremony is constitutive (stable identity and provenance anchors) and is not to be cleaned up. [08; r6]
 - **A2 — Every layer-1 construct is defined by its expansion.** Valid Rust
   outer syntax, identical resolved IR, stable identities and spans. No
   layer-1 form may exist without a specified layer-2 rendering. [08]
@@ -180,10 +177,10 @@ bug — report it, don't guess.
   default; cargo-metadata discovery; blocking CI job; four test layers +
   corpus refresh; `k::rules!` braces mandated (paren/bracket forms
   linted). Full decision with adopted/deviation lists: 16 §Verdict.
-- **F2 — Overlap diagnostic** (posture decided, mechanism open): cross-
-  table (a `for Machine` rule can overlap a `for Stmt` rule at the k
-  head) and sort-aware (`where` narrowing is what separates `Eq`/`Ne`).
-  [r5, r6b]
+- **F2 — Overlap diagnostic.** After semantic sort inference, the compiler collects readable `HeadRule` declarations in deterministic stable-identity order and unifies their normalized configuration pre-patterns.
+  The unifier is cross-table (`for Machine` can overlap `for Stmt` at the k head), sort-aware (`where` refinements separate the `Eq`/`Ne` pairs), constructor- and literal-aware, and preserves repeated-variable equality constraints.
+  Two framed map-item requirements remain conservatively overlapping because distinct entries may satisfy them.
+  The first overlapping pair is a typed lowering error; rule order is never a tie-breaker. [r5, r6b; resolved 2026-08-26]
 - **F3 — The four method gates** every construct must pass: (1) rustc/
   rust-analyzer visibility, measured by the m1 LSP goldens; (2) the
   collector's re-parse of authored source with byte-exact provenance
@@ -235,9 +232,9 @@ bug — report it, don't guess.
   beside the untouched existing ones; trivia keyed by byte offset,
   attached to **tokens** (cedar's first-`\n` split: gap text before
   the first newline trails the left token, the rest leads the right
-  token), never to AST nodes. Three in-binary oracles: comment-payload
-  multiset preservation (on loss, keep the author's original bytes),
-  span-blind AST equality of the re-parsed output (the semantic-payload
+  token), never to AST nodes. Three in-binary oracles: ordered comment-payload
+  preservation (on loss, keep the author's original bytes),
+  span-blind DSL token-payload equality after re-parsing (the semantic-payload
   part of F6), idempotence — plus a UUID-injection comment fuzz
   target (dropped and reordered are distinct failures). Rowan-CST
   rewrite is the named escape hatch, triggered by a comment-placement

@@ -248,8 +248,11 @@ use std::path::Path;
 
 use k::{HostDescriptor, HostDescriptorPayload, ItemKind};
 use krs_compiler::{
-    PackageContext, collect_host_descriptors_with_builtins, emit_k, expand_reference_source,
-    lower_descriptor_bundle, lower_semantic_theory,
+    DescriptorLoweringError, PackageContext, collect_host_descriptors_with_builtins, emit_k,
+    expand_reference_source, lower_descriptor_bundle, lower_semantic_theory,
+};
+use krs_ir::{
+    DescriptorBundle, DescriptorDeclaration, DescriptorPayload, RustVisibility, StableItemId,
 };
 use quote::ToTokens;
 use serde_json::Value as Json;
@@ -1202,6 +1205,42 @@ fn readable_and_prior_explicit_routes_are_semantically_identical() {
             .source()
             .contains("Select the true branch of an evaluated conditional"),
         "rule rustdoc policy is still open and must not leak into emitted K",
+    );
+}
+
+#[test]
+fn readable_overlap_is_rejected_after_sort_inference() {
+    let bundle = collect_route(false);
+    let original = bundle
+        .descriptors
+        .iter()
+        .find(|descriptor| {
+            descriptor.id.item_name() == "eval_neg"
+                && matches!(&descriptor.payload, DescriptorPayload::HeadRule(_))
+        })
+        .expect("readable eval_neg descriptor");
+    let mut duplicate = original.clone();
+    duplicate.id = StableItemId::new(
+        original.id.package().clone(),
+        original.id.module_path().iter().cloned(),
+        "eval_neg_overlap",
+        original.id.item_kind(),
+        original.id.disambiguator(),
+    )
+    .unwrap();
+    let mut descriptors = bundle.descriptors.clone();
+    descriptors.push(duplicate.clone());
+    let mut declarations = bundle.declarations.clone();
+    declarations.push(DescriptorDeclaration::new(
+        duplicate.id,
+        RustVisibility::Inherited,
+        None,
+    ));
+    let adversarial = DescriptorBundle::with_declarations(descriptors, declarations).unwrap();
+    let error = lower_descriptor_bundle(&adversarial).unwrap_err();
+    assert!(
+        matches!(error, DescriptorLoweringError::OverlappingRules { .. }),
+        "unexpected diagnostic: {error}"
     );
 }
 

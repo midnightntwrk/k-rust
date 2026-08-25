@@ -435,6 +435,7 @@ pub struct RuleClause {
     extras: Vec<RuleExtra>,
     bindings: Vec<Ident>,
     computation_cell: Option<Ident>,
+    source_range: TokenRange,
 }
 
 impl RuleClause {
@@ -478,6 +479,13 @@ impl RuleClause {
     #[must_use]
     pub const fn computation_cell(&self) -> Option<&Ident> {
         self.computation_cell.as_ref()
+    }
+
+    /// Returns the complete authored clause range, including attributes and
+    /// the terminating semicolon.
+    #[must_use]
+    pub const fn source_range(&self) -> TokenRange {
+        self.source_range
     }
 
     /// Returns the exact descriptor provenance for the completed head rule.
@@ -819,6 +827,7 @@ impl RuleBlock {
         let mut clauses = Vec::new();
         let mut configuration = None;
         while !input.is_empty() {
+            let clause_start = input.cursor().span();
             let attributes = input.call(Attribute::parse_outer)?;
             let name = input.call(Ident::parse_any)?;
             if clauses
@@ -843,7 +852,13 @@ impl RuleBlock {
                 configuration = Some(machine_clause);
             }
             if machine_clause {
-                clauses.push(parse_machine_clause(input, attributes, &name, &sort_type)?);
+                clauses.push(parse_machine_clause(
+                    input,
+                    attributes,
+                    &name,
+                    &sort_type,
+                    clause_start,
+                )?);
                 continue;
             }
             let pattern = input.call(Pat::parse_single)?;
@@ -893,7 +908,7 @@ impl RuleBlock {
                     }
                 }
             }
-            input.parse::<Token![;]>()?;
+            let semicolon = input.parse::<Token![;]>()?;
 
             let (attribute, retained) =
                 take_rule_clause_attribute(attributes).map_err(SyntaxError::into_syn_error)?;
@@ -959,6 +974,7 @@ impl RuleBlock {
                 extras,
                 bindings,
                 computation_cell: None,
+                source_range: TokenRange::new(clause_start, semicolon.span),
             });
         }
         if clauses.is_empty() {
@@ -1130,6 +1146,7 @@ fn parse_machine_clause(
     attributes: Vec<Attribute>,
     name: &Ident,
     configuration_type: &Type,
+    clause_start: proc_macro2::Span,
 ) -> syn::Result<RuleClause> {
     let subject_cells = parse_machine_pattern_record(input)?;
     input.parse::<Token![=>]>()?;
@@ -1164,7 +1181,7 @@ fn parse_machine_clause(
             input.parse::<Token![,]>()?;
         }
     }
-    input.parse::<Token![;]>()?;
+    let semicolon = input.parse::<Token![;]>()?;
 
     let mut subject_k = None;
     let mut extras = Vec::new();
@@ -1304,6 +1321,7 @@ fn parse_machine_clause(
         extras,
         bindings,
         computation_cell: Some(computation_cell),
+        source_range: TokenRange::new(clause_start, semicolon.span),
     })
 }
 

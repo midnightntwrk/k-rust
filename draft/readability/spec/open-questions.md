@@ -21,8 +21,7 @@ what they block.
    table-wide, not per blank-line group (whitespace-implicit
    sub-concepts are fragile; separate concepts belong in separate
    blocks). Blank lines are preserved but carry no formatter
-   semantics. Edit-stability fixture required: a label rename changes
-   only column padding.
+   semantics. The formatter's edit-stability fixture pins that a label rename changes only the label token and table-padding whitespace.
 3. ~~**Provenance/span safety under reformatting**~~ — **RESOLVED
    (2026-08-23, decision F6)**: formatting is provenance-preserving
    re-anchoring — stable IDs, provenance-key topology, and semantic
@@ -42,16 +41,14 @@ what they block.
    `krs fmt`/collector (macros cannot see comments); interior clause
    comments normalize to leading position. Full evidence:
    `draft/investigations/fmt-trivia-architecture/REPORT.md`.
-   **Remaining sub-item, still open**: whether trailing clause
-   comments in an aligned table form their own aligned comment column
-   (recommended in the report, no surveyed tool ships it) or sit at a
-   fixed gutter — an F5 layout detail to pin with the formatter's
-   snapshot fixtures.
+   **Remaining sub-item, still open**: whether trailing clause comments form their own aligned column or sit at a fixed two-space gutter.
+   Both behaviors have stable snapshots and CLI policies; `aligned` is the provisional recommended default, not yet the frozen decision.
 
 ## Blocks the rule engine
 
-5. **Overlap-diagnostic mechanism** (F2): posture and scope are decided
-   (cross-table, sort-aware, never first-wins); the algorithm is not.
+5. ~~**Overlap-diagnostic mechanism**~~ — **RESOLVED (2026-08-26, decision F2)**: run deterministic pattern unification after semantic sort inference over readable `HeadRule` declarations.
+   The implementation is cross-table, sort-, constructor-, literal-, and repeated-variable-aware; ambiguous framed map-item requirements remain conservatively overlapping.
+   Focused unifier tests and an end-to-end duplicated-IMP-rule regression pin the typed diagnostic.
 6. **`{ .. }` in a cell position**: tail-only map pattern or all-framed
    cell record? Not exercised by IMP; the grammar must rule on it before
    larger definitions. [result README open list]
@@ -83,21 +80,17 @@ what they block.
    public `constructors` macro rustdoc for its enum-level
    `#[k::precedence]` helper records the bare default.
    [result README open list; falsified vs K manual]
-9. **`ExprSort` trait suffix vs a generated `mod sort { trait Expr }`**
-   (`impl sort::Value for Int {}`) — decide before the reference
-   surface's shape freezes. Related: sealing sorts against
-   out-of-definition impls (the `sealed` technique drops onto
-   `#[k::sort]`/`#[k::subsort]`). [result README open list]
+9. ~~**`ExprSort` trait suffix vs a generated `mod sort { trait Expr }`**~~ — **RESOLVED by the compiling IMP expansion**: generate `ExprSort` and the short `type Expr = Term<dyn ExprSort>` alias.
+   This keeps ordinary author references short while giving the marker trait a collision-free Rust identity.
+   Sealing sorts against out-of-definition implementations remains a separate future hardening question.
 10. **Tier-group naming for cross-family references**: generated
     (`op_tier1`) vs author-named via the chain's name position — both
     exist; the style-guide rule for when to name is unwritten.
 
 ## Blocks configuration
 
-11. **Leaf-vs-nested cell discrimination once wrappers are injected**
-    (D1): mandatory `#[k::cell]`/`#[k::cells]` attributes (contained
-    parser change) vs collector-side TypeId resolution (cleaner, real
-    work). [r6g]
+11. ~~**Leaf-vs-nested cell discrimination once wrappers are injected**~~ — **RESOLVED by the compiling IMP surface**: every readable leaf field must carry `#[k::cell]`.
+    The attribute carries cell properties, and the field sort identifies the computation cell; missing helpers and unsupported nested shapes fail locally.
 12. **`const`-initializer alternative to the init fn**
     (`k::config_vars! { … }` + `const MACHINE`) — sketch only; field
     default values confirmed still unstable (E0658). Default: init fn
@@ -113,8 +106,5 @@ what they block.
     reader looks for, explicitly out of the IMP specimen's scope.
 15. **Exact-parity `% ` format escape** — currently a plain space, same
     compromise as the M4 port (C5).
-16. **Style-guide items to write**: doc-comment policy on rule clauses
-    (control-flow table documents every clause, eval table none);
-    `k::builtin::map` facade (`map::update` with the
-    `pub use Update as update;` dual-namespace pattern the TypeId probe
-    requires — this one is build work, not a decision).
+16. **Style-guide item to write**: doc-comment policy on rule clauses (the control-flow table documents every clause, while the eval table documents none).
+    The `k::builtin::map` facade and alias-safe `map::update` identity are implemented and no longer part of this open item.

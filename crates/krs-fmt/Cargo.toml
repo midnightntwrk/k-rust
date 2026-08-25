@@ -1,0 +1,19 @@
+[package]
+name = "krs-fmt"
+description = "Canonical formatter for KRS macro authoring surfaces"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+krs-syntax = { path = "../krs-syntax" }
+pretty = "0.12.5"
+proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
+serde.workspace = true
+serde_json.workspace = true
+similar = "2.7.0"
+syn = { version = "2.0.119", features = ["full", "parsing", "visit"] }
+
+[lints]
+workspace = true

@@ -14,6 +14,7 @@ doc = false
 [dependencies]
 krs = { path = "../krs" }
 krs-compiler = { path = "../krs-compiler" }
+krs-fmt = { path = "../krs-fmt" }
 krs-ir = { path = "../krs-ir" }
 krs-k-rust = { path = "../krs-k-rust" }
 serde.workspace = true

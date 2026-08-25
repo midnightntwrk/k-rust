@@ -9,6 +9,7 @@ mod collect;
 mod emit;
 mod error;
 mod lowering;
+mod overlap;
 mod reference;
 mod semantic;
 mod sidecar;
