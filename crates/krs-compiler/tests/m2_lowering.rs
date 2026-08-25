@@ -262,13 +262,20 @@ fn name_collisions_are_rejected_before_definition_construction() {
     second["items"][0]["origin"]["key"] = serde_json::json!("sem.production.colliding-foo.item");
     module["productions"].as_array_mut().unwrap().push(second);
     let theory: SemanticTheory = serde_json::from_value(json).unwrap();
+    let expected_origin = theory.modules()[0]
+        .productions()
+        .last()
+        .unwrap()
+        .origin()
+        .origin();
     assert!(matches!(
         lower_semantic_theory(&theory),
         Err(LoweringError::NameCollision {
             namespace: "emitted symbol",
             value,
+            second_origin,
             ..
-        }) if value == "foo"
+        }) if value == "foo" && &second_origin == expected_origin
     ));
 }
 

@@ -12,7 +12,7 @@ use krs_ir::{
     FixedConfigurationPattern, FixedConfigurationRewrite, FixedConfigurationVariable,
     FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind,
     GroupAssociativitySentence, InitializerDeclaration, IrIdentityError, LabelId, LabelIdentity,
-    ModuleId, NodeOrigin, OriginFrame, PrecedenceRelation, ProductionAttribute,
+    ModuleId, NodeOrigin, OriginFrame, OriginStack, PrecedenceRelation, ProductionAttribute,
     ProductionContextAliasReference, ProductionFieldReference, ProductionGroupId,
     ProductionGroupIdentity, ProductionItem, ProductionResultSort, ProductionSentence,
     RuleSentence, SemanticConfiguration, SemanticModule, SemanticProduction, SemanticRuleBody,
@@ -92,6 +92,8 @@ pub enum LoweringError {
         first: String,
         /// Second stable owner.
         second: String,
+        /// Exact parser-owned authored provenance for the second owner.
+        second_origin: OriginStack,
     },
     /// Two generated Definition nodes selected the same source-map key.
     SourceMapCollision(SourceMapKey),
@@ -123,6 +125,7 @@ impl fmt::Display for LoweringError {
                 value,
                 first,
                 second,
+                ..
             } => write!(
                 formatter,
                 "{namespace} name collision for {value:?} between {first} and {second}"
@@ -232,6 +235,7 @@ impl NamingPass {
                 module.id().as_str().to_owned(),
                 format!("semantic module {}", module.id().as_str()),
                 "module",
+                module.origin(),
             )?;
             pass.modules
                 .insert(module.id().clone(), module.id().clone());
@@ -248,8 +252,15 @@ impl NamingPass {
                     id.as_str().to_owned(),
                     owner.clone(),
                     "symbol ID",
+                    sort.origin(),
                 )?;
-                claim(&mut emitted, name.clone(), owner, "emitted symbol")?;
+                claim(
+                    &mut emitted,
+                    name.clone(),
+                    owner,
+                    "emitted symbol",
+                    sort.origin(),
+                )?;
                 pass.sorts.insert(
                     sort.id().clone(),
                     SymbolIdentity::new(id, name, SymbolKind::Sort)?,
@@ -268,8 +279,15 @@ impl NamingPass {
                     id.as_str().to_owned(),
                     owner.clone(),
                     "symbol ID",
+                    production.origin(),
                 )?;
-                claim(&mut emitted, name.clone(), owner, "emitted symbol")?;
+                claim(
+                    &mut emitted,
+                    name.clone(),
+                    owner,
+                    "emitted symbol",
+                    production.origin(),
+                )?;
                 pass.productions.insert(
                     production.id().clone(),
                     SymbolIdentity::new(id, name, SymbolKind::Production)?,
@@ -291,12 +309,14 @@ impl NamingPass {
                     cell_id.as_str().to_owned(),
                     config_owner.clone(),
                     "symbol ID",
+                    cell.origin(),
                 )?;
                 claim(
                     &mut emitted,
                     cell_name.clone(),
                     config_owner.clone(),
                     "emitted symbol",
+                    cell.origin(),
                 )?;
                 pass.cells.insert(
                     configuration.id().as_str().to_owned(),
@@ -314,12 +334,14 @@ impl NamingPass {
                     initializer_id.as_str().to_owned(),
                     config_owner.clone(),
                     "symbol ID",
+                    initializer.origin(),
                 )?;
                 claim(
                     &mut emitted,
                     initializer_name.clone(),
                     config_owner,
                     "emitted symbol",
+                    initializer.origin(),
                 )?;
                 pass.initializers.insert(
                     configuration.id().as_str().to_owned(),
@@ -341,6 +363,7 @@ impl NamingPass {
                     alias.name().to_owned(),
                     stable_item_text(alias.id()),
                     "emitted label",
+                    alias.origin(),
                 )?;
             }
             for rule in module.rules() {
@@ -359,8 +382,15 @@ impl NamingPass {
                     id.as_str().to_owned(),
                     owner.clone(),
                     "label ID",
+                    rule.origin(),
                 )?;
-                claim(&mut labels, name.clone(), owner, "emitted label")?;
+                claim(
+                    &mut labels,
+                    name.clone(),
+                    owner,
+                    "emitted label",
+                    rule.origin(),
+                )?;
                 pass.rules
                     .insert(rule.id().clone(), LabelIdentity::new(id, name)?);
             }
@@ -421,8 +451,15 @@ fn name_fixed_cells(
             id.as_str().to_owned(),
             owner.clone(),
             "symbol ID",
+            cell.origin(),
         )?;
-        claim(emitted, cell.name().to_owned(), owner, "emitted symbol")?;
+        claim(
+            emitted,
+            cell.name().to_owned(),
+            owner,
+            "emitted symbol",
+            cell.origin(),
+        )?;
         lowered.insert(cell.id().clone(), id);
         if let FixedCellContent::Children { children } = cell.content() {
             name_fixed_cells(children, lowered, identities, emitted)?;
@@ -1382,6 +1419,7 @@ fn claim(
     value: String,
     owner: String,
     namespace: &'static str,
+    second_origin: &NodeOrigin,
 ) -> Result<(), LoweringError> {
     if let Some(first) = names.insert(value.clone(), owner.clone()) {
         return Err(LoweringError::NameCollision {
@@ -1389,6 +1427,7 @@ fn claim(
             value,
             first,
             second: owner,
+            second_origin: second_origin.origin().clone(),
         });
     }
     Ok(())

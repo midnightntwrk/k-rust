@@ -21,8 +21,8 @@ fn reordered_metadata_and_requests_generate_identical_bytes() {
     assert_eq!(normal.facets, reordered.facets);
     assert_eq!(normal.package_closure, reordered.package_closure);
     assert_eq!(
-        normal.canonical_selection_json(),
-        reordered.canonical_selection_json()
+        normal.canonical_selection_json().unwrap(),
+        reordered.canonical_selection_json().unwrap()
     );
     assert_eq!(
         GeneratedCollector::from_plan(&normal).unwrap(),
@@ -75,27 +75,33 @@ fn host_target_and_cfg_are_explicit_build_inputs() {
 #[test]
 fn missing_and_ambiguous_selections_are_rejected() {
     let metadata = metadata(false);
-    let mut request = request(false);
-    request.root.package = PackageSelector::Name("same-name".into());
+    let mut ambiguous = request(false);
+    ambiguous.root.package = PackageSelector::Name("same-name".into());
     assert_eq!(
-        CollectorPlan::resolve(&metadata, &request).unwrap_err().kind(),
+        CollectorPlan::resolve(&metadata, &ambiguous)
+            .unwrap_err()
+            .kind(),
         PlanningErrorKind::AmbiguousPackage
     );
 
-    let mut request = request(false);
-    request.root.definition = "absent".into();
+    let mut missing_definition = request(false);
+    missing_definition.root.definition = "absent".into();
     assert_eq!(
-        CollectorPlan::resolve(&metadata, &request).unwrap_err().kind(),
+        CollectorPlan::resolve(&metadata, &missing_definition)
+            .unwrap_err()
+            .kind(),
         PlanningErrorKind::MissingDefinition
     );
 
-    let mut request = request(false);
-    request.dependencies.push(FacetSelector {
+    let mut missing_package = request(false);
+    missing_package.dependencies.push(FacetSelector {
         package: PackageSelector::Name("missing-package".into()),
         definition: "core".into(),
     });
     assert_eq!(
-        CollectorPlan::resolve(&metadata, &request).unwrap_err().kind(),
+        CollectorPlan::resolve(&metadata, &missing_package)
+            .unwrap_err()
+            .kind(),
         PlanningErrorKind::MissingPackage
     );
 }
@@ -124,6 +130,7 @@ fn generated_fixture_collector_compiles_and_reserves_stdout_for_protocol() {
 
     fs::remove_dir_all(output_directory).unwrap();
 }
+
 
 fn plan(reordered: bool) -> CollectorPlan {
     CollectorPlan::resolve(&metadata(reordered), &request(reordered)).unwrap()
@@ -182,6 +189,11 @@ fn metadata(reordered: bool) -> CargoMetadata {
                    directory: &str,
                    namespace: Option<&str>,
                    definition: Option<serde_json::Value>| {
+        let target_name = if id == ROOT_ID {
+            "custom_semantics_root".to_owned()
+        } else {
+            name.replace('-', "_")
+        };
         let metadata = match (namespace, definition) {
             (Some(namespace), Some(definition)) => json!({
                 "krs": {
@@ -197,7 +209,12 @@ fn metadata(reordered: bool) -> CargoMetadata {
             "version": "0.1.0",
             "source": null,
             "manifest_path": fixture.join(directory).join("Cargo.toml"),
-            "metadata": metadata
+            "metadata": metadata,
+            "targets": [{
+                "name": target_name,
+                "kind": ["lib"],
+                "crate_types": ["lib"]
+            }]
         })
     };
     let mut packages = vec![
@@ -279,4 +296,3 @@ fn temporary_directory() -> PathBuf {
         std::process::id()
     ))
 }
-
