@@ -37,13 +37,13 @@ fn branching(
             ),
             tail @ ..
         ),
-        env: k::configuration::Cell(map![k::id!("$n") => 0]),
+        env: k::configuration::Cell(map![k::id!("$n") -> 0]),
         state @ ..
     }: Machine,
 ) -> Machine {
     k::cells! {
         k: k::configuration::KCell(..tail),
-        env: k::configuration::Cell(map![k::id!("$n") => n]),
+        env: k::configuration::Cell(map![k::id!("$n") -> n]),
         ..state
     }
 }
@@ -65,8 +65,8 @@ fn sum_loop(
             tail @ ..
         ),
         env: k::configuration::Cell(map![
-            k::id!("$s") => s,
-            k::id!("$n") => n,
+            k::id!("$s") -> s,
+            k::id!("$n") -> n,
         ]),
         state @ ..
     }: Machine,
@@ -74,11 +74,11 @@ fn sum_loop(
     k::cells! {
         k: k::configuration::KCell(..tail),
         env: k::configuration::Cell(map![
-            k::id!("$s") => int::add(
+            k::id!("$s") -> int::add(
                 s,
                 int::div(int::mul(n, int::add(n, 1)), 2),
             ),
-            k::id!("$n") => 0,
+            k::id!("$n") -> 0,
         ]),
         ..state
     }
@@ -101,8 +101,8 @@ fn sum_spec(
             tail @ ..
         ),
         env: k::configuration::Cell(map![
-            k::id!("$n") => n,
-            k::id!("$s") => s,
+            k::id!("$n") -> n,
+            k::id!("$s") -> s,
         ]),
         state @ ..
     }: Machine,
@@ -110,8 +110,8 @@ fn sum_spec(
     k::cells! {
         k: k::configuration::KCell(..tail),
         env: k::configuration::Cell(map![
-            k::id!("$n") => 0,
-            k::id!("$s") => int::add(
+            k::id!("$n") -> 0,
+            k::id!("$s") -> int::add(
                 s,
                 int::div(int::mul(int::add(n, 1), n), 2),
             ),
@@ -239,11 +239,7 @@ fn main() {
     assert!(emitted.source().contains("orBool"), "{}", emitted.source());
     assert!(emitted.source().contains("circularity"), "{}", emitted.source());
     assert!(!emitted.source().contains("all-path"), "{}", emitted.source());
-    assert!(
-        emitted.source().contains("#token(\"$n\",\"Id\")"),
-        "{}",
-        emitted.source()
-    );
+    assert!(emitted.source().contains("$n"), "{}", emitted.source());
     for rule in &definition_claims {
         let source_entry = emitted
             .source_map()

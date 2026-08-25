@@ -395,7 +395,7 @@ pub fn var(
     value: Term<dyn Value>,
     cells! {
         k: k::configuration::KCell(name, tail @ ..),
-        env: k::configuration::Cell(map![name => value, rest @ ..]),
+        env: k::configuration::Cell(map![name -> value, rest @ ..]),
         state @ ..
     }: Machine,
 ) -> Machine {

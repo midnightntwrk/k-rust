@@ -1,10 +1,10 @@
 //! Versioned adapter to the native `k-rust` frontend.
 //!
 //! [`adapt_definition`] is the permanent structural boundary. The resulting
-//! native source definition has not been prepared for compilation:
-//! `k-rust` 0.3.0 does not expose an invariant-preserving preparation entry
-//! point. [`compile_definition`] therefore reports that missing capability
-//! instead of manufacturing a [`LoadedDefinition`] through public fields.
+//! native source definition is prepared by [`prepare_definition`], an isolated
+//! compatibility layer over the pinned frontend's public loader,
+//! configuration expander, and graph resolver. The exact pin predates the
+//! later upstream structured-preparation convenience API.
 //!
 //! [`compile_definition_provisional_oracle`] exists only as an explicitly
 //! provisional M2 oracle. It parses no K source (and in particular never
@@ -12,9 +12,14 @@
 //! and graph-resolution passes before isolating the unavoidable public-field
 //! assembly in one function.
 
-use std::{collections::BTreeMap, error::Error, fmt};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    error::Error,
+    fmt,
+};
 
 use k_rust::{
+    builtin,
     definition::{
         self as native_definition, Attributes as NativeAttributes, FlatImport, FlatModule,
         ProductionItem as NativeItem, ResolvedDefinition, Sentence as NativeSentence,
@@ -24,15 +29,23 @@ use k_rust::{
     kast::{Label as NativeLabel, Sort as NativeSort, Term as NativeTerm},
     kompile,
     kore::parser::parse_definition as parse_kore_definition,
+    outer::{LoadOptions as NativeLoadOptions, ResolvedSource, load_with_options},
 };
 use krs_ir::{
-    DefinitionIr, DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
-    NodeOrigin, OriginFrame, ProductionItem, SentenceKind, SourceMapKey, SymbolId,
+    ApplicationRef, BuiltinOperation, BuiltinSort, CellAttribute, CellContentFrame, CellPost,
+    ClaimModality, ConfigurationRoot, ConfigurationSentence, ContextAliasSentence,
+    DefinitionClaimBinder, DefinitionIr, DefinitionProductionAttribute, DefinitionRuleBody,
+    DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind, FixedCell,
+    FixedCellContent, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
+    FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, FormatFragment,
+    GrammarProductionItemKind, GroupAssociativity, MapOperation, NodeOrigin, OriginFrame,
+    ProductionGroupId, ProductionSentence, RuleSentence, SemanticId, SentenceKind, SourceMapKey,
+    StableItemId, StrictnessKind, SymbolId,
 };
 use serde_json::json;
 
-pub use k_rust::outer::LoadedDefinition;
 pub use k_rust::definition::Definition as NativeDefinition;
+pub use k_rust::outer::LoadedDefinition;
 
 /// Metadata for the source and builtin revisions forming the native frontend.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,7 +78,7 @@ pub enum Backend {
     Haskell,
 }
 
-/// Capabilities of this portable adapter build.
+/// Capabilities of this adapter build.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FrontendCapabilities {
     /// Backend dialects accepted by [`compile_loaded_definition`].
@@ -74,7 +87,8 @@ pub struct FrontendCapabilities {
     pub z3_inference: CapabilityAvailability,
     /// Availability of MPFR-backed constant folding.
     pub mpfr_folding: CapabilityAvailability,
-    /// Availability of invariant-preserving structured `Definition` preparation.
+    /// Availability of KRS-owned invariant-preserving structured `Definition`
+    /// preparation over the pinned public primitives.
     pub structured_definition_preparation: CapabilityAvailability,
 }
 
@@ -105,18 +119,14 @@ impl CapabilityAvailability {
 
 const SUPPORTED_BACKENDS: &[Backend] = &[Backend::Llvm, Backend::Haskell];
 
-/// Capabilities compiled into the portable, default-feature-free frontend.
+/// Capabilities compiled into the pinned frontend and supplied by this adapter.
 pub const FRONTEND_CAPABILITIES: FrontendCapabilities = FrontendCapabilities {
     backends: SUPPORTED_BACKENDS,
-    z3_inference: CapabilityAvailability::Unavailable(
-        "the pinned k-rust dependency is built without z3-inference",
-    ),
+    z3_inference: CapabilityAvailability::Available,
     mpfr_folding: CapabilityAvailability::Unavailable(
         "the pinned k-rust dependency is built without mpfr-folding",
     ),
-    structured_definition_preparation: CapabilityAvailability::Unavailable(
-        "k-rust 0.3.0 has no public structured Definition preparation entry point",
-    ),
+    structured_definition_preparation: CapabilityAvailability::Available,
 };
 
 /// Import policy of the portable provisional M2 preparation route.
@@ -146,6 +156,42 @@ pub enum NativeNodeRole {
     ConfigurationCell,
     /// Initializer identity represented inside a configuration sentence.
     ConfigurationInitializer,
+    /// Authored name of a context-alias sentence.
+    ContextAliasName,
+    /// Authored binding selected as `HERE` in a context alias.
+    ContextAliasHere,
+    /// One cell pattern in a context alias.
+    ContextAliasCell(u32),
+    /// One explicit associative frame in a context alias.
+    ContextAliasFrame(u32),
+    /// Named context-alias selection on strictness metadata.
+    StrictnessContextAlias,
+    /// One selected strictness field.
+    StrictnessField(u32),
+    /// Result-predicate sort on strictness metadata.
+    StrictnessResult,
+    /// One grammar production item.
+    ProductionItem(u32),
+    /// One classified production attribute.
+    ProductionAttribute(u32),
+    /// One cell clause in a fixed-configuration rule.
+    ConfigurationRuleCell(u32),
+    /// One explicit frame in a fixed-configuration rule.
+    ConfigurationRuleFrame(u32),
+    /// One claim binder declaration.
+    ClaimBinder(u32),
+    /// One claim binder name.
+    ClaimBinderName(u32),
+    /// One claim binder sort.
+    ClaimBinderSort(u32),
+    /// A claim modality marker.
+    ClaimModality,
+    /// A claim circularity marker.
+    ClaimCircularity,
+    /// A rule applicability condition.
+    Requires,
+    /// A claim postcondition.
+    Ensures,
     /// Structured term. Child indices form a deterministic preorder path from
     /// the sentence body (`0`/`1` for rewrite endpoints and application or
     /// sequence argument indices otherwise).
@@ -203,56 +249,21 @@ impl AdaptedDefinition {
     }
 }
 
-/// A native capability that the frozen M2 adapter cannot preserve.
+/// A native capability boundary retained for compatibility with the
+/// provisional M2 oracle harness.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CapabilityError {
-    /// The pinned frontend has no supported structured preparation boundary.
+    /// The pinned frontend has no direct upstream structured-preparation
+    /// convenience API. The permanent path supplies [`prepare_definition`]
+    /// instead and does not return this error.
     StructuredDefinitionPreparationUnavailable,
-    /// M2 native lowering supports transition rules only.
-    UnsupportedSentenceKind {
-        /// Origin of the unsupported sentence.
-        key: SourceMapKey,
-        /// Explicit IR sentence kind.
-        kind: SentenceKind,
-    },
-    /// A term shape is legal in broader Definition IR but not in the M2
-    /// position where it occurred.
-    UnsupportedTermKind {
-        /// Origin of the unsupported nested term.
-        key: SourceMapKey,
-        /// Stable term-kind name.
-        kind: &'static str,
-        /// Position-specific capability reason.
-        reason: &'static str,
-    },
-    /// The M2 native configuration route cannot preserve declared
-    /// initializer parameters.
-    ConfigurationInitializerVariables {
-        /// Origin of the initializer declaration.
-        key: SourceMapKey,
-    },
 }
 
 impl fmt::Display for CapabilityError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::StructuredDefinitionPreparationUnavailable => formatter.write_str(
-                "k-rust 0.3.0 has no public invariant-preserving structured Definition preparation API",
-            ),
-            Self::UnsupportedSentenceKind { key, kind } => write!(
-                formatter,
-                "native M2 adapter does not support {kind:?} sentence at {:?}",
-                key.as_str()
-            ),
-            Self::UnsupportedTermKind { key, kind, reason } => write!(
-                formatter,
-                "native M2 adapter does not support {kind} term at {:?}: {reason}",
-                key.as_str()
-            ),
-            Self::ConfigurationInitializerVariables { key } => write!(
-                formatter,
-                "native M2 adapter cannot preserve initializer variables at {:?}",
-                key.as_str()
+                "k-rust 0.3.0 has no direct structured Definition preparation convenience API",
             ),
         }
     }
@@ -263,7 +274,7 @@ impl Error for CapabilityError {}
 /// Structural Definition-IR adaptation failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AdapterError {
-    /// A known M2 capability boundary was crossed.
+    /// A compatibility capability boundary was crossed.
     Capability(CapabilityError),
     /// A validated symbol reference could not be found while indexing the IR.
     MissingSymbol {
@@ -271,6 +282,15 @@ pub enum AdapterError {
         key: SourceMapKey,
         /// Missing stable symbol identity.
         symbol: SymbolId,
+    },
+    /// A validated nominal reference was absent from the adapter index.
+    MissingReference {
+        /// Origin of the referencing node.
+        key: SourceMapKey,
+        /// Reference family.
+        kind: &'static str,
+        /// Stable target identity.
+        target: String,
     },
 }
 
@@ -284,6 +304,11 @@ impl fmt::Display for AdapterError {
                 symbol.as_str(),
                 key.as_str()
             ),
+            Self::MissingReference { key, kind, target } => write!(
+                formatter,
+                "Definition IR {kind} reference {target:?} at {:?} is absent from the adapter index",
+                key.as_str()
+            ),
         }
     }
 }
@@ -292,7 +317,7 @@ impl Error for AdapterError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Capability(error) => Some(error),
-            Self::MissingSymbol { .. } => None,
+            Self::MissingSymbol { .. } | Self::MissingReference { .. } => None,
         }
     }
 }
@@ -394,11 +419,29 @@ pub struct CompiledArtifacts {
 /// Permanent structured compilation failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DefinitionCompileError {
-    /// Definition IR could not be represented by the M2 adapter.
+    /// Definition IR could not be represented by the schema-9 adapter.
     Adapter(AdapterError),
     /// The adapted source Definition cannot be prepared through a supported
     /// pinned-frontend API.
     Capability(CapabilityError),
+    /// The pinned public preparation primitives rejected the native graph.
+    Preparation(String),
+    /// The ordered native compiler rejected the prepared graph.
+    Compile {
+        /// Native pipeline stage.
+        stage: &'static str,
+        /// Native pipeline message.
+        message: String,
+        /// Structured frontend diagnostics.
+        diagnostics: Vec<FrontendDiagnostic>,
+    },
+    /// A produced KORE definition did not reparse under the exact pin.
+    KoreReparse {
+        /// Artifact which failed.
+        artifact: &'static str,
+        /// Parser message.
+        message: String,
+    },
 }
 
 impl fmt::Display for DefinitionCompileError {
@@ -406,6 +449,16 @@ impl fmt::Display for DefinitionCompileError {
         match self {
             Self::Adapter(error) => error.fmt(formatter),
             Self::Capability(error) => error.fmt(formatter),
+            Self::Preparation(message) => write!(formatter, "native preparation failed: {message}"),
+            Self::Compile { stage, message, .. } => {
+                write!(
+                    formatter,
+                    "native frontend stage {stage:?} failed: {message}"
+                )
+            }
+            Self::KoreReparse { artifact, message } => {
+                write!(formatter, "pinned parser rejected {artifact}: {message}")
+            }
         }
     }
 }
@@ -415,6 +468,7 @@ impl Error for DefinitionCompileError {
         match self {
             Self::Adapter(error) => Some(error),
             Self::Capability(error) => Some(error),
+            Self::Preparation(_) | Self::Compile { .. } | Self::KoreReparse { .. } => None,
         }
     }
 }
@@ -453,10 +507,16 @@ impl fmt::Display for ProvisionalCompileError {
         match self {
             Self::Adapter(error) => error.fmt(formatter),
             Self::Configuration(message) => {
-                write!(formatter, "structured configuration expansion failed: {message}")
+                write!(
+                    formatter,
+                    "structured configuration expansion failed: {message}"
+                )
             }
             Self::Resolution(message) => {
-                write!(formatter, "expanded native definition resolution failed: {message}")
+                write!(
+                    formatter,
+                    "expanded native definition resolution failed: {message}"
+                )
             }
             Self::Compile(error) => error.fmt(formatter),
             Self::KoreReparse { artifact, message } => {
@@ -483,7 +543,7 @@ impl Error for ProvisionalCompileError {
     }
 }
 
-/// Structurally maps frozen M2 Definition IR to the pinned native source
+/// Structurally maps schema-9 Definition IR to the pinned native source
 /// Definition model.
 ///
 /// Imports remain public, matching ordinary K `imports MODULE`. Sorts,
@@ -500,22 +560,113 @@ pub fn adapt_definition(ir: &DefinitionIr) -> Result<AdaptedDefinition, AdapterE
     Adapter::new(ir).adapt(ir)
 }
 
-/// Refuses to compile a structural Definition until the pinned frontend has a
-/// supported invariant-preserving preparation entry point.
+/// Prepare one structurally adapted definition through public pinned APIs.
+///
+/// The exact source pin predates `k-rust`'s later structured-definition
+/// convenience function. This compatibility layer first lets the public
+/// loader establish the bundled prelude, backend filtering, source-file set,
+/// and graph invariants from a fixed empty bootstrap module. It then replaces
+/// that module with the already-structured KRS modules, expands structured
+/// configurations, and resolves the resulting graph. It never parses emitted
+/// KRS `.k` source.
 ///
 /// # Errors
 ///
-/// Returns an adapter capability error first when the IR is outside M2;
-/// otherwise always returns
-/// [`CapabilityError::StructuredDefinitionPreparationUnavailable`].
+/// Returns a stable message when the pinned loader, configuration expander, or
+/// resolver rejects the graph.
+pub fn prepare_definition(
+    definition: NativeDefinition,
+    backend: Backend,
+) -> Result<LoadedDefinition, String> {
+    const BOOTSTRAP_MODULE: &str = "KRS-STRUCTURED-BOOTSTRAP";
+    let prelude = builtin::embedded("prelude.md")
+        .ok_or_else(|| "pinned compatibility prelude is unavailable".to_owned())?;
+    let mut resolver = |_: &str, required: &str| {
+        builtin::embedded(required).ok_or_else(|| format!("missing pinned source {required:?}"))
+    };
+    let excluded = match backend {
+        Backend::Llvm => kompile::CompilationBackend::Llvm.excluded_module_attribute(),
+        Backend::Haskell => kompile::CompilationBackend::Haskell.excluded_module_attribute(),
+    };
+    let mut loaded = load_with_options(
+        ResolvedSource::new(
+            "krs-structured-bootstrap.k",
+            format!("module {BOOTSTRAP_MODULE}\nendmodule\n"),
+        ),
+        BOOTSTRAP_MODULE,
+        &mut resolver,
+        &NativeLoadOptions {
+            implicit_sources: vec![prelude],
+            excluded_module_attributes: vec![excluded.to_owned()],
+            ..NativeLoadOptions::default()
+        },
+    )
+    .map_err(|error| error.to_string())?;
+
+    loaded
+        .definition
+        .modules
+        .retain(|module| module.name != BOOTSTRAP_MODULE);
+    for module in &definition.modules {
+        if loaded
+            .definition
+            .modules
+            .iter()
+            .any(|existing| existing.name == module.name)
+        {
+            return Err(format!(
+                "structured module {:?} conflicts with a pinned prelude module",
+                module.name
+            ));
+        }
+    }
+    loaded.definition.modules.extend(definition.modules);
+    loaded.definition.main_module = definition.main_module;
+    loaded.definition.attributes = definition.attributes;
+    loaded.definition =
+        expand_configurations(&loaded.definition).map_err(|error| error.to_string())?;
+    loaded.resolved =
+        ResolvedDefinition::resolve(&loaded.definition).map_err(|error| error.to_string())?;
+    Ok(loaded)
+}
+
+/// Compile schema-9 Definition IR through the permanent native boundary.
+///
+/// # Errors
+///
+/// Returns an adapter, preparation, compilation, or KORE-reparse error without
+/// invoking a filesystem-backed K tool or parsing emitted candidate source.
 pub fn compile_definition(
     ir: &DefinitionIr,
-    _options: CompileOptions,
+    options: CompileOptions,
 ) -> Result<CompiledArtifacts, DefinitionCompileError> {
-    adapt_definition(ir).map_err(DefinitionCompileError::Adapter)?;
-    Err(DefinitionCompileError::Capability(
-        CapabilityError::StructuredDefinitionPreparationUnavailable,
-    ))
+    let adapted = adapt_definition(ir).map_err(DefinitionCompileError::Adapter)?;
+    let loaded = prepare_definition(adapted.definition.clone(), options.backend)
+        .map_err(DefinitionCompileError::Preparation)?;
+    for initializer in &adapted.initializers {
+        validate_initializer_identity(&loaded.definition, initializer)
+            .map_err(|error| DefinitionCompileError::Preparation(error.to_string()))?;
+    }
+    let artifacts = compile_loaded_definition(&loaded, options).map_err(|error| {
+        DefinitionCompileError::Compile {
+            stage: error.stage(),
+            message: error.message().to_owned(),
+            diagnostics: error.diagnostics().to_vec(),
+        }
+    })?;
+    parse_kore_definition(&artifacts.definition_kore).map_err(|error| {
+        DefinitionCompileError::KoreReparse {
+            artifact: "definition.kore",
+            message: error.to_string(),
+        }
+    })?;
+    parse_kore_definition(&artifacts.syntax_definition_kore).map_err(|error| {
+        DefinitionCompileError::KoreReparse {
+            artifact: "syntaxDefinition.kore",
+            message: error.to_string(),
+        }
+    })?;
+    Ok(artifacts)
 }
 
 /// Provisional M2 test-oracle compilation through public frontend passes.
@@ -540,9 +691,9 @@ pub fn compile_definition_provisional_oracle(
     options: CompileOptions,
 ) -> Result<CompiledArtifacts, ProvisionalCompileError> {
     let adapted = adapt_definition(ir).map_err(ProvisionalCompileError::Adapter)?;
-    let loaded = prepare_provisional_oracle(adapted)?;
-    let artifacts = compile_loaded_definition(&loaded, options)
-        .map_err(ProvisionalCompileError::Compile)?;
+    let loaded = prepare_provisional_oracle(&adapted)?;
+    let artifacts =
+        compile_loaded_definition(&loaded, options).map_err(ProvisionalCompileError::Compile)?;
     parse_kore_definition(&artifacts.definition_kore).map_err(|error| {
         ProvisionalCompileError::KoreReparse {
             artifact: "definition.kore",
@@ -648,6 +799,11 @@ pub fn compile_loaded_definition(
 
 struct Adapter {
     symbols: BTreeMap<SymbolId, String>,
+    groups: BTreeMap<ProductionGroupId, String>,
+    context_aliases: BTreeMap<StableItemId, String>,
+    cells: BTreeMap<SymbolId, String>,
+    initializer_variables: BTreeMap<SemanticId, String>,
+    context_here: Option<SemanticId>,
     origins: Vec<OriginMapping>,
     initializers: Vec<InitializerIdentity>,
 }
@@ -655,46 +811,78 @@ struct Adapter {
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum TermContext {
     Normal,
-    RuleRoot,
     ConfigurationInitializer,
+    ContextAlias,
 }
 
 impl Adapter {
     fn new(ir: &DefinitionIr) -> Self {
         let mut symbols = BTreeMap::new();
-        for sentence in ir
-            .modules()
-            .iter()
-            .flat_map(|module| module.sentences())
-        {
-            match sentence {
-                DefinitionSentence::SyntaxSort(sentence) => {
-                    symbols.insert(
-                        sentence.symbol().id().clone(),
-                        sentence.symbol().emitted_name().to_owned(),
-                    );
+        let mut groups = BTreeMap::new();
+        let mut context_aliases = BTreeMap::new();
+        let mut cells = BTreeMap::new();
+        for module in ir.modules() {
+            for group in module.production_groups() {
+                groups.insert(group.id().clone(), group.emitted_name().to_owned());
+            }
+            for sentence in module.sentences() {
+                match sentence {
+                    DefinitionSentence::SyntaxSort(sentence) => {
+                        symbols.insert(
+                            sentence.symbol().id().clone(),
+                            sentence.symbol().emitted_name().to_owned(),
+                        );
+                    }
+                    DefinitionSentence::Production(sentence) => {
+                        symbols.insert(
+                            sentence.symbol().id().clone(),
+                            sentence.symbol().emitted_name().to_owned(),
+                        );
+                    }
+                    DefinitionSentence::Configuration(sentence) if sentence.cell().is_some() => {
+                        let cell = sentence.cell().expect("legacy configuration cell");
+                        let initializer = sentence
+                            .initializer()
+                            .expect("legacy configuration initializer");
+                        symbols.insert(
+                            cell.symbol().id().clone(),
+                            cell.symbol().emitted_name().to_owned(),
+                        );
+                        cells.insert(
+                            cell.symbol().id().clone(),
+                            cell.symbol().emitted_name().to_owned(),
+                        );
+                        symbols.insert(
+                            initializer.symbol().id().clone(),
+                            initializer.symbol().emitted_name().to_owned(),
+                        );
+                    }
+                    DefinitionSentence::Configuration(sentence) => {
+                        collect_fixed_cells(
+                            sentence
+                                .as_fixed()
+                                .expect("non-legacy configuration is fixed")
+                                .cells(),
+                            &mut cells,
+                        );
+                    }
+                    DefinitionSentence::ContextAlias(sentence) => {
+                        context_aliases.insert(sentence.id().clone(), sentence.name().to_owned());
+                    }
+                    DefinitionSentence::Subsort(_)
+                    | DefinitionSentence::Precedence(_)
+                    | DefinitionSentence::Associativity(_)
+                    | DefinitionSentence::Rule(_) => {}
                 }
-                DefinitionSentence::Production(sentence) => {
-                    symbols.insert(
-                        sentence.symbol().id().clone(),
-                        sentence.symbol().emitted_name().to_owned(),
-                    );
-                }
-                DefinitionSentence::Configuration(sentence) => {
-                    symbols.insert(
-                        sentence.cell().symbol().id().clone(),
-                        sentence.cell().symbol().emitted_name().to_owned(),
-                    );
-                    symbols.insert(
-                        sentence.initializer().symbol().id().clone(),
-                        sentence.initializer().symbol().emitted_name().to_owned(),
-                    );
-                }
-                DefinitionSentence::Subsort(_) | DefinitionSentence::Rule(_) => {}
             }
         }
         Self {
             symbols,
+            groups,
+            context_aliases,
+            cells,
+            initializer_variables: BTreeMap::new(),
+            context_here: None,
             origins: Vec::new(),
             initializers: Vec::new(),
         }
@@ -719,27 +907,24 @@ impl Adapter {
 
     fn module(&mut self, module: &krs_ir::DefinitionModule) -> Result<FlatModule, AdapterError> {
         let module_name = module.id().as_str().to_owned();
-        self.map_origin(
-            module.origin(),
-            &module_name,
-            None,
-            NativeNodeRole::Module,
-        );
+        self.map_origin(module.origin(), &module_name, None, NativeNodeRole::Module);
         let mut local_sentences = Vec::with_capacity(module.sentences().len());
         for sentence in module.sentences() {
             let sentence_index = local_sentences.len();
             let native = self.sentence(sentence, &module_name, sentence_index)?;
             local_sentences.push(native);
         }
+        let mut imports = module
+            .imports()
+            .iter()
+            .map(|import| import.as_str().to_owned())
+            .collect::<BTreeSet<_>>();
+        imports.extend(module_builtin_imports(module));
         Ok(FlatModule {
             name: module_name,
-            imports: module
-                .imports()
-                .iter()
-                .map(|import| FlatImport {
-                    name: import.as_str().to_owned(),
-                    public: true,
-                })
+            imports: imports
+                .into_iter()
+                .map(|name| FlatImport { name, public: true })
                 .collect(),
             local_sentences,
             attributes: attributes_for_origin(module.origin()),
@@ -767,116 +952,763 @@ impl Adapter {
             DefinitionSentence::Subsort(sentence) => Ok(NativeSentence::Production {
                 label: None,
                 parameters: Vec::new(),
-                sort: NativeSort::new(self.symbol_name(
-                    sentence.supersort(),
-                    sentence.origin(),
-                )?),
+                sort: self.sort(sentence.supersort(), sentence.origin())?,
                 items: vec![NativeItem::NonTerminal {
-                    sort: NativeSort::new(self.symbol_name(
-                        sentence.subsort(),
-                        sentence.origin(),
-                    )?),
+                    sort: self.sort(sentence.subsort(), sentence.origin())?,
                     name: None,
                 }],
                 attributes: attributes_for_origin(sentence.origin()),
             }),
-            DefinitionSentence::Production(sentence) => Ok(NativeSentence::Production {
-                label: Some(NativeLabel::new(sentence.symbol().emitted_name())),
-                parameters: Vec::new(),
-                sort: NativeSort::new(
-                    self.symbol_name(sentence.result_sort(), sentence.origin())?,
-                ),
-                items: sentence
-                    .items()
-                    .iter()
-                    .map(|item| match item {
-                        ProductionItem::Terminal { text } => {
-                            Ok(NativeItem::Terminal(text.clone()))
-                        }
-                        ProductionItem::NonTerminal { sort } => Ok(NativeItem::NonTerminal {
-                            sort: NativeSort::new(self.symbol_name(sort, sentence.origin())?),
-                            name: None,
-                        }),
-                    })
-                    .collect::<Result<Vec<_>, AdapterError>>()?,
+            DefinitionSentence::Production(sentence) => {
+                self.production(sentence, module, sentence_index)
+            }
+            DefinitionSentence::Precedence(sentence) => Ok(NativeSentence::SyntaxPriority {
+                priorities: vec![
+                    sentence
+                        .higher()
+                        .iter()
+                        .map(|group| self.group_name(group, sentence.origin()))
+                        .collect::<Result<Vec<_>, _>>()?,
+                    sentence
+                        .lower()
+                        .iter()
+                        .map(|group| self.group_name(group, sentence.origin()))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ],
                 attributes: attributes_for_origin(sentence.origin()),
             }),
+            DefinitionSentence::Associativity(sentence) => {
+                Ok(NativeSentence::SyntaxAssociativity {
+                    associativity: match sentence.associativity() {
+                        GroupAssociativity::Left => native_definition::Associativity::Left,
+                        GroupAssociativity::Right => native_definition::Associativity::Right,
+                        GroupAssociativity::NonAssociative => {
+                            native_definition::Associativity::NonAssoc
+                        }
+                    },
+                    tags: sentence
+                        .groups()
+                        .iter()
+                        .map(|group| self.group_name(group, sentence.origin()))
+                        .collect::<Result<Vec<_>, _>>()?,
+                    attributes: attributes_for_origin(sentence.origin()),
+                })
+            }
             DefinitionSentence::Configuration(sentence) => {
-                if !sentence.initializer().variables().is_empty() {
-                    return Err(CapabilityError::ConfigurationInitializerVariables {
-                        key: sentence.initializer().origin().key().clone(),
+                self.configuration(sentence, module, sentence_index)
+            }
+            DefinitionSentence::ContextAlias(sentence) => {
+                self.context_alias(sentence, module, sentence_index)
+            }
+            DefinitionSentence::Rule(sentence) => self.rule(sentence, module, sentence_index),
+        }
+    }
+
+    fn production(
+        &mut self,
+        sentence: &ProductionSentence,
+        module: &str,
+        sentence_index: usize,
+    ) -> Result<NativeSentence, AdapterError> {
+        let mut attributes = attributes_for_origin(sentence.origin());
+        for (index, attribute) in sentence.attributes().iter().enumerate() {
+            let index = u32::try_from(index).unwrap_or(u32::MAX);
+            self.map_origin(
+                attribute.origin(),
+                module,
+                Some(sentence_index),
+                NativeNodeRole::ProductionAttribute(index),
+            );
+            self.production_attribute(
+                attribute,
+                sentence,
+                &mut attributes,
+                module,
+                sentence_index,
+                index,
+            )?;
+        }
+        let items = sentence
+            .items()
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                self.map_origin(
+                    item.origin(),
+                    module,
+                    Some(sentence_index),
+                    NativeNodeRole::ProductionItem(u32::try_from(index).unwrap_or(u32::MAX)),
+                );
+                match item.kind() {
+                    GrammarProductionItemKind::Terminal { text } => {
+                        Ok(NativeItem::Terminal(text.clone()))
                     }
-                    .into());
+                    GrammarProductionItemKind::NonTerminal { field, sort } => {
+                        Ok(NativeItem::NonTerminal {
+                            sort: self.sort(sort, item.origin())?,
+                            name: Some(field.as_str().to_owned()),
+                        })
+                    }
+                    GrammarProductionItemKind::RegexTerminal {
+                        precede_regex,
+                        regex,
+                        follow_regex,
+                    } => Ok(NativeItem::RegexTerminal {
+                        precede_regex: precede_regex.clone(),
+                        regex: regex.clone(),
+                        follow_regex: follow_regex.clone(),
+                    }),
+                }
+            })
+            .collect::<Result<Vec<_>, AdapterError>>()?;
+        Ok(NativeSentence::Production {
+            label: Some(NativeLabel::new(sentence.symbol().emitted_name())),
+            parameters: Vec::new(),
+            sort: self.sort(sentence.result_sort(), sentence.origin())?,
+            items,
+            attributes,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    fn production_attribute(
+        &mut self,
+        attribute: &DefinitionProductionAttribute,
+        sentence: &ProductionSentence,
+        attributes: &mut NativeAttributes,
+        module: &str,
+        sentence_index: usize,
+        attribute_index: u32,
+    ) -> Result<(), AdapterError> {
+        match attribute {
+            DefinitionProductionAttribute::Documentation { .. } => {}
+            DefinitionProductionAttribute::Function { .. } => {
+                attributes.insert("function", json!(""));
+            }
+            DefinitionProductionAttribute::Total { .. } => {
+                attributes.insert("total", json!(""));
+            }
+            DefinitionProductionAttribute::Alias { .. } => {
+                attributes.insert("alias", json!(""));
+            }
+            DefinitionProductionAttribute::Token {
+                lexical_precedence, ..
+            } => {
+                attributes.insert("token", json!(""));
+                if let Some(value) = lexical_precedence {
+                    attributes.insert("prec", json!(value.to_string()));
+                }
+            }
+            DefinitionProductionAttribute::Group { group, .. } => {
+                attributes.insert("group", json!(self.group_name(group, attribute.origin())?));
+            }
+            DefinitionProductionAttribute::Bracket { .. } => {
+                use std::fmt::Write as _;
+
+                attributes.insert("bracket", json!(""));
+                let format =
+                    (1..=sentence.items().len()).fold(String::new(), |mut output, index| {
+                        write!(output, "%{index}").expect("writing to String cannot fail");
+                        output
+                    });
+                attributes.insert("format", json!(format));
+            }
+            DefinitionProductionAttribute::Avoid { .. } => {
+                attributes.insert("avoid", json!(""));
+            }
+            DefinitionProductionAttribute::Format { fragments, .. } => {
+                attributes.insert("format", json!(native_format(fragments)));
+            }
+            DefinitionProductionAttribute::Strictness {
+                kind,
+                using,
+                fields,
+                result_sort,
+                ..
+            } => {
+                let nonterminals = sentence
+                    .items()
+                    .iter()
+                    .filter_map(|item| match item.kind() {
+                        GrammarProductionItemKind::NonTerminal { field, .. } => Some(field),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                let positions = fields
+                    .iter()
+                    .map(|selected| {
+                        nonterminals
+                            .iter()
+                            .position(|field| **field == *selected.field())
+                            .map(|position| position + 1)
+                            .ok_or_else(|| AdapterError::MissingReference {
+                                key: selected.origin().key().clone(),
+                                kind: "production field",
+                                target: selected.field().as_str().to_owned(),
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                for (index, selected) in fields.iter().enumerate() {
+                    self.map_origin(
+                        selected.origin(),
+                        module,
+                        Some(sentence_index),
+                        NativeNodeRole::StrictnessField(u32::try_from(index).unwrap_or(u32::MAX)),
+                    );
                 }
                 self.map_origin(
-                    sentence.cell().origin(),
+                    result_sort.origin(),
+                    module,
+                    Some(sentence_index),
+                    NativeNodeRole::StrictnessResult,
+                );
+                let selected_all = positions.len() == nonterminals.len()
+                    && positions.iter().copied().eq(1..=nonterminals.len());
+                let positions = (!selected_all).then(|| {
+                    positions
+                        .iter()
+                        .map(usize::to_string)
+                        .collect::<Vec<_>>()
+                        .join(",")
+                });
+                let value = if let Some(using) = using {
+                    self.map_origin(
+                        using.origin(),
+                        module,
+                        Some(sentence_index),
+                        NativeNodeRole::StrictnessContextAlias,
+                    );
+                    let alias = self.context_alias_name(using.alias(), using.origin())?;
+                    match positions {
+                        Some(positions) => format!("{alias}; {positions}"),
+                        None => alias,
+                    }
+                } else {
+                    positions.unwrap_or_default()
+                };
+                attributes.insert(
+                    match kind {
+                        StrictnessKind::Strict => "strict",
+                        StrictnessKind::SeqStrict => "seqstrict",
+                    },
+                    json!(value),
+                );
+                if using.is_none() {
+                    attributes.insert(
+                        "result",
+                        json!(self.sort(result_sort.sort(), result_sort.origin())?.name),
+                    );
+                }
+                let _ = attribute_index;
+            }
+        }
+        Ok(())
+    }
+
+    fn configuration(
+        &mut self,
+        sentence: &ConfigurationSentence,
+        module: &str,
+        sentence_index: usize,
+    ) -> Result<NativeSentence, AdapterError> {
+        self.initializer_variables.clear();
+        let body =
+            if let (Some(cell), Some(initializer)) = (sentence.cell(), sentence.initializer()) {
+                for variable in initializer.variables() {
+                    self.initializer_variables
+                        .insert(variable.id().clone(), variable.id().as_str().to_owned());
+                }
+                self.map_origin(
+                    cell.origin(),
                     module,
                     Some(sentence_index),
                     NativeNodeRole::ConfigurationCell,
                 );
                 self.map_origin(
-                    sentence.initializer().origin(),
+                    initializer.origin(),
                     module,
                     Some(sentence_index),
                     NativeNodeRole::ConfigurationInitializer,
                 );
-                let cell_name = sentence.cell().symbol().emitted_name().to_owned();
-                let body = self.term(
-                    sentence.initializer().body(),
+                let cell_name = cell.symbol().emitted_name().to_owned();
+                let contents = self.term(
+                    initializer.body(),
                     module,
                     sentence_index,
                     Vec::new(),
                     TermContext::ConfigurationInitializer,
+                    None,
                 )?;
                 self.initializers.push(InitializerIdentity {
                     module: module.to_owned(),
                     cell_name: cell_name.clone(),
-                    emitted_name: sentence.initializer().symbol().emitted_name().to_owned(),
+                    emitted_name: initializer.symbol().emitted_name().to_owned(),
                 });
-                let cell_name_token = || NativeTerm::Token {
-                    token: cell_name.clone(),
-                    sort: NativeSort::new("#CellName"),
-                };
-                Ok(NativeSentence::Configuration {
-                    body: NativeTerm::apply(
-                        "#configCell",
-                        vec![
-                            cell_name_token(),
-                            NativeTerm::apply("#cellPropertyListTerminator", Vec::new()),
-                            body,
-                            cell_name_token(),
-                        ],
-                    ),
-                    ensures: truth(),
-                    attributes: attributes_for_origin(sentence.origin()),
-                })
-            }
-            DefinitionSentence::Rule(sentence) => {
-                if sentence.kind() != SentenceKind::Transition {
-                    return Err(CapabilityError::UnsupportedSentenceKind {
-                        key: sentence.origin().key().clone(),
-                        kind: sentence.kind(),
-                    }
-                    .into());
+                native_config_cell(
+                    &cell_name,
+                    NativeTerm::apply("#cellPropertyListTerminator", Vec::new()),
+                    contents,
+                )
+            } else {
+                let configuration = sentence
+                    .as_fixed()
+                    .expect("configuration is legacy or fixed");
+                for variable in configuration.variables() {
+                    self.initializer_variables
+                        .insert(variable.id().clone(), variable.external_name().to_owned());
+                    self.map_origin(
+                        variable.origin(),
+                        module,
+                        Some(sentence_index),
+                        NativeNodeRole::ConfigurationInitializer,
+                    );
                 }
-                let mut attributes = attributes_for_origin(sentence.origin());
-                attributes.insert("label", json!(sentence.label().emitted_name()));
-                Ok(NativeSentence::Rule {
-                    body: self.term(
-                        sentence.body(),
+                self.map_origin(
+                    configuration.initializer_origin(),
+                    module,
+                    Some(sentence_index),
+                    NativeNodeRole::ConfigurationInitializer,
+                );
+                self.fixed_configuration(configuration, module, sentence_index)?
+            };
+        self.initializer_variables.clear();
+        Ok(NativeSentence::Configuration {
+            body,
+            ensures: truth(),
+            attributes: attributes_for_origin(sentence.origin()),
+        })
+    }
+
+    fn fixed_configuration(
+        &mut self,
+        configuration: &FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>,
+        module: &str,
+        sentence_index: usize,
+    ) -> Result<NativeTerm, AdapterError> {
+        let forest = self.fixed_initializer_forest(
+            configuration.cells(),
+            configuration.initializer(),
+            configuration.variables(),
+            module,
+            sentence_index,
+        )?;
+        Ok(match configuration.root() {
+            ConfigurationRoot::GeneratedTop => native_cells(forest),
+            ConfigurationRoot::Named { origin, name } => {
+                self.map_origin(
+                    origin,
+                    module,
+                    Some(sentence_index),
+                    NativeNodeRole::ConfigurationCell,
+                );
+                native_config_cell(
+                    name,
+                    NativeTerm::apply("#cellPropertyListTerminator", Vec::new()),
+                    native_cells(forest),
+                )
+            }
+        })
+    }
+
+    fn fixed_initializer_forest(
+        &mut self,
+        cells: &[FixedCell<DefinitionSortRef, SymbolId>],
+        initializer: &[FixedInitializerCell<SymbolId, DefinitionTerm>],
+        variables: &[FixedConfigurationVariable<DefinitionSortRef>],
+        module: &str,
+        sentence_index: usize,
+    ) -> Result<Vec<NativeTerm>, AdapterError> {
+        cells
+            .iter()
+            .map(|cell| {
+                let matching_initializer = initializer
+                    .iter()
+                    .find(|value| value.cell() == cell.id())
+                    .ok_or_else(|| AdapterError::MissingReference {
+                        key: cell.origin().key().clone(),
+                        kind: "configuration initializer cell",
+                        target: cell.id().as_str().to_owned(),
+                    })?;
+                self.fixed_initializer_cell(
+                    cell,
+                    matching_initializer,
+                    variables,
+                    module,
+                    sentence_index,
+                )
+            })
+            .collect()
+    }
+
+    fn fixed_initializer_cell(
+        &mut self,
+        cell: &FixedCell<DefinitionSortRef, SymbolId>,
+        initializer: &FixedInitializerCell<SymbolId, DefinitionTerm>,
+        variables: &[FixedConfigurationVariable<DefinitionSortRef>],
+        module: &str,
+        sentence_index: usize,
+    ) -> Result<NativeTerm, AdapterError> {
+        self.map_origin(
+            cell.origin(),
+            module,
+            Some(sentence_index),
+            NativeNodeRole::ConfigurationCell,
+        );
+        self.map_origin(
+            initializer.origin(),
+            module,
+            Some(sentence_index),
+            NativeNodeRole::ConfigurationInitializer,
+        );
+        let contents = match (cell.content(), initializer.content()) {
+            (FixedCellContent::Term { .. }, FixedInitializerContent::Term { term }) => self.term(
+                term,
+                module,
+                sentence_index,
+                Vec::new(),
+                TermContext::ConfigurationInitializer,
+                None,
+            )?,
+            (
+                FixedCellContent::Children { children },
+                FixedInitializerContent::Children {
+                    children: initialized_children,
+                },
+            ) => native_cells(self.fixed_initializer_forest(
+                children,
+                initialized_children,
+                variables,
+                module,
+                sentence_index,
+            )?),
+            _ => {
+                return Err(AdapterError::MissingReference {
+                    key: initializer.origin().key().clone(),
+                    kind: "configuration initializer shape",
+                    target: cell.id().as_str().to_owned(),
+                });
+            }
+        };
+        let is_main = variables.iter().any(|variable| {
+            variable.is_main() && initializer_contains_variable(initializer, variable.id())
+        });
+        let properties = native_cell_properties(cell.attributes(), is_main);
+        Ok(native_config_cell(cell.name(), properties, contents))
+    }
+
+    fn context_alias(
+        &mut self,
+        sentence: &ContextAliasSentence,
+        module: &str,
+        sentence_index: usize,
+    ) -> Result<NativeSentence, AdapterError> {
+        self.map_origin(
+            sentence.name_origin(),
+            module,
+            Some(sentence_index),
+            NativeNodeRole::ContextAliasName,
+        );
+        self.map_origin(
+            sentence.here_origin(),
+            module,
+            Some(sentence_index),
+            NativeNodeRole::ContextAliasHere,
+        );
+        self.context_here = Some(sentence.here().clone());
+        let body = self.configuration_pattern(
+            sentence.body(),
+            module,
+            sentence_index,
+            TermContext::ContextAlias,
+        )?;
+        self.context_here = None;
+        let mut attributes = attributes_for_origin(sentence.origin());
+        attributes.insert("label", json!(sentence.name()));
+        Ok(NativeSentence::ContextAlias {
+            body,
+            requires: truth(),
+            attributes,
+        })
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn rule(
+        &mut self,
+        sentence: &RuleSentence,
+        module: &str,
+        sentence_index: usize,
+    ) -> Result<NativeSentence, AdapterError> {
+        let body = match sentence.relational_body() {
+            DefinitionRuleBody::Term(term) => self.term(
+                term,
+                module,
+                sentence_index,
+                Vec::new(),
+                TermContext::Normal,
+                Some(sentence),
+            )?,
+            DefinitionRuleBody::Configuration(rewrite) => {
+                self.configuration_rewrite(rewrite, module, sentence_index, sentence)?
+            }
+        };
+        let requires = sentence.requires().map_or_else(
+            || Ok(truth()),
+            |condition| {
+                self.map_origin(
+                    condition.origin(),
+                    module,
+                    Some(sentence_index),
+                    NativeNodeRole::Requires,
+                );
+                self.term(
+                    condition.term(),
+                    module,
+                    sentence_index,
+                    Vec::new(),
+                    TermContext::Normal,
+                    Some(sentence),
+                )
+            },
+        )?;
+        let ensures = sentence
+            .claim()
+            .and_then(|claim| claim.ensures())
+            .map_or_else(
+                || Ok(truth()),
+                |condition| {
+                    self.map_origin(
+                        condition.origin(),
+                        module,
+                        Some(sentence_index),
+                        NativeNodeRole::Ensures,
+                    );
+                    self.term(
+                        condition.term(),
                         module,
                         sentence_index,
                         Vec::new(),
-                        TermContext::RuleRoot,
-                    )?,
-                    requires: truth(),
-                    ensures: truth(),
-                    attributes,
-                })
+                        TermContext::Normal,
+                        Some(sentence),
+                    )
+                },
+            )?;
+        let mut attributes = attributes_for_origin(sentence.origin());
+        attributes.insert("label", json!(sentence.label().emitted_name()));
+        if let Some(priority) = sentence.priority() {
+            attributes.insert("priority", json!(priority.value().to_string()));
+        }
+        if let Some(simplification) = sentence.simplification() {
+            attributes.insert(
+                "simplification",
+                json!(
+                    simplification
+                        .priority()
+                        .map_or_else(String::new, |value| value.value().to_string())
+                ),
+            );
+        }
+        if sentence.kind() == SentenceKind::Alias {
+            attributes.insert("alias", json!(""));
+        }
+        if let Some(claim) = sentence.claim() {
+            self.map_origin(
+                claim.modality_origin(),
+                module,
+                Some(sentence_index),
+                NativeNodeRole::ClaimModality,
+            );
+            if claim.modality() == ClaimModality::OnePath {
+                attributes.insert("one-path", json!(""));
             }
+            if let Some(origin) = claim.circularity_origin() {
+                self.map_origin(
+                    origin,
+                    module,
+                    Some(sentence_index),
+                    NativeNodeRole::ClaimCircularity,
+                );
+                attributes.insert("circularity", json!(""));
+            }
+            for (index, binder) in claim
+                .universals()
+                .iter()
+                .chain(claim.existentials())
+                .enumerate()
+            {
+                self.map_claim_binder(binder, module, sentence_index, index);
+            }
+        }
+        if sentence.kind() == SentenceKind::Claim {
+            Ok(NativeSentence::Claim {
+                body,
+                requires,
+                ensures,
+                attributes,
+            })
+        } else {
+            Ok(NativeSentence::Rule {
+                body,
+                requires,
+                ensures,
+                attributes,
+            })
         }
     }
 
+    fn map_claim_binder(
+        &mut self,
+        binder: &DefinitionClaimBinder,
+        module: &str,
+        sentence_index: usize,
+        index: usize,
+    ) {
+        let index = u32::try_from(index).unwrap_or(u32::MAX);
+        for (origin, role) in [
+            (binder.origin(), NativeNodeRole::ClaimBinder(index)),
+            (binder.name_origin(), NativeNodeRole::ClaimBinderName(index)),
+            (binder.sort_origin(), NativeNodeRole::ClaimBinderSort(index)),
+        ] {
+            self.map_origin(origin, module, Some(sentence_index), role);
+        }
+    }
+
+    fn configuration_rewrite(
+        &mut self,
+        rewrite: &FixedConfigurationRewrite<SymbolId, DefinitionTerm>,
+        module: &str,
+        sentence_index: usize,
+        sentence: &RuleSentence,
+    ) -> Result<NativeTerm, AdapterError> {
+        let cells = rewrite
+            .clauses()
+            .iter()
+            .enumerate()
+            .map(|(index, clause)| {
+                let index = u32::try_from(index).unwrap_or(u32::MAX);
+                self.map_origin(
+                    clause.origin(),
+                    module,
+                    Some(sentence_index),
+                    NativeNodeRole::ConfigurationRuleCell(index),
+                );
+                if let CellContentFrame::KSequenceTail { origin, .. }
+                | CellContentFrame::MapRemainder { origin, .. } = clause.frame()
+                {
+                    self.map_origin(
+                        origin,
+                        module,
+                        Some(sentence_index),
+                        NativeNodeRole::ConfigurationRuleFrame(index),
+                    );
+                }
+                let before = self.term(
+                    clause.before(),
+                    module,
+                    sentence_index,
+                    vec![index],
+                    TermContext::Normal,
+                    Some(sentence),
+                )?;
+                let content = match clause.after() {
+                    CellPost::Preserve => before,
+                    CellPost::Replace { term } => NativeTerm::Rewrite {
+                        left: Box::new(before),
+                        right: Box::new(self.term(
+                            term,
+                            module,
+                            sentence_index,
+                            vec![index, 1],
+                            TermContext::Normal,
+                            Some(sentence),
+                        )?),
+                    },
+                };
+                self.framed_cell(clause.cell(), content, clause.frame(), clause.origin())
+            })
+            .collect::<Result<Vec<_>, AdapterError>>()?;
+        Ok(native_cells(cells))
+    }
+
+    fn configuration_pattern(
+        &mut self,
+        pattern: &FixedConfigurationPattern<SymbolId, DefinitionTerm>,
+        module: &str,
+        sentence_index: usize,
+        context: TermContext,
+    ) -> Result<NativeTerm, AdapterError> {
+        let cells = pattern
+            .cells()
+            .iter()
+            .enumerate()
+            .map(|(index, cell)| {
+                let index = u32::try_from(index).unwrap_or(u32::MAX);
+                self.map_origin(
+                    cell.origin(),
+                    module,
+                    Some(sentence_index),
+                    NativeNodeRole::ContextAliasCell(index),
+                );
+                if let CellContentFrame::KSequenceTail { origin, .. }
+                | CellContentFrame::MapRemainder { origin, .. } = cell.frame()
+                {
+                    self.map_origin(
+                        origin,
+                        module,
+                        Some(sentence_index),
+                        NativeNodeRole::ContextAliasFrame(index),
+                    );
+                }
+                let cell_content = self.term(
+                    cell.pattern(),
+                    module,
+                    sentence_index,
+                    vec![index],
+                    context,
+                    None,
+                )?;
+                self.framed_cell(cell.cell(), cell_content, cell.frame(), cell.origin())
+            })
+            .collect::<Result<Vec<_>, AdapterError>>()?;
+        Ok(native_cells(cells))
+    }
+
+    fn framed_cell(
+        &self,
+        cell: &SymbolId,
+        content: NativeTerm,
+        frame: &CellContentFrame,
+        origin: &NodeOrigin,
+    ) -> Result<NativeTerm, AdapterError> {
+        let name = self.cell_name(cell, origin)?;
+        let (content, open_right) = match frame {
+            CellContentFrame::Exact => (content, false),
+            CellContentFrame::KSequenceTail { binding, .. } => {
+                binding.as_ref().map_or((content.clone(), true), |binding| {
+                    (
+                        NativeTerm::sequence([content, native_variable(binding, None, false)]),
+                        false,
+                    )
+                })
+            }
+            CellContentFrame::MapRemainder { binding, .. } => {
+                binding.as_ref().map_or((content.clone(), true), |binding| {
+                    (
+                        NativeTerm::apply(
+                            "_Map_",
+                            vec![
+                                content,
+                                native_variable(binding, Some(NativeSort::new("Map")), false),
+                            ],
+                        ),
+                        false,
+                    )
+                })
+            }
+        };
+        Ok(incomplete_cell(name, content, open_right))
+    }
+
+    #[allow(clippy::too_many_lines)]
     fn term(
         &mut self,
         term: &DefinitionTerm,
@@ -884,6 +1716,7 @@ impl Adapter {
         sentence_index: usize,
         path: Vec<u32>,
         context: TermContext,
+        rule: Option<&RuleSentence>,
     ) -> Result<NativeTerm, AdapterError> {
         self.map_origin(
             term.origin(),
@@ -893,53 +1726,57 @@ impl Adapter {
         );
         match term.kind() {
             DefinitionTermKind::Variable { variable } => {
-                let DefinitionSortRef::Declared(sort) = term.sort() else {
-                    return Err(CapabilityError::UnsupportedTermKind {
-                        key: term.origin().key().clone(),
-                        kind: "variable",
-                        reason: "variables of builtin KSequence sort are outside M2",
-                    }
-                    .into());
-                };
-                Ok(NativeTerm::Variable {
-                    name: variable.as_str().to_owned(),
-                    sort: Some(NativeSort::new(self.symbol_name(sort, term.origin())?)),
-                })
+                if context == TermContext::ContextAlias
+                    && self.context_here.as_ref() == Some(variable)
+                {
+                    return Ok(NativeTerm::variable("HERE"));
+                }
+                if context == TermContext::ConfigurationInitializer
+                    && let Some(name) = self.initializer_variables.get(variable)
+                {
+                    return Ok(NativeTerm::Token {
+                        token: format!("${name}"),
+                        sort: NativeSort::new("KConfigVar"),
+                    });
+                }
+                let existential = rule.and_then(RuleSentence::claim).is_some_and(|claim| {
+                    claim
+                        .existentials()
+                        .iter()
+                        .any(|binder| binder.id() == variable)
+                });
+                Ok(native_variable(
+                    variable,
+                    Some(self.sort(term.sort(), term.origin())?),
+                    existential,
+                ))
             }
-            DefinitionTermKind::Application { symbol, arguments } => Ok(NativeTerm::Apply {
-                label: NativeLabel::new(self.symbol_name(symbol, term.origin())?),
+            DefinitionTermKind::Application {
+                application,
+                arguments,
+            } => Ok(NativeTerm::Apply {
+                label: NativeLabel::new(match application {
+                    ApplicationRef::Declared(symbol) => {
+                        self.symbol_name(symbol, term.origin())?.to_owned()
+                    }
+                    ApplicationRef::Builtin(operation) => builtin_label(*operation).to_owned(),
+                }),
                 arguments: arguments
                     .iter()
                     .enumerate()
                     .map(|(index, argument)| {
                         let mut child_path = path.clone();
                         child_path.push(u32::try_from(index).unwrap_or(u32::MAX));
-                        self.term(
-                            argument,
-                            module,
-                            sentence_index,
-                            child_path,
-                            TermContext::Normal,
-                        )
+                        self.term(argument, module, sentence_index, child_path, context, rule)
                     })
                     .collect::<Result<Vec<_>, _>>()?,
             }),
-            DefinitionTermKind::Token { value } => {
-                let DefinitionSortRef::Declared(sort) = term.sort() else {
-                    return Err(CapabilityError::UnsupportedTermKind {
-                        key: term.origin().key().clone(),
-                        kind: "token",
-                        reason: "tokens of builtin KSequence sort are outside M2",
-                    }
-                    .into());
-                };
-                Ok(NativeTerm::Token {
-                    token: value.clone(),
-                    sort: NativeSort::new(self.symbol_name(sort, term.origin())?),
-                })
-            }
+            DefinitionTermKind::Token { value } => Ok(NativeTerm::Token {
+                token: value.clone(),
+                sort: self.sort(term.sort(), term.origin())?,
+            }),
             DefinitionTermKind::KSequence { item_sort, items } => {
-                self.symbol_name(item_sort, term.origin())?;
+                self.sort(item_sort, term.origin())?;
                 Ok(NativeTerm::sequence(
                     items
                         .iter()
@@ -947,26 +1784,27 @@ impl Adapter {
                         .map(|(index, item)| {
                             let mut child_path = path.clone();
                             child_path.push(u32::try_from(index).unwrap_or(u32::MAX));
-                            self.term(
-                                item,
-                                module,
-                                sentence_index,
-                                child_path,
-                                TermContext::Normal,
-                            )
+                            self.term(item, module, sentence_index, child_path, context, rule)
                         })
                         .collect::<Result<Vec<_>, _>>()?,
                 ))
             }
+            DefinitionTermKind::Map {
+                operation,
+                arguments,
+            } => {
+                let arguments = arguments
+                    .iter()
+                    .enumerate()
+                    .map(|(index, argument)| {
+                        let mut child_path = path.clone();
+                        child_path.push(u32::try_from(index).unwrap_or(u32::MAX));
+                        self.term(argument, module, sentence_index, child_path, context, rule)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Self::map_term(*operation, arguments, term.origin())
+            }
             DefinitionTermKind::Rewrite { from, to } => {
-                if context != TermContext::RuleRoot {
-                    return Err(CapabilityError::UnsupportedTermKind {
-                        key: term.origin().key().clone(),
-                        kind: "rewrite",
-                        reason: "M2 supports a rewrite only as the root of a transition rule",
-                    }
-                    .into());
-                }
                 let mut left_path = path.clone();
                 left_path.push(0);
                 let mut right_path = path;
@@ -977,18 +1815,110 @@ impl Adapter {
                         module,
                         sentence_index,
                         left_path,
-                        TermContext::Normal,
+                        context,
+                        rule,
                     )?),
                     right: Box::new(self.term(
                         to,
                         module,
                         sentence_index,
                         right_path,
-                        TermContext::Normal,
+                        context,
+                        rule,
                     )?),
                 })
             }
         }
+    }
+
+    fn map_term(
+        operation: MapOperation,
+        arguments: Vec<NativeTerm>,
+        origin: &NodeOrigin,
+    ) -> Result<NativeTerm, AdapterError> {
+        match operation {
+            MapOperation::Empty if arguments.is_empty() => Ok(NativeTerm::apply(".Map", vec![])),
+            MapOperation::Item if !arguments.is_empty() && arguments.len().is_multiple_of(2) => {
+                let mut arguments = arguments.into_iter();
+                let mut items = std::iter::from_fn(|| {
+                    let key = arguments.next()?;
+                    let value = arguments.next().expect("validated even map item arity");
+                    Some(NativeTerm::apply("_|->_", vec![key, value]))
+                });
+                let first = items.next().expect("nonempty even argument list");
+                Ok(items.fold(first, |left, right| {
+                    NativeTerm::apply("_Map_", vec![left, right])
+                }))
+            }
+            MapOperation::Update if arguments.len() == 3 => {
+                Ok(NativeTerm::apply("Map:update", arguments))
+            }
+            _ => Err(AdapterError::MissingReference {
+                key: origin.key().clone(),
+                kind: "Map operation arity",
+                target: format!("{operation:?}/{}", arguments.len()),
+            }),
+        }
+    }
+
+    fn sort(
+        &self,
+        sort: &DefinitionSortRef,
+        origin: &NodeOrigin,
+    ) -> Result<NativeSort, AdapterError> {
+        Ok(NativeSort::new(match sort {
+            DefinitionSortRef::Declared(symbol) => self.symbol_name(symbol, origin)?,
+            DefinitionSortRef::Builtin(BuiltinSort::KSequence) => "K",
+            DefinitionSortRef::Builtin(BuiltinSort::Int) => "Int",
+            DefinitionSortRef::Builtin(BuiltinSort::Bool) => "Bool",
+            DefinitionSortRef::Builtin(BuiltinSort::Map) => "Map",
+            DefinitionSortRef::Builtin(BuiltinSort::Id) => "Id",
+        }))
+    }
+
+    fn group_name(
+        &self,
+        group: &ProductionGroupId,
+        origin: &NodeOrigin,
+    ) -> Result<String, AdapterError> {
+        self.groups
+            .get(group)
+            .cloned()
+            .ok_or_else(|| AdapterError::MissingReference {
+                key: origin.key().clone(),
+                kind: "production group",
+                target: group.as_str().to_owned(),
+            })
+    }
+
+    fn context_alias_name(
+        &self,
+        alias: &StableItemId,
+        origin: &NodeOrigin,
+    ) -> Result<String, AdapterError> {
+        self.context_aliases
+            .get(alias)
+            .cloned()
+            .ok_or_else(|| AdapterError::MissingReference {
+                key: origin.key().clone(),
+                kind: "context alias",
+                target: format!("{alias:?}"),
+            })
+    }
+
+    fn cell_name<'a>(
+        &'a self,
+        cell: &SymbolId,
+        origin: &NodeOrigin,
+    ) -> Result<&'a str, AdapterError> {
+        self.cells
+            .get(cell)
+            .map(String::as_str)
+            .ok_or_else(|| AdapterError::MissingReference {
+                key: origin.key().clone(),
+                kind: "configuration cell",
+                target: cell.as_str().to_owned(),
+            })
     }
 
     fn symbol_name<'a>(
@@ -1022,12 +1952,356 @@ impl Adapter {
     }
 }
 
+fn collect_fixed_cells(
+    cells: &[FixedCell<DefinitionSortRef, SymbolId>],
+    output: &mut BTreeMap<SymbolId, String>,
+) {
+    for cell in cells {
+        output.insert(cell.id().clone(), cell.name().to_owned());
+        if let FixedCellContent::Children { children } = cell.content() {
+            collect_fixed_cells(children, output);
+        }
+    }
+}
+
+fn module_builtin_imports(module: &krs_ir::DefinitionModule) -> BTreeSet<String> {
+    let mut sorts = BTreeSet::new();
+    for sentence in module.sentences() {
+        match sentence {
+            DefinitionSentence::SyntaxSort(_)
+            | DefinitionSentence::Precedence(_)
+            | DefinitionSentence::Associativity(_) => {}
+            DefinitionSentence::Subsort(sentence) => {
+                collect_builtin_sort(sentence.subsort(), &mut sorts);
+                collect_builtin_sort(sentence.supersort(), &mut sorts);
+            }
+            DefinitionSentence::Production(sentence) => {
+                collect_builtin_sort(sentence.result_sort(), &mut sorts);
+                for item in sentence.items() {
+                    if let GrammarProductionItemKind::NonTerminal { sort, .. } = item.kind() {
+                        collect_builtin_sort(sort, &mut sorts);
+                    }
+                }
+                for attribute in sentence.attributes() {
+                    if let DefinitionProductionAttribute::Strictness { result_sort, .. } = attribute
+                    {
+                        collect_builtin_sort(result_sort.sort(), &mut sorts);
+                    }
+                }
+            }
+            DefinitionSentence::Configuration(sentence) => {
+                if let Some(cell) = sentence.cell() {
+                    collect_builtin_sort(cell.content_sort(), &mut sorts);
+                }
+                if let Some(initializer) = sentence.initializer() {
+                    for variable in initializer.variables() {
+                        collect_builtin_sort(variable.sort(), &mut sorts);
+                    }
+                    collect_term_builtins(initializer.body(), &mut sorts);
+                }
+                if let Some(configuration) = sentence.as_fixed() {
+                    collect_fixed_configuration_builtins(configuration, &mut sorts);
+                }
+            }
+            DefinitionSentence::ContextAlias(sentence) => {
+                for variable in sentence.variables() {
+                    collect_builtin_sort(variable.sort(), &mut sorts);
+                }
+                for cell in sentence.body().cells() {
+                    collect_term_builtins(cell.pattern(), &mut sorts);
+                }
+            }
+            DefinitionSentence::Rule(sentence) => {
+                for variable in sentence.variables() {
+                    collect_builtin_sort(variable.sort(), &mut sorts);
+                }
+                match sentence.relational_body() {
+                    DefinitionRuleBody::Term(term) => collect_term_builtins(term, &mut sorts),
+                    DefinitionRuleBody::Configuration(rewrite) => {
+                        for clause in rewrite.clauses() {
+                            collect_term_builtins(clause.before(), &mut sorts);
+                            if let CellPost::Replace { term } = clause.after() {
+                                collect_term_builtins(term, &mut sorts);
+                            }
+                        }
+                    }
+                }
+                if let Some(condition) = sentence.requires() {
+                    collect_term_builtins(condition.term(), &mut sorts);
+                }
+                if let Some(condition) = sentence.claim().and_then(|claim| claim.ensures()) {
+                    collect_term_builtins(condition.term(), &mut sorts);
+                }
+            }
+        }
+    }
+    sorts
+        .into_iter()
+        .filter_map(|sort| match sort {
+            BuiltinSort::KSequence => None,
+            BuiltinSort::Int => Some("INT".to_owned()),
+            BuiltinSort::Bool => Some("BOOL".to_owned()),
+            BuiltinSort::Map => Some("MAP".to_owned()),
+            BuiltinSort::Id => Some("ID-SYNTAX".to_owned()),
+        })
+        .collect()
+}
+
+fn collect_builtin_sort(sort: &DefinitionSortRef, output: &mut BTreeSet<BuiltinSort>) {
+    if let DefinitionSortRef::Builtin(sort) = sort {
+        output.insert(*sort);
+    }
+}
+
+fn collect_term_builtins(term: &DefinitionTerm, output: &mut BTreeSet<BuiltinSort>) {
+    collect_builtin_sort(term.sort(), output);
+    match term.kind() {
+        DefinitionTermKind::Variable { .. } | DefinitionTermKind::Token { .. } => {}
+        DefinitionTermKind::Application {
+            application,
+            arguments,
+        } => {
+            if let ApplicationRef::Builtin(operation) = application {
+                output.insert(operation.result_sort());
+                output.extend(operation.argument_sorts().iter().copied());
+            }
+            for argument in arguments {
+                collect_term_builtins(argument, output);
+            }
+        }
+        DefinitionTermKind::KSequence { item_sort, items } => {
+            collect_builtin_sort(item_sort, output);
+            for item in items {
+                collect_term_builtins(item, output);
+            }
+        }
+        DefinitionTermKind::Map { arguments, .. } => {
+            output.insert(BuiltinSort::Map);
+            for argument in arguments {
+                collect_term_builtins(argument, output);
+            }
+        }
+        DefinitionTermKind::Rewrite { from, to } => {
+            collect_term_builtins(from, output);
+            collect_term_builtins(to, output);
+        }
+    }
+}
+
+fn collect_fixed_configuration_builtins(
+    configuration: &FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>,
+    output: &mut BTreeSet<BuiltinSort>,
+) {
+    fn visit_cells(
+        values: &[FixedCell<DefinitionSortRef, SymbolId>],
+        output: &mut BTreeSet<BuiltinSort>,
+    ) {
+        for cell in values {
+            match cell.content() {
+                FixedCellContent::Term { sort } => collect_builtin_sort(sort, output),
+                FixedCellContent::Children { children } => visit_cells(children, output),
+            }
+        }
+    }
+    fn initializer(
+        cells: &[FixedInitializerCell<SymbolId, DefinitionTerm>],
+        output: &mut BTreeSet<BuiltinSort>,
+    ) {
+        for cell in cells {
+            match cell.content() {
+                FixedInitializerContent::Term { term } => collect_term_builtins(term, output),
+                FixedInitializerContent::Children { children } => initializer(children, output),
+            }
+        }
+    }
+    visit_cells(configuration.cells(), output);
+    for variable in configuration.variables() {
+        collect_builtin_sort(variable.sort(), output);
+    }
+    initializer(configuration.initializer(), output);
+}
+
+fn native_format(fragments: &[FormatFragment]) -> String {
+    use std::fmt::Write as _;
+
+    let mut output = String::new();
+    for fragment in fragments {
+        match fragment {
+            FormatFragment::Literal(text) => output.push_str(&text.replace('%', "%%")),
+            FormatFragment::Item(index) => {
+                write!(output, "%{index}").expect("writing to String cannot fail");
+            }
+            FormatFragment::Newline => output.push_str("%n"),
+            FormatFragment::Indent => output.push_str("%i"),
+            FormatFragment::Dedent => output.push_str("%d"),
+        }
+    }
+    output
+}
+
+fn native_config_cell(name: &str, properties: NativeTerm, contents: NativeTerm) -> NativeTerm {
+    let name_token = || NativeTerm::Token {
+        token: name.to_owned(),
+        sort: NativeSort::new("#CellName"),
+    };
+    NativeTerm::apply(
+        "#configCell",
+        vec![name_token(), properties, contents, name_token()],
+    )
+}
+
+fn native_cells(mut cells: Vec<NativeTerm>) -> NativeTerm {
+    match cells.len() {
+        0 => NativeTerm::apply("#cells", Vec::new()),
+        1 => cells.pop().expect("length is one"),
+        _ => NativeTerm::apply("#cells", cells),
+    }
+}
+
+fn native_cell_properties(attributes: &[CellAttribute], main: bool) -> NativeTerm {
+    let mut properties = attributes
+        .iter()
+        .map(|attribute| match attribute {
+            CellAttribute::Color { value, .. } => ("color", value.as_str()),
+        })
+        .collect::<Vec<_>>();
+    if main {
+        properties.push(("maincell", ""));
+    }
+    properties.into_iter().rev().fold(
+        NativeTerm::apply("#cellPropertyListTerminator", Vec::new()),
+        |tail, (key, value)| {
+            NativeTerm::apply(
+                "#cellPropertyList",
+                vec![
+                    NativeTerm::apply(
+                        "#cellProperty",
+                        vec![
+                            NativeTerm::Token {
+                                token: key.to_owned(),
+                                sort: NativeSort::new("#CellName"),
+                            },
+                            NativeTerm::Token {
+                                token: serde_json::to_string(value)
+                                    .expect("serializing a string cannot fail"),
+                                sort: NativeSort::new("KString"),
+                            },
+                        ],
+                    ),
+                    tail,
+                ],
+            )
+        },
+    )
+}
+
+fn initializer_contains_variable(
+    initializer: &FixedInitializerCell<SymbolId, DefinitionTerm>,
+    variable: &SemanticId,
+) -> bool {
+    match initializer.content() {
+        FixedInitializerContent::Term { term } => term_contains_variable(term, variable),
+        FixedInitializerContent::Children { children } => children
+            .iter()
+            .any(|child| initializer_contains_variable(child, variable)),
+    }
+}
+
+fn term_contains_variable(term: &DefinitionTerm, variable: &SemanticId) -> bool {
+    match term.kind() {
+        DefinitionTermKind::Variable {
+            variable: candidate,
+        } => candidate == variable,
+        DefinitionTermKind::Application { arguments, .. }
+        | DefinitionTermKind::KSequence {
+            items: arguments, ..
+        }
+        | DefinitionTermKind::Map { arguments, .. } => arguments
+            .iter()
+            .any(|argument| term_contains_variable(argument, variable)),
+        DefinitionTermKind::Rewrite { from, to } => {
+            term_contains_variable(from, variable) || term_contains_variable(to, variable)
+        }
+        DefinitionTermKind::Token { .. } => false,
+    }
+}
+
+fn incomplete_cell(name: &str, content: NativeTerm, open_right: bool) -> NativeTerm {
+    NativeTerm::apply(
+        format!("<{name}>"),
+        vec![
+            NativeTerm::apply("#noDots", Vec::new()),
+            content,
+            NativeTerm::apply(if open_right { "#dots" } else { "#noDots" }, Vec::new()),
+        ],
+    )
+}
+
+fn native_variable(
+    variable: &SemanticId,
+    sort: Option<NativeSort>,
+    existential: bool,
+) -> NativeTerm {
+    let name = if existential {
+        format!("?{}", variable.as_str().to_ascii_uppercase())
+    } else if let Some(name) = anonymous_name(variable) {
+        name.to_owned()
+    } else {
+        variable_name(variable)
+    };
+    NativeTerm::Variable { name, sort }
+}
+
+fn variable_name(variable: &SemanticId) -> String {
+    use std::fmt::Write as _;
+
+    let mut output = String::from("V");
+    for byte in variable.as_str().as_bytes() {
+        write!(output, "{byte:02X}").expect("writing to String cannot fail");
+    }
+    output
+}
+
+fn anonymous_name(variable: &SemanticId) -> Option<&str> {
+    let (name, ordinal) = variable.as_str().rsplit_once("__krs_")?;
+    (name.starts_with('_')
+        && name.len() > 1
+        && !ordinal.is_empty()
+        && ordinal.bytes().all(|byte| byte.is_ascii_digit()))
+    .then_some(name)
+}
+
+const fn builtin_label(operation: BuiltinOperation) -> &'static str {
+    match operation {
+        BuiltinOperation::IntAdd => "_+Int_",
+        BuiltinOperation::IntSub => "_-Int_",
+        BuiltinOperation::IntMul => "_*Int_",
+        BuiltinOperation::IntTDiv => "_/Int_",
+        BuiltinOperation::IntGreaterEqual => "_>=Int_",
+        BuiltinOperation::IntGreater => "_>Int_",
+        BuiltinOperation::IntLessEqual => "_<=Int_",
+        BuiltinOperation::IntLess => "_<Int_",
+        BuiltinOperation::IntEqual => "_==Int_",
+        BuiltinOperation::IntNotEqual => "_=/=Int_",
+        BuiltinOperation::BoolNot => "notBool_",
+        BuiltinOperation::BoolEqual => "_==Bool_",
+        BuiltinOperation::BoolNotEqual => "_=/=Bool_",
+        BuiltinOperation::BoolAnd => "_andBool_",
+        BuiltinOperation::BoolOr => "_orBool_",
+    }
+}
+
 fn attributes_for_origin(origin: &NodeOrigin) -> NativeAttributes {
     let mut attributes = NativeAttributes::default();
-    if let Some(source) = origin.origin().frames().iter().find_map(|frame| match frame {
-        OriginFrame::Ranged { range, .. } => Some(range.file.package_relative_path()),
-        OriginFrame::Transformation { .. } => None,
-    }) {
+    if let Some(source) = origin
+        .origin()
+        .frames()
+        .iter()
+        .find_map(|frame| match frame {
+            OriginFrame::Ranged { range, .. } => Some(range.file.package_relative_path()),
+            OriginFrame::Transformation { .. } => None,
+        })
+    {
         attributes.insert(native_definition::SOURCE_ATTRIBUTE, json!(source));
     }
     attributes
@@ -1041,7 +2315,7 @@ fn truth() -> NativeTerm {
 }
 
 fn prepare_provisional_oracle(
-    adapted: AdaptedDefinition,
+    adapted: &AdaptedDefinition,
 ) -> Result<LoadedDefinition, ProvisionalCompileError> {
     let definition = expand_configurations(&adapted.definition)
         .map_err(|error| ProvisionalCompileError::Configuration(error.to_string()))?;

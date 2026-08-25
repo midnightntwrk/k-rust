@@ -4,17 +4,18 @@ use std::path::PathBuf;
 
 use k::Term;
 use k_rust::{
-    builtin,
     definition::Sentence,
-    kompile::{CompilationBackend, resolve_contexts, resolve_strict},
-    outer::{LoadOptions, prepare_definition},
+    kompile::{resolve_contexts, resolve_strict},
 };
 use krs_compiler::{
     PackageContext, collect_host_descriptors_with_builtins, emit_k, lower_descriptor_bundle,
     lower_semantic_theory,
 };
 use krs_ir::{DefinitionSentence, OriginFrame, ProductionAttribute};
-use krs_k_rust::{CompileOptions, NativeNodeRole, adapt_definition, compile_definition};
+use krs_k_rust::{
+    Backend, CompileOptions, NativeNodeRole, adapt_definition, compile_definition,
+    prepare_definition,
+};
 
 #[path = "m3c.rs"]
 mod inherited;
@@ -121,8 +122,9 @@ fn main() {
         .lines()
         .find(|line| line.contains("symbol(m3dTwice)"))
         .expect("emitted source contains m3dTwice");
-    assert!(twice_line.contains("seqstrict(m3dEval; 1)"), "{twice_line}");
-    assert!(!twice_line.contains("result("), "{twice_line}");
+    assert!(twice_line.contains("seqstrict"), "{twice_line}");
+    assert!(twice_line.contains("context(m3d_eval)"), "{twice_line}");
+    assert!(twice_line.contains("result(KResult)"), "{twice_line}");
 
     let adapted = adapt_definition(lowered.definition()).expect("context slice adapts natively");
     let main = adapted
@@ -157,29 +159,18 @@ fn main() {
         .find(|sentence| matches!(sentence, Sentence::Production { label: Some(label), .. }
             if label.name == "m3dTwice"))
         .expect("native m3dTwice production exists");
-    assert_eq!(native_twice.attributes().get_str("seqstrict"), Some("m3dEval; 1"));
+    assert_eq!(
+        native_twice.attributes().get_str("seqstrict"),
+        Some("m3d_eval")
+    );
 
     assert_origin_roles(&adapted);
 
-    let prelude = builtin::embedded("prelude.md").expect("compatibility prelude is embedded");
-    let mut resolver = |_: &str, required: &str| {
-        builtin::embedded(required).ok_or_else(|| format!("missing source {required}"))
-    };
-    let prepared = prepare_definition(
-        adapted.definition().clone(),
-        &mut resolver,
-        &LoadOptions {
-            implicit_sources: vec![prelude],
-            excluded_module_attributes: vec![
-                CompilationBackend::Llvm.excluded_module_attribute().into(),
-            ],
-            ..LoadOptions::default()
-        },
-    )
-    .expect("public native preparation accepts the context slice");
+    let prepared = prepare_definition(adapted.definition().clone(), Backend::Llvm)
+        .expect("KRS compatibility preparation accepts the context slice");
     let strict = resolve_strict(&prepared.definition)
         .expect("public strictness expansion accepts the named context alias");
-    let prefix = "KRS-M3D-STATIC-SYNTAX.m3dTwice1-";
+    let prefix = "KRS-M3D-STATIC-SYNTAX.m3dTwice1";
     let selected_contexts = strict
         .modules
         .iter()
