@@ -100,7 +100,10 @@ remote and deliberately contains no reconstructed original objects:
 - `cb033b8` — schema-9 IR tests and canonical goldens;
 - `28b2f9d` — executable recovery audit and continuation plan;
 - `82ec76f` — schema-9 compiler lowering, emission, and focused adjunct
-  coverage.
+  coverage;
+- `302c765` — audit advancement to the native adapter seam;
+- `43db2b4` — schema-9 `k-rust` adapter, KRS-owned preparation compatibility
+  layer, focused adapter tests, and retained M3D fixture reconciliation.
 
 Every new commit and the import tag verify against the configured ED25519 Git
 signing key. Valid signed original commit objects survive in the evidence
@@ -246,14 +249,51 @@ component; its locked check and full compiler test suite pass. Do not install
 or silently substitute a toolchain component merely to erase this recorded
 environmental distinction.
 
-The remaining active seam is now `krs-k-rust`. A standalone M3D claim-fixture
-build reaches it and reports 20 compile errors from the older Definition IR
-shape: optional legacy/fixed configuration accessors, typed sort references,
-classified production items, application references, structured rule bodies,
-and claim/context sentence support. `krs` and `krs-cli` remain red only after
-or through that adapter boundary. Repair the adapter forward next. A
-stable-ledger mismatch is a classification signal, not authority to replace a
-later file wholesale.
+Commit `43db2b4` reconstructs `krs-k-rust` against schema 9. The adapter now
+preserves builtin and declared sorts/applications, map operations, full grammar
+items and classified attributes, group precedence and associativity, legacy
+and fixed/nested configurations, configuration variables and cell properties,
+context aliases and strictness metadata, structured configuration rules, and
+native claim sentences with binders, conditions, modalities, circularity, and
+origin roles. Claims remain `k-rust` `Sentence::Claim` values rather than being
+downgraded to rules.
+
+The exact pinned `k-rust` revision predates the later upstream
+`outer::prepare_definition` convenience API assumed by the displaced fixture.
+KRS therefore owns one explicit compatibility layer: it asks the pinned public
+loader to establish an embedded-prelude/bootstrap `LoadedDefinition`, applies
+the selected backend filter, removes the empty bootstrap module, injects the
+already-structured KRS modules, expands configurations, and resolves the graph.
+It never parses emitted candidate `.k`. This is a pin reconciliation, not a
+change to the sibling checkout and not evidence that the later API existed at
+the frozen revision.
+
+Adapter qualification is now demonstrated by:
+
+- `cargo check -p krs-k-rust --lib --locked`;
+- 12 adapter tests plus doc tests on the active Rust toolchain;
+- the same 12 tests plus doc tests on Rust 1.88;
+- current-toolchain `cargo clippy -p krs-k-rust --all-targets --locked -- -D warnings`;
+- the retained M3D claim slice through native Haskell compilation, including
+  maps/builtins, three claims, existential and anonymous variables, authored
+  `ensures`, circularity, and implicit all-path behavior;
+- the retained M3D context slice through preparation, `resolve_strict`, one
+  generated context, `resolve_contexts`, one heat rule, one cool rule, and
+  permanent compilation.
+
+The retained fixtures used the obsolete recovered `map![key => value]`
+spelling while the exact macro baseline accepts `map![key -> value]`; only
+those map arrows and expectations tied to the recovered current emitter/native
+pin were reconciled. These are explicit functional-reconstruction edits, not
+portrayed as recovered original bytes.
+
+The adapter is no longer the workspace blocker. A locked all-target workspace
+check now compiles through `krs` and reaches `krs-cli`; its sole observed error
+is a stale `LoweringError::NameCollision { second_origin, .. }` match after the
+recovered compiler error shape retained only `first` and `second` owner names.
+Reconcile that diagnostic provenance deliberately, then resume macro fixture
+qualification. A stable-ledger mismatch remains a classification signal, not
+authority to replace a later file wholesale.
 
 ### M4 ledgers
 
@@ -286,7 +326,11 @@ Observed on 2026-08-25:
 | K executables | Cached exact K 7.1.337, kore-exec 0.1.155, and LLVM backend 0.1.140 binaries verified directly; `kup shell` remains the preferred entry when network/cache configuration permits. |
 
 The required Cargo registry dependencies are now present. Locked commands use
-the frozen root lock without regeneration.
+the frozen root lock without regeneration. The adapter enables
+`z3-inference`, so local link and execution gates need the Nix Z3 library path
+in `LIBRARY_PATH` and `LD_LIBRARY_PATH`; this is an environment requirement,
+not an unavailable frontend capability or a reason to change dependency
+topology.
 
 ## K ecosystem reference map
 
@@ -346,7 +390,7 @@ components, ambient Z3, and full locked metadata resolution are verified.
 system-Z3 override is an explicit machine prerequisite, not an undocumented
 lock refresh.
 
-### Phase 2 — restore the macro implementation — baseline complete
+### Phase 2 — restore the macro implementation — baseline complete, fixture qualification next
 
 1. The exact `fbccdc7` expander is committed and its isolated unit, MSRV, and
    Clippy gates pass.
@@ -359,17 +403,18 @@ Exit criterion: the macro crate and fixtures are green. Reaching the final
 stable expander hash is preferred exact recovery; a different hash requires a
 documented functional-reconstruction commit.
 
-### Phase 3 — reconcile the recovered late IR line — compiler complete, adapter in progress
+### Phase 3 — reconcile the recovered late IR line — compiler and adapter complete
 
 1. `krs-ir` unit and integration targets now compile and pass on both
    toolchains; obsolete tests and goldens are reconciled.
 2. `krs-compiler/src/emit.rs` and `lowering.rs` are aligned with the retained
    Definition/Semantic IR; the active, MSRV, Clippy, and pinned-K compiler
    gates pass.
-3. Align `krs-k-rust` with that Definition IR and the pinned native
-   frontend.
-4. Qualify `krs`, then `krs-cli`, without starting collector-trivia feature
-   work.
+3. `krs-k-rust` is aligned with that Definition IR and the pinned native
+   frontend through the documented KRS compatibility preparation layer.
+4. `krs` now passes the locked all-target workspace check. Reconcile the one
+   stale `krs-cli` name-collision diagnostic match, then qualify its tests
+   without starting collector-trivia feature work.
 
 Exit criterion: `cargo check --workspace --all-targets --locked` and the full
 workspace test suite pass. No recovery-only compatibility shim remains
@@ -441,15 +486,20 @@ implementation authority.
 
 ## Immediate next action
 
-Reconcile `crates/krs-k-rust/src/lib.rs` with schema 9 without weakening the
-retained IR. Start with a typed adapter context for `DefinitionSortRef`,
-classified `GrammarProductionItemKind`, and `ApplicationRef`; then split
-legacy and fixed configuration adaptation and consume `relational_body()` for
-term versus configuration rules. Add native `Sentence::ContextAlias` and
-`Sentence::Claim` only after their structured compiler fixtures adapt without
-capability fallbacks. Run the M3D context and claim slices through native
-preparation before returning to macro fixtures or workspace-wide
-qualification.
+Proceed in this order:
+
+1. Reconcile `krs-cli`'s stale name-collision diagnostic match with the
+   recovered compiler error model. Preserve an honest authored range when one
+   can be resolved; do not manufacture `second_origin` metadata that schema 9
+   no longer carries.
+2. Re-run the locked all-target workspace check and focused CLI tests.
+3. Return to the macro positive/negative fixtures now that native compilation
+   is available. Classify failures against the seven recorded post-`fbccdc7`
+   expander transitions and implement their required behavior without chasing
+   an unattainable byte hash.
+4. Run the complete Phase 4 workspace, syntax/F7, pinned-K C7, and M4 gates.
+   Only a clean, behaviorally matched result becomes the signed reconstructed
+   post-F7 baseline.
 
 ## Audit hygiene
 
