@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "p3-coupled",
+  "definition": "../../p3/fixtures/coupled.k",
+  "workingDirectory": "../..",
+  "kompile": "kompile",
+  "expectedK": {
+    "release": "v7.1.337",
+    "commit": "4a46d1231473b599c699160132fd6e76a5c46406",
+    "requireCommitInExecutablePath": true
+  },
+  "backend": "haskell",
+  "mainModule": "P3-COUPLED",
+  "syntaxModule": "P3-COUPLED-SYNTAX",
+  "normalization": "../normalization.json",
+  "runs": [
+    {
+      "id": "contexts-prefix",
+      "steps": [
+        "resolveComm", "resolveIO", "resolveFun", "resolveFunctionWithConfig",
+        "resolveStrict", "resolveAnonVars", "resolveContexts"
+      ],
+      "expectedExitCodes": [1],
+      "expectedStderrSubstrings": ["Uncaught exception", "GeneratedTopCell"],
+      "artifacts": [
+        { "id": "config-expanded-parsed-json", "path": "parsed.json", "profile": "k-json-v1" },
+        { "id": "contexts-compiled-json", "path": "compiled.json", "profile": "k-json-v1" }
+      ]
+    },
+    {
+      "id": "cells-prefix",
+      "steps": [
+        "resolveComm", "resolveIO", "resolveFun", "resolveFunctionWithConfig",
+        "resolveStrict", "resolveAnonVars", "resolveContexts", "numberSentences1",
+        "resolveHeatCoolAttribute", "resolveSemanticCasts", "subsortKItem1",
+        "constantFolding", "propagateMacroToRules", "guardOrs",
+        "resolveFreshConfigConstants", "generateSortPredicateSyntax1",
+        "generateSortProjections1", "expandMacros", "addImplicitComputationCell",
+        "resolveFreshConstants", "generateSortPredicateSyntax2",
+        "generateSortProjections2", "checkSimplificationRules", "subsortKItem2",
+        "concretizeCells"
+      ],
+      "expectedExitCodes": [1],
+      "expectedStderrSubstrings": ["Uncaught exception", "None.get"],
+      "artifacts": [
+        { "id": "config-expanded-parsed-json", "path": "parsed.json", "profile": "k-json-v1" },
+        { "id": "cells-compiled-json", "path": "compiled.json", "profile": "k-json-v1" }
+      ]
+    },
+    {
+      "id": "full",
+      "expectedExitCodes": [0],
+      "artifacts": [
+        { "id": "parsed-json", "path": "parsed.json", "profile": "k-json-v1" },
+        { "id": "compiled-json", "path": "compiled.json", "profile": "k-json-v1" },
+        { "id": "definition-kore", "path": "definition.kore", "profile": "kore-text-v1" },
+        { "id": "syntax-kore", "path": "syntaxDefinition.kore", "profile": "kore-text-v1" },
+        { "id": "macros-kore", "path": "macros.kore", "profile": "kore-text-v1" }
+      ]
+    }
+  ]
+}

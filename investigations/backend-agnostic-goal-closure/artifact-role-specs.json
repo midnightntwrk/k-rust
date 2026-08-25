@@ -1,0 +1,692 @@
+{
+  "schemaVersion": 1,
+  "specs": [
+    {
+      "role": "baseline-oracle-gate-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "oracle-semantics.schema.json#/$defs/baselineGateResult",
+      "digestDomain": "k-in-k/baseline-oracle-gate-result/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "gateResultId"
+    },
+    {
+      "role": "compatibility-profile",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "compatibility-profile.schema.json",
+      "digestDomain": "k-in-k/compatibility-profile/v1",
+      "projection": {
+        "kind": "complete"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "corpus-manifest",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "corpus-manifest.schema.json",
+      "digestDomain": "k-in-k/corpus-manifest/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "manifestId"
+    },
+    {
+      "role": "definition",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "semantic-definition.schema.json",
+      "digestDomain": "k-in-k/definition/v1",
+      "projection": {
+        "kind": "definition-summary"
+      },
+      "selfIdField": "definitionDigest"
+    },
+    {
+      "role": "event-trace",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "event-trace.schema.json",
+      "digestDomain": "k-in-k/event-trace/v1",
+      "projection": {
+        "kind": "complete"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "execution-profile",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "failure-taxonomy",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "failure-taxonomy.schema.json",
+      "digestDomain": "k-in-k/failure-taxonomy/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "taxonomyId"
+    },
+    {
+      "role": "instrumented-definition",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "semantic-definition.schema.json",
+      "digestDomain": "k-in-k/definition/v1",
+      "projection": {
+        "kind": "definition-summary"
+      },
+      "selfIdField": "definitionDigest"
+    },
+    {
+      "role": "lowering-cycle-proof",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "lowering-cycle-proof.schema.json",
+      "digestDomain": "k-in-k/lowering-cycle-proof/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "proofId"
+    },
+    {
+      "role": "lowering-profile",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "lowering-proof-check-receipt",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "lowering-proof-check-receipt.schema.json",
+      "digestDomain": "k-in-k/lowering-proof-check-receipt/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "receiptId"
+    },
+    {
+      "role": "mutant-definition",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "semantic-definition.schema.json",
+      "digestDomain": "k-in-k/definition/v1",
+      "projection": {
+        "kind": "definition-summary"
+      },
+      "selfIdField": "definitionDigest"
+    },
+    {
+      "role": "mutation-join",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "mutation-site-registry.schema.json#/properties/join",
+      "digestDomain": "k-in-k/mutation-join/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "joinDigest"
+    },
+    {
+      "role": "mutation-module",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "mutation-operator",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "mutation-operator.schema.json",
+      "digestDomain": "k-in-k/mutation-operator/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "operatorDigest"
+    },
+    {
+      "role": "mutation-selector",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "mutation-site-registry.schema.json#/properties/selector",
+      "digestDomain": "k-in-k/mutation-selector/v1",
+      "projection": {
+        "kind": "field",
+        "field": "clauses"
+      },
+      "selfIdField": "selectorDigest"
+    },
+    {
+      "role": "mutation-site-registry",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "mutation-site-registry.schema.json",
+      "digestDomain": "k-in-k/mutation-site-registry/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "registryId"
+    },
+    {
+      "role": "observation-manifest",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "observation-manifest.schema.json",
+      "digestDomain": "k-in-k/observation-manifest/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "manifestId"
+    },
+    {
+      "role": "observer",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "options",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "oracle-comparison",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "oracle-comparison-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "oracle-semantics.schema.json#/$defs/comparison",
+      "digestDomain": "k-in-k/oracle-comparison-result/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "comparisonId"
+    },
+    {
+      "role": "oracle-comparison-spec",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "oracle-conformance-suite",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "oracle-declaration",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "oracle-semantics.schema.json#/$defs/declaration",
+      "digestDomain": "k-in-k/oracle-declaration/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "declarationId"
+    },
+    {
+      "role": "oracle-evaluator-conformance",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "oracle-semantics.schema.json#/$defs/evaluatorConformance",
+      "digestDomain": "k-in-k/oracle-evaluator-conformance/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "conformanceId"
+    },
+    {
+      "role": "oracle-operand",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "oracle-semantics.schema.json#/$defs/operand",
+      "digestDomain": "k-in-k/oracle-operand/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "operandId"
+    },
+    {
+      "role": "oracle-projection",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "oracle-projection-plan",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "oracle-projection-query",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "oracle-projection-source",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "oracle-value",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "oracle-value.schema.json",
+      "digestDomain": "k-in-k/oracle-value/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "oracleValueDigest"
+    },
+    {
+      "role": "parser",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "patch",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "patch.schema.json",
+      "digestDomain": "k-in-k/patch/v1",
+      "projection": {
+        "kind": "select-fields",
+        "fields": [
+          "schemaVersion",
+          "edits"
+        ]
+      },
+      "selfIdField": "patchId"
+    },
+    {
+      "role": "patch-template",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "pattern-compiler-profile",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "pattern-plan",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "pattern-plan.schema.json",
+      "digestDomain": "k-in-k/pattern-plan/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "patternPlanDigest"
+    },
+    {
+      "role": "pattern-query",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "pattern-query.schema.json",
+      "digestDomain": "k-in-k/pattern-query/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "queryId"
+    },
+    {
+      "role": "pattern-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "pattern-result.schema.json",
+      "digestDomain": "k-in-k/pattern-result/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "resultId"
+    },
+    {
+      "role": "pattern-side-condition",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "pattern-source",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "postcondition",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "precondition",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "predicate-conformance-table",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "predicate-semantics.schema.json#/$defs/table",
+      "digestDomain": "k-in-k/predicate-conformance-table/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "tableId"
+    },
+    {
+      "role": "predicate-plan",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "predicate-semantics.schema.json#/$defs/plan",
+      "digestDomain": "k-in-k/predicate-plan/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "planId"
+    },
+    {
+      "role": "predicate-query",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "predicate-semantics.schema.json#/$defs/query",
+      "digestDomain": "k-in-k/predicate-query/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "queryId"
+    },
+    {
+      "role": "predicate-source",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "program",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "reachability-conformance-table",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "reachability-semantics.schema.json#/$defs/table",
+      "digestDomain": "k-in-k/reachability-conformance-table/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "tableId"
+    },
+    {
+      "role": "reachability-plan",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "reachability-semantics.schema.json#/$defs/plan",
+      "digestDomain": "k-in-k/reachability-plan/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "planId"
+    },
+    {
+      "role": "reachability-query",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "reachability-semantics.schema.json#/$defs/query",
+      "digestDomain": "k-in-k/reachability-query/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "queryId"
+    },
+    {
+      "role": "reachability-source",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "reachability-witness",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "reachability-semantics.schema.json#/$defs/witness",
+      "digestDomain": "k-in-k/reachability-witness/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "witnessId"
+    },
+    {
+      "role": "replay-manifest",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "replay-manifest.schema.json",
+      "digestDomain": "k-in-k/replay-manifest/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "replayId"
+    },
+    {
+      "role": "semantic-crash",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "semantic-crash.schema.json",
+      "digestDomain": "k-in-k/semantic-crash/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "crashDigest"
+    },
+    {
+      "role": "semantic-output-bytes",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "semantic-output-finite-table",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "oracle-semantics.schema.json#/$defs/outputFiniteTable",
+      "digestDomain": "k-in-k/semantic-output-finite-table/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "tableId"
+    },
+    {
+      "role": "side-condition-conformance-table",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "side-condition-conformance-table.schema.json",
+      "digestDomain": "k-in-k/side-condition-conformance-table/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "tableDigest"
+    },
+    {
+      "role": "solver-profile",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "structural-diff",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "structural-diff.schema.json",
+      "digestDomain": "k-in-k/structural-diff/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "diffId"
+    },
+    {
+      "role": "terminal-state",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "terminal-state.schema.json",
+      "digestDomain": "k-in-k/terminal-state/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "terminalStateDigest"
+    },
+    {
+      "role": "transformation",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "transformation.schema.json",
+      "digestDomain": "k-in-k/transformation/v1",
+      "projection": {
+        "kind": "complete"
+      },
+      "selfIdField": null
+    }
+  ]
+}

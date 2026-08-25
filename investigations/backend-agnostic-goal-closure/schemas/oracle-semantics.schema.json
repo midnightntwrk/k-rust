@@ -1,0 +1,466 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/oracle-semantics.schema.json",
+  "title": "Typed oracle declarations, operands, comparisons, and baseline gates v1",
+  "oneOf": [
+    {"$ref": "#/$defs/declaration"},
+    {"$ref": "#/$defs/operand"},
+    {"$ref": "#/$defs/comparison"},
+    {"$ref": "#/$defs/baselineGateResult"}
+  ],
+  "$defs": {
+    "oracleKind": {
+      "enum": [
+        "exit-stop",
+        "final-result",
+        "concrete-output",
+        "reachability",
+        "execution-pattern",
+        "structured-predicate"
+      ]
+    },
+    "baselineTerminalPolicy": {
+      "enum": [
+        "normal-only",
+        "normal-or-stuck",
+        "normal-or-crash",
+        "normal-stuck-or-crash"
+      ]
+    },
+    "crashPolicy": {
+      "enum": [
+        "semantic-crash-distinguishes",
+        "semantic-crash-incomparable"
+      ]
+    },
+    "declarationKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "digest"],
+      "properties": {
+        "role": {"const": "oracle-declaration"},
+        "digest": {"$ref": "common.schema.json#/$defs/digest"}
+      }
+    },
+    "operandKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "digest"],
+      "properties": {
+        "role": {"const": "oracle-operand"},
+        "digest": {"$ref": "common.schema.json#/$defs/digest"}
+      }
+    },
+    "crashKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "digest"],
+      "properties": {
+        "role": {"const": "semantic-crash"},
+        "digest": {"$ref": "common.schema.json#/$defs/digest"}
+      }
+    },
+    "projectionSpec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "projectionId"],
+          "properties": {
+            "mode": {"const": "portable-built-in"},
+            "projectionId": {
+              "enum": [
+                "terminal-class-and-declared-exit-v1",
+                "whole-portable-term-v1",
+                "selected-term-paths-v1",
+                "ordered-output-bytes-v1",
+                "ordered-output-utf8-lines-v1",
+                "reachability-truth-v1",
+                "pattern-outcome-v1",
+                "pattern-outcome-bindings-v1",
+                "predicate-bool-v1"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "source", "plan", "query", "conformanceRequirement"],
+          "properties": {
+            "mode": {"const": "k-authored"},
+            "source": {"$ref": "common.schema.json#/$defs/artifactKey"},
+            "plan": {"$ref": "common.schema.json#/$defs/artifactKey"},
+            "query": {"$ref": "common.schema.json#/$defs/artifactKey"},
+            "conformanceRequirement": {"const": "rust-proof-required"}
+          }
+        }
+      ]
+    },
+    "comparisonSpec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "comparatorId"],
+          "properties": {
+            "mode": {"const": "portable-built-in"},
+            "comparatorId": {
+              "enum": [
+                "exact-terminal-class-and-exit-v1",
+                "exact-portable-term-v1",
+                "exact-ordered-path-values-v1",
+                "exact-ordered-output-bytes-v1",
+                "exact-ordered-output-utf8-lines-v1",
+                "exact-reachability-truth-v1",
+                "exact-pattern-outcome-v1",
+                "exact-pattern-outcome-bindings-v1",
+                "exact-predicate-bool-v1"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "comparisonArtifact", "conformanceRequirement"],
+          "properties": {
+            "mode": {"const": "k-authored"},
+            "comparisonArtifact": {"$ref": "common.schema.json#/$defs/artifactKey"},
+            "conformanceRequirement": {"const": "rust-proof-required"}
+          }
+        }
+      ]
+    },
+    "expectedSide": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "normalizedValue"],
+          "properties": {
+            "kind": {"$ref": "#/$defs/oracleKind"},
+            "normalizedValue": {"$ref": "#/$defs/normalizedValue"}
+          }
+        },
+        {"$ref": "#/$defs/crashKey"}
+      ]
+    },
+    "baselineGate": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {"mode": {"const": "reference-only"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "expectedSide"],
+          "properties": {
+            "mode": {"const": "assert"},
+            "expectedSide": {"$ref": "#/$defs/expectedSide"}
+          }
+        }
+      ]
+    },
+    "kindConfig": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "exitCodeMode"],
+          "properties": {
+            "kind": {"const": "exit-stop"},
+            "exitCodeMode": {"enum": ["none", "declared-program-exit"]}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "stuckResultPolicy", "paths"],
+          "properties": {
+            "kind": {"const": "final-result"},
+            "stuckResultPolicy": {"enum": ["incomplete", "comparable"]},
+            "paths": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/termPath"}}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "channels"],
+          "properties": {
+            "kind": {"const": "concrete-output"},
+            "channels": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "query"],
+          "properties": {
+            "kind": {"const": "reachability"},
+            "query": {"$ref": "common.schema.json#/$defs/artifactKey"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "patternSource", "patternPlan", "patternQuery", "searchPolicy"],
+          "properties": {
+            "kind": {"const": "execution-pattern"},
+            "patternSource": {"$ref": "common.schema.json#/$defs/artifactKey"},
+            "patternPlan": {"$ref": "common.schema.json#/$defs/artifactKey"},
+            "patternQuery": {"$ref": "common.schema.json#/$defs/artifactKey"},
+            "searchPolicy": {"enum": ["exhaustive", "existential-first"]}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "query"],
+          "properties": {
+            "kind": {"const": "structured-predicate"},
+            "query": {"$ref": "common.schema.json#/$defs/artifactKey"}
+          }
+        }
+      ]
+    },
+    "declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "declarationId", "testInvocationDigest", "slotOrdinal", "slotId",
+        "oracleId", "oracleVersion", "kind", "compatibilityProfileDigest",
+        "executionProfileDigest", "solverProfileDigest", "boundsDigest",
+        "baselineTerminalPolicy", "crashPolicy", "baselineGate",
+        "projectionSpec", "comparisonSpec", "kindConfig"
+      ],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "declarationId": {"$ref": "common.schema.json#/$defs/digest"},
+        "testInvocationDigest": {"$ref": "common.schema.json#/$defs/digest"},
+        "slotOrdinal": {"type": "integer", "minimum": 0},
+        "slotId": {"type": "string", "minLength": 1},
+        "oracleId": {"type": "string", "minLength": 1},
+        "oracleVersion": {"const": 1},
+        "kind": {"$ref": "#/$defs/oracleKind"},
+        "compatibilityProfileDigest": {"$ref": "common.schema.json#/$defs/digest"},
+        "executionProfileDigest": {"$ref": "common.schema.json#/$defs/digest"},
+        "solverProfileDigest": {"$ref": "common.schema.json#/$defs/digest"},
+        "boundsDigest": {"$ref": "common.schema.json#/$defs/digest"},
+        "baselineTerminalPolicy": {"$ref": "#/$defs/baselineTerminalPolicy"},
+        "crashPolicy": {"$ref": "#/$defs/crashPolicy"},
+        "baselineGate": {"$ref": "#/$defs/baselineGate"},
+        "projectionSpec": {"$ref": "#/$defs/projectionSpec"},
+        "comparisonSpec": {"$ref": "#/$defs/comparisonSpec"},
+        "kindConfig": {"$ref": "#/$defs/kindConfig"}
+      }
+    },
+    "subject": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["side", "definitionDigest"],
+          "properties": {
+            "side": {"const": "baseline"},
+            "definitionDigest": {"$ref": "common.schema.json#/$defs/digest"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["side", "baselineDefinitionDigest", "mutantId", "mutantDefinitionDigest"],
+          "properties": {
+            "side": {"const": "mutant"},
+            "baselineDefinitionDigest": {"$ref": "common.schema.json#/$defs/digest"},
+            "mutantId": {"$ref": "common.schema.json#/$defs/digest"},
+            "mutantDefinitionDigest": {"$ref": "common.schema.json#/$defs/digest"}
+          }
+        }
+      ]
+    },
+    "completionEvidence": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "terminalState"],
+          "properties": {
+            "kind": {"enum": ["normal", "stuck"]},
+            "terminalState": {"$ref": "common.schema.json#/$defs/artifactKey"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "patternResult"],
+          "properties": {
+            "kind": {"const": "pattern-result"},
+            "patternResult": {"$ref": "common.schema.json#/$defs/artifactKey"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "evidence"],
+          "properties": {
+            "kind": {"const": "reachability-collection"},
+            "evidence": {"$ref": "common.schema.json#/$defs/artifactKey"}
+          }
+        }
+      ]
+    },
+    "normalizedValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "terminalClass", "exitCode"],
+          "properties": {
+            "kind": {"const": "exit-stop"},
+            "terminalClass": {"enum": ["normal", "stuck"]},
+            "exitCode": {"oneOf": [{"type": "integer"}, {"type": "null"}]}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "terminalState", "projection", "value"],
+          "properties": {
+            "kind": {"const": "final-result"},
+            "terminalState": {"$ref": "common.schema.json#/$defs/artifactKey"},
+            "projection": {"enum": ["whole-portable-term-v1", "selected-term-paths-v1"]},
+            "value": {}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "channels"],
+          "properties": {
+            "kind": {"const": "concrete-output"},
+            "channels": {"type": "array", "minItems": 1, "items": {"type": "object"}}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "status", "witnesses"],
+          "properties": {
+            "kind": {"const": "reachability"},
+            "status": {"enum": ["reached", "not-reached"]},
+            "witnesses": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/artifactKey"}}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "patternResult", "outcome", "bindingTuples"],
+          "properties": {
+            "kind": {"const": "execution-pattern"},
+            "patternResult": {"$ref": "common.schema.json#/$defs/artifactKey"},
+            "outcome": {"enum": ["match", "no-match"]},
+            "bindingTuples": {"type": "array", "items": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/binding"}}}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "query", "input", "bindings", "result"],
+          "properties": {
+            "kind": {"const": "structured-predicate"},
+            "query": {"$ref": "common.schema.json#/$defs/artifactKey"},
+            "input": {"$ref": "common.schema.json#/$defs/artifactKey"},
+            "bindings": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/binding"}},
+            "result": {"type": "boolean"}
+          }
+        }
+      ]
+    },
+    "operand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "operandId", "declaration", "subject", "testInvocationDigest",
+        "compatibilityProfileDigest", "executionProfileDigest", "solverProfileDigest",
+        "completionEvidence", "normalizedValue"
+      ],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "operandId": {"$ref": "common.schema.json#/$defs/digest"},
+        "declaration": {"$ref": "#/$defs/declarationKey"},
+        "subject": {"$ref": "#/$defs/subject"},
+        "testInvocationDigest": {"$ref": "common.schema.json#/$defs/digest"},
+        "compatibilityProfileDigest": {"$ref": "common.schema.json#/$defs/digest"},
+        "executionProfileDigest": {"$ref": "common.schema.json#/$defs/digest"},
+        "solverProfileDigest": {"$ref": "common.schema.json#/$defs/digest"},
+        "completionEvidence": {"$ref": "#/$defs/completionEvidence"},
+        "normalizedValue": {"$ref": "#/$defs/normalizedValue"}
+      }
+    },
+    "comparisonSide": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["side", "normalOperand", "semanticCrash"],
+      "properties": {
+        "side": {"enum": ["baseline", "mutant"]},
+        "normalOperand": {"oneOf": [{"$ref": "#/$defs/operandKey"}, {"type": "null"}]},
+        "semanticCrash": {"oneOf": [{"$ref": "#/$defs/crashKey"}, {"type": "null"}]}
+      },
+      "oneOf": [
+        {"properties": {"normalOperand": {"$ref": "#/$defs/operandKey"}, "semanticCrash": {"type": "null"}}},
+        {"properties": {"normalOperand": {"type": "null"}, "semanticCrash": {"$ref": "#/$defs/crashKey"}}}
+      ]
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "comparisonId", "declaration", "sides", "projectionId", "comparatorId", "normalizedValueDigests", "outcome"],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "comparisonId": {"$ref": "common.schema.json#/$defs/digest"},
+        "declaration": {"$ref": "#/$defs/declarationKey"},
+        "sides": {
+          "type": "array",
+          "prefixItems": [
+            {"allOf": [{"$ref": "#/$defs/comparisonSide"}, {"properties": {"side": {"const": "baseline"}}}]},
+            {"allOf": [{"$ref": "#/$defs/comparisonSide"}, {"properties": {"side": {"const": "mutant"}}}]}
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "projectionId": {"type": "string", "minLength": 1},
+        "comparatorId": {"type": "string", "minLength": 1},
+        "normalizedValueDigests": {
+          "type": "array",
+          "prefixItems": [
+            {"oneOf": [{"$ref": "common.schema.json#/$defs/digest"}, {"type": "null"}]},
+            {"oneOf": [{"$ref": "common.schema.json#/$defs/digest"}, {"type": "null"}]}
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "outcome": {"enum": ["agree", "distinguish", "incomparable"]}
+      }
+    },
+    "baselineGateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "gateResultId", "declaration", "actualSide", "assertionOutcome", "status", "failure"],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "gateResultId": {"$ref": "common.schema.json#/$defs/digest"},
+        "declaration": {"$ref": "#/$defs/declarationKey"},
+        "actualSide": {"allOf": [{"$ref": "#/$defs/comparisonSide"}, {"properties": {"side": {"const": "baseline"}}}]},
+        "assertionOutcome": {"oneOf": [{"enum": ["agree", "distinguish", "incomparable"]}, {"type": "null"}]},
+        "status": {"enum": ["accepted", "error"]},
+        "failure": {"oneOf": [{"$ref": "common.schema.json#/$defs/baselineOracleGateFailure"}, {"type": "null"}]}
+      }
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/corpus-manifest.schema.json",
+  "title": "Execution-pattern corpus manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "manifestId", "artifactCatalogDigest", "definitionDigest", "compatibilityProfileDigest", "observationManifestDigest", "patternDigest", "executionMode", "solverProfileDigest", "backendProfileDigest", "aggregation", "bounds", "tests"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "manifestId": {"$ref": "common.schema.json#/$defs/digest"},
+    "artifactCatalogDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "definitionDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "compatibilityProfileDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "observationManifestDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "patternDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "executionMode": {"type": "string", "enum": ["concrete", "symbolic"]},
+    "solverProfileDigest": {"oneOf": [{"$ref": "common.schema.json#/$defs/digest"}, {"type": "null"}]},
+    "backendProfileDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "aggregation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["question", "earlyStopAfterMatch"],
+      "properties": {
+        "question": {"type": "string", "enum": ["per-test-exists", "corpus-exists"]},
+        "earlyStopAfterMatch": {"type": "boolean"}
+      }
+    },
+    "bounds": {"$ref": "common.schema.json#/$defs/bounds"},
+    "tests": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["testId", "programDigest", "parserDigest", "startSymbol", "optionsDigest"],
+        "properties": {
+          "testId": {"type": "string", "minLength": 1},
+          "programDigest": {"$ref": "common.schema.json#/$defs/digest"},
+          "parserDigest": {"$ref": "common.schema.json#/$defs/digest"},
+          "startSymbol": {"type": "string", "minLength": 1},
+          "optionsDigest": {"$ref": "common.schema.json#/$defs/digest"}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {"if": {"properties": {"aggregation": {"properties": {"question": {"const": "per-test-exists"}}}}}, "then": {"properties": {"aggregation": {"properties": {"earlyStopAfterMatch": {"const": false}}}}}}
+  ]
+}

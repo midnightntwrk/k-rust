@@ -1,0 +1,3 @@
+<k>
+  succ ( succ ( zero ) ) ~> .K
+</k>

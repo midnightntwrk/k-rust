@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/observation-manifest.schema.json",
+  "title": "Atomic observation transformation manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "manifestId", "inputDefinitionDigest", "observerDigest", "compatibilityProfileDigest", "selectionMode", "selections", "eventVocabulary", "transformationId", "outputDefinitionDigest"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "manifestId": {"$ref": "common.schema.json#/$defs/digest"},
+    "inputDefinitionDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "observerDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "compatibilityProfileDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "selectionMode": {"type": "string", "enum": ["explicit", "all-transitions"]},
+    "selections": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/selection"}},
+    "eventVocabulary": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/eventDeclaration"}},
+    "transformationId": {"$ref": "common.schema.json#/$defs/digest"},
+    "outputDefinitionDigest": {"$ref": "common.schema.json#/$defs/digest"}
+  },
+  "$defs": {
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selectionId", "selector", "expectedCardinality", "matchedLineages", "emissions"],
+      "properties": {
+        "selectionId": {"type": "string", "minLength": 1},
+        "selector": {
+          "oneOf": [
+            {"type": "object", "additionalProperties": false, "required": ["kind", "lineageId"], "properties": {"kind": {"const": "lineage"}, "lineageId": {"$ref": "common.schema.json#/$defs/digest"}}},
+            {"type": "object", "additionalProperties": false, "required": ["kind", "label"], "properties": {"kind": {"const": "label"}, "label": {"type": "string", "minLength": 1}}},
+            {"type": "object", "additionalProperties": false, "required": ["kind", "name", "value"], "properties": {"kind": {"const": "attribute"}, "name": {"type": "string", "minLength": 1}, "value": {"oneOf": [{"$ref": "common.schema.json#/$defs/term"}, {"type": "null"}]}}},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "sentenceKinds", "label", "termPath", "termSort", "termHeadLabel"],
+              "properties": {
+                "kind": {"const": "structural-term"},
+                "sentenceKinds": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {"type": "string", "enum": ["alias", "claim", "configuration", "context", "rule"]}
+                },
+                "label": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+                "termPath": {"$ref": "common.schema.json#/$defs/path"},
+                "termSort": {"type": "string", "minLength": 1},
+                "termHeadLabel": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]}
+              }
+            }
+          ]
+        },
+        "expectedCardinality": {"type": "integer", "minimum": 1},
+        "matchedLineages": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/digest"}},
+        "emissions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/emission"}}
+      }
+    },
+    "emission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["constructor", "declarationOrdinal", "semanticSite", "payloadBindings"],
+      "properties": {
+        "constructor": {"type": "string", "minLength": 1},
+        "declarationOrdinal": {"type": "integer", "minimum": 0},
+        "semanticSite": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object", "additionalProperties": false,
+              "required": ["role", "termPath"],
+              "properties": {
+                "role": {"type": "string", "minLength": 1},
+                "termPath": {"$ref": "common.schema.json#/$defs/path"}
+              }
+            }
+          ]
+        },
+        "payloadBindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "sort", "sourcePath"],
+            "properties": {
+              "name": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9_]*$"},
+              "sort": {"type": "string", "minLength": 1},
+              "sourcePath": {"$ref": "common.schema.json#/$defs/path"}
+            }
+          }
+        }
+      }
+    },
+    "eventDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["constructor", "payloadSorts", "originMode"],
+      "properties": {
+        "constructor": {"type": "string", "minLength": 1},
+        "payloadSorts": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "originMode": {"type": "string", "enum": ["emitting-sentence", "emitting-sentence-and-semantic-site"]}
+      }
+    }
+  }
+}

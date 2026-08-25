@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "queryId": "1e5d5e1962a175376cf9dcd8c26f01c3771e227ca6ca86aba1b26e7739ce2773",
+  "source": {
+    "role": "predicate-source",
+    "digest": "bbd22580ee33fbcc83c75a416b6ab9be41f5efecf3f18c6231e0dd56b4954cae"
+  },
+  "plan": {
+    "role": "predicate-plan",
+    "digest": "1320255d9cfe65357f4f50cd0b345915e9f470cd9acd80a762bf4ac35d4f65de"
+  }
+}

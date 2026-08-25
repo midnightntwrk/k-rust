@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/oracle-value.schema.json",
+  "title": "Portable final-result oracle value over an exact definition v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "oracleValueDigest", "definitionDigest", "value"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "oracleValueDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "definitionDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "value": {"$ref": "common.schema.json#/$defs/term"}
+  }
+}

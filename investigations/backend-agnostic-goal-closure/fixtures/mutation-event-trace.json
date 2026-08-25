@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "testId": "write-load",
+  "pathOrdinal": 0,
+  "pathKey": "root",
+  "pathPredicate": {"encoding": "portable-term-v1", "sort": "Bool", "node": {"kind": "token", "text": "true"}},
+  "complete": true,
+  "stopReason": "terminal",
+  "events": []
+}

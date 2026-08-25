@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "documented_source": "draft/k-in-k-oracles.md#observed-gate-b-result",
+  "replay_source": "investigations/w1-audit/evidence/smoke/smoke-report.json",
+  "unique_json_hash_drifts": [
+    {
+      "boundaries": ["contexts-prefix:parsed-json", "full:parsed-json"],
+      "documented_sha256": "00b5708bca2d027963df7b9d2ff84cb9a1b9d1bfa68e22635c3c2a1aa993731f",
+      "replayed_sha256": "0c69fe97f2e1724b1d632cfc195f9793d2b5ac58a0fd86944fde290158cc2066"
+    },
+    {
+      "boundaries": ["contexts-prefix:compiled-json"],
+      "documented_sha256": "62f1dd1f6a7640e4379ea3aa9bc56224a442ad2ab1f432b0326af8a50f3a0821",
+      "replayed_sha256": "a6dd755a226893064b2ecc62b15baab9f12db8c241d10108cd5bcd5ca9413eb1"
+    },
+    {
+      "boundaries": ["full:compiled-json"],
+      "documented_sha256": "fe95fafc255750b29dfd099d8003e0dc5a24d767a47c41e6e4df4a55af343243",
+      "replayed_sha256": "c78dc247aed4cd84baec32e4457b1215769cb42b5d39e4b87096410b9587b53a"
+    }
+  ],
+  "unchanged_kore_hashes": [
+    {"boundary": "full:definition-kore", "sha256": "b55f21dc5528ae35c57facd5b2043cf07f57805f6b69860712466969596c70ee"},
+    {"boundary": "full:syntax-kore", "sha256": "76c5ed0ad88033bc61fc6bc1141425a08589ce5f4f5771ba13ae5f6838c730a1"},
+    {"boundary": "full:macros-kore", "sha256": "3585c084b81281ec26971b2e42c56b9968a802c5d645a81062296350493491cf"}
+  ],
+  "relational_contracts": {
+    "repeat_baseline_all_seven_boundaries_equal": true,
+    "mutation_expected_six_different_one_equal": true,
+    "mutation_json_still_different_after_recursive_digest_field_removal": {
+      "contexts-prefix:parsed-json": true,
+      "contexts-prefix:compiled-json": true,
+      "full:parsed-json": true,
+      "full:compiled-json": true
+    }
+  },
+  "audit_conclusion": "The documented JSON byte hashes are not reproduced, as the document warns may happen; the repeat and mutation-sensitivity contracts still pass. The cause of the three unique JSON hash drifts is not established by available artifacts."
+}

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "queryId": "f061f6902d91efa33b1d926afb9fbc3e6182ec0f74aaf6c0cc2b86dba83f325f",
+  "source": {
+    "role": "reachability-source",
+    "digest": "6ced0d75e387bf79b6fe5c7f4d43ff9d2fdf8f9d4bddeb9e40f117811507ef5e"
+  },
+  "plan": {
+    "role": "reachability-plan",
+    "digest": "c8779fd8fbcccfeb383d40493bf30619796009df204ba91afa78cb5ba5064b44"
+  }
+}

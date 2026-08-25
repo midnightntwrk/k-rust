@@ -1,0 +1,9 @@
+{
+  "kRelease": "v7.1.337",
+  "kCommit": "4a46d1231473b599c699160132fd6e76a5c46406",
+  "expectedSourceStatus": " M pyk/uv.lock",
+  "files": {
+    "k-frontend/src/main/java/org/kframework/kompile/DefinitionParsing.java": "cbc98fa208ba1d09d1c5b17b97aa73b0b275df433d85a49bfe56e9e5209773b3",
+    "k-frontend/src/main/java/org/kframework/kompile/Kompile.java": "a63e1a3cd3947af73da253a6808d5e09a6475f1ed55aec36faf06c77465c0c31"
+  }
+}

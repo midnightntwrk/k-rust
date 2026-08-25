@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 1,
+  "task": "R2-G-06-k-authored-configuration-augmentation",
+  "verdict": "pass",
+  "contract": "KConfigurationAugmentation-v1",
+  "fullCycleCount": 2,
+  "activationRevision": "21be4390f6c7e1f7f0e16b9c574e64404aeeb32a",
+  "pin": {
+    "kRelease": "v7.1.337",
+    "kCommit": "4a46d1231473b599c699160132fd6e76a5c46406",
+    "kSource": "/home/sebdev20/Documents/git/workspaces/starstream-fv/inspirations/runtimeverification/k",
+    "kSourceStatus": " M pyk/uv.lock",
+    "resolvedKompile": "/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/bin/kompile",
+    "frontendJarSha256": "c02efedc7b07e46d20e55543bfb2160c73af3e6a80d71436689656c4b7caf4d2",
+    "hookPatchSha256": "bf9c788c89a201e74c9a51df23fe544333c8bf9898a8a9973dc4163d86f3e543",
+    "overlayClassSha256": {
+      "definitionParsing": "9a520c6ac35cff1d4158fba1504155349d7ff105230456affc89f569085e45ae",
+      "kompile": "34fdd88703e204229ebbbdf6b825e596279706883f07481291846085f99d539d"
+    },
+    "environment": {
+      "LC_ALL": "C",
+      "LANG": "C",
+      "TZ": "UTC"
+    }
+  },
+  "taskSourceSha256": {
+    "kSemantics": "8c913e9692b84504d9589cc0ba98d6b32d2bbad104359b591c7f0be858c8cd3e",
+    "javaHost": "dc7f77c8bb615f760dea9946792f6dee8001e0d4a44842787b1c95332e3b942f",
+    "replay": "875a888ec7d7bde6dec54381c55f6b4a4adf7cb33cfa99c2b97ecac4b26bd681",
+    "runner": "23cf22c167f361c099abacb42c4e26d04b19403e6ee8fce64b4513dffdcb4af4",
+    "runtimeProjector": "943d705ac51fb577dd286399281f7001b3b2b0161873f7b7396a3e4c75daf3a5",
+    "observationProjector": "834df6ee633a87b906f54d36a4c91bfb87f8c293ba2031c2b4b0a2ddbccdc87e",
+    "verifier": "142efdd308d53b408f01e530474ed75307517fbbdb22023188093cff2fab21b5"
+  },
+  "ownership": {
+    "k": [
+      "structural target recognition",
+      "apply/already/conflict classification",
+      "candidate cardinality",
+      "target fingerprints",
+      "parent/template paths",
+      "new name and value",
+      "status"
+    ],
+    "java": [
+      "complete typed projection",
+      "canonical parsing and fingerprints",
+      "generic path validation/navigation",
+      "declared leaf clone/application",
+      "immutable graph and idempotence validation"
+    ]
+  },
+  "positive": {
+    "first": {
+      "hookInvocations": 1,
+      "kInvocationsPass1": 1,
+      "kInvocationsPass2": 1,
+      "requestFingerprintPass1": "05c3f122ce2579f59cae16436aa19e3de3a17f9f3b965fbb21caa6060555cb67",
+      "responseFingerprintPass1": "73a24bd2f4bde47eaa0a054c499fe28e0c9d5205e1582424cc903bdf7bc53a2b",
+      "candidateCountPass1": 1,
+      "statusPass1": "apply",
+      "operationCanonicalPass1": "cCloneLeafCellFromInput(cPathCons(cApplicationArgument(2),cPathNil),cPathCons(cApplicationArgument(2),cPathCons(cApplicationArgument(1),cPathNil)),\"observation\",\"0\")",
+      "resultCanonicalFingerprintPass1": "73a24bd2f4bde47eaa0a054c499fe28e0c9d5205e1582424cc903bdf7bc53a2b",
+      "requestFingerprintPass2": "a1d386cb58b353a083e5cfad4c854839e754b26978f6e4fed1f8a0975baaa882",
+      "responseFingerprintPass2": "e8f61db2b541eeead13cc0f404cdd4bb5b3b47d6cea4e69259ee2f6be326f05f",
+      "candidateCountPass2": 1,
+      "statusPass2": "already-present",
+      "operationCanonicalPass2": "cCloneLeafCellFromInput(cPathCons(cApplicationArgument(2),cPathNil),cPathCons(cApplicationArgument(2),cPathCons(cApplicationArgument(0),cPathCons(cApplicationArgument(1),cPathNil))),\"observation\",\"0\")",
+      "resultCanonicalFingerprintPass2": "e8f61db2b541eeead13cc0f404cdd4bb5b3b47d6cea4e69259ee2f6be326f05f",
+      "targetLineage": "5c0a97ab7d6096d6eddaaedfe05e98b6dea8ba83202da0aaaf51c845b94dcc4a",
+      "targetContentBefore": "ea4a9dafd7f151e948e36ecda9278a3eb4d79580a10f57dea7a13a271583eaff",
+      "targetContentAfter": "6ca1c38925c10f93c114984b5743d651a5841a442f9fb0e3541072ee9e0846c9",
+      "targetBodyBefore": "bd61b208d65a7f972b39fc1372e80e54cfc8533cefc1d5aa26611c0a33907b49",
+      "targetBodyAfter": "a83532b2cc8b5fec6ee255bc35d200e1520010ccb79986fbea5f1ae7fec8ee2e",
+      "beforeDefinition": "63b98b4ed7da5cc20b86864b3d7a42e9d558f909a4955185a8e08a0c8e022f93",
+      "afterDefinition": "9e3c0b1c5ce2be262b1b5444113f5ec39438434037d80136d2f1ef9b75648b5c",
+      "validatedOperationCount": 1,
+      "applicationCount": 1,
+      "changedConfigurationCount": 1,
+      "alreadyPresentValidatedCount": 1,
+      "secondSameReference": true,
+      "metadataPreserved": true,
+      "conditionsPreserved": true,
+      "provenancePreserved": true,
+      "transformedDefinitionReturned": true,
+      "postCfInvocations": 1,
+      "postCfSameReference": true,
+      "cfConstructed": true,
+      "backendConstructed": true
+    },
+    "repeatStable": true,
+    "runtime": {
+      "k": "1",
+      "observation": "0",
+      "state": "2"
+    },
+    "erasedRuntimeEqual": true,
+    "normalizedArtifactsStable": true
+  },
+  "oracles": {
+    "kAuthored": {
+      "markers": {
+        "observationCellLabel": 7,
+        "observationCellSort": 112,
+        "observationInitializer": 6,
+        "observationUnit": 7
+      },
+      "provenance": {
+        "location": "20,7,20,25",
+        "source": "/p3/fixtures/coupled.k"
+      }
+    },
+    "r2g05Java": {
+      "markers": {
+        "observationCellLabel": 7,
+        "observationCellSort": 112,
+        "observationInitializer": 6,
+        "observationUnit": 7
+      },
+      "provenance": {
+        "location": "20,7,20,25",
+        "source": "/p3/fixtures/coupled.k"
+      }
+    },
+    "ordinarySource": {
+      "markers": {
+        "observationCellLabel": 7,
+        "observationCellSort": 112,
+        "observationInitializer": 6,
+        "observationUnit": 7
+      },
+      "provenance": {
+        "location": "21,7,21,37",
+        "source": "/investigations/w1-egress/fixtures/p3-observation.k"
+      }
+    },
+    "generationMarkersEqual": true,
+    "provenanceDifference": "K-authored and R2-G-05 typed clones reuse P3 state-cell provenance; ordinary source has its own observation line"
+  },
+  "negatives": {
+    "stale": {
+      "classification": "stale-precondition",
+      "hookInvocations": 1,
+      "kInvocationsPass1": 1,
+      "kInvocationsPass2": 0,
+      "candidateCountPass1": 1,
+      "applicationCount": 0,
+      "transformedDefinitionReturned": false,
+      "postCfInvocations": 0,
+      "cfConstructed": false,
+      "backendConstructed": false,
+      "backendArtifactsEmitted": false
+    },
+    "zero": {
+      "classification": "k-selection-failure",
+      "hookInvocations": 1,
+      "kInvocationsPass1": 1,
+      "kInvocationsPass2": 0,
+      "candidateCountPass1": 0,
+      "applicationCount": 0,
+      "transformedDefinitionReturned": false,
+      "postCfInvocations": 0,
+      "cfConstructed": false,
+      "backendConstructed": false,
+      "backendArtifactsEmitted": false
+    },
+    "duplicate": {
+      "classification": "k-selection-failure",
+      "hookInvocations": 1,
+      "kInvocationsPass1": 1,
+      "kInvocationsPass2": 0,
+      "candidateCountPass1": 2,
+      "applicationCount": 0,
+      "transformedDefinitionReturned": false,
+      "postCfInvocations": 0,
+      "cfConstructed": false,
+      "backendConstructed": false,
+      "backendArtifactsEmitted": false
+    },
+    "path": {
+      "classification": "path-operation-validation",
+      "hookInvocations": 1,
+      "kInvocationsPass1": 1,
+      "kInvocationsPass2": 0,
+      "candidateCountPass1": 1,
+      "applicationCount": 0,
+      "transformedDefinitionReturned": false,
+      "postCfInvocations": 0,
+      "cfConstructed": false,
+      "backendConstructed": false,
+      "backendArtifactsEmitted": false
+    },
+    "conflict": {
+      "classification": "conflicting-existing-state",
+      "hookInvocations": 1,
+      "kInvocationsPass1": 1,
+      "kInvocationsPass2": 1,
+      "candidateCountPass1": 1,
+      "candidateCountPass2": 1,
+      "inputMutationCount": 1,
+      "applicationCount": 0,
+      "transformedDefinitionReturned": false,
+      "postCfInvocations": 0,
+      "cfConstructed": false,
+      "backendConstructed": false,
+      "backendArtifactsEmitted": false
+    },
+    "falseAlready": {
+      "classification": "result-envelope-validation",
+      "hookInvocations": 1,
+      "kInvocationsPass1": 1,
+      "kInvocationsPass2": 0,
+      "candidateCountPass1": 1,
+      "alreadyPresentValidatedCount": 0,
+      "applicationCount": 0,
+      "transformedDefinitionReturned": false,
+      "postCfInvocations": 0,
+      "cfConstructed": false,
+      "backendConstructed": false,
+      "backendArtifactsEmitted": false
+    }
+  },
+  "limitations": [
+    "one fixture-specific cloneLeafCellFromInput operation",
+    "temporary accepted hook overlay remains source-bound",
+    "no events, rule instrumentation, trace, monitor, matcher, C1, or C2"
+  ],
+  "packetAmbiguity": "none requiring a split",
+  "recommendedNextPacket": "conservative single-rule observation using the established branch-local configuration state, with no trace or matcher expansion"
+}

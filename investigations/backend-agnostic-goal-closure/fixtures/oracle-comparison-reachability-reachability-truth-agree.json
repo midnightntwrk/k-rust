@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "comparisonId": "83c3d5679208c8800e82a35bf269e006d6b821d75e361596ffa127695abcc3d8",
+  "declaration": {
+    "role": "oracle-declaration",
+    "digest": "f88b081e8d43eab9fa00c392588a8aeb3189716969d39731cc6be1611e3b6a08"
+  },
+  "sides": [
+    {
+      "side": "baseline",
+      "normalOperand": {
+        "role": "oracle-operand",
+        "digest": "a22a4e645352434a81240c2fa4ac048b162aa8aef0548827a25e4cf4df42eb60"
+      },
+      "semanticCrash": null
+    },
+    {
+      "side": "mutant",
+      "normalOperand": {
+        "role": "oracle-operand",
+        "digest": "7b87755167a30c7dab253cf7c5f214849701ab4acc84ce4cd38716cbb7b6538b"
+      },
+      "semanticCrash": null
+    }
+  ],
+  "projectionId": "reachability-truth-v1",
+  "comparatorId": "exact-reachability-truth-v1",
+  "normalizedValueDigests": [
+    "c6509a6f0c7325d105af41a8e1f1c9e2874a2ac108c6e20c43166d728ccf880f",
+    "a540b6fc2a5e78ce3e5836637c54c38c593a35ea466fc33cfe1d0166942f3a51"
+  ],
+  "outcome": "agree"
+}

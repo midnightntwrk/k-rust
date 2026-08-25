@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "replayId": "86ff791cb7807c72493ac0f0a86ba73cc4934a429254aceb9dd711a51aa30cf8",
+  "invocationDigest": "3be59be5d7a5029353b539b7a398483da517fcbeb61e43de874e06a68816b0dd",
+  "kind": "pattern-query",
+  "packageVersion": "backend-agnostic-k-in-k-v1",
+  "definitionDigest": "66e6071ca706036e1040f971b77629f80bd278ee5899c820d9065386555c0ca9",
+  "transformationDigests": [
+    "f519dccd7c69585cb2b01dc6bce160ce1c4da617eeb5e575c0567e4fd07f5b62"
+  ],
+  "programDigest": "3e4f2ed853c944bb35727934bff9389a3adf8594fec826d4a59eeaf94cfa34d0",
+  "testId": "write-load",
+  "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+  "optionsDigest": "d25cc447c8c42cfa54be8f9c86231a68a0121e5b9813f60c8bcf92d4cae1a3f0",
+  "searchPolicy": "exhaustive",
+  "bounds": {
+    "depth": 20,
+    "timeMs": 1000,
+    "branches": 8,
+    "results": 8
+  },
+  "artifacts": [
+    {
+      "role": "program",
+      "digest": "3e4f2ed853c944bb35727934bff9389a3adf8594fec826d4a59eeaf94cfa34d0"
+    },
+    {
+      "role": "pattern-source",
+      "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+    },
+    {
+      "role": "pattern-plan",
+      "digest": "8a2359f706a8434cc3eaaf274850134e6095a79721b442c29e0765ef1ce080d0"
+    },
+    {
+      "role": "pattern-query",
+      "digest": "117f9df30cc586da7c800df5d28522d1b74403aae300071e92242515d6b761cc"
+    }
+  ],
+  "steps": [
+    {
+      "ordinal": 0,
+      "role": "ingest",
+      "optionsDigest": "d25cc447c8c42cfa54be8f9c86231a68a0121e5b9813f60c8bcf92d4cae1a3f0",
+      "inputArtifacts": [
+        {
+          "role": "definition",
+          "digest": "66e6071ca706036e1040f971b77629f80bd278ee5899c820d9065386555c0ca9"
+        }
+      ],
+      "expectedArtifacts": [
+        {
+          "role": "definition",
+          "digest": "66e6071ca706036e1040f971b77629f80bd278ee5899c820d9065386555c0ca9"
+        }
+      ]
+    },
+    {
+      "ordinal": 1,
+      "role": "transform",
+      "optionsDigest": "d25cc447c8c42cfa54be8f9c86231a68a0121e5b9813f60c8bcf92d4cae1a3f0",
+      "inputArtifacts": [
+        {
+          "role": "definition",
+          "digest": "66e6071ca706036e1040f971b77629f80bd278ee5899c820d9065386555c0ca9"
+        },
+        {
+          "role": "transformation",
+          "digest": "f519dccd7c69585cb2b01dc6bce160ce1c4da617eeb5e575c0567e4fd07f5b62"
+        }
+      ],
+      "expectedArtifacts": [
+        {
+          "role": "instrumented-definition",
+          "digest": "66e6071ca706036e1040f971b77629f80bd278ee5899c820d9065386555c0ca9"
+        }
+      ]
+    },
+    {
+      "ordinal": 2,
+      "role": "execute",
+      "optionsDigest": "d25cc447c8c42cfa54be8f9c86231a68a0121e5b9813f60c8bcf92d4cae1a3f0",
+      "inputArtifacts": [
+        {
+          "role": "instrumented-definition",
+          "digest": "66e6071ca706036e1040f971b77629f80bd278ee5899c820d9065386555c0ca9"
+        },
+        {
+          "role": "program",
+          "digest": "3e4f2ed853c944bb35727934bff9389a3adf8594fec826d4a59eeaf94cfa34d0"
+        }
+      ],
+      "expectedArtifacts": [
+        {
+          "role": "event-trace",
+          "digest": "dab616f1ce6ece055aad9c651539d0f357b9c5ac8b03be397094f3aa1bf123aa"
+        }
+      ]
+    },
+    {
+      "ordinal": 3,
+      "role": "match",
+      "optionsDigest": "d25cc447c8c42cfa54be8f9c86231a68a0121e5b9813f60c8bcf92d4cae1a3f0",
+      "inputArtifacts": [
+        {
+          "role": "event-trace",
+          "digest": "dab616f1ce6ece055aad9c651539d0f357b9c5ac8b03be397094f3aa1bf123aa"
+        },
+        {
+          "role": "pattern-source",
+          "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+        },
+        {
+          "role": "pattern-plan",
+          "digest": "8a2359f706a8434cc3eaaf274850134e6095a79721b442c29e0765ef1ce080d0"
+        },
+        {
+          "role": "pattern-query",
+          "digest": "117f9df30cc586da7c800df5d28522d1b74403aae300071e92242515d6b761cc"
+        }
+      ],
+      "expectedArtifacts": [
+        {
+          "role": "pattern-result",
+          "digest": "4191430fd75a97bc35f9d4ae3a4923fff5f65339587ae47faa12c58330a2e0f6"
+        }
+      ]
+    }
+  ],
+  "expectedResultDigest": "4191430fd75a97bc35f9d4ae3a4923fff5f65339587ae47faa12c58330a2e0f6",
+  "parserDigest": "e2221c543e1c974746daee9fc9a309a1e62047902ede87768f4ffc0379e9e628",
+  "startSymbol": "Pgm",
+  "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
+  "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+  "queryId": "117f9df30cc586da7c800df5d28522d1b74403aae300071e92242515d6b761cc",
+  "executionMode": "symbolic",
+  "observerDigest": "485078d426d44f79b75a0c4dec20db00f625c8815a62e5a0c7e01e7ed8e06d52",
+  "observationManifestDigest": "b6d979bae0b1290d75c1ca4628da89e4443d88748f9f14d625a7c7b308053dd5",
+  "artifactCatalogDigest": "ee22fff46166ac57e144905d1fe952c4195e4a33237f7b7dc3aaa4011f524a3f",
+  "patternSource": {
+    "role": "pattern-source",
+    "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+  },
+  "patternPlan": {
+    "role": "pattern-plan",
+    "digest": "8a2359f706a8434cc3eaaf274850134e6095a79721b442c29e0765ef1ce080d0"
+  },
+  "patternQuery": {
+    "role": "pattern-query",
+    "digest": "117f9df30cc586da7c800df5d28522d1b74403aae300071e92242515d6b761cc"
+  }
+}

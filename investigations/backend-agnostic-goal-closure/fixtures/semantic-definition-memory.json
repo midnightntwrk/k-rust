@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "family": {"familyName": "portable-memory", "entryModules": ["MEMORY"], "compatibilityProfile": "portable-v1"},
+  "baselineFamilyId": "bc68f6d17f003a9953ae2bef766bd07894c9397886c9c30345ef957b669652c8",
+  "definitionDigest": "3e3b2b2b8e476c8aefda5bda6749b73973624c2de4d57a7b7e673fabedbf83a0",
+  "modules": [{
+    "name": "MEMORY",
+    "ordinal": 0,
+    "fingerprint": "ab522492b3927f0beb6061b2d5b6bcf6f20dbde0e744fef9572b6770774906f7",
+    "imports": [],
+    "sentences": [
+      {
+        "occurrenceOrdinal": 0,
+        "generatedIdentity": null,
+        "provenance": {"lineageId": "b73307119850dec07af89f707cd439da63fd4ee69e73e607caaa8a232a524535", "contentFingerprint": "fbd66a5fab9403e7972be82cc69b5c5af3acf83471a6d6b3401d742b460fc43d", "bodyFingerprint": "84515cc2a4ac4a4a97964cb789091a79b25a9db7237e1676d3c0c4ac51d8cc89", "module": "MEMORY", "label": "write", "kind": "rule", "source": "repo://fixtures/portable-memory.k", "location": {"startLine": 10, "startColumn": 1, "endLine": 12, "endColumn": 20}, "generated": false, "transformationChain": []},
+        "value": {"encoding": "portable-semantic-sentence-v1", "module": "MEMORY", "kind": "rule", "label": "write", "source": "repo://fixtures/portable-memory.k", "location": {"startLine": 10, "startColumn": 1, "endLine": 12, "endColumn": 20}, "body": {"encoding": "portable-term-v1", "sort": "RuleBody", "node": {"kind": "rewrite", "left": {"encoding": "portable-term-v1", "sort": "State", "node": {"kind": "application", "label": "write", "args": [{"encoding": "portable-term-v1", "sort": "Address", "node": {"kind": "variable", "name": "A"}}, {"encoding": "portable-term-v1", "sort": "Int", "node": {"kind": "variable", "name": "V"}}]}}, "right": {"encoding": "portable-term-v1", "sort": "State", "node": {"kind": "application", "label": "stored", "args": [{"encoding": "portable-term-v1", "sort": "Address", "node": {"kind": "variable", "name": "A"}}, {"encoding": "portable-term-v1", "sort": "Int", "node": {"kind": "variable", "name": "V"}}]}}}}, "requires": {"encoding": "portable-term-v1", "sort": "Bool", "node": {"kind": "token", "text": "true"}}, "ensures": null, "attributes": [{"name": "transition", "value": null}]}
+      },
+      {
+        "occurrenceOrdinal": 0,
+        "generatedIdentity": null,
+        "provenance": {"lineageId": "cfb9540bfe0596de4d6fb87e699a17c4d4669d4e79951239950becd522542f7c", "contentFingerprint": "92fad800c6983124b56a72e13c94fd2ba9da96695039d9f39c42663ba9d88f1c", "bodyFingerprint": "889fdebf6c1aa2f8f2f056599ee27924a55cc494775cf34f38450989c04ad38d", "module": "MEMORY", "label": "load", "kind": "rule", "source": "repo://fixtures/portable-memory.k", "location": {"startLine": 20, "startColumn": 1, "endLine": 22, "endColumn": 20}, "generated": false, "transformationChain": []},
+        "value": {"encoding": "portable-semantic-sentence-v1", "module": "MEMORY", "kind": "rule", "label": "load", "source": "repo://fixtures/portable-memory.k", "location": {"startLine": 20, "startColumn": 1, "endLine": 22, "endColumn": 20}, "body": {"encoding": "portable-term-v1", "sort": "RuleBody", "node": {"kind": "rewrite", "left": {"encoding": "portable-term-v1", "sort": "State", "node": {"kind": "application", "label": "load", "args": [{"encoding": "portable-term-v1", "sort": "Address", "node": {"kind": "variable", "name": "A"}}, {"encoding": "portable-term-v1", "sort": "Int", "node": {"kind": "variable", "name": "V"}}]}}, "right": {"encoding": "portable-term-v1", "sort": "State", "node": {"kind": "application", "label": "loaded", "args": [{"encoding": "portable-term-v1", "sort": "Address", "node": {"kind": "variable", "name": "A"}}, {"encoding": "portable-term-v1", "sort": "Int", "node": {"kind": "variable", "name": "V"}}]}}}}, "requires": {"encoding": "portable-term-v1", "sort": "Bool", "node": {"kind": "token", "text": "true"}}, "ensures": null, "attributes": [{"name": "transition", "value": null}]}
+      }
+    ]
+  }]
+}

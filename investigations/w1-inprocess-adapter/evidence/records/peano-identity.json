@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "adapter": "OfficialDefinitionAdapter-v1-candidate",
+  "seam": "parseDefinitionAndResolveBubbles -> adapter -> KoreBackend.steps",
+  "mode": "identity",
+  "status": "accepted",
+  "validationBoundary": "post-transform-pre-backend",
+  "primarySource": "/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-inprocess/p1/fixtures/peano.k",
+  "sameDefinitionReference": true,
+  "matchedTargets": 0,
+  "replacements": 0,
+  "before": {
+    "contentSha256": "848c5ebc41b3074ee7ec8064f2fad806fb97e22610a6b2541cc601a9df48a3c9",
+    "officialTextSha256": "24b711f27e40956123f4ffdfa089ad6b8610a8fc4d2a87b9ac3141610cfd9556",
+    "innerAttributesSha256": "668e775bbf44d8b3893a215e391b532aa296835cac55ed25d211b70f5d1a83e9",
+    "primarySourceProjectionSha256": "5be455a68be88e450a1c0678edd048a112b78341c7bebd99ace3da3f3f201f64",
+    "moduleCount": 65,
+    "localSentenceCount": 561,
+    "kNodeCount": 2199,
+    "kNodesWithAttributes": 1941,
+    "innerProductionAttributeCount": 1934,
+    "primarySourceSentenceCount": 8,
+    "target": null
+  },
+  "after": {
+    "contentSha256": "848c5ebc41b3074ee7ec8064f2fad806fb97e22610a6b2541cc601a9df48a3c9",
+    "officialTextSha256": "24b711f27e40956123f4ffdfa089ad6b8610a8fc4d2a87b9ac3141610cfd9556",
+    "innerAttributesSha256": "668e775bbf44d8b3893a215e391b532aa296835cac55ed25d211b70f5d1a83e9",
+    "primarySourceProjectionSha256": "5be455a68be88e450a1c0678edd048a112b78341c7bebd99ace3da3f3f201f64",
+    "moduleCount": 65,
+    "localSentenceCount": 561,
+    "kNodeCount": 2199,
+    "kNodesWithAttributes": 1941,
+    "innerProductionAttributeCount": 1934,
+    "primarySourceSentenceCount": 8,
+    "target": null
+  },
+  "error": null
+}

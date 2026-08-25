@@ -1,0 +1,385 @@
+{
+  "schemaVersion": 1,
+  "resultId": "aac87910a5a197d239b2023126587b68745a040a5ae6e798cc120e6870653adc",
+  "queryId": "117f9df30cc586da7c800df5d28522d1b74403aae300071e92242515d6b761cc",
+  "testId": "write-load",
+  "inputs": {
+    "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+    "observerDigest": "485078d426d44f79b75a0c4dec20db00f625c8815a62e5a0c7e01e7ed8e06d52",
+    "observationManifestDigest": "3e292b87312eb962c5b3eec598774c9d419c9bdc1a5c9a6f7166bd4be7aec404",
+    "programDigest": "3e4f2ed853c944bb35727934bff9389a3adf8594fec826d4a59eeaf94cfa34d0",
+    "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
+    "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+    "transformationId": "de7683b4dce15175f957f5da75254317ad30b2d84c6de5a293557970121bebf2",
+    "optionsDigest": "d25cc447c8c42cfa54be8f9c86231a68a0121e5b9813f60c8bcf92d4cae1a3f0",
+    "searchPolicy": "exhaustive",
+    "replayInvocationDigest": "7173c55320024465c183217f7f639233dc9051217b08a43dc9436b33eb67e7b1",
+    "artifacts": [
+      {
+        "role": "event-trace",
+        "digest": "07ba18a0af4485328f2bed376b32d673c73e7b7e86cf312ce4829fa4eb9b836e"
+      }
+    ],
+    "parserDigest": "e2221c543e1c974746daee9fc9a309a1e62047902ede87768f4ffc0379e9e628",
+    "startSymbol": "Pgm",
+    "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+    "executionMode": "symbolic",
+    "patternSource": {
+      "role": "pattern-source",
+      "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+    },
+    "patternPlan": {
+      "role": "pattern-plan",
+      "digest": "8a2359f706a8434cc3eaaf274850134e6095a79721b442c29e0765ef1ce080d0"
+    },
+    "patternQuery": {
+      "role": "pattern-query",
+      "digest": "117f9df30cc586da7c800df5d28522d1b74403aae300071e92242515d6b761cc"
+    }
+  },
+  "outcome": "match",
+  "completeCoverage": true,
+  "bounds": {
+    "depth": 20,
+    "timeMs": 1000,
+    "branches": 8,
+    "results": 8
+  },
+  "failures": [],
+  "pathResults": [
+    {
+      "pathOrdinal": 0,
+      "pathKey": "root/left",
+      "status": "match",
+      "completeCoverage": true,
+      "stopReason": "terminal",
+      "traceDigest": "07ba18a0af4485328f2bed376b32d673c73e7b7e86cf312ce4829fa4eb9b836e",
+      "failures": [],
+      "pathIdentityDigest": "376efe7646ae10d4d5586840c1d9dcde5383d1475a535b14005ffe082f82ffee",
+      "executionStopReason": "terminal",
+      "executionTerminal": {
+        "kind": "normal",
+        "artifact": {
+          "role": "terminal-state",
+          "digest": "00958626001fc0db84da9145e7d654b51eba797f406aeab94ceb4d30237dc3fb"
+        }
+      }
+    }
+  ],
+  "primaryWitness": {
+    "eventIndices": [
+      0,
+      1
+    ],
+    "bindings": [
+      {
+        "name": "A",
+        "term": {
+          "encoding": "portable-term-v1",
+          "sort": "Address",
+          "node": {
+            "kind": "token",
+            "text": "1"
+          }
+        }
+      }
+    ],
+    "armOrdinal": 0,
+    "pathOrdinal": 0,
+    "events": [
+      {
+        "index": 0,
+        "transitionOrdinal": 4,
+        "emissionOrdinal": 0,
+        "constructor": "memoryWrite",
+        "payload": [
+          {
+            "encoding": "portable-term-v1",
+            "sort": "Address",
+            "node": {
+              "kind": "token",
+              "text": "1"
+            }
+          },
+          {
+            "encoding": "portable-term-v1",
+            "sort": "Int",
+            "node": {
+              "kind": "token",
+              "text": "7"
+            }
+          }
+        ],
+        "origin": {
+          "emittingSentence": {
+            "lineageId": "e388ef9b3e1284e7640b5bbb03909825e3092b5be0b4fa776dc6b0b84ddc8975",
+            "contentFingerprint": "8a9932e736e445c599d4a7d99c1ee7da2bf73bbe2a237a3871199a080b40d55c",
+            "bodyFingerprint": "09bbfa52554defd583cbb08a9623b0a3a4e833458b4c717ea6cb5bacfc26d0d5",
+            "module": "MEMORY",
+            "label": "write",
+            "kind": "rule",
+            "source": "repo://fixtures/portable-memory.k",
+            "location": {
+              "startLine": 10,
+              "startColumn": 1,
+              "endLine": 12,
+              "endColumn": 20
+            },
+            "generated": false,
+            "transformationChain": []
+          },
+          "semanticSite": {
+            "siteId": "f614f343e5128618da884546bf613120588da35fef7b9382471aa9f6984bae6d",
+            "role": "memory-address",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "lhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ]
+          }
+        }
+      },
+      {
+        "index": 1,
+        "transitionOrdinal": 7,
+        "emissionOrdinal": 0,
+        "constructor": "memoryLoad",
+        "payload": [
+          {
+            "encoding": "portable-term-v1",
+            "sort": "Address",
+            "node": {
+              "kind": "token",
+              "text": "1"
+            }
+          },
+          {
+            "encoding": "portable-term-v1",
+            "sort": "Int",
+            "node": {
+              "kind": "token",
+              "text": "7"
+            }
+          }
+        ],
+        "origin": {
+          "emittingSentence": {
+            "lineageId": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+            "contentFingerprint": "57f07f4ff11c7f4e0e78b16997f3e6f6db5ba6fa88fcbe983a9f4d3e54ddf665",
+            "bodyFingerprint": "f4be73886c61deabfb894dee259fbbb06367b70bbf39551dcc721500eacfc44c",
+            "module": "MEMORY",
+            "label": "load",
+            "kind": "rule",
+            "source": "repo://fixtures/portable-memory.k",
+            "location": {
+              "startLine": 20,
+              "startColumn": 1,
+              "endLine": 22,
+              "endColumn": 20
+            },
+            "generated": false,
+            "transformationChain": []
+          },
+          "semanticSite": {
+            "siteId": "9bb677c746b4d67873cf9b0a71e11b72b26b7fd90dd9dadf4126e5c3f2b2b16a",
+            "role": "memory-address",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "lhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "pathPredicate": {
+      "encoding": "portable-term-v1",
+      "sort": "Bool",
+      "node": {
+        "kind": "token",
+        "text": "true"
+      }
+    },
+    "stopReason": "terminal",
+    "executionStopReason": "terminal",
+    "pathKey": "root/left",
+    "replayKey": "ffdc50032cc09110cd9e9b477a4908dea1b12f13b584c588cc52c2728bbd7f2e"
+  },
+  "witnesses": [
+    {
+      "eventIndices": [
+        0,
+        1
+      ],
+      "bindings": [
+        {
+          "name": "A",
+          "term": {
+            "encoding": "portable-term-v1",
+            "sort": "Address",
+            "node": {
+              "kind": "token",
+              "text": "1"
+            }
+          }
+        }
+      ],
+      "armOrdinal": 0,
+      "pathOrdinal": 0,
+      "events": [
+        {
+          "index": 0,
+          "transitionOrdinal": 4,
+          "emissionOrdinal": 0,
+          "constructor": "memoryWrite",
+          "payload": [
+            {
+              "encoding": "portable-term-v1",
+              "sort": "Address",
+              "node": {
+                "kind": "token",
+                "text": "1"
+              }
+            },
+            {
+              "encoding": "portable-term-v1",
+              "sort": "Int",
+              "node": {
+                "kind": "token",
+                "text": "7"
+              }
+            }
+          ],
+          "origin": {
+            "emittingSentence": {
+              "lineageId": "e388ef9b3e1284e7640b5bbb03909825e3092b5be0b4fa776dc6b0b84ddc8975",
+              "contentFingerprint": "8a9932e736e445c599d4a7d99c1ee7da2bf73bbe2a237a3871199a080b40d55c",
+              "bodyFingerprint": "09bbfa52554defd583cbb08a9623b0a3a4e833458b4c717ea6cb5bacfc26d0d5",
+              "module": "MEMORY",
+              "label": "write",
+              "kind": "rule",
+              "source": "repo://fixtures/portable-memory.k",
+              "location": {
+                "startLine": 10,
+                "startColumn": 1,
+                "endLine": 12,
+                "endColumn": 20
+              },
+              "generated": false,
+              "transformationChain": []
+            },
+            "semanticSite": {
+              "siteId": "f614f343e5128618da884546bf613120588da35fef7b9382471aa9f6984bae6d",
+              "role": "memory-address",
+              "termPath": [
+                {
+                  "kind": "field",
+                  "name": "body"
+                },
+                {
+                  "kind": "field",
+                  "name": "lhs"
+                },
+                {
+                  "kind": "argument",
+                  "index": 0
+                }
+              ]
+            }
+          }
+        },
+        {
+          "index": 1,
+          "transitionOrdinal": 7,
+          "emissionOrdinal": 0,
+          "constructor": "memoryLoad",
+          "payload": [
+            {
+              "encoding": "portable-term-v1",
+              "sort": "Address",
+              "node": {
+                "kind": "token",
+                "text": "1"
+              }
+            },
+            {
+              "encoding": "portable-term-v1",
+              "sort": "Int",
+              "node": {
+                "kind": "token",
+                "text": "7"
+              }
+            }
+          ],
+          "origin": {
+            "emittingSentence": {
+              "lineageId": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+              "contentFingerprint": "57f07f4ff11c7f4e0e78b16997f3e6f6db5ba6fa88fcbe983a9f4d3e54ddf665",
+              "bodyFingerprint": "f4be73886c61deabfb894dee259fbbb06367b70bbf39551dcc721500eacfc44c",
+              "module": "MEMORY",
+              "label": "load",
+              "kind": "rule",
+              "source": "repo://fixtures/portable-memory.k",
+              "location": {
+                "startLine": 20,
+                "startColumn": 1,
+                "endLine": 22,
+                "endColumn": 20
+              },
+              "generated": false,
+              "transformationChain": []
+            },
+            "semanticSite": {
+              "siteId": "9bb677c746b4d67873cf9b0a71e11b72b26b7fd90dd9dadf4126e5c3f2b2b16a",
+              "role": "memory-address",
+              "termPath": [
+                {
+                  "kind": "field",
+                  "name": "body"
+                },
+                {
+                  "kind": "field",
+                  "name": "lhs"
+                },
+                {
+                  "kind": "argument",
+                  "index": 0
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "pathPredicate": {
+        "encoding": "portable-term-v1",
+        "sort": "Bool",
+        "node": {
+          "kind": "token",
+          "text": "true"
+        }
+      },
+      "stopReason": "terminal",
+      "executionStopReason": "terminal",
+      "pathKey": "root/left",
+      "replayKey": "ffdc50032cc09110cd9e9b477a4908dea1b12f13b584c588cc52c2728bbd7f2e"
+    }
+  ]
+}

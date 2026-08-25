@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "patternPlanDigest": "3a9db24b23b99a7a5a57e10fd4ef4591d553bc6bd1e6dc15fcceac9588b90dbd",
+  "eventVocabularyDigest": "720146bbdd1ee63dac11c62b0505e3fff40d8a54743652f8e16b6bf7938c3187",
+  "variables": [
+    {
+      "name": "A",
+      "sort": "Address"
+    }
+  ],
+  "arms": [
+    {
+      "atoms": [
+        {
+          "constructor": "memoryWrite",
+          "payload": [
+            {
+              "position": 0,
+              "mode": "bind",
+              "variable": "A"
+            }
+          ]
+        }
+      ],
+      "relations": []
+    }
+  ],
+  "sideCondition": null
+}

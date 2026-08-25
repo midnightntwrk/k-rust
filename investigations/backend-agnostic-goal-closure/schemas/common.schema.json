@@ -1,0 +1,3757 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json",
+  "title": "K-in-K portable common values v1",
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "logicalSource": {
+      "type": "string",
+      "pattern": "^(repo|corpus|generated)://[^/].*$"
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "startLine",
+        "startColumn",
+        "endLine",
+        "endColumn"
+      ],
+      "properties": {
+        "startLine": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "startColumn": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endLine": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endColumn": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "term": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "encoding",
+        "sort",
+        "node"
+      ],
+      "properties": {
+        "encoding": {
+          "const": "portable-term-v1"
+        },
+        "sort": {
+          "type": "string",
+          "minLength": 1
+        },
+        "node": {
+          "$ref": "#/$defs/termNode"
+        }
+      }
+    },
+    "termNode": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "text"
+          ],
+          "properties": {
+            "kind": {
+              "const": "token"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "name"
+          ],
+          "properties": {
+            "kind": {
+              "const": "variable"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "symbolId",
+            "label",
+            "args"
+          ],
+          "properties": {
+            "kind": {
+              "const": "application"
+            },
+            "symbolId": {
+              "$ref": "#/$defs/digest"
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/term"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "left",
+            "right"
+          ],
+          "properties": {
+            "kind": {
+              "const": "rewrite"
+            },
+            "left": {
+              "$ref": "#/$defs/term"
+            },
+            "right": {
+              "$ref": "#/$defs/term"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "items"
+          ],
+          "properties": {
+            "kind": {
+              "const": "sequence"
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/term"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "fromSort",
+            "toSort",
+            "term"
+          ],
+          "properties": {
+            "kind": {
+              "const": "injection"
+            },
+            "fromSort": {
+              "type": "string",
+              "minLength": 1
+            },
+            "toSort": {
+              "type": "string",
+              "minLength": 1
+            },
+            "term": {
+              "$ref": "#/$defs/term"
+            }
+          }
+        }
+      ]
+    },
+    "path": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "name"
+            ],
+            "properties": {
+              "kind": {
+                "const": "field"
+              },
+              "name": {
+                "type": "string",
+                "enum": [
+                  "sentence",
+                  "body",
+                  "lhs",
+                  "rhs",
+                  "requires",
+                  "ensures",
+                  "attributes"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "index"
+            ],
+            "properties": {
+              "kind": {
+                "const": "argument"
+              },
+              "index": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "index"
+            ],
+            "properties": {
+              "kind": {
+                "const": "sequence-item"
+              },
+              "index": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "injection-term"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "name"
+            ],
+            "properties": {
+              "kind": {
+                "const": "attribute"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        ]
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lineageId",
+        "contentFingerprint",
+        "bodyFingerprint",
+        "module",
+        "label",
+        "kind",
+        "source",
+        "location",
+        "generated",
+        "transformationChain"
+      ],
+      "properties": {
+        "lineageId": {
+          "$ref": "#/$defs/digest"
+        },
+        "contentFingerprint": {
+          "$ref": "#/$defs/digest"
+        },
+        "bodyFingerprint": {
+          "$ref": "#/$defs/digest"
+        },
+        "module": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "rule",
+            "claim",
+            "context",
+            "alias",
+            "configuration"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/logicalSource"
+        },
+        "location": {
+          "$ref": "#/$defs/location"
+        },
+        "generated": {
+          "type": "boolean"
+        },
+        "transformationChain": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/digest"
+          }
+        }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "term"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9_]*$"
+        },
+        "term": {
+          "$ref": "#/$defs/term"
+        }
+      }
+    },
+    "attribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "value"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/term"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "sentenceValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "encoding",
+        "module",
+        "kind",
+        "label",
+        "source",
+        "location",
+        "body",
+        "requires",
+        "ensures",
+        "attributes"
+      ],
+      "properties": {
+        "encoding": {
+          "const": "portable-semantic-sentence-v1"
+        },
+        "module": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "rule",
+            "claim",
+            "context",
+            "alias",
+            "configuration"
+          ]
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/logicalSource"
+        },
+        "location": {
+          "$ref": "#/$defs/location"
+        },
+        "body": {
+          "$ref": "#/$defs/term"
+        },
+        "requires": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/term"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ensures": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/term"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attributes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/attribute"
+          }
+        }
+      }
+    },
+    "artifactRole": {
+      "type": "string",
+      "enum": [
+        "baseline-oracle-gate-result",
+        "compatibility-profile",
+        "corpus-manifest",
+        "definition",
+        "event-trace",
+        "execution-profile",
+        "failure-taxonomy",
+        "instrumented-definition",
+        "lowering-cycle-proof",
+        "lowering-profile",
+        "lowering-proof-check-receipt",
+        "mutant-definition",
+        "mutation-join",
+        "mutation-module",
+        "mutation-operator",
+        "mutation-selector",
+        "mutation-site-registry",
+        "observation-manifest",
+        "observer",
+        "options",
+        "oracle-comparison",
+        "oracle-comparison-result",
+        "oracle-comparison-spec",
+        "oracle-conformance-suite",
+        "oracle-declaration",
+        "oracle-evaluator-conformance",
+        "oracle-operand",
+        "oracle-projection",
+        "oracle-projection-plan",
+        "oracle-projection-query",
+        "oracle-projection-source",
+        "oracle-value",
+        "parser",
+        "patch",
+        "patch-template",
+        "pattern-compiler-profile",
+        "pattern-plan",
+        "pattern-query",
+        "pattern-result",
+        "pattern-side-condition",
+        "pattern-source",
+        "postcondition",
+        "precondition",
+        "predicate-conformance-table",
+        "predicate-plan",
+        "predicate-query",
+        "predicate-source",
+        "program",
+        "reachability-conformance-table",
+        "reachability-plan",
+        "reachability-query",
+        "reachability-source",
+        "reachability-witness",
+        "replay-manifest",
+        "semantic-crash",
+        "semantic-output-bytes",
+        "semantic-output-finite-table",
+        "side-condition-conformance-table",
+        "solver-profile",
+        "structural-diff",
+        "terminal-state",
+        "transformation"
+      ]
+    },
+    "artifactKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "digest"
+      ],
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/artifactRole"
+        },
+        "digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "artifactRef": {
+      "$ref": "#/$defs/artifactKey"
+    },
+    "executionTerminal": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "artifact"
+          ],
+          "properties": {
+            "kind": {
+              "const": "normal"
+            },
+            "artifact": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "digest"
+              ],
+              "properties": {
+                "role": {
+                  "const": "terminal-state"
+                },
+                "digest": {
+                  "$ref": "#/$defs/digest"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "artifact"
+          ],
+          "properties": {
+            "kind": {
+              "const": "stuck"
+            },
+            "artifact": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "digest"
+              ],
+              "properties": {
+                "role": {
+                  "const": "terminal-state"
+                },
+                "digest": {
+                  "$ref": "#/$defs/digest"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "artifact"
+          ],
+          "properties": {
+            "kind": {
+              "const": "semantic-crash"
+            },
+            "artifact": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "digest"
+              ],
+              "properties": {
+                "role": {
+                  "const": "semantic-crash"
+                },
+                "digest": {
+                  "$ref": "#/$defs/digest"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "artifactUse": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/artifactKey"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "requirementId"
+          ],
+          "properties": {
+            "role": {
+              "$ref": "#/$defs/artifactRole"
+            },
+            "requirementId": {
+              "type": "string",
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+            }
+          }
+        }
+      ]
+    },
+    "rational": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator"
+      ],
+      "properties": {
+        "numerator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "denominator": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "depth",
+        "timeMs",
+        "branches",
+        "results"
+      ],
+      "properties": {
+        "depth": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "timeMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "branches": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "results": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "classification",
+        "context",
+        "scope",
+        "retryability",
+        "semanticEvidence",
+        "details"
+      ],
+      "properties": {
+        "stage": {
+          "type": "string",
+          "enum": [
+            "input",
+            "operator",
+            "selection",
+            "patch",
+            "ir-validation",
+            "lowering",
+            "backend-validation",
+            "execution",
+            "observation",
+            "pattern",
+            "oracle",
+            "infrastructure",
+            "report"
+          ]
+        },
+        "classification": {
+          "type": "string",
+          "enum": [
+            "malformed",
+            "unsupported-version",
+            "missing-artifact",
+            "digest-mismatch",
+            "malformed-operator",
+            "unsupported-phase",
+            "unsupported-sentence-kind",
+            "no-change",
+            "cardinality-mismatch",
+            "incomplete-generation",
+            "duplicate-site",
+            "invalid-join",
+            "stale-precondition",
+            "malformed-path",
+            "unsupported-operation",
+            "duplicate-target",
+            "overlapping-edit",
+            "invalid-position",
+            "ill-sorted",
+            "invalid-module",
+            "invalid-import",
+            "invalid-variable",
+            "invalid-attribute",
+            "invalid-sentence",
+            "lowering-rejected",
+            "lowering-nontermination",
+            "unsupported-lowering",
+            "time-limit",
+            "resource-limit",
+            "compile-rejected",
+            "unsupported-backend-profile",
+            "depth-limit",
+            "branch-limit",
+            "result-limit",
+            "solver-unknown",
+            "backend-error",
+            "unsupported-observation-shape",
+            "non-conservative-observation",
+            "provenance-mismatch",
+            "malformed-event",
+            "malformed-pattern",
+            "sort-mismatch",
+            "invalid-side-condition",
+            "malformed-result",
+            "unreplayable-witness",
+            "baseline-mismatch",
+            "malformed-oracle",
+            "projection-invalid",
+            "evaluator-unavailable",
+            "incomparable-result",
+            "process-launch",
+            "io",
+            "artifact-corruption",
+            "worker-lost",
+            "internal",
+            "schema-violation",
+            "canonicalization-failure",
+            "referential-integrity"
+          ]
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "candidate",
+            "mutant",
+            "path",
+            "test",
+            "campaign"
+          ]
+        },
+        "retryability": {
+          "type": "string",
+          "enum": [
+            "never",
+            "same-input-after-resource-change",
+            "after-external-repair"
+          ]
+        },
+        "details": {
+          "type": "object"
+        },
+        "context": {
+          "enum": [
+            "observation-installation",
+            "mutation-discovery",
+            "candidate-generation",
+            "pattern-path",
+            "pattern-test",
+            "corpus-shared-setup",
+            "baseline-validation",
+            "baseline-execution",
+            "baseline-oracle-gate",
+            "mutant-validation",
+            "mutant-execution",
+            "oracle-operand-production",
+            "oracle-comparison",
+            "campaign",
+            "report-publication"
+          ]
+        },
+        "semanticEvidence": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/artifactKey"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "stage": {
+                  "const": "input"
+                },
+                "classification": {
+                  "enum": [
+                    "malformed",
+                    "unsupported-version",
+                    "missing-artifact",
+                    "digest-mismatch"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "stage": {
+                  "const": "operator"
+                },
+                "classification": {
+                  "enum": [
+                    "malformed-operator",
+                    "unsupported-phase",
+                    "unsupported-sentence-kind",
+                    "no-change"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "stage": {
+                  "const": "selection"
+                },
+                "classification": {
+                  "enum": [
+                    "cardinality-mismatch",
+                    "incomplete-generation",
+                    "duplicate-site",
+                    "invalid-join"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "stage": {
+                  "const": "patch"
+                },
+                "classification": {
+                  "enum": [
+                    "stale-precondition",
+                    "malformed-path",
+                    "unsupported-operation",
+                    "duplicate-target",
+                    "overlapping-edit",
+                    "invalid-position",
+                    "no-change"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "stage": {
+                  "const": "ir-validation"
+                },
+                "classification": {
+                  "enum": [
+                    "ill-sorted",
+                    "invalid-module",
+                    "invalid-import",
+                    "invalid-variable",
+                    "invalid-attribute",
+                    "invalid-sentence"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "stage": {
+                  "const": "lowering"
+                },
+                "classification": {
+                  "enum": [
+                    "lowering-rejected",
+                    "lowering-nontermination",
+                    "unsupported-lowering",
+                    "time-limit",
+                    "resource-limit"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "stage": {
+                  "const": "backend-validation"
+                },
+                "classification": {
+                  "enum": [
+                    "compile-rejected",
+                    "unsupported-backend-profile"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "enum": [
+                    "depth-limit",
+                    "time-limit",
+                    "branch-limit",
+                    "result-limit",
+                    "resource-limit",
+                    "solver-unknown",
+                    "backend-error"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "stage": {
+                  "const": "observation"
+                },
+                "classification": {
+                  "enum": [
+                    "unsupported-observation-shape",
+                    "non-conservative-observation",
+                    "provenance-mismatch",
+                    "malformed-event"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "stage": {
+                  "const": "pattern"
+                },
+                "classification": {
+                  "enum": [
+                    "malformed-pattern",
+                    "sort-mismatch",
+                    "invalid-side-condition",
+                    "malformed-result",
+                    "unreplayable-witness"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "stage": {
+                  "const": "oracle"
+                },
+                "classification": {
+                  "enum": [
+                    "baseline-mismatch",
+                    "malformed-oracle",
+                    "projection-invalid",
+                    "evaluator-unavailable",
+                    "incomparable-result"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "stage": {
+                  "const": "infrastructure"
+                },
+                "classification": {
+                  "enum": [
+                    "process-launch",
+                    "io",
+                    "artifact-corruption",
+                    "worker-lost",
+                    "internal"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "stage": {
+                  "const": "report"
+                },
+                "classification": {
+                  "enum": [
+                    "schema-violation",
+                    "canonicalization-failure",
+                    "referential-integrity"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "if": {
+            "properties": {
+              "stage": {
+                "const": "lowering"
+              },
+              "classification": {
+                "const": "lowering-nontermination"
+              }
+            },
+            "required": [
+              "stage",
+              "classification"
+            ]
+          },
+          "then": {
+            "properties": {
+              "semanticEvidence": {
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "role",
+                    "digest"
+                  ],
+                  "properties": {
+                    "role": {
+                      "const": "lowering-proof-check-receipt"
+                    },
+                    "digest": {
+                      "$ref": "#/$defs/digest"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "semanticEvidence": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "observationInstallationFailure": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/failure"
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "observation"
+                },
+                "classification": {
+                  "const": "unsupported-observation-shape"
+                },
+                "context": {
+                  "const": "observation-installation"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "observation"
+                },
+                "classification": {
+                  "const": "non-conservative-observation"
+                },
+                "context": {
+                  "const": "observation-installation"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "observation"
+                },
+                "classification": {
+                  "const": "provenance-mismatch"
+                },
+                "context": {
+                  "const": "observation-installation"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "observation"
+                },
+                "classification": {
+                  "const": "malformed-event"
+                },
+                "context": {
+                  "const": "observation-installation"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "mutationDiscoveryFailure": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/failure"
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "selection"
+                },
+                "classification": {
+                  "const": "incomplete-generation"
+                },
+                "context": {
+                  "const": "mutation-discovery"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "candidateGenerationFailure": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/failure"
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "operator"
+                },
+                "classification": {
+                  "const": "malformed-operator"
+                },
+                "context": {
+                  "const": "candidate-generation"
+                },
+                "scope": {
+                  "const": "candidate"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "operator"
+                },
+                "classification": {
+                  "const": "unsupported-phase"
+                },
+                "context": {
+                  "const": "candidate-generation"
+                },
+                "scope": {
+                  "const": "candidate"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "operator"
+                },
+                "classification": {
+                  "const": "unsupported-sentence-kind"
+                },
+                "context": {
+                  "const": "candidate-generation"
+                },
+                "scope": {
+                  "const": "candidate"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "operator"
+                },
+                "classification": {
+                  "const": "no-change"
+                },
+                "context": {
+                  "const": "candidate-generation"
+                },
+                "scope": {
+                  "const": "candidate"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "selection"
+                },
+                "classification": {
+                  "const": "cardinality-mismatch"
+                },
+                "context": {
+                  "const": "candidate-generation"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "selection"
+                },
+                "classification": {
+                  "const": "incomplete-generation"
+                },
+                "context": {
+                  "const": "candidate-generation"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "selection"
+                },
+                "classification": {
+                  "const": "duplicate-site"
+                },
+                "context": {
+                  "const": "candidate-generation"
+                },
+                "scope": {
+                  "const": "candidate"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "selection"
+                },
+                "classification": {
+                  "const": "invalid-join"
+                },
+                "context": {
+                  "const": "candidate-generation"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "patch"
+                },
+                "classification": {
+                  "const": "stale-precondition"
+                },
+                "context": {
+                  "const": "candidate-generation"
+                },
+                "scope": {
+                  "const": "candidate"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "patch"
+                },
+                "classification": {
+                  "const": "malformed-path"
+                },
+                "context": {
+                  "const": "candidate-generation"
+                },
+                "scope": {
+                  "const": "candidate"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "patch"
+                },
+                "classification": {
+                  "const": "unsupported-operation"
+                },
+                "context": {
+                  "const": "candidate-generation"
+                },
+                "scope": {
+                  "const": "candidate"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "patch"
+                },
+                "classification": {
+                  "const": "duplicate-target"
+                },
+                "context": {
+                  "const": "candidate-generation"
+                },
+                "scope": {
+                  "const": "candidate"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "patch"
+                },
+                "classification": {
+                  "const": "overlapping-edit"
+                },
+                "context": {
+                  "const": "candidate-generation"
+                },
+                "scope": {
+                  "const": "candidate"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "patch"
+                },
+                "classification": {
+                  "const": "invalid-position"
+                },
+                "context": {
+                  "const": "candidate-generation"
+                },
+                "scope": {
+                  "const": "candidate"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "patch"
+                },
+                "classification": {
+                  "const": "no-change"
+                },
+                "context": {
+                  "const": "candidate-generation"
+                },
+                "scope": {
+                  "const": "candidate"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "patternPathFailure": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/failure"
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "depth-limit"
+                },
+                "context": {
+                  "const": "pattern-path"
+                },
+                "scope": {
+                  "const": "path"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "time-limit"
+                },
+                "context": {
+                  "const": "pattern-path"
+                },
+                "scope": {
+                  "const": "path"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "branch-limit"
+                },
+                "context": {
+                  "const": "pattern-path"
+                },
+                "scope": {
+                  "const": "path"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "result-limit"
+                },
+                "context": {
+                  "const": "pattern-path"
+                },
+                "scope": {
+                  "const": "path"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "resource-limit"
+                },
+                "context": {
+                  "const": "pattern-path"
+                },
+                "scope": {
+                  "const": "path"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "solver-unknown"
+                },
+                "context": {
+                  "const": "pattern-path"
+                },
+                "scope": {
+                  "const": "path"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "backend-error"
+                },
+                "context": {
+                  "const": "pattern-path"
+                },
+                "scope": {
+                  "const": "path"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "patternTestFailure": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/failure"
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "depth-limit"
+                },
+                "context": {
+                  "const": "pattern-test"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "time-limit"
+                },
+                "context": {
+                  "const": "pattern-test"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "branch-limit"
+                },
+                "context": {
+                  "const": "pattern-test"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "result-limit"
+                },
+                "context": {
+                  "const": "pattern-test"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "resource-limit"
+                },
+                "context": {
+                  "const": "pattern-test"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "solver-unknown"
+                },
+                "context": {
+                  "const": "pattern-test"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "backend-error"
+                },
+                "context": {
+                  "const": "pattern-test"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "pattern"
+                },
+                "classification": {
+                  "const": "malformed-pattern"
+                },
+                "context": {
+                  "const": "pattern-test"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "pattern"
+                },
+                "classification": {
+                  "const": "sort-mismatch"
+                },
+                "context": {
+                  "const": "pattern-test"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "pattern"
+                },
+                "classification": {
+                  "const": "invalid-side-condition"
+                },
+                "context": {
+                  "const": "pattern-test"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "pattern"
+                },
+                "classification": {
+                  "const": "malformed-result"
+                },
+                "context": {
+                  "const": "pattern-test"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "pattern"
+                },
+                "classification": {
+                  "const": "unreplayable-witness"
+                },
+                "context": {
+                  "const": "pattern-test"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "corpusSharedSetupFailure": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/failure"
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "input"
+                },
+                "classification": {
+                  "const": "malformed"
+                },
+                "context": {
+                  "const": "corpus-shared-setup"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "input"
+                },
+                "classification": {
+                  "const": "unsupported-version"
+                },
+                "context": {
+                  "const": "corpus-shared-setup"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "input"
+                },
+                "classification": {
+                  "const": "missing-artifact"
+                },
+                "context": {
+                  "const": "corpus-shared-setup"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "input"
+                },
+                "classification": {
+                  "const": "digest-mismatch"
+                },
+                "context": {
+                  "const": "corpus-shared-setup"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "baselineValidationFailure": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/failure"
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "lowering"
+                },
+                "classification": {
+                  "const": "lowering-nontermination"
+                },
+                "context": {
+                  "const": "baseline-validation"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "backend-validation"
+                },
+                "classification": {
+                  "const": "compile-rejected"
+                },
+                "context": {
+                  "const": "baseline-validation"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "backend-validation"
+                },
+                "classification": {
+                  "const": "unsupported-backend-profile"
+                },
+                "context": {
+                  "const": "baseline-validation"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "baselineExecutionFailure": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/failure"
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "infrastructure"
+                },
+                "classification": {
+                  "const": "process-launch"
+                },
+                "context": {
+                  "const": "baseline-execution"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "after-external-repair"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "infrastructure"
+                },
+                "classification": {
+                  "const": "io"
+                },
+                "context": {
+                  "const": "baseline-execution"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "after-external-repair"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "infrastructure"
+                },
+                "classification": {
+                  "const": "artifact-corruption"
+                },
+                "context": {
+                  "const": "baseline-execution"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "infrastructure"
+                },
+                "classification": {
+                  "const": "worker-lost"
+                },
+                "context": {
+                  "const": "baseline-execution"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "after-external-repair"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "infrastructure"
+                },
+                "classification": {
+                  "const": "internal"
+                },
+                "context": {
+                  "const": "baseline-execution"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "baselineOracleGateFailure": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/failure"
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "oracle"
+                },
+                "classification": {
+                  "const": "baseline-mismatch"
+                },
+                "context": {
+                  "const": "baseline-oracle-gate"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "mutantValidationFailure": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/failure"
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "ir-validation"
+                },
+                "classification": {
+                  "const": "ill-sorted"
+                },
+                "context": {
+                  "const": "mutant-validation"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "ir-validation"
+                },
+                "classification": {
+                  "const": "invalid-module"
+                },
+                "context": {
+                  "const": "mutant-validation"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "ir-validation"
+                },
+                "classification": {
+                  "const": "invalid-import"
+                },
+                "context": {
+                  "const": "mutant-validation"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "ir-validation"
+                },
+                "classification": {
+                  "const": "invalid-variable"
+                },
+                "context": {
+                  "const": "mutant-validation"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "ir-validation"
+                },
+                "classification": {
+                  "const": "invalid-attribute"
+                },
+                "context": {
+                  "const": "mutant-validation"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "ir-validation"
+                },
+                "classification": {
+                  "const": "invalid-sentence"
+                },
+                "context": {
+                  "const": "mutant-validation"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "lowering"
+                },
+                "classification": {
+                  "const": "lowering-rejected"
+                },
+                "context": {
+                  "const": "mutant-validation"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "lowering"
+                },
+                "classification": {
+                  "const": "lowering-nontermination"
+                },
+                "context": {
+                  "const": "mutant-validation"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "lowering"
+                },
+                "classification": {
+                  "const": "unsupported-lowering"
+                },
+                "context": {
+                  "const": "mutant-validation"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "lowering"
+                },
+                "classification": {
+                  "const": "time-limit"
+                },
+                "context": {
+                  "const": "mutant-validation"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "lowering"
+                },
+                "classification": {
+                  "const": "resource-limit"
+                },
+                "context": {
+                  "const": "mutant-validation"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "backend-validation"
+                },
+                "classification": {
+                  "const": "compile-rejected"
+                },
+                "context": {
+                  "const": "mutant-validation"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "backend-validation"
+                },
+                "classification": {
+                  "const": "unsupported-backend-profile"
+                },
+                "context": {
+                  "const": "mutant-validation"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "mutantExecutionFailure": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/failure"
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "lowering"
+                },
+                "classification": {
+                  "const": "time-limit"
+                },
+                "context": {
+                  "const": "mutant-execution"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "lowering"
+                },
+                "classification": {
+                  "const": "resource-limit"
+                },
+                "context": {
+                  "const": "mutant-execution"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "depth-limit"
+                },
+                "context": {
+                  "const": "mutant-execution"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "time-limit"
+                },
+                "context": {
+                  "const": "mutant-execution"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "branch-limit"
+                },
+                "context": {
+                  "const": "mutant-execution"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "result-limit"
+                },
+                "context": {
+                  "const": "mutant-execution"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "resource-limit"
+                },
+                "context": {
+                  "const": "mutant-execution"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "solver-unknown"
+                },
+                "context": {
+                  "const": "mutant-execution"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "backend-error"
+                },
+                "context": {
+                  "const": "mutant-execution"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "infrastructure"
+                },
+                "classification": {
+                  "const": "process-launch"
+                },
+                "context": {
+                  "const": "mutant-execution"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "after-external-repair"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "infrastructure"
+                },
+                "classification": {
+                  "const": "io"
+                },
+                "context": {
+                  "const": "mutant-execution"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "after-external-repair"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "infrastructure"
+                },
+                "classification": {
+                  "const": "artifact-corruption"
+                },
+                "context": {
+                  "const": "mutant-execution"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "infrastructure"
+                },
+                "classification": {
+                  "const": "worker-lost"
+                },
+                "context": {
+                  "const": "mutant-execution"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "after-external-repair"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "infrastructure"
+                },
+                "classification": {
+                  "const": "internal"
+                },
+                "context": {
+                  "const": "mutant-execution"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "oracleComparisonFailure": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/failure"
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "oracle"
+                },
+                "classification": {
+                  "const": "malformed-oracle"
+                },
+                "context": {
+                  "const": "oracle-comparison"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "oracle"
+                },
+                "classification": {
+                  "const": "incomparable-result"
+                },
+                "context": {
+                  "const": "oracle-comparison"
+                },
+                "scope": {
+                  "const": "mutant"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "campaignFailure": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/failure"
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "infrastructure"
+                },
+                "classification": {
+                  "const": "internal"
+                },
+                "context": {
+                  "const": "campaign"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "reportPublicationFailure": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/failure"
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "report"
+                },
+                "classification": {
+                  "const": "schema-violation"
+                },
+                "context": {
+                  "const": "report-publication"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "report"
+                },
+                "classification": {
+                  "const": "canonicalization-failure"
+                },
+                "context": {
+                  "const": "report-publication"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "report"
+                },
+                "classification": {
+                  "const": "referential-integrity"
+                },
+                "context": {
+                  "const": "report-publication"
+                },
+                "scope": {
+                  "const": "campaign"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "patternQueryRoot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "patternSource",
+        "patternPlan",
+        "patternQuery"
+      ],
+      "properties": {
+        "patternSource": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "digest"
+          ],
+          "properties": {
+            "role": {
+              "const": "pattern-source"
+            },
+            "digest": {
+              "$ref": "common.schema.json#/$defs/digest"
+            }
+          }
+        },
+        "patternPlan": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "digest"
+          ],
+          "properties": {
+            "role": {
+              "const": "pattern-plan"
+            },
+            "digest": {
+              "$ref": "common.schema.json#/$defs/digest"
+            }
+          }
+        },
+        "patternQuery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "digest"
+          ],
+          "properties": {
+            "role": {
+              "const": "pattern-query"
+            },
+            "digest": {
+              "$ref": "common.schema.json#/$defs/digest"
+            }
+          }
+        }
+      }
+    },
+    "oracleOperandProductionFailure": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/failure"
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "input"
+                },
+                "classification": {
+                  "const": "missing-artifact"
+                },
+                "context": {
+                  "const": "oracle-operand-production"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "execution"
+                },
+                "classification": {
+                  "const": "solver-unknown"
+                },
+                "context": {
+                  "const": "oracle-operand-production"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "same-input-after-resource-change"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "oracle"
+                },
+                "classification": {
+                  "const": "projection-invalid"
+                },
+                "context": {
+                  "const": "oracle-operand-production"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "const": "oracle"
+                },
+                "classification": {
+                  "const": "evaluator-unavailable"
+                },
+                "context": {
+                  "const": "oracle-operand-production"
+                },
+                "scope": {
+                  "const": "test"
+                },
+                "retryability": {
+                  "const": "never"
+                }
+              },
+              "required": [
+                "stage",
+                "classification",
+                "context",
+                "scope",
+                "retryability"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

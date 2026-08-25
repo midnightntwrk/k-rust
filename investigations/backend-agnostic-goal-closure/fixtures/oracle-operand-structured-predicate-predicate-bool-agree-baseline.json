@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "operandId": "4539a9da5586b4611e68aa9cd8cdfbad8885cc19de7220282ca478edf5322935",
+  "declaration": {
+    "role": "oracle-declaration",
+    "digest": "a05a8590d959e4d7a16badc8e4b04cb74c03460c279ae7036184a0a54d0819d7"
+  },
+  "subject": {
+    "side": "baseline",
+    "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4"
+  },
+  "testInvocationDigest": "043447ba5bd136575c0d4952ca2d36508d4856c1a28f4efb5001ab611d5367ca",
+  "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
+  "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+  "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+  "completionEvidence": {
+    "kind": "predicate-finite-row",
+    "table": {
+      "role": "predicate-conformance-table",
+      "digest": "fd14545b233a60b7352e8ad446a0b32ac9a08ecd29cfc10bf07b04d9bf52e211"
+    },
+    "query": {
+      "role": "predicate-query",
+      "digest": "524b05ae80a6ae7b1f46379920ebdcb327257d6d809972332cc840ebbca29602"
+    },
+    "input": {
+      "role": "terminal-state",
+      "digest": "00958626001fc0db84da9145e7d654b51eba797f406aeab94ceb4d30237dc3fb"
+    },
+    "bindingsDigest": "88fb109f656dcb7342d08df2697bd55ab4adfe1cd2f555d3c80c6fd2d0822b03",
+    "producerTrace": {
+      "role": "event-trace",
+      "digest": "07ba18a0af4485328f2bed376b32d673c73e7b7e86cf312ce4829fa4eb9b836e"
+    }
+  },
+  "normalizedValue": {
+    "query": {
+      "role": "predicate-query",
+      "digest": "524b05ae80a6ae7b1f46379920ebdcb327257d6d809972332cc840ebbca29602"
+    },
+    "input": {
+      "role": "terminal-state",
+      "digest": "00958626001fc0db84da9145e7d654b51eba797f406aeab94ceb4d30237dc3fb"
+    },
+    "inputProjectionDigest": "92f35a53a15ac218eaeee2016286cf22994d928f197089fe43d98599c8a6f1e9",
+    "bindings": [
+      {
+        "name": "STATE",
+        "term": {
+          "encoding": "portable-term-v1",
+          "sort": "GeneratedTopCell",
+          "node": {
+            "kind": "application",
+            "label": "done",
+            "args": [],
+            "symbolId": "490babcffda6b500f27f026ec11dd312956309446b5c4c348b7d44e5e3cc2fc5"
+          }
+        }
+      }
+    ],
+    "bindingsDigest": "88fb109f656dcb7342d08df2697bd55ab4adfe1cd2f555d3c80c6fd2d0822b03",
+    "result": true
+  }
+}

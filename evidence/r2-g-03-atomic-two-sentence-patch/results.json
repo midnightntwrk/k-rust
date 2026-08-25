@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "task": "R2-G-03-atomic-two-sentence-patch",
+  "verdict": "pass",
+  "oracleCycleCount": 1,
+  "activationRevision": "21b05ed5d9c1691e439a03bb4f6500be6d75e28a",
+  "headRevision": "21b05ed5d9c1691e439a03bb4f6500be6d75e28a",
+  "kCommit": "4a46d1231473b599c699160132fd6e76a5c46406",
+  "transportSchema": "KDefinitionTransport-v1",
+  "patchSchema": "KDefinitionPatch-v2",
+  "transformation": "p3-start-and-add-values@1",
+  "implementationSha256": {
+    "transport": "e5a358e787bcd5b01e2f3f0537e5be7bd50aca59edb34d17d2ed1ad57a0de6ee",
+    "driver": "34a520b52cda0234b05c82988e02d7b3ab85c1f5b97dde0f19c89865873086a1",
+    "transactionReplay": "49c26b8bdadd9744c86a86229cfc6b3cb8246fdd189bad23697954f7b5a6b031",
+    "focusedNormalizer": "d0db2388cb83b131230b662121602d7a89f91810b28e35b33ab8c30529a51520",
+    "addValuesFixture": "cb898749d76e51fdaf6c6636920ccdb4f415fc1cffd1e2497636b38cc2469807"
+  },
+  "priorRegression": {
+    "verdict": "pass",
+    "patchSchema": "KDefinitionPatch-v1"
+  },
+  "transaction": {
+    "status": "accepted",
+    "fingerprint": "be203f5508ba7a9d70d337d959c387040b5aa89499111b2a829d01543d644620",
+    "cardinality": 1,
+    "editCount": 2,
+    "validatedEditCount": 2,
+    "applicationCount": 2,
+    "changedLineageCount": 2,
+    "outputConstructed": true,
+    "sameDefinitionReference": false,
+    "canonicalRepeatStable": true,
+    "definitionChanged": true,
+    "edits": [
+      {
+        "kind": "replaceTermFromInput",
+        "targetLineage": "62351680309f929d1e50473ab6e398f00832f96c826b68c6029793b75470d609",
+        "targetContent": "ae1bccb2cd4ca21ae6bc7f96b5c01425a91416b69260e0a3fbe85d15bb7db8a3",
+        "targetBody": "4edfed5ffffdca1b638eecf41242720258bcded7b5c153c4812291a8c761b2a1",
+        "targetPathCanonical": "dPathCons(dRewriteRight,dPathNil)",
+        "replacementPathCanonical": "dPathCons(dRewriteLeft,dPathCons(dApplicationArgument(1),dPathNil))",
+        "afterContent": "9f21bc39d75bc986d11b7c5654bf4399445f946bc80b8eb23dc728c358362ea5",
+        "afterBody": "9ad2a32d8e70ac56f298e0a37d958306d81742a07219a64e4dc5140e8424280f",
+        "lineageAttributesAndConditionsPreserved": true
+      },
+      {
+        "kind": "replaceTermFromInput",
+        "targetLineage": "c293ed519b14c368ae63c749805536605c4003b11a49d776cf39b22e142d820a",
+        "targetContent": "2f37d1728cbb7f495d9f89027c2608556e7949d6871589a5472f1dfc45064cf3",
+        "targetBody": "3af41b61eece8d63540fbc7a601a8a01457ccc94abfeb3d8a138e8238c7720a2",
+        "targetPathCanonical": "dPathCons(dRewriteRight,dPathNil)",
+        "replacementPathCanonical": "dPathCons(dRewriteRight,dPathCons(dApplicationArgument(1),dPathNil))",
+        "afterContent": "b47a8abd2032adfc3dd36ad25fc04b50741cc0c52e15ae22b0a04c84bc151977",
+        "afterBody": "27dffef0833fbafde7479f3690df8359078c5f09232804e771c5d71a96d039c0",
+        "lineageAttributesAndConditionsPreserved": true
+      }
+    ]
+  },
+  "rejection": {
+    "staleFirst": {
+      "status": "rejected",
+      "exitCode": 113,
+      "validatedEdits": 0,
+      "applications": 0,
+      "outputConstructed": false
+    },
+    "staleSecond": {
+      "status": "rejected",
+      "exitCode": 113,
+      "validatedEdits": 1,
+      "applications": 0,
+      "outputConstructed": false
+    },
+    "duplicateTarget": {
+      "status": "rejected",
+      "exitCode": 113,
+      "validatedEdits": 0,
+      "applications": 0,
+      "outputConstructed": false
+    },
+    "boundary": "post-k-transaction-pre-apply",
+    "backendArtifacts": false
+  },
+  "acceptance": {
+    "startRuntime": "k=0-state=2",
+    "addValuesBaselineRuntime": "k=3",
+    "addValuesTransactionRuntime": "k=2",
+    "startProjection": "equal-to-r2-g-02-v1-patch",
+    "addValuesProjection": "different-from-official-baseline-and-replaced-by-second-input-variable",
+    "syntaxAndMacros": "byte-identical-to-official-baseline",
+    "replacementSources": "original-official-input-nodes"
+  },
+  "packetAmbiguity": "none; typed variables are cast-wrapped at the seam and the fixed path reuses that original second-input term",
+  "limitations": [
+    "exactly two input-relative replacements in two distinct existing rules",
+    "rewrite and application-argument paths only",
+    "no same-rule overlap semantics, synthetic terms, insertion, deletion, condition edit, or attribute edit"
+  ],
+  "recommendedNextInvestigation": "classify the pre-CF observation/configuration augmentation seam before general event or matcher implementation"
+}

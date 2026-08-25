@@ -1,0 +1,430 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "backend-agnostic-k-in-k-v1",
+  "sources": [
+    "draft/goal/execution-pattern-matching.md",
+    "draft/goal/semantic-mutation-testing.md"
+  ],
+  "states": [
+    "portable-closed",
+    "portable-closed-rust-proof-pending",
+    "explicitly-held"
+  ],
+  "entries": [
+    {
+      "id": "EX-01-observation-selection",
+      "goal": "execution-pattern",
+      "source": "sections 4.1 and 9",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/observation-manifest.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/observation-manifest.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/structural-observation-cases.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/observation-installation-result.json",
+        "investigations/backend-agnostic-goal-closure/vectors/observation-vectors.json"
+      ],
+      "historicalEvidence": [
+        "r2-g-07-single-rule-observation"
+      ],
+      "rustProof": "native declarative structural-term installation plus differential arbitrary K-authored discovery and atomic multi-rule installation"
+    },
+    {
+      "id": "EX-02-conservative-instrumentation",
+      "goal": "execution-pattern",
+      "source": "sections 4.2 and 9",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/contracts.md",
+        "investigations/backend-agnostic-goal-closure/vectors/observation-vectors.json"
+      ],
+      "historicalEvidence": [
+        "r2-g-07-single-rule-observation"
+      ],
+      "rustProof": "erasure equivalence for branching, predicates, termination, and supported rule shapes"
+    },
+    {
+      "id": "EX-03-domain-events-and-clocks",
+      "goal": "execution-pattern",
+      "source": "sections 4.3, 5, and 9",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/event-trace.schema.json",
+        "investigations/backend-agnostic-goal-closure/vectors/observation-vectors.json"
+      ],
+      "historicalEvidence": [
+        "r3-g-01-rule-applied-trace",
+        "r3-g-04-exact-adjacent-pair"
+      ],
+      "rustProof": "native distinct domain event production and branch-local clocks"
+    },
+    {
+      "id": "EX-04-temporal-denotation",
+      "goal": "execution-pattern",
+      "source": "sections 5 and 9",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/pattern-plan.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/pattern-query.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/side-condition-conformance-table.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/pattern-plan-write-then-load-constant-side-condition.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/pattern-plan-nonlexical-subset-side-condition.json",
+        "investigations/backend-agnostic-goal-closure/vectors/execution-pattern-vectors.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "historicalEvidence": [
+        "r3-g-03-head-match",
+        "r3-g-04-exact-adjacent-pair"
+      ],
+      "rustProof": "native K source-to-plan compilation receipt, solver correctness, and differential occurrence results"
+    },
+    {
+      "id": "EX-05-symbolic-constraints-and-branches",
+      "goal": "execution-pattern",
+      "source": "sections 6 and 9",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/vectors/execution-pattern-vectors.json"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "solver feasibility, sibling isolation, stable path identity, and replay"
+    },
+    {
+      "id": "EX-06-four-way-status",
+      "goal": "execution-pattern",
+      "source": "sections 6 and 9",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/pattern-result.schema.json",
+        "investigations/backend-agnostic-goal-closure/failure-taxonomy.json"
+      ],
+      "historicalEvidence": [
+        "r3-g-03-head-match"
+      ],
+      "rustProof": "executor exhaustiveness and native stop-reason fidelity"
+    },
+    {
+      "id": "EX-07-corpus-aggregation",
+      "goal": "execution-pattern",
+      "source": "sections 7 and 9",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/corpus-manifest.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/corpus-result.schema.json",
+        "investigations/backend-agnostic-goal-closure/vectors/corpus-vectors.json"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "isolated native corpus execution and artifact collection"
+    },
+    {
+      "id": "EX-08-witness-and-replay",
+      "goal": "execution-pattern",
+      "source": "sections 8 and 9",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/pattern-result.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/replay-manifest.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/pattern-plan-write-eventually-load.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/pattern-query-write-eventually-load.json",
+        "investigations/backend-agnostic-goal-closure/schemas/artifact-catalog.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/replay-closure.schema.json",
+        "investigations/backend-agnostic-goal-closure/artifact-role-specs.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/replay-closure.json"
+      ],
+      "historicalEvidence": [
+        "r3-g-03-head-match",
+        "r3-g-04-exact-adjacent-pair"
+      ],
+      "rustProof": "stable KCFG/path keys and replay from recorded native artifacts"
+    },
+    {
+      "id": "EX-09-trace-stream-equivalence",
+      "goal": "execution-pattern",
+      "source": "section 4.4",
+      "state": "explicitly-held",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/vectors/observation-vectors.json"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "activate only after the trace reference is accepted and performance evidence justifies it"
+    },
+    {
+      "id": "EX-10-deterministic-reports",
+      "goal": "execution-pattern",
+      "source": "section 9 acceptance",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/fixtures/pattern-result.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/side-condition-conformance-table.json",
+        "investigations/backend-agnostic-goal-closure/schemas/terminal-state.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/semantic-crash.schema.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "repeated native run equality"
+    },
+    {
+      "id": "MU-01-definition-and-identity",
+      "goal": "semantic-mutation",
+      "source": "sections 4 and 12",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/semantic-definition.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/claim-boundary.schema.json",
+        "investigations/backend-agnostic-goal-closure/claim-boundary.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-memory.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-counter.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-generated.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-identity-output.json"
+      ],
+      "historicalEvidence": [
+        "r2-g-01-definition-transport"
+      ],
+      "rustProof": "enumerate supported native K forms and declaration/signature tables; prove parsed-K/native-IR coverage and injectivity over the explicitly declared supported surface, reject unsupported/lossy forms, and derive native-backed identities"
+    },
+    {
+      "id": "MU-02-operator-contract",
+      "goal": "semantic-mutation",
+      "source": "section 5",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/mutation-operator.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-operator.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-campaign.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "native K-authored selector/join/template discovery, template evaluation, and differential receipt production"
+    },
+    {
+      "id": "MU-03-selection-and-enumeration",
+      "goal": "semantic-mutation",
+      "source": "sections 6, 7, and 12",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/mutation-site-registry.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-site-registry.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-policy-cases.json",
+        "investigations/backend-agnostic-goal-closure/vectors/mutation-vectors.json"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "native exact/each/tuple-each/all-matches discovery"
+    },
+    {
+      "id": "MU-04-patch-operations-and-atomicity",
+      "goal": "semantic-mutation",
+      "source": "sections 5, 6, and 12",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/patch.schema.json",
+        "investigations/backend-agnostic-goal-closure/vectors/patch-application-vectors.json"
+      ],
+      "historicalEvidence": [
+        "r2-g-02-single-sentence-patch",
+        "r2-g-03-atomic-two-sentence-patch"
+      ],
+      "rustProof": "native application of every typed operation and conflict vector"
+    },
+    {
+      "id": "MU-05-layered-validation",
+      "goal": "semantic-mutation",
+      "source": "section 8",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/failure-taxonomy.json",
+        "investigations/backend-agnostic-goal-closure/schemas/common.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/semantic-crash.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/mutation-campaign.schema.json",
+        "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "actual IR, lowering, backend, execution, and oracle boundary classification"
+    },
+    {
+      "id": "MU-06-baseline-gate",
+      "goal": "semantic-mutation",
+      "source": "sections 8, 9, and 12",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/mutation-manifest.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/mutation-campaign.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/oracle-semantics.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/baseline-oracle-gate-exit-stop-terminal-class-and-declared-exit-agree.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/baseline-oracle-gate-incomparable-baseline-crash.json",
+        "investigations/backend-agnostic-goal-closure/vectors/oracle-semantics-vectors.json"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "native baseline validation and oracle execution before mutants"
+    },
+    {
+      "id": "MU-07-oracle-semantics",
+      "goal": "semantic-mutation",
+      "source": "section 9",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-crash.json",
+        "investigations/backend-agnostic-goal-closure/schemas/oracle-semantics.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/reachability-semantics.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/predicate-semantics.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/oracle-declaration-exit-stop-terminal-class-and-declared-exit-agree.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/oracle-operand-concrete-output-ordered-output-bytes-distinguish-baseline.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/oracle-comparison-incomparable-baseline-normal.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/reachability-conformance-table.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/predicate-conformance-table.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-output-finite-table.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/oracle-evaluator-conformance-nonconformant.json",
+        "investigations/backend-agnostic-goal-closure/schemas/mutation-campaign.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/semantic-crash.schema.json",
+        "investigations/backend-agnostic-goal-closure/vectors/oracle-semantics-vectors.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "native operand production with an exact BAG-15 production receipt plus matching catalog-resolved conformant evaluator authority for K-authored projections, reachability, comparisons, and predicates"
+    },
+    {
+      "id": "MU-08-scheduling-and-isolation",
+      "goal": "semantic-mutation",
+      "source": "sections 9, 10, and 12",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json",
+        "investigations/backend-agnostic-goal-closure/schemas/replay-manifest.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/mutation-execution-policy.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-execution-policy.json"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "native enforcement of the frozen isolation/cache contract, resource isolation, and first-kill/full runs"
+    },
+    {
+      "id": "MU-09-report-diff-and-replay",
+      "goal": "semantic-mutation",
+      "source": "sections 11 and 12",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/structural-diff.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/replay-manifest.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/structural-diff.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-replay-manifest.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/artifact-catalog.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/replay-closure.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-campaign.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "native artifact paths/digests, commands/invocations, and replay"
+    },
+    {
+      "id": "MU-10-exact-score",
+      "goal": "semantic-mutation",
+      "source": "sections 9, 11, and 12",
+      "state": "portable-closed",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none; native reports must conform"
+    },
+    {
+      "id": "MU-11-ordinary-result-kill",
+      "goal": "semantic-mutation",
+      "source": "section 12 acceptance",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "one native ordinary-result kill"
+    },
+    {
+      "id": "MU-12-pattern-kill-same-result",
+      "goal": "semantic-mutation",
+      "source": "section 12 acceptance",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/vectors/cross-feature-vectors.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-campaign.json"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "one native unchanged-final-result pattern kill"
+    },
+    {
+      "id": "MU-13-invalid-not-killed",
+      "goal": "semantic-mutation",
+      "source": "section 12 acceptance",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "one native ill-sorted/compile-invalid mutant"
+    },
+    {
+      "id": "MU-14-timeout-and-unknown",
+      "goal": "semantic-mutation",
+      "source": "sections 9 and 12 acceptance",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "native resource and solver stop enforcement"
+    },
+    {
+      "id": "MU-15-coupled-one-mutant",
+      "goal": "semantic-mutation",
+      "source": "sections 6 and 12 acceptance",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-campaign.json",
+        "investigations/backend-agnostic-goal-closure/vectors/patch-application-vectors.json"
+      ],
+      "historicalEvidence": [
+        "r2-g-03-atomic-two-sentence-patch"
+      ],
+      "rustProof": "one native coupled candidate counted once"
+    },
+    {
+      "id": "MU-16-cross-family-generality",
+      "goal": "semantic-mutation",
+      "source": "MVP generality guardrail",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-memory.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-counter.json",
+        "investigations/backend-agnostic-goal-closure/vectors/patch-application-vectors.json"
+      ],
+      "historicalEvidence": [
+        "r2-g-01-definition-transport"
+      ],
+      "rustProof": "native discovery and application across both structural families"
+    },
+    {
+      "id": "SC-01-retired-backend-stop",
+      "goal": "scope",
+      "source": "D1 and terminal checkpoint",
+      "state": "portable-closed",
+      "artifacts": [
+        "draft/decisions/d1-stop-old-g-track-and-preserve-portable-contracts-2026-08-22.md",
+        "draft/k-in-k-r3-g-05-final-five-cycle-stop-checkpoint-2026-08-22.md"
+      ],
+      "historicalEvidence": [
+        "r3-g-05-final-stop"
+      ],
+      "rustProof": "none; do not retry"
+    },
+    {
+      "id": "SC-02-rust-handoff-boundary",
+      "goal": "scope",
+      "source": "D1 and roadmap",
+      "state": "portable-closed",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md"
+      ],
+      "historicalEvidence": [
+        "w1-d-inprocess-definition-adapter",
+        "r3-g-05-final-stop"
+      ],
+      "rustProof": "RS-01 through RS-07, with RS-08 held"
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "task": "W1-A-egress",
+  "verdict": "pass",
+  "startingRevision": "9f30221d08de4b0f710061ce599b3c7f9f860273",
+  "toolchain": {
+    "release": "v7.1.337",
+    "commit": "4a46d1231473b599c699160132fd6e76a5c46406",
+    "resolvedKompile": "/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/bin/kompile",
+    "kastEnvelopeVersion": 4
+  },
+  "declaredOracle": {
+    "identityStructure": [
+      "byte-identical definition.kore",
+      "byte-identical syntaxDefinition.kore",
+      "byte-identical macros.kore",
+      "equal source-sentence identity/provenance projection"
+    ],
+    "identityBehavior": "byte-identical krun stdout",
+    "mutationStructure": "one labeled compiled rule and its one emitted Kore axiom change",
+    "mutationBehavior": "P3 final <k> changes from 1 to 0 while <state> remains 2",
+    "configurationStructure": "official generated ObservationCell declarations and initializer",
+    "configurationBehavior": "final <observation> is 0; two complete repeats are byte-identical"
+  },
+  "routes": [
+    {
+      "id": "post-process-compiled-kast",
+      "kind": "temporary-post-configuration-adapter",
+      "status": "pass",
+      "fixtures": ["p1/fixtures/peano.k", "p3/fixtures/coupled.k"],
+      "identityReentry": true,
+      "safeSentenceEdit": true,
+      "typed": true,
+      "boundary": "after all Kore frontend passes and checks, before ModuleToKORE",
+      "limitations": [
+        "hidden CLI option",
+        "too late for edits requiring frontend passes",
+        "all CF and meaning-bearing lowering already trusted",
+        "compiled JSON array order changes across JsonParser reserialization",
+        "UNIQUE_ID is stale after a post-numbering body edit"
+      ]
+    },
+    {
+      "id": "outer-parsed-json-from-pyk",
+      "kind": "supported-structured-outer-ingress",
+      "status": "blocked",
+      "identityReentry": false,
+      "typed": false,
+      "boundary": "before inner parsing; rules/configurations are bubbles",
+      "failure": "pinned pyk AST-to-KAST conversion has no SyntaxDefn sentence implementation"
+    },
+    {
+      "id": "emitted-parsed-json-reentry",
+      "kind": "structured-replayable-definition-artifact",
+      "status": "blocked",
+      "identityReentry": false,
+      "typed": true,
+      "boundary": "after configuration generation, before Kore frontend passes",
+      "failures": [
+        "emitted artifact trims DEFAULT-CONFIGURATION required by DefinitionParsing",
+        "ToJson omits inner K-node Production attributes required by pre-compilation checks"
+      ]
+    },
+    {
+      "id": "canonical-generated-k-source",
+      "kind": "source-egress",
+      "status": "unavailable",
+      "identityReentry": false,
+      "failure": "no definition-level canonical source emitter is available; parsed.txt and compiled.txt are diagnostic internal dumps"
+    },
+    {
+      "id": "ordinary-source-configuration-fallback",
+      "kind": "source-fallback",
+      "status": "pass",
+      "identityReentry": null,
+      "typed": false,
+      "configurationEdit": true,
+      "limitation": "proves official configuration generation, not typed KAST-to-source egress"
+    }
+  ],
+  "acceptance": {
+    "identityPeano": "pass",
+    "identityP3": "pass",
+    "selectedStructuralOracle": "pass",
+    "selectedBehavioralOracle": "pass",
+    "safeSentenceTransformation": "pass",
+    "observationConfigurationCapability": "pass-via-source-fallback",
+    "typedPreConfigurationTransformation": "not-demonstrated-exact-contract-isolated",
+    "replayScript": "pass"
+  },
+  "selectedDigests": {
+    "peanoIdentityDefinitionKore": "6b0ff9714c8c06d7259f462633b275bc9f8412ffa9e0e2311cfe56af1acbf6b0",
+    "peanoIdentityRuntime": "acadee28ab2a2231e8165e5148cc6bf89df2e91a7de5443cb0833a664d078507",
+    "p3IdentityDefinitionKore": "de31f8d0d419fb9f8ffd2201f400df9f06ef02999b8e62da0947fe50f1ec45d5",
+    "p3IdentityRuntime": "1d23163a56975a2c8d9c3991a16f1920eaefaa8595c9625c63cccaacc43d27f7",
+    "p3SentenceEditDefinitionKore": "7360cc555ac8cfb6015f97970841154d88c1f9d9f35d62ad43bea4516312b5fa",
+    "p3SentenceEditRuntime": "8c7e395db8507411c1e36cbff0fb8c0d0e77e14032e078e162527c8a4411d52f",
+    "p3ObservationDefinitionKore": "4967b0dc5d7edb722b39455ef1d69977a2f17a75203d291f4a5cc28966a02945",
+    "p3ObservationRuntime": "bd078f608534aed42d4e4b094e456839fff7d834195497090274626ac29a7ea4"
+  },
+  "evidenceDigestIndex": "investigations/w1-egress/evidence/SHA256SUMS",
+  "evidenceRetention": "compact commit retains digest manifest, projections, diffs, runtime results, and material failure logs; replay regenerates omitted compiler directories and KAST/Kore dumps",
+  "stopRule": "acceptance obtained in cycle 1; later cycle labels answered distinct packet questions, so three full-oracle cycles without acceptance were not exceeded",
+  "replay": "investigations/w1-egress/replay.sh investigations/w1-egress/replay"
+}

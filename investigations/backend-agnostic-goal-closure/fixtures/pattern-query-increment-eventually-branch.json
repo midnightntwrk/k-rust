@@ -1,0 +1,13 @@
+{
+  "patternSource": {
+    "role": "pattern-source",
+    "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+  },
+  "patternPlan": {
+    "role": "pattern-plan",
+    "digest": "f95af4e7f885557001f0d284ab8e2f0b7cef2d3e1ba8af40c9ec30d44525d5a1"
+  },
+  "entryModule": "PATTERN-QUERIES",
+  "exportedName": "increment-eventually-branch",
+  "queryId": "0f6ccc9fd0a2a75aba9fe127df58c9bb3d892cc1876edb55d78bbe8be64fe56b"
+}

@@ -1,0 +1,127 @@
+# Backend-agnostic goal closure
+
+Status: active portable investigation package; BAG-12 repair refreshed and
+awaiting fresh independent acceptance audit, 23 August 2026.
+
+This package records the semantic work that can be completed before K-in-K
+moves to its Rust-based execution stack. It deliberately does not preserve,
+repair, or wrap the stopped Java/Haskell execution path.
+
+The package has three purposes:
+
+1. separate portable conclusions from evidence that only proved them on the
+   old pinned stack;
+2. freeze backend-neutral conformance inputs and expected results before a new
+   implementation can accidentally define the semantics by its behavior; and
+3. identify the first point at which further evidence genuinely needs the
+   Rust stack.
+
+The normative portable contracts are in [contracts.md](contracts.md). The
+machine-readable inventory is [evidence-inventory.json](evidence-inventory.json),
+the closed failure vocabulary is [failure-taxonomy.md](failure-taxonomy.md),
+and the future implementation order is [rust-stack-handoff.md](rust-stack-handoff.md).
+Schemas and golden vectors are under `schemas/` and `vectors/`.
+The typed patch oracle is `vectors/patch-application-vectors.json`; the
+string-path data under `historicalRetiredStackShorthand` is retained solely to
+identify bounded retired-stack evidence and is not an interchange format.
+
+Run the zero-backend checks with:
+
+```sh
+python3 investigations/backend-agnostic-goal-closure/verify.py
+```
+
+That command reads repository files and uses the installed official Draft
+2020-12 `jsonschema` validator in addition to the Python standard library. It
+does not invoke K, Java, a compiler backend, a solver, or a Rust executor.
+
+## Claim boundary
+
+The verifier may check closed schemas, canonical encodings and digests,
+referential integrity, declarative patch algebra, atomic failure outputs, and
+status/score invariants. It also acts as a small trusted oracle over the
+finite traces supplied in this package: it searches those vectors, derives
+witnesses, and concludes absence only when their explicit finite-completeness
+flags permit it. That oracle defines conformance expectations; it is not a
+claim about traces produced by a backend. The verifier must not:
+
+- discover semantic sites or interpret a K mutation operator;
+- solve K-term constraints or infer symbolic feasibility;
+- infer exhaustive absence from a backend trace merely because no recorded
+  event matched;
+- instrument, lower, execute, or prove erasure/conservativity; or
+- translate debugger/backend logs into product events.
+
+Passing this package means the portable inputs and expectations are internally
+consistent. It is not evidence that a backend has implemented them. The
+Rust-stack differential gates in the handoff are the future execution proof.
+
+The BAG-12 repair resolves its corpus, observation vocabulary, typed oracle
+graph, terminal/crash provenance, and finite authorities only through the
+active catalog. It publishes end-to-end agree/distinguish evidence for every
+built-in pair, both incomparable orientations, incomplete cases, and 35
+one-to-one executable adversaries. These are repair-gate results, not an
+acceptance claim.
+
+## Artifact availability and current replay recipes
+
+`artifact-role-specs.json` freezes the shared role, media, schema, domain, and
+executable semantic-projection registry. `fixtures/artifact-catalog.json` supplies exact
+byte hashes and explicit resolver/availability metadata. The bundled material
+is deliberately small synthetic conformance input. `artifact://` entries are
+known, reviewed external pins for the future Rust artifact resolver; their
+locator spelling is not treated as local storage.
+
+None of the four current replay recipes is materially self-contained:
+`replay-manifest.json`, `write-only-replay-manifest.json`,
+`mutation-replay-manifest.json`, and `mutation-pattern-replay-manifest.json`
+all have referential closure but retain at least one `external-required`
+structured input. Their exact derived status is in
+`fixtures/replay-closure.json`. They are frozen recipes, not locally executable
+bundles, and all explicitly report execution conformance as `not-proven`.
+
+Execution-pattern roots are deliberately split into opaque `pattern-source`,
+structured normalized `pattern-plan`, and structured named `pattern-query`
+keys. Replay match steps and every result/corpus/mutation/cache consumer bind
+the exact catalog-resolved triple. Corpus and mutation selections preserve
+oracle order and repeated query roots; mutation caches flatten only the exact
+mutation-test selections. Plan variable declaration order is retained in
+witnesses, and side-condition table keys hash only the declared input subset
+(including the valid empty constant interface). `pattern-plan.schema.json` is
+a finite conformance format, not K source or a Rust compiler IR; native K
+compiler and solver correctness remain future Rust-stack proof.
+
+## Closure criteria
+
+Backend-agnostic investigation is complete only when all of the following are
+true together:
+
+1. every MVP acceptance clause in both goal specifications is represented in
+   the closure matrix as a portable contract, bounded historical proof, or a
+   specifically named Rust-proof requirement;
+2. identity, definition, operator, patch, observation, event, pattern,
+   corpus, mutation, diff, replay, failure, and scoring boundaries have closed
+   schemas or normative algorithms and at least one positive fixture;
+3. golden vectors cover positive, negative, uncertain, atomic-failure, and
+   deterministic-order cases across at least two structurally different
+   semantic families;
+4. the verifier recomputes all normative IDs and cross-references, executes the
+   finite-trace denotation and declarative patch algebra, derives aggregation
+   and scores, and rejects adversarial contradictions;
+5. the evidence inventory includes every accepted or boundary-setting W1,
+   R2-G, R3-G, and terminal-stop artifact relevant to the two goals;
+6. D1, the roadmap, this package, and the Rust packet ordering agree about the
+   superseding stack transition and do not claim that K was compared with a
+   conventional AST library; and
+7. a fresh independent audit finds no remaining work that can be answered
+   credibly without the Rust semantic IR, executor, solver, or resource data.
+
+The verifier enforces the machine-checkable subset. The final completion audit
+records the requirement-to-evidence review for the prose and scope criteria.
+
+## Versioning
+
+The package is version `backend-agnostic-k-in-k-v1`. A semantic change to a
+closed enum, canonicalization rule, outcome rule, patch conflict rule, or
+golden expected result requires a new package version. Adding a vector that
+does not change existing meanings is a compatible extension.

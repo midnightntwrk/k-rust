@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "planId": "c8779fd8fbcccfeb383d40493bf30619796009df204ba91afa78cb5ba5064b44",
+  "variables": [
+    {
+      "name": "STATE",
+      "sort": "GeneratedTopCell"
+    }
+  ],
+  "statePattern": {
+    "encoding": "portable-term-v1",
+    "sort": "GeneratedTopCell",
+    "node": {
+      "kind": "variable",
+      "name": "STATE"
+    }
+  },
+  "sideCondition": null
+}

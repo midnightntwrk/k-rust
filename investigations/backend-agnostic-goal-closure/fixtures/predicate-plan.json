@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "planId": "1320255d9cfe65357f4f50cd0b345915e9f470cd9acd80a762bf4ac35d4f65de",
+  "inputRole": "terminal-state",
+  "inputSchemaDigest": "d96bda72e2a469635018c3cd557e5a3f920b77fcde5a93026c5803cf7a4517e4",
+  "inputProjectionDigest": "264b95a559ee6916b7eede7ff34baa6173498c00aad0eb289fe63c7c1a280665",
+  "variables": [
+    {
+      "name": "STATE",
+      "sort": "GeneratedTopCell"
+    }
+  ],
+  "resultSort": "Bool",
+  "evaluationMode": "finite-table-v1"
+}

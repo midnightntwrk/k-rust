@@ -1,0 +1,216 @@
+{
+  "input": "investigations/w1-inprocess-adapter/replay-pass/p3-inprocess-edit/compiled.json",
+  "schemaVersion": 1,
+  "sentenceCount": 13,
+  "sentences": [
+    {
+      "bodySha256": "df5d03a49ceab8d120d60c874ae731f70be3fedcf00c5db8b780e553d7afd793",
+      "ensuresSha256": "6ba24d0803f322c91ce283b6482cfa0307b9f2f064adcf7b0227710d54a0626d",
+      "label": "P3-COUPLED-SYNTAX.add1-cool",
+      "location": [
+        5,
+        18,
+        5,
+        58
+      ],
+      "module": "P3-COUPLED",
+      "node": "KRule",
+      "requiresSha256": "92e53ce42424d747443c6991a2ac780959bf8132a94827b59421da62184f910c",
+      "source": "/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-inprocess/p3/fixtures/coupled.k",
+      "uniqueId": "8a232156a4b3b38837bc5e93d4944cd680606ee02ccd308f5201741f64ba1bdb"
+    },
+    {
+      "bodySha256": "a89836ad759a640a96254b8b2007f69b65ecdbddddd18e070cb589ebce0449b5",
+      "ensuresSha256": "6ba24d0803f322c91ce283b6482cfa0307b9f2f064adcf7b0227710d54a0626d",
+      "label": "P3-COUPLED-SYNTAX.add1-heat",
+      "location": [
+        5,
+        18,
+        5,
+        58
+      ],
+      "module": "P3-COUPLED",
+      "node": "KRule",
+      "requiresSha256": "f822a381575e7cd8b003a268946d08f0edf878b7f5eba07e32552e42781eb48c",
+      "source": "/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-inprocess/p3/fixtures/coupled.k",
+      "uniqueId": "7d997912aa5e6e4b7492011ae5537802f539f9084085025d3ce422e707bd8748"
+    },
+    {
+      "bodySha256": "7cd18ccd06489e35949d1b18dcd7fa6ef24f2f34e26d03637544b974eef188bb",
+      "ensuresSha256": "6ba24d0803f322c91ce283b6482cfa0307b9f2f064adcf7b0227710d54a0626d",
+      "label": "P3-COUPLED-SYNTAX.add2-cool",
+      "location": [
+        5,
+        18,
+        5,
+        58
+      ],
+      "module": "P3-COUPLED",
+      "node": "KRule",
+      "requiresSha256": "92e53ce42424d747443c6991a2ac780959bf8132a94827b59421da62184f910c",
+      "source": "/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-inprocess/p3/fixtures/coupled.k",
+      "uniqueId": "86f8461c228a101aa14f40f8fb4e18cd51d924b2a1ef5affe56f222059c64a6b"
+    },
+    {
+      "bodySha256": "4aeb9d4749c39e205e3d3f2712f7d13756be63421873a0662c7e327d05970f79",
+      "ensuresSha256": "6ba24d0803f322c91ce283b6482cfa0307b9f2f064adcf7b0227710d54a0626d",
+      "label": "P3-COUPLED-SYNTAX.add2-heat",
+      "location": [
+        5,
+        18,
+        5,
+        58
+      ],
+      "module": "P3-COUPLED",
+      "node": "KRule",
+      "requiresSha256": "7f03d43f534e2f74f82464bc7f336d972ae3a5b6ab5efb1308fe1d24f99d0d20",
+      "source": "/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-inprocess/p3/fixtures/coupled.k",
+      "uniqueId": "142627df081bcdbbd1265597e36254e1747fdacf0295d229ae8a0f2db8976c61"
+    },
+    {
+      "bodySha256": "f0b8932e86403fa2ce5f95a9a9f3816f91c1ab0d8cddb82890ea4f10be1b3fdc",
+      "ensuresSha256": "6ba24d0803f322c91ce283b6482cfa0307b9f2f064adcf7b0227710d54a0626d",
+      "label": "P3-COUPLED.hold-context-cool",
+      "location": [
+        38,
+        27,
+        38,
+        37
+      ],
+      "module": "P3-COUPLED",
+      "node": "KRule",
+      "requiresSha256": "92e53ce42424d747443c6991a2ac780959bf8132a94827b59421da62184f910c",
+      "source": "/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-inprocess/p3/fixtures/coupled.k",
+      "uniqueId": "9ea434c0bafeafa5e9a938761e509c0fa3df165433e0d5b684b1ec41e6049fe6"
+    },
+    {
+      "bodySha256": "12d0b2428e90d133dade0b7016185157c191c8a8e0c863bbb4bd21763c36679d",
+      "ensuresSha256": "6ba24d0803f322c91ce283b6482cfa0307b9f2f064adcf7b0227710d54a0626d",
+      "label": "P3-COUPLED.hold-context-heat",
+      "location": [
+        38,
+        27,
+        38,
+        37
+      ],
+      "module": "P3-COUPLED",
+      "node": "KRule",
+      "requiresSha256": "f822a381575e7cd8b003a268946d08f0edf878b7f5eba07e32552e42781eb48c",
+      "source": "/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-inprocess/p3/fixtures/coupled.k",
+      "uniqueId": "a97fed864b6c742f2a1f6140d4f2fe17965aecacd41acb10a79d2a2c31535d86"
+    },
+    {
+      "bodySha256": "f83af5c88c5f6f35cb69104e91d162ca1b8837307229bd70667a3665715bd1fa",
+      "ensuresSha256": "6ba24d0803f322c91ce283b6482cfa0307b9f2f064adcf7b0227710d54a0626d",
+      "label": "add-values",
+      "location": [
+        35,
+        8,
+        35,
+        33
+      ],
+      "module": "P3-COUPLED",
+      "node": "KRule",
+      "requiresSha256": "6ba24d0803f322c91ce283b6482cfa0307b9f2f064adcf7b0227710d54a0626d",
+      "source": "/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-inprocess/p3/fixtures/coupled.k",
+      "uniqueId": "72ec1be79846c675f4d22e859649c324701e8056e26e2216b1847fd8e219233d"
+    },
+    {
+      "bodySha256": "2aa2281102232b1beea587ae08a54453c63e81f4aae75a27f4970d2368b677d0",
+      "ensuresSha256": "8af908d625f60ec8de886c18c273c5021a7d18319d7a107a11c66dd70b75091f",
+      "label": "bump-state",
+      "location": [
+        29,
+        8,
+        32,
+        28
+      ],
+      "module": "P3-COUPLED",
+      "node": "KRule",
+      "requiresSha256": "839f30c26a2d71ae1304cdddb5aadeaa0607eff52303831ad8003a621f2ec0f7",
+      "source": "/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-inprocess/p3/fixtures/coupled.k",
+      "uniqueId": "25c0fce70d5140101bb952f6c43f90a22963e8c42e2923f0576f13dc3c402ccd"
+    },
+    {
+      "bodySha256": "82cf1699f1eed2abc2b8eba4d4ec2ddc683cd26dab1749d69a532febfafd91b5",
+      "ensuresSha256": "6ba24d0803f322c91ce283b6482cfa0307b9f2f064adcf7b0227710d54a0626d",
+      "label": "hold-value",
+      "location": [
+        36,
+        8,
+        36,
+        24
+      ],
+      "module": "P3-COUPLED",
+      "node": "KRule",
+      "requiresSha256": "6ba24d0803f322c91ce283b6482cfa0307b9f2f064adcf7b0227710d54a0626d",
+      "source": "/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-inprocess/p3/fixtures/coupled.k",
+      "uniqueId": "1c309ea857a83498a59dfa0bc09c45902d6ae2049cf5624f57728727cbcfd96d"
+    },
+    {
+      "bodySha256": "d76bd463447f19b2183b9b47ff37d04d8aa94dbd47646ee09cc7993e497cb0e4",
+      "ensuresSha256": "6ba24d0803f322c91ce283b6482cfa0307b9f2f064adcf7b0227710d54a0626d",
+      "label": "read-state",
+      "location": [
+        23,
+        8,
+        24,
+        26
+      ],
+      "module": "P3-COUPLED",
+      "node": "KRule",
+      "requiresSha256": "6ba24d0803f322c91ce283b6482cfa0307b9f2f064adcf7b0227710d54a0626d",
+      "source": "/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-inprocess/p3/fixtures/coupled.k",
+      "uniqueId": "c2baf4877a7c4ec7668d4bd7b9d0f2b9dea0e21d2eed7cc3099d4c99929307f1"
+    },
+    {
+      "bodySha256": "609e05189489867758b419e438e6848d014af4722a5e8c304570a86af8fff652",
+      "ensuresSha256": "6ba24d0803f322c91ce283b6482cfa0307b9f2f064adcf7b0227710d54a0626d",
+      "label": "start-program",
+      "location": [
+        27,
+        8,
+        27,
+        30
+      ],
+      "module": "P3-COUPLED",
+      "node": "KRule",
+      "requiresSha256": "6ba24d0803f322c91ce283b6482cfa0307b9f2f064adcf7b0227710d54a0626d",
+      "source": "/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-inprocess/p3/fixtures/coupled.k",
+      "uniqueId": "894b0a6867fed90782f8686b0fc97ffb8640a5bbca2f05807486c953d6df0a3f"
+    },
+    {
+      "bodySha256": "a27d6e290e443405707facf1a05eb4c06d71c9b33bd7ca649627dc22f75d5618",
+      "ensuresSha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "label": "P3-COUPLED-SYNTAX.add1",
+      "location": [
+        5,
+        18,
+        5,
+        58
+      ],
+      "module": "P3-COUPLED-SYNTAX",
+      "node": "KContext",
+      "requiresSha256": "19097e80c19475fe3275b86f8449dc5474e90a2e71056af20d41eaeccaa00e49",
+      "source": "/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-inprocess/p3/fixtures/coupled.k",
+      "uniqueId": null
+    },
+    {
+      "bodySha256": "c9e387fbe2619a9d6f6ded3d6c2b80f9ef448b41a81581590927fb9ef3b50bda",
+      "ensuresSha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "label": "P3-COUPLED-SYNTAX.add2",
+      "location": [
+        5,
+        18,
+        5,
+        58
+      ],
+      "module": "P3-COUPLED-SYNTAX",
+      "node": "KContext",
+      "requiresSha256": "02d1c909d81cacd103db5af3edf18406312d11f0ed9b3c9b4ab8b41e29c189c7",
+      "source": "/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-inprocess/p3/fixtures/coupled.k",
+      "uniqueId": null
+    }
+  ],
+  "sourceSuffix": "/p3/fixtures/coupled.k"
+}

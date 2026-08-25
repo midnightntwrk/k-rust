@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "operandId": "29fbcd18a0daece9fa1c18619710986503ccd78b46c06e3279eaf28186e8a0e4",
+  "declaration": {
+    "role": "oracle-declaration",
+    "digest": "62d3b23ceae3815f5ef6b8816b5b4c0b3a5cdbe2eeb662fa71b0dc2daf499229"
+  },
+  "subject": {
+    "side": "baseline",
+    "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4"
+  },
+  "testInvocationDigest": "043447ba5bd136575c0d4952ca2d36508d4856c1a28f4efb5001ab611d5367ca",
+  "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
+  "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+  "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+  "completionEvidence": {
+    "kind": "execution-terminal",
+    "terminal": {
+      "kind": "normal",
+      "artifact": {
+        "role": "terminal-state",
+        "digest": "00958626001fc0db84da9145e7d654b51eba797f406aeab94ceb4d30237dc3fb"
+      }
+    },
+    "producerTrace": {
+      "role": "event-trace",
+      "digest": "07ba18a0af4485328f2bed376b32d673c73e7b7e86cf312ce4829fa4eb9b836e"
+    }
+  },
+  "normalizedValue": {
+    "terminalClass": "normal",
+    "exitCode": null
+  }
+}

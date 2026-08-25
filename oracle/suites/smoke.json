@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "smoke",
+  "baselineManifest": "../manifests/smoke-baseline.json",
+  "mutationManifest": "../manifests/smoke-mutation.json",
+  "expectedDifferent": [
+    "contexts-prefix:parsed-json",
+    "contexts-prefix:compiled-json",
+    "full:parsed-json",
+    "full:compiled-json",
+    "full:definition-kore",
+    "full:syntax-kore"
+  ],
+  "expectedEqual": ["full:macros-kore"]
+}

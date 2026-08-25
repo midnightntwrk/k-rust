@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "comparisonId": "d740c63b3558521b2d3c6302d09c4d3e50920bb41eeda59763d92ab0a36cd18a",
+  "declaration": {
+    "role": "oracle-declaration",
+    "digest": "7b43d3266f64df19fa62f0304c90d07e321f66ca64811c0b76e4460b0688b3e4"
+  },
+  "sides": [
+    {
+      "side": "baseline",
+      "normalOperand": {
+        "role": "oracle-operand",
+        "digest": "8ec7db51e6bf383c2f337ab87bf6326ca932a27e358ca581ae78fcf5667c662b"
+      },
+      "semanticCrash": null
+    },
+    {
+      "side": "mutant",
+      "normalOperand": {
+        "role": "oracle-operand",
+        "digest": "80f14fb2f896b7118ccf175fcb4edb9f1f23618fac120fc654a166d2f553fc07"
+      },
+      "semanticCrash": null
+    }
+  ],
+  "projectionId": "whole-portable-term-v1",
+  "comparatorId": "exact-portable-term-v1",
+  "normalizedValueDigests": [
+    "a4817789678220b0e1a34d416b3aebd3f683a152b2867f263e6a19e3bd9dc842",
+    "d25b4978aa5a9c127e165c215aae62f06ae80e55c85ea6d645a6c74acba82270"
+  ],
+  "outcome": "distinguish"
+}

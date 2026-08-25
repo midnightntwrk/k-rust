@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "backend-agnostic-k-in-k-v1",
+  "cases": [
+    {
+      "id": "unchanged-final-result-killed-by-event-pattern",
+      "mutation": {"instanceId": "1111111111111111111111111111111111111111111111111111111111111111", "editCount": 2, "atomic": true},
+      "baseline": {"finalResultDigest": "2222222222222222222222222222222222222222222222222222222222222222", "patternOutcome": "match", "witnessIndices": [0, 2]},
+      "mutant": {"finalResultDigest": "2222222222222222222222222222222222222222222222222222222222222222", "patternOutcome": "no-match", "completeCoverage": true},
+      "oracles": [{"kind": "final-result", "outcome": "agree"}, {"kind": "execution-pattern", "outcome": "distinguish"}],
+      "expected": {"mutantStatus": "killed", "killingOracle": "execution-pattern", "scoreEntries": 1}
+    },
+    {
+      "id": "observation-does-not-retarget-mutation",
+      "mutationTargetLineages": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+      "baselineObservationRevision": "3333333333333333333333333333333333333333333333333333333333333333",
+      "mutantObservationRevision": "3333333333333333333333333333333333333333333333333333333333333333",
+      "eventOriginalLineages": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+      "expected": {"sameObservationRevision": true, "allEventOriginsResolveToMutationTargets": true}
+    },
+    {
+      "id": "pattern-unknown-cannot-kill-or-survive",
+      "baseline": {"patternOutcome": "no-match", "completeCoverage": true},
+      "mutant": {"patternOutcome": "unknown", "completeCoverage": false},
+      "expected": {"mutantStatus": "unknown", "scoreIncluded": false}
+    }
+  ]
+}

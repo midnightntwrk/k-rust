@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/replay-manifest.schema.json",
+  "title": "Portable replay manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "replayId", "invocationDigest", "kind", "packageVersion", "artifactCatalogDigest", "definitionDigest", "transformationDigests", "programDigest", "parserDigest", "startSymbol", "testId", "queryId", "executionMode", "observerDigest", "observationManifestDigest", "patternDigest", "compatibilityProfileDigest", "profileDigest", "solverProfileDigest", "optionsDigest", "searchPolicy", "bounds", "artifacts", "steps", "expectedResultDigest"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "replayId": {"$ref": "common.schema.json#/$defs/digest"},
+    "invocationDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "kind": {"type": "string", "enum": ["pattern-query", "mutation-instance"]},
+    "packageVersion": {"const": "backend-agnostic-k-in-k-v1"},
+    "artifactCatalogDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "definitionDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "transformationDigests": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/digest"}},
+    "programDigest": {"oneOf": [{"$ref": "common.schema.json#/$defs/digest"}, {"type": "null"}]},
+    "parserDigest": {"oneOf": [{"$ref": "common.schema.json#/$defs/digest"}, {"type": "null"}]},
+    "startSymbol": {"type": ["string", "null"]},
+    "testId": {"type": ["string", "null"]},
+    "queryId": {"type": ["string", "null"]},
+    "executionMode": {"type": ["string", "null"], "enum": ["concrete", "symbolic", null]},
+    "observerDigest": {"oneOf": [{"$ref": "common.schema.json#/$defs/digest"}, {"type": "null"}]},
+    "observationManifestDigest": {"oneOf": [{"$ref": "common.schema.json#/$defs/digest"}, {"type": "null"}]},
+    "patternDigest": {"oneOf": [{"$ref": "common.schema.json#/$defs/digest"}, {"type": "null"}]},
+    "compatibilityProfileDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "profileDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "solverProfileDigest": {"oneOf": [{"$ref": "common.schema.json#/$defs/digest"}, {"type": "null"}]},
+    "optionsDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "searchPolicy": {"type": "string", "enum": ["exhaustive", "existential-first"]},
+    "mutation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operatorDigest", "candidateId", "patchId", "mutantId", "outputDefinitionDigest"],
+      "properties": {
+        "operatorDigest": {"$ref": "common.schema.json#/$defs/digest"},
+        "candidateId": {"$ref": "common.schema.json#/$defs/digest"},
+        "patchId": {"$ref": "common.schema.json#/$defs/digest"},
+        "mutantId": {"$ref": "common.schema.json#/$defs/digest"},
+        "outputDefinitionDigest": {"$ref": "common.schema.json#/$defs/digest"}
+      }
+    },
+    "bounds": {"$ref": "common.schema.json#/$defs/bounds"},
+    "artifacts": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/artifactRef"}},
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ordinal", "role", "inputArtifacts", "optionsDigest", "expectedArtifacts"],
+        "properties": {
+          "ordinal": {"type": "integer", "minimum": 0},
+          "role": {"type": "string", "enum": ["ingest", "transform", "validate", "execute", "observe", "match", "oracle", "report"]},
+          "inputArtifacts": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/artifactKey"}},
+          "optionsDigest": {"$ref": "common.schema.json#/$defs/digest"},
+          "expectedArtifacts": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/artifactKey"}}
+        }
+      }
+    },
+    "expectedResultDigest": {"$ref": "common.schema.json#/$defs/digest"}
+  },
+  "allOf": [
+    {"if": {"properties": {"kind": {"const": "mutation-instance"}}}, "then": {"required": ["mutation"]}},
+    {"if": {"properties": {"kind": {"const": "pattern-query"}}}, "then": {"not": {"required": ["mutation"]}}}
+  ]
+}

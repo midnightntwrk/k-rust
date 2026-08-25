@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "replayId": "af64cf6296e6f6436c0147165587dc51f4cddd34c465d177dc436b238bee28a5",
+  "invocationDigest": "5d30f93c18995a8e86b49f631b70739668e3279a3984c0bebcf4d19f04c1c88e",
+  "kind": "pattern-query",
+  "packageVersion": "backend-agnostic-k-in-k-v1",
+  "definitionDigest": "a52d718b27c231138504e52a1984221a80a185e225e5da552801727577121fb0",
+  "transformationDigests": ["abababababababababababababababababababababababababababababababab"],
+  "programDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+  "testId": "write-load",
+  "profileDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+  "optionsDigest": "5555555555555555555555555555555555555555555555555555555555555555",
+  "searchPolicy": "exhaustive",
+  "bounds": {"depth": 20, "timeMs": 1000, "branches": 8, "results": 8},
+  "artifacts": [
+    {"role": "program", "digest": "3333333333333333333333333333333333333333333333333333333333333333", "mediaType": "application/vnd.starstream.program", "logicalPath": "corpus://memory/write-load"},
+    {"role": "pattern", "digest": "6666666666666666666666666666666666666666666666666666666666666666", "mediaType": "application/vnd.starstream.k-pattern", "logicalPath": "repo://patterns/write-load"}
+  ],
+  "steps": [
+    {"ordinal": 0, "role": "ingest", "inputDigests": ["a52d718b27c231138504e52a1984221a80a185e225e5da552801727577121fb0"], "optionsDigest": "5555555555555555555555555555555555555555555555555555555555555555", "expectedArtifactDigests": ["a52d718b27c231138504e52a1984221a80a185e225e5da552801727577121fb0"]},
+    {"ordinal": 1, "role": "transform", "inputDigests": ["a52d718b27c231138504e52a1984221a80a185e225e5da552801727577121fb0", "abababababababababababababababababababababababababababababababab"], "optionsDigest": "5555555555555555555555555555555555555555555555555555555555555555", "expectedArtifactDigests": ["cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"]},
+    {"ordinal": 2, "role": "execute", "inputDigests": ["cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", "3333333333333333333333333333333333333333333333333333333333333333"], "optionsDigest": "5555555555555555555555555555555555555555555555555555555555555555", "expectedArtifactDigests": ["dededededededededededededededededededededededededededededededede"]},
+    {"ordinal": 3, "role": "match", "inputDigests": ["dededededededededededededededededededededededededededededededede", "6666666666666666666666666666666666666666666666666666666666666666"], "optionsDigest": "5555555555555555555555555555555555555555555555555555555555555555", "expectedArtifactDigests": ["bc878b18886c5fbb056ce8dbe8c1fd13ab73210169d3363d6cf8b10cdca0b204"]}
+  ],
+  "expectedResultDigest": "bc878b18886c5fbb056ce8dbe8c1fd13ab73210169d3363d6cf8b10cdca0b204"
+}

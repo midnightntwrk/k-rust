@@ -1,0 +1,80 @@
+[
+  {
+    "id": "kompile-run-definition-pipeline",
+    "observedBefore": "Definition after all configuration generation and all non-configuration bubble resolution",
+    "observedAfter": "Definition before KoreBackend.steps",
+    "lifecycleEntry": "public Kompile.run Function<Definition,Definition> parameter",
+    "metadataRetained": "lossless official Definition graph, but no Configuration sentence remains",
+    "identityCapability": true,
+    "augmentationCapability": "generated-sentence edits only; no typed pre-CF configuration augmentation",
+    "postCfAdapterCompatibility": true,
+    "forbiddenMechanismRequired": false,
+    "verdict": "rejected-too-late",
+    "smallestMissingApi": "a Configuration transform invoked during DefinitionParsing before GenerateSentencesFromConfigDecl.gen"
+  },
+  {
+    "id": "definition-parsing-subclass",
+    "observedBefore": "protected wrapper receives Definition containing configuration Bubble values",
+    "observedAfter": "super wrapper returns Definition after Configuration removal and CF generation",
+    "lifecycleEntry": "protected resolveConfigBubbles(Definition,Module)",
+    "metadataRetained": "outer Bubble metadata before; generated sentence metadata after; typed Configuration exists only inside private overload",
+    "identityCapability": "delegation compiles",
+    "augmentationCapability": false,
+    "postCfAdapterCompatibility": "possible only after reproducing a custom Kompile parse route",
+    "forbiddenMechanismRequired": "private pipeline copy or reflective invocation to reach the midpoint",
+    "verdict": "rejected-private-midpoint",
+    "smallestMissingApi": "one callback between typed Configuration parsing and cell checks/generation"
+  },
+  {
+    "id": "guice-provider-override",
+    "observedBefore": "KompileFrontEnd receives providers for Backend and FileUtil, not DefinitionParsing",
+    "observedAfter": "Kompile constructor directly creates a private final DefinitionParsing",
+    "lifecycleEntry": "official injector -> KompileFrontEnd -> new Kompile -> new DefinitionParsing",
+    "metadataRetained": "not applicable because the candidate cannot enter the lifecycle",
+    "identityCapability": false,
+    "augmentationCapability": false,
+    "postCfAdapterCompatibility": false,
+    "forbiddenMechanismRequired": "reflection or replacement of the frontend lifecycle",
+    "verdict": "rejected-not-injectable",
+    "smallestMissingApi": "inject a DefinitionParsing provider plus expose the typed Configuration callback"
+  },
+  {
+    "id": "direct-generate-sentences-gen",
+    "observedBefore": "public gen accepts typed body, ensures, attributes, and extension Module",
+    "observedAfter": "generated CF sentence set",
+    "lifecycleEntry": "public static GenerateSentencesFromConfigDecl.gen",
+    "metadataRetained": "sufficient when a caller already possesses the official parsed Configuration and extension module",
+    "identityCapability": "not a lifecycle identity route",
+    "augmentationCapability": "generation works, but the installed lifecycle does not expose its typed input",
+    "postCfAdapterCompatibility": "only under a copied private parsing/generation pipeline",
+    "forbiddenMechanismRequired": "copying private configuration parsing or source/JSON reconstruction",
+    "verdict": "rejected-missing-typed-input-route",
+    "smallestMissingApi": "the same pre-gen Configuration callback; gen itself needs no replacement"
+  },
+  {
+    "id": "official-definition-adapter-post-cf",
+    "observedBefore": "lossless post-CF Definition",
+    "observedAfter": "lossless post-CF Definition before backend steps",
+    "lifecycleEntry": "accepted OfficialDefinitionAdapter v1",
+    "metadataRetained": "generated sentences and inner metadata; original Configuration value has been removed",
+    "identityCapability": true,
+    "augmentationCapability": "cannot ask official CF to generate a new cell",
+    "postCfAdapterCompatibility": true,
+    "forbiddenMechanismRequired": "reverse/reconstruct CF-01 through CF-03 or synthesize generated sentences",
+    "verdict": "rejected-too-late",
+    "smallestMissingApi": "pair the accepted adapter with a pre-gen Configuration callback"
+  },
+  {
+    "id": "ordinary-source-regeneration",
+    "observedBefore": "ordinary K source configuration",
+    "observedAfter": "official typed parse, CF generation, adapter position, lowering, and execution",
+    "lifecycleEntry": "normal kompile source entry",
+    "metadataRetained": "officially regenerated with new source-bound provenance",
+    "identityCapability": "not typed identity or typed egress",
+    "augmentationCapability": true,
+    "postCfAdapterCompatibility": true,
+    "forbiddenMechanismRequired": "source regeneration if claimed as the typed seam",
+    "verdict": "fallback-only-not-a-typed-seam",
+    "smallestMissingApi": "typed pre-gen Configuration callback to avoid source regeneration"
+  }
+]

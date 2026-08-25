@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "operatorId": "coupled-memory-representation",
+  "operatorVersion": 1,
+  "operatorDigest": "d619621711cdbbe672c2fc6a0707e6815188a6172119aefde829369ba9abaf84",
+  "moduleDigest": "ab522492b3927f0beb6061b2d5b6bcf6f20dbde0e744fef9572b6770774906f7",
+  "phase": "semantic-input",
+  "sentenceKinds": ["rule"],
+  "selectorDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "joinDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+  "policy": "exact",
+  "expectedTupleCount": 1,
+  "expectedTupleArity": 2,
+  "candidateCap": 8,
+  "preconditionDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+  "postconditionDigest": "5555555555555555555555555555555555555555555555555555555555555555",
+  "generatedSentencePolicy": "exclude",
+  "patchTemplateDigest": "6666666666666666666666666666666666666666666666666666666666666666",
+  "patchTemplateRoles": [
+    {
+      "name": "load-representation",
+      "operation": "replace-term",
+      "sourceSelectorRoles": [
+        "load-address"
+      ]
+    },
+    {
+      "name": "write-representation",
+      "operation": "replace-term",
+      "sourceSelectorRoles": [
+        "write-address"
+      ]
+    }
+  ],
+  "category": "representation-coupling",
+  "rationale": "Change the representation used by the paired producer and consumer as one atomic mutant."
+}

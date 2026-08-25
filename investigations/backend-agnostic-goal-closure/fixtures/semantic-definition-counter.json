@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "family": {"familyName": "portable-counter", "entryModules": ["COUNTER"], "compatibilityProfile": "portable-v1"},
+  "baselineFamilyId": "7812e54a2ed3490ffbdcb13eba98d81891b39689bc792a4b4de377c384b0b8c7",
+  "definitionDigest": "f2c4a6bb9b0e0ebd6b8ab9ef61d558a5b3f439956832877398ecf2ed9bc2a174",
+  "modules": [{
+    "name": "COUNTER",
+    "ordinal": 0,
+    "fingerprint": "ef4768a241bd1f439183fee8fd871ce0d08a9ab88a23c4b9c917f18c65e15dc3",
+    "imports": [],
+    "sentences": [
+      {
+        "occurrenceOrdinal": 0,
+        "generatedIdentity": null,
+        "provenance": {"lineageId": "3ff2a56bea69ade54713c054c6174255bc642eee3fc042ea93102a800d6c3e80", "contentFingerprint": "86dd9dc490638f850877e639dc9bfe44553a7ca75a49cf591c07456fbe0e29b8", "bodyFingerprint": "bdfbdfbaad050522a75efccf33805245a7c65a76de465e4fb21e11e014a42ede", "module": "COUNTER", "label": "increment", "kind": "rule", "source": "repo://fixtures/portable-counter.k", "location": {"startLine": 5, "startColumn": 1, "endLine": 7, "endColumn": 20}, "generated": false, "transformationChain": []},
+        "value": {"encoding": "portable-semantic-sentence-v1", "module": "COUNTER", "kind": "rule", "label": "increment", "source": "repo://fixtures/portable-counter.k", "location": {"startLine": 5, "startColumn": 1, "endLine": 7, "endColumn": 20}, "body": {"encoding": "portable-term-v1", "sort": "RuleBody", "node": {"kind": "rewrite", "left": {"encoding": "portable-term-v1", "sort": "Counter", "node": {"kind": "application", "label": "counter", "args": [{"encoding": "portable-term-v1", "sort": "Int", "node": {"kind": "variable", "name": "N"}}]}}, "right": {"encoding": "portable-term-v1", "sort": "Counter", "node": {"kind": "application", "label": "counter", "args": [{"encoding": "portable-term-v1", "sort": "Int", "node": {"kind": "application", "label": "plusOne", "args": [{"encoding": "portable-term-v1", "sort": "Int", "node": {"kind": "variable", "name": "N"}}]}}]}}}}, "requires": {"encoding": "portable-term-v1", "sort": "Bool", "node": {"kind": "token", "text": "true"}}, "ensures": null, "attributes": [{"name": "transition", "value": null}]}
+      },
+      {
+        "occurrenceOrdinal": 0,
+        "generatedIdentity": null,
+        "provenance": {"lineageId": "f129a58a69882de51f1028f0be1ebd2aa0e56ae6b26ba2f000b83f68d3cb53af", "contentFingerprint": "e105d2e61aaab2b183eb3a41a10a69a50a56c3b96c7087c374099a756e79ae72", "bodyFingerprint": "086c5a93b4dd661b75016d10855f70329cacec0e5e4c7e8a6efaf7a25396a71d", "module": "COUNTER", "label": "branch", "kind": "rule", "source": "repo://fixtures/portable-counter.k", "location": {"startLine": 12, "startColumn": 1, "endLine": 14, "endColumn": 20}, "generated": false, "transformationChain": []},
+        "value": {"encoding": "portable-semantic-sentence-v1", "module": "COUNTER", "kind": "rule", "label": "branch", "source": "repo://fixtures/portable-counter.k", "location": {"startLine": 12, "startColumn": 1, "endLine": 14, "endColumn": 20}, "body": {"encoding": "portable-term-v1", "sort": "RuleBody", "node": {"kind": "rewrite", "left": {"encoding": "portable-term-v1", "sort": "Control", "node": {"kind": "application", "label": "choose", "args": [{"encoding": "portable-term-v1", "sort": "Bool", "node": {"kind": "variable", "name": "B"}}]}}, "right": {"encoding": "portable-term-v1", "sort": "Control", "node": {"kind": "application", "label": "selected", "args": [{"encoding": "portable-term-v1", "sort": "Bool", "node": {"kind": "variable", "name": "B"}}]}}}}, "requires": {"encoding": "portable-term-v1", "sort": "Bool", "node": {"kind": "variable", "name": "B"}}, "ensures": null, "attributes": [{"name": "transition", "value": null}]}
+      }
+    ]
+  }]
+}

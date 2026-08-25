@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "patternPlanDigest": "50d31349d1bea9e6e0b560e55bfecd131c74fe04ac497c9a33f8a1e04538bb8e",
+  "eventVocabularyDigest": "720146bbdd1ee63dac11c62b0505e3fff40d8a54743652f8e16b6bf7938c3187",
+  "variables": [
+    {
+      "name": "VALUE",
+      "sort": "Int"
+    },
+    {
+      "name": "ADDRESS",
+      "sort": "Address"
+    }
+  ],
+  "arms": [
+    {
+      "atoms": [
+        {
+          "constructor": "memoryWrite",
+          "payload": [
+            {
+              "position": 0,
+              "mode": "bind",
+              "variable": "ADDRESS"
+            },
+            {
+              "position": 1,
+              "mode": "bind",
+              "variable": "VALUE"
+            }
+          ]
+        },
+        {
+          "constructor": "memoryLoad",
+          "payload": [
+            {
+              "position": 0,
+              "mode": "use",
+              "variable": "ADDRESS"
+            },
+            {
+              "position": 1,
+              "mode": "use",
+              "variable": "VALUE"
+            }
+          ]
+        }
+      ],
+      "relations": [
+        "eventually-after"
+      ]
+    }
+  ],
+  "sideCondition": {
+    "artifact": {
+      "role": "pattern-side-condition",
+      "digest": "ed2e6b48b19f8229a90af32721c9fd821f4edc333c60d2ef4e8ccd9ff23d743d"
+    },
+    "resultSort": "Bool",
+    "inputVariables": [
+      "VALUE"
+    ]
+  }
+}

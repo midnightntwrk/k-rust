@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "patternPlanDigest": "81207a38f7f93bb8d44652d4444e47697ae1e753a137d5c5bbb1a6e16c930630",
+  "eventVocabularyDigest": "720146bbdd1ee63dac11c62b0505e3fff40d8a54743652f8e16b6bf7938c3187",
+  "variables": [
+    {
+      "name": "A",
+      "sort": "Address"
+    }
+  ],
+  "arms": [
+    {
+      "atoms": [
+        {
+          "constructor": "memoryWrite",
+          "payload": [
+            {
+              "position": 0,
+              "mode": "bind",
+              "variable": "A"
+            }
+          ]
+        },
+        {
+          "constructor": "memoryLoad",
+          "payload": [
+            {
+              "position": 0,
+              "mode": "use",
+              "variable": "A"
+            }
+          ]
+        }
+      ],
+      "relations": [
+        "eventually-after"
+      ]
+    },
+    {
+      "atoms": [
+        {
+          "constructor": "memoryWrite",
+          "payload": [
+            {
+              "position": 0,
+              "mode": "bind",
+              "variable": "A"
+            }
+          ]
+        },
+        {
+          "constructor": "memoryLoad",
+          "payload": [
+            {
+              "position": 0,
+              "mode": "use",
+              "variable": "A"
+            }
+          ]
+        }
+      ],
+      "relations": [
+        "eventually-after"
+      ]
+    }
+  ],
+  "sideCondition": null
+}

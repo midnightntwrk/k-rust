@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "gateResultId": "e3b41eb471796770c67dd8bb2a0e5d29346544da99eebcc8c05b0b29163044dc",
+  "declaration": {
+    "role": "oracle-declaration",
+    "digest": "e0fed4ac975c88d02f935a021ca4761952470eb64f79a224ddb6a87ab8d6aaf4"
+  },
+  "actualSide": {
+    "side": "baseline",
+    "normalOperand": {
+      "role": "oracle-operand",
+      "digest": "71a7271e71bbb5b64629b525dd39c80550b0cdc02f567e262796968cbe2ae88c"
+    },
+    "semanticCrash": null
+  },
+  "assertionOutcome": null,
+  "status": "accepted",
+  "failure": null
+}

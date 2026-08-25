@@ -1,0 +1,44 @@
+{
+  "probe": "P2",
+  "verdict": "pass",
+  "runner": {
+    "command": "bun run p2",
+    "cwd": "/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay",
+    "exitCode": 0,
+    "elapsedSeconds": 31.00
+  },
+  "generatedResult": {
+    "path": "p2/build/probe-result.json",
+    "bytes": 14967,
+    "sha256": "2238c4b9a44c66855753c7d15dadbbdb1010e77377b67baa151d7b6c60bd45b7"
+  },
+  "acceptance": {
+    "allCasesPass": true,
+    "checkedInferenceMode": true,
+    "independentRawForestOracleAvailable": false
+  },
+  "cases": [
+    {"id":"priority","equal":true,"actual":"plus(n,times(n,n))"},
+    {"id":"associativity","equal":true,"actual":"plus(plus(n,n),n)"},
+    {"id":"avoid","equal":true,"actual":"dangling else attached to inner conditional"},
+    {"id":"prefer","equal":true,"actual":"preferred production selected"},
+    {"id":"user-list","equal":true,"actual":"three nested atoms ending in .atoms"},
+    {"id":"overload","equal":true,"actual":"lvalDot(lval, Id(field))"},
+    {"id":"sort-inference-checked","equal":true,"actual":"labelled wildcard sort LVal"}
+  ],
+  "externalCommands": [
+    {"argv":["kompile","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/fixtures/expressions.k","--backend","haskell","--emit-json","--main-module","P2-EXPRESSIONS","--syntax-module","P2-EXPRESSIONS","--output-definition","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/build/expressions-kompiled"],"exitCode":0,"durationMs":4374},
+    {"argv":["kompile","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/fixtures/avoid.k","--backend","haskell","--emit-json","--main-module","P2-AVOID","--syntax-module","P2-AVOID","--output-definition","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/build/avoid-kompiled"],"exitCode":0,"durationMs":4177},
+    {"argv":["kompile","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/fixtures/prefer.k","--backend","haskell","--emit-json","--main-module","P2-PREFER","--syntax-module","P2-PREFER","--output-definition","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/build/prefer-kompiled"],"exitCode":0,"durationMs":4474},
+    {"argv":["kompile","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/fixtures/list.k","--backend","haskell","--emit-json","--main-module","P2-LIST","--syntax-module","P2-LIST","--output-definition","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/build/list-kompiled"],"exitCode":0,"durationMs":4250},
+    {"argv":["kompile","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/fixtures/overload.k","--backend","haskell","--emit-json","--main-module","P2-OVERLOAD","--syntax-module","P2-OVERLOAD","--output-definition","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/build/overload-kompiled","--type-inference-mode","checked"],"exitCode":0,"durationMs":4735},
+    {"argv":["kast","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/fixtures/priority.exp","--definition","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/build/expressions-kompiled","--sort","Exp","--output","json"],"exitCode":0,"durationMs":1423},
+    {"argv":["kast","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/fixtures/associativity.exp","--definition","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/build/expressions-kompiled","--sort","Exp","--output","json"],"exitCode":0,"durationMs":1502},
+    {"argv":["kast","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/fixtures/avoid.stmt","--definition","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/build/avoid-kompiled","--sort","Stmt","--output","json"],"exitCode":0,"durationMs":1560},
+    {"argv":["kast","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/fixtures/prefer.stmt","--definition","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/build/prefer-kompiled","--sort","Stmt","--output","json"],"exitCode":0,"durationMs":1575},
+    {"argv":["kast","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/fixtures/list.pgm","--definition","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/build/list-kompiled","--sort","Pgm","--output","json"],"exitCode":0,"durationMs":1445},
+    {"argv":["kast","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/fixtures/overload.exp","--definition","/home/sebdev20/Documents/git/workspaces/starstream-fv/k-in-k2-wt-replay/p2/build/overload-kompiled","--sort","Exp","--output","json"],"exitCode":0,"durationMs":1457}
+  ],
+  "reportComparison": "All seven documented canonical trees reproduced, including checked SimpleSub/Z3 inference. The report's adapter decision and raw-forest oracle limitation remain supported.",
+  "discrepancies": []
+}

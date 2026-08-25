@@ -1,0 +1,4097 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "exact-unary",
+      "operator": {
+        "schemaVersion": 1,
+        "operatorId": "policy-exact-unary",
+        "operatorVersion": 1,
+        "operatorDigest": "e969e2756c3ebe57a47750f8c6df408d48b5594e83d0f900ec92c5c8afe8de6f",
+        "moduleDigest": "3285e5f26977607058c36e0f6808339694cfc6b46438dc78944fdf04a23717ac",
+        "phase": "semantic-input",
+        "sentenceKinds": [
+          "rule"
+        ],
+        "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+        "joinDigest": null,
+        "policy": "exact",
+        "expectedTupleCount": 1,
+        "expectedTupleArity": 1,
+        "candidateCap": 4,
+        "preconditionDigest": "9c26e10d037a0310b9f0a30ef027a95b0e108aa953314c969994aec5fbf78c3c",
+        "postconditionDigest": "da139f92dba2fdb5a5a5b10911c6d768fc2ced96f0780f6244fed1b04bc1a53b",
+        "generatedSentencePolicy": "exclude",
+        "patchTemplateDigest": "f5e1cbafbb62afc6113d56255b7f3ca76429015aeae89ba53f0ed10a51172a72",
+        "patchTemplateRoles": [
+          {
+            "name": "site-replacement",
+            "operation": "replace-term",
+            "sourceSelectorRoles": [
+              "site"
+            ]
+          }
+        ],
+        "category": "representation-coupling",
+        "rationale": "Change the representation used by the paired producer and consumer as one atomic mutant."
+      },
+      "siteRegistry": {
+        "schemaVersion": 1,
+        "registryId": "ba2ef54e2fb9d7e5df2bbaa809c7a2832c0c2d7d43f24b916bcadd45b278bcf1",
+        "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+        "operatorDigest": "e969e2756c3ebe57a47750f8c6df408d48b5594e83d0f900ec92c5c8afe8de6f",
+        "selector": {
+          "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+          "clauses": [
+            {
+              "role": "site",
+              "sentenceKinds": [
+                "rule"
+              ],
+              "label": "site",
+              "termPath": [
+                {
+                  "kind": "field",
+                  "name": "body"
+                },
+                {
+                  "kind": "field",
+                  "name": "lhs"
+                },
+                {
+                  "kind": "argument",
+                  "index": 0
+                }
+              ],
+              "termSort": "Int",
+              "termHeadLabel": null,
+              "bindingName": "X"
+            }
+          ]
+        },
+        "join": null,
+        "discovery": {
+          "exhaustive": true,
+          "failure": null
+        },
+        "sites": [
+          {
+            "selectorRole": "site",
+            "sentenceLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "lhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "0"
+                  }
+                }
+              }
+            ],
+            "siteId": "6b2421813cc1ea895bbbd957d599a49e703c4534f22c0bda160430d6d25df899"
+          }
+        ],
+        "tuples": [
+          [
+            "6b2421813cc1ea895bbbd957d599a49e703c4534f22c0bda160430d6d25df899"
+          ]
+        ]
+      },
+      "campaign": {
+        "schemaVersion": 1,
+        "campaignId": "2d695574f3948ccbb2dfd7afafc5181d3a29181a1fef497bef90949ec30b786f",
+        "reportId": "190c75aae0cf2a59164545addd06bcd7f18d420c82458c2b788f42183da9d200",
+        "manifestDigest": "39b8b65b18d0a8ab4cf2d0ab41ef9fd93014b608ad8c852d4a0eecd0fbda3a99",
+        "operator": {
+          "id": "policy-exact-unary",
+          "version": 1,
+          "digest": "e969e2756c3ebe57a47750f8c6df408d48b5594e83d0f900ec92c5c8afe8de6f"
+        },
+        "schemas": {
+          "identity": 1,
+          "operator": 1,
+          "siteRegistry": 1,
+          "patch": 1,
+          "structuralDiff": 1,
+          "replay": 1,
+          "eventTrace": 1,
+          "patternResult": 1,
+          "mutationCampaign": 1,
+          "failureTaxonomy": 1
+        },
+        "scheduleMode": "full",
+        "selectedTestIds": [
+          "policy-test"
+        ],
+        "campaignStatus": "complete",
+        "failures": [],
+        "generation": {
+          "siteRegistryDigest": "ba2ef54e2fb9d7e5df2bbaa809c7a2832c0c2d7d43f24b916bcadd45b278bcf1",
+          "policy": "exact",
+          "complete": true,
+          "candidateCap": 4,
+          "derivedInstanceCount": 1,
+          "retainedInstanceCount": 1,
+          "candidates": [
+            {
+              "candidateId": "81053bc2860b00f5f1752f3c53147a06c12df9fa157a21e2e3ec7b1309322963",
+              "originInstances": [
+                {
+                  "instanceId": "c5c26d811fdb466d9f878f7b7b34e3d81db4cf1dd5e9ae4ada3d5cc1c1735afe",
+                  "siteTuple": [
+                    "6b2421813cc1ea895bbbd957d599a49e703c4534f22c0bda160430d6d25df899"
+                  ],
+                  "discoveryTuples": [
+                    {
+                      "siteTuple": [
+                        "6b2421813cc1ea895bbbd957d599a49e703c4534f22c0bda160430d6d25df899"
+                      ],
+                      "bindings": [
+                        {
+                          "name": "X",
+                          "term": {
+                            "encoding": "portable-term-v1",
+                            "sort": "Int",
+                            "node": {
+                              "kind": "token",
+                              "text": "0"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "editReceipts": [
+                    {
+                      "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                      "operator": {
+                        "id": "policy-exact-unary",
+                        "version": 1,
+                        "digest": "e969e2756c3ebe57a47750f8c6df408d48b5594e83d0f900ec92c5c8afe8de6f"
+                      },
+                      "patchTemplateDigest": "f5e1cbafbb62afc6113d56255b7f3ca76429015aeae89ba53f0ed10a51172a72",
+                      "templateRole": "site-replacement",
+                      "sources": [
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "6b2421813cc1ea895bbbd957d599a49e703c4534f22c0bda160430d6d25df899",
+                          "selectorRole": "site",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "0"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "patch": {
+                "schemaVersion": 1,
+                "patchId": "f42a5e57de3623855eb59188f41e028354acebabf1fdeaa2b4526ff9643b7e23",
+                "operatorId": "policy-exact-unary",
+                "operatorVersion": 1,
+                "edits": [
+                  {
+                    "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                    "operation": "replace-term",
+                    "targetLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+                    "expectedContent": "57f07f4ff11c7f4e0e78b16997f3e6f6db5ba6fa88fcbe983a9f4d3e54ddf665",
+                    "targetPath": [
+                      {
+                        "kind": "field",
+                        "name": "body"
+                      },
+                      {
+                        "kind": "field",
+                        "name": "lhs"
+                      },
+                      {
+                        "kind": "argument",
+                        "index": 0
+                      }
+                    ],
+                    "value": {
+                      "kind": "term",
+                      "term": {
+                        "encoding": "portable-term-v1",
+                        "sort": "Address",
+                        "node": {
+                          "kind": "application",
+                          "label": "wrappedAddress",
+                          "args": [
+                            {
+                              "encoding": "portable-term-v1",
+                              "sort": "Address",
+                              "node": {
+                                "kind": "variable",
+                                "name": "A"
+                              }
+                            }
+                          ],
+                          "symbolId": "6326c79177c0466c681437e1c94acb8fde65a746591f4978704f4d1f1d85f2a7"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "failures": []
+        },
+        "baseline": {
+          "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+          "status": "valid",
+          "tests": [
+            {
+              "id": "policy-test",
+              "status": "agree",
+              "oracleIds": [
+                "policy-oracle"
+              ]
+            }
+          ],
+          "oracleResults": [
+            {
+              "oracleId": "policy-oracle",
+              "kind": "final-result",
+              "projectionDigest": "67523154b28ded3dd179d95c95ad764e76969bf5955a2dbfb5ebccfab2e15dc9",
+              "comparisonDigest": "d0ce8a593895fab68559b10f0320a1bce0e700e54fb67eb46f8f76f65456894c",
+              "outcome": "accepted",
+              "failure": null,
+              "operand": {
+                "side": "baseline",
+                "terminal": {
+                  "kind": "normal",
+                  "artifact": {
+                    "role": "oracle-value",
+                    "digest": "963ac73175ba3c35fb96a69c3cbcfd41e663cbf256d9807ec10923565d362d08"
+                  }
+                }
+              }
+            }
+          ],
+          "failures": []
+        },
+        "candidateRejections": [
+          {
+            "status": "no-change",
+            "patchId": "f42a5e57de3623855eb59188f41e028354acebabf1fdeaa2b4526ff9643b7e23",
+            "originInstanceIds": [
+              "c5c26d811fdb466d9f878f7b7b34e3d81db4cf1dd5e9ae4ada3d5cc1c1735afe"
+            ],
+            "failures": [
+              {
+                "stage": "operator",
+                "classification": "no-change",
+                "context": "candidate-generation",
+                "scope": "candidate",
+                "retryability": "never",
+                "semanticEvidence": [],
+                "details": {}
+              }
+            ]
+          }
+        ],
+        "mutants": [],
+        "score": {
+          "killed": 0,
+          "survived": 0,
+          "denominator": 0,
+          "ratio": null,
+          "excluded": {
+            "invalid": 0,
+            "timeout": 0,
+            "unknown": 0,
+            "error": 0,
+            "duplicate": 0,
+            "no-change": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "each-multi",
+      "operator": {
+        "schemaVersion": 1,
+        "operatorId": "policy-each-multi",
+        "operatorVersion": 1,
+        "operatorDigest": "a07b357b2169561d1341c1f438d3ad359fd6d5c47fa726e1b23e8848162673be",
+        "moduleDigest": "e8ddf98e48eb4f4e5485e2cf3e862e4f31100e9021d0e2c9124643f666f40061",
+        "phase": "semantic-input",
+        "sentenceKinds": [
+          "rule"
+        ],
+        "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+        "joinDigest": null,
+        "policy": "each",
+        "expectedTupleCount": null,
+        "expectedTupleArity": 1,
+        "candidateCap": 4,
+        "preconditionDigest": "f28d777f2e55d44ed8d50bf4456ad54d8a64b051598ae27d92b6ed901c4ddff6",
+        "postconditionDigest": "0bb3a576a7a07e65240f5b92411cb2c4379af43d838a8bbc09a52406d120a3fc",
+        "generatedSentencePolicy": "exclude",
+        "patchTemplateDigest": "138dc974328c0a06b0aeaae2bd5079e7a2f1c316cc357a7acc7c3cf8b0903dbe",
+        "patchTemplateRoles": [
+          {
+            "name": "site-replacement",
+            "operation": "replace-term",
+            "sourceSelectorRoles": [
+              "site"
+            ]
+          }
+        ],
+        "category": "representation-coupling",
+        "rationale": "Change the representation used by the paired producer and consumer as one atomic mutant."
+      },
+      "siteRegistry": {
+        "schemaVersion": 1,
+        "registryId": "dc3d47651dd59fa02b1aefbac6ac019f8ffd728b01878f73a5b54c42b4e07f71",
+        "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+        "operatorDigest": "a07b357b2169561d1341c1f438d3ad359fd6d5c47fa726e1b23e8848162673be",
+        "selector": {
+          "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+          "clauses": [
+            {
+              "role": "site",
+              "sentenceKinds": [
+                "rule"
+              ],
+              "label": "site",
+              "termPath": [
+                {
+                  "kind": "field",
+                  "name": "body"
+                },
+                {
+                  "kind": "field",
+                  "name": "lhs"
+                },
+                {
+                  "kind": "argument",
+                  "index": 0
+                }
+              ],
+              "termSort": "Int",
+              "termHeadLabel": null,
+              "bindingName": "X"
+            }
+          ]
+        },
+        "join": null,
+        "discovery": {
+          "exhaustive": true,
+          "failure": null
+        },
+        "sites": [
+          {
+            "selectorRole": "site",
+            "sentenceLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "lhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "0"
+                  }
+                }
+              }
+            ],
+            "siteId": "1aafedf3ef227bb6369e2b3d6894a0aea7870ebd56df66182560b936e5507c92"
+          },
+          {
+            "selectorRole": "site",
+            "sentenceLineage": "e388ef9b3e1284e7640b5bbb03909825e3092b5be0b4fa776dc6b0b84ddc8975",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "rhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "1"
+                  }
+                }
+              }
+            ],
+            "siteId": "a090d61d07018a314ddbb26f351f0d6b17be1b3383979bcc40e08a4ab32cb578"
+          },
+          {
+            "selectorRole": "site",
+            "sentenceLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "rhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "2"
+                  }
+                }
+              }
+            ],
+            "siteId": "3df1ad8bc23800616d3a3e09cc9386c291700c3b67a943098b38ab2bab124fc2"
+          }
+        ],
+        "tuples": [
+          [
+            "1aafedf3ef227bb6369e2b3d6894a0aea7870ebd56df66182560b936e5507c92"
+          ],
+          [
+            "a090d61d07018a314ddbb26f351f0d6b17be1b3383979bcc40e08a4ab32cb578"
+          ],
+          [
+            "3df1ad8bc23800616d3a3e09cc9386c291700c3b67a943098b38ab2bab124fc2"
+          ]
+        ]
+      },
+      "campaign": {
+        "schemaVersion": 1,
+        "campaignId": "b2a294794c34287932397d92cc39455d58602334a345ea89957f015eff016526",
+        "reportId": "2362db9911e53f7caab8883be40445d95754e0eff5cdd0a93783a6a8c8c4cc8c",
+        "manifestDigest": "23093b76385a84664fa7a49745c7c218a9c0cbde0c1500c3406e3a9c03e0a471",
+        "operator": {
+          "id": "policy-each-multi",
+          "version": 1,
+          "digest": "a07b357b2169561d1341c1f438d3ad359fd6d5c47fa726e1b23e8848162673be"
+        },
+        "schemas": {
+          "identity": 1,
+          "operator": 1,
+          "siteRegistry": 1,
+          "patch": 1,
+          "structuralDiff": 1,
+          "replay": 1,
+          "eventTrace": 1,
+          "patternResult": 1,
+          "mutationCampaign": 1,
+          "failureTaxonomy": 1
+        },
+        "scheduleMode": "full",
+        "selectedTestIds": [
+          "policy-test"
+        ],
+        "campaignStatus": "complete",
+        "failures": [],
+        "generation": {
+          "siteRegistryDigest": "dc3d47651dd59fa02b1aefbac6ac019f8ffd728b01878f73a5b54c42b4e07f71",
+          "policy": "each",
+          "complete": true,
+          "candidateCap": 4,
+          "derivedInstanceCount": 3,
+          "retainedInstanceCount": 3,
+          "candidates": [
+            {
+              "candidateId": "fa8137df80da3c101d223ec29a0c6e13c3b176e27ef951d343c569de953e4091",
+              "originInstances": [
+                {
+                  "instanceId": "facbe338d95e2031acce06ea2013bd65e056a5bf265d5629cf0e5cf27bc47e7c",
+                  "siteTuple": [
+                    "1aafedf3ef227bb6369e2b3d6894a0aea7870ebd56df66182560b936e5507c92"
+                  ],
+                  "discoveryTuples": [
+                    {
+                      "siteTuple": [
+                        "1aafedf3ef227bb6369e2b3d6894a0aea7870ebd56df66182560b936e5507c92"
+                      ],
+                      "bindings": [
+                        {
+                          "name": "X",
+                          "term": {
+                            "encoding": "portable-term-v1",
+                            "sort": "Int",
+                            "node": {
+                              "kind": "token",
+                              "text": "0"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "editReceipts": [
+                    {
+                      "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                      "operator": {
+                        "id": "policy-each-multi",
+                        "version": 1,
+                        "digest": "a07b357b2169561d1341c1f438d3ad359fd6d5c47fa726e1b23e8848162673be"
+                      },
+                      "patchTemplateDigest": "138dc974328c0a06b0aeaae2bd5079e7a2f1c316cc357a7acc7c3cf8b0903dbe",
+                      "templateRole": "site-replacement",
+                      "sources": [
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "1aafedf3ef227bb6369e2b3d6894a0aea7870ebd56df66182560b936e5507c92",
+                          "selectorRole": "site",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "0"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "instanceId": "d7c60751bbfa728ad82313776096f441cbba3c9cc5161e0380be03e4b466156c",
+                  "siteTuple": [
+                    "3df1ad8bc23800616d3a3e09cc9386c291700c3b67a943098b38ab2bab124fc2"
+                  ],
+                  "discoveryTuples": [
+                    {
+                      "siteTuple": [
+                        "3df1ad8bc23800616d3a3e09cc9386c291700c3b67a943098b38ab2bab124fc2"
+                      ],
+                      "bindings": [
+                        {
+                          "name": "X",
+                          "term": {
+                            "encoding": "portable-term-v1",
+                            "sort": "Int",
+                            "node": {
+                              "kind": "token",
+                              "text": "2"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "editReceipts": [
+                    {
+                      "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                      "operator": {
+                        "id": "policy-each-multi",
+                        "version": 1,
+                        "digest": "a07b357b2169561d1341c1f438d3ad359fd6d5c47fa726e1b23e8848162673be"
+                      },
+                      "patchTemplateDigest": "138dc974328c0a06b0aeaae2bd5079e7a2f1c316cc357a7acc7c3cf8b0903dbe",
+                      "templateRole": "site-replacement",
+                      "sources": [
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "3df1ad8bc23800616d3a3e09cc9386c291700c3b67a943098b38ab2bab124fc2",
+                          "selectorRole": "site",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "2"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "patch": {
+                "schemaVersion": 1,
+                "patchId": "f42a5e57de3623855eb59188f41e028354acebabf1fdeaa2b4526ff9643b7e23",
+                "operatorId": "policy-each-multi",
+                "operatorVersion": 1,
+                "edits": [
+                  {
+                    "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                    "operation": "replace-term",
+                    "targetLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+                    "expectedContent": "57f07f4ff11c7f4e0e78b16997f3e6f6db5ba6fa88fcbe983a9f4d3e54ddf665",
+                    "targetPath": [
+                      {
+                        "kind": "field",
+                        "name": "body"
+                      },
+                      {
+                        "kind": "field",
+                        "name": "lhs"
+                      },
+                      {
+                        "kind": "argument",
+                        "index": 0
+                      }
+                    ],
+                    "value": {
+                      "kind": "term",
+                      "term": {
+                        "encoding": "portable-term-v1",
+                        "sort": "Address",
+                        "node": {
+                          "kind": "application",
+                          "label": "wrappedAddress",
+                          "args": [
+                            {
+                              "encoding": "portable-term-v1",
+                              "sort": "Address",
+                              "node": {
+                                "kind": "variable",
+                                "name": "A"
+                              }
+                            }
+                          ],
+                          "symbolId": "6326c79177c0466c681437e1c94acb8fde65a746591f4978704f4d1f1d85f2a7"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "candidateId": "220ca8dfc07167d654db7e76f1a6109659141416436a195207909e2570c9202b",
+              "originInstances": [
+                {
+                  "instanceId": "9faa4434da68d7c574f207cbbe668440994f46412b8fbb987aa3b1c611b72f78",
+                  "siteTuple": [
+                    "a090d61d07018a314ddbb26f351f0d6b17be1b3383979bcc40e08a4ab32cb578"
+                  ],
+                  "discoveryTuples": [
+                    {
+                      "siteTuple": [
+                        "a090d61d07018a314ddbb26f351f0d6b17be1b3383979bcc40e08a4ab32cb578"
+                      ],
+                      "bindings": [
+                        {
+                          "name": "X",
+                          "term": {
+                            "encoding": "portable-term-v1",
+                            "sort": "Int",
+                            "node": {
+                              "kind": "token",
+                              "text": "1"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "editReceipts": [
+                    {
+                      "editId": "d6b86948a32fcfbd1e0762f35df47ece04681d42d8cc6be85fdbdfd1fda0da81",
+                      "operator": {
+                        "id": "policy-each-multi",
+                        "version": 1,
+                        "digest": "a07b357b2169561d1341c1f438d3ad359fd6d5c47fa726e1b23e8848162673be"
+                      },
+                      "patchTemplateDigest": "138dc974328c0a06b0aeaae2bd5079e7a2f1c316cc357a7acc7c3cf8b0903dbe",
+                      "templateRole": "site-replacement",
+                      "sources": [
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "a090d61d07018a314ddbb26f351f0d6b17be1b3383979bcc40e08a4ab32cb578",
+                          "selectorRole": "site",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "1"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "patch": {
+                "schemaVersion": 1,
+                "patchId": "46efcd136cdc25d1331379b776340fd0d6126d3d4ee005bc7f05d284ed3e33cf",
+                "operatorId": "policy-each-multi",
+                "operatorVersion": 1,
+                "edits": [
+                  {
+                    "editId": "d6b86948a32fcfbd1e0762f35df47ece04681d42d8cc6be85fdbdfd1fda0da81",
+                    "operation": "replace-term",
+                    "targetLineage": "e388ef9b3e1284e7640b5bbb03909825e3092b5be0b4fa776dc6b0b84ddc8975",
+                    "expectedContent": "8a9932e736e445c599d4a7d99c1ee7da2bf73bbe2a237a3871199a080b40d55c",
+                    "targetPath": [
+                      {
+                        "kind": "field",
+                        "name": "body"
+                      },
+                      {
+                        "kind": "field",
+                        "name": "rhs"
+                      },
+                      {
+                        "kind": "argument",
+                        "index": 0
+                      }
+                    ],
+                    "value": {
+                      "kind": "term",
+                      "term": {
+                        "encoding": "portable-term-v1",
+                        "sort": "Address",
+                        "node": {
+                          "kind": "application",
+                          "label": "wrappedAddress",
+                          "args": [
+                            {
+                              "encoding": "portable-term-v1",
+                              "sort": "Address",
+                              "node": {
+                                "kind": "variable",
+                                "name": "A"
+                              }
+                            }
+                          ],
+                          "symbolId": "6326c79177c0466c681437e1c94acb8fde65a746591f4978704f4d1f1d85f2a7"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "failures": []
+        },
+        "baseline": {
+          "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+          "status": "valid",
+          "tests": [
+            {
+              "id": "policy-test",
+              "status": "agree",
+              "oracleIds": [
+                "policy-oracle"
+              ]
+            }
+          ],
+          "oracleResults": [
+            {
+              "oracleId": "policy-oracle",
+              "kind": "final-result",
+              "projectionDigest": "67523154b28ded3dd179d95c95ad764e76969bf5955a2dbfb5ebccfab2e15dc9",
+              "comparisonDigest": "d0ce8a593895fab68559b10f0320a1bce0e700e54fb67eb46f8f76f65456894c",
+              "outcome": "accepted",
+              "failure": null,
+              "operand": {
+                "side": "baseline",
+                "terminal": {
+                  "kind": "normal",
+                  "artifact": {
+                    "role": "oracle-value",
+                    "digest": "963ac73175ba3c35fb96a69c3cbcfd41e663cbf256d9807ec10923565d362d08"
+                  }
+                }
+              }
+            }
+          ],
+          "failures": []
+        },
+        "candidateRejections": [
+          {
+            "status": "no-change",
+            "patchId": "f42a5e57de3623855eb59188f41e028354acebabf1fdeaa2b4526ff9643b7e23",
+            "originInstanceIds": [
+              "facbe338d95e2031acce06ea2013bd65e056a5bf265d5629cf0e5cf27bc47e7c",
+              "d7c60751bbfa728ad82313776096f441cbba3c9cc5161e0380be03e4b466156c"
+            ],
+            "failures": [
+              {
+                "stage": "operator",
+                "classification": "no-change",
+                "context": "candidate-generation",
+                "scope": "candidate",
+                "retryability": "never",
+                "semanticEvidence": [],
+                "details": {}
+              }
+            ]
+          },
+          {
+            "status": "no-change",
+            "patchId": "46efcd136cdc25d1331379b776340fd0d6126d3d4ee005bc7f05d284ed3e33cf",
+            "originInstanceIds": [
+              "9faa4434da68d7c574f207cbbe668440994f46412b8fbb987aa3b1c611b72f78"
+            ],
+            "failures": [
+              {
+                "stage": "operator",
+                "classification": "no-change",
+                "context": "candidate-generation",
+                "scope": "candidate",
+                "retryability": "never",
+                "semanticEvidence": [],
+                "details": {}
+              }
+            ]
+          }
+        ],
+        "mutants": [],
+        "score": {
+          "killed": 0,
+          "survived": 0,
+          "denominator": 0,
+          "ratio": null,
+          "excluded": {
+            "invalid": 0,
+            "timeout": 0,
+            "unknown": 0,
+            "error": 0,
+            "duplicate": 0,
+            "no-change": 2
+          }
+        }
+      }
+    },
+    {
+      "id": "tuple-each-supplied",
+      "operator": {
+        "schemaVersion": 1,
+        "operatorId": "policy-tuple-each-supplied",
+        "operatorVersion": 1,
+        "operatorDigest": "c0eb5e22ad29352ee904220cb571d1ef8e22c0795701469b0dbb0b49477e7430",
+        "moduleDigest": "a272c920dda18dd14d3a7fa2383c9e15640c2983ee60c7e381283760ea537130",
+        "phase": "semantic-input",
+        "sentenceKinds": [
+          "rule"
+        ],
+        "selectorDigest": "6f9e5662de53d7dd099dd20299763c38ce7ab1bb7a1b60699d490f87ed15998a",
+        "joinDigest": "ab671a73cb461311c96d2b8f42724793e55e80fb970a82cac3547810448a4e21",
+        "policy": "tuple-each",
+        "expectedTupleCount": null,
+        "expectedTupleArity": 2,
+        "candidateCap": 4,
+        "preconditionDigest": "21e33faabeab0b9235f42224e838aa294d33690bb2951800e76d8663c25c1f3b",
+        "postconditionDigest": "2f4d5b442b444453479e0e71723a8f56bfe4216f4c71c08622ee0f51adbcdfc7",
+        "generatedSentencePolicy": "exclude",
+        "patchTemplateDigest": "6e183f47510b6388f6daf451cb5758b73c9c90394093915cbbc6a87100411900",
+        "patchTemplateRoles": [
+          {
+            "name": "coupled-replacement",
+            "operation": "replace-term",
+            "sourceSelectorRoles": [
+              "left",
+              "right"
+            ]
+          }
+        ],
+        "category": "representation-coupling",
+        "rationale": "Change the representation used by the paired producer and consumer as one atomic mutant."
+      },
+      "siteRegistry": {
+        "schemaVersion": 1,
+        "registryId": "c226b0de79afc73e7d8b2669aaf2cff447b58bdd39b088b68acd5b6e49877162",
+        "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+        "operatorDigest": "c0eb5e22ad29352ee904220cb571d1ef8e22c0795701469b0dbb0b49477e7430",
+        "selector": {
+          "selectorDigest": "6f9e5662de53d7dd099dd20299763c38ce7ab1bb7a1b60699d490f87ed15998a",
+          "clauses": [
+            {
+              "role": "left",
+              "sentenceKinds": [
+                "rule"
+              ],
+              "label": "left",
+              "termPath": [
+                {
+                  "kind": "field",
+                  "name": "body"
+                },
+                {
+                  "kind": "field",
+                  "name": "lhs"
+                },
+                {
+                  "kind": "argument",
+                  "index": 0
+                }
+              ],
+              "termSort": "Int",
+              "termHeadLabel": null,
+              "bindingName": "X"
+            },
+            {
+              "role": "right",
+              "sentenceKinds": [
+                "rule"
+              ],
+              "label": "right",
+              "termPath": [
+                {
+                  "kind": "field",
+                  "name": "body"
+                },
+                {
+                  "kind": "field",
+                  "name": "lhs"
+                },
+                {
+                  "kind": "argument",
+                  "index": 0
+                }
+              ],
+              "termSort": "Int",
+              "termHeadLabel": null,
+              "bindingName": "X"
+            }
+          ]
+        },
+        "join": {
+          "joinDigest": "ab671a73cb461311c96d2b8f42724793e55e80fb970a82cac3547810448a4e21",
+          "kind": "ordered-shared-term",
+          "orderedRoles": [
+            "left",
+            "right"
+          ],
+          "bindingName": "X",
+          "bindingSort": "Int"
+        },
+        "discovery": {
+          "exhaustive": true,
+          "failure": null
+        },
+        "sites": [
+          {
+            "selectorRole": "left",
+            "sentenceLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "lhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "0"
+                  }
+                }
+              }
+            ],
+            "siteId": "c8b09ea86f568233ef6f0b2ab4a6e85460bc394b3db300573e0cf9abe03308e7"
+          },
+          {
+            "selectorRole": "left",
+            "sentenceLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "rhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "1"
+                  }
+                }
+              }
+            ],
+            "siteId": "953f0873771245b696b6f58cb046794de4900a158d81d9535845862705a2c35f"
+          },
+          {
+            "selectorRole": "right",
+            "sentenceLineage": "e388ef9b3e1284e7640b5bbb03909825e3092b5be0b4fa776dc6b0b84ddc8975",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "rhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "0"
+                  }
+                }
+              }
+            ],
+            "siteId": "155f8e0c915939a35401df2ec2e56b4a5dd433e6a57e679c90794100ac68e56a"
+          },
+          {
+            "selectorRole": "right",
+            "sentenceLineage": "e388ef9b3e1284e7640b5bbb03909825e3092b5be0b4fa776dc6b0b84ddc8975",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "lhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "1"
+                  }
+                }
+              }
+            ],
+            "siteId": "114dbbaae6d27d03ac68507fe2d216bc5fc9585e99827d3d741543e0817cfe34"
+          }
+        ],
+        "tuples": [
+          [
+            "c8b09ea86f568233ef6f0b2ab4a6e85460bc394b3db300573e0cf9abe03308e7",
+            "155f8e0c915939a35401df2ec2e56b4a5dd433e6a57e679c90794100ac68e56a"
+          ],
+          [
+            "953f0873771245b696b6f58cb046794de4900a158d81d9535845862705a2c35f",
+            "114dbbaae6d27d03ac68507fe2d216bc5fc9585e99827d3d741543e0817cfe34"
+          ]
+        ]
+      },
+      "campaign": {
+        "schemaVersion": 1,
+        "campaignId": "0e9008323f7f89d066a6136de469865f67987dcbe68fb13b45f60aa5e07727fa",
+        "reportId": "426cf9e18abc96e00115c542d6e0d4faff33d3b6ac427028ef874e451ad53653",
+        "manifestDigest": "5dd0b53b3022ba6d2d833bfcd12604515451a4c47df32452ea040365bd3bdc00",
+        "operator": {
+          "id": "policy-tuple-each-supplied",
+          "version": 1,
+          "digest": "c0eb5e22ad29352ee904220cb571d1ef8e22c0795701469b0dbb0b49477e7430"
+        },
+        "schemas": {
+          "identity": 1,
+          "operator": 1,
+          "siteRegistry": 1,
+          "patch": 1,
+          "structuralDiff": 1,
+          "replay": 1,
+          "eventTrace": 1,
+          "patternResult": 1,
+          "mutationCampaign": 1,
+          "failureTaxonomy": 1
+        },
+        "scheduleMode": "full",
+        "selectedTestIds": [
+          "policy-test"
+        ],
+        "campaignStatus": "complete",
+        "failures": [],
+        "generation": {
+          "siteRegistryDigest": "c226b0de79afc73e7d8b2669aaf2cff447b58bdd39b088b68acd5b6e49877162",
+          "policy": "tuple-each",
+          "complete": true,
+          "candidateCap": 4,
+          "derivedInstanceCount": 2,
+          "retainedInstanceCount": 2,
+          "candidates": [
+            {
+              "candidateId": "51031c5478b0bffff225290e6e760f5661ac79cc4c1a8ba1e42233f334548640",
+              "originInstances": [
+                {
+                  "instanceId": "61646e059130d8af891cf868ddbea559a10041de3c94c8d9d0487791efe1e0a9",
+                  "siteTuple": [
+                    "c8b09ea86f568233ef6f0b2ab4a6e85460bc394b3db300573e0cf9abe03308e7",
+                    "155f8e0c915939a35401df2ec2e56b4a5dd433e6a57e679c90794100ac68e56a"
+                  ],
+                  "discoveryTuples": [
+                    {
+                      "siteTuple": [
+                        "c8b09ea86f568233ef6f0b2ab4a6e85460bc394b3db300573e0cf9abe03308e7",
+                        "155f8e0c915939a35401df2ec2e56b4a5dd433e6a57e679c90794100ac68e56a"
+                      ],
+                      "bindings": [
+                        {
+                          "name": "X",
+                          "term": {
+                            "encoding": "portable-term-v1",
+                            "sort": "Int",
+                            "node": {
+                              "kind": "token",
+                              "text": "0"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "editReceipts": [
+                    {
+                      "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                      "operator": {
+                        "id": "policy-tuple-each-supplied",
+                        "version": 1,
+                        "digest": "c0eb5e22ad29352ee904220cb571d1ef8e22c0795701469b0dbb0b49477e7430"
+                      },
+                      "patchTemplateDigest": "6e183f47510b6388f6daf451cb5758b73c9c90394093915cbbc6a87100411900",
+                      "templateRole": "coupled-replacement",
+                      "sources": [
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "c8b09ea86f568233ef6f0b2ab4a6e85460bc394b3db300573e0cf9abe03308e7",
+                          "selectorRole": "left",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "0"
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "155f8e0c915939a35401df2ec2e56b4a5dd433e6a57e679c90794100ac68e56a",
+                          "selectorRole": "right",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "0"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "editId": "d6b86948a32fcfbd1e0762f35df47ece04681d42d8cc6be85fdbdfd1fda0da81",
+                      "operator": {
+                        "id": "policy-tuple-each-supplied",
+                        "version": 1,
+                        "digest": "c0eb5e22ad29352ee904220cb571d1ef8e22c0795701469b0dbb0b49477e7430"
+                      },
+                      "patchTemplateDigest": "6e183f47510b6388f6daf451cb5758b73c9c90394093915cbbc6a87100411900",
+                      "templateRole": "coupled-replacement",
+                      "sources": [
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "c8b09ea86f568233ef6f0b2ab4a6e85460bc394b3db300573e0cf9abe03308e7",
+                          "selectorRole": "left",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "0"
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "155f8e0c915939a35401df2ec2e56b4a5dd433e6a57e679c90794100ac68e56a",
+                          "selectorRole": "right",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "0"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "instanceId": "0edf3cbb8bc3785428544dc33ef26863cf13f10a62c38496be5db95ea9fde1a3",
+                  "siteTuple": [
+                    "953f0873771245b696b6f58cb046794de4900a158d81d9535845862705a2c35f",
+                    "114dbbaae6d27d03ac68507fe2d216bc5fc9585e99827d3d741543e0817cfe34"
+                  ],
+                  "discoveryTuples": [
+                    {
+                      "siteTuple": [
+                        "953f0873771245b696b6f58cb046794de4900a158d81d9535845862705a2c35f",
+                        "114dbbaae6d27d03ac68507fe2d216bc5fc9585e99827d3d741543e0817cfe34"
+                      ],
+                      "bindings": [
+                        {
+                          "name": "X",
+                          "term": {
+                            "encoding": "portable-term-v1",
+                            "sort": "Int",
+                            "node": {
+                              "kind": "token",
+                              "text": "1"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "editReceipts": [
+                    {
+                      "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                      "operator": {
+                        "id": "policy-tuple-each-supplied",
+                        "version": 1,
+                        "digest": "c0eb5e22ad29352ee904220cb571d1ef8e22c0795701469b0dbb0b49477e7430"
+                      },
+                      "patchTemplateDigest": "6e183f47510b6388f6daf451cb5758b73c9c90394093915cbbc6a87100411900",
+                      "templateRole": "coupled-replacement",
+                      "sources": [
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "953f0873771245b696b6f58cb046794de4900a158d81d9535845862705a2c35f",
+                          "selectorRole": "left",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "1"
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "114dbbaae6d27d03ac68507fe2d216bc5fc9585e99827d3d741543e0817cfe34",
+                          "selectorRole": "right",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "1"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "editId": "d6b86948a32fcfbd1e0762f35df47ece04681d42d8cc6be85fdbdfd1fda0da81",
+                      "operator": {
+                        "id": "policy-tuple-each-supplied",
+                        "version": 1,
+                        "digest": "c0eb5e22ad29352ee904220cb571d1ef8e22c0795701469b0dbb0b49477e7430"
+                      },
+                      "patchTemplateDigest": "6e183f47510b6388f6daf451cb5758b73c9c90394093915cbbc6a87100411900",
+                      "templateRole": "coupled-replacement",
+                      "sources": [
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "953f0873771245b696b6f58cb046794de4900a158d81d9535845862705a2c35f",
+                          "selectorRole": "left",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "1"
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "114dbbaae6d27d03ac68507fe2d216bc5fc9585e99827d3d741543e0817cfe34",
+                          "selectorRole": "right",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "1"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "patch": {
+                "schemaVersion": 1,
+                "patchId": "e760f3286bec139d32c4cb1daa3e6131f44df5f10966cf6714e0e9846ddf24ba",
+                "operatorId": "policy-tuple-each-supplied",
+                "operatorVersion": 1,
+                "edits": [
+                  {
+                    "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                    "operation": "replace-term",
+                    "targetLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+                    "expectedContent": "57f07f4ff11c7f4e0e78b16997f3e6f6db5ba6fa88fcbe983a9f4d3e54ddf665",
+                    "targetPath": [
+                      {
+                        "kind": "field",
+                        "name": "body"
+                      },
+                      {
+                        "kind": "field",
+                        "name": "lhs"
+                      },
+                      {
+                        "kind": "argument",
+                        "index": 0
+                      }
+                    ],
+                    "value": {
+                      "kind": "term",
+                      "term": {
+                        "encoding": "portable-term-v1",
+                        "sort": "Address",
+                        "node": {
+                          "kind": "application",
+                          "label": "wrappedAddress",
+                          "args": [
+                            {
+                              "encoding": "portable-term-v1",
+                              "sort": "Address",
+                              "node": {
+                                "kind": "variable",
+                                "name": "A"
+                              }
+                            }
+                          ],
+                          "symbolId": "6326c79177c0466c681437e1c94acb8fde65a746591f4978704f4d1f1d85f2a7"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "editId": "d6b86948a32fcfbd1e0762f35df47ece04681d42d8cc6be85fdbdfd1fda0da81",
+                    "operation": "replace-term",
+                    "targetLineage": "e388ef9b3e1284e7640b5bbb03909825e3092b5be0b4fa776dc6b0b84ddc8975",
+                    "expectedContent": "8a9932e736e445c599d4a7d99c1ee7da2bf73bbe2a237a3871199a080b40d55c",
+                    "targetPath": [
+                      {
+                        "kind": "field",
+                        "name": "body"
+                      },
+                      {
+                        "kind": "field",
+                        "name": "rhs"
+                      },
+                      {
+                        "kind": "argument",
+                        "index": 0
+                      }
+                    ],
+                    "value": {
+                      "kind": "term",
+                      "term": {
+                        "encoding": "portable-term-v1",
+                        "sort": "Address",
+                        "node": {
+                          "kind": "application",
+                          "label": "wrappedAddress",
+                          "args": [
+                            {
+                              "encoding": "portable-term-v1",
+                              "sort": "Address",
+                              "node": {
+                                "kind": "variable",
+                                "name": "A"
+                              }
+                            }
+                          ],
+                          "symbolId": "6326c79177c0466c681437e1c94acb8fde65a746591f4978704f4d1f1d85f2a7"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "failures": []
+        },
+        "baseline": {
+          "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+          "status": "valid",
+          "tests": [
+            {
+              "id": "policy-test",
+              "status": "agree",
+              "oracleIds": [
+                "policy-oracle"
+              ]
+            }
+          ],
+          "oracleResults": [
+            {
+              "oracleId": "policy-oracle",
+              "kind": "final-result",
+              "projectionDigest": "67523154b28ded3dd179d95c95ad764e76969bf5955a2dbfb5ebccfab2e15dc9",
+              "comparisonDigest": "d0ce8a593895fab68559b10f0320a1bce0e700e54fb67eb46f8f76f65456894c",
+              "outcome": "accepted",
+              "failure": null,
+              "operand": {
+                "side": "baseline",
+                "terminal": {
+                  "kind": "normal",
+                  "artifact": {
+                    "role": "oracle-value",
+                    "digest": "963ac73175ba3c35fb96a69c3cbcfd41e663cbf256d9807ec10923565d362d08"
+                  }
+                }
+              }
+            }
+          ],
+          "failures": []
+        },
+        "candidateRejections": [
+          {
+            "status": "no-change",
+            "patchId": "e760f3286bec139d32c4cb1daa3e6131f44df5f10966cf6714e0e9846ddf24ba",
+            "originInstanceIds": [
+              "61646e059130d8af891cf868ddbea559a10041de3c94c8d9d0487791efe1e0a9",
+              "0edf3cbb8bc3785428544dc33ef26863cf13f10a62c38496be5db95ea9fde1a3"
+            ],
+            "failures": [
+              {
+                "stage": "operator",
+                "classification": "no-change",
+                "context": "candidate-generation",
+                "scope": "candidate",
+                "retryability": "never",
+                "semanticEvidence": [],
+                "details": {}
+              }
+            ]
+          }
+        ],
+        "mutants": [],
+        "score": {
+          "killed": 0,
+          "survived": 0,
+          "denominator": 0,
+          "ratio": null,
+          "excluded": {
+            "invalid": 0,
+            "timeout": 0,
+            "unknown": 0,
+            "error": 0,
+            "duplicate": 0,
+            "no-change": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "all-matches-aggregate",
+      "operator": {
+        "schemaVersion": 1,
+        "operatorId": "policy-all-matches-aggregate",
+        "operatorVersion": 1,
+        "operatorDigest": "6f634eca854fb1fe65181f5b02de100242a805d6d6e16c7cdfcc195156b28b32",
+        "moduleDigest": "8343dc0fea0e7f1edfa4ad12acf4b0f7d36535a6d93d6cb1ae5367c8cf2da098",
+        "phase": "semantic-input",
+        "sentenceKinds": [
+          "rule"
+        ],
+        "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+        "joinDigest": null,
+        "policy": "all-matches",
+        "expectedTupleCount": null,
+        "expectedTupleArity": 1,
+        "candidateCap": 4,
+        "preconditionDigest": "7e55e7eea0e7ebbc866c89a1b4905beee245bfef984de295b2b46b83ebaea21f",
+        "postconditionDigest": "eae5e551836e5364fb2782599256e6e92a11d96e72f63733204fe29825544872",
+        "generatedSentencePolicy": "exclude",
+        "patchTemplateDigest": "c4ff4d7f77fbe174f8835e278cd6e37787145e01772bb1deecbe2e6867a5e5d1",
+        "patchTemplateRoles": [
+          {
+            "name": "site-replacement",
+            "operation": "replace-term",
+            "sourceSelectorRoles": [
+              "site"
+            ]
+          }
+        ],
+        "category": "representation-coupling",
+        "rationale": "Change the representation used by the paired producer and consumer as one atomic mutant."
+      },
+      "siteRegistry": {
+        "schemaVersion": 1,
+        "registryId": "248afebeca23742243aec719cc5c160befdb4f3c5313c1e9bf99cce88de3f607",
+        "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+        "operatorDigest": "6f634eca854fb1fe65181f5b02de100242a805d6d6e16c7cdfcc195156b28b32",
+        "selector": {
+          "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+          "clauses": [
+            {
+              "role": "site",
+              "sentenceKinds": [
+                "rule"
+              ],
+              "label": "site",
+              "termPath": [
+                {
+                  "kind": "field",
+                  "name": "body"
+                },
+                {
+                  "kind": "field",
+                  "name": "lhs"
+                },
+                {
+                  "kind": "argument",
+                  "index": 0
+                }
+              ],
+              "termSort": "Int",
+              "termHeadLabel": null,
+              "bindingName": "X"
+            }
+          ]
+        },
+        "join": null,
+        "discovery": {
+          "exhaustive": true,
+          "failure": null
+        },
+        "sites": [
+          {
+            "selectorRole": "site",
+            "sentenceLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "lhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "0"
+                  }
+                }
+              }
+            ],
+            "siteId": "ce0b709595e941ab1f678bb653cc636afd4cc0aa4bdb0140b0f8e2d15676f7d5"
+          },
+          {
+            "selectorRole": "site",
+            "sentenceLineage": "e388ef9b3e1284e7640b5bbb03909825e3092b5be0b4fa776dc6b0b84ddc8975",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "rhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "1"
+                  }
+                }
+              }
+            ],
+            "siteId": "501d891f44407e4b1af402a2df87257d95f74e3051a005de05237cc88becd21b"
+          }
+        ],
+        "tuples": [
+          [
+            "ce0b709595e941ab1f678bb653cc636afd4cc0aa4bdb0140b0f8e2d15676f7d5"
+          ],
+          [
+            "501d891f44407e4b1af402a2df87257d95f74e3051a005de05237cc88becd21b"
+          ]
+        ]
+      },
+      "campaign": {
+        "schemaVersion": 1,
+        "campaignId": "bc610c6c79e2b84bb5e502c301d6c302c703ef8bf6aac194a5fb7ac31fba9e23",
+        "reportId": "3dd9da008ac4740c5d46fb936af7eaccb9a9358ef655b2f07542dbffcc1934b8",
+        "manifestDigest": "7f997a904fdba3bddc9c7664cbcf3d04a9491f57abbc1c0e55ec54938c0469aa",
+        "operator": {
+          "id": "policy-all-matches-aggregate",
+          "version": 1,
+          "digest": "6f634eca854fb1fe65181f5b02de100242a805d6d6e16c7cdfcc195156b28b32"
+        },
+        "schemas": {
+          "identity": 1,
+          "operator": 1,
+          "siteRegistry": 1,
+          "patch": 1,
+          "structuralDiff": 1,
+          "replay": 1,
+          "eventTrace": 1,
+          "patternResult": 1,
+          "mutationCampaign": 1,
+          "failureTaxonomy": 1
+        },
+        "scheduleMode": "full",
+        "selectedTestIds": [
+          "policy-test"
+        ],
+        "campaignStatus": "complete",
+        "failures": [],
+        "generation": {
+          "siteRegistryDigest": "248afebeca23742243aec719cc5c160befdb4f3c5313c1e9bf99cce88de3f607",
+          "policy": "all-matches",
+          "complete": true,
+          "candidateCap": 4,
+          "derivedInstanceCount": 1,
+          "retainedInstanceCount": 1,
+          "candidates": [
+            {
+              "candidateId": "959fd24d900641f9a0eb1467cc72ee6d13705daa82b69fd061bab85c30c71dba",
+              "originInstances": [
+                {
+                  "instanceId": "91a4f8f3e1328a3a547b6838ce996a98524b6e42682739e66b8ead4cfebe7f7d",
+                  "siteTuple": [
+                    "ce0b709595e941ab1f678bb653cc636afd4cc0aa4bdb0140b0f8e2d15676f7d5",
+                    "501d891f44407e4b1af402a2df87257d95f74e3051a005de05237cc88becd21b"
+                  ],
+                  "discoveryTuples": [
+                    {
+                      "siteTuple": [
+                        "ce0b709595e941ab1f678bb653cc636afd4cc0aa4bdb0140b0f8e2d15676f7d5"
+                      ],
+                      "bindings": [
+                        {
+                          "name": "X",
+                          "term": {
+                            "encoding": "portable-term-v1",
+                            "sort": "Int",
+                            "node": {
+                              "kind": "token",
+                              "text": "0"
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "siteTuple": [
+                        "501d891f44407e4b1af402a2df87257d95f74e3051a005de05237cc88becd21b"
+                      ],
+                      "bindings": [
+                        {
+                          "name": "X",
+                          "term": {
+                            "encoding": "portable-term-v1",
+                            "sort": "Int",
+                            "node": {
+                              "kind": "token",
+                              "text": "1"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "editReceipts": [
+                    {
+                      "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                      "operator": {
+                        "id": "policy-all-matches-aggregate",
+                        "version": 1,
+                        "digest": "6f634eca854fb1fe65181f5b02de100242a805d6d6e16c7cdfcc195156b28b32"
+                      },
+                      "patchTemplateDigest": "c4ff4d7f77fbe174f8835e278cd6e37787145e01772bb1deecbe2e6867a5e5d1",
+                      "templateRole": "site-replacement",
+                      "sources": [
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "ce0b709595e941ab1f678bb653cc636afd4cc0aa4bdb0140b0f8e2d15676f7d5",
+                          "selectorRole": "site",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "0"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "editId": "d6b86948a32fcfbd1e0762f35df47ece04681d42d8cc6be85fdbdfd1fda0da81",
+                      "operator": {
+                        "id": "policy-all-matches-aggregate",
+                        "version": 1,
+                        "digest": "6f634eca854fb1fe65181f5b02de100242a805d6d6e16c7cdfcc195156b28b32"
+                      },
+                      "patchTemplateDigest": "c4ff4d7f77fbe174f8835e278cd6e37787145e01772bb1deecbe2e6867a5e5d1",
+                      "templateRole": "site-replacement",
+                      "sources": [
+                        {
+                          "discoveryTupleIndex": 1,
+                          "siteId": "501d891f44407e4b1af402a2df87257d95f74e3051a005de05237cc88becd21b",
+                          "selectorRole": "site",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "1"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "patch": {
+                "schemaVersion": 1,
+                "patchId": "e760f3286bec139d32c4cb1daa3e6131f44df5f10966cf6714e0e9846ddf24ba",
+                "operatorId": "policy-all-matches-aggregate",
+                "operatorVersion": 1,
+                "edits": [
+                  {
+                    "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                    "operation": "replace-term",
+                    "targetLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+                    "expectedContent": "57f07f4ff11c7f4e0e78b16997f3e6f6db5ba6fa88fcbe983a9f4d3e54ddf665",
+                    "targetPath": [
+                      {
+                        "kind": "field",
+                        "name": "body"
+                      },
+                      {
+                        "kind": "field",
+                        "name": "lhs"
+                      },
+                      {
+                        "kind": "argument",
+                        "index": 0
+                      }
+                    ],
+                    "value": {
+                      "kind": "term",
+                      "term": {
+                        "encoding": "portable-term-v1",
+                        "sort": "Address",
+                        "node": {
+                          "kind": "application",
+                          "label": "wrappedAddress",
+                          "args": [
+                            {
+                              "encoding": "portable-term-v1",
+                              "sort": "Address",
+                              "node": {
+                                "kind": "variable",
+                                "name": "A"
+                              }
+                            }
+                          ],
+                          "symbolId": "6326c79177c0466c681437e1c94acb8fde65a746591f4978704f4d1f1d85f2a7"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "editId": "d6b86948a32fcfbd1e0762f35df47ece04681d42d8cc6be85fdbdfd1fda0da81",
+                    "operation": "replace-term",
+                    "targetLineage": "e388ef9b3e1284e7640b5bbb03909825e3092b5be0b4fa776dc6b0b84ddc8975",
+                    "expectedContent": "8a9932e736e445c599d4a7d99c1ee7da2bf73bbe2a237a3871199a080b40d55c",
+                    "targetPath": [
+                      {
+                        "kind": "field",
+                        "name": "body"
+                      },
+                      {
+                        "kind": "field",
+                        "name": "rhs"
+                      },
+                      {
+                        "kind": "argument",
+                        "index": 0
+                      }
+                    ],
+                    "value": {
+                      "kind": "term",
+                      "term": {
+                        "encoding": "portable-term-v1",
+                        "sort": "Address",
+                        "node": {
+                          "kind": "application",
+                          "label": "wrappedAddress",
+                          "args": [
+                            {
+                              "encoding": "portable-term-v1",
+                              "sort": "Address",
+                              "node": {
+                                "kind": "variable",
+                                "name": "A"
+                              }
+                            }
+                          ],
+                          "symbolId": "6326c79177c0466c681437e1c94acb8fde65a746591f4978704f4d1f1d85f2a7"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "failures": []
+        },
+        "baseline": {
+          "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+          "status": "valid",
+          "tests": [
+            {
+              "id": "policy-test",
+              "status": "agree",
+              "oracleIds": [
+                "policy-oracle"
+              ]
+            }
+          ],
+          "oracleResults": [
+            {
+              "oracleId": "policy-oracle",
+              "kind": "final-result",
+              "projectionDigest": "67523154b28ded3dd179d95c95ad764e76969bf5955a2dbfb5ebccfab2e15dc9",
+              "comparisonDigest": "d0ce8a593895fab68559b10f0320a1bce0e700e54fb67eb46f8f76f65456894c",
+              "outcome": "accepted",
+              "failure": null,
+              "operand": {
+                "side": "baseline",
+                "terminal": {
+                  "kind": "normal",
+                  "artifact": {
+                    "role": "oracle-value",
+                    "digest": "963ac73175ba3c35fb96a69c3cbcfd41e663cbf256d9807ec10923565d362d08"
+                  }
+                }
+              }
+            }
+          ],
+          "failures": []
+        },
+        "candidateRejections": [
+          {
+            "status": "no-change",
+            "patchId": "e760f3286bec139d32c4cb1daa3e6131f44df5f10966cf6714e0e9846ddf24ba",
+            "originInstanceIds": [
+              "91a4f8f3e1328a3a547b6838ce996a98524b6e42682739e66b8ead4cfebe7f7d"
+            ],
+            "failures": [
+              {
+                "stage": "operator",
+                "classification": "no-change",
+                "context": "candidate-generation",
+                "scope": "candidate",
+                "retryability": "never",
+                "semanticEvidence": [],
+                "details": {}
+              }
+            ]
+          }
+        ],
+        "mutants": [],
+        "score": {
+          "killed": 0,
+          "survived": 0,
+          "denominator": 0,
+          "ratio": null,
+          "excluded": {
+            "invalid": 0,
+            "timeout": 0,
+            "unknown": 0,
+            "error": 0,
+            "duplicate": 0,
+            "no-change": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "deduplicated-patch-origins",
+      "operator": {
+        "schemaVersion": 1,
+        "operatorId": "policy-deduplicated-patch-origins",
+        "operatorVersion": 1,
+        "operatorDigest": "bffc2ab3a8a3ab28aebbef1f08c2fcfec15404c998358792aa623294855bde62",
+        "moduleDigest": "7cfa4a4abaa105094c82b8cfcdbcb6feeb85f347903964ac9ca8f877dbabbb6f",
+        "phase": "semantic-input",
+        "sentenceKinds": [
+          "rule"
+        ],
+        "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+        "joinDigest": null,
+        "policy": "each",
+        "expectedTupleCount": null,
+        "expectedTupleArity": 1,
+        "candidateCap": 4,
+        "preconditionDigest": "cb521b97fe0b21ff44710bd80c13756aa97e0da8c407ece851b28c3f73ad08c1",
+        "postconditionDigest": "47b1234ed0fcd9673ce7661e92fd39a624976e98564a2155e61fc6c34110735d",
+        "generatedSentencePolicy": "exclude",
+        "patchTemplateDigest": "082657b37ab2f87ad23ebaf77f0cb9473fbe68cc9db1947425defa1cf7675e92",
+        "patchTemplateRoles": [
+          {
+            "name": "site-replacement",
+            "operation": "replace-term",
+            "sourceSelectorRoles": [
+              "site"
+            ]
+          }
+        ],
+        "category": "representation-coupling",
+        "rationale": "Change the representation used by the paired producer and consumer as one atomic mutant."
+      },
+      "siteRegistry": {
+        "schemaVersion": 1,
+        "registryId": "e7f96874aa81ba09dea869a744d3fe25fc8f78ce63fbb2b35dfd555676379f02",
+        "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+        "operatorDigest": "bffc2ab3a8a3ab28aebbef1f08c2fcfec15404c998358792aa623294855bde62",
+        "selector": {
+          "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+          "clauses": [
+            {
+              "role": "site",
+              "sentenceKinds": [
+                "rule"
+              ],
+              "label": "site",
+              "termPath": [
+                {
+                  "kind": "field",
+                  "name": "body"
+                },
+                {
+                  "kind": "field",
+                  "name": "lhs"
+                },
+                {
+                  "kind": "argument",
+                  "index": 0
+                }
+              ],
+              "termSort": "Int",
+              "termHeadLabel": null,
+              "bindingName": "X"
+            }
+          ]
+        },
+        "join": null,
+        "discovery": {
+          "exhaustive": true,
+          "failure": null
+        },
+        "sites": [
+          {
+            "selectorRole": "site",
+            "sentenceLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "lhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "0"
+                  }
+                }
+              }
+            ],
+            "siteId": "6d4b3b4af0de0add4e3c08a94038c76acbf401e118a702595a5ef89a6c4cbda0"
+          },
+          {
+            "selectorRole": "site",
+            "sentenceLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "rhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "1"
+                  }
+                }
+              }
+            ],
+            "siteId": "24e69c479b5c89215bdcf34da942639f7e423ade14ae0bbccfd4ebe8f7dbd2d4"
+          }
+        ],
+        "tuples": [
+          [
+            "6d4b3b4af0de0add4e3c08a94038c76acbf401e118a702595a5ef89a6c4cbda0"
+          ],
+          [
+            "24e69c479b5c89215bdcf34da942639f7e423ade14ae0bbccfd4ebe8f7dbd2d4"
+          ]
+        ]
+      },
+      "campaign": {
+        "schemaVersion": 1,
+        "campaignId": "1356f8a34aa5aa3f75a15a76aad4911406b02c855740a97ecd9c0c63a0f6b37c",
+        "reportId": "db35fa7e406e15c567ddfcd1ca17f6b918ac55ea0f277968105688b3e605ded8",
+        "manifestDigest": "c4900fb77d6f492d062f19e800ba3d7ec398f1b9137fb5c5f0fc9415a8b62b70",
+        "operator": {
+          "id": "policy-deduplicated-patch-origins",
+          "version": 1,
+          "digest": "bffc2ab3a8a3ab28aebbef1f08c2fcfec15404c998358792aa623294855bde62"
+        },
+        "schemas": {
+          "identity": 1,
+          "operator": 1,
+          "siteRegistry": 1,
+          "patch": 1,
+          "structuralDiff": 1,
+          "replay": 1,
+          "eventTrace": 1,
+          "patternResult": 1,
+          "mutationCampaign": 1,
+          "failureTaxonomy": 1
+        },
+        "scheduleMode": "full",
+        "selectedTestIds": [
+          "policy-test"
+        ],
+        "campaignStatus": "complete",
+        "failures": [],
+        "generation": {
+          "siteRegistryDigest": "e7f96874aa81ba09dea869a744d3fe25fc8f78ce63fbb2b35dfd555676379f02",
+          "policy": "each",
+          "complete": true,
+          "candidateCap": 4,
+          "derivedInstanceCount": 2,
+          "retainedInstanceCount": 2,
+          "candidates": [
+            {
+              "candidateId": "de69fe2f82c4ddfc1c1da9129747d25f7cf0af7535795aefe40413d327d5b765",
+              "originInstances": [
+                {
+                  "instanceId": "e1459dd811fac4a4de5d766a08022cca284269e96b7981d4b1e3ab4df7a7de16",
+                  "siteTuple": [
+                    "6d4b3b4af0de0add4e3c08a94038c76acbf401e118a702595a5ef89a6c4cbda0"
+                  ],
+                  "discoveryTuples": [
+                    {
+                      "siteTuple": [
+                        "6d4b3b4af0de0add4e3c08a94038c76acbf401e118a702595a5ef89a6c4cbda0"
+                      ],
+                      "bindings": [
+                        {
+                          "name": "X",
+                          "term": {
+                            "encoding": "portable-term-v1",
+                            "sort": "Int",
+                            "node": {
+                              "kind": "token",
+                              "text": "0"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "editReceipts": [
+                    {
+                      "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                      "operator": {
+                        "id": "policy-deduplicated-patch-origins",
+                        "version": 1,
+                        "digest": "bffc2ab3a8a3ab28aebbef1f08c2fcfec15404c998358792aa623294855bde62"
+                      },
+                      "patchTemplateDigest": "082657b37ab2f87ad23ebaf77f0cb9473fbe68cc9db1947425defa1cf7675e92",
+                      "templateRole": "site-replacement",
+                      "sources": [
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "6d4b3b4af0de0add4e3c08a94038c76acbf401e118a702595a5ef89a6c4cbda0",
+                          "selectorRole": "site",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "0"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "instanceId": "1fc2d4ef1b31d35c421c35aeb4179e05a78e952a1503b84c9decb3de40211057",
+                  "siteTuple": [
+                    "24e69c479b5c89215bdcf34da942639f7e423ade14ae0bbccfd4ebe8f7dbd2d4"
+                  ],
+                  "discoveryTuples": [
+                    {
+                      "siteTuple": [
+                        "24e69c479b5c89215bdcf34da942639f7e423ade14ae0bbccfd4ebe8f7dbd2d4"
+                      ],
+                      "bindings": [
+                        {
+                          "name": "X",
+                          "term": {
+                            "encoding": "portable-term-v1",
+                            "sort": "Int",
+                            "node": {
+                              "kind": "token",
+                              "text": "1"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "editReceipts": [
+                    {
+                      "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                      "operator": {
+                        "id": "policy-deduplicated-patch-origins",
+                        "version": 1,
+                        "digest": "bffc2ab3a8a3ab28aebbef1f08c2fcfec15404c998358792aa623294855bde62"
+                      },
+                      "patchTemplateDigest": "082657b37ab2f87ad23ebaf77f0cb9473fbe68cc9db1947425defa1cf7675e92",
+                      "templateRole": "site-replacement",
+                      "sources": [
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "24e69c479b5c89215bdcf34da942639f7e423ade14ae0bbccfd4ebe8f7dbd2d4",
+                          "selectorRole": "site",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "1"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "patch": {
+                "schemaVersion": 1,
+                "patchId": "f42a5e57de3623855eb59188f41e028354acebabf1fdeaa2b4526ff9643b7e23",
+                "operatorId": "policy-deduplicated-patch-origins",
+                "operatorVersion": 1,
+                "edits": [
+                  {
+                    "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                    "operation": "replace-term",
+                    "targetLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+                    "expectedContent": "57f07f4ff11c7f4e0e78b16997f3e6f6db5ba6fa88fcbe983a9f4d3e54ddf665",
+                    "targetPath": [
+                      {
+                        "kind": "field",
+                        "name": "body"
+                      },
+                      {
+                        "kind": "field",
+                        "name": "lhs"
+                      },
+                      {
+                        "kind": "argument",
+                        "index": 0
+                      }
+                    ],
+                    "value": {
+                      "kind": "term",
+                      "term": {
+                        "encoding": "portable-term-v1",
+                        "sort": "Address",
+                        "node": {
+                          "kind": "application",
+                          "label": "wrappedAddress",
+                          "args": [
+                            {
+                              "encoding": "portable-term-v1",
+                              "sort": "Address",
+                              "node": {
+                                "kind": "variable",
+                                "name": "A"
+                              }
+                            }
+                          ],
+                          "symbolId": "6326c79177c0466c681437e1c94acb8fde65a746591f4978704f4d1f1d85f2a7"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "failures": []
+        },
+        "baseline": {
+          "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+          "status": "valid",
+          "tests": [
+            {
+              "id": "policy-test",
+              "status": "agree",
+              "oracleIds": [
+                "policy-oracle"
+              ]
+            }
+          ],
+          "oracleResults": [
+            {
+              "oracleId": "policy-oracle",
+              "kind": "final-result",
+              "projectionDigest": "67523154b28ded3dd179d95c95ad764e76969bf5955a2dbfb5ebccfab2e15dc9",
+              "comparisonDigest": "d0ce8a593895fab68559b10f0320a1bce0e700e54fb67eb46f8f76f65456894c",
+              "outcome": "accepted",
+              "failure": null,
+              "operand": {
+                "side": "baseline",
+                "terminal": {
+                  "kind": "normal",
+                  "artifact": {
+                    "role": "oracle-value",
+                    "digest": "963ac73175ba3c35fb96a69c3cbcfd41e663cbf256d9807ec10923565d362d08"
+                  }
+                }
+              }
+            }
+          ],
+          "failures": []
+        },
+        "candidateRejections": [
+          {
+            "status": "no-change",
+            "patchId": "f42a5e57de3623855eb59188f41e028354acebabf1fdeaa2b4526ff9643b7e23",
+            "originInstanceIds": [
+              "e1459dd811fac4a4de5d766a08022cca284269e96b7981d4b1e3ab4df7a7de16",
+              "1fc2d4ef1b31d35c421c35aeb4179e05a78e952a1503b84c9decb3de40211057"
+            ],
+            "failures": [
+              {
+                "stage": "operator",
+                "classification": "no-change",
+                "context": "candidate-generation",
+                "scope": "candidate",
+                "retryability": "never",
+                "semanticEvidence": [],
+                "details": {}
+              }
+            ]
+          }
+        ],
+        "mutants": [],
+        "score": {
+          "killed": 0,
+          "survived": 0,
+          "denominator": 0,
+          "ratio": null,
+          "excluded": {
+            "invalid": 0,
+            "timeout": 0,
+            "unknown": 0,
+            "error": 0,
+            "duplicate": 0,
+            "no-change": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "exact-zero",
+      "operator": {
+        "schemaVersion": 1,
+        "operatorId": "policy-exact-zero",
+        "operatorVersion": 1,
+        "operatorDigest": "9ef2a9a1e91d665a9361048b03b6e5e65dcea3f678381979a60bc01445e89936",
+        "moduleDigest": "7ef203a52d4538f89a3b6b6c51fd04808b17102457f425389733c1ff4219c4b2",
+        "phase": "semantic-input",
+        "sentenceKinds": [
+          "rule"
+        ],
+        "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+        "joinDigest": null,
+        "policy": "exact",
+        "expectedTupleCount": 1,
+        "expectedTupleArity": 1,
+        "candidateCap": 4,
+        "preconditionDigest": "ffc985a21b17d4ac56147906618a930618ef4f4d1ca86df3989d66c45a0f91e7",
+        "postconditionDigest": "b276709d4c3df3607e0d5dc100c96adf5607c4c26b62d3700268ed8421fd2f52",
+        "generatedSentencePolicy": "exclude",
+        "patchTemplateDigest": "852008f6e763796094daf5a8344f187e7f8321e61d647966150552d7dbfc739a",
+        "patchTemplateRoles": [
+          {
+            "name": "site-replacement",
+            "operation": "replace-term",
+            "sourceSelectorRoles": [
+              "site"
+            ]
+          }
+        ],
+        "category": "representation-coupling",
+        "rationale": "Change the representation used by the paired producer and consumer as one atomic mutant."
+      },
+      "siteRegistry": {
+        "schemaVersion": 1,
+        "registryId": "261260579f7b0221bcd22aa6a6fa601cfd36fcb2374f93dceecf9649ba313327",
+        "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+        "operatorDigest": "9ef2a9a1e91d665a9361048b03b6e5e65dcea3f678381979a60bc01445e89936",
+        "selector": {
+          "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+          "clauses": [
+            {
+              "role": "site",
+              "sentenceKinds": [
+                "rule"
+              ],
+              "label": "site",
+              "termPath": [
+                {
+                  "kind": "field",
+                  "name": "body"
+                },
+                {
+                  "kind": "field",
+                  "name": "lhs"
+                },
+                {
+                  "kind": "argument",
+                  "index": 0
+                }
+              ],
+              "termSort": "Int",
+              "termHeadLabel": null,
+              "bindingName": "X"
+            }
+          ]
+        },
+        "join": null,
+        "discovery": {
+          "exhaustive": true,
+          "failure": null
+        },
+        "sites": [],
+        "tuples": []
+      },
+      "campaign": {
+        "schemaVersion": 1,
+        "campaignId": "b7d95ec4ae2ce3d36434d6c7e97f29c2cf93abb25ea70a43cd7930ccdc6e84c0",
+        "reportId": "7dce20e4c95f14f1963b1d7687197bc6bb89a47081ecfda925a470f6f608b5fd",
+        "manifestDigest": "bc4d8efac62296c1b62db2415076007aec883f3b118b60dfccd480e6a38dc691",
+        "operator": {
+          "id": "policy-exact-zero",
+          "version": 1,
+          "digest": "9ef2a9a1e91d665a9361048b03b6e5e65dcea3f678381979a60bc01445e89936"
+        },
+        "schemas": {
+          "identity": 1,
+          "operator": 1,
+          "siteRegistry": 1,
+          "patch": 1,
+          "structuralDiff": 1,
+          "replay": 1,
+          "eventTrace": 1,
+          "patternResult": 1,
+          "mutationCampaign": 1,
+          "failureTaxonomy": 1
+        },
+        "scheduleMode": "full",
+        "selectedTestIds": [
+          "policy-test"
+        ],
+        "campaignStatus": "selection-failed",
+        "failures": [],
+        "generation": {
+          "siteRegistryDigest": "261260579f7b0221bcd22aa6a6fa601cfd36fcb2374f93dceecf9649ba313327",
+          "policy": "exact",
+          "complete": false,
+          "candidateCap": 4,
+          "derivedInstanceCount": 0,
+          "retainedInstanceCount": 0,
+          "candidates": [],
+          "failures": [
+            {
+              "stage": "selection",
+              "classification": "cardinality-mismatch",
+              "context": "candidate-generation",
+              "scope": "campaign",
+              "retryability": "never",
+              "semanticEvidence": [],
+              "details": {}
+            }
+          ]
+        },
+        "baseline": {
+          "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+          "status": "valid",
+          "tests": [
+            {
+              "id": "policy-test",
+              "status": "agree",
+              "oracleIds": [
+                "policy-oracle"
+              ]
+            }
+          ],
+          "oracleResults": [
+            {
+              "oracleId": "policy-oracle",
+              "kind": "final-result",
+              "projectionDigest": "67523154b28ded3dd179d95c95ad764e76969bf5955a2dbfb5ebccfab2e15dc9",
+              "comparisonDigest": "d0ce8a593895fab68559b10f0320a1bce0e700e54fb67eb46f8f76f65456894c",
+              "outcome": "accepted",
+              "failure": null,
+              "operand": {
+                "side": "baseline",
+                "terminal": {
+                  "kind": "normal",
+                  "artifact": {
+                    "role": "oracle-value",
+                    "digest": "963ac73175ba3c35fb96a69c3cbcfd41e663cbf256d9807ec10923565d362d08"
+                  }
+                }
+              }
+            }
+          ],
+          "failures": []
+        },
+        "candidateRejections": [],
+        "mutants": []
+      }
+    },
+    {
+      "id": "exact-excess",
+      "operator": {
+        "schemaVersion": 1,
+        "operatorId": "policy-exact-excess",
+        "operatorVersion": 1,
+        "operatorDigest": "48aa1369c8354046362f6310a24761e2b2860356750a3073b1db2e2592adcce7",
+        "moduleDigest": "6ffc582be0407abb98d6b1ce857ee440eaaa48ec689c30da242b3ceb5a720e66",
+        "phase": "semantic-input",
+        "sentenceKinds": [
+          "rule"
+        ],
+        "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+        "joinDigest": null,
+        "policy": "exact",
+        "expectedTupleCount": 1,
+        "expectedTupleArity": 1,
+        "candidateCap": 4,
+        "preconditionDigest": "1cc4fae6ab2f4cebfc3b44fb9b17596e683545ab868ce55806af93f189511282",
+        "postconditionDigest": "717abee784ca53148f2658819ed7406746406b28da24ca861db545db10d4abf4",
+        "generatedSentencePolicy": "exclude",
+        "patchTemplateDigest": "535dd9d69464f67b0998cc816c840bc70013150dbcdfc1bc64d283a43dfeaa3a",
+        "patchTemplateRoles": [
+          {
+            "name": "site-replacement",
+            "operation": "replace-term",
+            "sourceSelectorRoles": [
+              "site"
+            ]
+          }
+        ],
+        "category": "representation-coupling",
+        "rationale": "Change the representation used by the paired producer and consumer as one atomic mutant."
+      },
+      "siteRegistry": {
+        "schemaVersion": 1,
+        "registryId": "d1877720ee4a7808fa7a17b244c9b279b99258d6dcfa6304f24a2b78c97e34c4",
+        "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+        "operatorDigest": "48aa1369c8354046362f6310a24761e2b2860356750a3073b1db2e2592adcce7",
+        "selector": {
+          "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+          "clauses": [
+            {
+              "role": "site",
+              "sentenceKinds": [
+                "rule"
+              ],
+              "label": "site",
+              "termPath": [
+                {
+                  "kind": "field",
+                  "name": "body"
+                },
+                {
+                  "kind": "field",
+                  "name": "lhs"
+                },
+                {
+                  "kind": "argument",
+                  "index": 0
+                }
+              ],
+              "termSort": "Int",
+              "termHeadLabel": null,
+              "bindingName": "X"
+            }
+          ]
+        },
+        "join": null,
+        "discovery": {
+          "exhaustive": true,
+          "failure": null
+        },
+        "sites": [
+          {
+            "selectorRole": "site",
+            "sentenceLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "lhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "0"
+                  }
+                }
+              }
+            ],
+            "siteId": "a164ba0d628feed88541cc68173c85919254220cdfe938a43852663015b96af3"
+          },
+          {
+            "selectorRole": "site",
+            "sentenceLineage": "e388ef9b3e1284e7640b5bbb03909825e3092b5be0b4fa776dc6b0b84ddc8975",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "rhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "1"
+                  }
+                }
+              }
+            ],
+            "siteId": "0bf078edff0f06dc22331bd63d5b2d8de0264595a148a3f0defadac4701771b9"
+          }
+        ],
+        "tuples": [
+          [
+            "a164ba0d628feed88541cc68173c85919254220cdfe938a43852663015b96af3"
+          ],
+          [
+            "0bf078edff0f06dc22331bd63d5b2d8de0264595a148a3f0defadac4701771b9"
+          ]
+        ]
+      },
+      "campaign": {
+        "schemaVersion": 1,
+        "campaignId": "e081a274b9aeca36272457aae48b362e7d28a63a8456b363d6dbd4e957a3e125",
+        "reportId": "2739b5c2aa5565e1ac1942611bec5403cd2f7d76117dec09436f84363fcf2b60",
+        "manifestDigest": "5ce2a0b5a598b1e85de3b7dcccbf71a0880e33522e00d9940c4638ded94fe80a",
+        "operator": {
+          "id": "policy-exact-excess",
+          "version": 1,
+          "digest": "48aa1369c8354046362f6310a24761e2b2860356750a3073b1db2e2592adcce7"
+        },
+        "schemas": {
+          "identity": 1,
+          "operator": 1,
+          "siteRegistry": 1,
+          "patch": 1,
+          "structuralDiff": 1,
+          "replay": 1,
+          "eventTrace": 1,
+          "patternResult": 1,
+          "mutationCampaign": 1,
+          "failureTaxonomy": 1
+        },
+        "scheduleMode": "full",
+        "selectedTestIds": [
+          "policy-test"
+        ],
+        "campaignStatus": "selection-failed",
+        "failures": [],
+        "generation": {
+          "siteRegistryDigest": "d1877720ee4a7808fa7a17b244c9b279b99258d6dcfa6304f24a2b78c97e34c4",
+          "policy": "exact",
+          "complete": false,
+          "candidateCap": 4,
+          "derivedInstanceCount": 0,
+          "retainedInstanceCount": 0,
+          "candidates": [],
+          "failures": [
+            {
+              "stage": "selection",
+              "classification": "cardinality-mismatch",
+              "context": "candidate-generation",
+              "scope": "campaign",
+              "retryability": "never",
+              "semanticEvidence": [],
+              "details": {}
+            }
+          ]
+        },
+        "baseline": {
+          "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+          "status": "valid",
+          "tests": [
+            {
+              "id": "policy-test",
+              "status": "agree",
+              "oracleIds": [
+                "policy-oracle"
+              ]
+            }
+          ],
+          "oracleResults": [
+            {
+              "oracleId": "policy-oracle",
+              "kind": "final-result",
+              "projectionDigest": "67523154b28ded3dd179d95c95ad764e76969bf5955a2dbfb5ebccfab2e15dc9",
+              "comparisonDigest": "d0ce8a593895fab68559b10f0320a1bce0e700e54fb67eb46f8f76f65456894c",
+              "outcome": "accepted",
+              "failure": null,
+              "operand": {
+                "side": "baseline",
+                "terminal": {
+                  "kind": "normal",
+                  "artifact": {
+                    "role": "oracle-value",
+                    "digest": "963ac73175ba3c35fb96a69c3cbcfd41e663cbf256d9807ec10923565d362d08"
+                  }
+                }
+              }
+            }
+          ],
+          "failures": []
+        },
+        "candidateRejections": [],
+        "mutants": []
+      }
+    },
+    {
+      "id": "exact-wrong-arity",
+      "operator": {
+        "schemaVersion": 1,
+        "operatorId": "policy-exact-wrong-arity",
+        "operatorVersion": 1,
+        "operatorDigest": "58d2208f8b2a477682c4365dee0f42b18207beb152cd8b1d6ffb2a59479ac222",
+        "moduleDigest": "fc484822b5f4438b2a1d1e78df59a56e1ebab693f53cf5272701546977ee7f40",
+        "phase": "semantic-input",
+        "sentenceKinds": [
+          "rule"
+        ],
+        "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+        "joinDigest": null,
+        "policy": "exact",
+        "expectedTupleCount": 1,
+        "expectedTupleArity": 2,
+        "candidateCap": 4,
+        "preconditionDigest": "274776768c28e263a2b9bca5a32fcc6c4b09b6ac5774f3a969ba0a356a1e375b",
+        "postconditionDigest": "d1203ea407021311e0c72e025a56e1003dfad66d5ddc6a3a7d2203642f1205b4",
+        "generatedSentencePolicy": "exclude",
+        "patchTemplateDigest": "d1f474c1bf6affcadf92019dc72654e3050f757b074c3f8e907f9dd78e784aec",
+        "patchTemplateRoles": [
+          {
+            "name": "site-replacement",
+            "operation": "replace-term",
+            "sourceSelectorRoles": [
+              "site"
+            ]
+          }
+        ],
+        "category": "representation-coupling",
+        "rationale": "Change the representation used by the paired producer and consumer as one atomic mutant."
+      },
+      "siteRegistry": {
+        "schemaVersion": 1,
+        "registryId": "1d97a3eb9d629fb864fb491d813e11471dcb21866d375a5ff93a9f2b76074021",
+        "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+        "operatorDigest": "58d2208f8b2a477682c4365dee0f42b18207beb152cd8b1d6ffb2a59479ac222",
+        "selector": {
+          "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+          "clauses": [
+            {
+              "role": "site",
+              "sentenceKinds": [
+                "rule"
+              ],
+              "label": "site",
+              "termPath": [
+                {
+                  "kind": "field",
+                  "name": "body"
+                },
+                {
+                  "kind": "field",
+                  "name": "lhs"
+                },
+                {
+                  "kind": "argument",
+                  "index": 0
+                }
+              ],
+              "termSort": "Int",
+              "termHeadLabel": null,
+              "bindingName": "X"
+            }
+          ]
+        },
+        "join": null,
+        "discovery": {
+          "exhaustive": true,
+          "failure": null
+        },
+        "sites": [
+          {
+            "selectorRole": "site",
+            "sentenceLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "lhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "0"
+                  }
+                }
+              }
+            ],
+            "siteId": "b0a4d614b5a794647f9923714e8df5987b0a46d1df5110de751d3808c17710f0"
+          }
+        ],
+        "tuples": [
+          [
+            "b0a4d614b5a794647f9923714e8df5987b0a46d1df5110de751d3808c17710f0"
+          ]
+        ]
+      },
+      "campaign": {
+        "schemaVersion": 1,
+        "campaignId": "1b9717fd09f72ceeaef96e2dd9c3b6dbb14574bb92041524bfc4d92417a4e0ca",
+        "reportId": "f7d090ac62a458f7d59b7def1310bd082af417cb40da2004031283d68fcd3f0c",
+        "manifestDigest": "718afa488a4b213c623cad227e3a70b486443bfba51c3e9cc92ac63b54c4cbcb",
+        "operator": {
+          "id": "policy-exact-wrong-arity",
+          "version": 1,
+          "digest": "58d2208f8b2a477682c4365dee0f42b18207beb152cd8b1d6ffb2a59479ac222"
+        },
+        "schemas": {
+          "identity": 1,
+          "operator": 1,
+          "siteRegistry": 1,
+          "patch": 1,
+          "structuralDiff": 1,
+          "replay": 1,
+          "eventTrace": 1,
+          "patternResult": 1,
+          "mutationCampaign": 1,
+          "failureTaxonomy": 1
+        },
+        "scheduleMode": "full",
+        "selectedTestIds": [
+          "policy-test"
+        ],
+        "campaignStatus": "selection-failed",
+        "failures": [],
+        "generation": {
+          "siteRegistryDigest": "1d97a3eb9d629fb864fb491d813e11471dcb21866d375a5ff93a9f2b76074021",
+          "policy": "exact",
+          "complete": false,
+          "candidateCap": 4,
+          "derivedInstanceCount": 0,
+          "retainedInstanceCount": 0,
+          "candidates": [],
+          "failures": [
+            {
+              "stage": "selection",
+              "classification": "invalid-join",
+              "context": "candidate-generation",
+              "scope": "campaign",
+              "retryability": "never",
+              "semanticEvidence": [],
+              "details": {}
+            }
+          ]
+        },
+        "baseline": {
+          "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+          "status": "valid",
+          "tests": [
+            {
+              "id": "policy-test",
+              "status": "agree",
+              "oracleIds": [
+                "policy-oracle"
+              ]
+            }
+          ],
+          "oracleResults": [
+            {
+              "oracleId": "policy-oracle",
+              "kind": "final-result",
+              "projectionDigest": "67523154b28ded3dd179d95c95ad764e76969bf5955a2dbfb5ebccfab2e15dc9",
+              "comparisonDigest": "d0ce8a593895fab68559b10f0320a1bce0e700e54fb67eb46f8f76f65456894c",
+              "outcome": "accepted",
+              "failure": null,
+              "operand": {
+                "side": "baseline",
+                "terminal": {
+                  "kind": "normal",
+                  "artifact": {
+                    "role": "oracle-value",
+                    "digest": "963ac73175ba3c35fb96a69c3cbcfd41e663cbf256d9807ec10923565d362d08"
+                  }
+                }
+              }
+            }
+          ],
+          "failures": []
+        },
+        "candidateRejections": [],
+        "mutants": []
+      }
+    },
+    {
+      "id": "cap-prefix",
+      "operator": {
+        "schemaVersion": 1,
+        "operatorId": "policy-cap-prefix",
+        "operatorVersion": 1,
+        "operatorDigest": "49e9ce414f85c80ff857e34068135ca5442ba8e0f0a7a0532c4eb67af2c75a89",
+        "moduleDigest": "d5cd727c7f0d4bee09cd7ecd1e416be8849078143ea11c3f8a921dbc1afcad38",
+        "phase": "semantic-input",
+        "sentenceKinds": [
+          "rule"
+        ],
+        "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+        "joinDigest": null,
+        "policy": "each",
+        "expectedTupleCount": null,
+        "expectedTupleArity": 1,
+        "candidateCap": 2,
+        "preconditionDigest": "f01e1267164c0cacdf102ea5ea47d8bfd8327ebc14054cf0abfe2c4d93019aa4",
+        "postconditionDigest": "91ea66f31a94cae0e4a8597a0a7a5ed1f800c3285887cb25a3d8129fce7553bf",
+        "generatedSentencePolicy": "exclude",
+        "patchTemplateDigest": "76ffb0bcf0b60880b14e12a037d5a8e2f26c3b6a23cfcad78cffccd170745065",
+        "patchTemplateRoles": [
+          {
+            "name": "site-replacement",
+            "operation": "replace-term",
+            "sourceSelectorRoles": [
+              "site"
+            ]
+          }
+        ],
+        "category": "representation-coupling",
+        "rationale": "Change the representation used by the paired producer and consumer as one atomic mutant."
+      },
+      "siteRegistry": {
+        "schemaVersion": 1,
+        "registryId": "dcc9026b05b7e25b0043f5a1e2f54c13a9345f140dbaf0192ed08d89847fb85d",
+        "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+        "operatorDigest": "49e9ce414f85c80ff857e34068135ca5442ba8e0f0a7a0532c4eb67af2c75a89",
+        "selector": {
+          "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+          "clauses": [
+            {
+              "role": "site",
+              "sentenceKinds": [
+                "rule"
+              ],
+              "label": "site",
+              "termPath": [
+                {
+                  "kind": "field",
+                  "name": "body"
+                },
+                {
+                  "kind": "field",
+                  "name": "lhs"
+                },
+                {
+                  "kind": "argument",
+                  "index": 0
+                }
+              ],
+              "termSort": "Int",
+              "termHeadLabel": null,
+              "bindingName": "X"
+            }
+          ]
+        },
+        "join": null,
+        "discovery": {
+          "exhaustive": true,
+          "failure": null
+        },
+        "sites": [
+          {
+            "selectorRole": "site",
+            "sentenceLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "lhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "0"
+                  }
+                }
+              }
+            ],
+            "siteId": "4169b5fcf2ab97b102306fe5f45582d268e4bda7f6219515a7876d43547e3aaa"
+          },
+          {
+            "selectorRole": "site",
+            "sentenceLineage": "e388ef9b3e1284e7640b5bbb03909825e3092b5be0b4fa776dc6b0b84ddc8975",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "rhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "1"
+                  }
+                }
+              }
+            ],
+            "siteId": "297f35362707daf654bf1450e6ddde0785beaf7ef794f82b801028d7983bf978"
+          },
+          {
+            "selectorRole": "site",
+            "sentenceLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "rhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "2"
+                  }
+                }
+              }
+            ],
+            "siteId": "62542f4310b60fd11bf241b0780368c0a35e7b9a691cdeef20af42c554ef433e"
+          }
+        ],
+        "tuples": [
+          [
+            "4169b5fcf2ab97b102306fe5f45582d268e4bda7f6219515a7876d43547e3aaa"
+          ],
+          [
+            "297f35362707daf654bf1450e6ddde0785beaf7ef794f82b801028d7983bf978"
+          ],
+          [
+            "62542f4310b60fd11bf241b0780368c0a35e7b9a691cdeef20af42c554ef433e"
+          ]
+        ]
+      },
+      "campaign": {
+        "schemaVersion": 1,
+        "campaignId": "a825423d48737b8d11784720c64be0a8cf01c642a7cad6144ea201788cce2c8b",
+        "reportId": "5b5caff03f22f88a80e7ea1cf274a6af12b212bd6bb4046fa92ca1f28a40d185",
+        "manifestDigest": "ff7167953b4eca7e140d070c503c4de3f1bbdd8f38b708bd3496cac0f8a64b3e",
+        "operator": {
+          "id": "policy-cap-prefix",
+          "version": 1,
+          "digest": "49e9ce414f85c80ff857e34068135ca5442ba8e0f0a7a0532c4eb67af2c75a89"
+        },
+        "schemas": {
+          "identity": 1,
+          "operator": 1,
+          "siteRegistry": 1,
+          "patch": 1,
+          "structuralDiff": 1,
+          "replay": 1,
+          "eventTrace": 1,
+          "patternResult": 1,
+          "mutationCampaign": 1,
+          "failureTaxonomy": 1
+        },
+        "scheduleMode": "full",
+        "selectedTestIds": [
+          "policy-test"
+        ],
+        "campaignStatus": "incomplete-generation",
+        "failures": [],
+        "generation": {
+          "siteRegistryDigest": "dcc9026b05b7e25b0043f5a1e2f54c13a9345f140dbaf0192ed08d89847fb85d",
+          "policy": "each",
+          "complete": false,
+          "candidateCap": 2,
+          "derivedInstanceCount": 3,
+          "retainedInstanceCount": 2,
+          "candidates": [
+            {
+              "candidateId": "e898149c56393b7a674f7fbee8cfecc579cc0e97a91f2262a36b5f71926ca278",
+              "originInstances": [
+                {
+                  "instanceId": "6615addfc9bc2f67a8a4ade8bccee8099ebe9e829aed24fe81b524411f9828f3",
+                  "siteTuple": [
+                    "4169b5fcf2ab97b102306fe5f45582d268e4bda7f6219515a7876d43547e3aaa"
+                  ],
+                  "discoveryTuples": [
+                    {
+                      "siteTuple": [
+                        "4169b5fcf2ab97b102306fe5f45582d268e4bda7f6219515a7876d43547e3aaa"
+                      ],
+                      "bindings": [
+                        {
+                          "name": "X",
+                          "term": {
+                            "encoding": "portable-term-v1",
+                            "sort": "Int",
+                            "node": {
+                              "kind": "token",
+                              "text": "0"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "editReceipts": [
+                    {
+                      "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                      "operator": {
+                        "id": "policy-cap-prefix",
+                        "version": 1,
+                        "digest": "49e9ce414f85c80ff857e34068135ca5442ba8e0f0a7a0532c4eb67af2c75a89"
+                      },
+                      "patchTemplateDigest": "76ffb0bcf0b60880b14e12a037d5a8e2f26c3b6a23cfcad78cffccd170745065",
+                      "templateRole": "site-replacement",
+                      "sources": [
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "4169b5fcf2ab97b102306fe5f45582d268e4bda7f6219515a7876d43547e3aaa",
+                          "selectorRole": "site",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "0"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "patch": {
+                "schemaVersion": 1,
+                "patchId": "f42a5e57de3623855eb59188f41e028354acebabf1fdeaa2b4526ff9643b7e23",
+                "operatorId": "policy-cap-prefix",
+                "operatorVersion": 1,
+                "edits": [
+                  {
+                    "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                    "operation": "replace-term",
+                    "targetLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+                    "expectedContent": "57f07f4ff11c7f4e0e78b16997f3e6f6db5ba6fa88fcbe983a9f4d3e54ddf665",
+                    "targetPath": [
+                      {
+                        "kind": "field",
+                        "name": "body"
+                      },
+                      {
+                        "kind": "field",
+                        "name": "lhs"
+                      },
+                      {
+                        "kind": "argument",
+                        "index": 0
+                      }
+                    ],
+                    "value": {
+                      "kind": "term",
+                      "term": {
+                        "encoding": "portable-term-v1",
+                        "sort": "Address",
+                        "node": {
+                          "kind": "application",
+                          "label": "wrappedAddress",
+                          "args": [
+                            {
+                              "encoding": "portable-term-v1",
+                              "sort": "Address",
+                              "node": {
+                                "kind": "variable",
+                                "name": "A"
+                              }
+                            }
+                          ],
+                          "symbolId": "6326c79177c0466c681437e1c94acb8fde65a746591f4978704f4d1f1d85f2a7"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "candidateId": "a282fd870024ee39bb981bed2d4f87f52ad8a92f007194a22c0b5ee9c39839b5",
+              "originInstances": [
+                {
+                  "instanceId": "c3d3b81037051b8acff0671dea12b3a3927b654086ea5e61524abd9575abd89c",
+                  "siteTuple": [
+                    "297f35362707daf654bf1450e6ddde0785beaf7ef794f82b801028d7983bf978"
+                  ],
+                  "discoveryTuples": [
+                    {
+                      "siteTuple": [
+                        "297f35362707daf654bf1450e6ddde0785beaf7ef794f82b801028d7983bf978"
+                      ],
+                      "bindings": [
+                        {
+                          "name": "X",
+                          "term": {
+                            "encoding": "portable-term-v1",
+                            "sort": "Int",
+                            "node": {
+                              "kind": "token",
+                              "text": "1"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "editReceipts": [
+                    {
+                      "editId": "d6b86948a32fcfbd1e0762f35df47ece04681d42d8cc6be85fdbdfd1fda0da81",
+                      "operator": {
+                        "id": "policy-cap-prefix",
+                        "version": 1,
+                        "digest": "49e9ce414f85c80ff857e34068135ca5442ba8e0f0a7a0532c4eb67af2c75a89"
+                      },
+                      "patchTemplateDigest": "76ffb0bcf0b60880b14e12a037d5a8e2f26c3b6a23cfcad78cffccd170745065",
+                      "templateRole": "site-replacement",
+                      "sources": [
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "297f35362707daf654bf1450e6ddde0785beaf7ef794f82b801028d7983bf978",
+                          "selectorRole": "site",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "1"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "patch": {
+                "schemaVersion": 1,
+                "patchId": "46efcd136cdc25d1331379b776340fd0d6126d3d4ee005bc7f05d284ed3e33cf",
+                "operatorId": "policy-cap-prefix",
+                "operatorVersion": 1,
+                "edits": [
+                  {
+                    "editId": "d6b86948a32fcfbd1e0762f35df47ece04681d42d8cc6be85fdbdfd1fda0da81",
+                    "operation": "replace-term",
+                    "targetLineage": "e388ef9b3e1284e7640b5bbb03909825e3092b5be0b4fa776dc6b0b84ddc8975",
+                    "expectedContent": "8a9932e736e445c599d4a7d99c1ee7da2bf73bbe2a237a3871199a080b40d55c",
+                    "targetPath": [
+                      {
+                        "kind": "field",
+                        "name": "body"
+                      },
+                      {
+                        "kind": "field",
+                        "name": "rhs"
+                      },
+                      {
+                        "kind": "argument",
+                        "index": 0
+                      }
+                    ],
+                    "value": {
+                      "kind": "term",
+                      "term": {
+                        "encoding": "portable-term-v1",
+                        "sort": "Address",
+                        "node": {
+                          "kind": "application",
+                          "label": "wrappedAddress",
+                          "args": [
+                            {
+                              "encoding": "portable-term-v1",
+                              "sort": "Address",
+                              "node": {
+                                "kind": "variable",
+                                "name": "A"
+                              }
+                            }
+                          ],
+                          "symbolId": "6326c79177c0466c681437e1c94acb8fde65a746591f4978704f4d1f1d85f2a7"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "failures": [
+            {
+              "stage": "selection",
+              "classification": "incomplete-generation",
+              "context": "candidate-generation",
+              "scope": "campaign",
+              "retryability": "never",
+              "semanticEvidence": [],
+              "details": {}
+            }
+          ]
+        },
+        "baseline": {
+          "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+          "status": "valid",
+          "tests": [
+            {
+              "id": "policy-test",
+              "status": "agree",
+              "oracleIds": [
+                "policy-oracle"
+              ]
+            }
+          ],
+          "oracleResults": [
+            {
+              "oracleId": "policy-oracle",
+              "kind": "final-result",
+              "projectionDigest": "67523154b28ded3dd179d95c95ad764e76969bf5955a2dbfb5ebccfab2e15dc9",
+              "comparisonDigest": "d0ce8a593895fab68559b10f0320a1bce0e700e54fb67eb46f8f76f65456894c",
+              "outcome": "accepted",
+              "failure": null,
+              "operand": {
+                "side": "baseline",
+                "terminal": {
+                  "kind": "normal",
+                  "artifact": {
+                    "role": "oracle-value",
+                    "digest": "963ac73175ba3c35fb96a69c3cbcfd41e663cbf256d9807ec10923565d362d08"
+                  }
+                }
+              }
+            }
+          ],
+          "failures": []
+        },
+        "candidateRejections": [],
+        "mutants": []
+      }
+    },
+    {
+      "id": "nonexhaustive-prefix",
+      "operator": {
+        "schemaVersion": 1,
+        "operatorId": "policy-nonexhaustive-prefix",
+        "operatorVersion": 1,
+        "operatorDigest": "cad27f5a7dfd20a9e34531e89e197aa1e0b70d2e444c09d8903077684df63ac5",
+        "moduleDigest": "76859b19154821bd968a4aec8b495afe69c5e07650224c739777f92e15291db1",
+        "phase": "semantic-input",
+        "sentenceKinds": [
+          "rule"
+        ],
+        "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+        "joinDigest": null,
+        "policy": "each",
+        "expectedTupleCount": null,
+        "expectedTupleArity": 1,
+        "candidateCap": 4,
+        "preconditionDigest": "41436ba49e8d76d6c064f0e3cf93d9a3bbedf8778e30a5ccf8e853e2523f2a3a",
+        "postconditionDigest": "29720c3a20da090a560bee0fbbb0b4e34714a3ba3037181cb1446809458b253f",
+        "generatedSentencePolicy": "exclude",
+        "patchTemplateDigest": "027a9dcdb212bb91336c98abc6cd0eba816d85f27fd0e0c6e74de679e950d9b8",
+        "patchTemplateRoles": [
+          {
+            "name": "site-replacement",
+            "operation": "replace-term",
+            "sourceSelectorRoles": [
+              "site"
+            ]
+          }
+        ],
+        "category": "representation-coupling",
+        "rationale": "Change the representation used by the paired producer and consumer as one atomic mutant."
+      },
+      "siteRegistry": {
+        "schemaVersion": 1,
+        "registryId": "aac26c3f4e1d09f2040f049b0475b0b17d350d50c50ff4ad9a6b9ef89ca8be57",
+        "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+        "operatorDigest": "cad27f5a7dfd20a9e34531e89e197aa1e0b70d2e444c09d8903077684df63ac5",
+        "selector": {
+          "selectorDigest": "be9a29ca1a8675231187517e82acaece7495765cf91f5f1289f5fbb41d106cb6",
+          "clauses": [
+            {
+              "role": "site",
+              "sentenceKinds": [
+                "rule"
+              ],
+              "label": "site",
+              "termPath": [
+                {
+                  "kind": "field",
+                  "name": "body"
+                },
+                {
+                  "kind": "field",
+                  "name": "lhs"
+                },
+                {
+                  "kind": "argument",
+                  "index": 0
+                }
+              ],
+              "termSort": "Int",
+              "termHeadLabel": null,
+              "bindingName": "X"
+            }
+          ]
+        },
+        "join": null,
+        "discovery": {
+          "exhaustive": false,
+          "failure": {
+            "stage": "selection",
+            "classification": "incomplete-generation",
+            "context": "mutation-discovery",
+            "scope": "campaign",
+            "retryability": "never",
+            "semanticEvidence": [],
+            "details": {}
+          }
+        },
+        "sites": [
+          {
+            "selectorRole": "site",
+            "sentenceLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "lhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "0"
+                  }
+                }
+              }
+            ],
+            "siteId": "fd80fd83d4bfece947ff76139d495ea1e8a3bb9e1e6971f981880031fdb85324"
+          },
+          {
+            "selectorRole": "site",
+            "sentenceLineage": "e388ef9b3e1284e7640b5bbb03909825e3092b5be0b4fa776dc6b0b84ddc8975",
+            "termPath": [
+              {
+                "kind": "field",
+                "name": "body"
+              },
+              {
+                "kind": "field",
+                "name": "rhs"
+              },
+              {
+                "kind": "argument",
+                "index": 0
+              }
+            ],
+            "bindings": [
+              {
+                "name": "X",
+                "term": {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "token",
+                    "text": "1"
+                  }
+                }
+              }
+            ],
+            "siteId": "88a17ae468fe6240083bb7b21aebd3597850659d1071cbb6251b56622f9b83c1"
+          }
+        ],
+        "tuples": [
+          [
+            "fd80fd83d4bfece947ff76139d495ea1e8a3bb9e1e6971f981880031fdb85324"
+          ],
+          [
+            "88a17ae468fe6240083bb7b21aebd3597850659d1071cbb6251b56622f9b83c1"
+          ]
+        ]
+      },
+      "campaign": {
+        "schemaVersion": 1,
+        "campaignId": "aa8173cbc8944e17da0db5d9daa3dbadedca5e7506b70fdeaa4ea8ae93af5e15",
+        "reportId": "94bdfb2dee9e00b6185f4c4b45ee1564b2cfb23cb5c6fe298cab37a5b0f7332d",
+        "manifestDigest": "8900fe7d44e559b7816da004b3d8ad74f6e312ba0923de545cb587b71d69bc9d",
+        "operator": {
+          "id": "policy-nonexhaustive-prefix",
+          "version": 1,
+          "digest": "cad27f5a7dfd20a9e34531e89e197aa1e0b70d2e444c09d8903077684df63ac5"
+        },
+        "schemas": {
+          "identity": 1,
+          "operator": 1,
+          "siteRegistry": 1,
+          "patch": 1,
+          "structuralDiff": 1,
+          "replay": 1,
+          "eventTrace": 1,
+          "patternResult": 1,
+          "mutationCampaign": 1,
+          "failureTaxonomy": 1
+        },
+        "scheduleMode": "full",
+        "selectedTestIds": [
+          "policy-test"
+        ],
+        "campaignStatus": "incomplete-generation",
+        "failures": [],
+        "generation": {
+          "siteRegistryDigest": "aac26c3f4e1d09f2040f049b0475b0b17d350d50c50ff4ad9a6b9ef89ca8be57",
+          "policy": "each",
+          "complete": false,
+          "candidateCap": 4,
+          "derivedInstanceCount": 2,
+          "retainedInstanceCount": 2,
+          "candidates": [
+            {
+              "candidateId": "ff3e20e12456961fd080743665ba35acd3426d90819b8c29847632e13c5d54fc",
+              "originInstances": [
+                {
+                  "instanceId": "6c041416dc22dc9868e815eed9d640b9fa6353c4830ae8101be50945b979b0ce",
+                  "siteTuple": [
+                    "fd80fd83d4bfece947ff76139d495ea1e8a3bb9e1e6971f981880031fdb85324"
+                  ],
+                  "discoveryTuples": [
+                    {
+                      "siteTuple": [
+                        "fd80fd83d4bfece947ff76139d495ea1e8a3bb9e1e6971f981880031fdb85324"
+                      ],
+                      "bindings": [
+                        {
+                          "name": "X",
+                          "term": {
+                            "encoding": "portable-term-v1",
+                            "sort": "Int",
+                            "node": {
+                              "kind": "token",
+                              "text": "0"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "editReceipts": [
+                    {
+                      "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                      "operator": {
+                        "id": "policy-nonexhaustive-prefix",
+                        "version": 1,
+                        "digest": "cad27f5a7dfd20a9e34531e89e197aa1e0b70d2e444c09d8903077684df63ac5"
+                      },
+                      "patchTemplateDigest": "027a9dcdb212bb91336c98abc6cd0eba816d85f27fd0e0c6e74de679e950d9b8",
+                      "templateRole": "site-replacement",
+                      "sources": [
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "fd80fd83d4bfece947ff76139d495ea1e8a3bb9e1e6971f981880031fdb85324",
+                          "selectorRole": "site",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "0"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "patch": {
+                "schemaVersion": 1,
+                "patchId": "f42a5e57de3623855eb59188f41e028354acebabf1fdeaa2b4526ff9643b7e23",
+                "operatorId": "policy-nonexhaustive-prefix",
+                "operatorVersion": 1,
+                "edits": [
+                  {
+                    "editId": "87f93dc7e5d2a2fe1d9f5ac0dba22f2a35bea0db829611855a6e9bc2962db2cc",
+                    "operation": "replace-term",
+                    "targetLineage": "1bc16664a1f0df9d23af8483e62e1bafd7f28f4f087e268c4ef770572fb9b963",
+                    "expectedContent": "57f07f4ff11c7f4e0e78b16997f3e6f6db5ba6fa88fcbe983a9f4d3e54ddf665",
+                    "targetPath": [
+                      {
+                        "kind": "field",
+                        "name": "body"
+                      },
+                      {
+                        "kind": "field",
+                        "name": "lhs"
+                      },
+                      {
+                        "kind": "argument",
+                        "index": 0
+                      }
+                    ],
+                    "value": {
+                      "kind": "term",
+                      "term": {
+                        "encoding": "portable-term-v1",
+                        "sort": "Address",
+                        "node": {
+                          "kind": "application",
+                          "label": "wrappedAddress",
+                          "args": [
+                            {
+                              "encoding": "portable-term-v1",
+                              "sort": "Address",
+                              "node": {
+                                "kind": "variable",
+                                "name": "A"
+                              }
+                            }
+                          ],
+                          "symbolId": "6326c79177c0466c681437e1c94acb8fde65a746591f4978704f4d1f1d85f2a7"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "candidateId": "6096dfdf8244836243143bba1200ffe19fcbc8913063a85e72279b985bcdf61f",
+              "originInstances": [
+                {
+                  "instanceId": "b81678b1b17114d87054be962846bc8724ada413921c0ec24cc9b957ee7cc665",
+                  "siteTuple": [
+                    "88a17ae468fe6240083bb7b21aebd3597850659d1071cbb6251b56622f9b83c1"
+                  ],
+                  "discoveryTuples": [
+                    {
+                      "siteTuple": [
+                        "88a17ae468fe6240083bb7b21aebd3597850659d1071cbb6251b56622f9b83c1"
+                      ],
+                      "bindings": [
+                        {
+                          "name": "X",
+                          "term": {
+                            "encoding": "portable-term-v1",
+                            "sort": "Int",
+                            "node": {
+                              "kind": "token",
+                              "text": "1"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "editReceipts": [
+                    {
+                      "editId": "d6b86948a32fcfbd1e0762f35df47ece04681d42d8cc6be85fdbdfd1fda0da81",
+                      "operator": {
+                        "id": "policy-nonexhaustive-prefix",
+                        "version": 1,
+                        "digest": "cad27f5a7dfd20a9e34531e89e197aa1e0b70d2e444c09d8903077684df63ac5"
+                      },
+                      "patchTemplateDigest": "027a9dcdb212bb91336c98abc6cd0eba816d85f27fd0e0c6e74de679e950d9b8",
+                      "templateRole": "site-replacement",
+                      "sources": [
+                        {
+                          "discoveryTupleIndex": 0,
+                          "siteId": "88a17ae468fe6240083bb7b21aebd3597850659d1071cbb6251b56622f9b83c1",
+                          "selectorRole": "site",
+                          "tupleBindings": [
+                            {
+                              "name": "X",
+                              "term": {
+                                "encoding": "portable-term-v1",
+                                "sort": "Int",
+                                "node": {
+                                  "kind": "token",
+                                  "text": "1"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "patch": {
+                "schemaVersion": 1,
+                "patchId": "46efcd136cdc25d1331379b776340fd0d6126d3d4ee005bc7f05d284ed3e33cf",
+                "operatorId": "policy-nonexhaustive-prefix",
+                "operatorVersion": 1,
+                "edits": [
+                  {
+                    "editId": "d6b86948a32fcfbd1e0762f35df47ece04681d42d8cc6be85fdbdfd1fda0da81",
+                    "operation": "replace-term",
+                    "targetLineage": "e388ef9b3e1284e7640b5bbb03909825e3092b5be0b4fa776dc6b0b84ddc8975",
+                    "expectedContent": "8a9932e736e445c599d4a7d99c1ee7da2bf73bbe2a237a3871199a080b40d55c",
+                    "targetPath": [
+                      {
+                        "kind": "field",
+                        "name": "body"
+                      },
+                      {
+                        "kind": "field",
+                        "name": "rhs"
+                      },
+                      {
+                        "kind": "argument",
+                        "index": 0
+                      }
+                    ],
+                    "value": {
+                      "kind": "term",
+                      "term": {
+                        "encoding": "portable-term-v1",
+                        "sort": "Address",
+                        "node": {
+                          "kind": "application",
+                          "label": "wrappedAddress",
+                          "args": [
+                            {
+                              "encoding": "portable-term-v1",
+                              "sort": "Address",
+                              "node": {
+                                "kind": "variable",
+                                "name": "A"
+                              }
+                            }
+                          ],
+                          "symbolId": "6326c79177c0466c681437e1c94acb8fde65a746591f4978704f4d1f1d85f2a7"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "failures": [
+            {
+              "stage": "selection",
+              "classification": "incomplete-generation",
+              "context": "candidate-generation",
+              "scope": "campaign",
+              "retryability": "never",
+              "semanticEvidence": [],
+              "details": {}
+            }
+          ]
+        },
+        "baseline": {
+          "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+          "status": "valid",
+          "tests": [
+            {
+              "id": "policy-test",
+              "status": "agree",
+              "oracleIds": [
+                "policy-oracle"
+              ]
+            }
+          ],
+          "oracleResults": [
+            {
+              "oracleId": "policy-oracle",
+              "kind": "final-result",
+              "projectionDigest": "67523154b28ded3dd179d95c95ad764e76969bf5955a2dbfb5ebccfab2e15dc9",
+              "comparisonDigest": "d0ce8a593895fab68559b10f0320a1bce0e700e54fb67eb46f8f76f65456894c",
+              "outcome": "accepted",
+              "failure": null,
+              "operand": {
+                "side": "baseline",
+                "terminal": {
+                  "kind": "normal",
+                  "artifact": {
+                    "role": "oracle-value",
+                    "digest": "963ac73175ba3c35fb96a69c3cbcfd41e663cbf256d9807ec10923565d362d08"
+                  }
+                }
+              }
+            }
+          ],
+          "failures": []
+        },
+        "candidateRejections": [],
+        "mutants": []
+      }
+    }
+  ]
+}

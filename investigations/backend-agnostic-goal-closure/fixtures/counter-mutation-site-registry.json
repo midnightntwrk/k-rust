@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "registryId": "ce0a83ede7e8ebbf307022e9a1a51da69f2f3197d88133249ed805d0f48013a2",
+  "definitionDigest": "a3d85b7940dbfacf6462ce275eaa72f5b8667ba71dbd73fe5111c5ae5f25bfbe",
+  "operatorDigest": "9251494d6bf696e7535bee95d4dcd20f70e348b7e611dfa444ea6c1d9ff9fa07",
+  "selector": {
+    "selectorDigest": "f87c5340e3add4cc5409998d2350826b297b911b24288077b732b2793624eff9",
+    "clauses": [
+      {
+        "role": "increment-expression",
+        "sentenceKinds": [
+          "rule"
+        ],
+        "label": null,
+        "termPath": [
+          {
+            "kind": "field",
+            "name": "body"
+          },
+          {
+            "kind": "field",
+            "name": "rhs"
+          },
+          {
+            "kind": "argument",
+            "index": 0
+          }
+        ],
+        "termSort": "Int",
+        "termHeadLabel": "plusOne",
+        "bindingName": "E"
+      }
+    ]
+  },
+  "join": null,
+  "discovery": {
+    "exhaustive": true,
+    "failure": null
+  },
+  "sites": [
+    {
+      "selectorRole": "increment-expression",
+      "sentenceLineage": "279aaf198cb8464d20a915bf2c5372d08bd976dbc04499c974211cace7232bc2",
+      "termPath": [
+        {
+          "kind": "field",
+          "name": "body"
+        },
+        {
+          "kind": "field",
+          "name": "rhs"
+        },
+        {
+          "kind": "argument",
+          "index": 0
+        }
+      ],
+      "bindings": [
+        {
+          "name": "E",
+          "term": {
+            "encoding": "portable-term-v1",
+            "sort": "Int",
+            "node": {
+              "kind": "application",
+              "label": "plusOne",
+              "args": [
+                {
+                  "encoding": "portable-term-v1",
+                  "sort": "Int",
+                  "node": {
+                    "kind": "variable",
+                    "name": "N"
+                  }
+                }
+              ],
+              "symbolId": "55fffc4bb200bf80a58ad45a8f3f75e3324aa431a9d756026cb3be728687530d"
+            }
+          }
+        }
+      ],
+      "siteId": "20c100bfaa47726fe79bfbbb459307267c362c1c1f811d4e9a0775eef701c415"
+    }
+  ],
+  "tuples": [
+    [
+      "20c100bfaa47726fe79bfbbb459307267c362c1c1f811d4e9a0775eef701c415"
+    ]
+  ]
+}

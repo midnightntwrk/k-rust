@@ -1,0 +1,8 @@
+node_modules/
+oracle/results/
+p1/build/
+p2/build/
+p3/build/
+spine/definition-transport/build/
+__pycache__/
+*.tsbuildinfo

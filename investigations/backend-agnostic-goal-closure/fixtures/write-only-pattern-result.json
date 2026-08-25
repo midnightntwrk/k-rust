@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "resultId": "0000000000000000000000000000000000000000000000000000000000000000",
+  "queryId": "write-eventually-load",
+  "testId": "write-only",
+  "inputs": {
+    "definitionDigest": "3e3b2b2b8e476c8aefda5bda6749b73973624c2de4d57a7b7e673fabedbf83a0",
+    "observerDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+    "observationManifestDigest": "8f8ef56148764541b0b4036d91f8c9576fdb924b43272a9583d265875a0b4a59",
+    "patternDigest": "6666666666666666666666666666666666666666666666666666666666666666",
+    "programDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "compatibilityProfileDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+    "executionProfileDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+    "transformationId": "4361ca85ce3a1204bac1c64971df0d0e70f6d7ccb5ba4f793fa6702b0c667764",
+    "optionsDigest": "9999999999999999999999999999999999999999999999999999999999999999",
+    "searchPolicy": "exhaustive",
+    "replayInvocationDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "artifacts": [{"role": "event-trace", "digest": "b3b719d735cae36e9dd1bb79926ccafe1ee0d975412415855328ea50bdb24e7a", "mediaType": "application/json", "logicalPath": "artifact://pattern/write-only-trace"}]
+  },
+  "outcome": "unknown",
+  "completeCoverage": false,
+  "bounds": {"depth": 20, "timeMs": 1000, "branches": 8, "results": 8},
+  "failures": [],
+  "pathResults": [{"pathOrdinal": 0, "pathKey": "root", "status": "unknown", "completeCoverage": false, "stopReason": "depth-limit", "traceDigest": "b3b719d735cae36e9dd1bb79926ccafe1ee0d975412415855328ea50bdb24e7a", "failures": [{"stage": "execution", "classification": "depth-limit", "scope": "path", "retryability": "same-input-after-resource-change", "details": {"depth": 20}}]}],
+  "witnesses": []
+}

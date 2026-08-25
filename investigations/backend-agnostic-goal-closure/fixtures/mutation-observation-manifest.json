@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "manifestId": "ef80dc79cbaf9775176e51f6cb43edbdc1a41a16cf6d5814749505e67cee76c2",
+  "inputDefinitionDigest": "a52d718b27c231138504e52a1984221a80a185e225e5da552801727577121fb0",
+  "observerDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "compatibilityProfileDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+  "selectionMode": "explicit",
+  "selections": [
+    {
+      "selectionId": "write-rule",
+      "selector": {"kind": "lineage", "valueDigest": "b73307119850dec07af89f707cd439da63fd4ee69e73e607caaa8a232a524535"},
+      "expectedCardinality": 1,
+      "matchedLineages": ["b73307119850dec07af89f707cd439da63fd4ee69e73e607caaa8a232a524535"],
+      "emissions": [{"constructor": "memoryWrite", "declarationOrdinal": 0, "semanticSite": {"siteId": "1111111111111111111111111111111111111111111111111111111111111111", "role": "memory-address", "termPath": [{"kind": "field", "name": "body"}, {"kind": "field", "name": "lhs"}, {"kind": "argument", "index": 0}]}, "payloadBindings": [
+        {"name": "A", "sort": "Address", "sourcePath": [{"kind": "field", "name": "body"}, {"kind": "field", "name": "lhs"}, {"kind": "argument", "index": 0}]},
+        {"name": "V", "sort": "Int", "sourcePath": [{"kind": "field", "name": "body"}, {"kind": "field", "name": "lhs"}, {"kind": "argument", "index": 1}]}
+      ]}]
+    },
+    {
+      "selectionId": "load-rule",
+      "selector": {"kind": "lineage", "valueDigest": "cfb9540bfe0596de4d6fb87e699a17c4d4669d4e79951239950becd522542f7c"},
+      "expectedCardinality": 1,
+      "matchedLineages": ["cfb9540bfe0596de4d6fb87e699a17c4d4669d4e79951239950becd522542f7c"],
+      "emissions": [{"constructor": "memoryLoad", "declarationOrdinal": 0, "semanticSite": {"siteId": "2222222222222222222222222222222222222222222222222222222222222222", "role": "memory-address", "termPath": [{"kind": "field", "name": "body"}, {"kind": "field", "name": "lhs"}, {"kind": "argument", "index": 0}]}, "payloadBindings": [
+        {"name": "A", "sort": "Address", "sourcePath": [{"kind": "field", "name": "body"}, {"kind": "field", "name": "lhs"}, {"kind": "argument", "index": 0}]},
+        {"name": "V", "sort": "Int", "sourcePath": [{"kind": "field", "name": "body"}, {"kind": "field", "name": "lhs"}, {"kind": "argument", "index": 1}]}
+      ]}]
+    }
+  ],
+  "eventVocabulary": [
+    {"constructor": "memoryWrite", "payloadSorts": ["Address", "Int"], "originMode": "emitting-sentence-and-semantic-site"},
+    {"constructor": "memoryLoad", "payloadSorts": ["Address", "Int"], "originMode": "emitting-sentence-and-semantic-site"}
+  ],
+  "transformationId": "398df123ae60aac7a53d7f74242a9872624aed6a3c72491a721b55f930c0c8b6",
+  "outputDefinitionDigest": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+}

@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "label-free-counter-rhs",
+      "manifest": {
+        "schemaVersion": 1,
+        "manifestId": "0000000000000000000000000000000000000000000000000000000000000000",
+        "inputDefinitionDigest": "f2c4a6bb9b0e0ebd6b8ab9ef61d558a5b3f439956832877398ecf2ed9bc2a174",
+        "observerDigest": "7777777777777777777777777777777777777777777777777777777777777777",
+        "compatibilityProfileDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+        "selectionMode": "explicit",
+        "selections": [
+          {
+            "selectionId": "counter-rhs",
+            "selector": {
+              "kind": "structural-term",
+              "sentenceKinds": ["rule"],
+              "label": null,
+              "termPath": [{"kind": "field", "name": "body"}, {"kind": "field", "name": "rhs"}],
+              "termSort": "Counter",
+              "termHeadLabel": "counter"
+            },
+            "expectedCardinality": 1,
+            "matchedLineages": ["3ff2a56bea69ade54713c054c6174255bc642eee3fc042ea93102a800d6c3e80"],
+            "emissions": [
+              {
+                "constructor": "counterRhsObserved",
+                "declarationOrdinal": 0,
+                "semanticSite": null,
+                "payloadBindings": [
+                  {"name": "RHS", "sort": "Counter", "sourcePath": [{"kind": "field", "name": "body"}, {"kind": "field", "name": "rhs"}]}
+                ]
+              }
+            ]
+          }
+        ],
+        "eventVocabulary": [
+          {"constructor": "counterRhsObserved", "payloadSorts": ["Counter"], "originMode": "emitting-sentence"}
+        ],
+        "transformationId": "0000000000000000000000000000000000000000000000000000000000000000",
+        "outputDefinitionDigest": "8888888888888888888888888888888888888888888888888888888888888888"
+      },
+      "expectedSiteIds": []
+    },
+    {
+      "id": "labeled-branch-rhs",
+      "manifest": {
+        "schemaVersion": 1,
+        "manifestId": "0000000000000000000000000000000000000000000000000000000000000000",
+        "inputDefinitionDigest": "f2c4a6bb9b0e0ebd6b8ab9ef61d558a5b3f439956832877398ecf2ed9bc2a174",
+        "observerDigest": "7777777777777777777777777777777777777777777777777777777777777777",
+        "compatibilityProfileDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+        "selectionMode": "explicit",
+        "selections": [
+          {
+            "selectionId": "labeled-branch",
+            "selector": {
+              "kind": "structural-term",
+              "sentenceKinds": ["rule"],
+              "label": "branch",
+              "termPath": [{"kind": "field", "name": "body"}, {"kind": "field", "name": "rhs"}],
+              "termSort": "Control",
+              "termHeadLabel": "selected"
+            },
+            "expectedCardinality": 1,
+            "matchedLineages": ["f129a58a69882de51f1028f0be1ebd2aa0e56ae6b26ba2f000b83f68d3cb53af"],
+            "emissions": [
+              {
+                "constructor": "branchRhsObserved",
+                "declarationOrdinal": 0,
+                "semanticSite": null,
+                "payloadBindings": [
+                  {"name": "RHS", "sort": "Control", "sourcePath": [{"kind": "field", "name": "body"}, {"kind": "field", "name": "rhs"}]}
+                ]
+              }
+            ]
+          }
+        ],
+        "eventVocabulary": [
+          {"constructor": "branchRhsObserved", "payloadSorts": ["Control"], "originMode": "emitting-sentence"}
+        ],
+        "transformationId": "0000000000000000000000000000000000000000000000000000000000000000",
+        "outputDefinitionDigest": "9999999999999999999999999999999999999999999999999999999999999999"
+      },
+      "expectedSiteIds": []
+    },
+    {
+      "id": "multi-rule-body",
+      "manifest": {
+        "schemaVersion": 1,
+        "manifestId": "0000000000000000000000000000000000000000000000000000000000000000",
+        "inputDefinitionDigest": "f2c4a6bb9b0e0ebd6b8ab9ef61d558a5b3f439956832877398ecf2ed9bc2a174",
+        "observerDigest": "7777777777777777777777777777777777777777777777777777777777777777",
+        "compatibilityProfileDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+        "selectionMode": "explicit",
+        "selections": [
+          {
+            "selectionId": "all-rule-bodies",
+            "selector": {
+              "kind": "structural-term",
+              "sentenceKinds": ["rule"],
+              "label": null,
+              "termPath": [{"kind": "field", "name": "body"}],
+              "termSort": "RuleBody",
+              "termHeadLabel": null
+            },
+            "expectedCardinality": 2,
+            "matchedLineages": [
+              "3ff2a56bea69ade54713c054c6174255bc642eee3fc042ea93102a800d6c3e80",
+              "f129a58a69882de51f1028f0be1ebd2aa0e56ae6b26ba2f000b83f68d3cb53af"
+            ],
+            "emissions": [
+              {
+                "constructor": "ruleObserved",
+                "declarationOrdinal": 0,
+                "semanticSite": null,
+                "payloadBindings": [
+                  {"name": "BODY", "sort": "RuleBody", "sourcePath": [{"kind": "field", "name": "body"}]}
+                ]
+              },
+              {
+                "constructor": "ruleSiteObserved",
+                "declarationOrdinal": 1,
+                "semanticSite": {"role": "rule-body", "termPath": [{"kind": "field", "name": "body"}]},
+                "payloadBindings": [
+                  {"name": "BODY", "sort": "RuleBody", "sourcePath": [{"kind": "field", "name": "body"}]}
+                ]
+              }
+            ]
+          }
+        ],
+        "eventVocabulary": [
+          {"constructor": "ruleObserved", "payloadSorts": ["RuleBody"], "originMode": "emitting-sentence"},
+          {"constructor": "ruleSiteObserved", "payloadSorts": ["RuleBody"], "originMode": "emitting-sentence-and-semantic-site"}
+        ],
+        "transformationId": "0000000000000000000000000000000000000000000000000000000000000000",
+        "outputDefinitionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expectedSiteIds": [
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0000000000000000000000000000000000000000000000000000000000000000"
+      ]
+    }
+  ]
+}

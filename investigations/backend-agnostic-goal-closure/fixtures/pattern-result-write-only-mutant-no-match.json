@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "resultId": "84b584eeb5e633e64cbf2d94b70c3c0f7bfc36fed8376efde6290a8f06c906fe",
+  "queryId": "078960b20beff8c8d087be6163897925d85fe257c808ffdbac80662fc32ff88e",
+  "testId": "write-only",
+  "inputs": {
+    "definitionDigest": "66e6071ca706036e1040f971b77629f80bd278ee5899c820d9065386555c0ca9",
+    "observerDigest": "485078d426d44f79b75a0c4dec20db00f625c8815a62e5a0c7e01e7ed8e06d52",
+    "observationManifestDigest": "b6d979bae0b1290d75c1ca4628da89e4443d88748f9f14d625a7c7b308053dd5",
+    "programDigest": "c7366579ba423b42124abfb860ede43054e8ebab186951d0a0228c3965912b87",
+    "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
+    "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+    "transformationId": "f519dccd7c69585cb2b01dc6bce160ce1c4da617eeb5e575c0567e4fd07f5b62",
+    "optionsDigest": "537df92119f4cd64d786770fcea476b226048ccd01dde1cf71faec9433380e2c",
+    "searchPolicy": "exhaustive",
+    "replayInvocationDigest": "ba4b5f2ae9424428fb849faa67bb8597b36109f375e620667af66016371bb7d5",
+    "artifacts": [
+      {
+        "role": "event-trace",
+        "digest": "a50930568e497c536fdeaa264e1fbd736cb2e630ce7eb36ac1ee086c04505fdb"
+      }
+    ],
+    "parserDigest": "e2221c543e1c974746daee9fc9a309a1e62047902ede87768f4ffc0379e9e628",
+    "startSymbol": "Pgm",
+    "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+    "executionMode": "symbolic",
+    "patternSource": {
+      "role": "pattern-source",
+      "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+    },
+    "patternPlan": {
+      "role": "pattern-plan",
+      "digest": "3a9db24b23b99a7a5a57e10fd4ef4591d553bc6bd1e6dc15fcceac9588b90dbd"
+    },
+    "patternQuery": {
+      "role": "pattern-query",
+      "digest": "078960b20beff8c8d087be6163897925d85fe257c808ffdbac80662fc32ff88e"
+    }
+  },
+  "outcome": "no-match",
+  "completeCoverage": true,
+  "bounds": {
+    "depth": 20,
+    "timeMs": 1000,
+    "branches": 8,
+    "results": 8
+  },
+  "failures": [],
+  "pathResults": [
+    {
+      "pathOrdinal": 0,
+      "pathKey": "root",
+      "status": "no-match",
+      "completeCoverage": true,
+      "stopReason": "terminal",
+      "traceDigest": "a50930568e497c536fdeaa264e1fbd736cb2e630ce7eb36ac1ee086c04505fdb",
+      "failures": [],
+      "pathIdentityDigest": "8dc8560447dfcf3e9c4addc568e4626e8d149b80892a56ed2a50ea3b8fa8c6d3",
+      "executionStopReason": "terminal",
+      "executionTerminal": {
+        "kind": "normal",
+        "artifact": {
+          "role": "terminal-state",
+          "digest": "d5a460b7971a4a9489534f6740b20294277755ef47c6c1b34cb60eb1b7d42a25"
+        }
+      }
+    }
+  ],
+  "witnesses": []
+}

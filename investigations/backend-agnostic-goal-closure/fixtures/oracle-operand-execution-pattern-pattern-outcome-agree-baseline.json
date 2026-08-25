@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "operandId": "da9b8d05cc57cdf172dab25283822078d13105200aa4d555a38503d67bd61394",
+  "declaration": {
+    "role": "oracle-declaration",
+    "digest": "eced003b56004b436020ce8b6f0ad9e86b3a8db487ac65cc7ea297bf6601bb65"
+  },
+  "subject": {
+    "side": "baseline",
+    "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4"
+  },
+  "testInvocationDigest": "cab74e78a428b6a79c7f00a0f46b5b7373ac515c15f94bf81ea076f2e1e37bc9",
+  "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
+  "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+  "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+  "completionEvidence": {
+    "kind": "pattern-result",
+    "patternResult": {
+      "role": "pattern-result",
+      "digest": "d8a372358cb6c37f8d8f8a68699c6f8c37762b84b46d80780d227234647b4aee"
+    }
+  },
+  "normalizedValue": {
+    "patternResult": {
+      "role": "pattern-result",
+      "digest": "d8a372358cb6c37f8d8f8a68699c6f8c37762b84b46d80780d227234647b4aee"
+    },
+    "outcome": "no-match",
+    "bindingTuples": []
+  }
+}

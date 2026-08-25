@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "operatorId": "counter-plus-one-site",
+  "operatorVersion": 1,
+  "operatorDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "moduleDigest": "3131313131313131313131313131313131313131313131313131313131313131",
+  "phase": "semantic-input",
+  "sentenceKinds": ["rule"],
+  "selectorDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "joinDigest": null,
+  "policy": "each",
+  "expectedTupleCount": null,
+  "expectedTupleArity": 1,
+  "candidateCap": 16,
+  "preconditionDigest": "3232323232323232323232323232323232323232323232323232323232323232",
+  "postconditionDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+  "generatedSentencePolicy": "exclude",
+  "patchTemplateDigest": "3434343434343434343434343434343434343434343434343434343434343434",
+  "patchTemplateRoles": [
+    {
+      "name": "increment-replacement",
+      "operation": "replace-term",
+      "sourceSelectorRoles": [
+        "increment-expression"
+      ]
+    }
+  ],
+  "category": "arithmetic-boundary",
+  "rationale": "Prove join-free structural each-site discovery on a second portable definition family."
+}

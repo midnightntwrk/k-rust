@@ -1,0 +1,59 @@
+pDefinition(
+  "PEANO",
+  pSortCons(pSort("Nat"), pSortNil),
+  pProductionCons(
+    pConstructor("zero", "Nat", pSortNil),
+    pProductionCons(
+      pConstructor("succ", "Nat", pSortCons(pSort("Nat"), pSortNil)),
+      pProductionCons(
+        pFunction(
+          "plus",
+          "Nat",
+          pSortCons(pSort("Nat"), pSortCons(pSort("Nat"), pSortNil))
+        ),
+        pProductionNil
+      )
+    )
+  ),
+  pRuleCons(
+    pEquation(
+      pApp(
+        "plus",
+        pTermCons(
+          pApp("zero", pTermNil),
+          pTermCons(pVar("Y", "Nat"), pTermNil)
+        )
+      ),
+      pVar("Y", "Nat"),
+      pToken("Bool", "true"),
+      pToken("Bool", "true")
+    ),
+    pRuleCons(
+      pEquation(
+        pApp(
+          "plus",
+          pTermCons(
+            pApp("succ", pTermCons(pVar("X", "Nat"), pTermNil)),
+            pTermCons(pVar("Y", "Nat"), pTermNil)
+          )
+        ),
+        pApp(
+          "succ",
+          pTermCons(
+            pApp(
+              "plus",
+              pTermCons(
+                pVar("X", "Nat"),
+                pTermCons(pVar("Y", "Nat"), pTermNil)
+              )
+            ),
+            pTermNil
+          )
+        ),
+        pToken("Bool", "true"),
+        pToken("Bool", "true")
+      ),
+      pRuleNil
+    )
+  )
+)

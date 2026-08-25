@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "witnessId": "61605d6a7c97bd4b2707b4fcad3f03ea6b75bb058b047c9de374ee6ab69ec370",
+  "query": {
+    "role": "reachability-query",
+    "digest": "f061f6902d91efa33b1d926afb9fbc3e6182ec0f74aaf6c0cc2b86dba83f325f"
+  },
+  "terminalState": {
+    "role": "terminal-state",
+    "digest": "d5a460b7971a4a9489534f6740b20294277755ef47c6c1b34cb60eb1b7d42a25"
+  },
+  "bindings": [
+    {
+      "name": "STATE",
+      "term": {
+        "encoding": "portable-term-v1",
+        "sort": "GeneratedTopCell",
+        "node": {
+          "kind": "application",
+          "label": "done",
+          "args": [],
+          "symbolId": "490babcffda6b500f27f026ec11dd312956309446b5c4c348b7d44e5e3cc2fc5"
+        }
+      }
+    }
+  ]
+}

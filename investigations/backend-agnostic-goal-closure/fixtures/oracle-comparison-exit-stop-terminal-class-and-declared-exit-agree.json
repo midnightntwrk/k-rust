@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "comparisonId": "8553ee0ff5af6ab0fdf854afc640f865ecf0a442593dbb50b1b89eb339055f38",
+  "declaration": {
+    "role": "oracle-declaration",
+    "digest": "62d3b23ceae3815f5ef6b8816b5b4c0b3a5cdbe2eeb662fa71b0dc2daf499229"
+  },
+  "sides": [
+    {
+      "side": "baseline",
+      "normalOperand": {
+        "role": "oracle-operand",
+        "digest": "29fbcd18a0daece9fa1c18619710986503ccd78b46c06e3279eaf28186e8a0e4"
+      },
+      "semanticCrash": null
+    },
+    {
+      "side": "mutant",
+      "normalOperand": {
+        "role": "oracle-operand",
+        "digest": "ce06b9c8eca5de567ba337f0459785e82d2f458394d24c8db875d22bd4cda9b2"
+      },
+      "semanticCrash": null
+    }
+  ],
+  "projectionId": "terminal-class-and-declared-exit-v1",
+  "comparatorId": "exact-terminal-class-and-exit-v1",
+  "normalizedValueDigests": [
+    "a00830ebf90a115c2fba044edcc1d34e700ce45bd96809d9ad6ab2a234c8c67f",
+    "a00830ebf90a115c2fba044edcc1d34e700ce45bd96809d9ad6ab2a234c8c67f"
+  ],
+  "outcome": "agree"
+}

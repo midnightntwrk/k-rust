@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "resultId": "ba65d313fc3a4abb579efb2038deb1b7b3de28d65e6f4649dc43348bf45cc19e",
+  "manifestDigest": "34d142a1a8b1455fdfb132e0cb0800ea923c64928fd4ba0fe5b9555fa11b2532",
+  "status": "accepted",
+  "outputDefinitionDigest": "5555555555555555555555555555555555555555555555555555555555555555",
+  "appliedSelectionCount": 2,
+  "installedSelectionIds": ["write-rule", "load-rule"],
+  "failures": []
+}

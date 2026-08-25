@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "baselineFamilyId": "11b8ef84d8525ea99fb4735e03c32f0ec35027261b602fe570be427568c58e6e",
+  "definitionDigest": "dffed3602448130c506c2047f488c8139014b7fe3d309b4e1f42a1b0640a377c",
+  "transformationId": "bc8a3a0d6bc80638c2e385ba7e1f2c04925cd016a4268aa19560ac1c17101f97",
+  "generatedLineageId": "ce02cb36868ebc60ccbddb036a090e8d1e6de8441acff7a3ae4d57c3c61ba444",
+  "digestInputs": {
+    "baselineFamily": {"familyName": "memory-fixture", "entryModules": ["MEMORY"], "compatibilityProfile": "portable-v1"},
+    "inputLineage": {"baselineFamilyId": "11b8ef84d8525ea99fb4735e03c32f0ec35027261b602fe570be427568c58e6e", "module": "MEMORY", "source": "repo://fixtures/memory.k", "location": {"startLine": 10, "startColumn": 1, "endLine": 12, "endColumn": 20}, "kind": "rule", "occurrenceOrdinal": 0},
+    "sentenceBody": {"body": {"encoding": "portable-term-v1", "sort": "RuleBody", "node": {"kind": "application", "label": "memoryWriteRule", "args": []}}, "requires": {"encoding": "portable-term-v1", "sort": "Bool", "node": {"kind": "token", "text": "true"}}, "ensures": {"encoding": "portable-term-v1", "sort": "Bool", "node": {"kind": "token", "text": "true"}}},
+    "sentenceContent": {"lineageId": "26913e0a4cca0b6a90df5e7107efb69e39c7660daa7373c3ebff69a6c91d1e55", "module": "MEMORY", "label": "write", "kind": "rule", "source": "repo://fixtures/memory.k", "location": {"startLine": 10, "startColumn": 1, "endLine": 12, "endColumn": 20}, "generated": false, "bodyFingerprint": "a7358d72c526718df5aaaa4dfabd07863ad8bbd3d20a7166f399c1cc2b731198", "attributes": [], "transformationChain": []},
+    "definition": {"schemaVersion": 1, "baselineFamilyId": "11b8ef84d8525ea99fb4735e03c32f0ec35027261b602fe570be427568c58e6e", "modules": [{"name": "MEMORY", "ordinal": 0, "imports": [], "sentenceContentFingerprints": ["dce9439e430c320155b6393e90d01cc459c254879a31332b6502de987d827359"]}]},
+    "transformation": {"kind": "observation", "operatorId": "memory-events", "operatorVersion": 1, "inputDefinitionDigest": "dffed3602448130c506c2047f488c8139014b7fe3d309b4e1f42a1b0640a377c", "manifestDigest": "61a01df2c29076ceee7bdcc1d38dbd5de42d4dc214e2e02f0002211d8ada0607"},
+    "generatedLineage": {"transformationId": "bc8a3a0d6bc80638c2e385ba7e1f2c04925cd016a4268aa19560ac1c17101f97", "parentLineages": ["26913e0a4cca0b6a90df5e7107efb69e39c7660daa7373c3ebff69a6c91d1e55"], "anchorIdentity": "26913e0a4cca0b6a90df5e7107efb69e39c7660daa7373c3ebff69a6c91d1e55", "role": "observation-update", "ordinal": 0}
+  },
+  "sentences": [{
+    "lineageId": "26913e0a4cca0b6a90df5e7107efb69e39c7660daa7373c3ebff69a6c91d1e55",
+    "contentFingerprint": "dce9439e430c320155b6393e90d01cc459c254879a31332b6502de987d827359",
+    "bodyFingerprint": "a7358d72c526718df5aaaa4dfabd07863ad8bbd3d20a7166f399c1cc2b731198",
+    "module": "MEMORY", "label": "write", "kind": "rule",
+    "source": "repo://fixtures/memory.k",
+    "location": {"startLine": 10, "startColumn": 1, "endLine": 12, "endColumn": 20},
+    "generated": false, "transformationChain": []
+  }]
+}

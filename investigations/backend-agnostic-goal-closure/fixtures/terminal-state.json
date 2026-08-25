@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "terminalStateDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "value": {
+    "encoding": "portable-term-v1",
+    "sort": "GeneratedTopCell",
+    "node": {"kind": "application", "label": "done", "args": []}
+  }
+}

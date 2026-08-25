@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "testId": "write-load",
+  "pathOrdinal": 0,
+  "pathKey": "root",
+  "pathPredicate": {
+    "encoding": "portable-term-v1",
+    "sort": "Bool",
+    "node": {
+      "kind": "token",
+      "text": "true"
+    }
+  },
+  "complete": true,
+  "stopReason": "terminal",
+  "events": [],
+  "pathIdentityDigest": "b734951cd4b810b3fe4bd39429f8a4e38c7eb1c8e53d7ad5d5d5df2b059894be",
+  "executionTerminal": {
+    "kind": "semantic-crash",
+    "artifact": {
+      "role": "semantic-crash",
+      "digest": "163b6f236958610c977a327fb5f93e3ce36da2fdc8cc2a9bcca94b4af1ceadf2"
+    }
+  },
+  "definitionDigest": "66e6071ca706036e1040f971b77629f80bd278ee5899c820d9065386555c0ca9"
+}

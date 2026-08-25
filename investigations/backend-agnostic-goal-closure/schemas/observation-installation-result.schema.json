@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/observation-installation-result.schema.json",
+  "title": "Atomic observation installation result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "resultId", "manifestDigest", "status", "outputDefinitionDigest", "appliedSelectionCount", "installedSelectionIds", "failures"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "resultId": {"$ref": "common.schema.json#/$defs/digest"},
+    "manifestDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "status": {"type": "string", "enum": ["accepted", "already-present", "error"]},
+    "outputDefinitionDigest": {"oneOf": [{"$ref": "common.schema.json#/$defs/digest"}, {"type": "null"}]},
+    "appliedSelectionCount": {"type": "integer", "minimum": 0},
+    "installedSelectionIds": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "failures": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/failure"}}
+  },
+  "allOf": [
+    {"if": {"properties": {"status": {"const": "accepted"}}}, "then": {"properties": {"outputDefinitionDigest": {"$ref": "common.schema.json#/$defs/digest"}, "appliedSelectionCount": {"minimum": 1}, "installedSelectionIds": {"minItems": 1}, "failures": {"maxItems": 0}}}},
+    {"if": {"properties": {"status": {"const": "already-present"}}}, "then": {"properties": {"outputDefinitionDigest": {"$ref": "common.schema.json#/$defs/digest"}, "appliedSelectionCount": {"const": 0}, "installedSelectionIds": {"maxItems": 0}, "failures": {"maxItems": 0}}}},
+    {"if": {"properties": {"status": {"const": "error"}}}, "then": {"properties": {"outputDefinitionDigest": {"type": "null"}, "appliedSelectionCount": {"const": 0}, "installedSelectionIds": {"maxItems": 0}, "failures": {"minItems": 1}}}}
+  ]
+}

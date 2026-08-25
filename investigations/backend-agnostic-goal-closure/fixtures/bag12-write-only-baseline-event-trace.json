@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "testId": "write-only",
+  "pathOrdinal": 0,
+  "pathKey": "root",
+  "pathPredicate": {
+    "encoding": "portable-term-v1",
+    "sort": "Bool",
+    "node": {
+      "kind": "token",
+      "text": "true"
+    }
+  },
+  "complete": true,
+  "stopReason": "terminal",
+  "events": [],
+  "pathIdentityDigest": "27410eddfe3438e9abfac7b8d913b2a57a53108e8a3d09e744fa40e16d7a9417",
+  "executionTerminal": {
+    "kind": "normal",
+    "artifact": {
+      "role": "terminal-state",
+      "digest": "00958626001fc0db84da9145e7d654b51eba797f406aeab94ceb4d30237dc3fb"
+    }
+  },
+  "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4"
+}

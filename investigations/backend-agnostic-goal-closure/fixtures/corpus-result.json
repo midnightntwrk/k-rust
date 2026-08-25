@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "resultId": "23466bf9c392d31fdd05ab50f3665c354d7e82414ce297e084a6f204dd9ab945",
+  "manifestDigest": "24d46539048d2e340273aa26fbb1cd440b4e8155f4739e5330237b36b6bfc2cd",
+  "outcome": "match",
+  "completeCoverage": false,
+  "components": [
+    {
+      "testId": "write-load",
+      "status": "match",
+      "patternResultDigest": "aac87910a5a197d239b2023126587b68745a040a5ae6e798cc120e6870653adc",
+      "matchingPathOrdinals": [
+        0
+      ],
+      "matchingPathKeys": [
+        "root/left"
+      ],
+      "pathResults": [
+        {
+          "pathOrdinal": 0,
+          "pathKey": "root/left",
+          "status": "match",
+          "completeCoverage": true,
+          "stopReason": "terminal",
+          "patternResultDigest": "aac87910a5a197d239b2023126587b68745a040a5ae6e798cc120e6870653adc",
+          "failures": [],
+          "pathIdentityDigest": "376efe7646ae10d4d5586840c1d9dcde5383d1475a535b14005ffe082f82ffee",
+          "executionStopReason": "terminal"
+        }
+      ],
+      "failures": [],
+      "skipReason": null
+    },
+    {
+      "testId": "write-only",
+      "status": "unknown",
+      "patternResultDigest": "74f873ab7ab3b43713abe46b4fd304b2b166539e2edecbd995570ed4a017aa8c",
+      "matchingPathOrdinals": [],
+      "matchingPathKeys": [],
+      "pathResults": [
+        {
+          "pathOrdinal": 0,
+          "pathKey": "root",
+          "status": "unknown",
+          "completeCoverage": false,
+          "stopReason": "depth-limit",
+          "patternResultDigest": "74f873ab7ab3b43713abe46b4fd304b2b166539e2edecbd995570ed4a017aa8c",
+          "failures": [
+            {
+              "stage": "execution",
+              "classification": "depth-limit",
+              "scope": "path",
+              "retryability": "same-input-after-resource-change",
+              "details": {
+                "depth": 20
+              },
+              "context": "pattern-path",
+              "semanticEvidence": []
+            }
+          ],
+          "pathIdentityDigest": "cafc2e514adfa9cc3775320297912eadcf90d8040dc377db6d3a8b8f250a2a96",
+          "executionStopReason": "depth-limit"
+        }
+      ],
+      "failures": [],
+      "skipReason": null
+    }
+  ],
+  "counts": {
+    "match": 1,
+    "noMatch": 0,
+    "unknown": 1,
+    "error": 0,
+    "skipped": 0
+  },
+  "failures": []
+}

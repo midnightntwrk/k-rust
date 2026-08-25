@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "terminalStateDigest": "95e62645372fada5949a07f18105736617c9735506fa1af3cfc5ab4f39ae7c1e",
+  "value": {
+    "encoding": "portable-term-v1",
+    "sort": "GeneratedTopCell",
+    "node": {
+      "kind": "token",
+      "text": "bag12-distinct-terminal"
+    }
+  },
+  "definitionDigest": "66e6071ca706036e1040f971b77629f80bd278ee5899c820d9065386555c0ca9"
+}

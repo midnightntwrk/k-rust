@@ -1,0 +1,376 @@
+{
+  "schemaVersion": 1,
+  "objective": "complete all reasonably backend-agnostic investigation before Rust implementation",
+  "states": [
+    "resolved-portable-contract",
+    "bounded-old-stack-proof",
+    "rust-proof-required",
+    "explicitly-held"
+  ],
+  "requirements": [
+    {
+      "id": "identity-domains",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/contracts.md",
+        "investigations/backend-agnostic-goal-closure/vectors/identity-vectors.json",
+        "investigations/backend-agnostic-goal-closure/vectors/patch-application-vectors.json"
+      ],
+      "rustOpen": "native structured derivation and source mapping"
+    },
+    {
+      "id": "canonical-json-and-digests",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/vectors/canonicalization-vectors.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "rustOpen": "differential adapter output"
+    },
+    {
+      "id": "portable-semantic-slice-interchange",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/common.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/semantic-definition.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/claim-boundary.schema.json",
+        "investigations/backend-agnostic-goal-closure/claim-boundary.json",
+        "investigations/backend-agnostic-goal-closure/artifact-role-specs.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-memory.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-counter.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-generated.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-identity-output.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "rustOpen": "enumerated native forms/signature tables and supported-surface coverage/injectivity proof; unsupported or lossy forms reject"
+    },
+    {
+      "id": "portable-definition-fixtures",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/semantic-definition.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-memory.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-counter.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-generated.json"
+      ],
+      "rustOpen": "native IR adapters for memory/counter/generated cases plus declaration-backed symbol validation"
+    },
+    {
+      "id": "mutation-operator-declaration",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/mutation-operator.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-operator.json"
+      ],
+      "rustOpen": "K-authored discovery implementation"
+    },
+    {
+      "id": "selection-policies",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/contracts.md",
+        "investigations/backend-agnostic-goal-closure/schemas/mutation-site-registry.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-policy-cases.json",
+        "investigations/backend-agnostic-goal-closure/vectors/mutation-vectors.json"
+      ],
+      "rustOpen": "K-owned site discovery and joins"
+    },
+    {
+      "id": "patch-operations-and-atomicity",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/patch.schema.json",
+        "investigations/backend-agnostic-goal-closure/vectors/mutation-vectors.json"
+      ],
+      "rustOpen": "general native validation and commit"
+    },
+    {
+      "id": "executable-patch-oracle",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/vectors/patch-application-vectors.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "rustOpen": "Rust differential replay of every operation"
+    },
+    {
+      "id": "distinct-rule-transaction",
+      "state": "bounded-old-stack-proof",
+      "artifacts": [
+        "evidence/r2-g-03-atomic-two-sentence-patch/results.json"
+      ],
+      "rustOpen": "Rust differential replay"
+    },
+    {
+      "id": "same-sentence-overlap-algebra",
+      "state": "rust-proof-required",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/contracts.md",
+        "investigations/backend-agnostic-goal-closure/vectors/mutation-vectors.json"
+      ],
+      "rustOpen": "first implementation proof"
+    },
+    {
+      "id": "observation-selection-and-emission-order",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/vectors/observation-vectors.json"
+      ],
+      "rustOpen": "native atomic installation"
+    },
+    {
+      "id": "observation-manifest",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/observation-manifest.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/observation-manifest.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/observation-installation-result.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "rustOpen": "native selection and transformation output"
+    },
+    {
+      "id": "observation-payload-path-and-sort-integrity",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/contracts.md",
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-memory.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/observation-manifest.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "rustOpen": "native path resolution during observation installation"
+    },
+    {
+      "id": "conservativity-erasure",
+      "state": "bounded-old-stack-proof",
+      "artifacts": [
+        "evidence/r2-g-07-single-rule-observation/results.json",
+        "investigations/backend-agnostic-goal-closure/vectors/observation-vectors.json"
+      ],
+      "rustOpen": "branch, predicate, termination, and general rule-shape proof"
+    },
+    {
+      "id": "event-and-provenance-schema",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/event-trace.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/event-trace.json"
+      ],
+      "rustOpen": "native event production"
+    },
+    {
+      "id": "rule-applied-exact-adjacency",
+      "state": "bounded-old-stack-proof",
+      "artifacts": [
+        "evidence/r3-g-04-k-native-rule-applied-next-event/results.json"
+      ],
+      "rustOpen": "Rust regression replay"
+    },
+    {
+      "id": "occurrence-temporal-denotation",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/contracts.md",
+        "investigations/backend-agnostic-goal-closure/vectors/execution-pattern-vectors.json"
+      ],
+      "rustOpen": "distinct/gapped domain-event execution"
+    },
+    {
+      "id": "alternatives-side-conditions-and-imports",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/vectors/execution-pattern-vectors.json"
+      ],
+      "rustOpen": "K pattern compiler and solver behavior"
+    },
+    {
+      "id": "branch-status-and-aggregation",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/pattern-result.schema.json",
+        "investigations/backend-agnostic-goal-closure/vectors/execution-pattern-vectors.json"
+      ],
+      "rustOpen": "exhaustiveness, stable path keys, and stop fidelity"
+    },
+    {
+      "id": "finite-trace-denotational-oracle",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/verify.py",
+        "investigations/backend-agnostic-goal-closure/vectors/execution-pattern-vectors.json"
+      ],
+      "rustOpen": "differential native trace results"
+    },
+    {
+      "id": "corpus-manifest-result-and-replay",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/corpus-manifest.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/corpus-result.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/replay-manifest.schema.json",
+        "investigations/backend-agnostic-goal-closure/vectors/corpus-vectors.json"
+      ],
+      "rustOpen": "native invocation, artifacts, and stable path identity"
+    },
+    {
+      "id": "trace-stream-equivalence",
+      "state": "explicitly-held",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/vectors/observation-vectors.json"
+      ],
+      "rustOpen": "activate only after accepted trace implementation and performance need"
+    },
+    {
+      "id": "mutation-validation-and-status",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/failure-taxonomy.json",
+        "investigations/backend-agnostic-goal-closure/schemas/common.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/mutation-campaign.schema.json",
+        "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json"
+      ],
+      "rustOpen": "actual IR/lowering/backend validation"
+    },
+    {
+      "id": "mutation-edit-origin-and-template-provenance",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/mutation-operator.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/mutation-site-registry.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/mutation-campaign.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-policy-cases.json",
+        "investigations/backend-agnostic-goal-closure/vectors/mutation-vectors.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "rustOpen": "native template evaluation and differential production of site-bound edit receipts"
+    },
+    {
+      "id": "structural-diff-and-campaign-integrity",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/structural-diff.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/replay-manifest.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/structural-diff.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-replay-manifest.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-campaign.json",
+        "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "rustOpen": "native diff and isolated campaign artifacts"
+    },
+    {
+      "id": "mutation-score-and-oracle-semantics",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/contracts.md",
+        "investigations/backend-agnostic-goal-closure/schemas/oracle-semantics.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/mutation-campaign.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/artifact-catalog.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-manifest.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-campaign.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-output-finite-table.json",
+        "investigations/backend-agnostic-goal-closure/vectors/oracle-semantics-vectors.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "rustOpen": "native operand production, isolated campaign execution, and differential comparison"
+    },
+    {
+      "id": "finite-reachability-and-predicate-authority",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/reachability-semantics.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/predicate-semantics.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/reachability-conformance-table.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/predicate-conformance-table.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "rustOpen": "native BAG-16 exhaustive collections and K-authored reachability/predicate evaluation"
+    },
+    {
+      "id": "oracle-evaluator-conformance-authority",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/oracle-semantics.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/oracle-evaluator-conformance-nonconformant.json",
+        "investigations/backend-agnostic-goal-closure/contracts.md",
+        "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md"
+      ],
+      "rustOpen": "issue matching conformant native evaluator records and exact BAG-15 production receipts"
+    },
+    {
+      "id": "pattern-plan-query-identity-and-denotation",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/pattern-plan.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/pattern-query.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/side-condition-conformance-table.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/pattern-plan-write-then-load-constant-side-condition.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/pattern-plan-nonlexical-subset-side-condition.json",
+        "investigations/backend-agnostic-goal-closure/vectors/execution-pattern-vectors.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "rustOpen": "native K source-to-plan compiler receipt, solver equivalence, and differential denotation"
+    },
+    {
+      "id": "same-result-pattern-kill",
+      "state": "rust-proof-required",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/vectors/cross-feature-vectors.json"
+      ],
+      "rustOpen": "end-to-end execution proof"
+    },
+    {
+      "id": "failure-taxonomy",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/failure-taxonomy.md",
+        "investigations/backend-agnostic-goal-closure/failure-taxonomy.json"
+      ],
+      "rustOpen": "mapping native stop/error values"
+    },
+    {
+      "id": "evidence-classification",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/evidence-inventory.json"
+      ],
+      "rustOpen": "none"
+    },
+    {
+      "id": "cross-family-generality",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-memory.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-counter.json",
+        "investigations/backend-agnostic-goal-closure/vectors/patch-application-vectors.json",
+        "investigations/backend-agnostic-goal-closure/vectors/execution-pattern-vectors.json",
+        "investigations/backend-agnostic-goal-closure/vectors/observation-vectors.json"
+      ],
+      "rustOpen": "native differential proof across both families"
+    },
+    {
+      "id": "dependency-ordered-rust-handoff",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md"
+      ],
+      "rustOpen": "RS-01 through RS-08 implementation/held decision"
+    },
+    {
+      "id": "old-backend-repair",
+      "state": "explicitly-held",
+      "artifacts": [
+        "draft/k-in-k-r3-g-05-final-five-cycle-stop-checkpoint-2026-08-22.md"
+      ],
+      "rustOpen": "not applicable; do not retry"
+    },
+    {
+      "id": "optional-backend-logs-c1-c2-large-corpus",
+      "state": "explicitly-held",
+      "artifacts": [
+        "draft/goal/README.md"
+      ],
+      "rustOpen": "requires separate authorization"
+    }
+  ]
+}

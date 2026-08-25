@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "backend-agnostic-k-in-k-v1",
+  "selectionCases": [
+    {"id": "exact-id-one", "selector": {"kind": "lineage", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "expectedCardinality": 1}, "suppliedMatches": ["write"], "expected": {"status": "accepted", "installedCount": 1}},
+    {"id": "attribute-selector-one", "selector": {"kind": "attribute", "value": "transition", "expectedCardinality": 1}, "suppliedMatches": ["counter-increment"], "family": "portable-counter", "expected": {"status": "accepted", "installedCount": 1}},
+    {"id": "structural-selector-label-free", "structuralFixtureCase": "label-free-counter-rhs", "family": "portable-counter", "expected": {"status": "accepted", "installedCount": 1}},
+    {"id": "structural-selector-labeled", "structuralFixtureCase": "labeled-branch-rhs", "family": "portable-counter", "expected": {"status": "accepted", "installedCount": 1}},
+    {"id": "structural-selector-multi", "structuralFixtureCase": "multi-rule-body", "family": "portable-counter", "expected": {"status": "accepted", "installedCount": 2}},
+    {"id": "atomic-two-rule-allowlist", "selectors": [{"kind": "lineage", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, {"kind": "lineage", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}], "suppliedMatches": [["write"], ["load"]], "support": {"write": true, "load": true}, "expected": {"status": "accepted", "installedCount": 2}},
+    {"id": "stale-allowlist-member", "selectors": [{"kind": "lineage", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, {"kind": "lineage", "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}], "suppliedMatches": [["write"], []], "expected": {"status": "error", "failure": "cardinality-mismatch", "installedCount": 0}},
+    {"id": "already-present-exact-manifest", "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111", "installedManifestDigest": "1111111111111111111111111111111111111111111111111111111111111111", "expected": {"status": "already-present", "installedCount": 0}},
+    {"id": "already-present-conflict", "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111", "installedManifestDigest": "2222222222222222222222222222222222222222222222222222222222222222", "expected": {"status": "error", "failure": "non-conservative-observation", "installedCount": 0}},
+    {"id": "label-zero", "selector": {"kind": "label", "value": "missing", "expectedCardinality": 1}, "suppliedMatches": [], "expected": {"status": "error", "failure": "cardinality-mismatch", "installedCount": 0}},
+    {"id": "duplicate-label-excessive", "selector": {"kind": "label", "value": "step", "expectedCardinality": 1}, "suppliedMatches": ["write", "load"], "expected": {"status": "error", "failure": "cardinality-mismatch", "installedCount": 0}},
+    {"id": "duplicate-overlapping-selectors", "selectors": [{"kind": "lineage", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, {"kind": "label", "value": "write"}], "suppliedMatches": [["write"], ["write"]], "expected": {"status": "error", "failure": "duplicate-site", "installedCount": 0}},
+    {"id": "atomic-allowlist-one-unsupported", "selectors": [{"kind": "lineage", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, {"kind": "lineage", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}], "support": {"write": true, "load": false}, "expected": {"status": "error", "failure": "unsupported-observation-shape", "installedCount": 0}}
+  ],
+  "emissionCases": [
+    {"id": "one-transition-multiple-events", "transitionOrdinal": 7, "manifest": [{"kind": "RuleApplied", "declarationOrdinal": 0}, {"kind": "memoryWrite", "declarationOrdinal": 1}, {"kind": "auditWrite", "declarationOrdinal": 2}], "expected": {"eventOrder": ["RuleApplied", "memoryWrite", "auditWrite"], "transitionOrdinals": [7, 7, 7], "emissionOrdinals": [0, 1, 2]}},
+    {"id": "unobserved-transition-does-not-advance-event-clock", "transitions": [{"ordinal": 7, "events": ["memoryWrite"]}, {"ordinal": 8, "events": []}, {"ordinal": 9, "events": ["memoryLoad"]}], "expected": {"eventIndices": [0, 1], "nextEvent": true, "nextTransition": false}},
+    {"id": "rule-applied-interrupts-domain-next-event", "transitions": [{"ordinal": 7, "events": ["memoryWrite"]}, {"ordinal": 8, "events": ["RuleApplied"]}, {"ordinal": 9, "events": ["memoryLoad"]}], "expected": {"eventIndices": [0, 1, 2], "domainNextEvent": false, "domainEventuallyAfter": true}},
+    {"id": "two-domain-events-one-transition-are-adjacent", "transitions": [{"ordinal": 7, "events": ["counterIncrement", "branchTaken"]}], "family": "portable-counter", "expected": {"eventIndices": [0, 1], "transitionOrdinals": [7, 7], "emissionOrdinals": [0, 1], "nextEvent": true, "eventuallyAfter": true}},
+    {"id": "branch-prefix-retains-transition-ordinals", "branches": [{"pathKey": "left", "transitions": [{"ordinal": 3, "events": ["RuleApplied"]}, {"ordinal": 5, "events": ["memoryWrite"]}]}, {"pathKey": "right", "transitions": [{"ordinal": 3, "events": ["RuleApplied"]}, {"ordinal": 4, "events": ["memoryLoad"]}]}], "expected": {"left": {"eventIndices": [0, 1], "transitionOrdinals": [3, 5]}, "right": {"eventIndices": [0, 1], "transitionOrdinals": [3, 4]}}},
+    {"id": "duplicate-manifest-entry-rejected", "manifest": [{"observerId": "obs", "eventOrdinal": 0, "kind": "memoryWrite"}, {"observerId": "obs", "eventOrdinal": 0, "kind": "memoryWrite"}], "expected": {"status": "error", "failure": "duplicate-site", "emittedCount": 0}},
+    {"id": "unbound-payload-variable-rejected", "payloadVariables": [{"name": "A", "sort": "Address", "boundAtTransition": false}], "expected": {"status": "error", "failure": "invalid-variable", "emittedCount": 0}},
+    {"id": "payload-sort-mismatch-rejected", "payloadVariables": [{"name": "A", "sort": "Int", "declaredEventSort": "Address", "boundAtTransition": true}], "expected": {"status": "error", "failure": "ill-sorted", "emittedCount": 0}}
+  ],
+  "conservativityCases": [
+    {"id": "disabled-observer-is-identity", "baselineTreeDigest": "1111111111111111111111111111111111111111111111111111111111111111", "instrumentedErasedTreeDigest": "1111111111111111111111111111111111111111111111111111111111111111", "expected": {"status": "pass"}},
+    {"id": "branch-topology-and-predicate-preserved", "baseline": {"paths": ["root/left", "root/right"], "predicateDigests": ["2222222222222222222222222222222222222222222222222222222222222222", "3333333333333333333333333333333333333333333333333333333333333333"]}, "instrumentedAfterErasure": {"paths": ["root/left", "root/right"], "predicateDigests": ["2222222222222222222222222222222222222222222222222222222222222222", "3333333333333333333333333333333333333333333333333333333333333333"]}, "expected": {"status": "pass"}},
+    {"id": "resource-timeout-is-inconclusive", "baseline": {"complete": true}, "instrumented": {"complete": false, "stopReason": "resource-limit"}, "expected": {"status": "unknown", "conservativityProven": false}},
+    {"id": "program-state-change-fails-erasure", "baselineStateDigest": "4444444444444444444444444444444444444444444444444444444444444444", "instrumentedErasedStateDigest": "5555555555555555555555555555555555555555555555555555555555555555", "expected": {"status": "error", "failure": "non-conservative-observation"}}
+  ],
+  "traceStreamEquivalenceCases": [
+    {"executionVector": "occurrence-with-prefix-and-suffix", "requiredEqualFields": ["outcome", "primaryWitness"]},
+    {"executionVector": "gap-is-not-next-event", "requiredEqualFields": ["outcome"]},
+    {"executionVector": "gap-is-eventually-after", "requiredEqualFields": ["outcome", "primaryWitness"]},
+    {"executionVector": "canonical-earliest-witness", "requiredEqualFields": ["outcome", "primaryWitness"]},
+    {"executionVector": "shared-symbolic-payload", "requiredEqualFields": ["outcome", "primaryWitness"]}
+  ]
+}

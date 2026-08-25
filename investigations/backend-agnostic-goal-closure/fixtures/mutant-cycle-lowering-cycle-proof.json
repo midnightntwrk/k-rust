@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "proofKind": "finite-cycle-witness-v1",
+  "subject": {
+    "role": "mutant",
+    "baselineDefinitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+    "mutantId": "8f966df44be483aec55084f04d810e341ab5e25509768dbc928b23ef58f71ee9",
+    "mutantDefinitionDigest": "66e6071ca706036e1040f971b77629f80bd278ee5899c820d9065386555c0ca9"
+  },
+  "loweringProfileDigest": "6d07d5437a05b5bda922083438b7d4c5ee448bbbea5955ee4a49e97582eafefd",
+  "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+  "relationId": "db218c6280bf20b251d066e1251966a7463123a852377d8c3ab6bf647cc55e94",
+  "cycleStates": [
+    "lowering-a",
+    "lowering-b",
+    "lowering-a"
+  ],
+  "proofId": "3c3967e884acf838473832c2263ba5daf86538102c8f89a808062298d7b46d14"
+}

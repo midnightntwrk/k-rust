@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "operandId": "b61ea71951d75d05d462184dcf2637eb333830debda01ef5ed56be437c21ae39",
+  "declaration": {
+    "role": "oracle-declaration",
+    "digest": "0adfb5dce75f82deaa7a367f8ec570602d1dd15e21b691c15103b0f7deee5ed2"
+  },
+  "subject": {
+    "side": "mutant",
+    "baselineDefinitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+    "mutantId": "8f966df44be483aec55084f04d810e341ab5e25509768dbc928b23ef58f71ee9",
+    "mutantDefinitionDigest": "66e6071ca706036e1040f971b77629f80bd278ee5899c820d9065386555c0ca9"
+  },
+  "testInvocationDigest": "043447ba5bd136575c0d4952ca2d36508d4856c1a28f4efb5001ab611d5367ca",
+  "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
+  "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+  "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+  "completionEvidence": {
+    "kind": "execution-terminal",
+    "terminal": {
+      "kind": "stuck",
+      "artifact": {
+        "role": "terminal-state",
+        "digest": "d5a460b7971a4a9489534f6740b20294277755ef47c6c1b34cb60eb1b7d42a25"
+      }
+    },
+    "producerTrace": {
+      "role": "event-trace",
+      "digest": "eff288ce3cfa16330a9728d2896aaa8563887739321730a4dda206fd908aac1e"
+    }
+  },
+  "normalizedValue": {
+    "terminalClass": "stuck",
+    "exitCode": null
+  }
+}

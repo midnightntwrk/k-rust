@@ -1,0 +1,387 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/reachability-semantics.schema.json",
+  "title": "Finite reachability plan, query, witness, and conformance table v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/plan"
+    },
+    {
+      "$ref": "#/$defs/query"
+    },
+    {
+      "$ref": "#/$defs/witness"
+    },
+    {
+      "$ref": "#/$defs/table"
+    }
+  ],
+  "$defs": {
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "planId",
+        "variables",
+        "statePattern",
+        "sideCondition"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "planId": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "variables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "sort"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Za-z0-9_]*$"
+              },
+              "sort": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "uniqueItems": true
+        },
+        "statePattern": {
+          "$ref": "common.schema.json#/$defs/term"
+        },
+        "sideCondition": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "digest"
+              ],
+              "properties": {
+                "role": {
+                  "const": "predicate-query"
+                },
+                "digest": {
+                  "$ref": "common.schema.json#/$defs/digest"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "queryId",
+        "source",
+        "plan"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "queryId": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "digest"
+          ],
+          "properties": {
+            "role": {
+              "const": "reachability-source"
+            },
+            "digest": {
+              "$ref": "common.schema.json#/$defs/digest"
+            }
+          }
+        },
+        "plan": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "digest"
+          ],
+          "properties": {
+            "role": {
+              "const": "reachability-plan"
+            },
+            "digest": {
+              "$ref": "common.schema.json#/$defs/digest"
+            }
+          }
+        }
+      }
+    },
+    "witness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "witnessId",
+        "query",
+        "terminalState",
+        "bindings"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "witnessId": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "query": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "digest"
+          ],
+          "properties": {
+            "role": {
+              "const": "reachability-query"
+            },
+            "digest": {
+              "$ref": "common.schema.json#/$defs/digest"
+            }
+          }
+        },
+        "terminalState": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "digest"
+          ],
+          "properties": {
+            "role": {
+              "const": "terminal-state"
+            },
+            "digest": {
+              "$ref": "common.schema.json#/$defs/digest"
+            }
+          }
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/binding"
+          }
+        },
+        "pathIdentityDigest": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "replayManifest": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "digest"
+          ],
+          "properties": {
+            "role": {
+              "const": "replay-manifest"
+            },
+            "digest": {
+              "$ref": "common.schema.json#/$defs/digest"
+            }
+          }
+        }
+      },
+      "dependentRequired": {
+        "pathIdentityDigest": [
+          "replayManifest"
+        ],
+        "replayManifest": [
+          "pathIdentityDigest"
+        ]
+      }
+    },
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "tableId",
+        "rows"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "tableId": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "query",
+              "testInvocationDigest",
+              "subject",
+              "terminalStates",
+              "producerTraces",
+              "finiteComplete",
+              "inputVectorDigest",
+              "witnesses"
+            ],
+            "properties": {
+              "query": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "role",
+                  "digest"
+                ],
+                "properties": {
+                  "role": {
+                    "const": "reachability-query"
+                  },
+                  "digest": {
+                    "$ref": "common.schema.json#/$defs/digest"
+                  }
+                }
+              },
+              "terminalStates": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "role",
+                    "digest"
+                  ],
+                  "properties": {
+                    "role": {
+                      "const": "terminal-state"
+                    },
+                    "digest": {
+                      "$ref": "common.schema.json#/$defs/digest"
+                    }
+                  }
+                },
+                "minItems": 1
+              },
+              "testInvocationDigest": {
+                "$ref": "common.schema.json#/$defs/digest"
+              },
+              "subject": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "side",
+                      "definitionDigest"
+                    ],
+                    "properties": {
+                      "side": {
+                        "const": "baseline"
+                      },
+                      "definitionDigest": {
+                        "$ref": "common.schema.json#/$defs/digest"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "side",
+                      "baselineDefinitionDigest",
+                      "mutantId",
+                      "mutantDefinitionDigest"
+                    ],
+                    "properties": {
+                      "side": {
+                        "const": "mutant"
+                      },
+                      "baselineDefinitionDigest": {
+                        "$ref": "common.schema.json#/$defs/digest"
+                      },
+                      "mutantId": {
+                        "$ref": "common.schema.json#/$defs/digest"
+                      },
+                      "mutantDefinitionDigest": {
+                        "$ref": "common.schema.json#/$defs/digest"
+                      }
+                    }
+                  }
+                ]
+              },
+              "producerTraces": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "role",
+                    "digest"
+                  ],
+                  "properties": {
+                    "role": {
+                      "const": "event-trace"
+                    },
+                    "digest": {
+                      "$ref": "common.schema.json#/$defs/digest"
+                    }
+                  }
+                },
+                "minItems": 1
+              },
+              "finiteComplete": {
+                "type": "boolean"
+              },
+              "inputVectorDigest": {
+                "$ref": "common.schema.json#/$defs/digest"
+              },
+              "witnesses": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "role",
+                    "digest"
+                  ],
+                  "properties": {
+                    "role": {
+                      "const": "reachability-witness"
+                    },
+                    "digest": {
+                      "$ref": "common.schema.json#/$defs/digest"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "minItems": 1
+        }
+      }
+    }
+  }
+}

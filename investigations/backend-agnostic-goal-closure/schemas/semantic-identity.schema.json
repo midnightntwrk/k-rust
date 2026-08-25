@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/semantic-identity.schema.json",
+  "title": "Semantic identity and provenance v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "baselineFamilyId", "definitionDigest", "transformationId", "generatedLineageId", "digestInputs", "transformationEvidence", "sentences"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "baselineFamilyId": {"$ref": "common.schema.json#/$defs/digest"},
+    "definitionDigest": {"$ref": "common.schema.json#/$defs/digest"},
+    "transformationId": {"$ref": "common.schema.json#/$defs/digest"},
+    "generatedLineageId": {"$ref": "common.schema.json#/$defs/digest"},
+    "digestInputs": {
+      "type": "object", "additionalProperties": false,
+      "required": ["baselineFamily", "inputLineage", "sentenceBody", "sentenceContent", "definition", "transformation", "generatedLineage"],
+      "properties": {
+        "baselineFamily": {"$ref": "#/$defs/baselineFamily"},
+        "inputLineage": {"$ref": "#/$defs/inputLineage"},
+        "sentenceBody": {"$ref": "#/$defs/sentenceBody"},
+        "sentenceContent": {"$ref": "#/$defs/sentenceContent"},
+        "definition": {"$ref": "#/$defs/definition"},
+        "transformation": {"$ref": "#/$defs/transformation"},
+        "generatedLineage": {"$ref": "#/$defs/generatedLineage"}
+      }
+    },
+    "transformationEvidence": {"$ref": "#/$defs/transformationEvidence"},
+    "sentences": {
+      "type": "array",
+      "items": {"$ref": "common.schema.json#/$defs/provenance"}
+    }
+  },
+  "$defs": {
+    "baselineFamily": {"type": "object", "additionalProperties": false, "required": ["familyName", "entryModules", "compatibilityProfile"], "properties": {"familyName": {"type": "string", "minLength": 1}, "entryModules": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "compatibilityProfile": {"type": "string", "minLength": 1}}},
+    "inputLineage": {"type": "object", "additionalProperties": false, "required": ["baselineFamilyId", "module", "source", "location", "kind", "sourceOccurrenceOrdinal"], "properties": {"baselineFamilyId": {"$ref": "common.schema.json#/$defs/digest"}, "module": {"type": "string", "minLength": 1}, "source": {"$ref": "common.schema.json#/$defs/logicalSource"}, "location": {"$ref": "common.schema.json#/$defs/location"}, "kind": {"$ref": "common.schema.json#/$defs/sentenceValue/properties/kind"}, "sourceOccurrenceOrdinal": {"type": "integer", "minimum": 0}}},
+    "sentenceBody": {"type": "object", "additionalProperties": false, "required": ["body", "requires", "ensures"], "properties": {"body": {"$ref": "common.schema.json#/$defs/term"}, "requires": {"oneOf": [{"$ref": "common.schema.json#/$defs/term"}, {"type": "null"}]}, "ensures": {"oneOf": [{"$ref": "common.schema.json#/$defs/term"}, {"type": "null"}]}}},
+    "sentenceContent": {"type": "object", "additionalProperties": false, "required": ["lineageId", "module", "label", "kind", "source", "location", "generated", "bodyFingerprint", "attributes", "transformationChain"], "properties": {"lineageId": {"$ref": "common.schema.json#/$defs/digest"}, "module": {"type": "string", "minLength": 1}, "label": {"type": ["string", "null"]}, "kind": {"$ref": "common.schema.json#/$defs/sentenceValue/properties/kind"}, "source": {"$ref": "common.schema.json#/$defs/logicalSource"}, "location": {"$ref": "common.schema.json#/$defs/location"}, "generated": {"type": "boolean"}, "bodyFingerprint": {"$ref": "common.schema.json#/$defs/digest"}, "attributes": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/attribute"}}, "transformationChain": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/digest"}}}},
+    "definition": {"type": "object", "additionalProperties": false, "required": ["schemaVersion", "representation", "baselineFamilyId", "modules"], "properties": {"schemaVersion": {"const": 1}, "representation": {"const": "portable-mutation-semantic-slice-v1"}, "baselineFamilyId": {"$ref": "common.schema.json#/$defs/digest"}, "modules": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["name", "ordinal", "imports", "sentenceContentFingerprints"], "properties": {"name": {"type": "string"}, "ordinal": {"type": "integer", "minimum": 0}, "imports": {"type": "array", "items": {"type": "string"}}, "sentenceContentFingerprints": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/digest"}}}}}}},
+    "transformation": {"type": "object", "additionalProperties": false, "required": ["kind", "operatorId", "operatorVersion", "inputDefinitionDigest", "manifestDigest"], "properties": {"kind": {"type": "string"}, "operatorId": {"type": "string"}, "operatorVersion": {"type": "integer", "minimum": 1}, "inputDefinitionDigest": {"$ref": "common.schema.json#/$defs/digest"}, "manifestDigest": {"$ref": "common.schema.json#/$defs/digest"}}},
+    "transformationEvidence": {"type": "object", "additionalProperties": false, "required": ["inputDefinition", "outputDefinition"], "properties": {"inputDefinition": {"type": "object", "additionalProperties": false, "required": ["role", "digest"], "properties": {"role": {"const": "definition"}, "digest": {"$ref": "common.schema.json#/$defs/digest"}}}, "outputDefinition": {"type": "object", "additionalProperties": false, "required": ["role", "digest"], "properties": {"role": {"const": "mutant-definition"}, "digest": {"$ref": "common.schema.json#/$defs/digest"}}}}},
+    "generatedLineage": {"type": "object", "additionalProperties": false, "required": ["transformationId", "parentLineages", "anchorIdentity", "role", "ordinal"], "properties": {"transformationId": {"$ref": "common.schema.json#/$defs/digest"}, "parentLineages": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/digest"}}, "anchorIdentity": {"$ref": "common.schema.json#/$defs/digest"}, "role": {"type": "string", "enum": ["derived-claim", "derived-rule", "insert-after-lineage", "insert-before-lineage", "insert-module-end", "insert-module-start", "observation-update"]}, "ordinal": {"type": "integer", "minimum": 0}}, "allOf": [{"if": {"properties": {"role": {"enum": ["insert-module-end", "insert-module-start"]}}, "required": ["role"]}, "then": {"properties": {"parentLineages": {"maxItems": 0}}}, "else": {"properties": {"parentLineages": {"minItems": 1}}}}]}
+  }
+}

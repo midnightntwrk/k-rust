@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "declarationId": "e0fed4ac975c88d02f935a021ca4761952470eb64f79a224ddb6a87ab8d6aaf4",
+  "testInvocationDigest": "043447ba5bd136575c0d4952ca2d36508d4856c1a28f4efb5001ab611d5367ca",
+  "slotOrdinal": 16,
+  "slotId": "incomparable-baseline-normal",
+  "oracleId": "incomparable-baseline-normal",
+  "oracleVersion": 1,
+  "kind": "final-result",
+  "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
+  "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+  "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+  "boundsDigest": "766922e13db2bd777258d21d827479da148520b4590a07863b780e1a9ef46451",
+  "baselineTerminalPolicy": "normal-or-crash",
+  "crashPolicy": "semantic-crash-incomparable",
+  "baselineGate": {
+    "mode": "reference-only"
+  },
+  "projectionSpec": {
+    "mode": "portable-built-in",
+    "projectionId": "whole-portable-term-v1"
+  },
+  "comparisonSpec": {
+    "mode": "portable-built-in",
+    "comparatorId": "exact-portable-term-v1"
+  },
+  "kindConfig": {
+    "kind": "final-result",
+    "stuckResultPolicy": "incomplete"
+  }
+}

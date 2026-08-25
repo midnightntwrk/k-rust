@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "crashDigest": "163b6f236958610c977a327fb5f93e3ce36da2fdc8cc2a9bcca94b4af1ceadf2",
+  "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+  "terminalState": {
+    "role": "terminal-state",
+    "digest": "d5a460b7971a4a9489534f6740b20294277755ef47c6c1b34cb60eb1b7d42a25"
+  },
+  "classification": "declared-object-language-crash"
+}

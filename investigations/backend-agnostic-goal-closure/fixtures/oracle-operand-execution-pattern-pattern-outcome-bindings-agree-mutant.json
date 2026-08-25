@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "operandId": "e3c749f8ca93aa599e4b5fecfc579bc060f308cb3a4a412d22a55bf901478dfe",
+  "declaration": {
+    "role": "oracle-declaration",
+    "digest": "a91bccd98d8ae998cee252f01c488725ea2d6d4af675b3e362116cb833b5126c"
+  },
+  "subject": {
+    "side": "mutant",
+    "baselineDefinitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+    "mutantId": "8f966df44be483aec55084f04d810e341ab5e25509768dbc928b23ef58f71ee9",
+    "mutantDefinitionDigest": "66e6071ca706036e1040f971b77629f80bd278ee5899c820d9065386555c0ca9"
+  },
+  "testInvocationDigest": "cab74e78a428b6a79c7f00a0f46b5b7373ac515c15f94bf81ea076f2e1e37bc9",
+  "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
+  "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+  "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+  "completionEvidence": {
+    "kind": "pattern-result",
+    "patternResult": {
+      "role": "pattern-result",
+      "digest": "84b584eeb5e633e64cbf2d94b70c3c0f7bfc36fed8376efde6290a8f06c906fe"
+    }
+  },
+  "normalizedValue": {
+    "patternResult": {
+      "role": "pattern-result",
+      "digest": "84b584eeb5e633e64cbf2d94b70c3c0f7bfc36fed8376efde6290a8f06c906fe"
+    },
+    "outcome": "no-match",
+    "bindingTuples": []
+  }
+}

@@ -1,0 +1,12 @@
+<T>
+  <k>
+    0 ~> .K
+  </k>
+  <state>
+    3
+  </state>
+  <trace>
+    ListItem ( ruleApplied ( ruleOrigin ( "raw-id" , "bump-state" , "R3-G-01-P3-TRACE" , "/raw/source.k" , "Location(36,8,39,28)" ) ) )
+    ListItem ( ruleApplied ( ruleOrigin ( "raw-id" , "bump-state" , "R3-G-01-P3-TRACE" , "/raw/source.k" , "Location(36,8,39,28)" ) ) )
+  </trace>
+</T>
