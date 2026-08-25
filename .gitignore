@@ -1,1 +1,12 @@
 **/target/
+
+# Recovery-transfer and local agent artifacts.
+.DS_Store
+._*
+PaxHeader/
+.playwright-mcp/
+agent-sandbox-test*/
+
+# Python verifier caches.
+__pycache__/
+*.py[cod]
