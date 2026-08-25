@@ -1,0 +1,14 @@
+[package]
+name = "m3-builtin-facade"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+inventory = "=0.3.21"
+m3-builtin-macros = { path = "../macros" }
+m3-builtin-model = { path = "../model" }
+
+[lints]
+workspace = true
+

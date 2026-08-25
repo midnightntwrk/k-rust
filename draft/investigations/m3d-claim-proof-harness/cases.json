@@ -1,0 +1,38 @@
+{
+  "cases": [
+    {
+      "name": "branching",
+      "native_label": "branching",
+      "source_spec": "../inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k",
+      "source_module": "IMP-SIMPLE-SPEC",
+      "source_claim": "IMP-SIMPLE-SPEC.branching",
+      "modality": "all-path",
+      "circularity": false,
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "claim_sha256": "e6af137f0b47ee356524fb713866376c27a2e1e9673a1871ae9db15c8a23f940"
+    },
+    {
+      "name": "sum-loop",
+      "native_label": "sum-loop",
+      "source_spec": "../inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k",
+      "source_module": "IMP-SIMPLE-SPEC",
+      "source_claim": "IMP-SIMPLE-SPEC.sum-loop",
+      "modality": "all-path",
+      "circularity": false,
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "claim_sha256": "f1e9802339a8cb1897fde38b247de3faea9c39757c338571dff71bc7f1b25ddb"
+    },
+    {
+      "name": "sum-spec",
+      "native_label": "sum-spec",
+      "source_spec": "../inspirations/runtimeverification/imp-semantics/examples/specs/imp-sum-spec.k",
+      "source_module": "IMP-SUM-SPEC",
+      "source_claim": "IMP-SUM-SPEC.sum-spec",
+      "modality": "all-path",
+      "circularity": true,
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "claim_sha256": "ee006de43e8076b944827ef3552295ea895cd7d59f81aff77e2b7d1658cee727"
+    }
+  ]
+}
+

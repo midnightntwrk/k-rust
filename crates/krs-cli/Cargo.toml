@@ -1,0 +1,24 @@
+[package]
+name = "krs-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Cargo-native command and collection pipeline for KRS definitions"
+
+[[bin]]
+name = "krs"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+krs = { path = "../krs" }
+krs-compiler = { path = "../krs-compiler" }
+krs-ir = { path = "../krs-ir" }
+krs-k-rust = { path = "../krs-k-rust" }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10.9"
+
+[lints]
+workspace = true

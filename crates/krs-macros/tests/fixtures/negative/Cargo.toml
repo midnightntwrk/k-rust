@@ -1,0 +1,95 @@
+[package]
+name = "krs-macros-negative"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+krs-macros = { path = "../../.." }
+renamed-krs = { package = "krs", path = "../../../../krs" }
+
+[[bin]]
+name = "wrong_sort_item"
+path = "src/wrong_sort_item.rs"
+
+[[bin]]
+name = "wrong_rule_item"
+path = "src/wrong_rule_item.rs"
+
+[[bin]]
+name = "malformed_constructor_attr"
+path = "src/malformed_constructor_attr.rs"
+
+[[bin]]
+name = "tuple_constructor"
+path = "src/tuple_constructor.rs"
+
+[[bin]]
+name = "unsupported_rule"
+path = "src/unsupported_rule.rs"
+
+[[bin]]
+name = "duplicate_binder"
+path = "src/duplicate_binder.rs"
+
+[[bin]]
+name = "unsupported_term"
+path = "src/unsupported_term.rs"
+
+[[bin]]
+name = "missing_path"
+path = "src/missing_path.rs"
+
+[[bin]]
+name = "wrong_configuration_item"
+path = "src/wrong_configuration_item.rs"
+
+[[bin]]
+name = "missing_initializer"
+path = "src/missing_initializer.rs"
+
+[[bin]]
+name = "duplicate_initializer"
+path = "src/duplicate_initializer.rs"
+
+[[bin]]
+name = "initializer_control_flow"
+path = "src/initializer_control_flow.rs"
+
+[[bin]]
+name = "unsupported_k"
+path = "src/unsupported_k.rs"
+
+[[bin]]
+name = "free_initializer"
+path = "src/free_initializer.rs"
+
+[[bin]]
+name = "trait_initializer"
+path = "src/trait_initializer.rs"
+
+[[bin]]
+name = "orphan_strictness"
+path = "src/orphan_strictness.rs"
+
+[[bin]]
+name = "orphan_bracket"
+path = "src/orphan_bracket.rs"
+
+[[bin]]
+name = "tuple_enum_constructor"
+path = "src/tuple_enum_constructor.rs"
+
+[[bin]]
+name = "standalone_variant_alias"
+path = "src/standalone_variant_alias.rs"
+
+[[bin]]
+name = "malformed_precedence"
+path = "src/malformed_precedence.rs"
+
+[[bin]]
+name = "false_avoid"
+path = "src/false_avoid.rs"

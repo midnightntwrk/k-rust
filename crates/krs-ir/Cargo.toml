@@ -1,0 +1,17 @@
+[package]
+name = "krs-ir"
+description = "Stable descriptor and intermediate-representation contracts for KRS"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+static_assertions = "1.1.0"
+
+[lints]
+workspace = true

@@ -1,0 +1,24 @@
+{
+  "reference_k": {
+    "version": "7.1.337",
+    "commit": "4a46d1231473b599c699160132fd6e76a5c46406"
+  },
+  "upstream_imp": {
+    "commit": "683a773418add3bcae8ded47c2b24e94494e1988"
+  },
+  "normalizer": {
+    "path": "tests/m3d/verify.py",
+    "sha256": "2ed14f41b39cf95fdfd132d1fa675c3d550375c75499d78711a2c901d023bc9f"
+  },
+  "proof_policy": {
+    "evidence_schema": 2,
+    "depth": 100,
+    "branching_allowed": 64
+  },
+  "source_sha256": {
+    "definition/imp-verification.k": "4a53c3c621edf14b7fb81c3c473d5c2bc8f35165432a78a5506ef7418b2d8c04",
+    "specs/imp-simple-spec.k": "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67",
+    "specs/imp-sum-spec.k": "4b0caa1bdbe11cdfbdc4fe9bbf43602585643b88373329a1d3e240950d10913d"
+  },
+  "proof_outcomes": {}
+}

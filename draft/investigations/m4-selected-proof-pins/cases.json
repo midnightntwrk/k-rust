@@ -1,0 +1,64 @@
+{
+  "cases": [
+    {
+      "name": "addition-1",
+      "spec": "imp-simple-spec.k",
+      "module": "IMP-SIMPLE-SPEC",
+      "claim": "IMP-SIMPLE-SPEC.addition-1",
+      "bounds": {
+        "depth": 100,
+        "branching_allowed": 64
+      }
+    },
+    {
+      "name": "addition-var",
+      "spec": "imp-simple-spec.k",
+      "module": "IMP-SIMPLE-SPEC",
+      "claim": "IMP-SIMPLE-SPEC.addition-var",
+      "bounds": {
+        "depth": 100,
+        "branching_allowed": 64
+      }
+    },
+    {
+      "name": "branching",
+      "spec": "imp-simple-spec.k",
+      "module": "IMP-SIMPLE-SPEC",
+      "claim": "IMP-SIMPLE-SPEC.branching",
+      "bounds": {
+        "depth": 100,
+        "branching_allowed": 64
+      }
+    },
+    {
+      "name": "sum-loop",
+      "spec": "imp-simple-spec.k",
+      "module": "IMP-SIMPLE-SPEC",
+      "claim": "IMP-SIMPLE-SPEC.sum-loop",
+      "bounds": {
+        "depth": 100,
+        "branching_allowed": 64
+      }
+    },
+    {
+      "name": "sum-spec",
+      "spec": "imp-sum-spec.k",
+      "module": "IMP-SUM-SPEC",
+      "claim": "IMP-SUM-SPEC.sum-spec",
+      "bounds": {
+        "depth": 100,
+        "branching_allowed": 64
+      }
+    },
+    {
+      "name": "addition-depth-zero",
+      "spec": "imp-simple-spec.k",
+      "module": "IMP-SIMPLE-SPEC",
+      "claim": "IMP-SIMPLE-SPEC.addition-1",
+      "bounds": {
+        "depth": 0,
+        "branching_allowed": 64
+      }
+    }
+  ]
+}

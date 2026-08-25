@@ -1,0 +1,10 @@
+[package]
+name = "ambiguity-root"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+duplicate-a = { package = "duplicated-semantics", path = "../duplicate-a" }
+duplicate-b = { package = "duplicated-semantics", path = "../duplicate-b" }
+

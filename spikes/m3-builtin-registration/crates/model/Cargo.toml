@@ -1,0 +1,9 @@
+[package]
+name = "m3-builtin-model"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+

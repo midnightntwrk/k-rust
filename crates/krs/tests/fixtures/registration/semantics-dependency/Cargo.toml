@@ -1,0 +1,12 @@
+[package]
+name = "semantics-dependency"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+k.workspace = true
+
+[lints]
+workspace = true

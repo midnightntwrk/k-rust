@@ -1,0 +1,417 @@
+use std::error::Error;
+use std::fmt;
+
+use proc_macro2::Span;
+
+use crate::SourceRange;
+
+/// Machine-readable category for a rejected M1 syntax shape.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum SyntaxErrorKind {
+    /// Rust token parsing failed before KRS shape validation could finish.
+    RustSyntax(String),
+    /// An attribute which takes no arguments received a payload.
+    UnexpectedAttributePayload {
+        /// Attribute whose payload must be empty.
+        attribute: &'static str,
+    },
+    /// A keyed attribute argument is not part of the M1 grammar.
+    UnknownArgument {
+        /// Rejected argument name.
+        name: String,
+    },
+    /// A keyed attribute argument occurred more than once.
+    DuplicateArgument {
+        /// Repeated argument name.
+        name: &'static str,
+    },
+    /// A required keyed attribute argument was absent.
+    MissingArgument {
+        /// Missing argument name.
+        name: &'static str,
+    },
+    /// A keyed argument had the wrong Rust AST shape.
+    InvalidArgumentValue {
+        /// Argument whose value was invalid.
+        name: &'static str,
+        /// Expected source shape.
+        expected: &'static str,
+    },
+    /// A Rust path uses generics or another form outside the M1 path subset.
+    UnsupportedPath,
+    /// A `sort` trait was not a non-generic, safe, empty marker trait.
+    UnsupportedSortDeclaration {
+        /// Specific marker-trait restriction.
+        reason: &'static str,
+    },
+    /// A constructor item was not a nongeneric unit or named-field struct.
+    UnsupportedConstructorDeclaration {
+        /// Specific constructor-shape restriction.
+        reason: &'static str,
+    },
+    /// A closed enum constructor family was outside the M3A Rust shape.
+    UnsupportedEnumConstructorDeclaration {
+        /// Specific closed-enum restriction.
+        reason: &'static str,
+    },
+    /// A token newtype was outside the closed M3A token declaration shape.
+    UnsupportedTokenDeclaration {
+        /// Specific token-newtype restriction.
+        reason: &'static str,
+    },
+    /// A subsort implementation was outside the explicit M3A shape.
+    UnsupportedSubsortDeclaration {
+        /// Specific impl restriction.
+        reason: &'static str,
+    },
+    /// A checked syntax or bracket template was malformed.
+    InvalidSyntaxTemplate {
+        /// Specific template restriction.
+        reason: &'static str,
+    },
+    /// A checked syntax template named an unknown constructor field.
+    UnknownTemplateField {
+        /// Unknown placeholder spelling.
+        name: String,
+    },
+    /// A checked syntax template omitted or repeated a constructor field.
+    InvalidTemplateFieldOccurrence {
+        /// Responsible field spelling.
+        name: String,
+        /// Required occurrence count.
+        expected: u32,
+        /// Actual occurrence count.
+        actual: u32,
+    },
+    /// Token regular-expression text was malformed.
+    InvalidTokenRegex {
+        /// Stable reason for rejection.
+        reason: &'static str,
+    },
+    /// Structured unparse format text was malformed for its production.
+    InvalidFormat {
+        /// Stable reason for rejection.
+        reason: &'static str,
+    },
+    /// Strictness metadata was empty, repeated a field, or named an unknown field.
+    InvalidStrictness {
+        /// Stable reason for rejection.
+        reason: &'static str,
+    },
+    /// A precedence or associativity macro payload was malformed.
+    InvalidGrammarMacro {
+        /// Stable reason for rejection.
+        reason: &'static str,
+    },
+    /// An enum-level readable-family precedence chain was invalid.
+    InvalidEnumPrecedence {
+        /// Specific exhaustive-chain failure.
+        reason: String,
+    },
+    /// A configuration item was not a fixed schema-v3 cell-tree shape.
+    UnsupportedConfigurationDeclaration {
+        /// Specific declaration restriction.
+        reason: &'static str,
+    },
+    /// A configuration field was outside the fixed schema-v3 cell shape.
+    UnsupportedConfigurationField {
+        /// Specific field restriction.
+        reason: &'static str,
+    },
+    /// An initializer function used an unsupported signature feature.
+    UnsupportedInitializerSignature {
+        /// Specific signature restriction.
+        reason: &'static str,
+    },
+    /// A configuration-variable parameter was outside the schema-v3 subset.
+    UnsupportedConfigurationVariable {
+        /// Specific parameter restriction.
+        reason: &'static str,
+    },
+    /// More than one initializer parameter claimed the main configuration input.
+    AmbiguousMainConfigurationVariable,
+    /// An initializer body was outside the closed declarative grammar.
+    UnsupportedInitializerBody {
+        /// Specific body restriction.
+        reason: &'static str,
+    },
+    /// The one required initializer field was absent.
+    MissingConfigurationField {
+        /// Required Rust field name.
+        name: &'static str,
+    },
+    /// An initializer field occurred more than once.
+    DuplicateConfigurationField {
+        /// Repeated Rust field name.
+        name: &'static str,
+    },
+    /// A `#[k::cell(...)]` payload was malformed.
+    InvalidCellAttribute {
+        /// Stable reason for rejection.
+        reason: &'static str,
+    },
+    /// A compiler-owned configuration/state macro payload was malformed.
+    InvalidStateMacro {
+        /// Reserved macro whose payload was rejected.
+        macro_name: &'static str,
+        /// Stable reason for rejection.
+        reason: &'static str,
+    },
+    /// Source trivia could not be classified against the token byte ranges.
+    InvalidTrivia {
+        /// Stable reason for the coverage or lexical failure.
+        reason: &'static str,
+    },
+    /// A non-documentation block comment occurred in a line-comment-only DSL body.
+    UnsupportedDslBlockComment {
+        /// DSL macro whose source body contained the comment.
+        macro_name: &'static str,
+    },
+    /// A rule function used a signature feature outside the one-clause M1 ABI.
+    UnsupportedRuleSignature {
+        /// Specific signature restriction.
+        reason: &'static str,
+    },
+    /// A rule subject was not a supported named-constructor pattern.
+    UnsupportedRulePattern {
+        /// Specific pattern restriction.
+        reason: &'static str,
+    },
+    /// A symbolic constructor field or rule type was not a supported `Term` sort.
+    InvalidTermType,
+    /// A rule body was not exactly one unterminated term expression.
+    UnsupportedRuleBody {
+        /// Specific body restriction.
+        reason: &'static str,
+    },
+    /// A macro in a rule subject or result was not the reserved `term!` form.
+    UnexpectedMacro {
+        /// Macro path as written.
+        path: String,
+    },
+    /// A Rust expression is outside the closed named-term grammar.
+    UnsupportedTermExpression {
+        /// Specific expression restriction.
+        reason: &'static str,
+    },
+    /// A token-bearing semantic node unexpectedly emitted no token leaves.
+    MissingTokenEndpoint,
+    /// A single invocation contained more same-role nodes than `u32` can key.
+    TooManyProvenanceOccurrences {
+        /// Stable parser-owned role spelling.
+        role: &'static str,
+    },
+}
+
+/// A structured parser error carrying the most specific available source span.
+#[derive(Clone, Debug)]
+pub struct SyntaxError {
+    kind: SyntaxErrorKind,
+    span: Span,
+    source_range: Option<SourceRange>,
+}
+
+impl SyntaxError {
+    /// Creates an error at the token which caused it.
+    #[must_use]
+    pub const fn new(kind: SyntaxErrorKind, span: Span) -> Self {
+        Self {
+            kind,
+            span,
+            source_range: None,
+        }
+    }
+
+    /// Adds a byte-exact range in the source string passed to a `_source` API.
+    ///
+    /// Comments have no `proc_macro2::Span`, so source-reparse diagnostics use
+    /// this range while retaining [`Self::span`] for compatibility with callers
+    /// that consume `syn::Error`.
+    #[must_use]
+    pub const fn with_source_range(mut self, source_range: SourceRange) -> Self {
+        self.source_range = Some(source_range);
+        self
+    }
+
+    /// Returns the machine-readable error category.
+    #[must_use]
+    pub const fn kind(&self) -> &SyntaxErrorKind {
+        &self.kind
+    }
+
+    /// Returns the primary diagnostic span.
+    #[must_use]
+    pub const fn span(&self) -> Span {
+        self.span
+    }
+
+    /// Returns the byte-exact source range when the error arose in trivia.
+    #[must_use]
+    pub const fn source_range(&self) -> Option<SourceRange> {
+        self.source_range
+    }
+
+    /// Converts this error into the type expected by procedural macros.
+    #[must_use]
+    pub fn into_syn_error(self) -> syn::Error {
+        syn::Error::new(self.span, self.to_string())
+    }
+}
+
+impl fmt::Display for SyntaxError {
+    #[allow(clippy::too_many_lines)]
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.kind {
+            SyntaxErrorKind::RustSyntax(message) => formatter.write_str(message),
+            SyntaxErrorKind::UnexpectedAttributePayload { attribute } => {
+                write!(formatter, "`{attribute}` takes no arguments")
+            }
+            SyntaxErrorKind::UnknownArgument { name } => {
+                write!(formatter, "unknown argument `{name}`")
+            }
+            SyntaxErrorKind::DuplicateArgument { name } => {
+                write!(formatter, "duplicate argument `{name}`")
+            }
+            SyntaxErrorKind::MissingArgument { name } => {
+                write!(formatter, "missing required argument `{name} = ...`")
+            }
+            SyntaxErrorKind::InvalidArgumentValue { name, expected } => {
+                write!(formatter, "`{name}` must be {expected}")
+            }
+            SyntaxErrorKind::UnsupportedPath => formatter
+                .write_str("M1 Rust references must be plain paths without generic arguments"),
+            SyntaxErrorKind::UnsupportedSortDeclaration { reason } => {
+                write!(formatter, "unsupported M1 sort declaration: {reason}")
+            }
+            SyntaxErrorKind::UnsupportedConstructorDeclaration { reason } => {
+                write!(
+                    formatter,
+                    "unsupported M1 constructor declaration: {reason}"
+                )
+            }
+            SyntaxErrorKind::UnsupportedEnumConstructorDeclaration { reason } => {
+                write!(
+                    formatter,
+                    "unsupported M3A enum constructor declaration: {reason}"
+                )
+            }
+            SyntaxErrorKind::UnsupportedTokenDeclaration { reason } => {
+                write!(formatter, "unsupported M3A token declaration: {reason}")
+            }
+            SyntaxErrorKind::UnsupportedSubsortDeclaration { reason } => {
+                write!(formatter, "unsupported M3A subsort declaration: {reason}")
+            }
+            SyntaxErrorKind::InvalidSyntaxTemplate { reason } => {
+                write!(formatter, "invalid KRS syntax template: {reason}")
+            }
+            SyntaxErrorKind::UnknownTemplateField { name } => {
+                write!(formatter, "syntax template names unknown field `{name}`")
+            }
+            SyntaxErrorKind::InvalidTemplateFieldOccurrence {
+                name,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "syntax template must name field `{name}` {expected} time(s), found {actual}"
+            ),
+            SyntaxErrorKind::InvalidTokenRegex { reason } => {
+                write!(formatter, "invalid token regular expression: {reason}")
+            }
+            SyntaxErrorKind::InvalidFormat { reason } => {
+                write!(formatter, "invalid production format: {reason}")
+            }
+            SyntaxErrorKind::InvalidStrictness { reason } => {
+                write!(formatter, "invalid strictness metadata: {reason}")
+            }
+            SyntaxErrorKind::InvalidGrammarMacro { reason } => {
+                write!(formatter, "invalid grammar macro: {reason}")
+            }
+            SyntaxErrorKind::InvalidEnumPrecedence { reason } => {
+                write!(formatter, "invalid enum precedence chain: {reason}")
+            }
+            SyntaxErrorKind::UnsupportedConfigurationDeclaration { reason } => {
+                write!(
+                    formatter,
+                    "unsupported fixed configuration declaration: {reason}"
+                )
+            }
+            SyntaxErrorKind::UnsupportedConfigurationField { reason } => {
+                write!(formatter, "unsupported fixed configuration field: {reason}")
+            }
+            SyntaxErrorKind::UnsupportedInitializerSignature { reason } => {
+                write!(formatter, "unsupported initializer signature: {reason}")
+            }
+            SyntaxErrorKind::UnsupportedConfigurationVariable { reason } => {
+                write!(formatter, "unsupported configuration variable: {reason}")
+            }
+            SyntaxErrorKind::AmbiguousMainConfigurationVariable => {
+                formatter.write_str("at most one configuration variable may be marked `main`")
+            }
+            SyntaxErrorKind::UnsupportedInitializerBody { reason } => {
+                write!(
+                    formatter,
+                    "unsupported declarative initializer body: {reason}"
+                )
+            }
+            SyntaxErrorKind::MissingConfigurationField { name } => {
+                write!(formatter, "initializer is missing required field `{name}`")
+            }
+            SyntaxErrorKind::DuplicateConfigurationField { name } => {
+                write!(formatter, "initializer repeats field `{name}`")
+            }
+            SyntaxErrorKind::InvalidCellAttribute { reason } => {
+                write!(formatter, "invalid `cell` attribute: {reason}")
+            }
+            SyntaxErrorKind::InvalidStateMacro { macro_name, reason } => {
+                write!(formatter, "invalid `{macro_name}!` payload: {reason}")
+            }
+            SyntaxErrorKind::InvalidTrivia { reason } => {
+                write!(formatter, "invalid source trivia: {reason}")
+            }
+            SyntaxErrorKind::UnsupportedDslBlockComment { macro_name } => write!(
+                formatter,
+                "non-documentation block comments are not allowed inside `{macro_name}!` bodies; use `//`"
+            ),
+            SyntaxErrorKind::UnsupportedRuleSignature { reason } => {
+                write!(formatter, "unsupported M1 rule signature: {reason}")
+            }
+            SyntaxErrorKind::UnsupportedRulePattern { reason } => {
+                write!(formatter, "unsupported M1 rule pattern: {reason}")
+            }
+            SyntaxErrorKind::InvalidTermType => {
+                formatter.write_str("expected `Term<SortPath>` or `Term<dyn SortPath>`")
+            }
+            SyntaxErrorKind::UnsupportedRuleBody { reason } => {
+                write!(formatter, "unsupported M1 rule body: {reason}")
+            }
+            SyntaxErrorKind::UnexpectedMacro { path } => {
+                write!(
+                    formatter,
+                    "expected the reserved `term!` macro, found `{path}!`"
+                )
+            }
+            SyntaxErrorKind::UnsupportedTermExpression { reason } => {
+                write!(formatter, "unsupported M1 term expression: {reason}")
+            }
+            SyntaxErrorKind::MissingTokenEndpoint => {
+                formatter.write_str("semantic node had no token endpoints")
+            }
+            SyntaxErrorKind::TooManyProvenanceOccurrences { role } => {
+                write!(
+                    formatter,
+                    "too many `{role}` nodes to assign provenance ordinals"
+                )
+            }
+        }
+    }
+}
+
+impl Error for SyntaxError {}
+
+impl From<syn::Error> for SyntaxError {
+    fn from(error: syn::Error) -> Self {
+        Self::new(SyntaxErrorKind::RustSyntax(error.to_string()), error.span())
+    }
+}

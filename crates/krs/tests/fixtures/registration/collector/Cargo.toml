@@ -1,0 +1,13 @@
+[package]
+name = "registration-collector"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+k.workspace = true
+semantics-dependency.workspace = true
+
+[lints]
+workspace = true

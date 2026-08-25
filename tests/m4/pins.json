@@ -1,0 +1,1629 @@
+{
+  "artifact_sha256": {
+    "definition-ir.json": "a66f4d8a15d5185bdb621db58ab207ac6b38d9235abc4d204a10a7f0f93b4882",
+    "definition.k": "6d0d38909478f2734a8c928b280eb0a35365932b994a4902c60aec09cdfae024",
+    "descriptor-bundle.json": "1dee41370f5506a5e75c7f2717abc8b615b6b10c9393a834a86cba2786de3c3a",
+    "native-source.txt": "7213f32a288c566c785a7f15f7a161ede18f92c250c1406f1c49442836b9c065",
+    "semantic-ir.json": "4247d4b3276c6c36c4f2b51f4ae8658a0b54a4b0969c376cb27c5d82e7f5b408",
+    "sources.json": "218720e537201eb55a5f585f19620f96ab8f5d37dd5aac79ebbc8b86c468c80f",
+    "symbols.json": "42d8a7a1570f3c99d203178ad60ed677b09c5a7833dca0e5043ce83109356b80"
+  },
+  "behavior": {
+    "allowed_unparse_pairs": {
+      "dangling-else.imp": [
+        "x = 0;\ny = 0;\nif (false) if (true) y = 1; else y = 2;\nx = 1;",
+        "x = m3dZero;\ny = m3dZero;\nif (false) if (true) y = 1; else y = 2;\nx = 1;"
+      ],
+      "nested-control.imp": [
+        "x = 2;\nif (x > 0) {\n  while (x > 0) x = x - 1;\n} else {\n  x = 99;\n}",
+        "x = 2;\nif (x > m3dZero) {\n  while (x > m3dZero) x = x - 1;\n} else {\n  x = 99;\n}"
+      ],
+      "short-circuit-precedence.expr": [
+        "true || false && 1 / 0 == 0",
+        "true || false && 1 / m3dZero == m3dZero"
+      ],
+      "unary-binding.expr": [
+        "-1 + 2",
+        "-1 + 2"
+      ],
+      "while-followed.imp": [
+        "x = 3;\nwhile (x > 0) {\n  x = x - 1;\n}\ny = x + 1;",
+        "x = 3;\nwhile (x > m3dZero) {\n  x = x - 1;\n}\ny = x + 1;"
+      ]
+    },
+    "expected": {
+      "depth_state_count": 246,
+      "evidence_sha256": "2fd6343bd3068ccd43f322f91dbe6db77ead5c20940279c9537f1dc19bbb9523",
+      "execution_count": 31,
+      "failure_count": 1,
+      "parse_count": 22,
+      "rejection_count": 8,
+      "search_count": 16
+    },
+    "term_policy": {
+      "actual": {
+        "identity_labels": [
+          "#And",
+          "#Bottom",
+          "#Ceil",
+          "#Equals",
+          "#Exists",
+          "#Not",
+          "#Or",
+          "#SemanticCastToBool",
+          "#SemanticCastToExpr",
+          "#SemanticCastToId",
+          "#SemanticCastToInt",
+          "#SemanticCastToK",
+          "#SemanticCastToMap",
+          "#SemanticCastToStmt",
+          "#SemanticCastToValue",
+          "#Top",
+          "#cells",
+          "#freezer_",
+          "#freezeradd0_",
+          "#freezeradd1_",
+          "#freezerand0_",
+          "#freezerand1_",
+          "#freezerassign0_",
+          "#freezerassign1_",
+          "#freezerblock0_",
+          "#freezerblock1_",
+          "#freezerdiv0_",
+          "#freezerdiv1_",
+          "#freezeremptyBlock0_",
+          "#freezeremptyBlock1_",
+          "#freezereq0_",
+          "#freezereq1_",
+          "#freezerge0_",
+          "#freezerge1_",
+          "#freezergt0_",
+          "#freezergt1_",
+          "#freezerifThen0_",
+          "#freezerifThen1_",
+          "#freezerifThenElse0_",
+          "#freezerifThenElse1_",
+          "#freezerle0_",
+          "#freezerle1_",
+          "#freezerlt0_",
+          "#freezerlt1_",
+          "#freezermul0_",
+          "#freezermul1_",
+          "#freezerne0_",
+          "#freezerne1_",
+          "#freezerneg0_",
+          "#freezerneg1_",
+          "#freezernot0_",
+          "#freezernot1_",
+          "#freezeror0_",
+          "#freezeror1_",
+          "#freezersequence0_",
+          "#freezersequence1_",
+          "#freezersub0_",
+          "#freezersub1_",
+          "#freezerwhile0_",
+          "#freezerwhile1_",
+          "#noDots",
+          "#ruleNoConditions",
+          "#ruleRequires",
+          ".Map",
+          "<env>",
+          "<generatedCounter>",
+          "<generatedTop>",
+          "<k>",
+          "Map:lookup",
+          "Map:update",
+          "_*Int_",
+          "_+Int_",
+          "_-Int_",
+          "_/Int_",
+          "_<=Int_",
+          "_<Int_",
+          "_=/=Bool_",
+          "_=/=Int_",
+          "_==Bool_",
+          "_==Int_",
+          "_>=Int_",
+          "_>Int_",
+          "_Map_",
+          "_andBool_",
+          "_in_keys(_)_MAP_Bool_KItem_Map",
+          "_orBool_",
+          "_|->_",
+          "add",
+          "and",
+          "assign",
+          "block",
+          "div",
+          "emptyBlock",
+          "eq",
+          "ge",
+          "gt",
+          "ifThen",
+          "ifThenElse",
+          "initEnvCell",
+          "initGeneratedTopCell",
+          "initKCell",
+          "le",
+          "lt",
+          "m3dPositive",
+          "m3dPriority",
+          "m3dTotal",
+          "m3dTwice",
+          "m3dZero",
+          "mul",
+          "ne",
+          "neg",
+          "noEnvCell",
+          "noKCell",
+          "not",
+          "notBool_",
+          "or",
+          "sequence",
+          "sub",
+          "while"
+        ],
+        "identity_sorts": [
+          "Id",
+          "KConfigVar",
+          "Int",
+          "Bool",
+          "Expr",
+          "Stmt",
+          "Value",
+          "K",
+          "KItem",
+          "KResult",
+          "Map",
+          "GeneratedTopCell",
+          "GeneratedCounterCell",
+          "KCell",
+          "EnvCell"
+        ],
+        "label_map": {},
+        "sort_map": {}
+      },
+      "reference": {
+        "identity_labels": [
+          "#And",
+          "#Bottom",
+          "#Ceil",
+          "#Equals",
+          "#Exists",
+          "#Not",
+          "#Or",
+          "#SemanticCastToBool",
+          "#SemanticCastToExpr",
+          "#SemanticCastToId",
+          "#SemanticCastToInt",
+          "#SemanticCastToK",
+          "#SemanticCastToKItem",
+          "#SemanticCastToMap",
+          "#SemanticCastToStmt",
+          "#SemanticCastToValue",
+          "#Top",
+          "#cells",
+          "#noDots",
+          "#ruleNoConditions",
+          "#ruleRequires",
+          ".Map",
+          "<env>",
+          "<generatedCounter>",
+          "<generatedTop>",
+          "<k>",
+          "Map:lookup",
+          "Map:update",
+          "_*Int_",
+          "_+Int_",
+          "_-Int_",
+          "_/Int_",
+          "_<=Int_",
+          "_<Int_",
+          "_=/=Bool_",
+          "_=/=Int_",
+          "_==Bool_",
+          "_==Int_",
+          "_>=Int_",
+          "_>Int_",
+          "_Map_",
+          "_andBool_",
+          "_in_keys(_)_MAP_Bool_KItem_Map",
+          "_orBool_",
+          "_|->_",
+          "initEnvCell",
+          "initGeneratedTopCell",
+          "initKCell",
+          "m3dPositive",
+          "m3dPriority",
+          "m3dTotal",
+          "m3dTwice",
+          "m3dZero",
+          "noEnvCell",
+          "noKCell",
+          "notBool_"
+        ],
+        "identity_sorts": [
+          "Id",
+          "KConfigVar",
+          "Int",
+          "Bool",
+          "Expr",
+          "Stmt",
+          "Value",
+          "K",
+          "KItem",
+          "KResult",
+          "Map",
+          "GeneratedTopCell",
+          "GeneratedCounterCell",
+          "KCell",
+          "EnvCell"
+        ],
+        "label_map": {
+          "!__EXPR-SYNTAX_Expr_Expr": "not",
+          "#freezer!__EXPR-SYNTAX_Expr_Expr0_": "#freezernot0_",
+          "#freezer!__EXPR-SYNTAX_Expr_Expr1_": "#freezernot1_",
+          "#freezer-__EXPR-SYNTAX_Expr_Expr0_": "#freezerneg0_",
+          "#freezer-__EXPR-SYNTAX_Expr_Expr1_": "#freezerneg1_",
+          "#freezer_!=__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezerne0_",
+          "#freezer_!=__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezerne1_",
+          "#freezer_&&__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezerand0_",
+          "#freezer_&&__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezerand1_",
+          "#freezer_*__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezermul0_",
+          "#freezer_*__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezermul1_",
+          "#freezer_+__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezeradd0_",
+          "#freezer_+__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezeradd1_",
+          "#freezer_-__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezersub0_",
+          "#freezer_-__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezersub1_",
+          "#freezer_/__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezerdiv0_",
+          "#freezer_/__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezerdiv1_",
+          "#freezer_<=__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezerle0_",
+          "#freezer_<=__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezerle1_",
+          "#freezer_<__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezerlt0_",
+          "#freezer_<__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezerlt1_",
+          "#freezer_==__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezereq0_",
+          "#freezer_==__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezereq1_",
+          "#freezer_=_;_CALC-SYNTAX_Stmt_Id_Expr0_": "#freezerassign0_",
+          "#freezer_=_;_CALC-SYNTAX_Stmt_Id_Expr1_": "#freezerassign1_",
+          "#freezer_>=__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezerge0_",
+          "#freezer_>=__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezerge1_",
+          "#freezer_>__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezergt0_",
+          "#freezer_>__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezergt1_",
+          "#freezer___CALC-SYNTAX_Stmt_Stmt_Stmt0_": "#freezersequence0_",
+          "#freezer___CALC-SYNTAX_Stmt_Stmt_Stmt1_": "#freezersequence1_",
+          "#freezer_||__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezeror0_",
+          "#freezer_||__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezeror1_",
+          "#freezerif(_)__IMP-SYNTAX_Stmt_Expr_Stmt0_": "#freezerifThen0_",
+          "#freezerif(_)__IMP-SYNTAX_Stmt_Expr_Stmt1_": "#freezerifThen1_",
+          "#freezerif(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt0_": "#freezerifThenElse0_",
+          "#freezerif(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1_": "#freezerifThenElse1_",
+          "#freezerm3dTwice0_": "#freezer_",
+          "#freezerwhile(_)__IMP-SYNTAX_Stmt_Expr_Stmt0_": "#freezerwhile0_",
+          "#freezerwhile(_)__IMP-SYNTAX_Stmt_Expr_Stmt1_": "#freezerwhile1_",
+          "#freezer{_}_IMP-SYNTAX_Stmt_Stmt0_": "#freezerblock0_",
+          "#freezer{_}_IMP-SYNTAX_Stmt_Stmt1_": "#freezerblock1_",
+          "#freezer{}_IMP-SYNTAX_Stmt0_": "#freezeremptyBlock0_",
+          "#freezer{}_IMP-SYNTAX_Stmt1_": "#freezeremptyBlock1_",
+          "-__EXPR-SYNTAX_Expr_Expr": "neg",
+          "_!=__EXPR-SYNTAX_Expr_Expr_Expr": "ne",
+          "_&&__EXPR-SYNTAX_Expr_Expr_Expr": "and",
+          "_*__EXPR-SYNTAX_Expr_Expr_Expr": "mul",
+          "_+__EXPR-SYNTAX_Expr_Expr_Expr": "add",
+          "_-__EXPR-SYNTAX_Expr_Expr_Expr": "sub",
+          "_/__EXPR-SYNTAX_Expr_Expr_Expr": "div",
+          "_<=__EXPR-SYNTAX_Expr_Expr_Expr": "le",
+          "_<__EXPR-SYNTAX_Expr_Expr_Expr": "lt",
+          "_==__EXPR-SYNTAX_Expr_Expr_Expr": "eq",
+          "_=_;_CALC-SYNTAX_Stmt_Id_Expr": "assign",
+          "_>=__EXPR-SYNTAX_Expr_Expr_Expr": "ge",
+          "_>__EXPR-SYNTAX_Expr_Expr_Expr": "gt",
+          "___CALC-SYNTAX_Stmt_Stmt_Stmt": "sequence",
+          "_||__EXPR-SYNTAX_Expr_Expr_Expr": "or",
+          "if(_)__IMP-SYNTAX_Stmt_Expr_Stmt": "ifThen",
+          "if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt": "ifThenElse",
+          "while(_)__IMP-SYNTAX_Stmt_Expr_Stmt": "while",
+          "{_}_IMP-SYNTAX_Stmt_Stmt": "block",
+          "{}_IMP-SYNTAX_Stmt": "emptyBlock"
+        },
+        "sort_map": {}
+      }
+    },
+    "timeout_seconds": 60
+  },
+  "claim_labels": [
+    "addition-1",
+    "addition-2",
+    "addition-var",
+    "bmc-loop-concrete",
+    "bmc-loop-symbolic",
+    "branching",
+    "branching-deadcode",
+    "branching-program",
+    "context-alias",
+    "explicit-priority",
+    "partial-equation",
+    "pre-branch-proved",
+    "static-alias",
+    "sum-N",
+    "sum-loop",
+    "sum-spec",
+    "total-equation",
+    "two-sum-spec",
+    "while-cut-rule",
+    "while-cut-rule-delayed"
+  ],
+  "compatibility": {
+    "policy_version": 1,
+    "report_sha256": "f21780499c700cd81225ce502eab41f68201059272d91d1e184ad372589916e5"
+  },
+  "corpus_sha256": "da75dba4ccf9d10968e9227455284564f92aec96ad0387e35fd9f3c89de9b5bb",
+  "milestone": "M4",
+  "native_artifact_sha256": {
+    ".krs-artifacts": "4992e03ec15408f887a401455c9f719384c6d5bb69e661487f91abe576ceb1b5",
+    "definition.kore": "20adc468ba900576e155ffa74a9335ee1e71810f08442a443c04a16dc5efc5e1",
+    "macros.kore": "e1d5a374973b2fa9eb2502c3acdee5244ee7a89a965dd7acd69cda4b7d7814e0",
+    "syntaxDefinition.kore": "d379e73270b0da667ab7f5626e46a2ec3d13814227cf2a18110c26d93b07d0a6"
+  },
+  "native_comparison": {
+    "label_map": {
+      "KRS-M4-COMPLETE-IMP-SPEC.addition-1": "addition-1",
+      "KRS-M4-COMPLETE-IMP-SPEC.addition-2": "addition-2",
+      "KRS-M4-COMPLETE-IMP-SPEC.addition-var": "addition-var",
+      "KRS-M4-COMPLETE-IMP-SPEC.bmc-loop-concrete": "bmc-loop-concrete",
+      "KRS-M4-COMPLETE-IMP-SPEC.bmc-loop-symbolic": "bmc-loop-symbolic",
+      "KRS-M4-COMPLETE-IMP-SPEC.branching": "branching",
+      "KRS-M4-COMPLETE-IMP-SPEC.branching-deadcode": "branching-deadcode",
+      "KRS-M4-COMPLETE-IMP-SPEC.branching-program": "branching-program",
+      "KRS-M4-COMPLETE-IMP-SPEC.context-alias": "context-alias",
+      "KRS-M4-COMPLETE-IMP-SPEC.explicit-priority": "explicit-priority",
+      "KRS-M4-COMPLETE-IMP-SPEC.partial-equation": "partial-equation",
+      "KRS-M4-COMPLETE-IMP-SPEC.pre-branch-proved": "pre-branch-proved",
+      "KRS-M4-COMPLETE-IMP-SPEC.static-alias": "static-alias",
+      "KRS-M4-COMPLETE-IMP-SPEC.sum-N": "sum-N",
+      "KRS-M4-COMPLETE-IMP-SPEC.sum-loop": "sum-loop",
+      "KRS-M4-COMPLETE-IMP-SPEC.sum-spec": "sum-spec",
+      "KRS-M4-COMPLETE-IMP-SPEC.total-equation": "total-equation",
+      "KRS-M4-COMPLETE-IMP-SPEC.two-sum-spec": "two-sum-spec",
+      "KRS-M4-COMPLETE-IMP-SPEC.while-cut-rule": "while-cut-rule",
+      "KRS-M4-COMPLETE-IMP-SPEC.while-cut-rule-delayed": "while-cut-rule-delayed"
+    },
+    "reference_claims_module": "KRS-M4-COMPLETE-IMP-SPEC",
+    "llvm_failure_sha256": "1b4a8c253e0869359bf3aa8a25e284532cf926a32e51dc523a216b671333767f",
+    "status": "ready"
+  },
+  "proof_ledgers": {
+    "adjunct": {
+      "path": "draft/investigations/m4-adjunct-proof-pins/pins.json",
+      "sha256": "1210afe776a469bb7561d50bdd3dd78129f4f14576b72978372f89f896ba89f5"
+    },
+    "reference": {
+      "path": "draft/investigations/m4-reference-proof-pins/pins.json",
+      "sha256": "b252bc7e33467158acd20c86bece237f6bec1f16171359f90d7c27a5fedc80a6"
+    },
+    "selected": {
+      "path": "draft/investigations/m4-selected-proof-pins/pins.json",
+      "sha256": "0ec8466c2bdea7304b505be91d0da7c776705ce1b87fae56edfb56c880278a03"
+    }
+  },
+  "proof_outcomes": {
+    "addition-1": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "f7dd4ec4fe5871b5e9de6ab40ea46683a3176f8359939f3859b248853cca7542",
+      "frontier_count": 0,
+      "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "status": "proved",
+      "user_labels": []
+    },
+    "addition-2": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "6852d4ee30d414a18b29ce2558a429d3ac0835ae91a312b5449df3338d00f193",
+      "frontier_count": 0,
+      "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "status": "proved",
+      "user_labels": []
+    },
+    "addition-depth-zero": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 0
+      },
+      "claim_sha256": "f7dd4ec4fe5871b5e9de6ab40ea46683a3176f8359939f3859b248853cca7542",
+      "frontier_count": 1,
+      "frontier_sha256": "85a75ca3602c8d643790ecf85f7624df2b54ce44c4a74939633cdfe20ff91280",
+      "result_sha256": "589c9d01b384114b9b5cc44367e1c02e2ab8561258a4683fba545a9bc5526590",
+      "status": "incomplete",
+      "user_labels": []
+    },
+    "addition-var": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "30fc94e3d4671350fb12f8698aecab3e569d73a2c48d1107a4f50128e8e27770",
+      "frontier_count": 0,
+      "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "status": "proved",
+      "user_labels": []
+    },
+    "bmc-loop-concrete": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "58f09ad813420d9916965f7aac3ffeffe2617d74d61cb8403571cebae93adfd2",
+      "frontier_count": 1,
+      "frontier_sha256": "5a86bf3d6640c3a9249adcd1e3b10a534c8e21bb7e050cca87ebe873abe63261",
+      "result_sha256": "d66e26e2c0643fcd5076cb24bac49c190a689a38994179918e156d635b8ef9a1",
+      "status": "incomplete",
+      "user_labels": []
+    },
+    "bmc-loop-symbolic": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "13c4dc1c3127ae24aa85b635417e5a7bf258901ad4a24334910e1455b11a13a5",
+      "frontier_count": 1,
+      "frontier_sha256": "5fd96af568fbf9bb5c5ee3f6e663e9f7902f776a116c03df5bcc4eafa1af5827",
+      "result_sha256": "fd12827a8f8639955665e8811766c21b21059734480aeaf8778cebf80f758db9",
+      "status": "incomplete",
+      "user_labels": []
+    },
+    "branching": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "e6af137f0b47ee356524fb713866376c27a2e1e9673a1871ae9db15c8a23f940",
+      "frontier_count": 0,
+      "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "status": "proved",
+      "user_labels": []
+    },
+    "branching-deadcode": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "fc5128cb4409a901b177bf98f66f6485a746ca7221eb2ae2e3182b143f4ce793",
+      "frontier_count": 0,
+      "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "status": "proved",
+      "user_labels": []
+    },
+    "branching-program": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "871d6893ad17a681f2b2286b73ca599d1bbeaa8df891d15a61cfb623edfd0397",
+      "frontier_count": 0,
+      "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "status": "proved",
+      "user_labels": []
+    },
+    "context-alias": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "ea5dd1c4fae745e1eff63b887c035a7bdd55dd1741b345b3130180d506c42ee5",
+      "frontier_count": 0,
+      "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "status": "proved",
+      "user_labels": []
+    },
+    "explicit-priority": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "af54837010d0c3163c0c3fb903c08815736b02db91918912b9322972549d6951",
+      "frontier_count": 0,
+      "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "status": "proved",
+      "user_labels": []
+    },
+    "partial-equation": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "ae61b571274aefa32d7d25865d5779c94a53680126167d2f1cca793c9604ca7f",
+      "frontier_count": 0,
+      "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "status": "proved",
+      "user_labels": []
+    },
+    "pre-branch-proved": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "d3536e69bf98ea9834262895d59f09c91e3f2dd594d95812a60de6fc0cd13858",
+      "frontier_count": 0,
+      "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "status": "proved",
+      "user_labels": []
+    },
+    "static-alias": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "83c95d25b6b429acc4eb4e840da23c18fe1b60bbfe46b90047253cca4ca54698",
+      "frontier_count": 0,
+      "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "status": "proved",
+      "user_labels": []
+    },
+    "sum-N": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "140dca1f5a19b85ddf4d9ff3a662f6f203f3a552139cde377bc46d1afb77f548",
+      "frontier_count": 1,
+      "frontier_sha256": "0d7c2063233ba461294c986082b8757f9f5a55ff2e4e7c8c49c6df0a50965b17",
+      "result_sha256": "c975850587db8a04c27800bcbbe919773486e6b94bb57292a91eae390efd146d",
+      "status": "incomplete",
+      "user_labels": []
+    },
+    "sum-loop": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "f1e9802339a8cb1897fde38b247de3faea9c39757c338571dff71bc7f1b25ddb",
+      "frontier_count": 0,
+      "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "status": "proved",
+      "user_labels": []
+    },
+    "sum-spec": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "ee006de43e8076b944827ef3552295ea895cd7d59f81aff77e2b7d1658cee727",
+      "frontier_count": 0,
+      "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "status": "proved",
+      "user_labels": []
+    },
+    "total-equation": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "8ecb8dcc1e8823b6b57cdee3df55a0092f7563ac74bec9dd8674914c6309e04e",
+      "frontier_count": 0,
+      "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "status": "proved",
+      "user_labels": []
+    },
+    "two-sum-spec": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "c29198e44bef8657db4dcdbea233d3b233b19c2976af6513601a0b113e3f535a",
+      "frontier_count": 1,
+      "frontier_sha256": "977610569522bdc36c9ec3477838d97d7e598527ad7b3505133928a8296b292f",
+      "result_sha256": "ecc458a4487fd735b143cd3d02566a5c4de0b14bfda1e9da0bc2c7788d73a804",
+      "status": "incomplete",
+      "user_labels": []
+    },
+    "while-cut-rule": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "70519833147a0b2b4bac269145e776fc1cc135d7bf7efaf207c181fb422a436d",
+      "frontier_count": 0,
+      "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "status": "proved",
+      "user_labels": []
+    },
+    "while-cut-rule-delayed": {
+      "bounds": {
+        "branching_allowed": 64,
+        "depth": 100
+      },
+      "claim_sha256": "bf1e9542a757030e3a19fa5c3b642389e24f2e7ad51186d3a06e5c27881fbe2c",
+      "frontier_count": 0,
+      "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
+      "status": "proved",
+      "user_labels": []
+    }
+  },
+  "proof_policy": {
+    "branching_allowed": 64,
+    "depth": 100,
+    "evidence_schema": 2
+  },
+  "revisions": {
+    "imp": {
+      "commit": "683a773418add3bcae8ded47c2b24e94494e1988"
+    },
+    "k": {
+      "commit": "4a46d1231473b599c699160132fd6e76a5c46406",
+      "version": "7.1.337"
+    },
+    "k_rust": {
+      "commit": "58f33885b736148dae189623d1aac989ce9be475",
+      "crate": "k-rust",
+      "version": "0.3.0"
+    }
+  },
+  "schema": 1,
+  "schemas": {
+    "ir": 8,
+    "kast_json": 4,
+    "protocol": 13
+  },
+  "toolchain_compatibility": {
+    "schema": 1,
+    "backends": [
+      "haskell",
+      "llvm"
+    ],
+    "msrv": "1.88.0",
+    "builtin_sorts": [
+      "KSequence",
+      "Int",
+      "Bool",
+      "Map",
+      "Id"
+    ],
+    "descriptor_protocol": 13,
+    "definition_ir_schema": 8,
+    "k_commit": "4a46d1231473b599c699160132fd6e76a5c46406",
+    "k_rust_commit": "58f33885b736148dae189623d1aac989ce9be475",
+    "llvm_existential_policy": "typed-backend-capability-error",
+    "native_haskell_policy": "exact-kore-comparison"
+  },
+  "source_definition": {
+    "actual": {
+      "identity_labels": [
+        "",
+        "#SemanticCastToBool",
+        "#SemanticCastToExpr",
+        "#SemanticCastToId",
+        "#SemanticCastToInt",
+        "#SemanticCastToK",
+        "#SemanticCastToMap",
+        "#SemanticCastToStmt",
+        "#SemanticCastToValue",
+        "#cells",
+        "#dots",
+        "#freezer_",
+        "#freezeradd0_",
+        "#freezeradd1_",
+        "#freezerand0_",
+        "#freezerassign1_",
+        "#freezerdiv0_",
+        "#freezerdiv1_",
+        "#freezereq0_",
+        "#freezereq1_",
+        "#freezerge0_",
+        "#freezerge1_",
+        "#freezergt0_",
+        "#freezergt1_",
+        "#freezerifThenElse0_",
+        "#freezerle0_",
+        "#freezerle1_",
+        "#freezerlt0_",
+        "#freezerlt1_",
+        "#freezermul0_",
+        "#freezermul1_",
+        "#freezerne0_",
+        "#freezerne1_",
+        "#freezerneg0_",
+        "#freezernot0_",
+        "#freezeror0_",
+        "#freezersub0_",
+        "#freezersub1_",
+        "#noDots",
+        "#ruleNoConditions",
+        "#ruleRequires",
+        "<env>",
+        "<generatedCounter>",
+        "<generatedTop>",
+        "<generatedTop>-fragment",
+        "<k>",
+        "Map:lookup",
+        "Map:update",
+        "_*Int_",
+        "_+Int_",
+        "_-Int_",
+        "_/Int_",
+        "_<=Int_",
+        "_<Int_",
+        "_=/=Bool_",
+        "_=/=Int_",
+        "_==Bool_",
+        "_==Int_",
+        "_>=Int_",
+        "_>Int_",
+        "_Map_",
+        "_andBool_",
+        "_|->_",
+        "add",
+        "and",
+        "assign",
+        "block",
+        "div",
+        "emptyBlock",
+        "eq",
+        "ge",
+        "getGeneratedCounterCell",
+        "gt",
+        "ifThen",
+        "ifThenElse",
+        "initEnvCell",
+        "initGeneratedCounterCell",
+        "initGeneratedTopCell",
+        "initKCell",
+        "isBool",
+        "isEnvCell",
+        "isEnvCellOpt",
+        "isExpr",
+        "isGeneratedCounterCell",
+        "isGeneratedTopCell",
+        "isGeneratedTopCellFragment",
+        "isK",
+        "isKCell",
+        "isKCellOpt",
+        "isKItem",
+        "isKResult",
+        "isStmt",
+        "isValue",
+        "krsGenerated_787219016217a304fd6123cf",
+        "le",
+        "lt",
+        "m3dPositive",
+        "m3dPriority",
+        "m3dTotal",
+        "m3dTwice",
+        "m3dZero",
+        "mul",
+        "ne",
+        "neg",
+        "noEnvCell",
+        "noKCell",
+        "not",
+        "notBool_",
+        "or",
+        "project:EnvCell",
+        "project:EnvCellOpt",
+        "project:Expr",
+        "project:GeneratedCounterCell",
+        "project:GeneratedTopCell",
+        "project:GeneratedTopCellFragment",
+        "project:Bool",
+        "project:K",
+        "project:KCell",
+        "project:KCellOpt",
+        "project:KItem",
+        "project:KResult",
+        "project:Map",
+        "project:Stmt",
+        "project:Value",
+        "sequence",
+        "sub",
+        "while"
+      ],
+      "identity_names": [
+        "BOOL",
+        "ID-SYNTAX",
+        "INT",
+        "KRS-FRAMEWORK",
+        "KRS-M4-COMPLETE-IMP",
+        "MAP"
+      ],
+      "identity_sorts": [
+        "#RuleBody",
+        "#RuleContent",
+        "Bool",
+        "EnvCell",
+        "EnvCellOpt",
+        "Expr",
+        "GeneratedCounterCell",
+        "GeneratedTopCell",
+        "GeneratedTopCellFragment",
+        "Id",
+        "Int",
+        "K",
+        "KCell",
+        "KCellOpt",
+        "KConfigVar",
+        "KItem",
+        "KResult",
+        "Map",
+        "Stmt",
+        "Value"
+      ],
+      "imports_by_origin": {
+        "complete-imp": []
+      },
+      "joined_terminal_productions": [
+        "m3dPositive",
+        "m3dPriority",
+        "m3dTotal"
+      ],
+      "known_attributes": [
+        "UNIQUE_ID",
+        "alias",
+        "avoid",
+        "bracket",
+        "bracketLabel",
+        "cell",
+        "cellFragment",
+        "cellName",
+        "cellOptAbsent",
+        "color",
+        "contentStartColumn",
+        "contentStartLine",
+        "cool",
+        "cool-like",
+        "digest",
+        "format",
+        "function",
+        "group",
+        "heat",
+        "initializer",
+        "label",
+        "maincell",
+        "org.kframework.attributes.Location",
+        "org.kframework.attributes.Source",
+        "org.kframework.definition.Production",
+        "owise",
+        "predicate",
+        "priority",
+        "productionID",
+        "projection",
+        "result",
+        "seqstrict",
+        "simplification",
+        "strict",
+        "symbol",
+        "syntaxModule",
+        "token",
+        "total"
+      ],
+      "metadata_attributes": [
+        "UNIQUE_ID",
+        "contentStartColumn",
+        "contentStartLine",
+        "digest",
+        "group",
+        "label",
+        "org.kframework.attributes.Location",
+        "org.kframework.attributes.Source",
+        "org.kframework.definition.Production",
+        "productionID",
+        "result",
+        "symbol",
+        "syntaxModule"
+      ],
+      "module_origins": {
+        "KRS-M4-COMPLETE-IMP": "complete-imp"
+      },
+      "closed_module_prefixes": [
+        "KRS-"
+      ],
+      "supplemental_module_origins": {
+        "KRS-FRAMEWORK": "framework-support"
+      },
+      "supplemental_imports_by_origin": {
+        "framework-support": []
+      },
+      "redundant_production_klabels": [
+        "krsGenerated_787219016217a304fd6123cf"
+      ],
+      "redundant_sort_declarations": [
+        "Expr",
+        "Stmt",
+        "Value"
+      ]
+    },
+    "expected": {
+      "compiled_actual_sha256": "ad42f9c296897fa40e358845c7d044066d4131b99a9b6bdf5ee5b17eb8841872",
+      "compiled_reference_sha256": "23000d462c664a0f3fa3eae2a0dca59893c20d4e3aa47420ffa1268c5ea62ef1",
+      "compiled_sentence_count": 250,
+      "parsed_actual_sha256": "286d4a8c92fe2a22b0de592ea15df7823807847fc9daf2e7f47834221e8acdc9",
+      "parsed_reference_sha256": "b0d131154af7ee174e59f1346b2353145abe47ca205d64a43f50f0d86be2581d",
+      "parsed_sentence_count": 98
+    },
+    "files": {
+      "compiled.json": {
+        "actual_ignored_sha256": {},
+        "actual_supplemental_sha256": {
+          "0e0f3aa36ca3862fadd45b910d27c13fbe8d2802013fa844defe345ea62cec25": 1,
+          "1b0aa9a3bff9658f246ef8be0ab1e85518446e9c82ca88c4447a57dec12ff9d7": 1,
+          "1c7b74f2e38015e13ff5a4ba3fa9ba57eac3fc15c529c00a1c7cb159de763d19": 1,
+          "2526ba14fbe4f911c8cf7943c57dcda4dd8cdab8a5a02a7bc98866fcf805d71b": 1,
+          "25e7e19881d150d63fdd9e01ec8d085b9a04fe65abeba5459f5b4739f2598ccb": 1,
+          "2b8cfcab3294495082dcb46d0ada8d2ece988f565a5e05570ef746a2fe06a300": 1,
+          "5a0ebc446da9e5d762809a7ba116c830c04e5954d410d38ec14441ccfbb3660d": 1,
+          "5bc7845fd7690ea1faea14d606ea940c0a05c2c34dcf13a33482bcd8e268ddd9": 1,
+          "5ebe1522a0aee2e36327e1702633707432e1e5403179f05c5bd89157afd5ec07": 1,
+          "5fe5725f7664e6ccc06522041d972d941f81972483da69cb2f51ba164cee98da": 1,
+          "650440c258923b93696ff3330c26ac2f1772c8df7adc918f89dd8186dc56e652": 1,
+          "77d0e445f830be56c94d689e893254481d842390b459dbe8c571db1ba3e820ed": 1,
+          "8dd948fb6eb9b58c041b03bc2dd90fe95efeeef24b41d94257cb81c08eea3d27": 1,
+          "bc6a676ff9a2677f66b9696efcfc6719f626aa12456a872707ec15ef8c420aef": 1,
+          "bd3bacfe5d2a4f67b121e6120099b149fcad9689706c7294365f0104d9d8ec8f": 1,
+          "cafbfb33566c4621d53ff2be5410777c068fedfa93eb026784113a37b2650f8f": 1,
+          "cdc76d7eaa7f5f931c0dd91589caba38c5e361ac8c2cc3e57b231444a3fd1a59": 1,
+          "ce1cb4f12bd2fde49a65b8f5ac384edb67f5113ca23a19fb6c5d306bfc6f348b": 1,
+          "ea33235ee20f23f1077c646f268baa02cdd32305caa5240e117cdd08da5f5a04": 1,
+          "ec563edfc159d683417b22e0f374dd4f06c8f5260a4b145b670ffa4af927bfbc": 1,
+          "f588b90d1a20bf1da64b4300110ef8fd77747c9e1c0f5924d2716436de5ff6ea": 1,
+          "f717b4ca94936b876d8c94f448c33ee1c5686eedfa69f8872b05be8bfb839d5e": 1,
+          "fd62175f64eb7abef375c1aedc91b9dd83cc0638a8e1248d9f3cdec16e2fd9c8": 1,
+          "fe35a748746dfd7ce3e9925b1e7a1c6c62c13fac4a2f8e06b5c412875e4bc631": 1
+        },
+        "compatible_sentence_pairs": [
+          {
+            "actual_sha256": "723a482c1133af59ff67529c596e25bce2f05354f70bae333ea9c468b6280448",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "ed508b59b9679b3cbe8c6c04b9b8f1b4e229d26cb8923ed6f0c9223402655822"
+          },
+          {
+            "actual_sha256": "3213636a142a2277b3460922e315d97e887a38997ab6d16e395190910c8f20be",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "3b6394db6acd449764e9550b56ddb1996171d26a57f992507e3c1d40f623280e"
+          },
+          {
+            "actual_sha256": "17be87bb4bd9f56b7fadb4a57ae8fec868546e28de4a69ae01c312a40a333bf5",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "6e9ea24e85d2fbc76908b8dff4a99a5b356ef563938638fef599beb712987278"
+          },
+          {
+            "actual_sha256": "7d0ee3048db8e50d8c1faf908e57406459d707d7c343cf1c4cf377412547732c",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "21f55206fdb5172de3af231b68477fa9729a33ca134a805b62dfd407994e6bc6"
+          },
+          {
+            "actual_sha256": "3e0ad67d47b351163709ae4e1b478a1a58ef387ba9afad5474632c45000a39bf",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "022650379ea8be3334d5c2c864c094a1cb788d2230900be99af064fc53699314"
+          },
+          {
+            "actual_sha256": "7a54705410b8ee08f17987523a4ed2efd56835030116604cfc25a722e288dea5",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "b562d3aa7cbf7498146c9ef95b2de400cd122bf145d9b87cac455425f9cacc79"
+          },
+          {
+            "actual_sha256": "b9f579d5c7dfd21de25a20605d6b012182a4a11abed187f8dba24ecb4f94a6fb",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "84fcda5425dd8cee946c2aaa1c59d70e7a3089047a919a4b06da20791609abf8"
+          },
+          {
+            "actual_sha256": "14aafe941f52ec47aa10c7bd29483358eacdbefa44e07c4037dc1cdfc0bbccd2",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "97948a9ef2a7ad2d872acad806e80a545c1ba3ab6e60db8531476c6f3f4e6588"
+          },
+          {
+            "actual_sha256": "887445793067f7a244c260634f93897cec2e6b5d0a88d438c7bbb5f3825f17bc",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "cd55a0e5189f52ff3091a986539bea18dc1d93dd88cc5e6b52b6b94966661c47"
+          },
+          {
+            "actual_sha256": "65ea5e0c78d7e7577139fcd527ad22b63adb79c4dd4b5e41fda0bee8c900c748",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "0a857edeb44d2772a6ae3ae1053485bc5e3810b3ad0853a579d72a9dbeda2da8"
+          },
+          {
+            "actual_sha256": "d8be9ca51051627a2f2d74c57532cfb25f09a27c568c4b8ff1a2d070a52995c8",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "45ffedc522bb623c776ba8826251327e8ef96655e134ee3825042a874d8c01d8"
+          },
+          {
+            "actual_sha256": "604e5874a0d7baf1a0e7ac64cc1e6fe3b3f805e36c102814c8846a5be1ef9216",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "980a3dbb2490ac068aafbcaac79d7055025807c2a4da2bd32713b0eb1dcee43e"
+          },
+          {
+            "actual_sha256": "c5c54cc8ece2f64055a081660853a8f1aacb04bd7ebe3230eb30429787f76d7c",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "2ec888c4e9cd7ec1efdb20bef8caf2629e682983f154e9f9a01a0ed36054deb2"
+          },
+          {
+            "actual_sha256": "a8bf98407ae9a77a6cbac3c2944ace59659b5b6c9aa8502f041f929637d490bc",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "39a7b70cf2be9d106a7f1acd21bd65dcc87809612e849b9cc130c7f3d0dfa43a"
+          },
+          {
+            "actual_sha256": "b3969e3a437a98ed88be960ba6baeba2f6f7b57af97138a3596009a095338947",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "d07ad968f50e90fac2934ba13ff7c016a050743d813b88f7778640833b42c3a8"
+          },
+          {
+            "actual_sha256": "4596f8bc19dc6e1f091012e03f898f10007245b13217ef4afc24f50d222ffdce",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "907b46a1e538e5fd02f3ecd838b16f9361e02dc8fb2a3904ccad587165eed32f"
+          },
+          {
+            "actual_sha256": "e5e84293a0e40e4cdae27b0ac7c60d229903b97aea3b83ef343094ea127cd47e",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "4d43f5cad2abef58ee7c257d77b768bfd44a2337c1693a7dea6473d24ba02d06"
+          },
+          {
+            "actual_sha256": "f76d1e3fbca488795abe5b49aa8242c74439c727f69ec9270cf4ee430677829a",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "b51bedfea18163e553967fb76c54ca9268fe77bc8610bb913e5bd9d9ce63b21c"
+          },
+          {
+            "actual_sha256": "f850d62d55b2595eae359dfd6394ad9ce37f5023ff859700ed9645e67aec4e3b",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "e20c29b9f08e752359db57bd133a6a9913344015316638adb2d83a89dbb8b80d"
+          },
+          {
+            "actual_sha256": "1890fabeb3225b8ead4228fe15ba5fb263ba2e41ca182814395e22202b6d6617",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "ae85ab13dc134893e3c3d58bc1c1a89f9abeb1a523ff6dc605c9cf4a89a8510a"
+          },
+          {
+            "actual_sha256": "7cc3d23d1ecd2aea511d2fe8e12875aec637c6bda5b6fcab12f2a544d676a4a5",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "f91e4e37086740968bd991f219b4625cf85c8f1d85398b92acbb9db86e4b7cfa"
+          },
+          {
+            "actual_sha256": "78a3e561765d77d7a6e4e0a75916f6c487b3c9239885ddceb30e7b7b6f2fa7d4",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "35a0d4618abb974ced9fdaf295f7fe4bed29d58c0cb9fece5335d402736e06de"
+          },
+          {
+            "actual_sha256": "cd89936838900607c75d61f77a13f52ab14ad7aded5a9720c03f5fae02272314",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "691f12af54993d0196ef498fe3ada2cce38c818642e4d5a6fb81f29010da0dde"
+          },
+          {
+            "actual_sha256": "1c21f0675c8adf4c4beebc5d93d28a35ee7033f462aac97b7e365b2cfc44a4ea",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "e300c8eedcae071bdac90c74c0abaf4719e53e4d919647c7c65f5e3dd901fec5"
+          },
+          {
+            "actual_sha256": "c8c16d2cc58c11bec247dad19b3064ba1ccd60a773cac735d10e9cbe99bbb719",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "0476ed24d58502a4da0b25b3d4c7d320e927d5dfd695b628bf8eedbd6e197d28"
+          },
+          {
+            "actual_sha256": "bf06942efd637309e1c67307c25cf1ba710cfaa8161eea771a0107a5d05d6c8f",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "3140b39a04a138cb9b50cc234bb9ecb569505a44f00a6c0658038bbc4ffa3737"
+          },
+          {
+            "actual_sha256": "c73d3a26a4fffc6862d07b4f1f7d9f9cbfef2d0136ee974d1be5503d75c18617",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "44f52a852bca752fd9a790519280b13b0f2c2ed630087a06974d269d123fd825"
+          },
+          {
+            "actual_sha256": "fafbdb7bbe9e10736ca8f1be56c644f88f6a6b256784ce902e25ecdc0c15724d",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "0c5838822ebfd4ce65aebe1c77eecd8a82c532f0b59913152c5932202ba93d29"
+          },
+          {
+            "actual_sha256": "2457ff939c16838b2b6726327d823acba9f2f947236378888399f4b771f29fa0",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "17564e3714cab3785c66485186dc583f7d701dd863b864a0b50ea6cb3a51bfa9"
+          },
+          {
+            "actual_sha256": "416dd8ca14dd1dae78e75b8c3170fab53f7fd998766156f4d3563da9db6b9078",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "d9c890919c1cc9cc91b65391501238cfb0d3b9bf9df052527842b499ab307ea7"
+          },
+          {
+            "actual_sha256": "26e2ae460d140bc20d721ad1d12483e7fb83ffff93b55a5ad4fee56d7d7ad001",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "fc6bf520b2079ddb07f1794590fffae3cf2bf6e4b09c2f2312d0f2ebb609e640"
+          },
+          {
+            "actual_sha256": "e28704cf3e9d63275d5e6e9d77e5942ee7c1a6ba10075f7e12566790b41aee15",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "7569f2ba7fa984c5dd44da7f7a109108bfd2e18c3fac90049b9636854be79a3c"
+          },
+          {
+            "actual_sha256": "63caf91b5c6c1603a27ff97f5dd9f6919ed7b82abe41d7cb3a52103715295c09",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "ef211b1c65ac0cdd9a3caec98b1399bc7c6c009583798caf6490bf7d958ed6b1"
+          },
+          {
+            "actual_sha256": "829562a31bc426fec970a14a993c03746ecbc075af1049b5784e29068a4b86bd",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "f6dcbd9dabe5ba202e35354b79c16114ab3d96d541370b7de2a607eb1ea94bd2"
+          },
+          {
+            "actual_sha256": "c6e160552a82459c3dac4cdda40a232802d31079211771b87de5ed443fd5f466",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "eb5ad36f5a4a764eed8acfd686f2bcc925ead9cb2f29856d78ed502a5c28ad30"
+          },
+          {
+            "actual_sha256": "69f755ee6130fb0d54fbc1a7339fc6fc6ebf1d9fc241ba34abfdb4d277d6c99a",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "da2cf8e25296203e978293c0624ddfdf45150d73ddc099745f5870f37fc51413"
+          },
+          {
+            "actual_sha256": "993d31bfe7a5bc5f1c4a33edc1ed1bbf9d88017b1dfda8e12b823900bb7901e7",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "e63845f14df368d311b46340244fc9fc0db919da682f3449e0183a917ed0d7ef"
+          },
+          {
+            "actual_sha256": "63452cdab31f79dc1e72c0ee3febaaa1314b624c77d52fb97808772c267764c7",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "00ca660c5d43c17be9d7bb141782f19d03a011b1e1afc5a3a3c61cf03c939976"
+          }
+        ],
+        "reference_ignored_sha256": {
+          "1704c15292beb23c4dc249db15d7127025301b3fcf868da97dc916d93dee59f7": 1,
+          "1c729df7d382fa101376df9bc65ec207d338ffff9fcfc8ff4f3b43b6f0457e26": 1,
+          "210cd053b76cb8c4ef162920751dceaf7168a88d9d2a80e599a6d1feedb35b0b": 1,
+          "2526ba14fbe4f911c8cf7943c57dcda4dd8cdab8a5a02a7bc98866fcf805d71b": 1,
+          "25e7e19881d150d63fdd9e01ec8d085b9a04fe65abeba5459f5b4739f2598ccb": 1,
+          "32fb29e8fa15c3a7ceda3af63cd6b2173498b1bc91ea8fadca154b21d330557e": 1,
+          "41074c893ea1bf6b97945d4af3fa8530ecf647757856e4e0e53f8ec1141b9576": 1,
+          "48379215b231cdc99d5e363b86ca32c86de092183f55049b78f5ef1f98f5ca56": 1,
+          "505ef5d2f8a5768d33a9ebf21bca242789df3d425c64fda2fba81f443b7d27f1": 1,
+          "55392aa9510e80307f5d1955a9adce876f430720a056767e3e625a1627c227e6": 1,
+          "5bc7845fd7690ea1faea14d606ea940c0a05c2c34dcf13a33482bcd8e268ddd9": 1,
+          "68d318d46a7297e80bb1d55a62047e1f8872e98a5a1e79d4c75424639dbb397f": 1,
+          "7c754bf6041c32bdfe65af5a272a70bd81efa1807f4d6817ac6decc3b44ac8db": 1,
+          "85a921108430fa12c47cbedb179217b79efa72492b8fa810bcabae7f0f11e8ce": 1,
+          "89018503e5d9048597cdfa9a188559e8d8e524bc606f7b3c96c28783ada8b872": 1,
+          "8bbffc87cc07dd09ce47a1fb42815c485a04f563c628e137c3cc1dc3ad7aca27": 1,
+          "8dd948fb6eb9b58c041b03bc2dd90fe95efeeef24b41d94257cb81c08eea3d27": 3,
+          "92a56340c6712e31909560a82e8100789b15c6bd14e0ab8ccfc5fecb8ceb2480": 1,
+          "941bd37c8b0cb1f27973dd230a8ae4cfc7b23da9038d4aa5d1e262f0f3741a94": 1,
+          "a8122634327b5eff3f72118df23a05d7e6348c157d6eeca31399d726a8264c90": 1,
+          "aad3be56acfb2ff3018c49f730950e61996e7d42913a46049c75d65e44cb0095": 1,
+          "b48b6745ee4ab6d408f8bf1f88cdf44bc21ee8595a42098f4746f21e0ae022e0": 1,
+          "ce1cb4f12bd2fde49a65b8f5ac384edb67f5113ca23a19fb6c5d306bfc6f348b": 1,
+          "ec563edfc159d683417b22e0f374dd4f06c8f5260a4b145b670ffa4af927bfbc": 1,
+          "fd62175f64eb7abef375c1aedc91b9dd83cc0638a8e1248d9f3cdec16e2fd9c8": 1,
+          "b66c5d37fd852fa444349368d2d92fb1f81c7536ef9f6bdb0e55150370721104": 1,
+          "b790fa600f0b52bd8d98da3bfed44732f082bcf5a53d459d2eeb3ded1531709f": 1,
+          "b8f191044e224ed678e61874a1decdbaf0807126c8adc689521a90bd9a6ae78d": 1,
+          "baf33ccc9f82f4b8e278a903f8044546a197ed34a4fd18a72c7774db801a7458": 1,
+          "bbbc64c584894814cbaac687e9dfcc195e120b95954ed0be2941f9151e053021": 1,
+          "c79b767a796e467f3fa77ad819ac92362abfe73e18e5cc785f084645bdd47328": 1,
+          "c90c5a3093a49055045303a695c6eb62caef619e70148f5c110db37420f728d1": 1,
+          "e19d24b425f8b308a8571751aae962fc0e3c1b27c52880d4d67b856488e4d9d8": 1,
+          "e7de915c0f73cb9cf98af05648fa381942b8d5dee588226c20a63649034add57": 1,
+          "f57b03b1b589eed768d9dd115ae0c78a79cb79b6ac81bb2a6d4e2fcc198cbf15": 1
+        },
+        "reference_supplemental_sha256": {}
+      },
+      "parsed.json": {
+        "actual_ignored_sha256": {},
+        "actual_supplemental_sha256": {
+          "cdc76d7eaa7f5f931c0dd91589caba38c5e361ac8c2cc3e57b231444a3fd1a59": 1,
+          "f717b4ca94936b876d8c94f448c33ee1c5686eedfa69f8872b05be8bfb839d5e": 1,
+          "fd62175f64eb7abef375c1aedc91b9dd83cc0638a8e1248d9f3cdec16e2fd9c8": 1
+        },
+        "compatible_sentence_pairs": [
+          {
+            "actual_sha256": "b60ee653ee880d3c6f0a81419f113a7274a7ec1238e56a9ec20702757886ccbc",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "1b0f380d5acf7718d623dbacd82a83586f3331e6a3414790d9d08afd6a293e4f"
+          },
+          {
+            "actual_sha256": "a2a91a2f05efacd08149b3beb5084387a5330423b07c138c879bb917411e5cd7",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "e8b6f9ea0c079a3b973f2d086fbd2aab7beaa943abd5f3631af72706567e2a7a"
+          },
+          {
+            "actual_sha256": "917e38f8edb45ad6bbcab18e09262674836462827c1295932fdcaf4b67a2e007",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "f9e4080da9c0a601ebbd3d4b884dcaf91ef3c5c275b1cecd809c2d2b93571566"
+          },
+          {
+            "actual_sha256": "bb42ddc2397beda0f018fe967c064faf7b0c3e878ee01cd046dff1c48580d567",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "412c6811f3b76bf98efaa1f2071d9f32cf5af8031b10efa8d8971765a625d270"
+          },
+          {
+            "actual_sha256": "5b5e1e7a38ab990e9fc7753662a007e149f88f48c403dedbab3605b35847cb93",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "078e830a8197e965c8e0ecd518cba3c247e6d652b55a72bb1702d04f1528a3bc"
+          },
+          {
+            "actual_sha256": "4d5085fe4be5320f919aea23c3be0f67a95c5c96098cde0e42ce2873663b4011",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "8530951b2f96e18015dfaf1bc69d1d45a490269d52832d10d9a2a9ba4a92e18a"
+          },
+          {
+            "actual_sha256": "28672bbff58c805f92c6a648e42500aa2e193619abe96c78e36a4953234951a7",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "7a86aee0630b82c45ffbd7481f6837cacf89bb19a50f3ce7750b2b7ebb1330ae"
+          },
+          {
+            "actual_sha256": "f8a4f007f217eb91fc2a87a1f670fe353e92a4e8485f527ec94bd8cb2ca7d3e3",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "6ded74ddcd8583e45f069f25030723221ae49490014680fe6aed69cb6e86adc6"
+          },
+          {
+            "actual_sha256": "932db7f8ebe8a008c8f0cd61d7127f359e284eb70c7ec0f87180714f3c4e56fa",
+            "count": 1,
+            "origin": "complete-imp",
+            "reference_sha256": "05b7142aa618093ecfcc3c8747f110cf1e83bb308b6bddcfffd6d24e654ef56e"
+          }
+        ],
+        "reference_ignored_sha256": {
+          "85a921108430fa12c47cbedb179217b79efa72492b8fa810bcabae7f0f11e8ce": 1
+        },
+        "reference_supplemental_sha256": {}
+      }
+    },
+    "reference": {
+      "attribute_value_map": {
+        "format": {
+          "%1 %2%3%4% %5 %6 %7": "%1 %2%3%4 %5 %6 %7"
+        }
+      },
+      "identity_labels": [
+        "",
+        "#SemanticCastToBool",
+        "#SemanticCastToExpr",
+        "#SemanticCastToId",
+        "#SemanticCastToInt",
+        "#SemanticCastToMap",
+        "#SemanticCastToStmt",
+        "#SemanticCastToValue",
+        "#cells",
+        "#dots",
+        "#noDots",
+        "#ruleNoConditions",
+        "#ruleRequires",
+        "<env>",
+        "<generatedCounter>",
+        "<generatedTop>",
+        "<generatedTop>-fragment",
+        "<k>",
+        "Map:lookup",
+        "Map:update",
+        "_*Int_",
+        "_+Int_",
+        "_-Int_",
+        "_/Int_",
+        "_<=Int_",
+        "_<Int_",
+        "_=/=Bool_",
+        "_=/=Int_",
+        "_==Bool_",
+        "_==Int_",
+        "_>=Int_",
+        "_>Int_",
+        "_Map_",
+        "_andBool_",
+        "_|->_",
+        "getGeneratedCounterCell",
+        "initEnvCell",
+        "initGeneratedCounterCell",
+        "initGeneratedTopCell",
+        "initKCell",
+        "isEnvCell",
+        "isEnvCellOpt",
+        "isExpr",
+        "isGeneratedCounterCell",
+        "isGeneratedTopCell",
+        "isGeneratedTopCellFragment",
+        "isKCell",
+        "isKCellOpt",
+        "isKResult",
+        "isStmt",
+        "isValue",
+        "m3dPositive",
+        "m3dPriority",
+        "m3dTotal",
+        "m3dTwice",
+        "m3dZero",
+        "noEnvCell",
+        "noKCell",
+        "notBool_",
+        "project:EnvCell",
+        "project:EnvCellOpt",
+        "project:Expr",
+        "project:GeneratedCounterCell",
+        "project:GeneratedTopCell",
+        "project:GeneratedTopCellFragment",
+        "project:KCell",
+        "project:KCellOpt",
+        "project:KResult",
+        "project:Map",
+        "project:Stmt",
+        "project:Value"
+      ],
+      "identity_names": [
+        "BOOL",
+        "BOOL-SYNTAX",
+        "CALC",
+        "CALC-SYNTAX",
+        "EXPR-RULES",
+        "EXPR-SYNTAX",
+        "ID-SYNTAX",
+        "IMP",
+        "IMP-SYNTAX",
+        "IMP-VERIFICATION",
+        "IMP-VERIFICATION-SYNTAX",
+        "INT",
+        "KRS-M3D-STATIC",
+        "KRS-M3D-STATIC-SYNTAX",
+        "MAP",
+        "UNSIGNED-INT-SYNTAX"
+      ],
+      "identity_sorts": [
+        "#RuleBody",
+        "#RuleContent",
+        "Bool",
+        "EnvCell",
+        "EnvCellOpt",
+        "Expr",
+        "GeneratedCounterCell",
+        "GeneratedTopCell",
+        "GeneratedTopCellFragment",
+        "Id",
+        "Int",
+        "K",
+        "KCell",
+        "KCellOpt",
+        "KConfigVar",
+        "KItem",
+        "KResult",
+        "Map",
+        "Stmt",
+        "Value"
+      ],
+      "imports_by_origin": {
+        "complete-imp": []
+      },
+      "known_attributes": [
+        "UNIQUE_ID",
+        "alias",
+        "avoid",
+        "bracket",
+        "bracketLabel",
+        "cell",
+        "cellFragment",
+        "cellName",
+        "cellOptAbsent",
+        "color",
+        "contentStartColumn",
+        "contentStartLine",
+        "cool",
+        "cool-like",
+        "digest",
+        "format",
+        "function",
+        "group",
+        "heat",
+        "initializer",
+        "label",
+        "maincell",
+        "org.kframework.attributes.Location",
+        "org.kframework.attributes.Source",
+        "org.kframework.definition.Production",
+        "owise",
+        "predicate",
+        "priority",
+        "productionID",
+        "projection",
+        "result",
+        "seqstrict",
+        "simplification",
+        "strict",
+        "symbol",
+        "syntaxModule",
+        "token",
+        "total"
+      ],
+      "label_map": {
+        "!__EXPR-SYNTAX_Expr_Expr": "not",
+        "#SemanticCastToKItem": "#SemanticCastToK",
+        "#freezer!__EXPR-SYNTAX_Expr_Expr0_": "#freezernot0_",
+        "#freezer!__EXPR-SYNTAX_Expr_Expr1_": "#freezernot1_",
+        "#freezer-__EXPR-SYNTAX_Expr_Expr0_": "#freezerneg0_",
+        "#freezer-__EXPR-SYNTAX_Expr_Expr1_": "#freezerneg1_",
+        "#freezer_!=__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezerne0_",
+        "#freezer_!=__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezerne1_",
+        "#freezer_&&__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezerand0_",
+        "#freezer_&&__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezerand1_",
+        "#freezer_*__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezermul0_",
+        "#freezer_*__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezermul1_",
+        "#freezer_+__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezeradd0_",
+        "#freezer_+__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezeradd1_",
+        "#freezer_-__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezersub0_",
+        "#freezer_-__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezersub1_",
+        "#freezer_/__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezerdiv0_",
+        "#freezer_/__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezerdiv1_",
+        "#freezer_<=__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezerle0_",
+        "#freezer_<=__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezerle1_",
+        "#freezer_<__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezerlt0_",
+        "#freezer_<__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezerlt1_",
+        "#freezer_==__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezereq0_",
+        "#freezer_==__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezereq1_",
+        "#freezer_=_;_CALC-SYNTAX_Stmt_Id_Expr0_": "#freezerassign0_",
+        "#freezer_=_;_CALC-SYNTAX_Stmt_Id_Expr1_": "#freezerassign1_",
+        "#freezer_>=__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezerge0_",
+        "#freezer_>=__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezerge1_",
+        "#freezer_>__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezergt0_",
+        "#freezer_>__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezergt1_",
+        "#freezer___CALC-SYNTAX_Stmt_Stmt_Stmt0_": "#freezersequence0_",
+        "#freezer___CALC-SYNTAX_Stmt_Stmt_Stmt1_": "#freezersequence1_",
+        "#freezer_||__EXPR-SYNTAX_Expr_Expr_Expr0_": "#freezeror0_",
+        "#freezer_||__EXPR-SYNTAX_Expr_Expr_Expr1_": "#freezeror1_",
+        "#freezerif(_)__IMP-SYNTAX_Stmt_Expr_Stmt0_": "#freezerifThen0_",
+        "#freezerif(_)__IMP-SYNTAX_Stmt_Expr_Stmt1_": "#freezerifThen1_",
+        "#freezerif(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt0_": "#freezerifThenElse0_",
+        "#freezerif(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1_": "#freezerifThenElse1_",
+        "#freezerm3dTwice0_": "#freezer_",
+        "#freezerwhile(_)__IMP-SYNTAX_Stmt_Expr_Stmt0_": "#freezerwhile0_",
+        "#freezerwhile(_)__IMP-SYNTAX_Stmt_Expr_Stmt1_": "#freezerwhile1_",
+        "#freezer{_}_IMP-SYNTAX_Stmt_Stmt0_": "#freezerblock0_",
+        "#freezer{_}_IMP-SYNTAX_Stmt_Stmt1_": "#freezerblock1_",
+        "#freezer{}_IMP-SYNTAX_Stmt0_": "#freezeremptyBlock0_",
+        "#freezer{}_IMP-SYNTAX_Stmt1_": "#freezeremptyBlock1_",
+        "(_)_EXPR-SYNTAX_Expr_Expr": "krsGenerated_787219016217a304fd6123cf",
+        "-__EXPR-SYNTAX_Expr_Expr": "neg",
+        "_!=__EXPR-SYNTAX_Expr_Expr_Expr": "ne",
+        "_&&__EXPR-SYNTAX_Expr_Expr_Expr": "and",
+        "_*__EXPR-SYNTAX_Expr_Expr_Expr": "mul",
+        "_+__EXPR-SYNTAX_Expr_Expr_Expr": "add",
+        "_-__EXPR-SYNTAX_Expr_Expr_Expr": "sub",
+        "_/__EXPR-SYNTAX_Expr_Expr_Expr": "div",
+        "_<=__EXPR-SYNTAX_Expr_Expr_Expr": "le",
+        "_<__EXPR-SYNTAX_Expr_Expr_Expr": "lt",
+        "_==__EXPR-SYNTAX_Expr_Expr_Expr": "eq",
+        "_=_;_CALC-SYNTAX_Stmt_Id_Expr": "assign",
+        "_>=__EXPR-SYNTAX_Expr_Expr_Expr": "ge",
+        "_>__EXPR-SYNTAX_Expr_Expr_Expr": "gt",
+        "___CALC-SYNTAX_Stmt_Stmt_Stmt": "sequence",
+        "_||__EXPR-SYNTAX_Expr_Expr_Expr": "or",
+        "if(_)__IMP-SYNTAX_Stmt_Expr_Stmt": "ifThen",
+        "if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt": "ifThenElse",
+        "while(_)__IMP-SYNTAX_Stmt_Expr_Stmt": "while",
+        "{_}_IMP-SYNTAX_Stmt_Stmt": "block",
+        "{}_IMP-SYNTAX_Stmt": "emptyBlock"
+      },
+      "metadata_attributes": [
+        "UNIQUE_ID",
+        "contentStartColumn",
+        "contentStartLine",
+        "digest",
+        "group",
+        "label",
+        "org.kframework.attributes.Location",
+        "org.kframework.attributes.Source",
+        "org.kframework.definition.Production",
+        "productionID",
+        "result",
+        "symbol",
+        "syntaxModule"
+      ],
+      "module_origins": {
+        "CALC": "complete-imp",
+        "CALC-SYNTAX": "complete-imp",
+        "EXPR-RULES": "complete-imp",
+        "EXPR-SYNTAX": "complete-imp",
+        "IMP": "complete-imp",
+        "IMP-SYNTAX": "complete-imp",
+        "IMP-VERIFICATION": "complete-imp",
+        "IMP-VERIFICATION-SYNTAX": "complete-imp",
+        "KRS-M3D-STATIC": "complete-imp",
+        "KRS-M3D-STATIC-SYNTAX": "complete-imp"
+      },
+      "closed_module_prefixes": [
+        "KRS-"
+      ]
+    },
+    "status": "ready"
+  },
+  "source_sha256": {
+    "../inspirations/midnightntwrk/k-rust/Cargo.lock": "5f18fc560473e5d988b95d224420127284822cfe9085bd06b1c290e442e7629c",
+    "../inspirations/midnightntwrk/k-rust/crates/k-rust/Cargo.toml": "a92766e69d775c823ee36cfec8d28965a1c867d713833befe1621e92e823a453",
+    "../inspirations/midnightntwrk/k-rust/crates/k-rust/src/kompile/compile.rs": "939f8e39ad674b65b575f8fb1f7099ec42e6e2c0470f95c7bf516ff204dbc668",
+    "Cargo.lock": "c67f861e81d657601c0dff0a1b335ad60519cbf77c3f95d131691a0e6008154d",
+    "Cargo.toml": "0199084c1ae827f30abc59a636a7055ce53f6dd8174841b929ccb329db0099ff",
+    "Krs.lock": "8bcea91b6dd9ce445d64c81caa9da77c0563054aa80361a9f602f5d107cee001",
+    "crates/krs-ir/src/ir.rs": "357e4044bf3f680af5ddba3d276a64b6502f78a23b7f4ee6afd58066922172ed",
+    "crates/krs-ir/src/protocol_v6.rs": "29c4524229e015a0013a3ca07ac01ee58b82e6d72a0d52d574d920f1863b5c83",
+    "crates/krs-k-rust/src/lib.rs": "fabcbe6cc6f757a0c413aba858e20a376d87d9644ae3880f5e8a9b70f652217b",
+    "crates/krs/src/lib.rs": "dd08bb27aca1739283462a7c4bdf0e25dead566ec6a91661b5dd5781e73fb44f",
+    "tests/m4/README.md": "30cda0eb221775375bcbf03a4756a05022129bbc421064c343768da280ba1130",
+    "tests/m4/compatibility/diagnostics/probe.py": "5c9be01b33afd5746d81d936bd5e61a7e3cd355e15e3c20ac3594f4fe7811d16",
+    "tests/m4/compatibility/stable-names/probe.py": "ce28e66ee1b80df061407dd19979fe45856f51901b35e7a75b2c744355c626bd",
+    "tests/m4/native/Cargo.lock": "46d478d08f2434971306db65bb6cd90b9c8c1d51e48f7733ec8b0adced62f6f6",
+    "tests/m4/native/Cargo.toml": "3370cf220dd14e0243fbf9fe65da518daf4965094683f8b25733d1345bc3d12f",
+    "tests/m4/native/src/lib.rs": "74b9cfa9d79fbc2bef884db17c5c31d35f811a2e7ac5951305bdc53a25958a6a",
+    "tests/m4/native/src/main.rs": "03920d3e6d591a82562c02d3128d272e0a2f1a51d97256c6144b923a1a5defa2",
+    "tests/m4/oracle/README.md": "4eb932442ccba335d071fcd01a8ae9981a8278cf25bd627db98e1f0cb11f4e42",
+    "tests/m4/oracle/__init__.py": "1bd2a211e309cc6c089bb287a82b0241b7707c258500d95c31cdfb49ddf5f46e",
+    "tests/m4/oracle/artifact-probe/Cargo.lock": "c4a229231bf676eb90115317adfbb2a5f930a391ae90a99d7e76107668551828",
+    "tests/m4/oracle/artifact-probe/Cargo.toml": "8888069a8440565bb2fe68106b3a48e11fce3f26a9f75e3c6ab8193a88466ad3",
+    "tests/m4/oracle/artifact-probe/src/main.rs": "64f7d4f84c79c3cc362877379cdcc210778b3e64b7e88191a0387a446b337a51",
+    "tests/m4/oracle/behavior.py": "ae5aed76d887d3f34a002373ff20dab260d309fdab6e7d089d9841901561ca0a",
+    "tests/m4/oracle/proofs.py": "00a2a04aa1b096e9d25d96fd539c4583936da43c377e863606f2f3d42fc3e061",
+    "tests/m4/oracle/source_definition.py": "c9d1dd2d8f511698532039839b49c1ff3381fa3f8eebb80fcd761dcce02a2db7",
+    "tests/m4/oracle/source_policy_probe.py": "6f1dcd0d466b50c4ee86f711bb41b46794aec026190fd0039cb871bc76325e5f",
+    "tests/m4/oracle/test_oracle.py": "ba52f3af7afab06a86dc46ec48196859275a3fe6257bdd959ae6cb14a524363e",
+    "tests/m4/rust-definition/Cargo.lock": "9500320ce7a83198289a68a22f3530d182397c23347c396bf1f8688484628b15",
+    "tests/m4/rust-definition/Cargo.toml": "49d435218a2ede413be537a9cf550120e95ad1db2f0b48f0df4ed2f093adab69",
+    "tests/m4/rust-definition/README.md": "74b7e52234180fbd2c8daa8c75f21644f9f28408d26f62f3c394a4a16f9dd362",
+    "tests/m4/rust-definition/src/claims.rs": "46ba18fdd765c7c98a89c4b4d35a51c9cf54aae899dbc159fb3c62ac59baa763",
+    "tests/m4/rust-definition/src/imp.rs": "8703da529c7e2049f16cadb262f36d1c5f190064c4fd7346f45009ae327c5b3f",
+    "tests/m4/rust-definition/src/lib.rs": "9fa1b5f3576813d4d0ffc7751cbcab741a5cde62edd0d17ccebf2a002e07d9ce",
+    "tests/m4/rust-definition/src/static_adjunct.rs": "82de4c06a947c197b50f679ff56d62ab47049aa39fb0e64d1632aa13925d2875",
+    "tests/m4/rust-definition/src/verification.rs": "2e6292a42ac6766f2e4cefd27076e61d7a4e738e59afd72369569c93e84a5281",
+    "tests/m4/verify.py": "a1be2d0365389414ef1475ba937eea64b68f071f893bc2ef35757795a4af6c2b"
+  }
+}

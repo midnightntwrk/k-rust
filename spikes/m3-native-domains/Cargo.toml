@@ -1,0 +1,14 @@
+[package]
+name = "krs-m3-native-domains-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+k-rust = { path = "../../../inspirations/midnightntwrk/k-rust/crates/k-rust", default-features = false }
+
+[features]
+native-z3 = ["k-rust/z3-inference"]
+
+[workspace]
+

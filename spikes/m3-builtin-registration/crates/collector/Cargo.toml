@@ -1,0 +1,13 @@
+[package]
+name = "m3-builtin-collector"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+dialect = { package = "m3-builtin-facade", path = "../facade" }
+m3-builtin-semantics = { path = "../semantics" }
+
+[lints]
+workspace = true
+

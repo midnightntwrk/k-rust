@@ -1,0 +1,27 @@
+[package]
+name = "krs-m2-ui"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[workspace]
+
+[dependencies]
+language-host = { package = "krs", path = "../../../crates/krs" }
+
+[[bin]]
+name = "malformed_configuration"
+path = "src/malformed_configuration.rs"
+
+[[bin]]
+name = "malformed_init"
+path = "src/malformed_init.rs"
+
+[[bin]]
+name = "missing_init"
+path = "src/missing_init.rs"
+
+[[bin]]
+name = "duplicate_init"
+path = "src/duplicate_init.rs"

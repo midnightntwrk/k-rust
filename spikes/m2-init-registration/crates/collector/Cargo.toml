@@ -1,0 +1,14 @@
+[package]
+name = "m2-init-collector"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+host = { package = "m2-init-facade", path = "../facade" }
+model = { package = "m2-init-semantics", path = "../semantics" }
+
+[lints]
+workspace = true
+

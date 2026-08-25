@@ -1,0 +1,11 @@
+[package]
+name = "same-name"
+version = "0.2.0"
+edition = "2024"
+
+[package.metadata.krs]
+k-namespace = "ORG-EXAMPLE-SAME-B"
+
+[package.metadata.krs.definitions.core]
+
+[workspace]

@@ -1,0 +1,10 @@
+[package]
+name = "span-probe-unstable-api"
+version = "0.0.0"
+edition = "2024"
+
+[workspace]
+
+[lib]
+proc-macro = true
+

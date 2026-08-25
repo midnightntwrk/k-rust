@@ -1,0 +1,10 @@
+[package]
+name = "krs-m2-native-reference-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+k-rust = { path = "../../../../inspirations/midnightntwrk/k-rust/crates/k-rust", default-features = false }
+
+[workspace]

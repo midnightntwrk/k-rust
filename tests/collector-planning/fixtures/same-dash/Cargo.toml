@@ -1,0 +1,17 @@
+[package]
+name = "same-name"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+verification = []
+
+[package.metadata.krs]
+k-namespace = "ORG-EXAMPLE-SAME-A"
+
+[package.metadata.krs.definitions.core]
+root = "crate"
+
+[workspace]
+

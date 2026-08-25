@@ -1,0 +1,39 @@
+[workspace]
+
+[package]
+name = "m2-init-ui"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+k = { package = "m2-init-facade", path = "../crates/facade" }
+
+[[bin]]
+name = "self_boundary"
+path = "src/self_boundary.rs"
+
+[[bin]]
+name = "trait_impl"
+path = "src/trait_impl.rs"
+
+[[bin]]
+name = "free_function"
+path = "src/free_function.rs"
+
+[[bin]]
+name = "duplicate_init"
+path = "src/duplicate_init.rs"
+
+[[bin]]
+name = "unsupported_item"
+path = "src/unsupported_item.rs"
+
+[[bin]]
+name = "missing_init"
+path = "src/missing_init.rs"
+
+[[bin]]
+name = "raw_associated_submit"
+path = "src/raw_associated_submit.rs"

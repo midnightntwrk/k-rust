@@ -1,0 +1,75 @@
+{
+  "proof_bounds": {
+    "depth": 100,
+    "branching_allowed": 64
+  },
+  "already_frozen": [
+    "IMP-SIMPLE-SPEC.addition-1",
+    "IMP-SIMPLE-SPEC.addition-var",
+    "IMP-SIMPLE-SPEC.branching",
+    "IMP-SIMPLE-SPEC.sum-loop",
+    "IMP-SUM-SPEC.sum-spec"
+  ],
+  "cases": [
+    {
+      "name": "addition-2",
+      "spec": "imp-simple-spec.k",
+      "module": "IMP-SIMPLE-SPEC",
+      "claim": "IMP-SIMPLE-SPEC.addition-2"
+    },
+    {
+      "name": "pre-branch-proved",
+      "spec": "imp-simple-spec.k",
+      "module": "IMP-SIMPLE-SPEC",
+      "claim": "IMP-SIMPLE-SPEC.pre-branch-proved"
+    },
+    {
+      "name": "branching-program",
+      "spec": "imp-simple-spec.k",
+      "module": "IMP-SIMPLE-SPEC",
+      "claim": "IMP-SIMPLE-SPEC.branching-program"
+    },
+    {
+      "name": "branching-deadcode",
+      "spec": "imp-simple-spec.k",
+      "module": "IMP-SIMPLE-SPEC",
+      "claim": "IMP-SIMPLE-SPEC.branching-deadcode"
+    },
+    {
+      "name": "while-cut-rule",
+      "spec": "imp-simple-spec.k",
+      "module": "IMP-SIMPLE-SPEC",
+      "claim": "IMP-SIMPLE-SPEC.while-cut-rule"
+    },
+    {
+      "name": "while-cut-rule-delayed",
+      "spec": "imp-simple-spec.k",
+      "module": "IMP-SIMPLE-SPEC",
+      "claim": "IMP-SIMPLE-SPEC.while-cut-rule-delayed"
+    },
+    {
+      "name": "sum-N",
+      "spec": "imp-simple-spec.k",
+      "module": "IMP-SIMPLE-SPEC",
+      "claim": "IMP-SIMPLE-SPEC.sum-N"
+    },
+    {
+      "name": "bmc-loop-concrete",
+      "spec": "imp-simple-spec.k",
+      "module": "IMP-SIMPLE-SPEC",
+      "claim": "IMP-SIMPLE-SPEC.bmc-loop-concrete"
+    },
+    {
+      "name": "bmc-loop-symbolic",
+      "spec": "imp-simple-spec.k",
+      "module": "IMP-SIMPLE-SPEC",
+      "claim": "IMP-SIMPLE-SPEC.bmc-loop-symbolic"
+    },
+    {
+      "name": "two-sum-spec",
+      "spec": "imp-sum-spec.k",
+      "module": "IMP-SUM-SPEC",
+      "claim": "IMP-SUM-SPEC.two-sum-spec"
+    }
+  ]
+}

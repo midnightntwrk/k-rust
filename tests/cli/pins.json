@@ -1,0 +1,12 @@
+{
+  "fixture_sha256": {
+    "Cargo.toml.in": "00abdc5f61524019928fab378ce671466e61b64b1015afff5908499ccf793495",
+    "src/lib.rs": "a61cd0a4f208b4958b44e4146c3339bb80f451f75cc1d192cb932b67ad0094b7"
+  },
+  "artifacts_sha256": {
+    "expand.json": "2a01d0b69955cc84918caaece1ed2abec53bc83bdf577b0bc9c50756b34b63fc",
+    "definition.k": "dd58e12ebd82fff3a5990f3fa9ff93dc8de7c9d4c3656c1090dbbeac99c9c796",
+    "symbols.json": "d92c08f43f2177c28678ff03afb2c62bb32f51a65fda00e4e4bbdee9a6c3f774",
+    "sources.json": "c36f37b30ca2cad235c5512cdeead616a963f058578c518046fd15b8ad81587f"
+  }
+}

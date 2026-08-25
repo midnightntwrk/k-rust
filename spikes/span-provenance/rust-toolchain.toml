@@ -1,0 +1,6 @@
+[toolchain]
+# The installed stable channel is rustc 1.97.1. The local rustup installation's
+# version-named alias is incomplete, so this spike pins the working stable channel
+# and the verifier rejects any version other than 1.97.1.
+channel = "stable"
+profile = "minimal"

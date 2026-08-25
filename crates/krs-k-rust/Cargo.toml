@@ -1,0 +1,15 @@
+[package]
+name = "krs-k-rust"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Versioned KRS adapter for the pinned k-rust frontend"
+
+[dependencies]
+k-rust = { version = "=0.3.0", git = "https://github.com/midnightntwrk/k-rust.git", rev = "58f33885b736148dae189623d1aac989ce9be475", default-features = false }
+krs-ir = { path = "../krs-ir" }
+serde_json.workspace = true
+
+[lints]
+workspace = true

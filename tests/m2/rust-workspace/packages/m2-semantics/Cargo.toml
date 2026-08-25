@@ -1,0 +1,13 @@
+[package]
+name = "m2-semantics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+language-host = { package = "krs", path = "../../../../../crates/krs" }
+
+[lints]
+workspace = true
+

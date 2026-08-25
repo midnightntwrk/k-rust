@@ -1,0 +1,35 @@
+schema = 1
+
+[schemas]
+descriptor_protocol = 15
+definition_ir = 9
+kast_json = 4
+
+[cargo]
+lock_sha256 = "83c15d6a7b176cb465a7f79156449d41b3d33c7859bc7e89dd0f6fe9a14bbb8a"
+msrv = "1.88.0"
+
+[k]
+version = "7.1.337"
+commit = "4a46d1231473b599c699160132fd6e76a5c46406"
+pyk_version = "7.1.337"
+kore_exec_version = "0.1.155"
+llvm_backend_version = "0.1.140"
+pyk_source_sha256 = "2b6ebc05e7c110927d2cab7d1bd08e0a1f80c9090a621ee541e82665147d88d4"
+
+[k_rust]
+version = "0.3.0"
+commit = "58f33885b736148dae189623d1aac989ce9be475"
+tracked_crate_sha256 = "0365ddf085bef244a00c04aaabd72a0ebd8cadbaaf8190605a31c5e387658d64"
+
+[builtin_registry]
+source_sha256 = "2d895476c748fbd79b9b944bfb6c00ba9b7c8efe6a0721079df6f271e7fdc07a"
+sorts = ["KSequence", "Int", "Bool", "Map", "Id"]
+
+[solver]
+profile = "z3-inference"
+version = "4.12.5"
+
+[backend_policy]
+haskell = "exact-kore-comparison"
+llvm_existential_claims = "typed-backend-capability-error"

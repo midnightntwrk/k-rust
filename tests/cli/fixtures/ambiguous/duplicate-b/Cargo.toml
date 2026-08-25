@@ -1,0 +1,15 @@
+[package]
+name = "duplicated-semantics"
+version = "0.2.0"
+edition = "2024"
+publish = false
+
+[package.metadata.krs]
+k-namespace = "ORG-KRS-CLI-DUPLICATE-B"
+
+[package.metadata.krs.definitions.main]
+root = "crate"
+syntax-root = "crate"
+
+[workspace]
+

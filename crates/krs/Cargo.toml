@@ -1,0 +1,18 @@
+[package]
+name = "krs"
+description = "Author-facing Rust host facade for KRS definitions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+inventory = "0.3.21"
+krs-ir = { path = "../krs-ir" }
+krs-macros = { path = "../krs-macros" }
+
+[dev-dependencies]
+serde.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "m2-oracle-runner"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+language-host = { package = "krs", path = "../../../../../crates/krs" }
+krs-compiler = { path = "../../../../../crates/krs-compiler" }
+krs-ir = { path = "../../../../../crates/krs-ir" }
+krs-k-rust = { path = "../../../../../crates/krs-k-rust" }
+m2-semantics = { path = "../m2-semantics" }
+serde_json = "1"
+
+[lints]
+workspace = true
+

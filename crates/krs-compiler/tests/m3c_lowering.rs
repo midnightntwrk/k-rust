@@ -1,0 +1,1035 @@
+//! Hand-built M3C IMP control-flow lowering and canonical source contract.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use krs_compiler::{
+    EmittedK, LoweredDefinition, LoweringError, SourceMapNodeKind, emit_k,
+    lower_semantic_theory,
+};
+use krs_ir::{
+    ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot,
+    DefinitionRuleBody, DefinitionSentence, DefinitionTermKind, FixedCell, FixedCellClause,
+    FixedConfiguration, FixedConfigurationRewrite, FixedConfigurationVariable,
+    FixedInitializerCell, FormatFragment, GroupAssociativity, GroupAssociativitySentence,
+    ItemKind, ModuleId, NodeOrigin, OriginFrame, OriginStack, PackageId, PrecedenceRelation,
+    ProductionAttribute, ProductionFieldId, ProductionGroupId, RangedOriginKind,
+    SemanticConfiguration, SemanticId, SemanticModule, SemanticProduction,
+    SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort,
+    SemanticTerm, SemanticTheory, SemanticValidationError, SemanticVariable, SentenceKind,
+    Sha256Digest, SourceFileId, SourceMapKey, SourceRange, StableItemId, StrictnessKind,
+    ProductionFieldReference, ProductionResultSort,
+    TransformationOriginKind,
+};
+
+const CALC_SYNTAX: &str = "KRS-M3B-CALC-SYNTAX";
+const CALC: &str = "KRS-M3B-CALC";
+const IMP_SYNTAX: &str = "KRS-M3C-IMP-SYNTAX";
+const IMP: &str = "KRS-M3C-IMP";
+
+fn package() -> PackageId {
+    PackageId::new("KRS-M3C", "m3c-imp", "0.1.0", "workspace").unwrap()
+}
+
+fn item(module: &str, name: &str, kind: ItemKind) -> StableItemId {
+    StableItemId::new(package(), [module], name, kind, "").unwrap()
+}
+
+fn origin(key: &str) -> NodeOrigin {
+    let file = SourceFileId::new(
+        package(),
+        "src/imp.rs",
+        Sha256Digest::new("0123456789abcdef".repeat(4)).unwrap(),
+    )
+    .unwrap();
+    NodeOrigin::new(
+        SourceMapKey::new(key).unwrap(),
+        OriginStack::authored(SourceRange::new(file, 0, 1).unwrap()),
+    )
+}
+
+fn sid(value: &str) -> SemanticId {
+    SemanticId::new(value).unwrap()
+}
+
+fn field(value: &str) -> ProductionFieldId {
+    ProductionFieldId::new(value).unwrap()
+}
+
+fn group(value: &str) -> ProductionGroupId {
+    ProductionGroupId::new(value).unwrap()
+}
+
+fn sort(name: &str) -> SemanticSortRef {
+    SemanticSortRef::Declared(item("calc_syntax", name, ItemKind::Sort))
+}
+
+fn variable(key: &str, name: &str, variable_sort: SemanticSortRef) -> SemanticTerm {
+    SemanticTerm::variable(origin(key), variable_sort, sid(name))
+}
+
+fn application(
+    key: &str,
+    production: StableItemId,
+    arguments: Vec<SemanticTerm>,
+) -> SemanticTerm {
+    SemanticTerm::application(
+        origin(key),
+        sort("Stmt"),
+        ApplicationRef::Declared(production),
+        arguments,
+    )
+}
+
+#[allow(clippy::too_many_lines)]
+fn calc_syntax_module() -> SemanticModule {
+    let expr = sort("Expr");
+    let stmt = sort("Stmt");
+    let value = sort("Value");
+    let kresult = sort("KResult");
+    let assign = SemanticProduction::new(
+        origin("calc.production.assign"),
+        item("calc_syntax", "Assign", ItemKind::Constructor),
+        stmt.clone(),
+        vec![
+            SemanticProductionItem::non_terminal(
+                origin("calc.production.assign.name"),
+                field("name"),
+                SemanticSortRef::id(),
+            ),
+            SemanticProductionItem::terminal(origin("calc.production.assign.equals"), "=")
+                .unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("calc.production.assign.expression"),
+                field("expression"),
+                expr.clone(),
+            ),
+            SemanticProductionItem::terminal(origin("calc.production.assign.semicolon"), ";")
+                .unwrap(),
+        ],
+        vec![
+            ProductionAttribute::Group {
+                origin: origin("calc.production.assign.group"),
+                group: group("stmt"),
+            },
+            ProductionAttribute::Strictness {
+                origin: origin("calc.production.assign.strict"),
+                kind: StrictnessKind::Strict,
+                using: None,
+                fields: vec![ProductionFieldReference::new(origin("calc.production.assign.strict.field"), field("expression"))],
+                result_sort: ProductionResultSort::new(origin("calc.production.assign.strict.result"), kresult.clone()),
+            },
+            ProductionAttribute::Format {
+                origin: origin("calc.production.assign.format"),
+                fragments: vec![
+                    FormatFragment::Item(1),
+                    FormatFragment::Literal(" ".into()),
+                    FormatFragment::Item(2),
+                    FormatFragment::Literal(" ".into()),
+                    FormatFragment::Item(3),
+                    FormatFragment::Item(4),
+                ],
+            },
+        ],
+    )
+    .unwrap();
+    let sequence = SemanticProduction::new(
+        origin("calc.production.sequence"),
+        item("calc_syntax", "Sequence", ItemKind::Constructor),
+        stmt.clone(),
+        vec![
+            SemanticProductionItem::non_terminal(
+                origin("calc.production.sequence.first"),
+                field("first"),
+                stmt.clone(),
+            ),
+            SemanticProductionItem::non_terminal(
+                origin("calc.production.sequence.second"),
+                field("second"),
+                stmt.clone(),
+            ),
+        ],
+        vec![
+            ProductionAttribute::Group {
+                origin: origin("calc.production.sequence.group"),
+                group: group("seq-stmt"),
+            },
+            ProductionAttribute::Format {
+                origin: origin("calc.production.sequence.format"),
+                fragments: vec![
+                    FormatFragment::Item(1),
+                    FormatFragment::Newline,
+                    FormatFragment::Item(2),
+                ],
+            },
+        ],
+    )
+    .unwrap();
+    SemanticModule::new(
+        origin("calc.module.syntax"),
+        ModuleId::new(CALC_SYNTAX).unwrap(),
+        vec![],
+        vec![
+            SemanticSort::new(
+                origin("calc.sort.expr"),
+                item("calc_syntax", "Expr", ItemKind::Sort),
+            ),
+            SemanticSort::new(
+                origin("calc.sort.kresult"),
+                item("calc_syntax", "KResult", ItemKind::Sort),
+            ),
+            SemanticSort::new(
+                origin("calc.sort.stmt"),
+                item("calc_syntax", "Stmt", ItemKind::Sort),
+            ),
+            SemanticSort::new(
+                origin("calc.sort.value"),
+                item("calc_syntax", "Value", ItemKind::Sort),
+            ),
+        ],
+        vec![
+            SemanticSubsort::new(
+                origin("calc.subsort.bool-value"),
+                SemanticSortRef::Builtin(krs_ir::BuiltinSort::Bool),
+                value.clone(),
+            ),
+            SemanticSubsort::new(
+                origin("calc.subsort.id-expr"),
+                SemanticSortRef::id(),
+                expr.clone(),
+            ),
+            SemanticSubsort::new(origin("calc.subsort.value-expr"), value.clone(), expr),
+            SemanticSubsort::new(origin("calc.subsort.value-kresult"), value, kresult),
+        ],
+        vec![assign, sequence],
+        vec![
+            PrecedenceRelation::new(
+                origin("calc.precedence.stmt-sequence"),
+                vec![group("stmt")],
+                vec![group("seq-stmt")],
+            )
+            .unwrap(),
+        ],
+        vec![
+            GroupAssociativitySentence::new(
+                origin("calc.associativity.sequence"),
+                GroupAssociativity::Right,
+                vec![group("seq-stmt")],
+            )
+            .unwrap(),
+        ],
+        None,
+        vec![],
+    )
+}
+
+fn control_production(
+    name: &str,
+    items: Vec<SemanticProductionItem>,
+    attributes: Vec<ProductionAttribute<SemanticSortRef>>,
+) -> SemanticProduction {
+    SemanticProduction::new(
+        origin(&format!("imp.production.{name}")),
+        item("imp_syntax", name, ItemKind::Constructor),
+        sort("Stmt"),
+        items,
+        attributes,
+    )
+    .unwrap()
+}
+
+#[allow(clippy::too_many_lines)]
+fn imp_syntax_module() -> SemanticModule {
+    let expr = sort("Expr");
+    let stmt = sort("Stmt");
+    let stmt_group = |key| ProductionAttribute::Group {
+        origin: origin(key),
+        group: group("stmt"),
+    };
+    let if_else = control_production(
+        "IfThenElse",
+        vec![
+            SemanticProductionItem::terminal(origin("imp.if-else.if"), "if").unwrap(),
+            SemanticProductionItem::terminal(origin("imp.if-else.open"), "(").unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("imp.if-else.condition"),
+                field("condition"),
+                expr.clone(),
+            ),
+            SemanticProductionItem::terminal(origin("imp.if-else.close"), ")").unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("imp.if-else.then"),
+                field("then_branch"),
+                stmt.clone(),
+            ),
+            SemanticProductionItem::terminal(origin("imp.if-else.else"), "else").unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("imp.if-else.otherwise"),
+                field("else_branch"),
+                stmt.clone(),
+            ),
+        ],
+        vec![
+            stmt_group("imp.if-else.group"),
+            ProductionAttribute::Strictness {
+                origin: origin("imp.if-else.strict"),
+                kind: StrictnessKind::Strict,
+                using: None,
+                fields: vec![ProductionFieldReference::new(origin("imp.if-else.strict.field"), field("condition"))],
+                result_sort: ProductionResultSort::new(origin("imp.if-else.strict.result"), sort("KResult")),
+            },
+            ProductionAttribute::Avoid {
+                origin: origin("imp.if-else.avoid"),
+            },
+            ProductionAttribute::Format {
+                origin: origin("imp.if-else.format"),
+                fragments: vec![
+                    FormatFragment::Item(1),
+                    FormatFragment::Literal(" ".into()),
+                    FormatFragment::Item(2),
+                    FormatFragment::Item(3),
+                    FormatFragment::Item(4),
+                    FormatFragment::Literal(" ".into()),
+                    FormatFragment::Item(5),
+                    FormatFragment::Literal(" ".into()),
+                    FormatFragment::Item(6),
+                    FormatFragment::Literal(" ".into()),
+                    FormatFragment::Item(7),
+                ],
+            },
+        ],
+    );
+    let if_then = control_production(
+        "IfThen",
+        vec![
+            SemanticProductionItem::terminal(origin("imp.if.if"), "if").unwrap(),
+            SemanticProductionItem::terminal(origin("imp.if.open"), "(").unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("imp.if.condition"),
+                field("condition"),
+                expr.clone(),
+            ),
+            SemanticProductionItem::terminal(origin("imp.if.close"), ")").unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("imp.if.body"),
+                field("body"),
+                stmt.clone(),
+            ),
+        ],
+        vec![
+            stmt_group("imp.if.group"),
+            ProductionAttribute::Format {
+                origin: origin("imp.if.format"),
+                fragments: vec![
+                    FormatFragment::Item(1),
+                    FormatFragment::Literal(" ".into()),
+                    FormatFragment::Item(2),
+                    FormatFragment::Item(3),
+                    FormatFragment::Item(4),
+                    FormatFragment::Literal(" ".into()),
+                    FormatFragment::Item(5),
+                ],
+            },
+        ],
+    );
+    let while_loop = control_production(
+        "While",
+        vec![
+            SemanticProductionItem::terminal(origin("imp.while.while"), "while").unwrap(),
+            SemanticProductionItem::terminal(origin("imp.while.open"), "(").unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("imp.while.condition"),
+                field("condition"),
+                expr,
+            ),
+            SemanticProductionItem::terminal(origin("imp.while.close"), ")").unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("imp.while.body"),
+                field("body"),
+                stmt.clone(),
+            ),
+        ],
+        vec![
+            stmt_group("imp.while.group"),
+            ProductionAttribute::Format {
+                origin: origin("imp.while.format"),
+                fragments: vec![
+                    FormatFragment::Item(1),
+                    FormatFragment::Literal(" ".into()),
+                    FormatFragment::Item(2),
+                    FormatFragment::Item(3),
+                    FormatFragment::Item(4),
+                    FormatFragment::Literal(" ".into()),
+                    FormatFragment::Item(5),
+                ],
+            },
+        ],
+    );
+    let block = control_production(
+        "Block",
+        vec![
+            SemanticProductionItem::terminal(origin("imp.block.open"), "{").unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("imp.block.body"),
+                field("body"),
+                stmt,
+            ),
+            SemanticProductionItem::terminal(origin("imp.block.close"), "}").unwrap(),
+        ],
+        vec![ProductionAttribute::Format {
+            origin: origin("imp.block.format"),
+            fragments: vec![
+                FormatFragment::Item(1),
+                FormatFragment::Indent,
+                FormatFragment::Newline,
+                FormatFragment::Item(2),
+                FormatFragment::Dedent,
+                FormatFragment::Newline,
+                FormatFragment::Item(3),
+            ],
+        }],
+    );
+    let empty = control_production(
+        "EmptyBlock",
+        vec![
+            SemanticProductionItem::terminal(origin("imp.empty.open"), "{").unwrap(),
+            SemanticProductionItem::terminal(origin("imp.empty.close"), "}").unwrap(),
+        ],
+        vec![ProductionAttribute::Format {
+            origin: origin("imp.empty.format"),
+            fragments: vec![FormatFragment::Item(1), FormatFragment::Item(2)],
+        }],
+    );
+    SemanticModule::new(
+        origin("imp.module.syntax"),
+        ModuleId::new(IMP_SYNTAX).unwrap(),
+        vec![ModuleId::new(CALC_SYNTAX).unwrap()],
+        vec![],
+        vec![],
+        vec![if_else, if_then, while_loop, block, empty],
+        vec![],
+        vec![],
+        None,
+        vec![],
+    )
+}
+
+fn configuration_module() -> SemanticModule {
+    let stmt = sort("Stmt");
+    let k = sid("cell.k");
+    let env = sid("cell.env");
+    let configuration = SemanticConfiguration::fixed(
+        FixedConfiguration::new(
+            origin("calc.configuration"),
+            sid("configuration.calc"),
+            ConfigurationRoot::GeneratedTop,
+            vec![
+                FixedCell::leaf(
+                    origin("calc.configuration.k"),
+                    k.clone(),
+                    "k",
+                    vec![CellAttribute::color(
+                        origin("calc.configuration.k.color"),
+                        "green",
+                    )
+                    .unwrap()],
+                    SemanticSortRef::k_sequence(),
+                )
+                .unwrap(),
+                FixedCell::leaf(
+                    origin("calc.configuration.env"),
+                    env.clone(),
+                    "env",
+                    vec![CellAttribute::color(
+                        origin("calc.configuration.env.color"),
+                        "yellow",
+                    )
+                    .unwrap()],
+                    SemanticSortRef::map(),
+                )
+                .unwrap(),
+            ],
+            origin("calc.configuration.initializer"),
+            sid("initializer.calc"),
+            vec![
+                FixedConfigurationVariable::new(
+                    origin("calc.configuration.variable.pgm"),
+                    sid("PGM"),
+                    "PGM",
+                    stmt.clone(),
+                    true,
+                )
+                .unwrap(),
+                FixedConfigurationVariable::new(
+                    origin("calc.configuration.variable.env"),
+                    sid("ENV"),
+                    "ENV",
+                    SemanticSortRef::map(),
+                    false,
+                )
+                .unwrap(),
+            ],
+            vec![
+                FixedInitializerCell::term(
+                    origin("calc.configuration.initializer.k"),
+                    k,
+                    SemanticTerm::k_sequence(
+                        origin("calc.configuration.initializer.k.sequence"),
+                        stmt.clone(),
+                        vec![variable(
+                            "calc.configuration.initializer.pgm",
+                            "PGM",
+                            stmt,
+                        )],
+                    ),
+                ),
+                FixedInitializerCell::term(
+                    origin("calc.configuration.initializer.env"),
+                    env,
+                    variable(
+                        "calc.configuration.initializer.env.variable",
+                        "ENV",
+                        SemanticSortRef::map(),
+                    ),
+                ),
+            ],
+        )
+        .unwrap(),
+    );
+    SemanticModule::new(
+        origin("calc.module"),
+        ModuleId::new(CALC).unwrap(),
+        vec![ModuleId::new(CALC_SYNTAX).unwrap()],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        Some(configuration),
+        vec![],
+    )
+}
+
+fn bool_token(key: &str, value: &str) -> SemanticTerm {
+    SemanticTerm::token(
+        origin(key),
+        SemanticSortRef::Builtin(krs_ir::BuiltinSort::Bool),
+        value,
+    )
+    .unwrap()
+}
+
+fn k_rule(
+    label: &str,
+    item_name: &str,
+    variables: Vec<SemanticVariable>,
+    before: SemanticTerm,
+    after: Vec<SemanticTerm>,
+) -> SemanticRule {
+    SemanticRule::new_configuration(
+        origin(&format!("imp.rule.{label}")),
+        item("imp", item_name, ItemKind::Rule),
+        SentenceKind::Transition,
+        variables,
+        FixedConfigurationRewrite::new(
+            origin(&format!("imp.rule.{label}.rewrite")),
+            sid("configuration.calc"),
+            vec![FixedCellClause::new(
+                origin(&format!("imp.rule.{label}.k")),
+                sid("cell.k"),
+                SemanticTerm::k_sequence(
+                    origin(&format!("imp.rule.{label}.before")),
+                    sort("Stmt"),
+                    vec![before],
+                ),
+                CellPost::Replace {
+                    term: SemanticTerm::k_sequence(
+                        origin(&format!("imp.rule.{label}.after")),
+                        sort("Stmt"),
+                        after,
+                    ),
+                },
+                CellContentFrame::KSequenceTail {
+                    origin: origin(&format!("imp.rule.{label}.frame")),
+                    binding: None,
+                },
+            )],
+            vec![sid("cell.env")],
+        )
+        .unwrap(),
+    )
+    .unwrap()
+}
+
+#[derive(Clone, Copy, Default)]
+struct M3cOptions {
+    invalid_first_label: bool,
+    omit_if_true_wildcard: bool,
+}
+
+#[allow(clippy::too_many_lines)]
+fn control_rules(options: M3cOptions) -> Vec<SemanticRule> {
+    let expr = sort("Expr");
+    let stmt = sort("Stmt");
+    let if_else = item("imp_syntax", "IfThenElse", ItemKind::Constructor);
+    let if_then = item("imp_syntax", "IfThen", ItemKind::Constructor);
+    let while_loop = item("imp_syntax", "While", ItemKind::Constructor);
+    let block = item("imp_syntax", "Block", ItemKind::Constructor);
+    let empty = item("imp_syntax", "EmptyBlock", ItemKind::Constructor);
+    let sequence = item("calc_syntax", "Sequence", ItemKind::Constructor);
+    let wildcard_then = "__krs_wildcard_if_false_then";
+    let wildcard_else = "__krs_wildcard_if_true_else";
+
+    let mut if_true_variables = vec![SemanticVariable::new(sid("S1"), stmt.clone())];
+    if !options.omit_if_true_wildcard {
+        if_true_variables.push(SemanticVariable::new(sid(wildcard_else), stmt.clone()));
+    }
+    let if_true = k_rule(
+        "if-true",
+        if options.invalid_first_label {
+            "if.true"
+        } else {
+            "if-true"
+        },
+        if_true_variables,
+        application(
+            "imp.rule.if-true.subject",
+            if_else.clone(),
+            vec![
+                bool_token("imp.rule.if-true.condition", "true"),
+                variable("imp.rule.if-true.then", "S1", stmt.clone()),
+                variable(
+                    "imp.rule.if-true.else",
+                    wildcard_else,
+                    stmt.clone(),
+                ),
+            ],
+        ),
+        vec![variable(
+            "imp.rule.if-true.result",
+            "S1",
+            stmt.clone(),
+        )],
+    );
+    let if_false = k_rule(
+        "if-false",
+        "if-false",
+        vec![
+            SemanticVariable::new(sid(wildcard_then), stmt.clone()),
+            SemanticVariable::new(sid("S2"), stmt.clone()),
+        ],
+        application(
+            "imp.rule.if-false.subject",
+            if_else.clone(),
+            vec![
+                bool_token("imp.rule.if-false.condition", "false"),
+                variable(
+                    "imp.rule.if-false.then",
+                    wildcard_then,
+                    stmt.clone(),
+                ),
+                variable("imp.rule.if-false.else", "S2", stmt.clone()),
+            ],
+        ),
+        vec![variable(
+            "imp.rule.if-false.result",
+            "S2",
+            stmt.clone(),
+        )],
+    );
+    let normalize = k_rule(
+        "if-else",
+        "if-else",
+        vec![
+            SemanticVariable::new(sid("C"), expr.clone()),
+            SemanticVariable::new(sid("S"), stmt.clone()),
+        ],
+        application(
+            "imp.rule.if-else.subject",
+            if_then,
+            vec![
+                variable("imp.rule.if-else.condition.before", "C", expr.clone()),
+                variable("imp.rule.if-else.body.before", "S", stmt.clone()),
+            ],
+        ),
+        vec![application(
+            "imp.rule.if-else.result",
+            if_else.clone(),
+            vec![
+                variable("imp.rule.if-else.condition.after", "C", expr.clone()),
+                variable("imp.rule.if-else.body.after", "S", stmt.clone()),
+                application("imp.rule.if-else.empty", empty.clone(), vec![]),
+            ],
+        )],
+    );
+
+    let repeated_while = application(
+        "imp.rule.while.repeated",
+        while_loop.clone(),
+        vec![
+            variable("imp.rule.while.condition.repeated", "C", expr.clone()),
+            variable("imp.rule.while.body.repeated", "S", stmt.clone()),
+        ],
+    );
+    let body_sequence = application(
+        "imp.rule.while.sequence",
+        sequence,
+        vec![
+            variable("imp.rule.while.body.sequence", "S", stmt.clone()),
+            repeated_while,
+        ],
+    );
+    let while_rule = k_rule(
+        "while",
+        "while",
+        vec![
+            SemanticVariable::new(sid("C"), expr.clone()),
+            SemanticVariable::new(sid("S"), stmt.clone()),
+        ],
+        application(
+            "imp.rule.while.subject",
+            while_loop,
+            vec![
+                variable("imp.rule.while.condition.before", "C", expr.clone()),
+                variable("imp.rule.while.body.before", "S", stmt.clone()),
+            ],
+        ),
+        vec![application(
+            "imp.rule.while.result",
+            if_else,
+            vec![
+                variable("imp.rule.while.condition.after", "C", expr),
+                application("imp.rule.while.block", block.clone(), vec![body_sequence]),
+                application("imp.rule.while.empty", empty.clone(), vec![]),
+            ],
+        )],
+    );
+    let block_rule = k_rule(
+        "block",
+        "block",
+        vec![SemanticVariable::new(sid("S"), stmt.clone())],
+        application(
+            "imp.rule.block.subject",
+            block,
+            vec![variable("imp.rule.block.body", "S", stmt.clone())],
+        ),
+        vec![
+            variable("imp.rule.block.result", "S", stmt),
+            application("imp.rule.block.empty", empty.clone(), vec![]),
+        ],
+    );
+    let done = k_rule(
+        "done",
+        "done",
+        vec![],
+        application("imp.rule.done.subject", empty, vec![]),
+        vec![],
+    );
+    vec![if_true, if_false, normalize, while_rule, block_rule, done]
+}
+
+fn imp_module(options: M3cOptions) -> SemanticModule {
+    SemanticModule::new(
+        origin("imp.module"),
+        ModuleId::new(IMP).unwrap(),
+        vec![
+            ModuleId::new(IMP_SYNTAX).unwrap(),
+            ModuleId::new(CALC).unwrap(),
+        ],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        None,
+        control_rules(options),
+    )
+}
+
+fn m3c_theory(options: M3cOptions) -> Result<SemanticTheory, SemanticValidationError> {
+    SemanticTheory::new(vec![
+        imp_module(options),
+        configuration_module(),
+        imp_syntax_module(),
+        calc_syntax_module(),
+    ])
+}
+
+fn assert_exact_source(source: &str) {
+    assert_eq!(
+        source,
+        r#"module KRS-M3B-CALC
+  imports KRS-M3B-CALC-SYNTAX
+  imports MAP
+
+  configuration
+    <k color="green"> $PGM:Stmt </k>
+    <env color="yellow"> $ENV:Map </env>
+
+endmodule
+
+module KRS-M3B-CALC-SYNTAX
+  imports BOOL-SYNTAX
+  imports ID-SYNTAX
+
+  syntax Expr
+  syntax KResult
+  syntax Stmt
+  syntax Value
+
+  syntax Stmt ::= Id "=" Expr ";" [symbol(assign), group(krsgroup-35f1322f2f4f01e6affff031), strict(2), result(KResult), format(%1 %2 %3%4)]
+  syntax Stmt ::= Stmt Stmt [symbol(sequence), group(krsgroup-ef11204726b39d86ee1fe653), format(%1%n%2)]
+
+  syntax Expr ::= Id
+  syntax Expr ::= Value
+  syntax Value ::= Bool
+  syntax KResult ::= Value
+
+  syntax priority krsgroup-35f1322f2f4f01e6affff031 > krsgroup-ef11204726b39d86ee1fe653
+
+  syntax right krsgroup-ef11204726b39d86ee1fe653
+endmodule
+
+module KRS-M3C-IMP
+  imports BOOL-SYNTAX
+  imports KRS-M3B-CALC
+  imports KRS-M3C-IMP-SYNTAX
+
+  rule [block]:
+    <k> { V53:Stmt } => V53:Stmt ~> { } ... </k>
+  rule [done]:
+    <k> { } => .K ... </k>
+  rule [if-else]:
+    <k> if ( V43:Expr ) V53:Stmt => if ( V43:Expr ) V53:Stmt else { } ... </k>
+  rule [if-false]:
+    <k> if ( false ) _ else V5332:Stmt => V5332:Stmt ... </k>
+  rule [if-true]:
+    <k> if ( true ) V5331:Stmt else _ => V5331:Stmt ... </k>
+  rule [while]:
+    <k> while ( V43:Expr ) V53:Stmt => if ( V43:Expr ) { V53:Stmt while ( V43:Expr ) V53:Stmt } else { } ... </k>
+endmodule
+
+module KRS-M3C-IMP-SYNTAX
+  imports KRS-M3B-CALC-SYNTAX
+
+  syntax Stmt ::= "{" Stmt "}" [symbol(block), format(%1%i%n%2%d%n%3)]
+  syntax Stmt ::= "{" "}" [symbol(emptyBlock), format(%1%2)]
+  syntax Stmt ::= "if" "(" Expr ")" Stmt [symbol(ifThen), group(krsgroup-35f1322f2f4f01e6affff031), format(%1 %2%3%4 %5)]
+  syntax Stmt ::= "if" "(" Expr ")" Stmt "else" Stmt [symbol(ifThenElse), group(krsgroup-35f1322f2f4f01e6affff031), strict(1), result(KResult), avoid, format(%1 %2%3%4 %5 %6 %7)]
+  syntax Stmt ::= "while" "(" Expr ")" Stmt [symbol(while), group(krsgroup-35f1322f2f4f01e6affff031), format(%1 %2%3%4 %5)]
+endmodule
+"#,
+    );
+}
+
+fn assert_definition_structure(lowered: &LoweredDefinition) {
+    let modules = lowered
+        .definition()
+        .modules()
+        .iter()
+        .map(|module| (module.id().as_str(), module))
+        .collect::<BTreeMap<_, _>>();
+    let syntax = modules[IMP_SYNTAX];
+    let productions = syntax
+        .sentences()
+        .iter()
+        .filter_map(|sentence| match sentence {
+            DefinitionSentence::Production(production) => Some(production),
+            _ => None,
+        })
+        .map(|production| (production.symbol().emitted_name(), production))
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(
+        productions.keys().copied().collect::<Vec<_>>(),
+        ["block", "emptyBlock", "ifThen", "ifThenElse", "while"]
+    );
+    let if_else = productions["ifThenElse"];
+    assert!(if_else.attributes().iter().any(|attribute| matches!(
+        attribute,
+        ProductionAttribute::Strictness { fields, .. }
+            if fields.iter().map(krs_ir::ProductionFieldReference::field).eq([&field("condition")])
+    )));
+    assert!(
+        if_else
+            .attributes()
+            .iter()
+            .any(|attribute| matches!(attribute, ProductionAttribute::Avoid { .. }))
+    );
+    assert!(!productions["while"]
+        .attributes()
+        .iter()
+        .any(|attribute| matches!(attribute, ProductionAttribute::Strictness { .. })));
+
+    let rules = modules[IMP]
+        .sentences()
+        .iter()
+        .filter_map(|sentence| match sentence {
+            DefinitionSentence::Rule(rule) => Some(rule),
+            _ => None,
+        })
+        .map(|rule| (rule.label().emitted_name(), rule))
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(
+        rules.keys().copied().collect::<Vec<_>>(),
+        ["block", "done", "if-else", "if-false", "if-true", "while"]
+    );
+    assert!(rules.values().all(|rule| matches!(
+        rule.relational_body(),
+        DefinitionRuleBody::Configuration(body)
+            if body.clauses().len() == 1 && body.omitted_siblings().len() == 1
+    )));
+    let DefinitionRuleBody::Configuration(done) = rules["done"].relational_body() else {
+        unreachable!()
+    };
+    assert!(matches!(
+        done.clauses()[0].after(),
+        CellPost::Replace { term }
+            if matches!(term.kind(), DefinitionTermKind::KSequence { items, .. }
+                if items.is_empty())
+    ));
+    let DefinitionRuleBody::Configuration(block) = rules["block"].relational_body() else {
+        unreachable!()
+    };
+    assert!(matches!(
+        block.clauses()[0].after(),
+        CellPost::Replace { term }
+            if matches!(term.kind(), DefinitionTermKind::KSequence { items, .. }
+                if items.len() == 2)
+    ));
+}
+
+fn assert_sidecars_and_determinism(lowered: &LoweredDefinition, emitted: &EmittedK) {
+    let label_names = emitted
+        .symbol_map()
+        .entries()
+        .iter()
+        .filter_map(|entry| match entry.identity() {
+            krs_compiler::MappedIdentity::Label(_) => Some(entry.emitted_name()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        label_names,
+        BTreeSet::from(["block", "done", "if-else", "if-false", "if-true", "while"])
+    );
+    let mut counts = BTreeMap::new();
+    let mut missing = BTreeMap::new();
+    for entry in emitted.source_map().entries() {
+        *counts.entry(entry.node_kind()).or_insert(0_usize) += 1;
+        if entry.generated().is_none() {
+            *missing.entry(entry.node_kind()).or_insert(0_usize) += 1;
+        }
+        assert!(matches!(
+            entry.origin().frames().first(),
+            Some(OriginFrame::Ranged {
+                kind: RangedOriginKind::Authored,
+                ..
+            })
+        ));
+        assert!(matches!(
+            entry.origin().frames().last(),
+            Some(OriginFrame::Transformation {
+                kind: TransformationOriginKind::DefinitionIr,
+                ..
+            })
+        ));
+    }
+    assert_eq!(counts[&SourceMapNodeKind::Production], 7);
+    assert_eq!(counts[&SourceMapNodeKind::Rule], 6);
+    assert_eq!(counts[&SourceMapNodeKind::ConfigurationRewrite], 6);
+    assert_eq!(counts[&SourceMapNodeKind::CellClause], 6);
+    assert_eq!(counts[&SourceMapNodeKind::CellFrame], 6);
+    assert_eq!(missing[&SourceMapNodeKind::ProductionGroup], 2);
+    assert_eq!(missing[&SourceMapNodeKind::ConfigurationRewrite], 6);
+
+    let repeated = lower_semantic_theory(&m3c_theory(M3cOptions::default()).unwrap()).unwrap();
+    assert_eq!(
+        lowered.definition().to_canonical_json().unwrap(),
+        repeated.definition().to_canonical_json().unwrap()
+    );
+    assert_eq!(
+        lowered.source_map().to_canonical_json().unwrap(),
+        repeated.source_map().to_canonical_json().unwrap()
+    );
+    assert_eq!(
+        lowered.symbol_map().to_canonical_json().unwrap(),
+        repeated.symbol_map().to_canonical_json().unwrap()
+    );
+}
+
+#[test]
+fn exact_m3c_control_flow_lowers_and_emits_canonical_k() {
+    let semantic = m3c_theory(M3cOptions::default()).unwrap();
+    let lowered = lower_semantic_theory(&semantic).unwrap();
+    let emitted = emit_k(&lowered).unwrap();
+    assert_definition_structure(&lowered);
+    assert_exact_source(emitted.source());
+    assert_sidecars_and_determinism(&lowered, &emitted);
+}
+
+#[test]
+fn undeclared_wildcard_and_invalid_control_label_fail_typed() {
+    assert!(matches!(
+        m3c_theory(M3cOptions {
+            omit_if_true_wildcard: true,
+            ..M3cOptions::default()
+        }),
+        Err(SemanticValidationError::DanglingVariable(_))
+    ));
+    let invalid = m3c_theory(M3cOptions {
+        invalid_first_label: true,
+        ..M3cOptions::default()
+    })
+    .unwrap();
+    assert!(matches!(
+        lower_semantic_theory(&invalid),
+        Err(LoweringError::InvalidEmittedName {
+            role: "rule label",
+            value,
+        }) if value == "if.true"
+    ));
+}
+
+#[test]
+#[ignore = "requires pin-matched K 7.1.337 tools"]
+fn emitted_m3c_source_compiles_with_pinned_reference_frontend() {
+    use std::fs;
+    use std::process::Command;
+
+    let version = Command::new("kompile")
+        .arg("--version")
+        .output()
+        .expect("pin-matched kompile must be on PATH");
+    assert!(version.status.success());
+    assert!(String::from_utf8_lossy(&version.stdout).contains("v7.1.337"));
+
+    let temporary = std::env::temp_dir().join(format!(
+        "krs-compiler-m3c-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("reference")
+    ));
+    fs::create_dir(&temporary).unwrap();
+    let source_path = temporary.join("definition.k");
+    let definition_path = temporary.join("compiled");
+    let lowered = lower_semantic_theory(&m3c_theory(M3cOptions::default()).unwrap()).unwrap();
+    fs::write(&source_path, emit_k(&lowered).unwrap().source()).unwrap();
+    let output = Command::new("kompile")
+        .arg(&source_path)
+        .arg("--main-module")
+        .arg(IMP)
+        .arg("--syntax-module")
+        .arg(IMP_SYNTAX)
+        .arg("--backend")
+        .arg("llvm")
+        .arg("--enable-search")
+        .arg("--output-definition")
+        .arg(&definition_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "kompile rejected canonical M3C source:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(definition_path.join("definition.kore").is_file());
+    fs::remove_dir_all(temporary).unwrap();
+}

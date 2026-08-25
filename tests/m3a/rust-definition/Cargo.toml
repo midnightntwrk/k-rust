@@ -1,0 +1,30 @@
+[package]
+name = "krs-m3a-rust-definition"
+description = "Explicit Rust-authored KRS definition for the M3A IMP expression oracle"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[lib]
+name = "m3a_expr"
+
+[dependencies]
+k = { package = "krs", path = "../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-M3A-EXPR"
+
+[package.metadata.krs.definitions.main]
+root = "crate"
+syntax-root = "crate"
+
+[workspace]
+resolver = "3"
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"

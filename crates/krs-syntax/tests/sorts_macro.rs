@@ -1,0 +1,82 @@
+//! Folded sort-block parser and provenance tests.
+
+use krs_syntax::{ProvenanceRole, SortsEntry, parse_sorts_declaration_source};
+
+#[test]
+fn declarations_bounds_brackets_and_memberships_preserve_order() {
+    let declaration = parse_sorts_declaration_source(
+        r#"
+            #[k::bracket("(", ")")]
+            Expr;
+            impl Expr for builtin::Id;
+            Value: Expr + k::KResult;
+            impl Value for builtin::Int, builtin::Bool;
+            Stmt;
+        "#,
+    )
+    .unwrap();
+    assert_eq!(declaration.entries().len(), 5);
+
+    let SortsEntry::Sort(expr) = &declaration.entries()[0] else {
+        panic!("first entry must be Expr")
+    };
+    assert_eq!(expr.name(), "Expr");
+    assert_eq!(expr.brackets().len(), 1);
+    assert_eq!(
+        expr.bracket_provenance(&expr.brackets()[0])
+            .unwrap()
+            .iter()
+            .filter(|anchor| anchor.role() == ProvenanceRole::BracketValueReference)
+            .count(),
+        1
+    );
+
+    let SortsEntry::Sort(value) = &declaration.entries()[2] else {
+        panic!("third entry must be Value")
+    };
+    assert_eq!(value.parents().len(), 2);
+    assert_eq!(
+        value
+            .provenance()
+            .unwrap()
+            .iter()
+            .filter(|anchor| anchor.role() == ProvenanceRole::SortParent)
+            .count(),
+        2
+    );
+
+    let SortsEntry::Membership(membership) = &declaration.entries()[3] else {
+        panic!("fourth entry must be Value membership")
+    };
+    assert_eq!(membership.members().len(), 2);
+    for member in membership.members() {
+        let anchors = membership.member_provenance(member).unwrap();
+        assert_eq!(anchors[0].role(), ProvenanceRole::SubsortDeclaration);
+        assert_eq!(anchors[1].role(), ProvenanceRole::SubsortSuperSort);
+        assert_eq!(anchors[2].role(), ProvenanceRole::SubsortSubSort);
+    }
+}
+
+#[test]
+fn membership_only_blocks_are_supported() {
+    let declaration =
+        parse_sorts_declaration_source("impl crate::Expr for crate::Feature;").unwrap();
+    assert!(matches!(declaration.entries(), [SortsEntry::Membership(_)]));
+}
+
+#[test]
+fn malformed_or_ambiguous_lines_are_rejected_locally() {
+    for source in [
+        "",
+        "Expr",
+        "Value:;",
+        "impl Value Int;",
+        "impl Value for;",
+        "impl Value for Int,;",
+        "#[k::unknown] Expr;",
+        "#[k::bracket(\"(\", \")\")] impl Expr for Id;",
+        "impl Value<T> for Int;",
+    ] {
+        assert!(parse_sorts_declaration_source(source).is_err(), "{source}");
+    }
+}
