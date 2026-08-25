@@ -1353,6 +1353,7 @@ pub(crate) fn init(attributes: TokenStream, item: TokenStream) -> syn::Result<To
         });
     }
     let cells = builder.expand_cells(initializer.cells(), &quote!(Self))?;
+    let island_import_checks = initializer_state_island_import_checks(initializer.cells());
     builder
         .key_functions
         .append(&mut builder.terms.key_functions);
@@ -1382,6 +1383,9 @@ pub(crate) fn init(attributes: TokenStream, item: TokenStream) -> syn::Result<To
             #facade::HostConfigurationInitializer,
             #facade::HostProvenance,
         ) {
+            let _krs_path_check = || {
+                #(#island_import_checks)*
+            };
             fn __krs_type_key<T: ?Sized + 'static>() -> ::core::any::TypeId {
                 ::core::any::TypeId::of::<T>()
             }
@@ -6023,6 +6027,45 @@ fn wrapper_type_check(path: &Path) -> TokenStream {
     // instead re-roots bare `Cell`/`KCell` spellings during expansion.
     quote! {
         let _: ::core::marker::PhantomData<#path<()>> = ::core::marker::PhantomData;
+    }
+}
+
+fn initializer_state_island_import_checks(cells: &[FixedCellInitializer]) -> Vec<TokenStream> {
+    let mut paths = Vec::new();
+    append_initializer_state_islands(cells, &mut paths);
+    island_import_checks(paths)
+}
+
+fn append_initializer_state_islands(cells: &[FixedCellInitializer], output: &mut Vec<Path>) {
+    for cell in cells {
+        match cell.content() {
+            InitializerCellContent::Leaf { .. } => {
+                let expression = &cell.field().expr;
+                let macro_expression = match expression {
+                    syn::Expr::Macro(expression) => Some(expression),
+                    syn::Expr::Call(call) => {
+                        call.args.first().and_then(|argument| match argument {
+                            syn::Expr::Macro(expression) => Some(expression),
+                            _ => None,
+                        })
+                    }
+                    _ => None,
+                };
+                if let Some(expression) = macro_expression
+                    && expression.mac.path.leading_colon.is_none()
+                    && expression.mac.path.segments.len() == 1
+                    && matches!(
+                        expression.mac.path.segments[0].ident.to_string().as_str(),
+                        "k" | "map"
+                    )
+                {
+                    output.push(expression.mac.path.clone());
+                }
+            }
+            InitializerCellContent::Nested { children, .. } => {
+                append_initializer_state_islands(children, output);
+            }
+        }
     }
 }
 
