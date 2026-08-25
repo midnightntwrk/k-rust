@@ -8,17 +8,17 @@ Use this directory as the development repository and reconcile its signed,
 verified recovery import forward into a green post-F7 baseline. Do not spend
 more time trying to manufacture an exact checkout of `9d507b0`: the surviving
 forensic routes have been exhausted. The implementation sources needed to
-continue are present, but Phase 4 qualification proved that the imported tree
-is missing the top-level M3D oracle package required by M4. Restore that package
-with explicit reconstruction provenance before refreshing the M4 source
-ledger.
+continue are present. Phase 4 qualification exposed a missing top-level M3D
+oracle package required by M4; that bounded package has now been functionally
+reconstructed and independently qualified with explicit provenance. Promote
+and classify the recovered M4 ledger next, without changing its behavioral
+pins.
 
 The implementation seams are now reconstructed through the macro fixtures,
-compiler, CLI, and native adapter, and qualification is green through C7/Q8.
-Recovery has one bounded source-reconstruction package left: M3D's frozen
-reference verifier, pins, fixtures, claims, and static corpus. Feature work
-resumes only after that package and the full M4 oracle pass from a clean signed
-commit. Then continue the interrupted readability program: finish the
+compiler, CLI, native adapter, and independent M3D oracle; qualification is
+green through C7/Q8 and the standalone reconstructed M3D gate. Feature work
+resumes only after the full M4 oracle passes from a clean signed commit. Then
+continue the interrupted readability program: finish the
 normative `draft/readability/spec`, make its IMP specimen executable with
 expansion and semantic parity, and qualify the same authoring layer on KWasm
 before moving to larger K corpora.
@@ -120,8 +120,10 @@ remote and deliberately contains no reconstructed original objects:
   collector-planning qualification;
 - `1ffb361` — recovered macro fixture inventory, initializer import hygiene,
   nonlinear-binding qualification, and missing negative-fixture
-  reconstruction.
-- `d741692` — recovery audit advanced to the qualification sequence.
+  reconstruction;
+- `d741692` — recovery audit advanced to the qualification sequence;
+- `24b6a64` — full workspace, MSRV, syntax/F7, and C7/Q8 qualification, with
+  the missing M3D package isolated as the remaining source gap.
 
 Every new commit and the import tag verify against the configured ED25519 Git
 signing key. Valid signed original commit objects survive in the evidence
@@ -514,7 +516,15 @@ hash differs from the recovered 23-parse `corpus.json`. Attempting the
 mechanical source-ledger projection against the current tree fails because the
 M3D reference source is absent. This is correct fail-closed behavior.
 
-### Remaining Phase 4 source package — M3D oracle reconstruction
+The missing M3D package has since been functionally reconstructed and its
+standalone gate passes under K 7.1.337. The retained post-C7 M4 ledger provides
+an independent cross-check: all eleven shared normalized proof records match
+exactly, including the incomplete depth-zero frontier and all five adjunct
+claim identities. The reconstructed gate pins evidence digest
+`6f9ee63c8d152853e994917b53478312ada2b6582401bf00131b6c7ead51bce4`.
+M4 ledger promotion and full semantic execution remain pending.
+
+### Qualified Phase 4 source package — M3D oracle reconstruction
 
 The imported tree retained the M3D Rust-authored implementation slices but
 lost eight top-level oracle files that existed at the last green M4 checkpoint:
@@ -545,7 +555,7 @@ surviving copy of the critical files. Independent contracts still preserve:
 - the static execution result `x = 6, y = 0` and the last green M4 aggregate
   recorded below.
 
-Proceed in this order:
+The reconstruction followed this order:
 
 1. Reconstruct the eight-file M3D package from the retained M3D authored
    slices, M4 reference-policy code, upstream pinned IMP sources, diagnostic
@@ -555,12 +565,21 @@ Proceed in this order:
 2. Run the reconstructed standalone M3D source, execution, diagnostic, and
    proof gate under K 7.1.337. Preserve the old semantic pins where their
    complete values survive; do not infer proof success from exit status.
-3. Promote the 267-entry post-C7 ledger as the M4 behavioral starting point,
+
+Both steps pass. The likely original cell-ellipsis claim framing was recovered
+by comparing normalized claim identities rather than by relaxing pins. All six
+inherited IMP invocations and five independent adjunct claims reproduce their
+surviving M4 records exactly. Every new top-level M3D file remains labeled a
+functional reconstruction because none matches a surviving original blob.
+
+Proceed with the remaining Phase 4 work:
+
+1. Promote the 267-entry post-C7 ledger as the M4 behavioral starting point,
    then mechanically refresh only source identities whose path-by-path reason
    is recorded. The root source-ledger path policy is newer than the 267-entry
    ledger, so path-set changes must be classified as well as hash changes.
-4. Run the complete M4.1-M4.8 oracle inside the pinned K/Z3 environment.
-5. If and only if all semantic evidence matches, commit the source-ledger
+2. Run the complete M4.1-M4.8 oracle inside the pinned K/Z3 environment.
+3. If and only if all semantic evidence matches, commit the source-ledger
    reconciliation separately and repeat M4 from a clean tree.
 
 The semantic target is the recorded 23/31/246/16 result, 21 bounded proofs,
@@ -638,14 +657,12 @@ implementation authority.
 
 Proceed in this order, stopping on the first unexplained semantic failure:
 
-1. Reconstruct and qualify the missing eight-file top-level M3D oracle package;
-   keep exact and functional reconstructions explicitly distinct.
-2. Promote and classify the recovered 267-entry post-C7 M4 ledger without
+1. Promote and classify the recovered 267-entry post-C7 M4 ledger without
    changing behavioral pins.
-3. Run the complete M4 oracle with the recorded K/Z3 environment, reconcile
+2. Run the complete M4 oracle with the recorded K/Z3 environment, reconcile
    only justified source identities, and repeat from a clean tree.
-4. Sign the resulting green commit as the reconstructed post-F7 baseline.
-5. Begin Phase 5 at the normative readability spec, qualify the new surface on
+3. Sign the resulting green commit as the reconstructed post-F7 baseline.
+4. Begin Phase 5 at the normative readability spec, qualify the new surface on
    IMP, then execute the KWasm-first Phase 6 ladder.
 
 ## Audit hygiene
