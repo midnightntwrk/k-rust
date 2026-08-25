@@ -1,0 +1,459 @@
+{
+  "schemaVersion": 1,
+  "task": "R3-G-04-k-native-rule-applied-next-event",
+  "verdict": "pass",
+  "activationRevision": "68c95e7f336eb07be4c5bf05246e99c1c64bef18",
+  "startingRevision": "68c95e7f336eb07be4c5bf05246e99c1c64bef18",
+  "packetRepairRevision": "84ec8a95221f877c4ca810a96b8126477577d2fa",
+  "substantiveFullOracleCycleCount": 3,
+  "cycleHistory": [
+    {
+      "cycle": 1,
+      "verdict": "packet ambiguity discovered",
+      "finalEvidence": false,
+      "finding": "the originally mandated bump + bump + bump input had two parses in the accepted non-associative syntax",
+      "resolution": "root packet repair 84ec8a9 replaced it with hold(bump + bump) + bump"
+    },
+    {
+      "cycle": 2,
+      "verdict": "pass",
+      "finalEvidence": false,
+      "purpose": "validate repaired fixture and complete all inherited, matcher, erasure, repeat and failure oracles"
+    },
+    {
+      "cycle": 3,
+      "verdict": "pass",
+      "finalEvidence": true,
+      "purpose": "regenerate committed evidence from the final reporting and assertion sources"
+    }
+  ],
+  "pin": {
+    "k": {
+      "release": "v7.1.337",
+      "commit": "4a46d1231473b599c699160132fd6e76a5c46406",
+      "externalStatus": " M pyk/uv.lock",
+      "frontendJarSha256": "c02efedc7b07e46d20e55543bfb2160c73af3e6a80d71436689656c4b7caf4d2",
+      "resolvedKrun": "/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/bin/krun",
+      "backend": "haskell"
+    },
+    "contracts": {
+      "packetSha256": "f970d1ec48dc9ebc80543338806656ec72d244166896352cb5e1e89bd808daff",
+      "acceptanceCheckpointSha256": "1c42ec0b012764ff50d1a4a15e2f4a13d535d67335b1a30cfe43039cb6b3fd4c",
+      "executionPatternGoalSha256": "ce6a40f0667d09f9c79a17f0f51857e561f95bbcc28592f0b177c45253ed2f43",
+      "dependencyPathPlanSha256": "57ec8fd012fb8a115fb1eae3e153e7c0e92213b5b77fb669e3d8389b729ba253",
+      "packageManifestSha256": "534a5bd9ff18e8012f5d59c483587837d1f9e1b17dad12664e27c55daa587478"
+    },
+    "acceptedR3G03": {
+      "integrationRevision": "6c88e2c97b1e851c74b03dd5afb11b48eb170ac3",
+      "integrationTree": "e6c478dea4204c08bbd89d16e90c3b911e26e1bc",
+      "spineTree": "1b6b4de985eebba250af02b17b2d6bb251687b36",
+      "evidenceTree": "f250584e8b3aff37145555bdd3c41424510fd457",
+      "resultsSha256": "f80886548d4373cdff8ee73d182c89aab2856a6ae7d1059e08978f75d821595d",
+      "reportSha256": "5bba00094746b226f33cd92d7164c88e12899b8319a629c60d319842df19d9ef"
+    },
+    "inputs": {
+      "oneBumpSha256": "46210dddc66714c3d8d226711510cf8421774214016c508c72a833a05370f6b5",
+      "twoBumpSha256": "9e2439bacf107a74303680e75d5bb1c91657aa2ea183fd4bbf60bb1416a6db1c",
+      "threeBumpSha256": "982ae8b05f1b6141c09b901fd78ff5a3b55d09db8cacba43358fbd475d5d977d"
+    },
+    "matcherSources": {
+      "exactPairPatternSha256": "ed110403e09578d282d335a4c1e9fb50edc92d1a433b8ba44f07a8676035e807",
+      "wrongSecondLabelPatternSha256": "e8f90357e3b8ff16a2f5c53c75772c2cbb1dcbad00288032fb67b9a4002ab57d",
+      "projectorSha256": "1fa2ca1906c2d815e9e28c563aa9a1881677a043720c3e779d4c3e344ab3c0f9",
+      "trustedOracleSha256": "dac3a859494443cd49208599e236450eac26b3fba5165b8933f0c1d2f2e871c7",
+      "selftestSha256": "b87a48c0c3cfa71f67dd14d0e666421859b5152d05ab8b39d4d65c3ce182636a",
+      "runtimeProjectorSha256": "4d800215fba75a300105b14ccb4ca07f818d7933331dc059cf54eedaf8fb42f5",
+      "runtimeSelftestSha256": "3006dc941643b67cbcfe277e29d6fbcb4c8ed20772e180b0e3a906b1c0961035",
+      "runtimeSelftestFixtureSha256": "6c143294cf35807c7d4fdc3eb2bb5a3f900ae006de779ab3b1eb324bea8234da",
+      "replaySha256": "bc814a6e92ed7e245b94e653f198d5f2c6004f1fe7e43c0b6facacf247e14999",
+      "verifierSha256": "cd1c51f48e40d55fa3bce532c5dd29adabccde434c7aca29185b712e73c1a62f"
+    }
+  },
+  "resourcePolicy": {
+    "routineVerification": {
+      "backendInvocations": 0
+    },
+    "explicitFullReplay": {
+      "javaMaxHeapMiB": 2048,
+      "javaActiveProcessorCount": 2,
+      "overrideBounds": {
+        "javaMaxHeapMiB": [
+          512,
+          4096
+        ],
+        "javaActiveProcessorCount": [
+          1,
+          4
+        ]
+      }
+    },
+    "reason": "avoid workstation exhaustion from the K launcher defaulting each Java process to an 8 GiB heap"
+  },
+  "acceptanceFinalization": {
+    "rootFullReplayCompleted": true,
+    "finalEvidenceRegeneratedFromRootReplayOutput": true,
+    "backendInvocationsDuringFinalization": 0
+  },
+  "patterns": [
+    {
+      "name": "exact-pair",
+      "text": "<trace>\n  ListItem(ruleApplied(ruleOrigin(\n    ID:String, LABEL:String, MODULE:String, SOURCE:String, LOCATION:String)))\n  ListItem(ruleApplied(ruleOrigin(\n    ID, LABEL, MODULE, SOURCE, LOCATION)))\n  .List\n</trace>",
+      "sha256": "ed110403e09578d282d335a4c1e9fb50edc92d1a433b8ba44f07a8676035e807",
+      "sharedVariables": [
+        "ID",
+        "LABEL",
+        "MODULE",
+        "SOURCE",
+        "LOCATION"
+      ],
+      "literalTail": ".List"
+    },
+    {
+      "name": "wrong-second-label",
+      "text": "<trace>\n  ListItem(ruleApplied(ruleOrigin(\n    ID:String, LABEL:String, MODULE:String, SOURCE:String, LOCATION:String)))\n  ListItem(ruleApplied(ruleOrigin(\n    ID, \"known-unequal-label\", MODULE, SOURCE, LOCATION)))\n  .List\n</trace>",
+      "sha256": "e8f90357e3b8ff16a2f5c53c75772c2cbb1dcbad00288032fb67b9a4002ab57d",
+      "constrainedSecondLabel": "known-unequal-label",
+      "literalTail": ".List"
+    }
+  ],
+  "ownership": {
+    "k": [
+      "match two adjacent ListItem/ruleApplied/ruleOrigin constructor graphs",
+      "enforce five shared typed origin variables across both positions",
+      "enforce literal .List exact exhaustion",
+      "enforce unequal second-label constraint",
+      "return official substitution or exact Bottom"
+    ],
+    "host": [
+      "validate pinned KAST v4 envelope and nodes",
+      "flatten And/Equals substitution",
+      "require five named bindings once and exact three generated completion shapes",
+      "decode canonical tokens and compare raw origin with independent driver and runtime",
+      "project ordered portable witnesses only after raw validation"
+    ]
+  },
+  "invocations": {
+    "mode": "absolute krun --pattern --output json",
+    "backend": "haskell",
+    "total": 8,
+    "normalSuccessfulExitCount": 8,
+    "search": false,
+    "symbolic": false,
+    "repeats": [
+      "composition-a",
+      "composition-b"
+    ],
+    "perRepeat": [
+      "two-bump exact pair",
+      "one-bump exact pair",
+      "three-bump exact pair",
+      "two-bump wrong second label"
+    ]
+  },
+  "positiveMatch": {
+    "bindingSorts": {
+      "ID": "String",
+      "LABEL": "String",
+      "LOCATION": "String",
+      "MODULE": "String",
+      "SOURCE": "String"
+    },
+    "constructors": [
+      "RuleApplied",
+      "RuleApplied"
+    ],
+    "eventIndices": [
+      0,
+      1
+    ],
+    "exactTraceExhaustion": {
+      "literal": ".List",
+      "ownedBy": "K",
+      "remainingEventCount": 0
+    },
+    "generatedCompletionBindings": {
+      "allowed": true,
+      "count": 3,
+      "namesOmitted": true
+    },
+    "rawValidation": {
+      "bothRawRuntimeOriginsEqualSubstitutionAndDriverTarget": true,
+      "fiveFieldSubstitutionEqualsDriverTarget": true,
+      "portableProjectionAfterRawValidation": true,
+      "rawValuesOmitted": true,
+      "twoRawRuntimeOriginsEqual": true
+    },
+    "status": "match",
+    "witnesses": [
+      {
+        "origin": {
+          "id": "54a064c17f3eca9ce1b5619a3534d7898d572a42b209f9f17bb552dd266756e0",
+          "label": "bump-state",
+          "location": "Location(36,8,39,28)",
+          "module": "R3-G-01-P3-TRACE",
+          "source": "repo://spine/trace-configuration-composition/fixtures/p3-trace.k"
+        }
+      },
+      {
+        "origin": {
+          "id": "54a064c17f3eca9ce1b5619a3534d7898d572a42b209f9f17bb552dd266756e0",
+          "label": "bump-state",
+          "location": "Location(36,8,39,28)",
+          "module": "R3-G-01-P3-TRACE",
+          "source": "repo://spine/trace-configuration-composition/fixtures/p3-trace.k"
+        }
+      }
+    ]
+  },
+  "noMatch": {
+    "tooShort": {
+      "classification": "exhaustive terminating concrete execution",
+      "officialResult": "#Bottom{GeneratedTopCell}()",
+      "status": "no-match",
+      "query": "one event against exact pair"
+    },
+    "nonExhausted": {
+      "classification": "exhaustive terminating concrete execution",
+      "officialResult": "#Bottom{GeneratedTopCell}()",
+      "status": "no-match",
+      "query": "three events against literal .List exact pair"
+    },
+    "wrongSecondLabel": {
+      "classification": "exhaustive terminating concrete execution",
+      "officialResult": "#Bottom{GeneratedTopCell}()",
+      "status": "no-match",
+      "query": "two events with unequal literal at position one"
+    }
+  },
+  "validation": {
+    "officialFormat": "KAST",
+    "officialVersion": 4,
+    "exactBottomShape": "#Bottom{GeneratedTopCell}()",
+    "resolvedKrunIsPinnedKompileSibling": true,
+    "rawFiveFieldValuesValidatedAndOmitted": true,
+    "bothRawOccurrencesValidatedBeforePortableProjection": true,
+    "noPrettyMatcherOutputConsumed": true,
+    "noHostTraceSearchOrPairMatching": true,
+    "trustedSmallStructuralOracle": {
+      "fiveSharedWitnessTermsEqualDriverTarget": true,
+      "fiveSharedWitnessTermsPresentOnce": true,
+      "namedBindingCount": 5,
+      "officialKastVersion": 4,
+      "syntheticRestBindingAbsent": true
+    }
+  },
+  "repeatInvariants": {
+    "allFourRawKastByteIdentical": true,
+    "allFourProjectionsByteIdentical": true,
+    "rawRuntimeProjectionByteIdentical": true,
+    "portableWitnessByteIdentical": true,
+    "bothFreshDefinitionsConsumed": true,
+    "noDefinitionTransformationByMatcher": true,
+    "noRuntimeTransitionAddedByMatcher": true
+  },
+  "conservativity": {
+    "twoBumpInstrumentedAndBaselineKStateEqualAfterTraceErasure": true,
+    "bothFreshInstrumentedRepeatsChecked": true,
+    "invocations": {
+      "mode": "absolute krun concrete runtime",
+      "total": 4,
+      "normalSuccessfulExitCount": 4,
+      "perRepeat": [
+        "fresh instrumented two-bump execution",
+        "baseline two-bump execution"
+      ],
+      "repeats": [
+        "composition-a/baseline-a",
+        "composition-b/baseline-b"
+      ]
+    }
+  },
+  "inheritedOracles": {
+    "acceptedR3G03ReplayFromDetachedIntegration": true,
+    "acceptedEvidenceRegeneratedAndByteCompared": true,
+    "freshCompositionDefinitionsConsumed": true,
+    "packagePinPreserved": true,
+    "acceptedBuildDirectoriesUntouched": true
+  },
+  "projectorFailures": {
+    "caseCount": 26,
+    "cases": [
+      {
+        "case": "GeneratedCounterCell body wrong sort",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "KCell body is not KSequence",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "KCell sequence item wrong sort",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "StateCell body wrong sort",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "duplicated generated completion",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "duplicated named binding",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "generated completion noncanonical Int",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "host-supplied non-exhaustion claim",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "host-supplied synthetic REST",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "malformed Bottom",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "malformed string token",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "missing generated completion",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "missing named binding",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "named variable appears twice",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "non-integer KAST version",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "noncanonical string token",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "raw origin differs from driver",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "raw runtime origins differ",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "residual KAST content",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "trailing JSON",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "unexpected named binding",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "unsupported KAST node",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "unsupported KAST version",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "wrong generated completion wrapper",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "wrong token sort",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "wrong variable sort",
+        "classification": "error",
+        "rejected": true
+      }
+    ],
+    "classification": "projector envelope errors, never semantic no-match",
+    "compilerBackendInvocations": 0,
+    "verdict": "pass"
+  },
+  "runtimeProjectorFailures": {
+    "caseCount": 4,
+    "cases": [
+      {
+        "case": "detached event and origin terms",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "missing ListItem wrapper",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "residual trace syntax",
+        "classification": "error",
+        "rejected": true
+      },
+      {
+        "case": "wrong exact event count",
+        "classification": "error",
+        "rejected": true
+      }
+    ],
+    "classification": "runtime projection errors, never synthesized events",
+    "compilerBackendInvocations": 0,
+    "validExactEventCount": 2,
+    "verdict": "pass"
+  },
+  "limitations": [
+    "exactly two concrete adjacent occurrences of one RuleApplied origin",
+    "observed-event clock only",
+    "no distinct-event order, gap, subsequence scan or eventually-after",
+    "no reusable temporal contract, symbolic execution, search, solver, monitor, corpus or domain event"
+  ],
+  "ambiguity": "none requiring a split",
+  "ambiguityHistory": {
+    "cycleOneParseAmbiguityRecorded": true,
+    "resolvedByRootPacketRepair": "84ec8a95221f877c4ca810a96b8126477577d2fa",
+    "remainingAmbiguityRequiringSplit": false
+  },
+  "recommendedNextLeaf": "atomic multi-rule producer/allowlist packet",
+  "multiRuleProducerDependencyUnblocked": true
+}
