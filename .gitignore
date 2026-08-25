@@ -1,4 +1,6 @@
 node_modules/
+.DS_Store
+._*
 oracle/results/
 p1/build/
 p2/build/
