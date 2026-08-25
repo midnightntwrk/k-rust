@@ -7,16 +7,21 @@ Updated: 2026-08-25 JST
 Use this directory as the development repository and reconcile its signed,
 verified recovery import forward into a green post-F7 baseline. Do not spend
 more time trying to manufacture an exact checkout of `9d507b0`: the surviving
-forensic routes have been exhausted, but all authored source, documentation,
-configuration, and test paths needed to continue are present.
+forensic routes have been exhausted. The implementation sources needed to
+continue are present, but Phase 4 qualification proved that the imported tree
+is missing the top-level M3D oracle package required by M4. Restore that package
+with explicit reconstruction provenance before refreshing the M4 source
+ledger.
 
 The implementation seams are now reconstructed through the macro fixtures,
-compiler, CLI, and native adapter. Recovery is in qualification, not source
-triage. Feature work resumes only after the full workspace, F7, C7, and M4
-oracles pass from a clean signed commit. Then continue the interrupted
-readability program: finish the normative `draft/readability/spec`, make its
-IMP specimen executable with expansion and semantic parity, and qualify the
-same authoring layer on KWasm before moving to larger K corpora.
+compiler, CLI, and native adapter, and qualification is green through C7/Q8.
+Recovery has one bounded source-reconstruction package left: M3D's frozen
+reference verifier, pins, fixtures, claims, and static corpus. Feature work
+resumes only after that package and the full M4 oracle pass from a clean signed
+commit. Then continue the interrupted readability program: finish the
+normative `draft/readability/spec`, make its IMP specimen executable with
+expansion and semantic parity, and qualify the same authoring layer on KWasm
+before moving to larger K corpora.
 
 ## Authorities and path translation
 
@@ -49,7 +54,7 @@ Several of its recommendations are now obsolete.
 |---|---|
 | Search for the missing evidence tree | It is present under `../recovery/evidence/` and has been reviewed. |
 | The stable macro expander was unavailable | An exact 6,300-line `fbccdc7` expander is present. The extracted 486-line variant was only an old clean-prefix replay and has now been replaced. |
-| Sixty-seven clean-commit source paths might be absent | All 67 are materialized from other evidence. The only absent signed-commit paths are a debug archive and built executable. |
+| Sixty-seven clean-commit source paths might be absent | Most implementation paths were materialized from other evidence, but Phase 4 found that eight top-level M3D oracle files required by M4 were not transferred. Their historical Git identities survive; their blobs do not. The debug archive and built executable remain irrelevant generated artifacts. |
 | Continue raw-object recovery before development | Targeted loose-object, pack-index, allocated-block, and retain-all unallocated scans are complete. No known recovery route remains worth blocking on. |
 | Maintain two speculative active reconstruction lines | Preserve one exact import commit, then reconcile forward. The import commit and immutable evidence retain every alternative needed for comparison. |
 
@@ -70,12 +75,14 @@ forensics and not a fabricated byte-exact Git history.
   ledger path is absent or differs in that tagged import.
 - `krs.RECOVERY_PROVENANCE.md` is deliberately outside that 580-file project
   ledger.
-- `../recovery/evidence/krs-transfer-completeness-20260825.md` establishes that
-  every authored source, documentation, configuration, and test path from the
-  signed `9d507b0` tree is materialized.
-- The only two signed-tree paths not transferred are `kore-exec.tar.gz` and
-  `test`, both generated/debug build artifacts. They are not reconstruction
-  inputs.
+- `../recovery/evidence/krs-transfer-completeness-20260825.md` was useful for
+  the initial transfer audit, but its claim that every authored test path is
+  materialized is superseded by the executable M4 preflight described below.
+  In particular, `tests/m3d/verify.py`, `pins.json`, and the reference corpus
+  are absent.
+- Outside the missing authored M3D oracle package, the two intentionally
+  untransferred signed-tree paths are `kore-exec.tar.gz` and `test`, both
+  generated/debug build artifacts. They are not reconstruction inputs.
 
 The extraction problem is checkpoint coherence, not missing authored files or
 random corruption.
@@ -114,6 +121,7 @@ remote and deliberately contains no reconstructed original objects:
 - `1ffb361` — recovered macro fixture inventory, initializer import hygiene,
   nonlinear-binding qualification, and missing negative-fixture
   reconstruction.
+- `d741692` — recovery audit advanced to the qualification sequence.
 
 Every new commit and the import tag verify against the configured ED25519 Git
 signing key. Valid signed original commit objects survive in the evidence
@@ -344,6 +352,11 @@ The current `tests/m4/pins.json` is an older 22-parse ledger. The displaced
 `tests/m3c/m4/pins.json` is the best recovered post-C7 pre-F7 ledger: it has
 267 source identities and the exact 23-parse evidence hash recorded above.
 
+Qualification on 2026-08-25 confirmed that neither ledger is directly
+runnable as imported. The current ledger correctly fails its corpus hash, and
+the 267-entry ledger names M3D reference inputs that are absent from the tree.
+Restore M3D before treating ledger refresh as an allowed operation.
+
 After transfer artifacts are removed, use the 267-entry ledger as the
 starting recovery oracle. Classify differences rather than copying all pinned
 files over the current tree: some differences are intentional F7 additions,
@@ -454,7 +467,7 @@ Exit criterion met by signed commit `1ffb361`. The exact runner is retained;
 the expander and six missing fixture sources are documented functional
 reconstructions.
 
-### Phase 3 — reconcile the recovered late IR line — source reconstruction complete
+### Phase 3 — reconcile the recovered late implementation line — complete
 
 1. `krs-ir` unit and integration targets now compile and pass on both
    toolchains; obsolete tests and goldens are reconciled.
@@ -468,34 +481,87 @@ reconstructions.
    integration passes.
 5. The locked all-target workspace check passes after the macro milestone.
 
-Source-reconstruction criterion met: the locked workspace check and every
-focused crate gate pass, and every recovery-only compatibility layer is
-explained. The full integrated workspace test run is deliberately the first
-Phase 4 qualification gate rather than a source-reconstruction blocker.
+Implementation-reconstruction criterion met: the locked workspace check and
+every focused crate gate pass, and every recovery-only compatibility layer is
+explained. This does not include the independent M3D oracle package; Phase 4's
+fail-closed M4 preflight is the authority for that separate test-evidence
+boundary.
 
 ### Phase 4 — establish the new green recovery baseline — active
 
-Run, in order:
+Qualification completed on 2026-08-25:
 
-1. Run the full default-toolchain workspace tests, Clippy `-D warnings`, docs,
-   and doc tests from the clean `1ffb361` checkpoint. The locked all-target
-   check already passes. Classify the existing formatter diff before changing
-   it: the installed rustfmt disagrees with recovered historical formatting in
-   files outside the macro repair, while Rust 1.88 rustfmt is unavailable.
-2. Run all required Rust 1.88 workspace checks. Targeted IR, compiler, adapter,
-   CLI, and macro MSRV gates already pass.
-3. Run the complete syntax suite and the existing focused F7
-   trivia/source-API oracles. Collector integration remains Phase 5 feature
-   work.
-4. Resume the exact interrupted package shown in `LAST_KNOWN_PROMPT.md` by
-   qualifying `tests/c7`: bare precedence must accept `!!true`, explicit
-   `non_assoc` must reject same-tier nesting, and emitted K must contain the
-   one expected `syntax non-assoc` sentence. The implementation and fixture
-   are already present; do not re-design C7/Q8.
-5. Run the complete M4.1-M4.8 oracle inside the pinned K environment with the
-   recorded Z3 library paths.
-6. Classify the 267-entry source-ledger differences. Refresh only identities
-   justified by recovery/F7 work, then run M4 again from a clean tree.
+1. The full locked default-toolchain workspace test suite passes with all
+   targets and no fail-fast masking.
+2. Strict rustdoc and all workspace doc tests pass. Ambient Rust 1.98 workspace
+   Clippy exposes four post-recovery style-lint categories in historical test
+   code: `too_many_lines`, `disallowed_names`, `struct_excessive_bools`, and
+   `items_after_test_module`. With only those classified categories exempted,
+   every other warning remains denied and Clippy passes. Do not rewrite
+   recovered logic merely to erase this tool-version distinction.
+3. Rust 1.88 all-target workspace checking passes. Its rustfmt and Clippy
+   components remain deliberately unavailable as recorded above.
+4. The complete syntax suite passes on Rust 1.98 and Rust 1.88, including all
+   seven F7 trivia/source-API tests.
+5. `tests/c7/verify.py` passes under K 7.1.337 with the recorded Z3 4.12.5
+   library environment: bare `!!true` parses, explicit same-tier `non_assoc`
+   nesting is rejected, and emitted K contains the required associativity
+   sentence.
+
+M4 preflight then stopped before semantic execution. The current
+`tests/m4/pins.json` is the known older 22-parse/36-source ledger and its corpus
+hash differs from the recovered 23-parse `corpus.json`. Attempting the
+mechanical source-ledger projection against the current tree fails because the
+M3D reference source is absent. This is correct fail-closed behavior.
+
+### Remaining Phase 4 source package — M3D oracle reconstruction
+
+The imported tree retained the M3D Rust-authored implementation slices but
+lost eight top-level oracle files that existed at the last green M4 checkpoint:
+
+- `tests/m3d/README.md`;
+- `tests/m3d/verify.py`;
+- `tests/m3d/pins.json`;
+- `tests/m3d/fixtures/static-adjunct.k`;
+- `tests/m3d/fixtures/induced-definition-error.k`;
+- `tests/m3d/fixtures/induced-source-error.k`;
+- `tests/m3d/claims/static-spec.k`;
+- `tests/m3d/corpus/static-evaluation.imp`.
+
+The forensic tree audit records the original Git blob IDs for all eight, but
+marks every blob missing. Full content-hash scanning of `../recovery/` found no
+surviving copy of the critical files. Independent contracts still preserve:
+
+- verifier SHA-256
+  `2ed14f41b39cf95fdfd132d1fa675c3d550375c75499d78711a2c901d023bc9f`;
+- M3D pins SHA-256
+  `2a27f0efead1c233f59f81d4e7c4fe37b56d8b1dcba203ff52e63d7769ecc085`;
+- static-adjunct SHA-256
+  `ffbe89ef33ad062c0d1e58f6fc77f52ec0063365155b3042cae8a247a328a462`;
+- static-spec SHA-256
+  `2b32479b9e982cac3c8ebb0b6e423662219c9d1ed1d387be80050732a522d444`;
+- the complete source/behavior/proof policies in the 267-entry M4 ledger,
+  `corpus.json`, `tests/m4/oracle/`, and the three M4 proof ledgers;
+- the static execution result `x = 6, y = 0` and the last green M4 aggregate
+  recorded below.
+
+Proceed in this order:
+
+1. Reconstruct the eight-file M3D package from the retained M3D authored
+   slices, M4 reference-policy code, upstream pinned IMP sources, diagnostic
+   contracts, and proof ledgers. Claim byte identity only for a file that
+   matches its surviving SHA-256 or Git blob identity; otherwise label it a
+   functional reconstruction.
+2. Run the reconstructed standalone M3D source, execution, diagnostic, and
+   proof gate under K 7.1.337. Preserve the old semantic pins where their
+   complete values survive; do not infer proof success from exit status.
+3. Promote the 267-entry post-C7 ledger as the M4 behavioral starting point,
+   then mechanically refresh only source identities whose path-by-path reason
+   is recorded. The root source-ledger path policy is newer than the 267-entry
+   ledger, so path-set changes must be classified as well as hash changes.
+4. Run the complete M4.1-M4.8 oracle inside the pinned K/Z3 environment.
+5. If and only if all semantic evidence matches, commit the source-ledger
+   reconciliation separately and repeat M4 from a clean tree.
 
 The semantic target is the recorded 23/31/246/16 result, 21 bounded proofs,
 seven compatibility probes, and evidence hash
@@ -572,15 +638,14 @@ implementation authority.
 
 Proceed in this order, stopping on the first unexplained semantic failure:
 
-1. Run the remaining full workspace tests, workspace Clippy/docs/doc tests,
-   and Rust 1.88 workspace checks from signed commit `1ffb361`.
-2. Run and classify the full syntax/F7 suite.
-3. Run the pinned-K `tests/c7/verify.py` package recovered from the interrupted
-   session; repair only evidence-backed failures.
-4. Run the complete M4 oracle with the recorded Z3 environment, reconcile the
-   source ledger without changing behavioral pins, and repeat from clean.
-5. Sign the resulting green commit as the reconstructed post-F7 baseline.
-6. Begin Phase 5 at the normative readability spec, qualify the new surface on
+1. Reconstruct and qualify the missing eight-file top-level M3D oracle package;
+   keep exact and functional reconstructions explicitly distinct.
+2. Promote and classify the recovered 267-entry post-C7 M4 ledger without
+   changing behavioral pins.
+3. Run the complete M4 oracle with the recorded K/Z3 environment, reconcile
+   only justified source identities, and repeat from a clean tree.
+4. Sign the resulting green commit as the reconstructed post-F7 baseline.
+5. Begin Phase 5 at the normative readability spec, qualify the new surface on
    IMP, then execute the KWasm-first Phase 6 ladder.
 
 ## Audit hygiene
