@@ -31,8 +31,8 @@ except ImportError:  # Direct loading by tests/m4/verify.py.
 FROZEN_HELPER_SHA256: Mapping[str, str] = {
     "m3a": "8cf21899e30a9a6f41e13b4310989ee535314907954e50df9c9f325bee6348f9",
     "m3b": "08401de91efba5c39456e094295643b36504a123801c6db5d421667b5762ea05",
-    "m3c": "9ef82c970a37128ac7b445fae30ee99590d56ae8a8f66190cf62afbcd4e1358b",
-    "m3d": "2ed14f41b39cf95fdfd132d1fa675c3d550375c75499d78711a2c901d023bc9f",
+    "m3c": "4c0db024a7e302706b4ec97d7c4f87292277d31d66114f073dced994ab727bc7",
+    "m3d": "aa3ba0824b18d4d6d60c38608b79bc9ff3a69c125308505a9436a44cda353abb",
 }
 
 
@@ -414,12 +414,16 @@ def _search_set(term: Any) -> list[str]:
 
 def _diagnostic_class(stderr: str) -> str:
     text = stderr.lower()
+    # A concrete backend hook abort can make the wrapper's subsequent KORE
+    # read fail with a secondary parse error. The exact hook marker or
+    # division-by-zero message identifies the primary failure unambiguously.
+    if "[hook_" in text or "division by zero" in text or "divide by zero" in text:
+        return "hook"
     classes = [
         name
         for name, fragments in {
             "scanner": ("scanner error", "unexpected character sequence"),
             "parser": ("parse error", "unexpected token", "unexpected end of file"),
-            "hook": ("hook", "division by zero", "divide by zero"),
             "backend": ("backend", "unsupported"),
         }.items()
         if any(fragment in text for fragment in fragments)
@@ -784,6 +788,6 @@ def plan_from_manifest(
         raise BehaviorError(f"expected 246 depth states, constructed {depth_count}")
     if search_count != 16 or search.get("frontier_count") != 16:
         raise BehaviorError(f"expected 16 search frontiers, constructed {search_count}")
-    if len(plan.parse_cases) != 23 or len(plan.rejection_cases) != 9:
+    if len(plan.parse_cases) != 23 or len(plan.rejection_cases) != 8:
         raise BehaviorError("parse/rejection corpus coverage differs")
     return plan

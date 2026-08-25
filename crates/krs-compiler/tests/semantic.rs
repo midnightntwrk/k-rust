@@ -53,7 +53,10 @@ fn modeled_blanket_impl_counterexample_still_has_one_compiler_owned_join() {
         .iter()
         .filter(|sort| *sort == &top)
         .count();
-    assert_eq!(top_count, 1, "diamond paths must not become Rust impl paths");
+    assert_eq!(
+        top_count, 1,
+        "diamond paths must not become Rust impl paths"
+    );
 }
 
 #[test]
@@ -140,9 +143,5 @@ fn constructor(id: StableItemId, sort: StableItemId) -> Descriptor {
 
 fn provenance(role: &str) -> DescriptorProvenance {
     let key = ProvenanceKey::new(role, 0).unwrap();
-    DescriptorProvenance::new(
-        key.clone(),
-        vec![DescriptorNodeOrigin::new(key, origin())],
-    )
-    .unwrap()
+    DescriptorProvenance::new(key.clone(), vec![DescriptorNodeOrigin::new(key, origin())]).unwrap()
 }

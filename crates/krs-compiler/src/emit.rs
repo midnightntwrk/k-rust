@@ -126,8 +126,9 @@ struct EmitContext<'a> {
     sorts: BTreeMap<SymbolId, &'a SymbolIdentity>,
     productions: BTreeMap<SymbolId, &'a ProductionSentence>,
     groups: BTreeMap<ProductionGroupId, &'a str>,
+    non_associative_groups: BTreeSet<ProductionGroupId>,
     cells: BTreeMap<SymbolId, &'a str>,
-    context_aliases: BTreeMap<krs_ir::StableItemId, &'a str>,
+    context_aliases: BTreeMap<krs_ir::StableItemId, String>,
 }
 
 impl<'a> EmitContext<'a> {
@@ -135,6 +136,7 @@ impl<'a> EmitContext<'a> {
         let mut sorts = BTreeMap::new();
         let mut productions = BTreeMap::new();
         let mut groups = BTreeMap::new();
+        let mut non_associative_groups = BTreeSet::new();
         let mut cells = BTreeMap::new();
         let mut context_aliases = BTreeMap::new();
         for module in definition.modules() {
@@ -142,6 +144,11 @@ impl<'a> EmitContext<'a> {
                 groups.insert(group.id().clone(), group.emitted_name());
             }
             for sentence in module.sentences() {
+                if let DefinitionSentence::Associativity(associativity) = sentence
+                    && associativity.associativity() == GroupAssociativity::NonAssociative
+                {
+                    non_associative_groups.extend(associativity.groups().iter().cloned());
+                }
                 if let DefinitionSentence::Configuration(ConfigurationSentence::Fixed(
                     configuration,
                 )) = sentence
@@ -149,7 +156,7 @@ impl<'a> EmitContext<'a> {
                     collect_emit_cells(configuration.cells(), &mut cells);
                 }
                 if let DefinitionSentence::ContextAlias(alias) = sentence {
-                    context_aliases.insert(alias.id().clone(), alias.name());
+                    context_aliases.insert(alias.id().clone(), k_label_name(alias.name()));
                 }
             }
         }
@@ -172,6 +179,7 @@ impl<'a> EmitContext<'a> {
             sorts,
             productions,
             groups,
+            non_associative_groups,
             cells,
             context_aliases,
         }
@@ -218,8 +226,12 @@ impl<'a> EmitContext<'a> {
     fn context_alias_name(&self, id: &krs_ir::StableItemId) -> Result<&str, EmitError> {
         self.context_aliases
             .get(id)
-            .copied()
+            .map(String::as_str)
             .ok_or_else(|| EmitError::InvalidReference(format!("missing context alias {id:?}")))
+    }
+
+    fn is_non_associative(&self, group: &ProductionGroupId) -> bool {
+        self.non_associative_groups.contains(group)
     }
 }
 
@@ -527,6 +539,15 @@ fn emit_production(
     context: &EmitContext<'_>,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
+    for attribute in sentence.attributes() {
+        if let ProductionAttribute::Documentation { text, .. } = attribute {
+            let start = writer.source.len();
+            writer.push("// ");
+            writer.push(text);
+            writer.record(attribute.origin().key(), start, writer.source.len())?;
+            writer.push("\n  ");
+        }
+    }
     writer.push("syntax ");
     writer.push(context.sort_name_ref(sentence.result_sort())?);
     writer.push(" ::= ");
@@ -656,13 +677,21 @@ fn emit_production_attribute(
                     _ => None,
                 })
                 .collect::<Vec<_>>();
-            if fields.len() != nonterminals.len()
-                || !fields
+            let selects_all = fields.len() == nonterminals.len()
+                && fields
                     .iter()
                     .zip(&nonterminals)
-                    .all(|(selected, field)| selected.field() == *field)
-            {
+                    .all(|(selected, field)| selected.field() == *field);
+            if using.is_some() || !selects_all {
                 writer.push("(");
+                if let Some(using) = using {
+                    let using_start = writer.source.len();
+                    writer.push(context.context_alias_name(using.alias())?);
+                    writer.record(using.origin().key(), using_start, writer.source.len())?;
+                    if !fields.is_empty() {
+                        writer.push("; ");
+                    }
+                }
                 for (index, field) in fields.iter().enumerate() {
                     if index != 0 {
                         writer.push(",");
@@ -681,13 +710,6 @@ fn emit_production_attribute(
                     writer.record(field.origin().key(), field_start, writer.source.len())?;
                 }
                 writer.push(")");
-            }
-            if let Some(using) = using {
-                let using_start = writer.source.len();
-                writer.push(", context(");
-                writer.push(context.context_alias_name(using.alias())?);
-                writer.push(")");
-                writer.record(using.origin().key(), using_start, writer.source.len())?;
             }
             writer.push(", result(");
             let result_start = writer.source.len();
@@ -973,11 +995,39 @@ fn emit_rule(
     };
     writer.push("rule ");
     writer.append_rendered(render_rule_term(body, sentence, context, true)?)?;
-    writer.push(" [label(");
+    emit_requires(sentence, context, writer)?;
+    emit_term_rule_attributes(sentence, writer)?;
+    Ok(())
+}
+
+fn emit_term_rule_attributes(
+    sentence: &RuleSentence,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    writer.push(" [");
+    if let Some(simplification) = sentence.simplification() {
+        let start = writer.source.len();
+        writer.push("simplification");
+        if let Some(priority) = simplification.priority() {
+            writer.push("(");
+            let priority_start = writer.source.len();
+            writer.push(&priority.value().to_string());
+            writer.record(priority.origin().key(), priority_start, writer.source.len())?;
+            writer.push(")");
+        }
+        writer.record(simplification.origin().key(), start, writer.source.len())?;
+        writer.push(", ");
+    }
+    if let Some(priority) = sentence.priority() {
+        let start = writer.source.len();
+        writer.push("priority(");
+        writer.push(&priority.value().to_string());
+        writer.push("), ");
+        writer.record(priority.origin().key(), start, writer.source.len() - 2)?;
+    }
+    writer.push("label(");
     emit_label(sentence.label(), writer);
     writer.push(")]");
-    emit_requires(sentence, context, writer)?;
-    emit_rule_attributes(sentence, writer)?;
     Ok(())
 }
 
@@ -1127,33 +1177,25 @@ fn emit_cell_clause(
     writer.push(name);
     writer.push("> ");
     writer.append_rendered(render_rule_term(clause.before(), sentence, context, false)?)?;
-    if let CellPost::Replace { term } = clause.after() {
-        writer.push(" => ");
-        writer.append_rendered(render_rule_term(term, sentence, context, false)?)?;
-    }
-    match clause.frame() {
-        CellContentFrame::Exact => {}
-        CellContentFrame::KSequenceTail { origin, binding } => {
-            let frame_start = writer.source.len();
-            if let Some(binding) = binding {
-                writer.push(" ~> ");
-                writer.push(&variable_name(binding));
-                writer.push(":K");
-            } else {
-                writer.push(" ...");
+    match clause.after() {
+        CellPost::Preserve => emit_single_frame(clause.frame(), writer)?,
+        CellPost::Replace { term } => {
+            match clause.frame() {
+                CellContentFrame::KSequenceTail {
+                    binding: Some(binding),
+                    ..
+                } => emit_named_frame_suffix(writer, binding, "K", " ~> "),
+                CellContentFrame::MapRemainder {
+                    binding: Some(binding),
+                    ..
+                } => emit_named_frame_suffix(writer, binding, "Map", " "),
+                CellContentFrame::Exact
+                | CellContentFrame::KSequenceTail { binding: None, .. }
+                | CellContentFrame::MapRemainder { binding: None, .. } => {}
             }
-            writer.record(origin.key(), frame_start, writer.source.len())?;
-        }
-        CellContentFrame::MapRemainder { origin, binding } => {
-            let frame_start = writer.source.len();
-            writer.push(" ");
-            if let Some(binding) = binding {
-                writer.push(&variable_name(binding));
-                writer.push(":Map");
-            } else {
-                writer.push("...");
-            }
-            writer.record(origin.key(), frame_start, writer.source.len())?;
+            writer.push(" => ");
+            writer.append_rendered(render_rule_term(term, sentence, context, false)?)?;
+            emit_single_frame(clause.frame(), writer)?;
         }
     }
     writer.push(" </");
@@ -1163,6 +1205,38 @@ fn emit_cell_clause(
     Ok(())
 }
 
+fn emit_single_frame(frame: &CellContentFrame, writer: &mut Writer) -> Result<(), EmitError> {
+    match frame {
+        CellContentFrame::Exact => {}
+        CellContentFrame::KSequenceTail { origin, binding } => {
+            let frame_start = writer.source.len();
+            if let Some(binding) = binding {
+                emit_named_frame_suffix(writer, binding, "K", " ~> ");
+            } else {
+                writer.push(" ...");
+            }
+            writer.record(origin.key(), frame_start, writer.source.len())?;
+        }
+        CellContentFrame::MapRemainder { origin, binding } => {
+            let frame_start = writer.source.len();
+            if let Some(binding) = binding {
+                emit_named_frame_suffix(writer, binding, "Map", " ");
+            } else {
+                writer.push(" ...");
+            }
+            writer.record(origin.key(), frame_start, writer.source.len())?;
+        }
+    }
+    Ok(())
+}
+
+fn emit_named_frame_suffix(writer: &mut Writer, binding: &SemanticId, sort: &str, separator: &str) {
+    writer.push(separator);
+    writer.push(&variable_name(binding));
+    writer.push(":");
+    writer.push(sort);
+}
+
 fn emit_context_alias(
     sentence: &ContextAliasSentence,
     context: &EmitContext<'_>,
@@ -1170,7 +1244,7 @@ fn emit_context_alias(
 ) -> Result<(), EmitError> {
     writer.push("context alias [");
     let name_start = writer.source.len();
-    writer.push(sentence.name());
+    writer.push(&k_label_name(sentence.name()));
     writer.record(
         sentence.name_origin().key(),
         name_start,
@@ -1264,6 +1338,22 @@ fn render_context_term(
 
 fn emit_label(label: &LabelIdentity, writer: &mut Writer) {
     writer.push(label.emitted_name());
+}
+
+fn k_label_name(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut uppercase_next = false;
+    for character in value.chars() {
+        if character == '_' {
+            uppercase_next = true;
+        } else if uppercase_next {
+            output.extend(character.to_uppercase());
+            uppercase_next = false;
+        } else {
+            output.push(character);
+        }
+    }
+    output
 }
 
 #[derive(Default)]
@@ -1374,12 +1464,20 @@ fn render_term_with_binders(
                                 symbol.as_str()
                             )));
                         };
+                        let parenthesize =
+                            parenthesize_declared_child(production, argument, context)?;
+                        if parenthesize {
+                            output.push("(");
+                        }
                         output.append(render_term_with_binders(
                             argument,
                             context,
                             false,
                             existentials,
                         )?);
+                        if parenthesize {
+                            output.push(")");
+                        }
                     }
                     GrammarProductionItemKind::RegexTerminal { .. } => {
                         return Err(EmitError::UnsupportedShape {
@@ -1448,6 +1546,46 @@ fn render_term_with_binders(
     Ok(output.finish(term.origin().key(), start))
 }
 
+fn parenthesize_declared_child(
+    parent: &ProductionSentence,
+    child: &DefinitionTerm,
+    context: &EmitContext<'_>,
+) -> Result<bool, EmitError> {
+    let Some(parent_group) = production_group(parent) else {
+        return Ok(false);
+    };
+    let prefix_unary = matches!(
+        parent.items(),
+        [terminal, nonterminal]
+            if matches!(terminal.kind(), GrammarProductionItemKind::Terminal { .. })
+                && matches!(
+                    nonterminal.kind(),
+                    GrammarProductionItemKind::NonTerminal { .. }
+                )
+    );
+    if !context.is_non_associative(parent_group) && !prefix_unary {
+        return Ok(false);
+    }
+    let DefinitionTermKind::Application {
+        application: ApplicationRef::Declared(child_symbol),
+        ..
+    } = child.kind()
+    else {
+        return Ok(false);
+    };
+    Ok(production_group(context.production(child_symbol)?).is_some())
+}
+
+fn production_group(production: &ProductionSentence) -> Option<&ProductionGroupId> {
+    production
+        .attributes()
+        .iter()
+        .find_map(|attribute| match attribute {
+            ProductionAttribute::Group { group, .. } => Some(group),
+            _ => None,
+        })
+}
+
 fn render_builtin_application(
     operation: BuiltinOperation,
     arguments: &[DefinitionTerm],
@@ -1481,30 +1619,55 @@ fn render_builtin_application(
     if let Some(prefix) = prefix {
         output.push(prefix);
         output.push(" ");
-        output.append(render_term_with_binders(
+        output.append(render_builtin_argument(
             &arguments[0],
             context,
-            false,
             existentials,
         )?);
     } else if let Some(infix) = infix {
-        output.append(render_term_with_binders(
+        output.append(render_builtin_argument(
             &arguments[0],
             context,
-            false,
             existentials,
         )?);
         output.push(" ");
         output.push(infix);
         output.push(" ");
-        output.append(render_term_with_binders(
+        output.append(render_builtin_argument(
             &arguments[1],
             context,
-            false,
             existentials,
         )?);
     }
     Ok(())
+}
+
+fn render_builtin_argument(
+    argument: &DefinitionTerm,
+    context: &EmitContext<'_>,
+    existentials: &[DefinitionClaimBinder],
+) -> Result<Rendered, EmitError> {
+    let parenthesize = matches!(
+        argument.kind(),
+        DefinitionTermKind::Application {
+            application: ApplicationRef::Builtin(_),
+            ..
+        }
+    );
+    let mut output = Rendered::default();
+    if parenthesize {
+        output.push("(");
+    }
+    output.append(render_term_with_binders(
+        argument,
+        context,
+        false,
+        existentials,
+    )?);
+    if parenthesize {
+        output.push(")");
+    }
+    Ok(output)
 }
 
 fn render_map(

@@ -42,7 +42,7 @@ def capability_report(root: Path = ROOT) -> dict[str, object]:
         )) and "pub enum RustVisibility" in identity,
         "symbol_macro_exported": "pub fn symbol(" in macros and "symbol," in facade,
         "explicit_symbol_lowered": all(token in lowering for token in (
-            "fn stable_symbol_text(", ".explicit_symbol()", "ExplicitSymbol::final_component",
+            "fn stable_symbol_text(", ".explicit_symbol()", ".final_component()",
         )),
     }
 

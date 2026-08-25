@@ -12,8 +12,7 @@ use krs_ir::{
 
 fn node(key: &str) -> NodeOrigin {
     let package =
-        krs_ir::PackageId::new("ORG-EXAMPLE-CALC", "calc-semantics", "0.1.0", "workspace")
-            .unwrap();
+        krs_ir::PackageId::new("ORG-EXAMPLE-CALC", "calc-semantics", "0.1.0", "workspace").unwrap();
     let file = SourceFileId::new(
         package,
         "src/calc.rs",
@@ -103,11 +102,7 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
         node("configuration.cell.k"),
         k.clone(),
         "k",
-        vec![CellAttribute::color(
-            node("configuration.cell.k.color"),
-            "green",
-        )
-        .unwrap()],
+        vec![CellAttribute::color(node("configuration.cell.k.color"), "green").unwrap()],
         DefinitionSortRef::k_sequence(),
     )
     .unwrap();
@@ -115,11 +110,7 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
         node("configuration.cell.env"),
         env.clone(),
         "env",
-        vec![CellAttribute::color(
-            node("configuration.cell.env.color"),
-            "yellow",
-        )
-        .unwrap()],
+        vec![CellAttribute::color(node("configuration.cell.env.color"), "yellow").unwrap()],
         DefinitionSortRef::map(),
     )
     .unwrap();
@@ -297,8 +288,16 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
 
     let update_arguments = if variants.valid_update {
         vec![
-            variable("rule.assign.e.update", "variable.assign.e", DefinitionSortRef::map()),
-            variable("rule.assign.x.update", "variable.assign.x", DefinitionSortRef::id()),
+            variable(
+                "rule.assign.e.update",
+                "variable.assign.e",
+                DefinitionSortRef::map(),
+            ),
+            variable(
+                "rule.assign.x.update",
+                "variable.assign.x",
+                DefinitionSortRef::id(),
+            ),
             variable("rule.assign.v.update", "variable.assign.v", value.clone()),
         ]
     } else {
@@ -394,9 +393,9 @@ fn calc_fixed_state_is_target_neutral_and_deterministic() {
         .find(|sentence| sentence["sentence_kind"] == "configuration")
         .unwrap()["sentence"]
         .clone();
-    serde_json::from_value::<
-        FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>,
-    >(configuration)
+    serde_json::from_value::<FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>>(
+        configuration,
+    )
     .unwrap();
     let round_trip: DefinitionIr = serde_json::from_str(&first).unwrap();
     assert_eq!(round_trip.to_canonical_json().unwrap(), first);
@@ -427,7 +426,9 @@ fn rejects_wrong_configuration_target_and_incomplete_framing() {
             matching_target: false,
             ..Variants::default()
         }),
-        Err(DefinitionValidationError::ConfigurationRuleTargetMismatch(_))
+        Err(DefinitionValidationError::ConfigurationRuleTargetMismatch(
+            _
+        ))
     ));
     assert_eq!(
         calc_definition(Variants {

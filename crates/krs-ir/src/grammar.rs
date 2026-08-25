@@ -141,7 +141,11 @@ impl BuiltinOperation {
 
 /// An application reference whose declared identity depends on the IR layer.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(tag = "application_source", content = "application", rename_all = "snake_case")]
+#[serde(
+    tag = "application_source",
+    content = "application",
+    rename_all = "snake_case"
+)]
 pub enum ApplicationRef<D> {
     /// An authored production resolved by the compiler.
     Declared(D),
@@ -225,7 +229,10 @@ impl<S> GrammarProductionItem<S> {
     /// # Errors
     ///
     /// Returns [`GrammarShapeError`] when the terminal is empty.
-    pub fn terminal(origin: NodeOrigin, text: impl Into<String>) -> Result<Self, GrammarShapeError> {
+    pub fn terminal(
+        origin: NodeOrigin,
+        text: impl Into<String>,
+    ) -> Result<Self, GrammarShapeError> {
         let text = text.into();
         if text.is_empty() {
             return Err(GrammarShapeError::EmptyText("production terminal"));
@@ -357,13 +364,19 @@ pub struct ProductionFieldReference {
 impl ProductionFieldReference {
     /// Creates one selected field occurrence.
     #[must_use]
-    pub const fn new(origin: NodeOrigin, field: ProductionFieldId) -> Self { Self { origin, field } }
+    pub const fn new(origin: NodeOrigin, field: ProductionFieldId) -> Self {
+        Self { origin, field }
+    }
     /// Returns exact selected-field provenance.
     #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin { &self.origin }
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
     /// Returns the selected field identity.
     #[must_use]
-    pub const fn field(&self) -> &ProductionFieldId { &self.field }
+    pub const fn field(&self) -> &ProductionFieldId {
+        &self.field
+    }
 }
 
 /// One provenance-bearing typed context-alias reference.
@@ -377,13 +390,19 @@ pub struct ProductionContextAliasReference {
 impl ProductionContextAliasReference {
     /// Creates one resolved context-alias selection.
     #[must_use]
-    pub const fn new(origin: NodeOrigin, alias: StableItemId) -> Self { Self { origin, alias } }
+    pub const fn new(origin: NodeOrigin, alias: StableItemId) -> Self {
+        Self { origin, alias }
+    }
     /// Returns exact `using` occurrence provenance.
     #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin { &self.origin }
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
     /// Returns the selected declaration identity.
     #[must_use]
-    pub const fn alias(&self) -> &StableItemId { &self.alias }
+    pub const fn alias(&self) -> &StableItemId {
+        &self.alias
+    }
 }
 
 /// One provenance-bearing result-predicate sort selection.
@@ -397,23 +416,25 @@ pub struct ProductionResultSort<S> {
 impl<S> ProductionResultSort<S> {
     /// Creates one explicit result-sort occurrence.
     #[must_use]
-    pub const fn new(origin: NodeOrigin, sort: S) -> Self { Self { origin, sort } }
+    pub const fn new(origin: NodeOrigin, sort: S) -> Self {
+        Self { origin, sort }
+    }
     /// Returns exact result-sort provenance.
     #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin { &self.origin }
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
     /// Returns the selected sort.
     #[must_use]
-    pub const fn sort(&self) -> &S { &self.sort }
+    pub const fn sort(&self) -> &S {
+        &self.sort
+    }
 }
 
 /// One classified production attribute with mandatory provenance.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(
-    tag = "attribute_kind",
-    rename_all = "snake_case",
-    deny_unknown_fields
-)]
+#[serde(tag = "attribute_kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProductionAttribute<S> {
     /// Literal documentation emitted as a K source comment.
     Documentation {

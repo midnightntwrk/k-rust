@@ -79,8 +79,8 @@ k::precedence! {
     for Op; op_tier0 > op_tier1 > op_tier2 > op_tier3 > op_tier4 > op_tier5 > op_tier6
 }
 k::associativity! {
-    for Op; non_associative : op_tier0; left : op_tier1; left : op_tier2; left :
-    op_tier3; left : op_tier4; left : op_tier5; left : op_tier6;
+    for Op; left : op_tier1; left : op_tier2; left : op_tier3; left : op_tier4; left :
+    op_tier5; left : op_tier6;
 }
 #[k::constructors(sort = Stmt, reference)]
 #[rustfmt::skip]
@@ -125,7 +125,7 @@ k::precedence! {
     for StmtSyntax; stmt > seq_stmt
 }
 k::associativity! {
-    for StmtSyntax; non_associative : stmt; right : seq_stmt;
+    for StmtSyntax; right : seq_stmt;
 }
 /// The oracle's fixed two-cell calculation state.
 #[k::configuration]

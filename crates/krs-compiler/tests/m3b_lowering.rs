@@ -377,10 +377,10 @@ fn calc_theory(options: CalcOptions) -> SemanticTheory {
         SemanticVariable::new(sid("V"), value.clone()),
     ];
     if options.named_frames {
-        assign_variables.push(SemanticVariable::new(
-            sid("KREST"),
-            SemanticSortRef::k_sequence(),
-        ));
+        assign_variables.extend([
+            SemanticVariable::new(sid("KREST"), SemanticSortRef::k_sequence()),
+            SemanticVariable::new(sid("MREST"), SemanticSortRef::map()),
+        ]);
     }
     let assign_rule = SemanticRule::new_configuration(
         origin("rule.assign"),
@@ -431,7 +431,11 @@ fn calc_theory(options: CalcOptions) -> SemanticTheory {
                             ],
                         ),
                     },
-                    CellContentFrame::Exact,
+                    if options.named_frames {
+                        map_frame("rule.assign.env.frame", "MREST")
+                    } else {
+                        CellContentFrame::Exact
+                    },
                 ),
             ],
             vec![],
@@ -779,6 +783,14 @@ fn nested_cells_and_named_sequence_and_map_frames_lower_structurally() {
     assert!(emitted.source().contains("    <machine>\n"));
     assert!(emitted.source().contains("V4B52455354:K"));
     assert!(emitted.source().contains("V4D52455354:Map"));
+    assert!(
+        emitted
+            .source()
+            .contains("    <k> V58:Id = V56:Value ; ~> V4B52455354:K => .K ~> V4B52455354:K </k>")
+    );
+    assert!(emitted.source().contains(
+        "    <env> V45:Map V4D52455354:Map => V45:Map [ V58:Id <- V56:Value ] V4D52455354:Map </env>"
+    ));
     assert!(
         emitted
             .symbol_map()

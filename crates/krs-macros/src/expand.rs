@@ -368,7 +368,9 @@ fn expand_readable_sort(
     let factory = format_ident!("__krs_sort_descriptor_{nonce:016x}");
     let declared_key = format_ident!("__krs_sort_type_{nonce:016x}");
     let name = declaration.name().to_string();
-    let alias = call_site_ident(declaration.name())?;
+    // Preserve the declaration token so references resolved through the
+    // generated alias navigate back to the readable `Sort;` declaration.
+    let alias = declaration.name();
     let marker = format_ident!("{}Sort", declaration.name(), span = Span::call_site());
     let parent_markers = declaration
         .parents()
@@ -380,7 +382,9 @@ fn expand_readable_sort(
     let mut parents = Vec::new();
     for (index, parent) in declaration.parents().iter().enumerate() {
         let key = format_ident!("__krs_sort_parent_{nonce:016x}_{index}");
-        let path = call_site_path(parent)?;
+        // This hidden reference gives language tooling a real use of the
+        // authored parent path while retaining its input span.
+        let path = parent;
         let authored = spelling(parent);
         parent_functions.push(quote! {
             #[doc(hidden)]
@@ -470,8 +474,13 @@ fn expand_readable_membership(
         span = Span::call_site()
     );
     let grammar_name = &identity.item_name;
-    let supersort_alias = call_site_path(declaration.supersort())?;
-    let member_path = call_site_path(member)?;
+    // Keep these descriptor-only references attached to the authored
+    // membership paths. rust-analyzer can then map definition, hover, and
+    // rename requests through the proc-macro expansion; reparsing them with
+    // call-site spans severs that mapping. The emitted Rust meaning is
+    // unchanged because both paths already parsed successfully above.
+    let supersort_alias = declaration.supersort();
+    let member_path = member;
     let super_spelling = spelling(declaration.supersort());
     let sub_spelling = spelling(member);
     let supersort =
@@ -2284,16 +2293,15 @@ fn expand_head_rule(
     let mut extras = have_extras;
     extras.extend(update_extras);
     let key_functions = builder.key_functions;
+    let tooling_binding_references = builder.tooling_binding_references;
 
     let mut refinement_functions = Vec::new();
     let mut bindings = Vec::new();
     let mut binding_checks = Vec::new();
     for binding in clause.bindings() {
         let name = binding.unraw().to_string();
-        let generated = call_site_ident(binding)?;
         binding_checks.push(quote! {
             let #binding = ();
-            let _ = &#generated;
         });
         let refinement = if let Some((ordinal, narrowing)) = clause
             .narrowings()
@@ -2304,7 +2312,8 @@ fn expand_head_rule(
             let ordinal = u32::try_from(ordinal)
                 .map_err(|_| syn::Error::new(binding.span(), "too many rule refinements"))?;
             let key_fn = format_ident!("__krs_head_rule_refinement_{nonce:016x}_{ordinal}");
-            let path = call_site_path(narrowing.sort())?;
+            // Keep the authored narrowing path visible to language tooling.
+            let path = narrowing.sort();
             let authored = spelling(narrowing.sort());
             binding_checks.push(quote! {
                 let _: ::core::marker::PhantomData<#path> = ::core::marker::PhantomData;
@@ -2329,6 +2338,9 @@ fn expand_head_rule(
             }
         });
     }
+    binding_checks.push(quote! {
+        #(let _ = &#tooling_binding_references;)*
+    });
     let label = clause.attribute().label().map_or_else(
         || {
             let name = rule.item().sig.ident.unraw().to_string().replace('_', "-");
@@ -3680,6 +3692,7 @@ struct TermBuilder<'a> {
     enum_glob: Option<&'a Path>,
     enum_variant: Option<&'a Ident>,
     lexical_rule_head: bool,
+    tooling_binding_references: Vec<Path>,
 }
 
 impl<'a> TermBuilder<'a> {
@@ -3699,6 +3712,7 @@ impl<'a> TermBuilder<'a> {
             enum_glob: None,
             enum_variant: None,
             lexical_rule_head: false,
+            tooling_binding_references: Vec::new(),
         }
     }
 
@@ -3799,6 +3813,7 @@ impl<'a> TermBuilder<'a> {
                 let path_key = provenance_key(facade, side.role("path"), path_ordinal);
                 let key = provenance_key(facade, side.role("reference"), reference_ordinal);
                 if is_bound_ident_path(path, self.bindings) {
+                    self.tooling_binding_references.push(path.clone());
                     let name = spelling(path);
                     Ok(quote! {
                         #facade::HostTerm::Variable {
@@ -3908,7 +3923,10 @@ impl<'a> TermBuilder<'a> {
                 return self.enum_variant_target(owner, &variant);
             }
         }
-        let generated = call_site_path(authored)?;
+        // Resolve the descriptor witness from the authored path itself so
+        // qualified calls retain definition, hover, completion, and rename
+        // mapping through the proc-macro expansion.
+        let generated = authored;
         let authored_spelling = spelling(authored);
         let key_fn = format_ident!(
             "__krs_rule_application_{:016x}_{}",
@@ -3923,7 +3941,7 @@ impl<'a> TermBuilder<'a> {
         } else {
             quote!(#key_fn)
         };
-        if let Some((owner, variant)) = enum_variant_parts(&generated) {
+        if let Some((owner, variant)) = enum_variant_parts(generated) {
             let owner_spelling = spelling(&owner);
             let marker = variant_marker_function(&variant);
             self.key_functions.push(quote! {
@@ -4492,7 +4510,11 @@ pub(crate) fn constructors(attributes: TokenStream, item: TokenStream) -> syn::R
     let sort_factory = format_ident!("__krs_enum_sort_descriptor_{nonce:016x}");
     let membership_factory = format_ident!("__krs_enum_membership_descriptor_{nonce:016x}");
     let membership_key = format_ident!("__krs_enum_membership_super_{nonce:016x}");
-    let outer_path = call_site_path(declaration.membership_sort())?;
+    // Keep the enum family's authored membership sort attached to the
+    // `constructors(sort = ...)` token. This witness is the semantic bridge
+    // rust-analyzer needs for definition and rename through the consumed
+    // procedural-attribute argument.
+    let outer_path = declaration.membership_sort();
     let outer_spelling = spelling(declaration.membership_sort());
     let family_sort_key = format_ident!("__krs_enum_family_sort_{nonce:016x}");
     let item = declaration.item();

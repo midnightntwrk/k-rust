@@ -716,7 +716,7 @@ fn context_alias() -> SemanticContextAlias {
         origin("imp.context.eval"),
         item("imp", "M3dEval", ItemKind::ContextAlias),
         origin("imp.context.eval.name"),
-        "m3dEval".into(),
+        "m3d_eval".into(),
         origin("imp.context.eval.here"),
         here.clone(),
         vec![SemanticVariable::new(here.clone(), sort("Stmt"))],
@@ -1186,6 +1186,7 @@ fn context_alias_and_claim_adjuncts_lower_emit_and_map_every_distinct_role() {
         source.contains("context alias [m3dEval]:\n    <k> HERE ... </k>"),
         "{source}"
     );
+    assert!(source.contains("[simplification(42), label("), "{source}");
     assert!(source.contains("claim [branching]:"), "{source}");
     assert!(source.contains("_B:Bool"), "{source}");
     assert!(source.contains("?N:Int"), "{source}");
@@ -1194,7 +1195,7 @@ fn context_alias_and_claim_adjuncts_lower_emit_and_map_every_distinct_role() {
     assert!(source.contains("claim [one-path-claim]:"), "{source}");
     assert!(source.contains("[one-path]"), "{source}");
     assert!(!source.contains("all-path"), "{source}");
-    assert!(source.contains("[simplification(42)]"), "{source}");
+    assert!(!source.contains("\n    [simplification"), "{source}");
 
     for (kind, count) in [
         (SourceMapNodeKind::ContextAlias, 3),

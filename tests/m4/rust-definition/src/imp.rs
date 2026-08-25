@@ -5,10 +5,7 @@
 //! to rustc and rust-analyzer while KRS owns the symbolic rule bodies.
 
 use k::KResult;
-use k::builtin::{Bool, Id, Int, KSequence, Map, bool, int};
-// The rule-table parser consumes this operation before rustc sees a call.
-#[allow(unused_imports)]
-use k::builtin::map;
+use k::builtin::{Bool, Id, Int, KSequence, Map, bool, int, map};
 
 k::sorts! {
     #[k::bracket("(", ")")]
@@ -87,7 +84,7 @@ pub enum StmtSyntax {
     #[k::syntax("if ({condition}) {body}")]
     IfThen { condition: Expr, body: Stmt },
 
-    /// Deliberately not strict: the `while` rule unfolds the loop.
+    /// Deliberately not strict: the `[while]` rule unfolds the loop instead.
     #[k::syntax("while ({condition}) {body}")]
     While { condition: Expr, body: Stmt },
 
@@ -101,13 +98,12 @@ pub enum StmtSyntax {
     Sequence { first: Stmt, second: Stmt },
 }
 
-/// The fixed two-cell calculation state from `calc.k`.
+/// The oracle's fixed two-cell calculation state.
 #[k::configuration]
 pub struct Machine {
-    /// Computation cell, with the next IMP item at the head.
+    /// K's computation cell: the continuation, head-first.
     #[k::cell(color = "green")]
     pub k: KSequence,
-    /// Identifier-to-evaluated-value environment.
     #[k::cell(color = "yellow")]
     pub env: Map<Id, Value>,
 }
@@ -115,10 +111,7 @@ pub struct Machine {
 impl Machine {
     #[k::init]
     pub fn init(pgm: Stmt, env: Map<Id, Value>) -> Self {
-        Self {
-            k: k::k![pgm],
-            env,
-        }
+        Self { k: k::k![pgm], env }
     }
 }
 
@@ -148,41 +141,53 @@ k::rules! {
     and_false:    And { lhs: false, .. } => false;
     or_true:      Or { lhs: true, .. }   => true;
     or_false:     Or { lhs: false, rhs } => rhs;
-
-    /// A missing environment binding makes this rule inapplicable.
-    var: name => value
-        where name: Id,
-              value: Value,
-              have env[name => let value];
 }
 
 k::rules! {
     for Stmt;
     use StmtSyntax::*;
 
-    /// Expose a right-associated statement pair as K sequencing.
+    /// Expose the right-associated statement pair as K sequencing.
     step:     Sequence(s1, s2) => k::k![s1, s2];
 
-    #[k::rule(label = "if-true")]
-    if_true:  IfThenElse(true, then_branch, _)  => then_branch;
-    #[k::rule(label = "if-false")]
-    if_false: IfThenElse(false, _, else_branch) => else_branch;
+    /// Select the true branch of an evaluated conditional.
+    if_true:  IfThenElse(true, s1, _)  => s1;
+    /// Select the false branch of an evaluated conditional.
+    if_false: IfThenElse(false, _, s2) => s2;
 
-    #[k::rule(label = "if-else")]
-    if_else:  IfThen(condition, body) => IfThenElse(condition, body, EmptyBlock());
+    /// Normalize the no-else form with an explicit empty branch.
+    if_else:  IfThen(c, s) => IfThenElse(c, s, EmptyBlock());
 
     /// Unfold one loop test without making the constructor strict.
-    #[k::rule(label = "while")]
-    r#while:  While(condition, body) =>
-        IfThen(condition, Block(Sequence(body, While(condition, body))));
+    r#while:  While(c, s) => IfThen(c, Block(Sequence(s, While(c, s))));
 
-    #[k::rule(label = "block")]
-    block:    Block(body) => k::k![body, EmptyBlock()];
-    #[k::rule(label = "done")]
+    /// Expose a nonempty block body followed by an empty block.
+    block:    Block(s) => k::k![s, EmptyBlock()];
+
+    /// Remove an empty block from the computation cell.
     done:     EmptyBlock() => ();
+}
 
-    /// Consume a value assignment and update the environment simultaneously.
-    assign: Assign(name, value) => ()
-        where value: Value,
-              update env = map::update(env, name, value);
+k::rules! {
+    for Machine;
+    use StmtSyntax::Assign;
+
+    /// Replace an identifier at the head of `k` with its mapped value.
+    var: {
+        k: [name, ..],
+        env: { name -> value, .. },
+    } => {
+        k: [value, ..],
+    }
+    where name: Id;
+
+    /// Consume a value assignment and update the environment map.
+    assign: {
+        k: [Assign(name, value), ..],
+        env: e,
+    } => {
+        k: [..],
+        env: map::update(e, name, value),
+    }
+    where value: Value;
 }

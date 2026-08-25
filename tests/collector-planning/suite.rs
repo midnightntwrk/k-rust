@@ -122,15 +122,11 @@ fn generated_fixture_collector_compiles_and_reserves_stdout_for_protocol() {
         "generated collector failed:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(
-        output.stdout,
-        b"{\"protocol\":2,\"selected_facets\":3}\n"
-    );
+    assert_eq!(output.stdout, b"{\"protocol\":2,\"selected_facets\":3}\n");
     assert!(output.stderr.is_empty());
 
     fs::remove_dir_all(output_directory).unwrap();
 }
-
 
 fn plan(reordered: bool) -> CollectorPlan {
     CollectorPlan::resolve(&metadata(reordered), &request(reordered)).unwrap()

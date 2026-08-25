@@ -269,10 +269,7 @@ impl NamingPass {
             for production in module.productions() {
                 let owner = stable_symbol_text(production.id(), production.explicit_symbol());
                 let id = SymbolId::new(format!("production:{}", hex_encode(owner.as_bytes())))?;
-                let name = production.explicit_symbol().map_or_else(
-                    || lower_camel(production.id().item_name()),
-                    |symbol| symbol.final_component().to_owned(),
-                );
+                let name = production_symbol_name(production, &owner);
                 validate_label_name("production symbol", &name)?;
                 claim(
                     &mut identities,
@@ -1516,11 +1513,29 @@ fn stable_item_text(id: &StableItemId) -> String {
 }
 
 fn stable_symbol_text(id: &StableItemId, explicit: Option<&krs_ir::ExplicitSymbol>) -> String {
-    let mut text = stable_item_text(id);
-    if let Some(explicit) = explicit {
-        push_component(&mut text, explicit.as_str());
+    let Some(explicit) = explicit else {
+        return stable_item_text(id);
+    };
+
+    let mut text = String::new();
+    push_component(&mut text, id.package().k_namespace());
+    for component in explicit.as_str().split("::") {
+        push_component(&mut text, component);
     }
+    push_component(&mut text, &format!("{:?}", id.item_kind()));
+    push_component(&mut text, id.disambiguator());
     text
+}
+
+fn production_symbol_name(production: &krs_ir::SemanticProduction, owner: &str) -> String {
+    if let Some(symbol) = production.explicit_symbol() {
+        return lower_camel(symbol.final_component());
+    }
+    if production.id().item_name() == "__krs_generated_semantic_production" {
+        format!("krsGenerated_{}", short_hash(owner))
+    } else {
+        lower_camel(production.id().item_name())
+    }
 }
 
 fn push_component(output: &mut String, value: &str) {
@@ -1570,4 +1585,49 @@ fn _term_kind_is_exhaustive(kind: &DefinitionTermKind) -> bool {
             | DefinitionTermKind::KSequence { .. }
             | DefinitionTermKind::Rewrite { .. }
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use krs_ir::{ExplicitSymbol, ItemKind, PackageId, StableItemId};
+
+    use super::stable_symbol_text;
+
+    fn item(module: &str, name: &str, kind: ItemKind) -> StableItemId {
+        StableItemId::new(
+            PackageId::new("KRS-STABLE-NAMES", "fixture", "0.1.0", "workspace").unwrap(),
+            [module],
+            name,
+            kind,
+            "",
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn explicit_symbol_replaces_the_rust_path_in_stable_identity() {
+        let baseline_sort = item("api", "Expr", ItemKind::Sort);
+        let moved_sort = item("moved_api", "Expr", ItemKind::Sort);
+        let baseline_production = item("api", "PublicValue", ItemKind::Constructor);
+        let moved_production = item("moved_api", "PublicValue", ItemKind::Constructor);
+
+        assert_ne!(
+            stable_symbol_text(&baseline_sort, None),
+            stable_symbol_text(&moved_sort, None),
+        );
+        assert_eq!(
+            stable_symbol_text(&baseline_sort, None),
+            stable_symbol_text(
+                &moved_sort,
+                Some(&ExplicitSymbol::new("api::Expr").unwrap()),
+            ),
+        );
+        assert_eq!(
+            stable_symbol_text(&baseline_production, None),
+            stable_symbol_text(
+                &moved_production,
+                Some(&ExplicitSymbol::new("api::PublicValue").unwrap()),
+            ),
+        );
+    }
 }

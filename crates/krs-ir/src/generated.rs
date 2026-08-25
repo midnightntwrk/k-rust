@@ -122,4 +122,3 @@ fn hex_encode(value: &str) -> String {
     }
     encoded
 }
-

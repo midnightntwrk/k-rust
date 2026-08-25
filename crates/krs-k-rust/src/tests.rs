@@ -10,7 +10,13 @@ use k_rust::{
     definition::{Attributes, ProductionItem, ResolvedDefinition, Sentence},
     kast::{Label, Sort, Term},
     kompile::CompilationBackend,
-    kore::parser::parse_definition,
+    kore::{
+        ast::{
+            Attributes as KoreAttributes, Pattern as KorePattern, Sentence as KoreSentence,
+            Sort as KoreSort, Variable as KoreVariable, VariableKind as KoreVariableKind,
+        },
+        parser::parse_definition,
+    },
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
 use krs_ir::{
@@ -186,6 +192,48 @@ fn m2_definition_with(rule_kind: SentenceKind, initializer_name: &str) -> Defini
 
 fn symbol(id: &str, emitted_name: &str, kind: SymbolKind) -> SymbolIdentity {
     SymbolIdentity::new(SymbolId::new(id).unwrap(), emitted_name, kind).unwrap()
+}
+
+#[test]
+fn native_rule_labels_match_the_source_frontend_namespace_policy() {
+    assert_eq!(
+        super::native_rule_label("SMOKE", "foo-to-bar"),
+        "SMOKE.foo-to-bar"
+    );
+    assert_eq!(
+        super::native_rule_label("SMOKE", "krsRule_725f2944b8a5a8eaf4b9fc6c"),
+        "krsRule_725f2944b8a5a8eaf4b9fc6c"
+    );
+}
+
+#[test]
+fn native_claim_modalities_are_explicit() {
+    assert_eq!(
+        super::claim_modality_attribute(ClaimModality::OnePath),
+        "one-path"
+    );
+    assert_eq!(
+        super::claim_modality_attribute(ClaimModality::AllPaths),
+        "all-path"
+    );
+}
+
+#[test]
+fn native_claim_counter_is_a_fresh_rhs_internal() {
+    let counter = super::native_claim_counter(7);
+    let mut variables = Vec::new();
+    counter.visit_preorder(&mut |term| {
+        if let Term::Variable { name, sort } = term {
+            variables.push((name.clone(), sort.as_ref().map(|sort| sort.name.clone())));
+        }
+    });
+    assert_eq!(
+        variables,
+        vec![
+            ("_KrsCounter7".to_owned(), Some("Int".to_owned())),
+            ("?KRSCOUNTER7".to_owned(), Some("Int".to_owned())),
+        ]
+    );
 }
 
 fn node(key: &str) -> NodeOrigin {
@@ -615,8 +663,12 @@ fn fixed_configuration_preserves_config_variables_and_cell_properties() {
         panic!("fixed configuration must remain native")
     };
     let mut saw_program = false;
+    let mut saw_program_cast = false;
     let mut property_names = Vec::new();
     body.visit_preorder(&mut |term| {
+        if matches!(term, Term::Apply { label, .. } if label.name == "#SemanticCastToValue") {
+            saw_program_cast = true;
+        }
         if let Term::Token { token, sort } = term {
             if token == "$PGM" && sort.name == "KConfigVar" {
                 saw_program = true;
@@ -629,6 +681,10 @@ fn fixed_configuration_preserves_config_variables_and_cell_properties() {
     assert!(
         saw_program,
         "configuration variables remain native KConfigVar tokens"
+    );
+    assert!(
+        saw_program_cast,
+        "configuration variables retain their authored term sort"
     );
     assert!(property_names.iter().any(|name| name == "color"));
     assert!(property_names.iter().any(|name| name == "maincell"));
@@ -766,13 +822,21 @@ fn claims_and_context_aliases_preserve_native_forms_and_origin_roles() {
         panic!("context aliases must remain native")
     };
     let mut saw_here = false;
+    let mut saw_k_tail = false;
     body.visit_preorder(&mut |term| {
         if matches!(term, Term::Variable { name, .. } if name == "HERE") {
             saw_here = true;
         }
+        if matches!(term, Term::Variable { name, sort: Some(sort) }
+            if name == &super::variable_name(&semantic_id("tail")) && sort.name == "K")
+        {
+            saw_k_tail = true;
+        }
     });
     assert!(saw_here);
+    assert!(saw_k_tail);
     assert_eq!(attributes.get_str("label"), Some("schema9_eval"));
+    assert!(attributes.get("cool-like").is_some());
     for role in [
         NativeNodeRole::ContextAliasName,
         NativeNodeRole::ContextAliasHere,
@@ -781,6 +845,35 @@ fn claims_and_context_aliases_preserve_native_forms_and_origin_roles() {
     ] {
         assert!(adapter.origins.iter().any(|mapping| mapping.role == role));
     }
+}
+
+#[test]
+fn alias_clause_relies_on_aliased_production_propagation() {
+    let definition = m2_definition();
+    let mut adapter = Adapter::new(&definition);
+    let body = DefinitionTerm::rewrite(
+        node("schema9.alias.body"),
+        DefinitionSortRef::int(),
+        DefinitionTerm::token(node("schema9.alias.left"), DefinitionSortRef::int(), "0").unwrap(),
+        DefinitionTerm::token(node("schema9.alias.right"), DefinitionSortRef::int(), "1").unwrap(),
+    )
+    .unwrap();
+    let rule = RuleSentence::new(
+        node("schema9.alias"),
+        LabelIdentity::new(LabelId::new("schema9.alias").unwrap(), "schema9-alias").unwrap(),
+        SentenceKind::Alias,
+        Vec::new(),
+        body,
+    )
+    .unwrap();
+    let native = adapter.rule(&rule, MODULE, 0).unwrap();
+    let Sentence::Rule { attributes, .. } = native else {
+        panic!("static alias clauses remain ordinary native rules")
+    };
+    assert!(
+        attributes.get("alias").is_none(),
+        "the frontend propagates alias mode from the root production"
+    );
 }
 
 #[test]
@@ -801,8 +894,8 @@ fn definition_ir_maps_structurally_without_frontend_metadata() {
     assert!(main.imports[0].public);
     assert_eq!(
         main.attributes.source(),
-        Some("src/lib.rs"),
-        "only the portable package-relative source is attached"
+        Some("src/lib.rs#krs-source-map=def.module.main"),
+        "the portable source path retains the exact IR origin key"
     );
     assert_eq!(main.attributes.location(), None);
 
@@ -843,7 +936,7 @@ fn definition_ir_maps_structurally_without_frontend_metadata() {
         .unwrap();
     assert_eq!(
         rule.1.get_str("label"),
-        Some("ORG-EXAMPLE-SMOKE.rules.foo-to-bar")
+        Some("SMOKE.ORG-EXAMPLE-SMOKE.rules.foo-to-bar")
     );
     assert!(matches!(
         rule.0,
@@ -911,6 +1004,55 @@ fn permanent_structured_compile_uses_the_pinned_compatibility_layer() {
         .expect("permanent compilation uses public pinned preparation primitives");
     assert!(!artifacts.definition_kore.is_empty());
     assert!(!artifacts.syntax_definition_kore.is_empty());
+}
+
+#[test]
+fn permanent_compile_disambiguates_generated_names_reused_at_different_sorts() {
+    let sort = |name: &str| KoreSort::Application {
+        name: name.to_owned(),
+        arguments: Vec::new(),
+    };
+    let variable = |sort: KoreSort| {
+        KorePattern::Variable(KoreVariable {
+            kind: KoreVariableKind::Element,
+            name: "_Gen2".to_owned(),
+            sort,
+        })
+    };
+    let mut sentence = KoreSentence::Axiom {
+        parameters: Vec::new(),
+        pattern: Box::new(KorePattern::And {
+            sort: sort("SortGeneratedTopCell"),
+            arguments: vec![
+                variable(sort("SortKItem")),
+                variable(sort("SortGeneratedCounterCell")),
+            ],
+        }),
+        attributes: KoreAttributes::default(),
+    };
+
+    assert_eq!(super::disambiguate_kore_sentence(&mut sentence), 1);
+    let KoreSentence::Axiom { pattern, .. } = sentence else {
+        unreachable!()
+    };
+    let KorePattern::And { arguments, .. } = *pattern else {
+        unreachable!()
+    };
+    let names = arguments
+        .iter()
+        .map(|pattern| match pattern {
+            KorePattern::Variable(variable) => variable.name.as_str(),
+            _ => unreachable!(),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(names.iter().filter(|name| **name == "_Gen2").count(), 1);
+    assert_eq!(
+        names
+            .iter()
+            .filter(|name| name.starts_with("KRSVar"))
+            .count(),
+        1
+    );
 }
 
 #[test]

@@ -1,8 +1,7 @@
 //! Named term grammar and endpoint-preservation tests.
 
 use krs_syntax::{
-    ProvenanceRole, SyntaxErrorKind, TermRootKind, TermSymbolKind,
-    parse_term_expression_source,
+    ProvenanceRole, SyntaxErrorKind, TermRootKind, TermSymbolKind, parse_term_expression_source,
 };
 
 #[test]
@@ -19,21 +18,49 @@ fn named_call_terms_preserve_preorder_paths_and_exact_endpoints() {
 
     let anchors = term.provenance().unwrap();
     assert_eq!(anchors[0].role(), ProvenanceRole::TermPayload);
-    assert_eq!((anchors[0].range().start().line, anchors[0].range().start().column), (1, 0));
-    assert_eq!((anchors[0].range().end().line, anchors[0].range().end().column), (1, source.len()));
-    assert_eq!((anchors[1].range().start().column, anchors[1].range().end().column), (0, 8));
-    assert_eq!((anchors[2].range().start().column, anchors[2].range().end().column), (9, 20));
-    assert_eq!((anchors[3].range().start().column, anchors[3].range().end().column), (21, 26));
+    assert_eq!(
+        (
+            anchors[0].range().start().line,
+            anchors[0].range().start().column
+        ),
+        (1, 0)
+    );
+    assert_eq!(
+        (
+            anchors[0].range().end().line,
+            anchors[0].range().end().column
+        ),
+        (1, source.len())
+    );
+    assert_eq!(
+        (
+            anchors[1].range().start().column,
+            anchors[1].range().end().column
+        ),
+        (0, 8)
+    );
+    assert_eq!(
+        (
+            anchors[2].range().start().column,
+            anchors[2].range().end().column
+        ),
+        (9, 20)
+    );
+    assert_eq!(
+        (
+            anchors[3].range().start().column,
+            anchors[3].range().end().column
+        ),
+        (21, 26)
+    );
     assert_eq!(anchors[3].key().unwrap().role(), "term_path");
     assert_eq!(anchors[3].key().unwrap().ordinal(), 2);
 }
 
 #[test]
 fn record_and_unit_terms_are_accepted() {
-    let record = parse_term_expression_source(
-        "crate::Add { lhs, rhs: IntValue(1), flag: true }",
-    )
-    .unwrap();
+    let record =
+        parse_term_expression_source("crate::Add { lhs, rhs: IntValue(1), flag: true }").unwrap();
     assert_eq!(record.root_kind(), TermRootKind::Record);
     assert_eq!(record.symbols().len(), 3);
 
@@ -71,8 +98,7 @@ fn out_of_scope_rust_expressions_are_rejected() {
         let error = parse_term_expression_source(source).unwrap_err();
         assert!(matches!(
             error.kind(),
-            SyntaxErrorKind::UnsupportedTermExpression { .. }
-                | SyntaxErrorKind::UnsupportedPath
+            SyntaxErrorKind::UnsupportedTermExpression { .. } | SyntaxErrorKind::UnsupportedPath
         ));
     }
 }

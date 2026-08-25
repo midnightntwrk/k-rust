@@ -4,12 +4,12 @@ use krs_compiler::{emit_k, lower_semantic_theory};
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity,
     GroupAssociativitySentence, ItemKind, ModuleId, NodeOrigin, OriginStack, PackageId,
-    PrecedenceRelation, ProductionAttribute, ProductionFieldId, ProductionGroupId,
-    SemanticCell, SemanticConfiguration, SemanticId, SemanticInitializer, SemanticModule,
-    SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef,
-    SemanticSubsort, SemanticTerm, SemanticTheory, SemanticVariable, SentenceKind, Sha256Digest,
-    SourceFileId, SourceMapKey, SourceRange, StableItemId, StrictnessKind,
-    ProductionFieldReference, ProductionResultSort,
+    PrecedenceRelation, ProductionAttribute, ProductionFieldId, ProductionFieldReference,
+    ProductionGroupId, ProductionResultSort, SemanticCell, SemanticConfiguration, SemanticId,
+    SemanticInitializer, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
+    SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticVariable,
+    SentenceKind, Sha256Digest, SourceFileId, SourceMapKey, SourceRange, StableItemId,
+    StrictnessKind,
 };
 
 fn package() -> PackageId {
@@ -78,8 +78,14 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
                 origin: origin("eval.strict"),
                 kind: StrictnessKind::Strict,
                 using: None,
-                fields: vec![ProductionFieldReference::new(origin("eval.strict.field"), ProductionFieldId::new("value").unwrap())],
-                result_sort: ProductionResultSort::new(origin("eval.strict.result"), SemanticSortRef::Builtin(BuiltinSort::Int)),
+                fields: vec![ProductionFieldReference::new(
+                    origin("eval.strict.field"),
+                    ProductionFieldId::new("value").unwrap(),
+                )],
+                result_sort: ProductionResultSort::new(
+                    origin("eval.strict.result"),
+                    SemanticSortRef::Builtin(BuiltinSort::Int),
+                ),
             },
         ],
     )
@@ -111,10 +117,19 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
                 kind: StrictnessKind::SeqStrict,
                 using: None,
                 fields: vec![
-                    ProductionFieldReference::new(origin("plus.strict.field.0"), ProductionFieldId::new("lhs").unwrap()),
-                    ProductionFieldReference::new(origin("plus.strict.field.1"), ProductionFieldId::new("rhs").unwrap()),
+                    ProductionFieldReference::new(
+                        origin("plus.strict.field.0"),
+                        ProductionFieldId::new("lhs").unwrap(),
+                    ),
+                    ProductionFieldReference::new(
+                        origin("plus.strict.field.1"),
+                        ProductionFieldId::new("rhs").unwrap(),
+                    ),
                 ],
-                result_sort: ProductionResultSort::new(origin("plus.strict.result"), SemanticSortRef::Builtin(BuiltinSort::Int)),
+                result_sort: ProductionResultSort::new(
+                    origin("plus.strict.result"),
+                    SemanticSortRef::Builtin(BuiltinSort::Int),
+                ),
             },
         ],
     )
@@ -141,13 +156,10 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
         origin("production.token"),
         token,
         SemanticSortRef::Declared(id_sort.clone()),
-        vec![SemanticProductionItem::regex_terminal(
-            origin("token.regex"),
-            None,
-            "[a-z]+",
-            None,
-        )
-        .unwrap()],
+        vec![
+            SemanticProductionItem::regex_terminal(origin("token.regex"), None, "[a-z]+", None)
+                .unwrap(),
+        ],
         vec![ProductionAttribute::Token {
             origin: origin("token.attribute"),
             lexical_precedence: Some(2),
@@ -242,19 +254,24 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
             SemanticSortRef::Builtin(BuiltinSort::Int),
             SemanticSortRef::Declared(expr),
         )],
-        vec![eval_production, plus_production, bracket_production, token_production],
-        vec![PrecedenceRelation::new(
-            origin("precedence"),
-            vec![unary],
-            vec![additive.clone()],
-        )
-        .unwrap()],
-        vec![GroupAssociativitySentence::new(
-            origin("associativity"),
-            GroupAssociativity::Left,
-            vec![additive],
-        )
-        .unwrap()],
+        vec![
+            eval_production,
+            plus_production,
+            bracket_production,
+            token_production,
+        ],
+        vec![
+            PrecedenceRelation::new(origin("precedence"), vec![unary], vec![additive.clone()])
+                .unwrap(),
+        ],
+        vec![
+            GroupAssociativitySentence::new(
+                origin("associativity"),
+                GroupAssociativity::Left,
+                vec![additive],
+            )
+            .unwrap(),
+        ],
         Some(configuration),
         vec![rule],
     );

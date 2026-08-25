@@ -28,7 +28,14 @@ use k_rust::{
     diagnostic::{Diagnostic as NativeDiagnostic, Severity as NativeSeverity},
     kast::{Label as NativeLabel, Sort as NativeSort, Term as NativeTerm},
     kompile,
-    kore::parser::parse_definition as parse_kore_definition,
+    kore::{
+        ast::{
+            Definition as KoreDefinition, Pattern as KorePattern, Sentence as KoreSentence,
+            Sort as KoreSort, Variable as KoreVariable, VariableKind as KoreVariableKind,
+        },
+        parser::parse_definition as parse_kore_definition,
+        printer::Printer as KorePrinter,
+    },
     outer::{LoadOptions as NativeLoadOptions, ResolvedSource, load_with_options},
 };
 use krs_ir::{
@@ -224,7 +231,8 @@ struct InitializerIdentity {
 ///
 /// This value is intentionally not a [`LoadedDefinition`]. Its origin sidecar
 /// retains exact byte ranges and transformation stacks. Native source
-/// attributes retain a portable package-relative source name; a native
+/// attributes retain a portable package-relative source name plus the exact
+/// Definition IR source-map key consumed by diagnostic translation; a native
 /// line/column location is omitted because Definition IR has byte ranges but
 /// not source contents from which line/column coordinates could be derived
 /// honestly.
@@ -647,13 +655,34 @@ pub fn compile_definition(
         validate_initializer_identity(&loaded.definition, initializer)
             .map_err(|error| DefinitionCompileError::Preparation(error.to_string()))?;
     }
-    let artifacts = compile_loaded_definition(&loaded, options).map_err(|error| {
+    let mut artifacts = compile_loaded_definition(&loaded, options).map_err(|error| {
+        let authored_existential_keys = authored_existential_sentence_keys(ir);
+        let diagnostics = error
+            .diagnostics()
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.code != "UnsupportedExistentialVariable"
+                    || diagnostic
+                        .source
+                        .as_deref()
+                        .and_then(native_source_map_key)
+                        .is_none_or(|key| authored_existential_keys.contains(key))
+            })
+            .cloned()
+            .collect();
         DefinitionCompileError::Compile {
             stage: error.stage(),
             message: error.message().to_owned(),
-            diagnostics: error.diagnostics().to_vec(),
+            diagnostics,
         }
     })?;
+    artifacts.definition_kore =
+        disambiguate_kore_variable_sorts(&artifacts.definition_kore, options.kore_width).map_err(
+            |message| DefinitionCompileError::KoreReparse {
+                artifact: "definition.kore",
+                message,
+            },
+        )?;
     parse_kore_definition(&artifacts.definition_kore).map_err(|error| {
         DefinitionCompileError::KoreReparse {
             artifact: "definition.kore",
@@ -667,6 +696,197 @@ pub fn compile_definition(
         }
     })?;
     Ok(artifacts)
+}
+
+/// Repair the pinned frontend's sentence-local `_GenN` collision between
+/// `ConcretizeCells` output and its later term-construction minimizer.
+///
+/// KORE identifies a variable by kind and name and requires one sort for that
+/// identity. The pinned compiler can allocate the same `_GenN` name to two
+/// independent terms of different sorts. Rename only the later sorted
+/// identities, consistently across one sentence, and leave collision-free
+/// output byte-for-byte untouched.
+fn disambiguate_kore_variable_sorts(source: &str, width: usize) -> Result<String, String> {
+    let mut definition = parse_kore_definition(source).map_err(|error| error.to_string())?;
+    let mut repaired = 0_usize;
+    for module in &mut definition.modules {
+        for sentence in &mut module.sentences {
+            repaired += disambiguate_kore_sentence(sentence);
+        }
+    }
+    if repaired == 0 {
+        return Ok(source.to_owned());
+    }
+    ensure_kore_variable_sorts_are_unique(&mut definition)?;
+    let mut rendered = KorePrinter::pretty(width).print_definition(&definition);
+    if !rendered.ends_with('\n') {
+        rendered.push('\n');
+    }
+    Ok(rendered)
+}
+
+fn disambiguate_kore_sentence(sentence: &mut KoreSentence) -> usize {
+    let mut sorts_by_name = BTreeMap::<(KoreVariableKind, String), BTreeSet<KoreSort>>::new();
+    let mut used_names = BTreeSet::new();
+    for pattern in kore_sentence_patterns_mut(sentence) {
+        visit_kore_variables_mut(pattern, &mut |variable| {
+            used_names.insert(variable.name.clone());
+            sorts_by_name
+                .entry((variable.kind, variable.name.clone()))
+                .or_default()
+                .insert(variable.sort.clone());
+        });
+    }
+
+    let mut next = 0_usize;
+    let mut renames = BTreeMap::<(KoreVariableKind, String, KoreSort), String>::new();
+    for ((kind, name), sorts) in sorts_by_name {
+        if sorts.len() < 2 {
+            continue;
+        }
+        for sort in sorts.into_iter().skip(1) {
+            let replacement = loop {
+                let candidate = format!("KRSVar{next}");
+                next += 1;
+                if used_names.insert(candidate.clone()) {
+                    break candidate;
+                }
+            };
+            renames.insert((kind, name.clone(), sort), replacement);
+        }
+    }
+    if renames.is_empty() {
+        return 0;
+    }
+    for pattern in kore_sentence_patterns_mut(sentence) {
+        visit_kore_variables_mut(pattern, &mut |variable| {
+            if let Some(replacement) =
+                renames.get(&(variable.kind, variable.name.clone(), variable.sort.clone()))
+            {
+                variable.name.clone_from(replacement);
+            }
+        });
+    }
+    renames.len()
+}
+
+fn ensure_kore_variable_sorts_are_unique(definition: &mut KoreDefinition) -> Result<(), String> {
+    for module in &mut definition.modules {
+        for sentence in &mut module.sentences {
+            let mut sorts_by_name =
+                BTreeMap::<(KoreVariableKind, String), BTreeSet<KoreSort>>::new();
+            for pattern in kore_sentence_patterns_mut(sentence) {
+                visit_kore_variables_mut(pattern, &mut |variable| {
+                    sorts_by_name
+                        .entry((variable.kind, variable.name.clone()))
+                        .or_default()
+                        .insert(variable.sort.clone());
+                });
+            }
+            if let Some(((kind, name), sorts)) =
+                sorts_by_name.into_iter().find(|(_, sorts)| sorts.len() > 1)
+            {
+                return Err(format!(
+                    "KORE variable {kind:?} {name:?} still has multiple sorts: {sorts:?}"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn kore_sentence_patterns_mut(sentence: &mut KoreSentence) -> Vec<&mut KorePattern> {
+    match sentence {
+        KoreSentence::Import { attributes, .. }
+        | KoreSentence::SortDeclaration { attributes, .. }
+        | KoreSentence::SymbolDeclaration { attributes, .. } => attributes.0.iter_mut().collect(),
+        KoreSentence::AliasDeclaration {
+            left,
+            right,
+            attributes,
+            ..
+        } => {
+            let mut patterns = vec![left.as_mut(), right.as_mut()];
+            patterns.extend(attributes.0.iter_mut());
+            patterns
+        }
+        KoreSentence::Axiom {
+            pattern,
+            attributes,
+            ..
+        }
+        | KoreSentence::Claim {
+            pattern,
+            attributes,
+            ..
+        } => {
+            let mut patterns = vec![pattern.as_mut()];
+            patterns.extend(attributes.0.iter_mut());
+            patterns
+        }
+    }
+}
+
+fn visit_kore_variables_mut(
+    pattern: &mut KorePattern,
+    visitor: &mut impl FnMut(&mut KoreVariable),
+) {
+    match pattern {
+        KorePattern::Variable(variable) => visitor(variable),
+        KorePattern::Application { arguments, .. }
+        | KorePattern::And { arguments, .. }
+        | KorePattern::Or { arguments, .. }
+        | KorePattern::AssociativeApplication { arguments, .. } => {
+            for argument in arguments {
+                visit_kore_variables_mut(argument, visitor);
+            }
+        }
+        KorePattern::Not { argument, .. }
+        | KorePattern::Next { argument, .. }
+        | KorePattern::Ceil { argument, .. }
+        | KorePattern::Floor { argument, .. } => visit_kore_variables_mut(argument, visitor),
+        KorePattern::Implies { left, right, .. }
+        | KorePattern::Iff { left, right, .. }
+        | KorePattern::Rewrites { left, right, .. }
+        | KorePattern::Equals { left, right, .. }
+        | KorePattern::In { left, right, .. } => {
+            visit_kore_variables_mut(left, visitor);
+            visit_kore_variables_mut(right, visitor);
+        }
+        KorePattern::Exists { variable, body, .. }
+        | KorePattern::Forall { variable, body, .. }
+        | KorePattern::Mu { variable, body }
+        | KorePattern::Nu { variable, body } => {
+            visitor(variable);
+            visit_kore_variables_mut(body, visitor);
+        }
+        KorePattern::String(_)
+        | KorePattern::Top { .. }
+        | KorePattern::Bottom { .. }
+        | KorePattern::DomainValue { .. } => {}
+    }
+}
+
+fn authored_existential_sentence_keys(ir: &DefinitionIr) -> BTreeSet<&str> {
+    ir.modules()
+        .iter()
+        .flat_map(krs_ir::DefinitionModule::sentences)
+        .filter_map(|sentence| {
+            let DefinitionSentence::Rule(rule) = sentence else {
+                return None;
+            };
+            rule.claim()
+                .is_some_and(|claim| !claim.existentials().is_empty())
+                .then(|| rule.origin().key().as_str())
+        })
+        .collect()
+}
+
+fn native_source_map_key(source: &str) -> Option<&str> {
+    source
+        .rsplit_once("#krs-source-map=")
+        .map(|(_, key)| key)
+        .filter(|key| !key.is_empty())
 }
 
 /// Provisional M2 test-oracle compilation through public frontend passes.
@@ -858,13 +1078,10 @@ impl Adapter {
                         );
                     }
                     DefinitionSentence::Configuration(sentence) => {
-                        collect_fixed_cells(
-                            sentence
-                                .as_fixed()
-                                .expect("non-legacy configuration is fixed")
-                                .cells(),
-                            &mut cells,
-                        );
+                        let configuration = sentence
+                            .as_fixed()
+                            .expect("non-legacy configuration is fixed");
+                        collect_fixed_cells(configuration.cells(), &mut cells);
                     }
                     DefinitionSentence::ContextAlias(sentence) => {
                         context_aliases.insert(sentence.id().clone(), sentence.name().to_owned());
@@ -1424,6 +1641,9 @@ impl Adapter {
         self.context_here = None;
         let mut attributes = attributes_for_origin(sentence.origin());
         attributes.insert("label", json!(sentence.name()));
+        // K's source frontend carries this internal marker from a named
+        // computation-cell context alias into its generated cool rule.
+        attributes.insert("cool-like", json!(""));
         Ok(NativeSentence::ContextAlias {
             body,
             requires: truth(),
@@ -1493,7 +1713,10 @@ impl Adapter {
                 },
             )?;
         let mut attributes = attributes_for_origin(sentence.origin());
-        attributes.insert("label", json!(sentence.label().emitted_name()));
+        attributes.insert(
+            "label",
+            json!(native_rule_label(module, sentence.label().emitted_name())),
+        );
         if let Some(priority) = sentence.priority() {
             attributes.insert("priority", json!(priority.value().to_string()));
         }
@@ -1507,9 +1730,6 @@ impl Adapter {
                 ),
             );
         }
-        if sentence.kind() == SentenceKind::Alias {
-            attributes.insert("alias", json!(""));
-        }
         if let Some(claim) = sentence.claim() {
             self.map_origin(
                 claim.modality_origin(),
@@ -1517,9 +1737,7 @@ impl Adapter {
                 Some(sentence_index),
                 NativeNodeRole::ClaimModality,
             );
-            if claim.modality() == ClaimModality::OnePath {
-                attributes.insert("one-path", json!(""));
-            }
+            attributes.insert(claim_modality_attribute(claim.modality()), json!(""));
             if let Some(origin) = claim.circularity_origin() {
                 self.map_origin(
                     origin,
@@ -1579,7 +1797,7 @@ impl Adapter {
         sentence_index: usize,
         sentence: &RuleSentence,
     ) -> Result<NativeTerm, AdapterError> {
-        let cells = rewrite
+        let mut cells = rewrite
             .clauses()
             .iter()
             .enumerate()
@@ -1626,6 +1844,9 @@ impl Adapter {
                 self.framed_cell(clause.cell(), content, clause.frame(), clause.origin())
             })
             .collect::<Result<Vec<_>, AdapterError>>()?;
+        if sentence.claim().is_some() {
+            cells.push(native_claim_counter(sentence_index));
+        }
         Ok(native_cells(cells))
     }
 
@@ -1685,7 +1906,10 @@ impl Adapter {
             CellContentFrame::KSequenceTail { binding, .. } => {
                 binding.as_ref().map_or((content.clone(), true), |binding| {
                     (
-                        NativeTerm::sequence([content, native_variable(binding, None, false)]),
+                        NativeTerm::sequence([
+                            content,
+                            native_variable(binding, Some(NativeSort::new("K")), false),
+                        ]),
                         false,
                     )
                 })
@@ -1732,12 +1956,16 @@ impl Adapter {
                     return Ok(NativeTerm::variable("HERE"));
                 }
                 if context == TermContext::ConfigurationInitializer
-                    && let Some(name) = self.initializer_variables.get(variable)
+                    && let Some(name) = self.initializer_variables.get(variable).cloned()
                 {
-                    return Ok(NativeTerm::Token {
-                        token: format!("${name}"),
-                        sort: NativeSort::new("KConfigVar"),
-                    });
+                    let sort = self.sort(term.sort(), term.origin())?;
+                    return Ok(NativeTerm::apply(
+                        format!("#SemanticCastTo{}", sort.name),
+                        vec![NativeTerm::Token {
+                            token: format!("${name}"),
+                            sort: NativeSort::new("KConfigVar"),
+                        }],
+                    ));
                 }
                 let existential = rule.and_then(RuleSentence::claim).is_some_and(|claim| {
                     claim
@@ -2158,6 +2386,27 @@ fn native_cells(mut cells: Vec<NativeTerm>) -> NativeTerm {
     }
 }
 
+fn native_claim_counter(sentence_index: usize) -> NativeTerm {
+    let sort = Some(NativeSort::new("Int"));
+    incomplete_cell(
+        "generatedCounter",
+        NativeTerm::Rewrite {
+            left: Box::new(NativeTerm::Variable {
+                name: format!("_KrsCounter{sentence_index}"),
+                sort: sort.clone(),
+            }),
+            right: Box::new(NativeTerm::Variable {
+                // K's source claim concretizer allocates its internal counter
+                // after authored existential names. Keep the compatibility
+                // variable in that same deterministic ordering class.
+                name: format!("?KRSCOUNTER{sentence_index}"),
+                sort,
+            }),
+        },
+        false,
+    )
+}
+
 fn native_cell_properties(attributes: &[CellAttribute], main: bool) -> NativeTerm {
     let mut properties = attributes
         .iter()
@@ -2291,6 +2540,24 @@ const fn builtin_label(operation: BuiltinOperation) -> &'static str {
     }
 }
 
+fn native_rule_label(module: &str, emitted_name: &str) -> String {
+    // Shared lowering emits this reserved fallback directly as a label
+    // attribute. K therefore leaves it unqualified. Authored/named rules and
+    // claims pass through K's named-sentence path and acquire the module.
+    if emitted_name.starts_with("krsRule_") {
+        emitted_name.to_owned()
+    } else {
+        format!("{module}.{emitted_name}")
+    }
+}
+
+const fn claim_modality_attribute(modality: ClaimModality) -> &'static str {
+    match modality {
+        ClaimModality::OnePath => "one-path",
+        ClaimModality::AllPaths => "all-path",
+    }
+}
+
 fn attributes_for_origin(origin: &NodeOrigin) -> NativeAttributes {
     let mut attributes = NativeAttributes::default();
     if let Some(source) = origin
@@ -2302,7 +2569,10 @@ fn attributes_for_origin(origin: &NodeOrigin) -> NativeAttributes {
             OriginFrame::Transformation { .. } => None,
         })
     {
-        attributes.insert(native_definition::SOURCE_ATTRIBUTE, json!(source));
+        attributes.insert(
+            native_definition::SOURCE_ATTRIBUTE,
+            json!(format!("{source}#krs-source-map={}", origin.key().as_str())),
+        );
     }
     attributes
 }

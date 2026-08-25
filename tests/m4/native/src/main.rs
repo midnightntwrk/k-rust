@@ -1,9 +1,7 @@
 use std::collections::BTreeMap;
 use std::{env, fs};
 
-use krs_m4_native_comparator::{
-    ComparePolicy, compare_kore, compare_kore_with_reference_claims,
-};
+use krs_m4_native_comparator::{ComparePolicy, compare_kore, compare_kore_with_reference_claims};
 
 fn main() {
     if let Err(error) = run() {
@@ -39,7 +37,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let (actual, reference) = mapping
             .split_once('=')
             .ok_or("--label needs FROM=CANONICAL")?;
-        if actual.is_empty() || reference.is_empty() || label_map.insert(actual.into(), reference.into()).is_some() {
+        if actual.is_empty()
+            || reference.is_empty()
+            || label_map.insert(actual.into(), reference.into()).is_some()
+        {
             return Err(format!("invalid or duplicate label mapping {mapping:?}").into());
         }
     }

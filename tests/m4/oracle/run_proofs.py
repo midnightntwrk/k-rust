@@ -229,6 +229,18 @@ def split_emitted_source(source: str, expected_labels: Sequence[str]) -> tuple[s
     return execution_source, "".join(claims)
 
 
+def actual_spec_source(execution_source: Path, claims: str) -> str:
+    """Wrap emitted claims with the upstream verification-only Id syntax."""
+
+    return (
+        f'requires "{execution_source.name}"\n'
+        'requires "imp-verification.k"\n\n'
+        f"module {ACTUAL_SPEC_MODULE}\n"
+        f"  imports {ACTUAL_MODULE}\n"
+        f"  imports IMP-VERIFICATION-SYNTAX\n\n{claims}endmodule\n"
+    )
+
+
 def proof_policy(pins: Mapping[str, Any], side: str, cases: Sequence[Mapping[str, Any]], proofs: Any) -> Any:
     term_policy = pins.get("behavior", {}).get("term_policy", {}).get(side)
     if not isinstance(term_policy, dict) or set(term_policy) != {
@@ -268,8 +280,7 @@ def compile_definitions(
     actual_source.write_text(execution_text, encoding="utf-8")
     actual_spec = workspace / "actual-spec.k"
     actual_spec.write_text(
-        f'requires "{actual_source.name}"\n\nmodule {ACTUAL_SPEC_MODULE}\n'
-        f"  imports {ACTUAL_MODULE}\n\n{claims}endmodule\n",
+        actual_spec_source(actual_source, claims),
         encoding="utf-8",
     )
     actual_definition = workspace / "actual-kompiled"
@@ -533,7 +544,7 @@ def actual_source_kore_result(
             "--claims", case["actual_claim"], "--output", "kore",
             "--depth", str(case["bounds"].depth),
             "--branching-allowed", str(case["bounds"].branching_allowed),
-            "-I", workspace,
+            "-I", workspace, "-I", IMP_DEFINITION,
         ],
         check=False,
     )
@@ -597,7 +608,7 @@ def main() -> int:
         actual_process, actual_result, actual_claim = invoke_source(
             kprove=kprove, definition=actual_definition, spec=actual_spec,
             module=ACTUAL_SPEC_MODULE, claim=case["actual_claim"], bounds=case["bounds"],
-            spec_json=actual_json, includes=(workspace,),
+            spec_json=actual_json, includes=(workspace, IMP_DEFINITION),
         )
         try:
             reference_evidence = proofs.evidence_from_values(

@@ -24,7 +24,7 @@ except ImportError:  # Direct loading by tests/m4/verify.py.
     from source_definition import DEFAULT_METADATA_ATTRIBUTES, NODE_FIELDS, canonical, digest
 
 
-M3D_HELPER_SHA256 = "2ed14f41b39cf95fdfd132d1fa675c3d550375c75499d78711a2c901d023bc9f"
+M3D_HELPER_SHA256 = "aa3ba0824b18d4d6d60c38608b79bc9ff3a69c125308505a9436a44cda353abb"
 M3D_SELECTED_CASES = frozenset(
     {
         "addition-1",

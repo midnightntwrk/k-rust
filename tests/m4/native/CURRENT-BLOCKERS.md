@@ -6,7 +6,8 @@ review links fail visibly if the evidence regresses.
 
 ## Strict result
 
-Observed on 2026-08-22 with descriptor protocol 15, Definition IR schema 9,
+Reproduced twice unchanged on 2026-08-26 with descriptor protocol 15,
+Definition IR schema 9,
 pinned `k-rust` revision `58f33885b736148dae189623d1aac989ce9be475`, and
 pinned K 7.1.337:
 
@@ -21,6 +22,12 @@ mappings, and mechanically proves each removed native projector declaration
 and equation is a complete, closed, unused pair. It performs no binder-order,
 parenthesis, associative/commutative, or claim-specific normalization.
 
+The separate incomplete-proof residual comparator permits
+associative/commutative normalization only for KORE conjunction and exact Map
+concatenation. It then applies adjacent-existential and alpha normalization;
+ordinary application argument order remains exact. This proof-result policy
+does not weaken the native definition comparator described above.
+
 The last semantic repair was at the structured adapter boundary. The pinned
 frontend lexically orders existentials before nesting them. K's reference
 frontend places its generated-counter existential outside an authored
@@ -29,6 +36,12 @@ the counter. KRS now gives ensures-scoped internal existential names a distinct
 ordered namespace while retaining one name at the binder and every use. This
 closed `bmc-loop-concrete`, `bmc-loop-symbolic`, `branching`, and
 `branching-deadcode` without comparator allowances.
+
+The pinned minimizer can also reuse one `_GenN` name for different sorts in a
+single sentence, yielding invalid KORE. KRS repairs that parsed output by
+alpha-renaming only the later conflicting `(kind, name, sort)` identity.
+Collision-free output remains byte-for-byte unchanged, and the pinned
+`k-rust` checkout is not modified.
 
 ## Reproduction contract
 
@@ -77,13 +90,12 @@ and comparing the artifacts:
 
 | artifact | bytes | SHA-256 |
 |---|---:|---|
-| emitted `definition.k` | 13,989 | `c2a13a9936db01a30901ee8045e89818dbb0021618646ea5b303d368a4ceb6f2` |
-| emitted `symbols.json` | 30,791 | `18d19037df25d5230f8f51d2caa3b9d4eef14118d6a2d2b5d213fe38b402c856` |
-| emitted `sources.json` | 4,252,117 | `046221deb0a15d9a321c6859c80c010e5a6affadb08367ec59e942a47e0cbf14` |
-| reference `definition.kore` | 547,626 | `91ee9c2c3aff9f2fb3426c01b0e4b3d43c236fa558eb0cf45f99a46a896fd6da` |
-| reference `spec.kore` | 54,875 | `26f1a382424b6bcc6a32fc1ff3cdc63e432dd3eb5ab1f9596e1f707a86c451db` |
-| native `definition.kore` | 521,226 | `59ea32230e71aa1b2bbe6fc5c56aa296a9063f49643897f143ec336a73559e39` |
-| native `syntaxDefinition.kore` | 99,005 | `42bd0d27a21920c924bda16e86c0bfc1dce47ab631ac4e34fcc208cd84d58dab` |
+| emitted `definition.k` | 12,496 | `75423957f57691e8503b167ee0fce7854c9dde4fc18154cdf1d03c948275cbbf` |
+| emitted `symbols.json` | 31,012 | `5c0d68d757fad8717ba2ff6823045e414db916ec55944f45aea9df449ae0d5ae` |
+| emitted `sources.json` | 4,594,792 | `2caba193fdadc7c5b17c09a02d826ecbe16df470ada74951784995d48f3b45f8` |
+| native `.krs-artifacts` | 49 | `4992e03ec15408f887a401455c9f719384c6d5bb69e661487f91abe576ceb1b5` |
+| native `definition.kore` | 521,007 | `1483dc5eacf7fed1f5fd56d0c33530a6552d06b19216159758e5b0d57211d518` |
+| native `syntaxDefinition.kore` | 96,324 | `9963fcfacc153cf8e12e900ace1b4416be6672d5c4ac620a3e73af2d69c7c051` |
 | native `macros.kore` | 437 | `e1d5a374973b2fa9eb2502c3acdee5244ee7a89a965dd7acd69cda4b7d7814e0` |
 
 The LLVM route still intentionally rejects existential claims. That is a

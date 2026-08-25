@@ -67,11 +67,21 @@ fn populated_descriptor(reverse_sets: bool) -> Descriptor {
     let mut origins = vec![
         DescriptorNodeOrigin::new(
             primary_key.clone(),
-            origin("src/configuration.rs", 5, &configuration_id, "configuration"),
+            origin(
+                "src/configuration.rs",
+                5,
+                &configuration_id,
+                "configuration",
+            ),
         ),
         DescriptorNodeOrigin::new(
             key("configuration_root", 0),
-            origin("src/configuration.rs", 12, &configuration_id, "configuration"),
+            origin(
+                "src/configuration.rs",
+                12,
+                &configuration_id,
+                "configuration",
+            ),
         ),
         DescriptorNodeOrigin::new(
             key("configuration_field", 0),
@@ -369,9 +379,7 @@ fn duplicate_and_missing_parser_joins_are_rejected() {
     missing.provenance = DescriptorProvenance::new(primary, origins).unwrap();
     assert_eq!(
         missing.validate_configuration_contract(),
-        Err(ConfigurationDescriptorError::MissingInitializerReferenceOrigin(
-            omitted
-        ))
+        Err(ConfigurationDescriptorError::MissingInitializerReferenceOrigin(omitted))
     );
 
     let encoded = serde_json::to_string(&DescriptorBundle::new(vec![missing])).unwrap();
@@ -386,8 +394,9 @@ fn canonicalization_reorders_sets_but_not_term_order() {
     );
 
     let mut reordered_term = populated_bundle(false);
-    configuration_mut(&mut reordered_term.descriptors[0]).initializer.term =
-        "model :: Pair (model :: Bar, model :: Foo)".into();
+    configuration_mut(&mut reordered_term.descriptors[0])
+        .initializer
+        .term = "model :: Pair (model :: Bar, model :: Foo)".into();
     assert_ne!(
         populated_bundle(false).to_canonical_json().unwrap(),
         reordered_term.to_canonical_json().unwrap()

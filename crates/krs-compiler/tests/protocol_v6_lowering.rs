@@ -879,6 +879,11 @@ fn named_record_wildcard_bare_constructor_and_generated_bracket_lower() {
     assert!(k.source().contains("syntax priority"));
     assert!(k.source().contains("syntax left"));
     assert!(k.source().contains("bracket, format(%1%2%3)"));
+    assert!(k.source().contains("symbol(krsGenerated_"));
+    assert!(
+        !k.source()
+            .contains("symbol(__krs_generated_semantic_production)")
+    );
     assert!(k.source().contains("=> unit"));
 }
 

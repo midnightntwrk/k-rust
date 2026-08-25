@@ -91,6 +91,22 @@ class DiagnosticProbeTests(unittest.TestCase):
                 definition, {"entries": [entry]}, authored, "src/lib.rs", "ExactToken"
             )
 
+    def test_k_frontend_claim_split_preserves_exact_claim_bytes(self) -> None:
+        module = load(HERE / "diagnostics/k-frontend/probe.py", "frontend_claim_split")
+        source = (
+            b"module TEST\n"
+            b"  claim [first]:\n"
+            b"    A => B\n"
+            b"  rule [step]: A => B\n"
+            b"endmodule\n"
+        )
+        execution, claims = module.split_emitted_claims(source, expected_count=1)
+        self.assertEqual(
+            execution,
+            b"module TEST\n  rule [step]: A => B\nendmodule\n",
+        )
+        self.assertEqual(claims, b"  claim [first]:\n    A => B\n")
+
 
 if __name__ == "__main__":
     unittest.main()

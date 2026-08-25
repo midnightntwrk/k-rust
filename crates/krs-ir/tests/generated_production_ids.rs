@@ -11,12 +11,7 @@ fn package(namespace: &str, name: &str) -> PackageId {
     PackageId::new(namespace, name, "1.2.3", "workspace").unwrap()
 }
 
-fn grammar(
-    package: PackageId,
-    modules: &[&str],
-    name: &str,
-    disambiguator: &str,
-) -> StableItemId {
+fn grammar(package: PackageId, modules: &[&str], name: &str, disambiguator: &str) -> StableItemId {
     StableItemId::new(
         package,
         modules.iter().copied(),
@@ -112,15 +107,15 @@ fn component_boundaries_and_unicode_are_injective() {
 
     let generated = sources
         .iter()
-        .map(|source| {
-            generated_production_id(source, GeneratedProductionKind::Bracket).unwrap()
-        })
+        .map(|source| generated_production_id(source, GeneratedProductionKind::Bracket).unwrap())
         .collect::<BTreeSet<_>>();
 
     assert_eq!(generated.len(), sources.len());
-    assert!(generated.iter().all(|id| {
-        !id.disambiguator().contains('/') && !id.disambiguator().contains('\\')
-    }));
+    assert!(
+        generated
+            .iter()
+            .all(|id| { !id.disambiguator().contains('/') && !id.disambiguator().contains('\\') })
+    );
 }
 
 #[test]

@@ -13,6 +13,10 @@ import tempfile
 
 
 LOCATION = re.compile(r"Location\((\d+),(\d+),(\d+),(\d+)\)")
+SENTENCE_START = re.compile(
+    rb"^(?:endmodule\b|  (?:syntax\b|configuration\b|context alias\b|rule\b|claim \[))"
+)
+CLAIM_START = re.compile(rb"^  claim \[([^]]+)\]:\s*$")
 
 
 class FrontendProbeError(RuntimeError):
@@ -61,6 +65,38 @@ def exact_mapping(
     return matches[0]
 
 
+def split_emitted_claims(
+    definition: bytes, expected_count: int = 20
+) -> tuple[bytes, bytes]:
+    """Separate emitted claims from the executable module without rewriting them."""
+
+    lines = definition.splitlines(keepends=True)
+    execution: list[bytes] = []
+    claims: list[bytes] = []
+    labels: list[bytes] = []
+    index = 0
+    while index < len(lines):
+        match = CLAIM_START.match(lines[index].rstrip(b"\r\n"))
+        if match is None:
+            execution.append(lines[index])
+            index += 1
+            continue
+        labels.append(match.group(1))
+        start = index
+        index += 1
+        while index < len(lines) and SENTENCE_START.match(lines[index]) is None:
+            index += 1
+        claims.extend(lines[start:index])
+    executable = b"".join(execution)
+    if len(labels) != expected_count or len(set(labels)) != expected_count:
+        raise FrontendProbeError(
+            f"expected {expected_count} unique emitted claims, got {len(labels)}"
+        )
+    if b"  claim [" in executable or not executable.endswith(b"endmodule\n"):
+        raise FrontendProbeError("claim-free execution module is malformed")
+    return executable, b"".join(claims)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--definition", type=Path, required=True)
@@ -70,6 +106,7 @@ def main() -> int:
     parser.add_argument("--token", required=True)
     parser.add_argument("--kompile")
     parser.add_argument("--module")
+    parser.add_argument("--verification-definition", type=Path)
     arguments = parser.parse_args()
     definition = arguments.definition.read_bytes()
     source = arguments.authored.read_bytes()
@@ -78,28 +115,60 @@ def main() -> int:
         definition, sidecar, source, arguments.source_relative_path, arguments.token
     )
     start, end = int(generated["start_byte"]), int(generated["end_byte"])
-    broken = definition[:start] + b"+" + definition[end:]
-    line = broken[:start].count(b"\n") + 1
-    column = start - broken.rfind(b"\n", 0, start)
+    artifact_line = definition[:start].count(b"\n") + 1
+    artifact_column = start - definition.rfind(b"\n", 0, start)
     if not arguments.kompile:
-        print(json.dumps({"generated_location": [line, column], "authored_range": origin}, sort_keys=True))
+        print(json.dumps({
+            "artifact_generated_location": [artifact_line, artifact_column],
+            "authored_range": origin,
+        }, sort_keys=True))
         return 0
     if not arguments.module:
         raise FrontendProbeError("--module is required with --kompile")
+    if arguments.verification_definition is None:
+        raise FrontendProbeError("--verification-definition is required with --kompile")
+    verification_definition = arguments.verification_definition.resolve()
+    if not verification_definition.joinpath("imp-verification.k").is_file():
+        raise FrontendProbeError("verification definition lacks imp-verification.k")
+
+    execution, claims = split_emitted_claims(definition)
+    mapped = definition[start:end]
+    if not mapped or claims.count(mapped) != 1:
+        raise FrontendProbeError("mapped generated range is not unique in emitted claims")
+    claim_start = claims.index(mapped)
+    broken_claims = claims[:claim_start] + b"+" + claims[claim_start + len(mapped):]
+    spec_module = f"{arguments.module}-DIAGNOSTIC-SPEC"
+    spec_header = (
+        b'requires "execution.k"\n'
+        b'requires "imp-verification.k"\n\n'
+        + f"module {spec_module}\n".encode()
+        + f"  imports {arguments.module}\n".encode()
+        + b"  imports IMP-VERIFICATION-SYNTAX\n\n"
+    )
+    broken = spec_header + broken_claims + b"endmodule\n"
+    generated_start = len(spec_header) + claim_start
+    line = broken[:generated_start].count(b"\n") + 1
+    column = generated_start - broken.rfind(b"\n", 0, generated_start)
     with tempfile.TemporaryDirectory(prefix="krs-m4-frontend-diagnostic-") as temporary:
         temporary = Path(temporary)
-        broken_path = temporary / "definition.k"
+        (temporary / "execution.k").write_bytes(execution)
+        broken_path = temporary / "spec.k"
         broken_path.write_bytes(broken)
         process = subprocess.run(
-            [arguments.kompile, str(broken_path), "--main-module", arguments.module,
-             "--syntax-module", arguments.module, "--backend", "llvm",
+            [arguments.kompile, str(broken_path), "-I", str(temporary),
+             "-I", str(verification_definition), "--main-module", spec_module,
+             "--syntax-module", spec_module, "--backend", "llvm",
              "--output-definition", str(temporary / "out")],
             text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180, check=False
         )
     locations = [tuple(map(int, match.groups())) for match in LOCATION.finditer(process.stderr)]
     if process.returncode == 0 or not any(location[:2] == (line, column) for location in locations):
         raise FrontendProbeError("K frontend failure did not select the exact induced generated range")
-    print(json.dumps({"generated_location": [line, column], "authored_range": origin}, sort_keys=True))
+    print(json.dumps({
+        "artifact_generated_location": [artifact_line, artifact_column],
+        "authored_range": origin,
+        "frontend_spec_location": [line, column],
+    }, sort_keys=True))
     return 0
 
 

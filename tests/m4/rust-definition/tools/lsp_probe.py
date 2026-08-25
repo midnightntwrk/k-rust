@@ -363,11 +363,11 @@ def main() -> None:
                 None,
                 None,
             ),
-            ("initializer parameter", IMP, "Self { k: k![pgm], env }", "pgm", IMP, "pub fn init(pgm:"),
+            ("initializer parameter", IMP, "Self { k: k::k![pgm], env }", "pgm", IMP, "pub fn init(pgm:"),
             (
                 "initializer cell field",
                 IMP,
-                "Self { k: k![pgm], env }",
+                "Self { k: k::k![pgm], env }",
                 "env",
                 IMP,
                 "pub env: Map<Id, Value>",
@@ -383,10 +383,10 @@ def main() -> None:
             (
                 "splice binder",
                 IMP,
-                "step:     Sequence(s1, s2) => k![s1, s2];",
+                "step:     Sequence(s1, s2) => k::k![s1, s2];",
                 "s1",
                 IMP,
-                "step:     Sequence(s1, s2) => k![s1, s2];",
+                "step:     Sequence(s1, s2) => k::k![s1, s2];",
                 {"needle_occurrence": 1},
             ),
             (
@@ -506,7 +506,7 @@ def main() -> None:
                 "program",
                 [
                     (IMP, "pub fn init(pgm:"),
-                    (IMP, "Self { k: k![pgm], env }"),
+                    (IMP, "Self { k: k::k![pgm], env }"),
                 ],
             ),
         ]

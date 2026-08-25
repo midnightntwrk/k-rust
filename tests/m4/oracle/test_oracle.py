@@ -8,6 +8,7 @@ import unittest
 
 import behavior
 import proofs
+import run_proofs
 import source_definition
 
 
@@ -374,6 +375,17 @@ class BehaviorTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[3]
         self.assertEqual(set(behavior.load_frozen_helpers(root)), {"m3a", "m3b", "m3c", "m3d"})
 
+    def test_hook_abort_precedes_secondary_wrapper_parse_error(self) -> None:
+        stderr = (
+            "[hook_INT_tdiv]: Division by zero: 1 / 0\n"
+            "Could not parse backend result: parse error"
+        )
+        self.assertEqual(behavior._diagnostic_class(stderr), "hook")
+
+    def test_unrelated_ambiguous_diagnostic_still_fails_closed(self) -> None:
+        with self.assertRaisesRegex(behavior.BehaviorError, "ambiguous class"):
+            behavior._diagnostic_class("scanner error followed by unexpected token")
+
 
 def claim_spec(claim_label: str) -> dict[str, object]:
     variable = {"node": "KVariable", "name": "X", "sort": sort("Int")}
@@ -404,6 +416,19 @@ def claim_spec(claim_label: str) -> dict[str, object]:
 
 
 class ProofTests(unittest.TestCase):
+    def test_actual_spec_imports_verification_only_identifier_syntax(self) -> None:
+        source = run_proofs.actual_spec_source(Path("actual-execution.k"), "  claim body\n")
+        self.assertEqual(
+            source,
+            'requires "actual-execution.k"\n'
+            'requires "imp-verification.k"\n\n'
+            "module KRS-M4-COMPLETE-IMP-SPEC\n"
+            "  imports KRS-M4-COMPLETE-IMP\n"
+            "  imports IMP-VERIFICATION-SYNTAX\n\n"
+            "  claim body\n"
+            "endmodule\n",
+        )
+
     def policy(self) -> proofs.ProofPolicy:
         return proofs.ProofPolicy(
             identity_labels=frozenset({"SPEC.claim", "#Top"}),

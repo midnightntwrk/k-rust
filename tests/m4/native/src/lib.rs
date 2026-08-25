@@ -6,11 +6,9 @@
 //! equation. A projector-looking prefix is never sufficient for exclusion.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
+use std::fmt::{self, Write as _};
 
-use k_rust::kore::ast::{
-    Attributes, Module, Pattern, Sentence, Sort, Variable, VariableKind,
-};
+use k_rust::kore::ast::{Attributes, Module, Pattern, Sentence, Sort, Variable, VariableKind};
 use k_rust::kore::parser::parse_definition;
 
 const PROJECTOR_PREFIX: &str = "Lblproject'Coln'";
@@ -49,6 +47,12 @@ impl fmt::Display for CompareError {
 impl std::error::Error for CompareError {}
 
 /// Parse, validate, normalize, and compare one explicitly named module.
+///
+/// # Errors
+///
+/// Returns an error when either definition is malformed, the named module is
+/// not unique, a fail-closed normalization condition is violated, or the
+/// normalized sentence multisets differ.
 pub fn compare_kore(
     reference_source: &str,
     actual_source: &str,
@@ -62,9 +66,90 @@ pub fn compare_kore(
         .map_err(|error| CompareError::new(format!("cannot parse reference KORE: {error}")))?;
     let actual = parse_definition(actual_source)
         .map_err(|error| CompareError::new(format!("cannot parse native KORE: {error}")))?;
-    let mut reference = select_module(&reference.modules, module_name, "reference")?;
-    let mut actual = select_module(&actual.modules, module_name, "native")?;
+    let reference = select_module(&reference.modules, module_name, "reference")?;
+    let actual = select_module(&actual.modules, module_name, "native")?;
 
+    compare_modules(reference, actual, policy)
+}
+
+/// Compare a native definition that embeds claims against an executable
+/// reference definition plus the separately compiled reference specification.
+///
+/// # Errors
+///
+/// Returns an error under the same conditions as [`compare_kore`], or when the
+/// reference specification does not contain exactly one import of the named
+/// semantic module and one or more claims.
+pub fn compare_kore_with_reference_claims(
+    reference_source: &str,
+    reference_claims_source: &str,
+    reference_claims_module: &str,
+    actual_source: &str,
+    module_name: &str,
+    policy: &ComparePolicy,
+) -> Result<ComparisonReport, CompareError> {
+    if module_name.is_empty() || reference_claims_module.is_empty() {
+        return Err(CompareError::new(
+            "module and reference claims module names must not be empty",
+        ));
+    }
+    let reference = parse_definition(reference_source)
+        .map_err(|error| CompareError::new(format!("cannot parse reference KORE: {error}")))?;
+    let claims = parse_definition(reference_claims_source).map_err(|error| {
+        CompareError::new(format!("cannot parse reference claims KORE: {error}"))
+    })?;
+    let actual = parse_definition(actual_source)
+        .map_err(|error| CompareError::new(format!("cannot parse native KORE: {error}")))?;
+    let mut reference = select_module(&reference.modules, module_name, "reference")?;
+    let claims = select_module(&claims.modules, reference_claims_module, "reference claims")?;
+    let actual = select_module(&actual.modules, module_name, "native")?;
+    merge_reference_claims(&mut reference, claims, module_name)?;
+
+    compare_modules(reference, actual, policy)
+}
+
+fn merge_reference_claims(
+    reference: &mut Module,
+    claims_module: Module,
+    module_name: &str,
+) -> Result<(), CompareError> {
+    let mut imports = 0_usize;
+    let mut claims = Vec::new();
+    for sentence in claims_module.sentences {
+        match sentence {
+            Sentence::Import { module, .. } if module == module_name => imports += 1,
+            Sentence::Import { module, .. } => {
+                return Err(CompareError::new(format!(
+                    "reference claims module imports unexpected module {module:?}"
+                )));
+            }
+            sentence @ Sentence::Claim { .. } => claims.push(sentence),
+            _ => {
+                return Err(CompareError::new(
+                    "reference claims module contains a non-import, non-claim sentence",
+                ));
+            }
+        }
+    }
+    if imports != 1 {
+        return Err(CompareError::new(format!(
+            "reference claims module must import {module_name:?} exactly once; found {imports}"
+        )));
+    }
+    if claims.is_empty() {
+        return Err(CompareError::new(
+            "reference claims module contains no claims",
+        ));
+    }
+    reference.sentences.extend(claims);
+    Ok(())
+}
+
+fn compare_modules(
+    mut reference: Module,
+    mut actual: Module,
+    policy: &ComparePolicy,
+) -> Result<ComparisonReport, CompareError> {
     normalize_module(&mut reference, policy)?;
     normalize_module(&mut actual, policy)?;
     validate_claims(&reference, "reference")?;
@@ -96,11 +181,7 @@ pub fn compare_kore(
     })
 }
 
-fn select_module(
-    modules: &[Module],
-    name: &str,
-    route: &str,
-) -> Result<Module, CompareError> {
+fn select_module(modules: &[Module], name: &str, route: &str) -> Result<Module, CompareError> {
     let matches = modules
         .iter()
         .filter(|module| module.name == name)
@@ -138,6 +219,18 @@ fn normalize_attributes(attributes: &mut Attributes) {
                         | "UNIQUE'Unds'ID"
                         | "contentStartLine"
                         | "digest"
+                        // The source frontend copies this keyword metadata
+                        // onto generated axioms. Symbol identity remains
+                        // exact in declarations and patterns on both routes.
+                        | "symbol'Kywd'"
+                        // The structured frontend retains this context-alias
+                        // marker on the generated cool rule after using it;
+                        // the source frontend consumes and removes it.
+                        | "cool-like"
+                        // Native claims state this explicitly because they do
+                        // not inherit kprove's all-path spec-module default.
+                        // The compiled weakAlwaysFinally pattern remains exact.
+                        | "all-path"
                 )
         )
     });
@@ -156,7 +249,9 @@ fn normalize_labels(
             continue;
         }
         let [Pattern::String(label)] = arguments.as_mut_slice() else {
-            return Err(CompareError::new("label attribute is not exactly one string"));
+            return Err(CompareError::new(
+                "label attribute is not exactly one string",
+            ));
         };
         if let Some(mapped) = policy.label_map.get(label) {
             *label = mapped.clone();
@@ -169,7 +264,72 @@ fn normalize_labels(
 fn alpha_normalize_sentence(sentence: &mut Sentence) {
     let mut names = BTreeMap::<(VariableKind, String, Sort), String>::new();
     for pattern in sentence_patterns_mut(sentence) {
+        normalize_commuting_exists(pattern);
         alpha_normalize_pattern(pattern, &mut names);
+    }
+}
+
+/// Normalize one standalone proof-result pattern using the same reviewed
+/// variable policy as the native/reference sentence comparator.
+///
+/// Adjacent existential binders commute; all remaining structure is exact.
+pub fn normalize_standalone_pattern(pattern: &mut Pattern) {
+    normalize_commuting_exists(pattern);
+    alpha_normalize_pattern(pattern, &mut BTreeMap::new());
+}
+
+fn normalize_commuting_exists(pattern: &mut Pattern) {
+    match pattern {
+        Pattern::Application { arguments, .. }
+        | Pattern::And { arguments, .. }
+        | Pattern::Or { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. } => {
+            for argument in arguments {
+                normalize_commuting_exists(argument);
+            }
+        }
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => normalize_commuting_exists(argument),
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. } => {
+            normalize_commuting_exists(left);
+            normalize_commuting_exists(right);
+        }
+        Pattern::Exists { body, .. }
+        | Pattern::Forall { body, .. }
+        | Pattern::Mu { body, .. }
+        | Pattern::Nu { body, .. } => normalize_commuting_exists(body),
+        Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => {}
+    }
+
+    if matches!(pattern, Pattern::Exists { .. }) {
+        let mut binders = Vec::new();
+        let mut current = &*pattern;
+        while let Pattern::Exists { variable, body, .. } = current {
+            binders.push(variable.clone());
+            current = body;
+        }
+        // Adjacent existential quantifiers commute in KORE because sorts are
+        // non-dependent. Sort only by kind and sort, retaining source order
+        // for indistinguishable binder classes, before alpha normalization.
+        binders.sort_by(|left, right| (left.kind, &left.sort).cmp(&(right.kind, &right.sort)));
+        let mut current = pattern;
+        for binder in binders {
+            let Pattern::Exists { variable, body, .. } = current else {
+                unreachable!("binder count came from this existential prefix")
+            };
+            *variable = binder;
+            current = body;
+        }
     }
 }
 
@@ -219,16 +379,14 @@ fn alpha_normalize_variable(
 ) {
     let key = (variable.kind, variable.name.clone(), variable.sort.clone());
     let next = names.len();
-    variable.name = names
-        .entry(key)
-        .or_insert_with(|| format!("VarAlpha{next}"))
-        .clone();
+    variable.name.clone_from(
+        names
+            .entry(key)
+            .or_insert_with(|| format!("VarAlpha{next}")),
+    );
 }
 
-fn remove_closed_projector_pairs(
-    module: &mut Module,
-    route: &str,
-) -> Result<usize, CompareError> {
+fn remove_closed_projector_pairs(module: &mut Module, route: &str) -> Result<usize, CompareError> {
     let mut candidate_names = BTreeSet::new();
     for sentence in &module.sentences {
         if let Sentence::SymbolDeclaration { symbol, .. } = sentence
@@ -358,16 +516,15 @@ fn validate_claims(module: &Module, route: &str) -> Result<(), CompareError> {
                 "{route} claim body is not an implication"
             )));
         }
-        for forbidden in ["priority", "owise", "all-path"] {
+        for forbidden in ["priority", "owise"] {
             if has_attribute(attributes, forbidden) {
                 return Err(CompareError::new(format!(
                     "{route} claim carries forbidden {forbidden:?} metadata"
                 )));
             }
         }
-        let label = string_attribute(attributes, "label")?.ok_or_else(|| {
-            CompareError::new(format!("{route} claim has no exact string label"))
-        })?;
+        let label = string_attribute(attributes, "label")?
+            .ok_or_else(|| CompareError::new(format!("{route} claim has no exact string label")))?;
         if !labels.insert(label.to_owned()) {
             return Err(CompareError::new(format!(
                 "{route} claim label {label:?} occurs more than once"
@@ -574,10 +731,16 @@ fn format_difference(
     );
     for (side, values) in [("missing", missing), ("extra", extra)] {
         for (sentence, count) in values.iter().take(LIMIT) {
-            output.push_str(&format!("\n{side} x{count}: {sentence}"));
+            write!(output, "\n{side} x{count}: {sentence}")
+                .expect("writing to a String cannot fail");
         }
         if values.len() > LIMIT {
-            output.push_str(&format!("\n{side}: {} more distinct sentences", values.len() - LIMIT));
+            write!(
+                output,
+                "\n{side}: {} more distinct sentences",
+                values.len() - LIMIT
+            )
+            .expect("writing to a String cannot fail");
         }
     }
     output
@@ -656,7 +819,10 @@ mod tests {
     fn removes_only_complete_closed_unused_projector_pairs() {
         let name = "Lblproject'Coln'box'Coln'value";
         let mut module = module(vec![projector_declaration(name), projector_equation(name)]);
-        assert_eq!(remove_closed_projector_pairs(&mut module, "test").unwrap(), 1);
+        assert_eq!(
+            remove_closed_projector_pairs(&mut module, "test").unwrap(),
+            1
+        );
         assert!(module.sentences.is_empty());
     }
 
@@ -673,7 +839,11 @@ mod tests {
         let name = "Lblproject'Coln'box'Coln'value";
         let mut module = module(vec![projector_equation(name)]);
         let error = remove_closed_projector_pairs(&mut module, "test").unwrap_err();
-        assert!(error.to_string().contains("exactly one unhooked declaration"));
+        assert!(
+            error
+                .to_string()
+                .contains("exactly one unhooked declaration")
+        );
     }
 
     #[test]
@@ -696,7 +866,72 @@ mod tests {
     fn generic_project_prefix_is_not_an_allowance() {
         let malformed = "Lblproject'Coln'box";
         let mut module = module(vec![projector_declaration(malformed)]);
-        assert_eq!(remove_closed_projector_pairs(&mut module, "test").unwrap(), 0);
+        assert_eq!(
+            remove_closed_projector_pairs(&mut module, "test").unwrap(),
+            0
+        );
         assert_eq!(module.sentences.len(), 1);
+    }
+
+    #[test]
+    fn source_frontend_markers_are_nonsemantic_metadata() {
+        let mut attributes = Attributes(vec![
+            application(
+                "symbol'Kywd'",
+                vec![Pattern::String("source-spelling".to_owned())],
+            ),
+            application("cool-like", Vec::new()),
+            application("all-path", Vec::new()),
+        ]);
+        normalize_attributes(&mut attributes);
+        assert!(attributes.0.is_empty());
+    }
+
+    #[test]
+    fn commuting_existential_prefixes_normalize_identically() {
+        fn named_sort(name: &str) -> Sort {
+            Sort::Application {
+                name: name.to_owned(),
+                arguments: Vec::new(),
+            }
+        }
+
+        let int = Variable {
+            kind: VariableKind::Element,
+            name: "Counter".to_owned(),
+            sort: named_sort("SortInt"),
+        };
+        let value = Variable {
+            kind: VariableKind::Element,
+            name: "Result".to_owned(),
+            sort: named_sort("SortValue"),
+        };
+        let body = application(
+            "pair",
+            vec![
+                Pattern::Variable(int.clone()),
+                Pattern::Variable(value.clone()),
+            ],
+        );
+        let prefix = |outer: Variable, inner: Variable| Pattern::Exists {
+            sort: sort(),
+            variable: outer,
+            body: Box::new(Pattern::Exists {
+                sort: sort(),
+                variable: inner,
+                body: Box::new(body.clone()),
+            }),
+        };
+        let mut reference = prefix(value.clone(), int.clone());
+        let mut native = prefix(int, value);
+
+        normalize_commuting_exists(&mut reference);
+        normalize_commuting_exists(&mut native);
+        let mut reference_names = BTreeMap::new();
+        let mut native_names = BTreeMap::new();
+        alpha_normalize_pattern(&mut reference, &mut reference_names);
+        alpha_normalize_pattern(&mut native, &mut native_names);
+
+        assert_eq!(reference, native);
     }
 }

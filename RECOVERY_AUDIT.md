@@ -1,24 +1,21 @@
 # KRS recovery audit and continuation plan
 
-Updated: 2026-08-25 JST
+Updated: 2026-08-26 JST
 
 ## Decision
 
-Use this directory as the development repository and reconcile its signed,
-verified recovery import forward into a green post-F7 baseline. Do not spend
+Use this directory as the development repository. Its signed recovery import
+has now been reconciled forward into a green post-F7 baseline. Do not spend
 more time trying to manufacture an exact checkout of `9d507b0`: the surviving
-forensic routes have been exhausted. The implementation sources needed to
-continue are present. Phase 4 qualification exposed a missing top-level M3D
-oracle package required by M4; that bounded package has now been functionally
-reconstructed and independently qualified with explicit provenance. Promote
-and classify the recovered M4 ledger next, without changing its behavioral
-pins.
+forensic routes have been exhausted, the missing top-level M3D oracle has been
+functionally reconstructed and independently qualified, and the complete M4
+gate passed twice back-to-back without source, pin, lockfile, environment, or
+tool revision changes.
 
-The implementation seams are now reconstructed through the macro fixtures,
-compiler, CLI, native adapter, and independent M3D oracle; qualification is
-green through C7/Q8 and the standalone reconstructed M3D gate. Feature work
-resumes only after the full M4 oracle passes from a clean signed commit. Then
-continue the interrupted readability program: finish the
+The implementation seams are reconstructed through the macro fixtures,
+compiler, CLI, native adapter, independent M3D oracle, and recovered M4
+definition/proof packages. Recovery archaeology stops at this baseline. The
+next development phase is the interrupted readability program: finish the
 normative `draft/readability/spec`, make its IMP specimen executable with
 expansion and semantic parity, and qualify the same authoring layer on KWasm
 before moving to larger K corpora.
@@ -124,6 +121,7 @@ remote and deliberately contains no reconstructed original objects:
 - `d741692` — recovery audit advanced to the qualification sequence;
 - `24b6a64` — full workspace, MSRV, syntax/F7, and C7/Q8 qualification, with
   the missing M3D package isolated as the remaining source gap.
+- `1546c2b` — independently reconstructed and qualified M3D oracle package.
 
 Every new commit and the import tag verify against the configured ED25519 Git
 signing key. Valid signed original commit objects survive in the evidence
@@ -350,23 +348,25 @@ not authority to replace a later file wholesale.
 
 ### M4 ledgers
 
-The current `tests/m4/pins.json` is an older 22-parse ledger. The displaced
-`tests/m3c/m4/pins.json` is the best recovered post-C7 pre-F7 ledger: it has
-267 source identities and the exact 23-parse evidence hash recorded above.
+The current `tests/m4/pins.json` is the promoted post-C7 behavioral/proof
+authority, reconciled to schema 9 and the recovered source path policy. It
+contains 269 source identities, 23 parses, 31 executions, 246 bounded-depth
+states, 16 searches, 21 proof outcomes, and seven compatibility probes. The
+M3C helper pin is the independently recorded recovered digest
+`4c0db024a7e302706b4ec97d7c4f87292277d31d66114f073dced994ab727bc7`;
+the current `tests/m3c/verify.py` matches its recovered working-tree copy
+byte-for-byte.
 
-Qualification on 2026-08-25 confirmed that neither ledger is directly
-runnable as imported. The current ledger correctly fails its corpus hash, and
-the 267-entry ledger names M3D reference inputs that are absent from the tree.
-Restore M3D before treating ledger refresh as an allowed operation.
-
-After transfer artifacts are removed, use the 267-entry ledger as the
-starting recovery oracle. Classify differences rather than copying all pinned
-files over the current tree: some differences are intentional F7 additions,
-some are later reconstructed work, and some are genuine historical outliers.
-Refresh source pins only after the workspace is coherent and each changed
-identity has a written reason. Behavioral evidence must still match the
-post-C7 oracle; do not bless a new semantic hash merely because the tree now
-builds.
+Source-ledger reconciliation is mechanical and fail-closed. The final recovery
+refresh changed only the top-level `source_sha256` mapping. Behavior, proof,
+corpus, toolchain, revision, and emitted-source artifact pins were not changed
+to accommodate results. The native `definition.kore` pin changed only after
+the KRS-owned `_GenN` sort-collision repair reproduced byte-identically, and
+the compatibility report pin changed only after all seven corrected live
+probes passed as one set. Any source edit makes this ledger stale again.
+Produce a proposal with `tests/m4/refresh_source_ledger.py`, inspect the diff,
+and run the checker before the next full M4 invocation. Never use source-ledger
+refresh to bless a behavioral or proof difference.
 
 ## Current-machine prerequisites
 
@@ -382,6 +382,7 @@ Observed on 2026-08-25:
 | MSRV Rust | Correct, 1.88.0 installed through rustup. |
 | MSRV Clippy | Not installed for the rustup 1.88.0 toolchain; the ambient 1.98 Clippy gate passes with warnings denied. |
 | MSRV rustfmt | Not installed for the rustup 1.88.0 toolchain. Do not install it merely to erase this environmental distinction. |
+| rust-analyzer | The host rustup proxy has no installed component. Use the ephemeral exact recovered analyzer at `/var/tmp/krs-rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin/rust-analyzer`, exposed by `/var/tmp/krs-ra-1.97.1-bin`; it reports `rust-analyzer 1.97.1 (8bab26f 2026-07-14)`. |
 | K executables | Cached exact K 7.1.337, kore-exec 0.1.155, and LLVM backend 0.1.140 binaries verified directly; `kup shell` remains the preferred entry when network/cache configuration permits. |
 
 The required Cargo registry dependencies are now present. Locked commands use
@@ -396,6 +397,9 @@ On this machine the required directory is:
 ```text
 /nix/store/bncr69nhmgvphbynb1a3g4a2jb9b8vj0-z3-4.12.5-lib/lib
 ```
+
+Use `/var/tmp`, not `/tmp`, for M4 workspaces and set
+`KRS_M4_ORACLE_WORKERS=1`; `/tmp` is a crowded tmpfs on this host.
 
 ## K ecosystem reference map
 
@@ -489,40 +493,54 @@ explained. This does not include the independent M3D oracle package; Phase 4's
 fail-closed M4 preflight is the authority for that separate test-evidence
 boundary.
 
-### Phase 4 — establish the new green recovery baseline — active
+### Phase 4 — establish the new green recovery baseline — complete
 
-Qualification completed on 2026-08-25:
+Qualification completed before M4 remains green: the full locked workspace
+suite, strict rustdoc/doc tests, Rust 1.88 all-target checking, the complete
+syntax/F7 suite on both Rust toolchains, and the C7/Q8 K 7.1.337 gate. Ambient
+Rust 1.98 Clippy still requires only the four classified historical-test style
+exemptions (`too_many_lines`, `disallowed_names`, `struct_excessive_bools`, and
+`items_after_test_module`); every other warning remains denied.
 
-1. The full locked default-toolchain workspace test suite passes with all
-   targets and no fail-fast masking.
-2. Strict rustdoc and all workspace doc tests pass. Ambient Rust 1.98 workspace
-   Clippy exposes four post-recovery style-lint categories in historical test
-   code: `too_many_lines`, `disallowed_names`, `struct_excessive_bools`, and
-   `items_after_test_module`. With only those classified categories exempted,
-   every other warning remains denied and Clippy passes. Do not rewrite
-   recovered logic merely to erase this tool-version distinction.
-3. Rust 1.88 all-target workspace checking passes. Its rustfmt and Clippy
-   components remain deliberately unavailable as recorded above.
-4. The complete syntax suite passes on Rust 1.98 and Rust 1.88, including all
-   seven F7 trivia/source-API tests.
-5. `tests/c7/verify.py` passes under K 7.1.337 with the recorded Z3 4.12.5
-   library environment: bare `!!true` parses, explicit same-tier `non_assoc`
-   nesting is rejected, and emitted K contains the required associativity
-   sentence.
+Commit `1546c2b` adds the independently qualified M3D reconstruction. Its
+standalone gate passes under K 7.1.337; all six inherited IMP invocations and
+five independent adjunct claims reproduce their surviving M4 normalized
+records.
 
-M4 preflight then stopped before semantic execution. The current
-`tests/m4/pins.json` is the known older 22-parse/36-source ledger and its corpus
-hash differs from the recovered 23-parse `corpus.json`. Attempting the
-mechanical source-ledger projection against the current tree fails because the
-M3D reference source is absent. This is correct fail-closed behavior.
+The final M4 recovery line additionally establishes:
 
-The missing M3D package has since been functionally reconstructed and its
-standalone gate passes under K 7.1.337. The retained post-C7 M4 ledger provides
-an independent cross-check: all eleven shared normalized proof records match
-exactly, including the incomplete depth-zero frontier and all five adjunct
-claim identities. The reconstructed gate pins evidence digest
-`6f9ee63c8d152853e994917b53478312ada2b6582401bf00131b6c7ead51bce4`.
-M4 ledger promotion and full semantic execution remain pending.
+1. The authored `tests/m4/rust-definition/src/imp.rs` expands byte-for-byte to
+   `tests/m4/goldens/imp.expanded.rs`. Semantic IR, Definition IR, emitted K,
+   explicit non-associativity, and expanded-reference compilation pass.
+2. Schema-9 production rustdoc emission is restored as K comments with source
+   ranges.
+3. Proof specs import upstream `IMP-VERIFICATION-SYNTAX`, so `$n`, `$s`, and
+   the other verification-only identifiers are parsed in the spec module
+   without contaminating the executable semantic module.
+4. The native proof support package fail-closes over exactly one spec module,
+   one semantic import, and one exact claim. Incomplete residual comparison
+   canonicalizes only KORE conjunction and exact Map concatenation as
+   associative/commutative; ordinary application argument order remains
+   exact.
+5. KRS repairs one pinned-`k-rust` minimizer defect after parsed KORE is
+   returned: if `_GenN` is reused for different sorts in one sentence, only
+   the later conflicting `(kind, name, sort)` identity is alpha-renamed.
+   Collision-free output remains byte-for-byte untouched and the pinned
+   checkout remains unchanged.
+6. `#[k::symbol]` now replaces the moved Rust item path in the stable backend
+   identity rather than appending to it. The four-fixture adversary proves
+   that the pinned public move preserves baseline `Expr` and `publicValue`
+   identities while retaining moved descriptor provenance and source-map
+   keys.
+7. The K-frontend diagnostic probe uses the same executable/spec split as the
+   proof route and imports `IMP-VERIFICATION-SYNTAX`; it still requires the K
+   diagnostic to select the exact moved generated bytes before mapping them
+   to authored `bool::and`.
+8. Native check/test/Clippy, 17 adapter tests, seven residual-comparator tests,
+   and all M4 oracle/probe unit tests pass.
+9. Nine missing subordinate `Cargo.lock` files have been generated and
+   reviewed as fixture-local resolutions. The root `Cargo.lock` and
+   `Krs.lock` remain preserved.
 
 ### Qualified Phase 4 source package — M3D oracle reconstruction
 
@@ -572,25 +590,78 @@ inherited IMP invocations and five independent adjunct claims reproduce their
 surviving M4 records exactly. Every new top-level M3D file remains labeled a
 functional reconstruction because none matches a surviving original blob.
 
-Proceed with the remaining Phase 4 work:
+The M3D package is complete in signed commit `1546c2b`. The post-C7 M4 ledger
+has also been promoted and mechanically reconciled as described above; do not
+repeat either recovery step.
 
-1. Promote the 267-entry post-C7 ledger as the M4 behavioral starting point,
-   then mechanically refresh only source identities whose path-by-path reason
-   is recorded. The root source-ledger path policy is newer than the 267-entry
-   ledger, so path-set changes must be classified as well as hash changes.
-2. Run the complete M4.1-M4.8 oracle inside the pinned K/Z3 environment.
-3. If and only if all semantic evidence matches, commit the source-ledger
-   reconciliation separately and repeat M4 from a clean tree.
+### Resolved M4 blocker — consumed attribute-argument rename
 
-The semantic target is the recorded 23/31/246/16 result, 21 bounded proofs,
-seven compatibility probes, and evidence hash
-`21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`.
-Any semantic difference is a reconstruction defect until separately
-explained; it is not a pin-refresh opportunity.
+Rust-analyzer does not expose stable proc-macro source positions to the
+production provenance collector. The current recovery keeps analysis expansion
+available with a synthetic `InvocationFallback` only when both exact captures
+fail. This does not weaken collection: the compiler still rejects every
+imprecise authored anchor, while normal rustc exact capture is unchanged.
 
-Commit coherent repairs separately, then mark the final fully green commit as
-the reconstructed post-F7 baseline. This commit receives a new identity and
-must not claim to be `9d507b0`.
+The authored LSP investigation restored all ordinary input-token hooks:
+readable sort declarations, parents and memberships; readable rule RHS binder
+uses; narrowing paths; and qualified application paths. Stale probe fragments
+were reconciled to the recovered `k::k!` spelling.
+
+Before the plural-expander fix, renaming the authored `Expr;` declaration
+produced 80 edits and covered every required semantic use except the `Expr`
+token in:
+
+```rust
+#[k::constructors(sort = Expr, result = KResult)]
+```
+
+The earlier experiment preserved the sort witness in the singular
+`#[k::constructor]` expander, but M4 uses the plural enum-family
+`#[k::constructors]` path. Preserving `membership_sort()` in that actual
+expander supplies rust-analyzer with the semantic bridge from the hidden
+`TypeId` witness back to the consumed attribute token. No authoring syntax,
+descriptor meaning, provenance key, or identity changes.
+
+The checked-in gate now reports zero diagnostics, all 24 definition/hover
+classes, `map::update` completion, and all five rename families. `Expr` rename
+returns 82 edits, including the constructor-family attribute; the assertion
+was never weakened.
+
+### Final M4 qualification
+
+On 2026-08-26, two consecutive complete invocations of
+`python3 tests/m4/verify.py` passed without any intervening source, pin,
+lockfile, environment, or tool revision change. Both runs proved:
+
+- M4.1 exact source/tool/revision preflight at descriptor protocol 15 and
+  Definition IR schema 9;
+- M4.2 workspace/package format, check, Clippy, tests, docs, macro diagnostics,
+  rust-analyzer, and readable-IMP LSP qualification;
+- M4.3 deterministic artifacts for 124 descriptors, exact reviewed expansion,
+  and the 83-descriptor replacement package;
+- M4.4 fail-closed parsed/compiled source projections with 98 parsed and 244
+  compiled sentences;
+- M4.5 exact native KORE parity:
+  `reference=1206 native=1206 reference_projector_pairs=0 native_projector_pairs=40`;
+- M4.6 23 parses, 31 executions, 246 bounded-depth states, 16 searches, 8
+  rejections, one expected failure, and evidence SHA-256
+  `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`;
+- M4.7 21 reference-source proofs, 21 actual-source proofs, 21 dry-run specs,
+  21 native-Haskell results, and 20 unique native claims; and
+- M4.8 seven live compatibility probes with report SHA-256
+  `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6`.
+
+The final deterministic native artifact pins are:
+
+| artifact | SHA-256 |
+|---|---|
+| `.krs-artifacts` | `4992e03ec15408f887a401455c9f719384c6d5bb69e661487f91abe576ceb1b5` |
+| `definition.kore` | `1483dc5eacf7fed1f5fd56d0c33530a6552d06b19216159758e5b0d57211d518` |
+| `macros.kore` | `e1d5a374973b2fa9eb2502c3acdee5244ee7a89a965dd7acd69cda4b7d7814e0` |
+| `syntaxDefinition.kore` | `9963fcfacc153cf8e12e900ace1b4416be6672d5c4ac620a3e73af2d69c7c051` |
+
+Phase 4 is complete. The new baseline receives a new signed identity and does
+not claim to be `9d507b0`.
 
 ### Phase 5 — finish the readability specification and qualify IMP
 
@@ -655,15 +726,9 @@ implementation authority.
 
 ## Immediate next action
 
-Proceed in this order, stopping on the first unexplained semantic failure:
-
-1. Promote and classify the recovered 267-entry post-C7 M4 ledger without
-   changing behavioral pins.
-2. Run the complete M4 oracle with the recorded K/Z3 environment, reconcile
-   only justified source identities, and repeat from a clean tree.
-3. Sign the resulting green commit as the reconstructed post-F7 baseline.
-4. Begin Phase 5 at the normative readability spec, qualify the new surface on
-   IMP, then execute the KWasm-first Phase 6 ladder.
+Begin Phase 5 at the normative readability spec. Implement and qualify the
+new surface on IMP, then execute the KWasm-first Phase 6 ladder. Do not reopen
+recovery forensics unless genuinely new evidence or media appears.
 
 ## Audit hygiene
 

@@ -20,12 +20,9 @@ pub(crate) fn host_provenance(
     fallback: TokenRange,
     anchors: &[ProvenanceAnchor],
 ) -> syn::Result<proc_macro2::TokenStream> {
-    let invocation = capture_call_site().or_else(|| capture(fallback, false)).ok_or_else(|| {
-        syn::Error::new(
-            fallback.first(),
-            "KRS could not capture a stable source anchor for this invocation",
-        )
-    })?;
+    let invocation = capture_call_site()
+        .or_else(|| capture(fallback, false))
+        .unwrap_or_else(|| unavailable_invocation(fallback));
 
     let invocation_tokens = source_anchor(facade, &invocation);
     let mut authored = Vec::with_capacity(anchors.len());
@@ -37,7 +34,10 @@ pub(crate) fn host_provenance(
         });
         let anchor_tokens = source_anchor(facade, &captured);
         let key = anchor.key().map_err(|error| {
-            syn::Error::new(anchor.range().first(), format!("invalid provenance key: {error}"))
+            syn::Error::new(
+                anchor.range().first(),
+                format!("invalid provenance key: {error}"),
+            )
         })?;
         let role = key.role();
         let ordinal = key.ordinal();
@@ -57,6 +57,27 @@ pub(crate) fn host_provenance(
         )
         .expect("KRS shared parsers emit nonempty, uniquely keyed provenance")
     })
+}
+
+/// Keep proc-macro expansion available to hosts such as rust-analyzer that do
+/// not expose stable source locations. The emitted descriptor remains
+/// fail-closed: collection rejects every `InvocationFallback` authored anchor.
+fn unavailable_invocation(range: TokenRange) -> CapturedAnchor {
+    let file = range.first().unwrap().file();
+    let display_file = normalized_display_file(&file);
+    CapturedAnchor {
+        display_file: if display_file.is_empty() {
+            "<proc-macro-input>".to_owned()
+        } else {
+            display_file
+        },
+        absolute_display_file: is_absolute_display_file(&file),
+        start_line: 1,
+        start_column: 1,
+        end_line: 1,
+        end_column: 2,
+        exact: false,
+    }
 }
 
 fn capture_call_site() -> Option<CapturedAnchor> {
@@ -100,9 +121,7 @@ fn capture(range: TokenRange, exact: bool) -> Option<CapturedAnchor> {
 }
 
 fn normalized_display_file(file: &str) -> String {
-    file.replace('\\', "/")
-        .trim_start_matches("./")
-        .to_owned()
+    file.replace('\\', "/").trim_start_matches("./").to_owned()
 }
 
 fn is_absolute_display_file(file: &str) -> bool {
@@ -115,10 +134,7 @@ fn is_absolute_display_file(file: &str) -> bool {
 
 fn is_windows_absolute(file: &str) -> bool {
     let bytes = file.as_bytes();
-    bytes.len() >= 3
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':'
-        && bytes[2] == b'/'
+    bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'/'
 }
 
 fn source_anchor(facade: &syn::Path, anchor: &CapturedAnchor) -> proc_macro2::TokenStream {

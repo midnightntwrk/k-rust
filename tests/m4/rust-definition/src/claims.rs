@@ -5,13 +5,8 @@ use k::builtin::{Bool, Int, Map, bool, int};
 #[allow(unused_imports)]
 use k::map;
 
-use crate::static_adjunct::{M3dPositive, M3dPriority, M3dTotal, M3dTwice, M3dZero};
-use crate::{
-    Add, Assign, Block, EmptyBlock, IfThenElse, Le, Lt, Machine, Neg, Not, Sequence, Stmt,
-    Sub, Value, While,
-};
-
-type ValueSort = dyn Value;
+use crate::static_adjunct::{M3dPositive, M3dPriority, M3dTotal, StaticExpr};
+use crate::{Machine, Op, Stmt, StmtSyntax, Value};
 
 #[k::claim(all_paths, label = "total-equation")]
 fn total_equation(
@@ -55,7 +50,7 @@ fn explicit_priority(
 #[k::claim(all_paths, label = "static-alias")]
 fn static_alias(
     k::cells! {
-        k: k::configuration::KCell(M3dZero(), tail @ ..),
+        k: k::configuration::KCell(StaticExpr::M3dZero(), tail @ ..),
         state @ ..
     }: Machine,
 ) -> Machine {
@@ -68,7 +63,7 @@ fn static_alias(
 #[k::claim(all_paths, label = "context-alias")]
 fn context_alias(
     k::cells! {
-        k: k::configuration::KCell(M3dTwice(Add(1, 2)), tail @ ..),
+        k: k::configuration::KCell(StaticExpr::M3dTwice(Op::Add(1, 2)), tail @ ..),
         state @ ..
     }: Machine,
 ) -> Machine {
@@ -81,7 +76,7 @@ fn context_alias(
 #[k::claim(all_paths, label = "addition-1")]
 fn addition_one(
     k::cells! {
-        k: k::configuration::KCell(Add(3, 4), tail @ ..),
+        k: k::configuration::KCell(Op::Add(3, 4), tail @ ..),
         state @ ..
     }: Machine,
 ) -> Machine {
@@ -94,10 +89,10 @@ fn addition_one(
 #[k::claim(all_paths, label = "addition-2")]
 fn addition_two(
     k::cells! {
-        k: k::configuration::KCell(Add(k::id!("$s"), k::id!("$n")), tail @ ..),
+        k: k::configuration::KCell(Op::Add(k::id!("$s"), k::id!("$n")), tail @ ..),
         env: k::configuration::Cell(map![
-            k::id!("$s") => 3,
-            k::id!("$n") => 4,
+            k::id!("$s") -> 3,
+            k::id!("$n") -> 4,
         ]),
         state @ ..
     }: Machine,
@@ -105,8 +100,8 @@ fn addition_two(
     k::cells! {
         k: k::configuration::KCell(7, ..tail),
         env: k::configuration::Cell(map![
-            k::id!("$s") => 3,
-            k::id!("$n") => 4,
+            k::id!("$s") -> 3,
+            k::id!("$n") -> 4,
         ]),
         ..state
     }
@@ -117,7 +112,7 @@ fn addition_two(
 fn addition_var(
     n: Term<Int>,
     k::cells! {
-        k: k::configuration::KCell(Add(3, n), tail @ ..),
+        k: k::configuration::KCell(Op::Add(3, n), tail @ ..),
         state @ ..
     }: Machine,
 ) -> Machine {
@@ -132,26 +127,26 @@ fn pre_branch_proved(
     branch: Term<Bool>,
     k::cells! {
         k: k::configuration::KCell(
-            Sequence(
-                Assign(k::id!("$n"), 7),
-                IfThenElse(
+            StmtSyntax::Sequence(
+                StmtSyntax::Assign(k::id!("$n"), 7),
+                StmtSyntax::IfThenElse(
                     branch,
-                    Block(Assign(k::id!("$n"), 6)),
-                    Block(Assign(k::id!("$n"), 5)),
+                    StmtSyntax::Block(StmtSyntax::Assign(k::id!("$n"), 6)),
+                    StmtSyntax::Block(StmtSyntax::Assign(k::id!("$n"), 5)),
                 ),
             )
         ),
-        env: k::configuration::Cell(map![k::id!("$n") => 0]),
+        env: k::configuration::Cell(map![k::id!("$n") -> 0]),
         state @ ..
     }: Machine,
 ) -> Machine {
     k::cells! {
-        k: k::configuration::KCell(IfThenElse(
+        k: k::configuration::KCell(StmtSyntax::IfThenElse(
             branch,
-            Block(Assign(k::id!("$n"), 6)),
-            Block(Assign(k::id!("$n"), 5)),
+            StmtSyntax::Block(StmtSyntax::Assign(k::id!("$n"), 6)),
+            StmtSyntax::Block(StmtSyntax::Assign(k::id!("$n"), 5)),
         )),
-        env: k::configuration::Cell(map![k::id!("$n") => 7]),
+        env: k::configuration::Cell(map![k::id!("$n") -> 7]),
         ..state
     }
 }
@@ -162,23 +157,23 @@ fn pre_branch_proved(
 fn branching(
     k::cells! {
         k: k::configuration::KCell(
-            Sequence(
-                Assign(k::id!("$n"), 7),
-                IfThenElse(
+            StmtSyntax::Sequence(
+                StmtSyntax::Assign(k::id!("$n"), 7),
+                StmtSyntax::IfThenElse(
                     k::anonymous!(Bool, "_B"),
-                    Block(Assign(k::id!("$n"), 6)),
-                    Block(Assign(k::id!("$n"), 5)),
+                    StmtSyntax::Block(StmtSyntax::Assign(k::id!("$n"), 6)),
+                    StmtSyntax::Block(StmtSyntax::Assign(k::id!("$n"), 5)),
                 ),
             ),
             tail @ ..
         ),
-        env: k::configuration::Cell(map![k::id!("$n") => 0]),
+        env: k::configuration::Cell(map![k::id!("$n") -> 0]),
         state @ ..
     }: Machine,
 ) -> Machine {
     k::cells! {
         k: k::configuration::KCell(..tail),
-        env: k::configuration::Cell(map![k::id!("$n") => n]),
+        env: k::configuration::Cell(map![k::id!("$n") -> n]),
         ..state
     }
 }
@@ -188,12 +183,12 @@ fn branching(
 fn branching_program(
     k::cells! {
         k: k::configuration::KCell(
-            Sequence(
-                Assign(k::id!("$n"), 7),
-                IfThenElse(
+            StmtSyntax::Sequence(
+                StmtSyntax::Assign(k::id!("$n"), 7),
+                StmtSyntax::IfThenElse(
                     k::anonymous!(Bool, "_B_PROGRAM"),
-                    Block(Assign(k::id!("$n"), 6)),
-                    Block(Assign(k::id!("$n"), 5)),
+                    StmtSyntax::Block(StmtSyntax::Assign(k::id!("$n"), 6)),
+                    StmtSyntax::Block(StmtSyntax::Assign(k::id!("$n"), 5)),
                 ),
             ),
             tail @ ..
@@ -216,27 +211,27 @@ fn branching_deadcode(
     branch: Term<Bool>,
     k::cells! {
         k: k::configuration::KCell(
-            Sequence(
-                Assign(k::id!("$n"), 7),
-                IfThenElse(
+            StmtSyntax::Sequence(
+                StmtSyntax::Assign(k::id!("$n"), 7),
+                StmtSyntax::IfThenElse(
                     branch,
-                    Block(Assign(k::id!("$n"), 6)),
-                    Block(IfThenElse(
-                        Not(branch),
-                        Block(Assign(k::id!("$n"), 5)),
-                        Block(Assign(k::id!("$n"), 4)),
+                    StmtSyntax::Block(StmtSyntax::Assign(k::id!("$n"), 6)),
+                    StmtSyntax::Block(StmtSyntax::IfThenElse(
+                        Op::Not(branch),
+                        StmtSyntax::Block(StmtSyntax::Assign(k::id!("$n"), 5)),
+                        StmtSyntax::Block(StmtSyntax::Assign(k::id!("$n"), 4)),
                     )),
                 ),
             ),
             tail @ ..
         ),
-        env: k::configuration::Cell(map![k::id!("$n") => 0]),
+        env: k::configuration::Cell(map![k::id!("$n") -> 0]),
         state @ ..
     }: Machine,
 ) -> Machine {
     k::cells! {
         k: k::configuration::KCell(..tail),
-        env: k::configuration::Cell(map![k::id!("$n") => n]),
+        env: k::configuration::Cell(map![k::id!("$n") -> n]),
         ..state
     }
 }
@@ -244,18 +239,18 @@ fn branching_deadcode(
 #[k::claim(all_paths, label = "while-cut-rule")]
 fn while_cut_rule(
     condition: Term<Bool>,
-    body: Term<dyn Stmt>,
+    body: Stmt,
     k::cells! {
-        k: k::configuration::KCell(While(condition, body), tail @ ..),
+        k: k::configuration::KCell(StmtSyntax::While(condition, body), tail @ ..),
         state @ ..
     }: Machine,
 ) -> Machine {
     k::cells! {
         k: k::configuration::KCell(
-            IfThenElse(
+            StmtSyntax::IfThenElse(
                 condition,
-                Block(Sequence(body, While(condition, body))),
-                EmptyBlock(),
+                StmtSyntax::Block(StmtSyntax::Sequence(body, StmtSyntax::While(condition, body))),
+                StmtSyntax::EmptyBlock(),
             ),
             ..tail
         ),
@@ -264,31 +259,31 @@ fn while_cut_rule(
 }
 
 #[k::claim(all_paths, label = "while-cut-rule-delayed")]
-#[k::exists(new_value: ValueSort)]
+#[k::exists(new_value: Value)]
 fn while_cut_rule_delayed(
     condition: Term<Bool>,
-    body: Term<dyn Stmt>,
+    body: Stmt,
     k::cells! {
         k: k::configuration::KCell(
-            Sequence(Assign(k::id!("$n"), 7), While(condition, body)),
+            StmtSyntax::Sequence(StmtSyntax::Assign(k::id!("$n"), 7), StmtSyntax::While(condition, body)),
             tail @ ..
         ),
         env: k::configuration::Cell(map![
-            k::id!("$n") => k::anonymous!(ValueSort, "_OLD_VALUE")
+            k::id!("$n") -> k::anonymous!(Value, "_OLD_VALUE")
         ]),
         state @ ..
     }: Machine,
 ) -> Machine {
     k::cells! {
         k: k::configuration::KCell(
-            IfThenElse(
+            StmtSyntax::IfThenElse(
                 condition,
-                Block(Sequence(body, While(condition, body))),
-                EmptyBlock(),
+                StmtSyntax::Block(StmtSyntax::Sequence(body, StmtSyntax::While(condition, body))),
+                StmtSyntax::EmptyBlock(),
             ),
             ..tail
         ),
-        env: k::configuration::Cell(map![k::id!("$n") => new_value]),
+        env: k::configuration::Cell(map![k::id!("$n") -> new_value]),
         ..state
     }
 }
@@ -300,18 +295,18 @@ fn sum_loop(
     n: Term<Int>,
     k::cells! {
         k: k::configuration::KCell(
-            While(
-                Lt(0, k::id!("$n")),
-                Block(Sequence(
-                    Assign(k::id!("$s"), Add(k::id!("$s"), k::id!("$n"))),
-                    Assign(k::id!("$n"), Sub(k::id!("$n"), 1)),
+            StmtSyntax::While(
+                Op::Lt(0, k::id!("$n")),
+                StmtSyntax::Block(StmtSyntax::Sequence(
+                    StmtSyntax::Assign(k::id!("$s"), Op::Add(k::id!("$s"), k::id!("$n"))),
+                    StmtSyntax::Assign(k::id!("$n"), Op::Sub(k::id!("$n"), 1)),
                 )),
             ),
             tail @ ..
         ),
         env: k::configuration::Cell(map![
-            k::id!("$s") => s,
-            k::id!("$n") => n,
+            k::id!("$s") -> s,
+            k::id!("$n") -> n,
         ]),
         state @ ..
     }: Machine,
@@ -319,8 +314,8 @@ fn sum_loop(
     k::cells! {
         k: k::configuration::KCell(..tail),
         env: k::configuration::Cell(map![
-            k::id!("$s") => int::add(s, int::div(int::mul(n, int::add(n, 1)), 2)),
-            k::id!("$n") => 0,
+            k::id!("$s") -> int::add(s, int::div(int::mul(n, int::add(n, 1)), 2)),
+            k::id!("$n") -> 0,
         ]),
         ..state
     }
@@ -332,15 +327,15 @@ fn sum_n(
     n: Term<Int>,
     k::cells! {
         k: k::configuration::KCell(
-            Sequence(
-                Assign(k::id!("$s"), 0),
-                Sequence(
-                    Assign(k::id!("$n"), n),
-                    While(
-                        Lt(0, k::id!("$n")),
-                        Block(Sequence(
-                            Assign(k::id!("$s"), Add(k::id!("$s"), k::id!("$n"))),
-                            Assign(k::id!("$n"), Sub(k::id!("$n"), 1)),
+            StmtSyntax::Sequence(
+                StmtSyntax::Assign(k::id!("$s"), 0),
+                StmtSyntax::Sequence(
+                    StmtSyntax::Assign(k::id!("$n"), n),
+                    StmtSyntax::While(
+                        Op::Lt(0, k::id!("$n")),
+                        StmtSyntax::Block(StmtSyntax::Sequence(
+                            StmtSyntax::Assign(k::id!("$s"), Op::Add(k::id!("$s"), k::id!("$n"))),
+                            StmtSyntax::Assign(k::id!("$n"), Op::Sub(k::id!("$n"), 1)),
                         )),
                     ),
                 ),
@@ -354,8 +349,8 @@ fn sum_n(
     k::cells! {
         k: k::configuration::KCell(..tail),
         env: k::configuration::Cell(map![
-            k::id!("$s") => int::div(int::mul(n, int::add(n, 1)), 2),
-            k::id!("$n") => 0,
+            k::id!("$s") -> int::div(int::mul(n, int::add(n, 1)), 2),
+            k::id!("$n") -> 0,
         ]),
         ..state
     }
@@ -367,19 +362,19 @@ fn sum_n(
 fn bmc_loop_concrete(
     k::cells! {
         k: k::configuration::KCell(
-            While(
-                Le(0, k::id!("$n")),
-                Block(Assign(k::id!("$n"), Add(k::id!("$n"), Neg(1)))),
+            StmtSyntax::While(
+                Op::Le(0, k::id!("$n")),
+                StmtSyntax::Block(StmtSyntax::Assign(k::id!("$n"), Op::Add(k::id!("$n"), Op::Neg(1)))),
             ),
             tail @ ..
         ),
-        env: k::configuration::Cell(map![k::id!("$n") => 1]),
+        env: k::configuration::Cell(map![k::id!("$n") -> 1]),
         state @ ..
     }: Machine,
 ) -> Machine {
     k::cells! {
         k: k::configuration::KCell(..tail),
-        env: k::configuration::Cell(map![k::id!("$n") => n]),
+        env: k::configuration::Cell(map![k::id!("$n") -> n]),
         ..state
     }
 }
@@ -392,15 +387,15 @@ fn bmc_loop_symbolic(
     s: Term<Int>,
     k::cells! {
         k: k::configuration::KCell(
-            While(
-                Le(k::id!("$s"), k::id!("$n")),
-                Block(Assign(k::id!("$n"), Add(k::id!("$n"), Neg(1)))),
+            StmtSyntax::While(
+                Op::Le(k::id!("$s"), k::id!("$n")),
+                StmtSyntax::Block(StmtSyntax::Assign(k::id!("$n"), Op::Add(k::id!("$n"), Op::Neg(1)))),
             ),
             tail @ ..
         ),
         env: k::configuration::Cell(map![
-            k::id!("$n") => 1,
-            k::id!("$s") => s,
+            k::id!("$n") -> 1,
+            k::id!("$s") -> s,
         ]),
         state @ ..
     }: Machine,
@@ -408,8 +403,8 @@ fn bmc_loop_symbolic(
     k::cells! {
         k: k::configuration::KCell(..tail),
         env: k::configuration::Cell(map![
-            k::id!("$n") => n,
-            k::id!("$s") => s,
+            k::id!("$n") -> n,
+            k::id!("$s") -> s,
         ]),
         ..state
     }
@@ -422,18 +417,18 @@ fn sum_spec(
     s: Term<Int>,
     k::cells! {
         k: k::configuration::KCell(
-            While(
-                Not(Le(k::id!("$n"), 0)),
-                Block(Sequence(
-                    Assign(k::id!("$s"), Add(k::id!("$s"), k::id!("$n"))),
-                    Assign(k::id!("$n"), Add(k::id!("$n"), Neg(1))),
+            StmtSyntax::While(
+                Op::Not(Op::Le(k::id!("$n"), 0)),
+                StmtSyntax::Block(StmtSyntax::Sequence(
+                    StmtSyntax::Assign(k::id!("$s"), Op::Add(k::id!("$s"), k::id!("$n"))),
+                    StmtSyntax::Assign(k::id!("$n"), Op::Add(k::id!("$n"), Op::Neg(1))),
                 )),
             ),
             tail @ ..
         ),
         env: k::configuration::Cell(map![
-            k::id!("$n") => n,
-            k::id!("$s") => s,
+            k::id!("$n") -> n,
+            k::id!("$s") -> s,
         ]),
         state @ ..
     }: Machine,
@@ -441,8 +436,8 @@ fn sum_spec(
     k::cells! {
         k: k::configuration::KCell(..tail),
         env: k::configuration::Cell(map![
-            k::id!("$n") => 0,
-            k::id!("$s") => int::add(
+            k::id!("$n") -> 0,
+            k::id!("$s") -> int::add(
                 s,
                 int::div(int::mul(int::add(n, 1), n), 2),
             ),
@@ -460,29 +455,29 @@ fn two_sum_spec(
     s2: Term<Int>,
     k::cells! {
         k: k::configuration::KCell(
-            Sequence(
-                While(
-                    Not(Le(k::id!("$n"), 0)),
-                    Block(Sequence(
-                        Assign(k::id!("$s1"), Add(k::id!("$s1"), k::id!("$n"))),
-                        Assign(k::id!("$n"), Add(k::id!("$n"), Neg(1))),
+            StmtSyntax::Sequence(
+                StmtSyntax::While(
+                    Op::Not(Op::Le(k::id!("$n"), 0)),
+                    StmtSyntax::Block(StmtSyntax::Sequence(
+                        StmtSyntax::Assign(k::id!("$s1"), Op::Add(k::id!("$s1"), k::id!("$n"))),
+                        StmtSyntax::Assign(k::id!("$n"), Op::Add(k::id!("$n"), Op::Neg(1))),
                     )),
                 ),
-                While(
-                    Not(Le(k::id!("$m"), 0)),
-                    Block(Sequence(
-                        Assign(k::id!("$s2"), Add(k::id!("$s2"), k::id!("$m"))),
-                        Assign(k::id!("$m"), Add(k::id!("$m"), Neg(1))),
+                StmtSyntax::While(
+                    Op::Not(Op::Le(k::id!("$m"), 0)),
+                    StmtSyntax::Block(StmtSyntax::Sequence(
+                        StmtSyntax::Assign(k::id!("$s2"), Op::Add(k::id!("$s2"), k::id!("$m"))),
+                        StmtSyntax::Assign(k::id!("$m"), Op::Add(k::id!("$m"), Op::Neg(1))),
                     )),
                 ),
             ),
             tail @ ..
         ),
         env: k::configuration::Cell(map![
-            k::id!("$n") => n,
-            k::id!("$m") => m,
-            k::id!("$s1") => s1,
-            k::id!("$s2") => s2,
+            k::id!("$n") -> n,
+            k::id!("$m") -> m,
+            k::id!("$s1") -> s1,
+            k::id!("$s2") -> s2,
         ]),
         state @ ..
     }: Machine,
@@ -490,13 +485,13 @@ fn two_sum_spec(
     k::cells! {
         k: k::configuration::KCell(..tail),
         env: k::configuration::Cell(map![
-            k::id!("$n") => 0,
-            k::id!("$m") => 0,
-            k::id!("$s1") => int::add(
+            k::id!("$n") -> 0,
+            k::id!("$m") -> 0,
+            k::id!("$s1") -> int::add(
                 s1,
                 int::div(int::mul(int::add(n, 1), n), 2),
             ),
-            k::id!("$s2") => int::add(
+            k::id!("$s2") -> int::add(
                 s2,
                 int::div(int::mul(int::add(m, 1), m), 2),
             ),
