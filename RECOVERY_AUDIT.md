@@ -97,7 +97,10 @@ remote and deliberately contains no reconstructed original objects:
 - `a48c597` — recovery/session ignore rules;
 - `adcf985` — exact stable `k-rust` adapter manifest;
 - `60592d3` — exact `fbccdc7` macro-expander baseline;
-- `cb033b8` — schema-9 IR tests and canonical goldens.
+- `cb033b8` — schema-9 IR tests and canonical goldens;
+- `28b2f9d` — executable recovery audit and continuation plan;
+- `82ec76f` — schema-9 compiler lowering, emission, and focused adjunct
+  coverage.
 
 Every new commit and the import tag verify against the configured ED25519 Git
 signing key. Valid signed original commit objects survive in the evidence
@@ -170,12 +173,12 @@ Clippy gate pass. Seven expander update events are recorded after the
 rollout payloads are not transferred as standalone patch files, but their
 metadata and the final expected hash remain useful constraints.
 
-The complete fixture suite is not yet green: its positive fixture compiles the
-known-broken compiler, and `duplicate_binder` shows that at least one later
-expander transition is still required. Reconstruct those transitions against
-the final pin and fixtures after the compiler seam is coherent. Do not block
-functional recovery if the untransferred payloads make exact hash recovery
-impossible.
+The complete fixture suite is not yet green: its positive fixture now reaches
+the separate `krs-k-rust` adapter seam, and `duplicate_binder` shows that at
+least one later expander transition is still required. Reconstruct those
+transitions against the final pin and fixtures after the adapter seam is
+coherent. Do not block functional recovery if the untransferred payloads make
+exact hash recovery impossible.
 
 ### Cargo dependency seam
 
@@ -215,16 +218,42 @@ both newer and coherent.
 Commit `cb033b8` reconciles the old `m2_ir` and `m3_expression_ir` tests and
 regenerates three empty/stale canonical goldens from validated schema-9
 models. All 129 `krs-ir` tests pass on Rust 1.98 and Rust 1.88; the library
-Clippy gate passes. The remaining seams are:
+Clippy gate passes.
 
-- `krs-compiler`: 68 library errors originate in `emit.rs` and `lowering.rs`,
-  while the much larger `collect.rs`, `reference.rs`, and `semantic.rs`
-  type-check;
-- `krs-k-rust`: adapter code is written against a different Definition IR;
-- `krs` and `krs-cli`: fail transitively.
+Commit `82ec76f` eliminates the compiler's 68-error schema seam by
+reconstructing `lowering.rs` and `emit.rs` forward against the retained IR.
+The compiler now handles classified grammar, typed subsorts, production
+groups, precedence and associativity, builtin and declared terms, fixed and
+nested configurations, simultaneous configuration rules, explicit and
+default labels, conditions and priorities, context aliases, and typed claim
+metadata. The claim/context acceptance slice covers HERE, `_B:Bool`,
+`?N:Int`, `ensures`, circularity, one-path versus implicit all-path, and
+generated ranges for distinct adjunct roles.
 
-Repair these seams forward in that order. A stable-ledger mismatch is a
-classification signal, not authority to replace a later file wholesale.
+The demonstrated compiler gates are:
+
+- all 62 active library/integration tests pass on Rust 1.98 and Rust 1.88;
+- compiler Clippy passes with warnings denied on the installed Rust 1.98
+  toolchain;
+- both normally ignored M3B and M3C canonical-source tests pass under exact K
+  7.1.337;
+- `Cargo.lock` remains SHA-256
+  `83c15d6a7b176cb465a7f79156449d41b3d33c7859bc7e89dd0f6fe9a14bbb8a`,
+  still matching `Krs.lock`.
+
+Rust 1.88 Clippy was not run because that rustup toolchain lacks the Clippy
+component; its locked check and full compiler test suite pass. Do not install
+or silently substitute a toolchain component merely to erase this recorded
+environmental distinction.
+
+The remaining active seam is now `krs-k-rust`. A standalone M3D claim-fixture
+build reaches it and reports 20 compile errors from the older Definition IR
+shape: optional legacy/fixed configuration accessors, typed sort references,
+classified production items, application references, structured rule bodies,
+and claim/context sentence support. `krs` and `krs-cli` remain red only after
+or through that adapter boundary. Repair the adapter forward next. A
+stable-ledger mismatch is a classification signal, not authority to replace a
+later file wholesale.
 
 ### M4 ledgers
 
@@ -253,6 +282,7 @@ Observed on 2026-08-25:
 | Z3 | Correct, 4.12.5. |
 | Ambient Rust | 1.98.0. |
 | MSRV Rust | Correct, 1.88.0 installed through rustup. |
+| MSRV Clippy | Not installed for the rustup 1.88.0 toolchain; the ambient 1.98 Clippy gate passes with warnings denied. |
 | K executables | Cached exact K 7.1.337, kore-exec 0.1.155, and LLVM backend 0.1.140 binaries verified directly; `kup shell` remains the preferred entry when network/cache configuration permits. |
 
 The required Cargo registry dependencies are now present. Locked commands use
@@ -329,14 +359,14 @@ Exit criterion: the macro crate and fixtures are green. Reaching the final
 stable expander hash is preferred exact recovery; a different hash requires a
 documented functional-reconstruction commit.
 
-### Phase 3 — reconcile the recovered late IR line — in progress
+### Phase 3 — reconcile the recovered late IR line — compiler complete, adapter in progress
 
 1. `krs-ir` unit and integration targets now compile and pass on both
    toolchains; obsolete tests and goldens are reconciled.
-2. Align `krs-compiler/src/emit.rs` and `lowering.rs` with the retained
-   Definition/Semantic IR while keeping `collect.rs`, `reference.rs`, and
-   `semantic.rs` behavior stable.
-3. Align `krs-k-rust` with the same Definition IR and the pinned native
+2. `krs-compiler/src/emit.rs` and `lowering.rs` are aligned with the retained
+   Definition/Semantic IR; the active, MSRV, Clippy, and pinned-K compiler
+   gates pass.
+3. Align `krs-k-rust` with that Definition IR and the pinned native
    frontend.
 4. Qualify `krs`, then `krs-cli`, without starting collector-trivia feature
    work.
@@ -411,11 +441,15 @@ implementation authority.
 
 ## Immediate next action
 
-Reconstruct `crates/krs-compiler/src/lowering.rs` and `emit.rs` against the
-retained schema-9 APIs and the exact late-session excerpts in
-`../recovery/evidence/krs-bash-events.jsonl`. Eliminate the 68 library errors,
-then repair any compiler tests that still encode superseded schemas. Commit
-lowering and emission as reviewable milestones before moving to the adapter.
+Reconcile `crates/krs-k-rust/src/lib.rs` with schema 9 without weakening the
+retained IR. Start with a typed adapter context for `DefinitionSortRef`,
+classified `GrammarProductionItemKind`, and `ApplicationRef`; then split
+legacy and fixed configuration adaptation and consume `relational_body()` for
+term versus configuration rules. Add native `Sentence::ContextAlias` and
+`Sentence::Claim` only after their structured compiler fixtures adapt without
+capability fallbacks. Run the M3D context and claim slices through native
+preparation before returning to macro fixtures or workspace-wide
+qualification.
 
 ## Audit hygiene
 
