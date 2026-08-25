@@ -7,15 +7,15 @@ use krs_compiler::{
 };
 use krs_ir::{
     ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot,
-    DefinitionRuleBody, FixedCell, FixedCellClause, FixedConfiguration,
-    FixedConfigurationRewrite, FixedConfigurationVariable, FixedInitializerCell, FormatFragment,
-    GroupAssociativity, GroupAssociativitySentence, ItemKind, MapOperation, ModuleId, NodeOrigin,
-    OriginFrame, OriginStack, PackageId, PrecedenceRelation, ProductionAttribute,
-    ProductionFieldId, ProductionGroupId, RangedOriginKind, SemanticConfiguration, SemanticId,
-    SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort,
-    SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticVariable,
-    SentenceKind, Sha256Digest, SourceFileId, SourceMapKey, SourceRange, StableItemId,
-    StrictnessKind, TransformationOriginKind,
+    DefinitionRuleBody, FixedCell, FixedCellClause, FixedConfiguration, FixedConfigurationRewrite,
+    FixedConfigurationVariable, FixedInitializerCell, FormatFragment, GroupAssociativity,
+    GroupAssociativitySentence, ItemKind, MapOperation, ModuleId, NodeOrigin, OriginFrame,
+    OriginStack, PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
+    ProductionFieldReference, ProductionGroupId, ProductionResultSort, RangedOriginKind,
+    SemanticConfiguration, SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem,
+    SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory,
+    SemanticVariable, SentenceKind, Sha256Digest, SourceFileId, SourceMapKey, SourceRange,
+    StableItemId, StrictnessKind, TransformationOriginKind,
 };
 
 fn package() -> PackageId {
@@ -105,8 +105,14 @@ fn calc_theory(options: CalcOptions) -> SemanticTheory {
                 origin: origin("production.assign.strict"),
                 kind: StrictnessKind::Strict,
                 using: None,
-                fields: vec![field("expression")],
-                result_sort: kresult.clone(),
+                fields: vec![ProductionFieldReference::new(
+                    origin("production.assign.strict.expression"),
+                    field("expression"),
+                )],
+                result_sort: ProductionResultSort::new(
+                    origin("production.assign.strict.result"),
+                    kresult.clone(),
+                ),
             },
             ProductionAttribute::Format {
                 origin: origin("production.assign.format"),
@@ -167,11 +173,7 @@ fn calc_theory(options: CalcOptions) -> SemanticTheory {
         origin("configuration.cell.env"),
         env.clone(),
         "env",
-        vec![CellAttribute::color(
-            origin("configuration.cell.env.color"),
-            "yellow",
-        )
-        .unwrap()],
+        vec![CellAttribute::color(origin("configuration.cell.env.color"), "yellow").unwrap()],
         SemanticSortRef::map(),
     )
     .unwrap();
@@ -488,23 +490,31 @@ fn calc_theory(options: CalcOptions) -> SemanticTheory {
             SemanticSort::new(origin("sort.kresult"), item("KResult", ItemKind::Sort)),
         ],
         vec![
-            SemanticSubsort::new(origin("subsort.id-expr"), SemanticSortRef::id(), expr.clone()),
+            SemanticSubsort::new(
+                origin("subsort.id-expr"),
+                SemanticSortRef::id(),
+                expr.clone(),
+            ),
             SemanticSubsort::new(origin("subsort.value-expr"), value.clone(), expr),
             SemanticSubsort::new(origin("subsort.value-kresult"), value, kresult),
         ],
         vec![assign, sequence],
-        vec![PrecedenceRelation::new(
-            origin("precedence.stmt-sequence"),
-            vec![group("stmt")],
-            vec![group("seq-stmt")],
-        )
-        .unwrap()],
-        vec![GroupAssociativitySentence::new(
-            origin("associativity.sequence"),
-            GroupAssociativity::Right,
-            vec![group("seq-stmt")],
-        )
-        .unwrap()],
+        vec![
+            PrecedenceRelation::new(
+                origin("precedence.stmt-sequence"),
+                vec![group("stmt")],
+                vec![group("seq-stmt")],
+            )
+            .unwrap(),
+        ],
+        vec![
+            GroupAssociativitySentence::new(
+                origin("associativity.sequence"),
+                GroupAssociativity::Right,
+                vec![group("seq-stmt")],
+            )
+            .unwrap(),
+        ],
         Some(configuration),
         rules,
     );
@@ -597,7 +607,7 @@ fn assert_complete_sidecars(emitted: &EmittedK) {
             (SourceMapNodeKind::Subsort, 3),
             (SourceMapNodeKind::Production, 2),
             (SourceMapNodeKind::ProductionItem, 6),
-            (SourceMapNodeKind::ProductionAttribute, 5),
+            (SourceMapNodeKind::ProductionAttribute, 7),
             (SourceMapNodeKind::ProductionGroup, 2),
             (SourceMapNodeKind::Precedence, 1),
             (SourceMapNodeKind::Associativity, 1),
@@ -695,7 +705,10 @@ fn exact_calc_source_and_schema_v3_sidecars_are_complete() {
         })
         .map(|rule| (rule.label().emitted_name(), rule))
         .collect::<BTreeMap<_, _>>();
-    assert_eq!(rules.keys().copied().collect::<Vec<_>>(), ["assign", "step", "var"]);
+    assert_eq!(
+        rules.keys().copied().collect::<Vec<_>>(),
+        ["assign", "step", "var"]
+    );
     let DefinitionRuleBody::Configuration(step) = rules["step"].relational_body() else {
         panic!("step must remain a configuration rule")
     };

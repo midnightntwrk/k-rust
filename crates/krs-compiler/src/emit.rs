@@ -1,12 +1,17 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
 use krs_ir::{
-    BuiltinSort, ConfigurationSentence, DefinitionIr, DefinitionModule, DefinitionSentence,
-    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, LabelIdentity, ProductionItem,
-    ProductionSentence, RuleSentence, SemanticId, SentenceKind, SourceMapKey, SymbolId,
-    SymbolIdentity, SymbolKind,
+    ApplicationRef, BuiltinOperation, BuiltinSort, CellAttribute, CellContentFrame, CellPost,
+    ClaimModality, ConfigurationRoot, ConfigurationSentence, ContextAliasSentence,
+    DefinitionClaimBinder, DefinitionIr, DefinitionModule, DefinitionRuleBody, DefinitionSentence,
+    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, FixedCell, FixedCellContent,
+    FixedCellPattern, FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell,
+    FixedInitializerContent, FormatFragment, GrammarProductionItemKind, GroupAssociativity,
+    LabelIdentity, MapOperation, ProductionAttribute, ProductionGroupId, ProductionSentence,
+    RuleSentence, SemanticId, SentenceKind, SourceMapKey, StrictnessKind, SymbolId, SymbolIdentity,
+    SymbolKind,
 };
 
 use crate::sidecar::SidecarError;
@@ -120,12 +125,34 @@ pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
 struct EmitContext<'a> {
     sorts: BTreeMap<SymbolId, &'a SymbolIdentity>,
     productions: BTreeMap<SymbolId, &'a ProductionSentence>,
+    groups: BTreeMap<ProductionGroupId, &'a str>,
+    cells: BTreeMap<SymbolId, &'a str>,
+    context_aliases: BTreeMap<krs_ir::StableItemId, &'a str>,
 }
 
 impl<'a> EmitContext<'a> {
     fn new(definition: &'a DefinitionIr) -> Self {
         let mut sorts = BTreeMap::new();
         let mut productions = BTreeMap::new();
+        let mut groups = BTreeMap::new();
+        let mut cells = BTreeMap::new();
+        let mut context_aliases = BTreeMap::new();
+        for module in definition.modules() {
+            for group in module.production_groups() {
+                groups.insert(group.id().clone(), group.emitted_name());
+            }
+            for sentence in module.sentences() {
+                if let DefinitionSentence::Configuration(ConfigurationSentence::Fixed(
+                    configuration,
+                )) = sentence
+                {
+                    collect_emit_cells(configuration.cells(), &mut cells);
+                }
+                if let DefinitionSentence::ContextAlias(alias) = sentence {
+                    context_aliases.insert(alias.id().clone(), alias.name());
+                }
+            }
+        }
         for sentence in definition
             .modules()
             .iter()
@@ -141,7 +168,13 @@ impl<'a> EmitContext<'a> {
                 _ => {}
             }
         }
-        Self { sorts, productions }
+        Self {
+            sorts,
+            productions,
+            groups,
+            cells,
+            context_aliases,
+        }
     }
 
     fn sort_name(&self, id: &SymbolId) -> Result<&str, EmitError> {
@@ -153,10 +186,52 @@ impl<'a> EmitContext<'a> {
             })
     }
 
+    fn sort_name_ref(&self, sort: &DefinitionSortRef) -> Result<&str, EmitError> {
+        match sort {
+            DefinitionSortRef::Declared(id) => self.sort_name(id),
+            DefinitionSortRef::Builtin(BuiltinSort::KSequence) => Ok("K"),
+            DefinitionSortRef::Builtin(BuiltinSort::Int) => Ok("Int"),
+            DefinitionSortRef::Builtin(BuiltinSort::Bool) => Ok("Bool"),
+            DefinitionSortRef::Builtin(BuiltinSort::Id) => Ok("Id"),
+            DefinitionSortRef::Builtin(BuiltinSort::Map) => Ok("Map"),
+        }
+    }
+
     fn production(&self, id: &SymbolId) -> Result<&ProductionSentence, EmitError> {
         self.productions.get(id).copied().ok_or_else(|| {
             EmitError::InvalidReference(format!("missing source production {:?}", id.as_str()))
         })
+    }
+
+    fn group_name(&self, id: &ProductionGroupId) -> Result<&str, EmitError> {
+        self.groups.get(id).copied().ok_or_else(|| {
+            EmitError::InvalidReference(format!("missing production group {:?}", id.as_str()))
+        })
+    }
+
+    fn cell_name(&self, id: &SymbolId) -> Result<&str, EmitError> {
+        self.cells.get(id).copied().ok_or_else(|| {
+            EmitError::InvalidReference(format!("missing fixed cell {:?}", id.as_str()))
+        })
+    }
+
+    fn context_alias_name(&self, id: &krs_ir::StableItemId) -> Result<&str, EmitError> {
+        self.context_aliases
+            .get(id)
+            .copied()
+            .ok_or_else(|| EmitError::InvalidReference(format!("missing context alias {id:?}")))
+    }
+}
+
+fn collect_emit_cells<'a>(
+    cells: &'a [FixedCell<DefinitionSortRef, SymbolId>],
+    output: &mut BTreeMap<SymbolId, &'a str>,
+) {
+    for cell in cells {
+        output.insert(cell.id().clone(), cell.name());
+        if let FixedCellContent::Children { children } = cell.content() {
+            collect_emit_cells(children, output);
+        }
     }
 }
 
@@ -171,12 +246,7 @@ impl Writer {
         self.source.push_str(text);
     }
 
-    fn record(
-        &mut self,
-        key: &SourceMapKey,
-        start: usize,
-        end: usize,
-    ) -> Result<(), EmitError> {
+    fn record(&mut self, key: &SourceMapKey, start: usize, end: usize) -> Result<(), EmitError> {
         if self.ranges.insert(key.clone(), (start, end)).is_some() {
             return Err(EmitError::DuplicateGeneratedRange(key.clone()));
         }
@@ -202,15 +272,20 @@ fn emit_module(
     writer.push("module ");
     writer.push(module.id().as_str());
     writer.push("\n");
-    let mut imports = module.imports().to_vec();
+    let mut imports = module
+        .imports()
+        .iter()
+        .map(|import| import.as_str().to_owned())
+        .collect::<Vec<_>>();
+    imports.extend(builtin_imports(module));
     imports.sort();
     imports.dedup();
-    for import in imports {
+    for import in &imports {
         writer.push("  imports ");
-        writer.push(import.as_str());
+        writer.push(import);
         writer.push("\n");
     }
-    if !module.imports().is_empty() && !module.sentences().is_empty() {
+    if !imports.is_empty() && !module.sentences().is_empty() {
         writer.push("\n");
     }
 
@@ -230,6 +305,177 @@ fn emit_module(
     Ok(())
 }
 
+#[derive(Default)]
+struct BuiltinRequirements {
+    sorts: BTreeSet<BuiltinSort>,
+    operations: BTreeSet<BuiltinSort>,
+}
+
+impl BuiltinRequirements {
+    fn sort(&mut self, sort: &DefinitionSortRef) {
+        if let DefinitionSortRef::Builtin(sort) = sort {
+            self.sorts.insert(*sort);
+        }
+    }
+
+    fn term(&mut self, term: &DefinitionTerm) {
+        self.sort(term.sort());
+        match term.kind() {
+            DefinitionTermKind::Variable { .. } | DefinitionTermKind::Token { .. } => {}
+            DefinitionTermKind::Application {
+                application,
+                arguments,
+            } => {
+                if let ApplicationRef::Builtin(operation) = application {
+                    self.operations.insert(operation.result_sort());
+                    for sort in operation.argument_sorts() {
+                        self.operations.insert(*sort);
+                    }
+                }
+                for argument in arguments {
+                    self.term(argument);
+                }
+            }
+            DefinitionTermKind::KSequence { item_sort, items } => {
+                self.sort(item_sort);
+                for item in items {
+                    self.term(item);
+                }
+            }
+            DefinitionTermKind::Map { arguments, .. } => {
+                self.sorts.insert(BuiltinSort::Map);
+                for argument in arguments {
+                    self.term(argument);
+                }
+            }
+            DefinitionTermKind::Rewrite { from, to } => {
+                self.term(from);
+                self.term(to);
+            }
+        }
+    }
+
+    fn fixed_cells(&mut self, cells: &[FixedCell<DefinitionSortRef, SymbolId>]) {
+        for cell in cells {
+            match cell.content() {
+                FixedCellContent::Term { sort } => self.sort(sort),
+                FixedCellContent::Children { children } => self.fixed_cells(children),
+            }
+        }
+    }
+
+    fn initializer(&mut self, cells: &[FixedInitializerCell<SymbolId, DefinitionTerm>]) {
+        for cell in cells {
+            match cell.content() {
+                FixedInitializerContent::Term { term } => self.term(term),
+                FixedInitializerContent::Children { children } => self.initializer(children),
+            }
+        }
+    }
+}
+
+fn builtin_imports(module: &DefinitionModule) -> Vec<String> {
+    let mut requirements = BuiltinRequirements::default();
+    for sentence in module.sentences() {
+        match sentence {
+            DefinitionSentence::SyntaxSort(_)
+            | DefinitionSentence::Precedence(_)
+            | DefinitionSentence::Associativity(_) => {}
+            DefinitionSentence::Subsort(sentence) => {
+                requirements.sort(sentence.subsort());
+                requirements.sort(sentence.supersort());
+            }
+            DefinitionSentence::Production(sentence) => {
+                requirements.sort(sentence.result_sort());
+                for item in sentence.items() {
+                    if let GrammarProductionItemKind::NonTerminal { sort, .. } = item.kind() {
+                        requirements.sort(sort);
+                    }
+                }
+                for attribute in sentence.attributes() {
+                    if let ProductionAttribute::Strictness { result_sort, .. } = attribute {
+                        requirements.sort(result_sort.sort());
+                    }
+                }
+            }
+            DefinitionSentence::Configuration(sentence) => match sentence {
+                ConfigurationSentence::Legacy(_) => {
+                    if let (Some(cell), Some(initializer)) =
+                        (sentence.cell(), sentence.initializer())
+                    {
+                        requirements.sort(cell.content_sort());
+                        for variable in initializer.variables() {
+                            requirements.sort(variable.sort());
+                        }
+                        requirements.term(initializer.body());
+                    }
+                }
+                ConfigurationSentence::Fixed(configuration) => {
+                    requirements.fixed_cells(configuration.cells());
+                    for variable in configuration.variables() {
+                        requirements.sort(variable.sort());
+                    }
+                    requirements.initializer(configuration.initializer());
+                }
+            },
+            DefinitionSentence::ContextAlias(sentence) => {
+                for variable in sentence.variables() {
+                    requirements.sort(variable.sort());
+                }
+                for cell in sentence.body().cells() {
+                    requirements.term(cell.pattern());
+                }
+            }
+            DefinitionSentence::Rule(sentence) => {
+                for variable in sentence.variables() {
+                    requirements.sort(variable.sort());
+                }
+                match sentence.relational_body() {
+                    DefinitionRuleBody::Term(term) => requirements.term(term),
+                    DefinitionRuleBody::Configuration(rewrite) => {
+                        for clause in rewrite.clauses() {
+                            requirements.term(clause.before());
+                            if let CellPost::Replace { term } = clause.after() {
+                                requirements.term(term);
+                            }
+                        }
+                    }
+                }
+                if let Some(condition) = sentence.requires() {
+                    requirements.term(condition.term());
+                }
+            }
+        }
+    }
+    let mut imports = BTreeSet::new();
+    for sort in requirements.sorts {
+        match sort {
+            BuiltinSort::KSequence => {}
+            BuiltinSort::Int => {
+                imports.insert(if requirements.operations.contains(&BuiltinSort::Int) {
+                    "INT"
+                } else {
+                    "INT-SYNTAX"
+                });
+            }
+            BuiltinSort::Bool => {
+                imports.insert(if requirements.operations.contains(&BuiltinSort::Bool) {
+                    "BOOL"
+                } else {
+                    "BOOL-SYNTAX"
+                });
+            }
+            BuiltinSort::Id => {
+                imports.insert("ID-SYNTAX");
+            }
+            BuiltinSort::Map => {
+                imports.insert("MAP");
+            }
+        }
+    }
+    imports.into_iter().map(str::to_owned).collect()
+}
+
 fn emit_sentence(
     sentence: &DefinitionSentence,
     context: &EmitContext<'_>,
@@ -244,13 +490,30 @@ fn emit_sentence(
         }
         DefinitionSentence::Subsort(sentence) => {
             writer.push("syntax ");
-            writer.push(context.sort_name(sentence.supersort())?);
+            writer.push(context.sort_name_ref(sentence.supersort())?);
             writer.push(" ::= ");
-            writer.push(context.sort_name(sentence.subsort())?);
+            writer.push(context.sort_name_ref(sentence.subsort())?);
         }
         DefinitionSentence::Production(sentence) => emit_production(sentence, context, writer)?,
+        DefinitionSentence::Precedence(sentence) => {
+            writer.push("syntax priority ");
+            emit_group_list(sentence.higher(), context, writer)?;
+            writer.push(" > ");
+            emit_group_list(sentence.lower(), context, writer)?;
+        }
+        DefinitionSentence::Associativity(sentence) => {
+            writer.push(match sentence.associativity() {
+                GroupAssociativity::Left => "syntax left ",
+                GroupAssociativity::Right => "syntax right ",
+                GroupAssociativity::NonAssociative => "syntax non-assoc ",
+            });
+            emit_group_list(sentence.groups(), context, writer)?;
+        }
         DefinitionSentence::Configuration(sentence) => {
             emit_configuration(sentence, context, writer)?;
+        }
+        DefinitionSentence::ContextAlias(sentence) => {
+            emit_context_alias(sentence, context, writer)?;
         }
         DefinitionSentence::Rule(sentence) => emit_rule(sentence, context, writer)?,
     }
@@ -265,20 +528,178 @@ fn emit_production(
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
     writer.push("syntax ");
-    writer.push(context.sort_name(sentence.result_sort())?);
+    writer.push(context.sort_name_ref(sentence.result_sort())?);
     writer.push(" ::= ");
     for (index, item) in sentence.items().iter().enumerate() {
         if index != 0 {
             writer.push(" ");
         }
-        match item {
-            ProductionItem::Terminal { text } => writer.push(&quoted(text)),
-            ProductionItem::NonTerminal { sort } => writer.push(context.sort_name(sort)?),
+        let start = writer.source.len();
+        match item.kind() {
+            GrammarProductionItemKind::Terminal { text } => writer.push(&quoted(text)),
+            GrammarProductionItemKind::NonTerminal { sort, .. } => {
+                writer.push(context.sort_name_ref(sort)?);
+            }
+            GrammarProductionItemKind::RegexTerminal { regex, .. } => {
+                writer.push("r");
+                writer.push(&quoted(regex));
+            }
         }
+        writer.record(item.origin().key(), start, writer.source.len())?;
     }
     writer.push(" [symbol(");
     writer.push(sentence.symbol().emitted_name());
-    writer.push(")]" );
+    writer.push(")");
+    for attribute in sentence.attributes() {
+        if matches!(attribute, ProductionAttribute::Documentation { .. }) {
+            continue;
+        }
+        writer.push(", ");
+        let start = writer.source.len();
+        emit_production_attribute(attribute, sentence, context, writer)?;
+        writer.record(attribute.origin().key(), start, writer.source.len())?;
+    }
+    writer.push("]");
+    Ok(())
+}
+
+fn emit_group_list(
+    groups: &[ProductionGroupId],
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    for (index, group) in groups.iter().enumerate() {
+        if index != 0 {
+            writer.push(" ");
+        }
+        writer.push(context.group_name(group)?);
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+fn emit_production_attribute(
+    attribute: &krs_ir::DefinitionProductionAttribute,
+    sentence: &ProductionSentence,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    match attribute {
+        ProductionAttribute::Documentation { .. } => {}
+        ProductionAttribute::Function { .. } => writer.push("function"),
+        ProductionAttribute::Total { .. } => writer.push("total"),
+        ProductionAttribute::Alias { .. } => writer.push("alias"),
+        ProductionAttribute::Token {
+            lexical_precedence, ..
+        } => {
+            writer.push("token");
+            if let Some(precedence) = lexical_precedence {
+                writer.push(", prec(");
+                writer.push(&precedence.to_string());
+                writer.push(")");
+            }
+        }
+        ProductionAttribute::Group { group, .. } => {
+            writer.push("group(");
+            writer.push(context.group_name(group)?);
+            writer.push(")");
+        }
+        ProductionAttribute::Bracket { .. } => {
+            writer.push("bracket, format(");
+            for index in 1..=sentence.items().len() {
+                writer.push("%");
+                writer.push(&index.to_string());
+            }
+            writer.push(")");
+        }
+        ProductionAttribute::Avoid { .. } => writer.push("avoid"),
+        ProductionAttribute::Format { fragments, .. } => {
+            writer.push("format(");
+            for fragment in fragments {
+                match fragment {
+                    FormatFragment::Literal(text) => {
+                        for character in text.chars() {
+                            if character == '%' {
+                                writer.push("%%");
+                            } else {
+                                writer.push(&character.to_string());
+                            }
+                        }
+                    }
+                    FormatFragment::Item(index) => {
+                        writer.push("%");
+                        writer.push(&index.to_string());
+                    }
+                    FormatFragment::Newline => writer.push("%n"),
+                    FormatFragment::Indent => writer.push("%i"),
+                    FormatFragment::Dedent => writer.push("%d"),
+                }
+            }
+            writer.push(")");
+        }
+        ProductionAttribute::Strictness {
+            kind,
+            using,
+            fields,
+            result_sort,
+            ..
+        } => {
+            writer.push(match kind {
+                StrictnessKind::Strict => "strict",
+                StrictnessKind::SeqStrict => "seqstrict",
+            });
+            let nonterminals = sentence
+                .items()
+                .iter()
+                .filter_map(|item| match item.kind() {
+                    GrammarProductionItemKind::NonTerminal { field, .. } => Some(field),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            if fields.len() != nonterminals.len()
+                || !fields
+                    .iter()
+                    .zip(&nonterminals)
+                    .all(|(selected, field)| selected.field() == *field)
+            {
+                writer.push("(");
+                for (index, field) in fields.iter().enumerate() {
+                    if index != 0 {
+                        writer.push(",");
+                    }
+                    let position = nonterminals
+                        .iter()
+                        .position(|candidate| **candidate == *field.field())
+                        .ok_or_else(|| {
+                            EmitError::InvalidReference(format!(
+                                "strictness references missing field {:?}",
+                                field.field().as_str()
+                            ))
+                        })?;
+                    let field_start = writer.source.len();
+                    writer.push(&(position + 1).to_string());
+                    writer.record(field.origin().key(), field_start, writer.source.len())?;
+                }
+                writer.push(")");
+            }
+            if let Some(using) = using {
+                let using_start = writer.source.len();
+                writer.push(", context(");
+                writer.push(context.context_alias_name(using.alias())?);
+                writer.push(")");
+                writer.record(using.origin().key(), using_start, writer.source.len())?;
+            }
+            writer.push(", result(");
+            let result_start = writer.source.len();
+            writer.push(context.sort_name_ref(result_sort.sort())?);
+            writer.record(
+                result_sort.origin().key(),
+                result_start,
+                writer.source.len(),
+            )?;
+            writer.push(")");
+        }
+    }
     Ok(())
 }
 
@@ -287,16 +708,25 @@ fn emit_configuration(
     context: &EmitContext<'_>,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
-    if sentence.cell().symbol().kind() != SymbolKind::Cell
-        || sentence.cell().content_sort() != &DefinitionSortRef::Builtin(BuiltinSort::KSequence)
-        || sentence.initializer().symbol().kind() != SymbolKind::Initializer
+    if let Some(configuration) = sentence.as_fixed() {
+        return emit_fixed_configuration(configuration, context, writer);
+    }
+    let (Some(cell), Some(initializer)) = (sentence.cell(), sentence.initializer()) else {
+        return Err(EmitError::UnsupportedShape {
+            node: "configuration",
+            detail: "fixed configuration emission is not yet selected".to_owned(),
+        });
+    };
+    if cell.symbol().kind() != SymbolKind::Cell
+        || cell.content_sort() != &DefinitionSortRef::Builtin(BuiltinSort::KSequence)
+        || initializer.symbol().kind() != SymbolKind::Initializer
     {
         return Err(EmitError::UnsupportedShape {
             node: "configuration",
             detail: "expected one fixed KSequence cell and initializer".to_owned(),
         });
     }
-    let DefinitionTermKind::KSequence { .. } = sentence.initializer().body().kind() else {
+    let DefinitionTermKind::KSequence { .. } = initializer.body().kind() else {
         return Err(EmitError::UnsupportedShape {
             node: "configuration initializer",
             detail: "initializer body is not a KSequence".to_owned(),
@@ -305,17 +735,201 @@ fn emit_configuration(
     writer.push("configuration ");
     let cell_start = writer.source.len();
     writer.push("<");
-    writer.push(sentence.cell().symbol().emitted_name());
+    writer.push(cell.symbol().emitted_name());
     writer.push("> ");
-    writer.append_rendered(render_term(sentence.initializer().body(), context, false)?)?;
+    if let DefinitionTermKind::KSequence { items, .. } = initializer.body().kind()
+        && let [item] = items.as_slice()
+        && let DefinitionTermKind::Variable { variable } = item.kind()
+        && initializer
+            .variables()
+            .iter()
+            .any(|value| value.id() == variable)
+    {
+        let start = writer.source.len();
+        writer.push("$");
+        writer.push(variable.as_str());
+        writer.push(":");
+        writer.push(context.sort_name_ref(item.sort())?);
+        writer.record(item.origin().key(), start, writer.source.len())?;
+        writer.record(
+            initializer.body().origin().key(),
+            start,
+            writer.source.len(),
+        )?;
+    } else {
+        writer.append_rendered(render_term(initializer.body(), context, false)?)?;
+    }
     writer.push(" </");
-    writer.push(sentence.cell().symbol().emitted_name());
+    writer.push(cell.symbol().emitted_name());
     writer.push(">");
     let cell_end = writer.source.len();
-    writer.record(sentence.cell().origin().key(), cell_start, cell_end)?;
+    writer.record(cell.origin().key(), cell_start, cell_end)?;
     // The initializer declaration has no independent source syntax. Its honest
     // generated range is the initializer expression used in the configuration.
-    writer.record(sentence.initializer().origin().key(), cell_start, cell_end)?;
+    writer.record(initializer.origin().key(), cell_start, cell_end)?;
+    Ok(())
+}
+
+fn emit_fixed_configuration(
+    configuration: &FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    writer.push("configuration");
+    writer.push("\n");
+    match configuration.root() {
+        ConfigurationRoot::GeneratedTop => emit_fixed_cell_forest(
+            configuration.cells(),
+            configuration.initializer(),
+            configuration.variables(),
+            4,
+            context,
+            writer,
+        )?,
+        ConfigurationRoot::Named { origin, name } => {
+            let start = writer.source.len();
+            writer.push("    <");
+            writer.push(name);
+            writer.push(">\n");
+            emit_fixed_cell_forest(
+                configuration.cells(),
+                configuration.initializer(),
+                configuration.variables(),
+                6,
+                context,
+                writer,
+            )?;
+            writer.push("    </");
+            writer.push(name);
+            writer.push(">");
+            writer.record(origin.key(), start, writer.source.len())?;
+        }
+    }
+    writer.record(
+        configuration.initializer_origin().key(),
+        writer.source.len(),
+        writer.source.len(),
+    )?;
+    writer.push("\n");
+    Ok(())
+}
+
+fn emit_fixed_cell_forest(
+    cells: &[FixedCell<DefinitionSortRef, SymbolId>],
+    initializer: &[FixedInitializerCell<SymbolId, DefinitionTerm>],
+    variables: &[FixedConfigurationVariable<DefinitionSortRef>],
+    indent: usize,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    for (index, cell) in cells.iter().enumerate() {
+        if index != 0 {
+            writer.push("\n");
+        }
+        let initialized_cell = initializer
+            .iter()
+            .find(|value| value.cell() == cell.id())
+            .ok_or_else(|| {
+                EmitError::InvalidReference(format!(
+                    "missing initializer for fixed cell {:?}",
+                    cell.id().as_str()
+                ))
+            })?;
+        emit_fixed_cell(cell, initialized_cell, variables, indent, context, writer)?;
+    }
+    Ok(())
+}
+
+fn emit_fixed_cell(
+    cell: &FixedCell<DefinitionSortRef, SymbolId>,
+    initializer_cell: &FixedInitializerCell<SymbolId, DefinitionTerm>,
+    variables: &[FixedConfigurationVariable<DefinitionSortRef>],
+    indent: usize,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    let start = writer.source.len();
+    writer.push(&" ".repeat(indent));
+    writer.push("<");
+    writer.push(cell.name());
+    for attribute in cell.attributes() {
+        match attribute {
+            CellAttribute::Color { origin, value } => {
+                let attribute_start = writer.source.len();
+                writer.push(" color=");
+                writer.push(&quoted(value.as_str()));
+                writer.record(origin.key(), attribute_start, writer.source.len())?;
+            }
+        }
+    }
+    writer.push(">");
+    match (cell.content(), initializer_cell.content()) {
+        (FixedCellContent::Term { .. }, FixedInitializerContent::Term { term }) => {
+            writer.push(" ");
+            emit_initializer_term(term, variables, context, writer)?;
+            writer.push(" </");
+            writer.push(cell.name());
+            writer.push(">");
+        }
+        (
+            FixedCellContent::Children { children },
+            FixedInitializerContent::Children {
+                children: initialized_children,
+            },
+        ) => {
+            writer.push("\n");
+            emit_fixed_cell_forest(
+                children,
+                initialized_children,
+                variables,
+                indent + 2,
+                context,
+                writer,
+            )?;
+            writer.push("\n");
+            writer.push(&" ".repeat(indent));
+            writer.push("</");
+            writer.push(cell.name());
+            writer.push(">");
+        }
+        _ => {
+            return Err(EmitError::InvalidReference(format!(
+                "fixed cell {:?} and initializer shapes disagree",
+                cell.id().as_str()
+            )));
+        }
+    }
+    writer.record(initializer_cell.origin().key(), start, writer.source.len())?;
+    writer.record(cell.origin().key(), start, writer.source.len())?;
+    Ok(())
+}
+
+fn emit_initializer_term(
+    term: &DefinitionTerm,
+    variables: &[FixedConfigurationVariable<DefinitionSortRef>],
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    let (term, sequence_origin) = match term.kind() {
+        DefinitionTermKind::KSequence { items, .. } if items.len() == 1 => (&items[0], Some(term)),
+        _ => (term, None),
+    };
+    if let DefinitionTermKind::Variable { variable } = term.kind()
+        && let Some(declaration) = variables.iter().find(|value| value.id() == variable)
+    {
+        let start = writer.source.len();
+        writer.push("$");
+        writer.push(declaration.external_name());
+        writer.push(":");
+        writer.push(context.sort_name_ref(term.sort())?);
+        writer.record(term.origin().key(), start, writer.source.len())?;
+        writer.record(declaration.origin().key(), start, writer.source.len())?;
+        if let Some(sequence) = sequence_origin {
+            writer.record(sequence.origin().key(), start, writer.source.len())?;
+        }
+    } else {
+        writer.append_rendered(render_term(term, context, false)?)?;
+    }
     Ok(())
 }
 
@@ -324,18 +938,328 @@ fn emit_rule(
     context: &EmitContext<'_>,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
-    if sentence.kind() != SentenceKind::Transition {
-        return Err(EmitError::UnsupportedShape {
-            node: "sentence",
-            detail: format!("source emitter only supports transition rules, found {:?}", sentence.kind()),
-        });
+    let sentence_start = writer.source.len();
+    if let DefinitionRuleBody::Configuration(body) = sentence.relational_body() {
+        if sentence.kind() == SentenceKind::Claim {
+            let claim_start = writer.source.len();
+            writer.push("claim");
+            if let Some(claim) = sentence.claim()
+                && claim.modality() == ClaimModality::AllPaths
+            {
+                writer.record(
+                    claim.modality_origin().key(),
+                    claim_start,
+                    writer.source.len(),
+                )?;
+            }
+            writer.push(" [");
+        } else {
+            writer.push("rule [");
+        }
+        emit_label(sentence.label(), writer);
+        writer.push("]:");
+        for clause in body.clauses() {
+            writer.push("\n");
+            emit_cell_clause(clause, sentence, context, writer)?;
+        }
+        emit_requires(sentence, context, writer)?;
+        emit_ensures(sentence, context, writer)?;
+        emit_rule_attributes(sentence, writer)?;
+        record_claim_binders(sentence, context, sentence_start, writer)?;
+        return Ok(());
     }
+    let DefinitionRuleBody::Term(body) = sentence.relational_body() else {
+        unreachable!()
+    };
     writer.push("rule ");
-    writer.append_rendered(render_term(sentence.body(), context, true)?)?;
+    writer.append_rendered(render_rule_term(body, sentence, context, true)?)?;
     writer.push(" [label(");
     emit_label(sentence.label(), writer);
-    writer.push(")]" );
+    writer.push(")]");
+    emit_requires(sentence, context, writer)?;
+    emit_rule_attributes(sentence, writer)?;
     Ok(())
+}
+
+fn record_claim_binders(
+    sentence: &RuleSentence,
+    context: &EmitContext<'_>,
+    sentence_start: usize,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    let Some(claim) = sentence.claim() else {
+        return Ok(());
+    };
+    for (binder, existential) in claim
+        .universals()
+        .iter()
+        .map(|binder| (binder, false))
+        .chain(claim.existentials().iter().map(|binder| (binder, true)))
+    {
+        let name = if existential {
+            format!("?{}", binder.id().as_str().to_ascii_uppercase())
+        } else {
+            variable_name(binder.id())
+        };
+        let rendered = format!("{name}:{}", context.sort_name_ref(binder.sort())?);
+        let relative = writer.source[sentence_start..]
+            .find(&rendered)
+            .ok_or_else(|| {
+                EmitError::InvalidReference(format!(
+                    "claim binder {:?} has no rendered occurrence",
+                    binder.id().as_str()
+                ))
+            })?;
+        let start = sentence_start + relative;
+        let end = start + rendered.len();
+        for origin in [binder.origin(), binder.name_origin(), binder.sort_origin()] {
+            writer.record(origin.key(), start, end)?;
+        }
+    }
+    Ok(())
+}
+
+fn emit_ensures(
+    sentence: &RuleSentence,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    let Some(ensures) = sentence.claim().and_then(|claim| claim.ensures()) else {
+        return Ok(());
+    };
+    writer.push("\n    ensures ");
+    let start = writer.source.len();
+    writer.append_rendered(render_rule_term(ensures.term(), sentence, context, false)?)?;
+    writer.record(ensures.origin().key(), start, writer.source.len())?;
+    Ok(())
+}
+
+fn emit_rule_attributes(sentence: &RuleSentence, writer: &mut Writer) -> Result<(), EmitError> {
+    let mut attributes = Vec::<(
+        &str,
+        Option<u32>,
+        Option<&krs_ir::NodeOrigin>,
+        Option<&krs_ir::NodeOrigin>,
+    )>::new();
+    if let Some(priority) = sentence.priority() {
+        attributes.push((
+            "priority",
+            Some(priority.value()),
+            Some(priority.origin()),
+            None,
+        ));
+    }
+    if let Some(simplification) = sentence.simplification() {
+        attributes.push((
+            "simplification",
+            simplification
+                .priority()
+                .map(krs_ir::DefinitionSimplificationPriority::value),
+            Some(simplification.origin()),
+            simplification
+                .priority()
+                .map(krs_ir::DefinitionSimplificationPriority::origin),
+        ));
+    }
+    if let Some(claim) = sentence.claim() {
+        if claim.modality() == ClaimModality::OnePath {
+            attributes.push(("one-path", None, Some(claim.modality_origin()), None));
+        }
+        if let Some(origin) = claim.circularity_origin() {
+            attributes.push(("circularity", None, Some(origin), None));
+        }
+    }
+    if attributes.is_empty() {
+        return Ok(());
+    }
+    writer.push("\n    [");
+    for (index, (name, value, origin, value_origin)) in attributes.into_iter().enumerate() {
+        if index != 0 {
+            writer.push(", ");
+        }
+        let start = writer.source.len();
+        writer.push(name);
+        if let Some(value) = value {
+            writer.push("(");
+            let value_start = writer.source.len();
+            writer.push(&value.to_string());
+            if let Some(value_origin) = value_origin {
+                writer.record(value_origin.key(), value_start, writer.source.len())?;
+            }
+            writer.push(")");
+        }
+        if let Some(origin) = origin {
+            writer.record(origin.key(), start, writer.source.len())?;
+        }
+    }
+    writer.push("]");
+    Ok(())
+}
+
+fn emit_requires(
+    sentence: &RuleSentence,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    if let Some(condition) = sentence.requires() {
+        writer.push("\n    requires ");
+        let start = writer.source.len();
+        writer.append_rendered(render_rule_term(
+            condition.term(),
+            sentence,
+            context,
+            false,
+        )?)?;
+        writer.record(condition.origin().key(), start, writer.source.len())?;
+    }
+    Ok(())
+}
+
+fn emit_cell_clause(
+    clause: &krs_ir::FixedCellClause<SymbolId, DefinitionTerm>,
+    sentence: &RuleSentence,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    let start = writer.source.len();
+    let name = context.cell_name(clause.cell())?;
+    writer.push("    <");
+    writer.push(name);
+    writer.push("> ");
+    writer.append_rendered(render_rule_term(clause.before(), sentence, context, false)?)?;
+    if let CellPost::Replace { term } = clause.after() {
+        writer.push(" => ");
+        writer.append_rendered(render_rule_term(term, sentence, context, false)?)?;
+    }
+    match clause.frame() {
+        CellContentFrame::Exact => {}
+        CellContentFrame::KSequenceTail { origin, binding } => {
+            let frame_start = writer.source.len();
+            if let Some(binding) = binding {
+                writer.push(" ~> ");
+                writer.push(&variable_name(binding));
+                writer.push(":K");
+            } else {
+                writer.push(" ...");
+            }
+            writer.record(origin.key(), frame_start, writer.source.len())?;
+        }
+        CellContentFrame::MapRemainder { origin, binding } => {
+            let frame_start = writer.source.len();
+            writer.push(" ");
+            if let Some(binding) = binding {
+                writer.push(&variable_name(binding));
+                writer.push(":Map");
+            } else {
+                writer.push("...");
+            }
+            writer.record(origin.key(), frame_start, writer.source.len())?;
+        }
+    }
+    writer.push(" </");
+    writer.push(name);
+    writer.push(">");
+    writer.record(clause.origin().key(), start, writer.source.len())?;
+    Ok(())
+}
+
+fn emit_context_alias(
+    sentence: &ContextAliasSentence,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    writer.push("context alias [");
+    let name_start = writer.source.len();
+    writer.push(sentence.name());
+    writer.record(
+        sentence.name_origin().key(),
+        name_start,
+        writer.source.len(),
+    )?;
+    writer.push("]:");
+    for cell in sentence.body().cells() {
+        writer.push("\n");
+        emit_context_alias_cell(cell, sentence, context, writer)?;
+    }
+    Ok(())
+}
+
+fn emit_context_alias_cell(
+    cell: &FixedCellPattern<SymbolId, DefinitionTerm>,
+    sentence: &ContextAliasSentence,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    let start = writer.source.len();
+    let name = context.cell_name(cell.cell())?;
+    writer.push("    <");
+    writer.push(name);
+    writer.push("> ");
+    writer.append_rendered(render_context_term(
+        cell.pattern(),
+        sentence.here(),
+        sentence.here_origin(),
+        context,
+    )?)?;
+    match cell.frame() {
+        CellContentFrame::Exact => {}
+        CellContentFrame::KSequenceTail { origin, binding } => {
+            let frame_start = writer.source.len();
+            if let Some(binding) = binding {
+                writer.push(" ~> ");
+                writer.push(&variable_name(binding));
+                writer.push(":K");
+            } else {
+                writer.push(" ...");
+            }
+            writer.record(origin.key(), frame_start, writer.source.len())?;
+        }
+        CellContentFrame::MapRemainder { origin, binding } => {
+            let frame_start = writer.source.len();
+            writer.push(" ");
+            if let Some(binding) = binding {
+                writer.push(&variable_name(binding));
+                writer.push(":Map");
+            } else {
+                writer.push("...");
+            }
+            writer.record(origin.key(), frame_start, writer.source.len())?;
+        }
+    }
+    writer.push(" </");
+    writer.push(name);
+    writer.push(">");
+    writer.record(cell.origin().key(), start, writer.source.len())?;
+    Ok(())
+}
+
+fn render_context_term(
+    term: &DefinitionTerm,
+    here: &SemanticId,
+    here_origin: &krs_ir::NodeOrigin,
+    context: &EmitContext<'_>,
+) -> Result<Rendered, EmitError> {
+    if matches!(term.kind(), DefinitionTermKind::Variable { variable } if variable == here) {
+        let mut output = Rendered::default();
+        output.push("HERE");
+        output.ranges.push((term.origin().key().clone(), 0, 4));
+        output.ranges.push((here_origin.key().clone(), 0, 4));
+        return Ok(output);
+    }
+    if let DefinitionTermKind::KSequence { items, .. } = term.kind() {
+        let mut output = Rendered::default();
+        for (index, item) in items.iter().enumerate() {
+            if index != 0 {
+                output.push(" ~> ");
+            }
+            output.append(render_context_term(item, here, here_origin, context)?);
+        }
+        if items.is_empty() {
+            output.push(".K");
+        }
+        return Ok(output.finish(term.origin().key(), 0));
+    }
+    render_term(term, context, false)
 }
 
 fn emit_label(label: &LabelIdentity, writer: &mut Writer) {
@@ -375,37 +1299,93 @@ fn render_term(
     context: &EmitContext<'_>,
     root_rewrite: bool,
 ) -> Result<Rendered, EmitError> {
+    render_term_with_binders(term, context, root_rewrite, &[])
+}
+
+fn render_rule_term(
+    term: &DefinitionTerm,
+    sentence: &RuleSentence,
+    context: &EmitContext<'_>,
+    root_rewrite: bool,
+) -> Result<Rendered, EmitError> {
+    let existentials = sentence
+        .claim()
+        .map_or(&[][..], |claim| claim.existentials());
+    render_term_with_binders(term, context, root_rewrite, existentials)
+}
+
+#[allow(clippy::too_many_lines)]
+fn render_term_with_binders(
+    term: &DefinitionTerm,
+    context: &EmitContext<'_>,
+    root_rewrite: bool,
+    existentials: &[DefinitionClaimBinder],
+) -> Result<Rendered, EmitError> {
     let mut output = Rendered::default();
     let start = 0;
     match term.kind() {
         DefinitionTermKind::Variable { variable } => {
-            output.push(&variable_name(variable));
-            let DefinitionSortRef::Declared(sort) = term.sort() else {
-                return Err(EmitError::UnsupportedShape {
-                    node: "variable",
-                    detail: "builtin-sort variables are not in M2".to_owned(),
-                });
-            };
-            output.push(":");
-            output.push(context.sort_name(sort)?);
+            if variable.as_str().starts_with("__krs_wildcard_") {
+                output.push("_");
+            } else if let Some(name) = anonymous_name(variable) {
+                output.push(name);
+                output.push(":");
+                output.push(context.sort_name_ref(term.sort())?);
+            } else if existentials.iter().any(|binder| binder.id() == variable) {
+                output.push("?");
+                output.push(&variable.as_str().to_ascii_uppercase());
+                output.push(":");
+                output.push(context.sort_name_ref(term.sort())?);
+            } else {
+                output.push(&variable_name(variable));
+                output.push(":");
+                output.push(context.sort_name_ref(term.sort())?);
+            }
         }
-        DefinitionTermKind::Application { symbol, arguments } => {
+        DefinitionTermKind::Application {
+            application,
+            arguments,
+        } => {
+            if let ApplicationRef::Builtin(operation) = application {
+                render_builtin_application(
+                    *operation,
+                    arguments,
+                    context,
+                    existentials,
+                    &mut output,
+                )?;
+                return Ok(output.finish(term.origin().key(), start));
+            }
+            let ApplicationRef::Declared(symbol) = application else {
+                unreachable!()
+            };
             let production = context.production(symbol)?;
             let mut arguments = arguments.iter();
             for (index, item) in production.items().iter().enumerate() {
                 if index != 0 {
                     output.push(" ");
                 }
-                match item {
-                    ProductionItem::Terminal { text } => output.push(text),
-                    ProductionItem::NonTerminal { .. } => {
+                match item.kind() {
+                    GrammarProductionItemKind::Terminal { text } => output.push(text),
+                    GrammarProductionItemKind::NonTerminal { .. } => {
                         let Some(argument) = arguments.next() else {
                             return Err(EmitError::InvalidReference(format!(
                                 "production {:?} has fewer application arguments than nonterminals",
                                 symbol.as_str()
                             )));
                         };
-                        output.append(render_term(argument, context, false)?);
+                        output.append(render_term_with_binders(
+                            argument,
+                            context,
+                            false,
+                            existentials,
+                        )?);
+                    }
+                    GrammarProductionItemKind::RegexTerminal { .. } => {
+                        return Err(EmitError::UnsupportedShape {
+                            node: "regex application",
+                            detail: "regex productions are not term constructors".to_owned(),
+                        });
                     }
                 }
             }
@@ -417,17 +1397,15 @@ fn render_term(
             }
         }
         DefinitionTermKind::Token { value } => {
-            let DefinitionSortRef::Declared(sort) = term.sort() else {
-                return Err(EmitError::UnsupportedShape {
-                    node: "token",
-                    detail: "builtin-sort tokens are not in M2".to_owned(),
-                });
-            };
-            output.push("#token(");
-            output.push(&quoted(value));
-            output.push(",");
-            output.push(&quoted(context.sort_name(sort)?));
-            output.push(")");
+            if matches!(term.sort(), DefinitionSortRef::Builtin(_)) {
+                output.push(value);
+            } else {
+                output.push("#token(");
+                output.push(&quoted(value));
+                output.push(",");
+                output.push(&quoted(context.sort_name_ref(term.sort())?));
+                output.push(")");
+            }
         }
         DefinitionTermKind::KSequence { items, .. } => {
             if items.is_empty() {
@@ -437,17 +1415,31 @@ fn render_term(
                     if index != 0 {
                         output.push(" ~> ");
                     }
-                    output.append(render_term(item, context, false)?);
+                    output.append(render_term_with_binders(
+                        item,
+                        context,
+                        false,
+                        existentials,
+                    )?);
                 }
             }
         }
+        DefinitionTermKind::Map {
+            operation,
+            arguments,
+        } => render_map(*operation, arguments, context, existentials, &mut output)?,
         DefinitionTermKind::Rewrite { from, to } => {
             if !root_rewrite {
                 output.push("(");
             }
-            output.append(render_term(from, context, false)?);
+            output.append(render_term_with_binders(
+                from,
+                context,
+                false,
+                existentials,
+            )?);
             output.push(" => ");
-            output.append(render_term(to, context, false)?);
+            output.append(render_term_with_binders(to, context, false, existentials)?);
             if !root_rewrite {
                 output.push(")");
             }
@@ -456,13 +1448,137 @@ fn render_term(
     Ok(output.finish(term.origin().key(), start))
 }
 
+fn render_builtin_application(
+    operation: BuiltinOperation,
+    arguments: &[DefinitionTerm],
+    context: &EmitContext<'_>,
+    existentials: &[DefinitionClaimBinder],
+    output: &mut Rendered,
+) -> Result<(), EmitError> {
+    let (prefix, infix, expected) = match operation {
+        BuiltinOperation::IntAdd => (None, Some("+Int"), 2),
+        BuiltinOperation::IntSub => (None, Some("-Int"), 2),
+        BuiltinOperation::IntMul => (None, Some("*Int"), 2),
+        BuiltinOperation::IntTDiv => (None, Some("/Int"), 2),
+        BuiltinOperation::IntGreaterEqual => (None, Some(">=Int"), 2),
+        BuiltinOperation::IntGreater => (None, Some(">Int"), 2),
+        BuiltinOperation::IntLessEqual => (None, Some("<=Int"), 2),
+        BuiltinOperation::IntLess => (None, Some("<Int"), 2),
+        BuiltinOperation::IntEqual => (None, Some("==Int"), 2),
+        BuiltinOperation::IntNotEqual => (None, Some("=/=Int"), 2),
+        BuiltinOperation::BoolNot => (Some("notBool"), None, 1),
+        BuiltinOperation::BoolEqual => (None, Some("==Bool"), 2),
+        BuiltinOperation::BoolNotEqual => (None, Some("=/=Bool"), 2),
+        BuiltinOperation::BoolAnd => (None, Some("andBool"), 2),
+        BuiltinOperation::BoolOr => (None, Some("orBool"), 2),
+    };
+    if arguments.len() != expected {
+        return Err(EmitError::InvalidReference(format!(
+            "builtin operation {operation:?} has invalid arity {}",
+            arguments.len()
+        )));
+    }
+    if let Some(prefix) = prefix {
+        output.push(prefix);
+        output.push(" ");
+        output.append(render_term_with_binders(
+            &arguments[0],
+            context,
+            false,
+            existentials,
+        )?);
+    } else if let Some(infix) = infix {
+        output.append(render_term_with_binders(
+            &arguments[0],
+            context,
+            false,
+            existentials,
+        )?);
+        output.push(" ");
+        output.push(infix);
+        output.push(" ");
+        output.append(render_term_with_binders(
+            &arguments[1],
+            context,
+            false,
+            existentials,
+        )?);
+    }
+    Ok(())
+}
+
+fn render_map(
+    operation: MapOperation,
+    arguments: &[DefinitionTerm],
+    context: &EmitContext<'_>,
+    existentials: &[DefinitionClaimBinder],
+    output: &mut Rendered,
+) -> Result<(), EmitError> {
+    match operation {
+        MapOperation::Empty if arguments.is_empty() => output.push(".Map"),
+        MapOperation::Item if !arguments.is_empty() && arguments.len().is_multiple_of(2) => {
+            for (index, pair) in arguments.as_chunks::<2>().0.iter().enumerate() {
+                if index != 0 {
+                    output.push(" ");
+                }
+                output.append(render_term_with_binders(
+                    &pair[0],
+                    context,
+                    false,
+                    existentials,
+                )?);
+                output.push(" |-> ");
+                output.append(render_term_with_binders(
+                    &pair[1],
+                    context,
+                    false,
+                    existentials,
+                )?);
+            }
+        }
+        MapOperation::Update if arguments.len() == 3 => {
+            output.append(render_term_with_binders(
+                &arguments[0],
+                context,
+                false,
+                existentials,
+            )?);
+            output.push(" [ ");
+            output.append(render_term_with_binders(
+                &arguments[1],
+                context,
+                false,
+                existentials,
+            )?);
+            output.push(" <- ");
+            output.append(render_term_with_binders(
+                &arguments[2],
+                context,
+                false,
+                existentials,
+            )?);
+            output.push(" ]");
+        }
+        _ => {
+            return Err(EmitError::InvalidReference(format!(
+                "Map operation {operation:?} has invalid arity {}",
+                arguments.len()
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn sentence_group(sentence: &DefinitionSentence) -> u8 {
     match sentence {
         DefinitionSentence::SyntaxSort(_) => 0,
         DefinitionSentence::Production(_) => 1,
         DefinitionSentence::Subsort(_) => 2,
-        DefinitionSentence::Configuration(_) => 3,
-        DefinitionSentence::Rule(_) => 4,
+        DefinitionSentence::Precedence(_) => 3,
+        DefinitionSentence::Associativity(_) => 4,
+        DefinitionSentence::Configuration(_) => 5,
+        DefinitionSentence::ContextAlias(_) => 6,
+        DefinitionSentence::Rule(_) => 7,
     }
 }
 
@@ -470,12 +1586,16 @@ fn sentence_key(sentence: &DefinitionSentence) -> (u8, String) {
     let text = match sentence {
         DefinitionSentence::SyntaxSort(sentence) => sentence.symbol().emitted_name().to_owned(),
         DefinitionSentence::Subsort(sentence) => {
-            format!("{}:{}", sentence.supersort().as_str(), sentence.subsort().as_str())
+            format!("{:?}:{:?}", sentence.supersort(), sentence.subsort())
         }
         DefinitionSentence::Production(sentence) => sentence.symbol().emitted_name().to_owned(),
-        DefinitionSentence::Configuration(sentence) => {
-            sentence.cell().symbol().emitted_name().to_owned()
-        }
+        DefinitionSentence::Precedence(sentence) => format!("{sentence:?}"),
+        DefinitionSentence::Associativity(sentence) => format!("{sentence:?}"),
+        DefinitionSentence::Configuration(sentence) => sentence.cell().map_or_else(
+            || format!("{:?}", sentence.origin().key()),
+            |cell| cell.symbol().emitted_name().to_owned(),
+        ),
+        DefinitionSentence::ContextAlias(sentence) => sentence.name().to_owned(),
         DefinitionSentence::Rule(sentence) => sentence.label().emitted_name().to_owned(),
     };
     (sentence_group(sentence), text)
@@ -488,6 +1608,15 @@ fn variable_name(variable: &SemanticId) -> String {
         write!(result, "{byte:02X}").expect("writing to String cannot fail");
     }
     result
+}
+
+fn anonymous_name(variable: &SemanticId) -> Option<&str> {
+    let (name, ordinal) = variable.as_str().rsplit_once("__krs_")?;
+    (name.starts_with('_')
+        && name.len() > 1
+        && !ordinal.is_empty()
+        && ordinal.bytes().all(|byte| byte.is_ascii_digit()))
+    .then_some(name)
 }
 
 fn quoted(value: &str) -> String {

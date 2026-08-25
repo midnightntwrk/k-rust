@@ -3,21 +3,22 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_compiler::{
-    EmittedK, LoweredDefinition, LoweringError, SourceMapNodeKind, emit_k,
-    lower_semantic_theory,
+    EmittedK, LoweredDefinition, LoweringError, SourceMapNodeKind, emit_k, lower_semantic_theory,
 };
 use krs_ir::{
-    ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot,
+    ApplicationRef, CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationRoot,
     DefinitionRuleBody, DefinitionSentence, DefinitionTermKind, FixedCell, FixedCellClause,
-    FixedConfiguration, FixedConfigurationRewrite, FixedConfigurationVariable,
-    FixedInitializerCell, FormatFragment, GroupAssociativity, GroupAssociativitySentence,
-    ItemKind, ModuleId, NodeOrigin, OriginFrame, OriginStack, PackageId, PrecedenceRelation,
-    ProductionAttribute, ProductionFieldId, ProductionGroupId, RangedOriginKind,
-    SemanticConfiguration, SemanticId, SemanticModule, SemanticProduction,
-    SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort,
-    SemanticTerm, SemanticTheory, SemanticValidationError, SemanticVariable, SentenceKind,
-    Sha256Digest, SourceFileId, SourceMapKey, SourceRange, StableItemId, StrictnessKind,
-    ProductionFieldReference, ProductionResultSort,
+    FixedCellPattern, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
+    FixedConfigurationVariable, FixedInitializerCell, FormatFragment, GroupAssociativity,
+    GroupAssociativitySentence, ItemKind, MapOperation, ModuleId, NodeOrigin, OriginFrame,
+    OriginStack, PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
+    ProductionFieldReference, ProductionGroupId, ProductionResultSort, RangedOriginKind,
+    SemanticClaim, SemanticClaimBinder, SemanticConfiguration, SemanticContextAlias, SemanticId,
+    SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
+    SemanticRuleCondition, SemanticRuleLabel, SemanticSimplification,
+    SemanticSimplificationPriority, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm,
+    SemanticTheory, SemanticValidationError, SemanticVariable, SentenceKind, Sha256Digest,
+    SourceFileId, SourceMapKey, SourceRange, StableItemId, StrictnessKind,
     TransformationOriginKind,
 };
 
@@ -67,11 +68,7 @@ fn variable(key: &str, name: &str, variable_sort: SemanticSortRef) -> SemanticTe
     SemanticTerm::variable(origin(key), variable_sort, sid(name))
 }
 
-fn application(
-    key: &str,
-    production: StableItemId,
-    arguments: Vec<SemanticTerm>,
-) -> SemanticTerm {
+fn application(key: &str, production: StableItemId, arguments: Vec<SemanticTerm>) -> SemanticTerm {
     SemanticTerm::application(
         origin(key),
         sort("Stmt"),
@@ -96,8 +93,7 @@ fn calc_syntax_module() -> SemanticModule {
                 field("name"),
                 SemanticSortRef::id(),
             ),
-            SemanticProductionItem::terminal(origin("calc.production.assign.equals"), "=")
-                .unwrap(),
+            SemanticProductionItem::terminal(origin("calc.production.assign.equals"), "=").unwrap(),
             SemanticProductionItem::non_terminal(
                 origin("calc.production.assign.expression"),
                 field("expression"),
@@ -115,8 +111,14 @@ fn calc_syntax_module() -> SemanticModule {
                 origin: origin("calc.production.assign.strict"),
                 kind: StrictnessKind::Strict,
                 using: None,
-                fields: vec![ProductionFieldReference::new(origin("calc.production.assign.strict.field"), field("expression"))],
-                result_sort: ProductionResultSort::new(origin("calc.production.assign.strict.result"), kresult.clone()),
+                fields: vec![ProductionFieldReference::new(
+                    origin("calc.production.assign.strict.field"),
+                    field("expression"),
+                )],
+                result_sort: ProductionResultSort::new(
+                    origin("calc.production.assign.strict.result"),
+                    kresult.clone(),
+                ),
             },
             ProductionAttribute::Format {
                 origin: origin("calc.production.assign.format"),
@@ -274,8 +276,14 @@ fn imp_syntax_module() -> SemanticModule {
                 origin: origin("imp.if-else.strict"),
                 kind: StrictnessKind::Strict,
                 using: None,
-                fields: vec![ProductionFieldReference::new(origin("imp.if-else.strict.field"), field("condition"))],
-                result_sort: ProductionResultSort::new(origin("imp.if-else.strict.result"), sort("KResult")),
+                fields: vec![ProductionFieldReference::new(
+                    origin("imp.if-else.strict.field"),
+                    field("condition"),
+                )],
+                result_sort: ProductionResultSort::new(
+                    origin("imp.if-else.strict.result"),
+                    sort("KResult"),
+                ),
             },
             ProductionAttribute::Avoid {
                 origin: origin("imp.if-else.avoid"),
@@ -368,11 +376,7 @@ fn imp_syntax_module() -> SemanticModule {
         "Block",
         vec![
             SemanticProductionItem::terminal(origin("imp.block.open"), "{").unwrap(),
-            SemanticProductionItem::non_terminal(
-                origin("imp.block.body"),
-                field("body"),
-                stmt,
-            ),
+            SemanticProductionItem::non_terminal(origin("imp.block.body"), field("body"), stmt),
             SemanticProductionItem::terminal(origin("imp.block.close"), "}").unwrap(),
         ],
         vec![ProductionAttribute::Format {
@@ -427,11 +431,10 @@ fn configuration_module() -> SemanticModule {
                     origin("calc.configuration.k"),
                     k.clone(),
                     "k",
-                    vec![CellAttribute::color(
-                        origin("calc.configuration.k.color"),
-                        "green",
-                    )
-                    .unwrap()],
+                    vec![
+                        CellAttribute::color(origin("calc.configuration.k.color"), "green")
+                            .unwrap(),
+                    ],
                     SemanticSortRef::k_sequence(),
                 )
                 .unwrap(),
@@ -439,11 +442,10 @@ fn configuration_module() -> SemanticModule {
                     origin("calc.configuration.env"),
                     env.clone(),
                     "env",
-                    vec![CellAttribute::color(
-                        origin("calc.configuration.env.color"),
-                        "yellow",
-                    )
-                    .unwrap()],
+                    vec![
+                        CellAttribute::color(origin("calc.configuration.env.color"), "yellow")
+                            .unwrap(),
+                    ],
                     SemanticSortRef::map(),
                 )
                 .unwrap(),
@@ -475,11 +477,7 @@ fn configuration_module() -> SemanticModule {
                     SemanticTerm::k_sequence(
                         origin("calc.configuration.initializer.k.sequence"),
                         stmt.clone(),
-                        vec![variable(
-                            "calc.configuration.initializer.pgm",
-                            "PGM",
-                            stmt,
-                        )],
+                        vec![variable("calc.configuration.initializer.pgm", "PGM", stmt)],
                     ),
                 ),
                 FixedInitializerCell::term(
@@ -564,6 +562,7 @@ fn k_rule(
 struct M3cOptions {
     invalid_first_label: bool,
     omit_if_true_wildcard: bool,
+    adjuncts: bool,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -597,18 +596,10 @@ fn control_rules(options: M3cOptions) -> Vec<SemanticRule> {
             vec![
                 bool_token("imp.rule.if-true.condition", "true"),
                 variable("imp.rule.if-true.then", "S1", stmt.clone()),
-                variable(
-                    "imp.rule.if-true.else",
-                    wildcard_else,
-                    stmt.clone(),
-                ),
+                variable("imp.rule.if-true.else", wildcard_else, stmt.clone()),
             ],
         ),
-        vec![variable(
-            "imp.rule.if-true.result",
-            "S1",
-            stmt.clone(),
-        )],
+        vec![variable("imp.rule.if-true.result", "S1", stmt.clone())],
     );
     let if_false = k_rule(
         "if-false",
@@ -622,19 +613,11 @@ fn control_rules(options: M3cOptions) -> Vec<SemanticRule> {
             if_else.clone(),
             vec![
                 bool_token("imp.rule.if-false.condition", "false"),
-                variable(
-                    "imp.rule.if-false.then",
-                    wildcard_then,
-                    stmt.clone(),
-                ),
+                variable("imp.rule.if-false.then", wildcard_then, stmt.clone()),
                 variable("imp.rule.if-false.else", "S2", stmt.clone()),
             ],
         ),
-        vec![variable(
-            "imp.rule.if-false.result",
-            "S2",
-            stmt.clone(),
-        )],
+        vec![variable("imp.rule.if-false.result", "S2", stmt.clone())],
     );
     let normalize = k_rule(
         "if-else",
@@ -727,8 +710,227 @@ fn control_rules(options: M3cOptions) -> Vec<SemanticRule> {
     vec![if_true, if_false, normalize, while_rule, block_rule, done]
 }
 
+fn context_alias() -> SemanticContextAlias {
+    let here = sid("HERE");
+    SemanticContextAlias::new(
+        origin("imp.context.eval"),
+        item("imp", "M3dEval", ItemKind::ContextAlias),
+        origin("imp.context.eval.name"),
+        "m3dEval".into(),
+        origin("imp.context.eval.here"),
+        here.clone(),
+        vec![SemanticVariable::new(here.clone(), sort("Stmt"))],
+        FixedConfigurationPattern::new(
+            origin("imp.context.eval.pattern"),
+            sid("configuration.calc"),
+            vec![FixedCellPattern::new(
+                origin("imp.context.eval.k"),
+                sid("cell.k"),
+                SemanticTerm::k_sequence(
+                    origin("imp.context.eval.sequence"),
+                    sort("Stmt"),
+                    vec![variable("imp.context.eval.here.term", "HERE", sort("Stmt"))],
+                ),
+                CellContentFrame::KSequenceTail {
+                    origin: origin("imp.context.eval.frame"),
+                    binding: None,
+                },
+            )],
+            vec![sid("cell.env")],
+        )
+        .unwrap(),
+    )
+}
+
+fn all_paths_claim() -> SemanticRule {
+    let anonymous = sid("_B__krs_0");
+    let existential = sid("n");
+    let id_token =
+        |key: &str| SemanticTerm::token(origin(key), SemanticSortRef::id(), "$n").unwrap();
+    let map = |key: &str, value: SemanticTerm| {
+        SemanticTerm::map(
+            origin(key),
+            MapOperation::Item,
+            vec![id_token(&format!("{key}.id")), value],
+        )
+    };
+    SemanticRule::new_configuration(
+        origin("imp.claim.branching"),
+        item("imp", "Branching", ItemKind::Claim),
+        SentenceKind::Claim,
+        vec![
+            SemanticVariable::new(
+                anonymous.clone(),
+                SemanticSortRef::Builtin(krs_ir::BuiltinSort::Bool),
+            ),
+            SemanticVariable::new(
+                existential.clone(),
+                SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
+            ),
+        ],
+        FixedConfigurationRewrite::new(
+            origin("imp.claim.branching.rewrite"),
+            sid("configuration.calc"),
+            vec![FixedCellClause::new(
+                origin("imp.claim.branching.env"),
+                sid("cell.env"),
+                map(
+                    "imp.claim.branching.before",
+                    variable(
+                        "imp.claim.branching.anonymous",
+                        anonymous.as_str(),
+                        SemanticSortRef::Builtin(krs_ir::BuiltinSort::Bool),
+                    ),
+                ),
+                CellPost::Replace {
+                    term: map(
+                        "imp.claim.branching.after",
+                        variable(
+                            "imp.claim.branching.exists.rhs",
+                            existential.as_str(),
+                            SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
+                        ),
+                    ),
+                },
+                CellContentFrame::MapRemainder {
+                    origin: origin("imp.claim.branching.frame"),
+                    binding: None,
+                },
+            )],
+            vec![sid("cell.k")],
+        )
+        .unwrap(),
+    )
+    .unwrap()
+    .with_label(Some(
+        SemanticRuleLabel::new(origin("imp.claim.branching.label"), "branching").unwrap(),
+    ))
+    .with_claim(Some(SemanticClaim::new(
+        origin("imp.claim.branching.modality"),
+        ClaimModality::AllPaths,
+        Some(origin("imp.claim.branching.circularity")),
+        vec![],
+        vec![SemanticClaimBinder::new(
+            origin("imp.claim.branching.binder"),
+            origin("imp.claim.branching.binder.name"),
+            existential.clone(),
+            origin("imp.claim.branching.binder.sort"),
+            SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
+        )],
+        Some(SemanticRuleCondition::new(
+            origin("imp.claim.branching.ensures"),
+            SemanticTerm::application(
+                origin("imp.claim.branching.ensures.equals"),
+                SemanticSortRef::Builtin(krs_ir::BuiltinSort::Bool),
+                ApplicationRef::Builtin(krs_ir::BuiltinOperation::IntEqual),
+                vec![
+                    variable(
+                        "imp.claim.branching.exists.ensures",
+                        existential.as_str(),
+                        SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
+                    ),
+                    SemanticTerm::token(
+                        origin("imp.claim.branching.five"),
+                        SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
+                        "5",
+                    )
+                    .unwrap(),
+                ],
+            ),
+        )),
+    )))
+}
+
+fn one_path_claim() -> SemanticRule {
+    let empty_map = |key: &str| SemanticTerm::map(origin(key), MapOperation::Empty, vec![]);
+    SemanticRule::new_configuration(
+        origin("imp.claim.one-path"),
+        item("imp", "OnePath", ItemKind::Claim),
+        SentenceKind::Claim,
+        vec![],
+        FixedConfigurationRewrite::new(
+            origin("imp.claim.one-path.rewrite"),
+            sid("configuration.calc"),
+            vec![FixedCellClause::new(
+                origin("imp.claim.one-path.env"),
+                sid("cell.env"),
+                empty_map("imp.claim.one-path.before"),
+                CellPost::Replace {
+                    term: empty_map("imp.claim.one-path.after"),
+                },
+                CellContentFrame::Exact,
+            )],
+            vec![sid("cell.k")],
+        )
+        .unwrap(),
+    )
+    .unwrap()
+    .with_label(Some(
+        SemanticRuleLabel::new(origin("imp.claim.one-path.label"), "one-path-claim").unwrap(),
+    ))
+    .with_claim(Some(SemanticClaim::new(
+        origin("imp.claim.one-path.modality"),
+        ClaimModality::OnePath,
+        None,
+        vec![],
+        vec![],
+        None,
+    )))
+}
+
+fn simplification_rule() -> SemanticRule {
+    let int_sort = SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int);
+    let variable = sid("simplified");
+    let body = SemanticTerm::rewrite(
+        origin("imp.simplification.rewrite"),
+        int_sort.clone(),
+        SemanticTerm::application(
+            origin("imp.simplification.add"),
+            int_sort.clone(),
+            ApplicationRef::Builtin(krs_ir::BuiltinOperation::IntAdd),
+            vec![
+                SemanticTerm::variable(
+                    origin("imp.simplification.variable.left"),
+                    int_sort.clone(),
+                    variable.clone(),
+                ),
+                SemanticTerm::token(origin("imp.simplification.zero"), int_sort.clone(), "0")
+                    .unwrap(),
+            ],
+        ),
+        SemanticTerm::variable(
+            origin("imp.simplification.variable.right"),
+            int_sort.clone(),
+            variable.clone(),
+        ),
+    )
+    .unwrap();
+    SemanticRule::new(
+        origin("imp.simplification"),
+        item("imp", "AddZero", ItemKind::Simplification),
+        SentenceKind::Simplification,
+        vec![SemanticVariable::new(variable, int_sort)],
+        body,
+    )
+    .unwrap()
+    .with_simplification(Some(SemanticSimplification::new(
+        origin("imp.simplification.attribute"),
+        Some(SemanticSimplificationPriority::new(
+            origin("imp.simplification.priority"),
+            42,
+        )),
+    )))
+}
+
 fn imp_module(options: M3cOptions) -> SemanticModule {
-    SemanticModule::new(
+    let mut rules = control_rules(options);
+    let context_aliases = if options.adjuncts {
+        rules.extend([all_paths_claim(), one_path_claim(), simplification_rule()]);
+        vec![context_alias()]
+    } else {
+        vec![]
+    };
+    SemanticModule::new_with_context_aliases(
         origin("imp.module"),
         ModuleId::new(IMP).unwrap(),
         vec![
@@ -741,7 +943,8 @@ fn imp_module(options: M3cOptions) -> SemanticModule {
         vec![],
         vec![],
         None,
-        control_rules(options),
+        context_aliases,
+        rules,
     )
 }
 
@@ -854,10 +1057,12 @@ fn assert_definition_structure(lowered: &LoweredDefinition) {
             .iter()
             .any(|attribute| matches!(attribute, ProductionAttribute::Avoid { .. }))
     );
-    assert!(!productions["while"]
-        .attributes()
-        .iter()
-        .any(|attribute| matches!(attribute, ProductionAttribute::Strictness { .. })));
+    assert!(
+        !productions["while"]
+            .attributes()
+            .iter()
+            .any(|attribute| matches!(attribute, ProductionAttribute::Strictness { .. }))
+    );
 
     let rules = modules[IMP]
         .sentences()
@@ -964,6 +1169,54 @@ fn exact_m3c_control_flow_lowers_and_emits_canonical_k() {
     assert_definition_structure(&lowered);
     assert_exact_source(emitted.source());
     assert_sidecars_and_determinism(&lowered, &emitted);
+}
+
+#[test]
+fn context_alias_and_claim_adjuncts_lower_emit_and_map_every_distinct_role() {
+    let semantic = m3c_theory(M3cOptions {
+        adjuncts: true,
+        ..M3cOptions::default()
+    })
+    .unwrap();
+    let lowered = lower_semantic_theory(&semantic).unwrap();
+    let emitted = emit_k(&lowered).unwrap();
+    let source = emitted.source();
+
+    assert!(
+        source.contains("context alias [m3dEval]:\n    <k> HERE ... </k>"),
+        "{source}"
+    );
+    assert!(source.contains("claim [branching]:"), "{source}");
+    assert!(source.contains("_B:Bool"), "{source}");
+    assert!(source.contains("?N:Int"), "{source}");
+    assert!(source.contains("ensures "), "{source}");
+    assert!(source.contains("[circularity]"), "{source}");
+    assert!(source.contains("claim [one-path-claim]:"), "{source}");
+    assert!(source.contains("[one-path]"), "{source}");
+    assert!(!source.contains("all-path"), "{source}");
+    assert!(source.contains("[simplification(42)]"), "{source}");
+
+    for (kind, count) in [
+        (SourceMapNodeKind::ContextAlias, 3),
+        (SourceMapNodeKind::ClaimModality, 2),
+        (SourceMapNodeKind::ClaimCircularity, 1),
+        (SourceMapNodeKind::ClaimBinder, 3),
+        (SourceMapNodeKind::ClaimEnsures, 1),
+        (SourceMapNodeKind::Simplification, 1),
+        (SourceMapNodeKind::SimplificationPriority, 1),
+    ] {
+        let entries = emitted
+            .source_map()
+            .entries()
+            .iter()
+            .filter(|entry| entry.node_kind() == kind)
+            .collect::<Vec<_>>();
+        assert_eq!(entries.len(), count, "unexpected {kind:?} entry count");
+        assert!(
+            entries.iter().all(|entry| entry.generated().is_some()),
+            "at least one {kind:?} entry has no generated range"
+        );
+    }
 }
 
 #[test]

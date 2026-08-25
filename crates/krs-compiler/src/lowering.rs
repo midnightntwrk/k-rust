@@ -3,13 +3,22 @@ use std::error::Error;
 use std::fmt;
 
 use krs_ir::{
-    CellDeclaration, ConfigurationSentence, DefinitionIr, DefinitionModule, DefinitionSentence,
-    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, DefinitionValidationError,
-    InitializerDeclaration, IrIdentityError, LabelId, LabelIdentity, NodeOrigin,
-    OriginFrame, ProductionItem, ProductionSentence, RuleSentence, SemanticConfiguration,
-    SemanticModule, SemanticProduction, SemanticSortRef, SemanticTerm, SemanticTermKind,
-    SemanticTheory, SemanticVariable, SourceMapKey, StableItemId, SubsortSentence, SymbolId,
-    SymbolIdentity, SymbolKind, SyntaxSortSentence, TransformationOriginKind,
+    ApplicationRef, CellAttribute, CellContentFrame, CellDeclaration, CellPost, ConfigurationRoot,
+    ConfigurationSentence, ContextAliasSentence, DefinitionClaim, DefinitionClaimBinder,
+    DefinitionIr, DefinitionModule, DefinitionRuleCondition, DefinitionRulePriority,
+    DefinitionSentence, DefinitionSimplification, DefinitionSimplificationPriority,
+    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, DefinitionValidationError, FixedCell,
+    FixedCellClause, FixedCellContent, FixedCellPattern, FixedConfiguration,
+    FixedConfigurationPattern, FixedConfigurationRewrite, FixedConfigurationVariable,
+    FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind,
+    GroupAssociativitySentence, InitializerDeclaration, IrIdentityError, LabelId, LabelIdentity,
+    ModuleId, NodeOrigin, OriginFrame, PrecedenceRelation, ProductionAttribute,
+    ProductionContextAliasReference, ProductionFieldReference, ProductionGroupId,
+    ProductionGroupIdentity, ProductionItem, ProductionResultSort, ProductionSentence,
+    RuleSentence, SemanticConfiguration, SemanticModule, SemanticProduction, SemanticRuleBody,
+    SemanticSortRef, SemanticTerm, SemanticTermKind, SemanticTheory, SemanticVariable,
+    SourceMapKey, StableItemId, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind,
+    SyntaxSortSentence, TransformationOriginKind,
 };
 use sha2::{Digest, Sha256};
 
@@ -101,7 +110,10 @@ impl fmt::Display for LoweringError {
                 write!(formatter, "unsupported M2 {node} shape: {detail}")
             }
             Self::InvalidProductionTemplate { production, detail } => {
-                write!(formatter, "invalid syntax template for {production:?}: {detail}")
+                write!(
+                    formatter,
+                    "invalid syntax template for {production:?}: {detail}"
+                )
             }
             Self::InvalidEmittedName { role, value } => {
                 write!(formatter, "{role} name {value:?} is not canonical K syntax")
@@ -116,10 +128,16 @@ impl fmt::Display for LoweringError {
                 "{namespace} name collision for {value:?} between {first} and {second}"
             ),
             Self::SourceMapCollision(key) => {
-                write!(formatter, "generated source-map key collision at {:?}", key.as_str())
+                write!(
+                    formatter,
+                    "generated source-map key collision at {:?}",
+                    key.as_str()
+                )
             }
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
-            Self::InvalidDefinition(error) => write!(formatter, "invalid lowered Definition IR: {error}"),
+            Self::InvalidDefinition(error) => {
+                write!(formatter, "invalid lowered Definition IR: {error}")
+            }
             Self::InvalidSidecar(detail) => write!(formatter, "invalid lowered sidecar: {detail}"),
         }
     }
@@ -158,14 +176,21 @@ impl From<IrIdentityError> for LoweringError {
 /// Returns [`LoweringError`] for unsupported M2 shapes, invalid templates or
 /// names, naming/source-map collisions, or a failed Definition IR invariant.
 pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinition, LoweringError> {
-    validate_m2_shape(theory)?;
     let names = NamingPass::run(theory)?;
     let mut origins = OriginPass::default();
     let mut modules = theory.modules().iter().collect::<Vec<_>>();
     modules.sort_by(|left, right| left.id().cmp(right.id()));
+    let mut declared_production_groups = BTreeSet::new();
     let lowered_modules = modules
         .into_iter()
-        .map(|module| lower_module(module, &names, &mut origins))
+        .map(|module| {
+            lower_module(
+                module,
+                &names,
+                &mut origins,
+                &mut declared_production_groups,
+            )
+        })
         .collect::<Result<Vec<_>, _>>()?;
     let main_module = names.module(select_main_module(theory)?.id())?;
     let definition = DefinitionIr::new(main_module, lowered_modules)?;
@@ -186,6 +211,7 @@ struct NamingPass {
     sorts: BTreeMap<StableItemId, SymbolIdentity>,
     productions: BTreeMap<StableItemId, SymbolIdentity>,
     cells: BTreeMap<String, SymbolIdentity>,
+    fixed_cells: BTreeMap<krs_ir::SemanticId, SymbolId>,
     initializers: BTreeMap<String, SymbolIdentity>,
     rules: BTreeMap<StableItemId, LabelIdentity>,
 }
@@ -196,6 +222,7 @@ impl NamingPass {
         let mut pass = Self::default();
         let mut identities = BTreeMap::<String, String>::new();
         let mut emitted = BTreeMap::<String, String>::new();
+        let mut labels = BTreeMap::<String, String>::new();
         let mut modules = BTreeMap::<String, String>::new();
 
         for module in theory.modules() {
@@ -206,13 +233,22 @@ impl NamingPass {
                 format!("semantic module {}", module.id().as_str()),
                 "module",
             )?;
-            pass.modules.insert(module.id().clone(), module.id().clone());
+            pass.modules
+                .insert(module.id().clone(), module.id().clone());
             for sort in module.sorts() {
-                let owner = stable_item_text(sort.id());
+                let owner = stable_symbol_text(sort.id(), sort.explicit_symbol());
                 let id = SymbolId::new(format!("sort:{}", hex_encode(owner.as_bytes())))?;
-                let name = sort.id().item_name().to_owned();
+                let name = sort.explicit_symbol().map_or_else(
+                    || sort.id().item_name().to_owned(),
+                    |symbol| symbol.final_component().to_owned(),
+                );
                 validate_sort_name(&name)?;
-                claim(&mut identities, id.as_str().to_owned(), owner.clone(), "symbol ID")?;
+                claim(
+                    &mut identities,
+                    id.as_str().to_owned(),
+                    owner.clone(),
+                    "symbol ID",
+                )?;
                 claim(&mut emitted, name.clone(), owner, "emitted symbol")?;
                 pass.sorts.insert(
                     sort.id().clone(),
@@ -220,27 +256,35 @@ impl NamingPass {
                 );
             }
             for production in module.productions() {
-                // Template validation belongs to this preflight, before any
-                // Definition value exists.
-                parse_template(production)?;
-                let owner = stable_item_text(production.id());
+                let owner = stable_symbol_text(production.id(), production.explicit_symbol());
                 let id = SymbolId::new(format!("production:{}", hex_encode(owner.as_bytes())))?;
-                let name = lower_camel(production.id().item_name());
+                let name = production.explicit_symbol().map_or_else(
+                    || lower_camel(production.id().item_name()),
+                    |symbol| symbol.final_component().to_owned(),
+                );
                 validate_label_name("production symbol", &name)?;
-                claim(&mut identities, id.as_str().to_owned(), owner.clone(), "symbol ID")?;
+                claim(
+                    &mut identities,
+                    id.as_str().to_owned(),
+                    owner.clone(),
+                    "symbol ID",
+                )?;
                 claim(&mut emitted, name.clone(), owner, "emitted symbol")?;
                 pass.productions.insert(
                     production.id().clone(),
                     SymbolIdentity::new(id, name, SymbolKind::Production)?,
                 );
             }
-            if let Some(configuration) = module.configuration() {
+            if let Some(configuration) = module.configuration()
+                && let (Some(cell), Some(initializer)) =
+                    (configuration.cell(), configuration.initializer())
+            {
                 let config_owner = format!("configuration {}", configuration.id().as_str());
                 let cell_id = SymbolId::new(format!(
                     "cell:{}",
-                    hex_encode(configuration.cell().id().as_str().as_bytes())
+                    hex_encode(cell.id().as_str().as_bytes())
                 ))?;
-                let cell_name = configuration.cell().name().to_owned();
+                let cell_name = cell.name().to_owned();
                 validate_cell_name(&cell_name)?;
                 claim(
                     &mut identities,
@@ -261,7 +305,7 @@ impl NamingPass {
 
                 let initializer_id = SymbolId::new(format!(
                     "initializer:{}",
-                    hex_encode(configuration.initializer().id().as_str().as_bytes())
+                    hex_encode(initializer.id().as_str().as_bytes())
                 ))?;
                 let initializer_name = format!("init{}Cell", upper_camel(&cell_name));
                 validate_label_name("initializer", &initializer_name)?;
@@ -279,20 +323,44 @@ impl NamingPass {
                 )?;
                 pass.initializers.insert(
                     configuration.id().as_str().to_owned(),
-                    SymbolIdentity::new(
-                        initializer_id,
-                        initializer_name,
-                        SymbolKind::Initializer,
-                    )?,
+                    SymbolIdentity::new(initializer_id, initializer_name, SymbolKind::Initializer)?,
                 );
+            }
+            if let Some(configuration) = module.configuration().and_then(|value| value.as_fixed()) {
+                name_fixed_cells(
+                    configuration.cells(),
+                    &mut pass.fixed_cells,
+                    &mut identities,
+                    &mut emitted,
+                )?;
+            }
+            for alias in module.context_aliases() {
+                validate_label_name("context alias", alias.name())?;
+                claim(
+                    &mut labels,
+                    alias.name().to_owned(),
+                    stable_item_text(alias.id()),
+                    "emitted label",
+                )?;
             }
             for rule in module.rules() {
                 let owner = stable_item_text(rule.id());
                 let id = LabelId::new(format!("rule:{}", hex_encode(owner.as_bytes())))?;
-                let name = format!("krsRule_{}", short_hash(&owner));
+                let name = rule.label().map_or_else(
+                    || match rule.relational_body() {
+                        SemanticRuleBody::Term(_) => format!("krsRule_{}", short_hash(&owner)),
+                        SemanticRuleBody::Configuration(_) => lower_camel(rule.id().item_name()),
+                    },
+                    |label| label.name().to_owned(),
+                );
                 validate_label_name("rule label", &name)?;
-                claim(&mut identities, id.as_str().to_owned(), owner.clone(), "label ID")?;
-                claim(&mut emitted, name.clone(), owner, "emitted name")?;
+                claim(
+                    &mut labels,
+                    id.as_str().to_owned(),
+                    owner.clone(),
+                    "label ID",
+                )?;
+                claim(&mut labels, name.clone(), owner, "emitted label")?;
                 pass.rules
                     .insert(rule.id().clone(), LabelIdentity::new(id, name)?);
             }
@@ -301,10 +369,13 @@ impl NamingPass {
     }
 
     fn sort(&self, id: &StableItemId) -> Result<SymbolIdentity, LoweringError> {
-        self.sorts.get(id).cloned().ok_or_else(|| LoweringError::UnsupportedShape {
-            node: "sort reference",
-            detail: format!("no naming entry for {id:?}"),
-        })
+        self.sorts
+            .get(id)
+            .cloned()
+            .ok_or_else(|| LoweringError::UnsupportedShape {
+                node: "sort reference",
+                detail: format!("no naming entry for {id:?}"),
+            })
     }
 
     fn sort_id(&self, id: &StableItemId) -> Result<SymbolId, LoweringError> {
@@ -330,6 +401,34 @@ impl NamingPass {
                 detail: format!("no naming entry for {:?}", id.as_str()),
             })
     }
+}
+
+fn name_fixed_cells(
+    cells: &[FixedCell<SemanticSortRef, krs_ir::SemanticId>],
+    lowered: &mut BTreeMap<krs_ir::SemanticId, SymbolId>,
+    identities: &mut BTreeMap<String, String>,
+    emitted: &mut BTreeMap<String, String>,
+) -> Result<(), LoweringError> {
+    for cell in cells {
+        let owner = format!("configuration cell {}", cell.id().as_str());
+        let id = SymbolId::new(format!(
+            "cell:{}",
+            hex_encode(cell.id().as_str().as_bytes())
+        ))?;
+        validate_cell_name(cell.name())?;
+        claim(
+            identities,
+            id.as_str().to_owned(),
+            owner.clone(),
+            "symbol ID",
+        )?;
+        claim(emitted, cell.name().to_owned(), owner, "emitted symbol")?;
+        lowered.insert(cell.id().clone(), id);
+        if let FixedCellContent::Children { children } = cell.content() {
+            name_fixed_cells(children, lowered, identities, emitted)?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Default)]
@@ -364,12 +463,34 @@ impl OriginPass {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn lower_module(
     module: &SemanticModule,
     names: &NamingPass,
     origins: &mut OriginPass,
+    declared_production_groups: &mut BTreeSet<ProductionGroupId>,
 ) -> Result<DefinitionModule, LoweringError> {
     let mut sentences = Vec::new();
+    let mut group_origins = BTreeMap::<ProductionGroupId, &NodeOrigin>::new();
+    for production in module.productions() {
+        for attribute in production.attributes() {
+            if let ProductionAttribute::Group { origin, group } = attribute {
+                group_origins.entry(group.clone()).or_insert(origin);
+            }
+        }
+    }
+    let production_groups = group_origins
+        .into_iter()
+        .filter(|(group, _)| declared_production_groups.insert(group.clone()))
+        .map(|(group, origin)| {
+            let emitted_name = format!("krsgroup-{}", short_hash(group.as_str()));
+            Ok(ProductionGroupIdentity::new(
+                origins.lower(origin, "production-group", None, Some(group.as_str()))?,
+                group,
+                emitted_name,
+            )?)
+        })
+        .collect::<Result<Vec<_>, LoweringError>>()?;
     let mut sorts = module.sorts().iter().collect::<Vec<_>>();
     sorts.sort_by(|left, right| left.id().cmp(right.id()));
     for sort in sorts {
@@ -377,21 +498,28 @@ fn lower_module(
             origins.lower(sort.origin(), "syntax-sort", Some(sort.id()), None)?,
             names.sort(sort.id())?,
         )?));
-        let mut parents = sort.direct_parents().to_vec();
-        parents.sort();
-        parents.dedup();
-        for parent in parents {
-            sentences.push(DefinitionSentence::Subsort(SubsortSentence::new(
-                origins.lower(
-                    sort.origin(),
-                    "subsort",
-                    Some(sort.id()),
-                    Some(&stable_item_text(&parent)),
-                )?,
-                names.sort_id(sort.id())?,
-                names.sort_id(&parent)?,
-            )));
-        }
+    }
+    let mut subsorts = module.subsorts().iter().collect::<Vec<_>>();
+    subsorts.sort();
+    for subsort in subsorts {
+        let item = match subsort.subsort() {
+            SemanticSortRef::Declared(item) => Some(item),
+            SemanticSortRef::Builtin(_) => None,
+        };
+        sentences.push(DefinitionSentence::Subsort(SubsortSentence::new(
+            origins.lower(
+                subsort.origin(),
+                "subsort",
+                item,
+                Some(&format!(
+                    "{:?}<:{:?}",
+                    subsort.subsort(),
+                    subsort.supersort()
+                )),
+            )?,
+            lower_sort_ref(subsort.subsort(), names)?,
+            lower_sort_ref(subsort.supersort(), names)?,
+        )));
     }
 
     let mut productions = module.productions().iter().collect::<Vec<_>>();
@@ -405,32 +533,109 @@ fn lower_module(
                 None,
             )?,
             names.production(production.id())?,
-            names.sort_id(production.result_sort())?,
-            parse_template(production)?,
+            lower_sort_ref(production.result_sort(), names)?,
+            lower_production_items(production, names, origins)?,
+            lower_production_attributes(production, names, origins)?,
         )?));
+    }
+
+    for (index, precedence) in module.precedences().iter().enumerate() {
+        sentences.push(DefinitionSentence::Precedence(
+            PrecedenceRelation::new(
+                origins.lower(
+                    precedence.origin(),
+                    "precedence",
+                    None,
+                    Some(&index.to_string()),
+                )?,
+                precedence.higher().to_vec(),
+                precedence.lower().to_vec(),
+            )
+            .map_err(|error| LoweringError::UnsupportedShape {
+                node: "precedence",
+                detail: error.to_string(),
+            })?,
+        ));
+    }
+    for (index, associativity) in module.associativities().iter().enumerate() {
+        sentences.push(DefinitionSentence::Associativity(
+            GroupAssociativitySentence::new(
+                origins.lower(
+                    associativity.origin(),
+                    "associativity",
+                    None,
+                    Some(&index.to_string()),
+                )?,
+                associativity.associativity(),
+                associativity.groups().to_vec(),
+            )
+            .map_err(|error| LoweringError::UnsupportedShape {
+                node: "associativity",
+                detail: error.to_string(),
+            })?,
+        ));
     }
 
     if let Some(configuration) = module.configuration() {
         sentences.push(lower_configuration(configuration, names, origins)?);
     }
 
+    for alias in module.context_aliases() {
+        sentences.push(DefinitionSentence::ContextAlias(ContextAliasSentence::new(
+            origins.lower(alias.origin(), "context-alias", Some(alias.id()), None)?,
+            alias.id().clone(),
+            origins.lower(
+                alias.name_origin(),
+                "context-alias-name",
+                Some(alias.id()),
+                None,
+            )?,
+            alias.name().to_owned(),
+            origins.lower(
+                alias.here_origin(),
+                "context-alias-here",
+                Some(alias.id()),
+                None,
+            )?,
+            alias.here().clone(),
+            lower_variables(alias.variables(), names)?,
+            lower_configuration_pattern(alias.body(), names, origins)?,
+        )));
+    }
+
     let mut rules = module.rules().iter().collect::<Vec<_>>();
     rules.sort_by(|left, right| left.id().cmp(right.id()));
     for rule in rules {
         let variables = lower_variables(rule.variables(), names)?;
-        let body = lower_term(rule.body(), names, origins)?;
-        let label = names.rules.get(rule.id()).cloned().ok_or_else(|| {
-            LoweringError::UnsupportedShape {
-                node: "rule",
-                detail: format!("no naming entry for {:?}", rule.id()),
-            }
-        })?;
-        sentences.push(DefinitionSentence::Rule(RuleSentence::new(
-            origins.lower(rule.origin(), "rule", Some(rule.id()), None)?,
-            label,
-            rule.kind(),
-            variables,
-            body,
+        let label =
+            names
+                .rules
+                .get(rule.id())
+                .cloned()
+                .ok_or_else(|| LoweringError::UnsupportedShape {
+                    node: "rule",
+                    detail: format!("no naming entry for {:?}", rule.id()),
+                })?;
+        let rule_origin = rule.label().map_or(rule.origin(), |value| value.origin());
+        let origin = origins.lower(rule_origin, "rule", Some(rule.id()), None)?;
+        let sentence = match rule.relational_body() {
+            SemanticRuleBody::Term(body) => RuleSentence::new(
+                origin,
+                label,
+                rule.kind(),
+                variables,
+                lower_term(body, names, origins)?,
+            )?,
+            SemanticRuleBody::Configuration(body) => RuleSentence::new_configuration(
+                origin,
+                label,
+                rule.kind(),
+                variables,
+                lower_configuration_rewrite(body, names, origins)?,
+            ),
+        };
+        sentences.push(DefinitionSentence::Rule(lower_rule_metadata(
+            sentence, rule, names, origins,
         )?));
     }
 
@@ -445,6 +650,7 @@ fn lower_module(
         origins.lower(module.origin(), "module", None, Some(module.id().as_str()))?,
         names.module(module.id())?,
         imports,
+        production_groups,
         sentences,
     ))
 }
@@ -454,40 +660,472 @@ fn lower_configuration(
     names: &NamingPass,
     origins: &mut OriginPass,
 ) -> Result<DefinitionSentence, LoweringError> {
+    if let Some(configuration) = configuration.as_fixed() {
+        return Ok(DefinitionSentence::Configuration(
+            ConfigurationSentence::fixed(lower_fixed_configuration(configuration, names, origins)?),
+        ));
+    }
+    let cell_value = configuration
+        .cell()
+        .ok_or_else(|| LoweringError::UnsupportedShape {
+            node: "configuration",
+            detail: "fixed configuration lowering is not yet selected".to_owned(),
+        })?;
+    let initializer_value =
+        configuration
+            .initializer()
+            .ok_or_else(|| LoweringError::UnsupportedShape {
+                node: "configuration",
+                detail: "fixed configuration lowering is not yet selected".to_owned(),
+            })?;
     let key = configuration.id().as_str();
-    let cell_symbol = names.cells.get(key).cloned().ok_or_else(|| {
-        LoweringError::UnsupportedShape {
-            node: "configuration cell",
-            detail: format!("no naming entry for {key:?}"),
-        }
-    })?;
-    let initializer_symbol = names.initializers.get(key).cloned().ok_or_else(|| {
-        LoweringError::UnsupportedShape {
-            node: "configuration initializer",
-            detail: format!("no naming entry for {key:?}"),
-        }
-    })?;
+    let cell_symbol =
+        names
+            .cells
+            .get(key)
+            .cloned()
+            .ok_or_else(|| LoweringError::UnsupportedShape {
+                node: "configuration cell",
+                detail: format!("no naming entry for {key:?}"),
+            })?;
+    let initializer_symbol =
+        names
+            .initializers
+            .get(key)
+            .cloned()
+            .ok_or_else(|| LoweringError::UnsupportedShape {
+                node: "configuration initializer",
+                detail: format!("no naming entry for {key:?}"),
+            })?;
     let cell = CellDeclaration::new(
-        origins.lower(configuration.cell().origin(), "cell", None, Some(key))?,
+        origins.lower(cell_value.origin(), "cell", None, Some(key))?,
         cell_symbol,
-        lower_sort_ref(configuration.cell().sort(), names)?,
+        lower_sort_ref(cell_value.sort(), names)?,
     )?;
     let initializer = InitializerDeclaration::new(
+        origins.lower(initializer_value.origin(), "initializer", None, Some(key))?,
+        initializer_symbol,
+        lower_variables(initializer_value.variables(), names)?,
+        lower_term(initializer_value.body(), names, origins)?,
+    )?;
+    Ok(DefinitionSentence::Configuration(
+        ConfigurationSentence::new(
+            origins.lower(configuration.origin(), "configuration", None, Some(key))?,
+            cell,
+            initializer,
+        ),
+    ))
+}
+
+fn lower_fixed_configuration(
+    configuration: &FixedConfiguration<SemanticSortRef, krs_ir::SemanticId, SemanticTerm>,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>, LoweringError> {
+    FixedConfiguration::new(
         origins.lower(
-            configuration.initializer().origin(),
+            configuration.origin(),
+            "configuration",
+            None,
+            Some(configuration.id().as_str()),
+        )?,
+        configuration.id().clone(),
+        lower_configuration_root(configuration.root(), origins)?,
+        lower_fixed_cells(configuration.cells(), names, origins)?,
+        origins.lower(
+            configuration.initializer_origin(),
             "initializer",
             None,
-            Some(key),
+            Some(configuration.initializer_id().as_str()),
         )?,
-        initializer_symbol,
-        lower_variables(configuration.initializer().variables(), names)?,
-        lower_term(configuration.initializer().body(), names, origins)?,
+        configuration.initializer_id().clone(),
+        configuration
+            .variables()
+            .iter()
+            .map(|variable| {
+                FixedConfigurationVariable::new(
+                    origins.lower(
+                        variable.origin(),
+                        "configuration-variable",
+                        None,
+                        Some(variable.id().as_str()),
+                    )?,
+                    variable.id().clone(),
+                    variable.external_name().to_owned(),
+                    lower_sort_ref(variable.sort(), names)?,
+                    variable.is_main(),
+                )
+                .map_err(state_shape_error)
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        lower_initializer_cells(configuration.initializer(), names, origins)?,
+    )
+    .map_err(state_shape_error)
+}
+
+fn lower_configuration_root(
+    root: &ConfigurationRoot,
+    origins: &mut OriginPass,
+) -> Result<ConfigurationRoot, LoweringError> {
+    match root {
+        ConfigurationRoot::GeneratedTop => Ok(ConfigurationRoot::GeneratedTop),
+        ConfigurationRoot::Named { origin, name } => ConfigurationRoot::named(
+            origins.lower(origin, "configuration-root", None, Some(name))?,
+            name.clone(),
+        )
+        .map_err(state_shape_error),
+    }
+}
+
+fn lower_cell_attributes(
+    attributes: &[CellAttribute],
+    origins: &mut OriginPass,
+) -> Result<Vec<CellAttribute>, LoweringError> {
+    attributes
+        .iter()
+        .map(|attribute| match attribute {
+            CellAttribute::Color { origin, value } => CellAttribute::color(
+                origins.lower(origin, "cell-attribute", None, Some(value.as_str()))?,
+                value.as_str(),
+            )
+            .map_err(state_shape_error),
+        })
+        .collect()
+}
+
+fn lower_fixed_cells(
+    cells: &[FixedCell<SemanticSortRef, krs_ir::SemanticId>],
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<Vec<FixedCell<DefinitionSortRef, SymbolId>>, LoweringError> {
+    cells
+        .iter()
+        .map(|cell| {
+            let symbol = names.fixed_cells.get(cell.id()).cloned().ok_or_else(|| {
+                LoweringError::UnsupportedShape {
+                    node: "configuration cell",
+                    detail: format!("no naming entry for {:?}", cell.id().as_str()),
+                }
+            })?;
+            let origin = origins.lower(cell.origin(), "cell", None, Some(cell.id().as_str()))?;
+            let attributes = lower_cell_attributes(cell.attributes(), origins)?;
+            match cell.content() {
+                FixedCellContent::Term { sort } => FixedCell::leaf(
+                    origin,
+                    symbol,
+                    cell.name(),
+                    attributes,
+                    lower_sort_ref(sort, names)?,
+                )
+                .map_err(state_shape_error),
+                FixedCellContent::Children { children } => FixedCell::nested(
+                    origin,
+                    symbol,
+                    cell.name(),
+                    attributes,
+                    lower_fixed_cells(children, names, origins)?,
+                )
+                .map_err(state_shape_error),
+            }
+        })
+        .collect()
+}
+
+fn lower_initializer_cells(
+    cells: &[FixedInitializerCell<krs_ir::SemanticId, SemanticTerm>],
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<Vec<FixedInitializerCell<SymbolId, DefinitionTerm>>, LoweringError> {
+    cells
+        .iter()
+        .map(|cell| {
+            let symbol = lower_cell_id(cell.cell(), names)?;
+            let origin = origins.lower(
+                cell.origin(),
+                "initializer-cell",
+                None,
+                Some(cell.cell().as_str()),
+            )?;
+            match cell.content() {
+                FixedInitializerContent::Term { term } => Ok(FixedInitializerCell::term(
+                    origin,
+                    symbol,
+                    lower_term(term, names, origins)?,
+                )),
+                FixedInitializerContent::Children { children } => FixedInitializerCell::children(
+                    origin,
+                    symbol,
+                    lower_initializer_cells(children, names, origins)?,
+                )
+                .map_err(state_shape_error),
+            }
+        })
+        .collect()
+}
+
+fn lower_cell_id(id: &krs_ir::SemanticId, names: &NamingPass) -> Result<SymbolId, LoweringError> {
+    names
+        .fixed_cells
+        .get(id)
+        .cloned()
+        .ok_or_else(|| LoweringError::UnsupportedShape {
+            node: "configuration cell reference",
+            detail: format!("no naming entry for {:?}", id.as_str()),
+        })
+}
+
+fn lower_frame(
+    frame: &CellContentFrame,
+    origins: &mut OriginPass,
+) -> Result<CellContentFrame, LoweringError> {
+    match frame {
+        CellContentFrame::Exact => Ok(CellContentFrame::Exact),
+        CellContentFrame::KSequenceTail { origin, binding } => {
+            Ok(CellContentFrame::KSequenceTail {
+                origin: origins.lower(
+                    origin,
+                    "cell-frame",
+                    None,
+                    binding.as_ref().map(krs_ir::SemanticId::as_str),
+                )?,
+                binding: binding.clone(),
+            })
+        }
+        CellContentFrame::MapRemainder { origin, binding } => Ok(CellContentFrame::MapRemainder {
+            origin: origins.lower(
+                origin,
+                "cell-frame",
+                None,
+                binding.as_ref().map(krs_ir::SemanticId::as_str),
+            )?,
+            binding: binding.clone(),
+        }),
+    }
+}
+
+fn lower_configuration_pattern(
+    pattern: &FixedConfigurationPattern<krs_ir::SemanticId, SemanticTerm>,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<FixedConfigurationPattern<SymbolId, DefinitionTerm>, LoweringError> {
+    FixedConfigurationPattern::new(
+        origins.lower(
+            pattern.origin(),
+            "configuration-pattern",
+            None,
+            Some(pattern.configuration().as_str()),
+        )?,
+        pattern.configuration().clone(),
+        pattern
+            .cells()
+            .iter()
+            .map(|cell| {
+                Ok(FixedCellPattern::new(
+                    origins.lower(
+                        cell.origin(),
+                        "cell-clause",
+                        None,
+                        Some(cell.cell().as_str()),
+                    )?,
+                    lower_cell_id(cell.cell(), names)?,
+                    lower_term(cell.pattern(), names, origins)?,
+                    lower_frame(cell.frame(), origins)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, LoweringError>>()?,
+        pattern
+            .omitted_siblings()
+            .iter()
+            .map(|cell| lower_cell_id(cell, names))
+            .collect::<Result<Vec<_>, _>>()?,
+    )
+    .map_err(state_shape_error)
+}
+
+fn lower_configuration_rewrite(
+    rewrite: &FixedConfigurationRewrite<krs_ir::SemanticId, SemanticTerm>,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<FixedConfigurationRewrite<SymbolId, DefinitionTerm>, LoweringError> {
+    FixedConfigurationRewrite::new(
+        origins.lower(
+            rewrite.origin(),
+            "configuration-rewrite",
+            None,
+            Some(rewrite.configuration().as_str()),
+        )?,
+        rewrite.configuration().clone(),
+        rewrite
+            .clauses()
+            .iter()
+            .map(|clause| {
+                Ok(FixedCellClause::new(
+                    origins.lower(
+                        clause.origin(),
+                        "cell-clause",
+                        None,
+                        Some(clause.cell().as_str()),
+                    )?,
+                    lower_cell_id(clause.cell(), names)?,
+                    lower_term(clause.before(), names, origins)?,
+                    match clause.after() {
+                        CellPost::Preserve => CellPost::Preserve,
+                        CellPost::Replace { term } => CellPost::Replace {
+                            term: lower_term(term, names, origins)?,
+                        },
+                    },
+                    lower_frame(clause.frame(), origins)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, LoweringError>>()?,
+        rewrite
+            .omitted_siblings()
+            .iter()
+            .map(|cell| lower_cell_id(cell, names))
+            .collect::<Result<Vec<_>, _>>()?,
+    )
+    .map_err(state_shape_error)
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn state_shape_error(error: krs_ir::StateShapeError) -> LoweringError {
+    LoweringError::UnsupportedShape {
+        node: "fixed state",
+        detail: error.to_string(),
+    }
+}
+
+fn lower_rule_metadata(
+    mut sentence: RuleSentence,
+    rule: &krs_ir::SemanticRule,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<RuleSentence, LoweringError> {
+    sentence = sentence.with_priority(
+        rule.priority()
+            .map(|priority| -> Result<_, LoweringError> {
+                Ok(DefinitionRulePriority::new(
+                    origins.lower(priority.origin(), "rule-priority", Some(rule.id()), None)?,
+                    priority.value(),
+                ))
+            })
+            .transpose()?,
     )?;
-    Ok(DefinitionSentence::Configuration(ConfigurationSentence::new(
-        origins.lower(configuration.origin(), "configuration", None, Some(key))?,
-        cell,
-        initializer,
-    )))
+    sentence = sentence.with_simplification(
+        rule.simplification()
+            .map(|simplification| -> Result<_, LoweringError> {
+                Ok(DefinitionSimplification::new(
+                    origins.lower(
+                        simplification.origin(),
+                        "simplification",
+                        Some(rule.id()),
+                        None,
+                    )?,
+                    simplification
+                        .priority()
+                        .map(|priority| -> Result<_, LoweringError> {
+                            Ok(DefinitionSimplificationPriority::new(
+                                origins.lower(
+                                    priority.origin(),
+                                    "simplification-priority",
+                                    Some(rule.id()),
+                                    None,
+                                )?,
+                                priority.value(),
+                            ))
+                        })
+                        .transpose()?,
+                ))
+            })
+            .transpose()?,
+    );
+    sentence = sentence.with_requires(
+        rule.requires()
+            .map(|condition| {
+                lower_rule_condition(condition, rule.id(), names, origins, "rule-condition")
+            })
+            .transpose()?,
+    )?;
+    sentence = sentence.with_claim(
+        rule.claim()
+            .map(|claim| lower_claim(claim, rule.id(), names, origins))
+            .transpose()?,
+    );
+    Ok(sentence)
+}
+
+fn lower_rule_condition(
+    condition: &krs_ir::SemanticRuleCondition,
+    item: &StableItemId,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+    role: &'static str,
+) -> Result<DefinitionRuleCondition, LoweringError> {
+    Ok(DefinitionRuleCondition::new(
+        origins.lower(condition.origin(), role, Some(item), None)?,
+        lower_term(condition.term(), names, origins)?,
+    ))
+}
+
+fn lower_claim(
+    claim: &krs_ir::SemanticClaim,
+    item: &StableItemId,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<DefinitionClaim, LoweringError> {
+    Ok(DefinitionClaim::new(
+        origins.lower(claim.modality_origin(), "claim-modality", Some(item), None)?,
+        claim.modality(),
+        claim
+            .circularity_origin()
+            .map(|origin| origins.lower(origin, "claim-circularity", Some(item), None))
+            .transpose()?,
+        lower_claim_binders(claim.universals(), item, names, origins, "claim-universal")?,
+        lower_claim_binders(
+            claim.existentials(),
+            item,
+            names,
+            origins,
+            "claim-existential",
+        )?,
+        claim
+            .ensures()
+            .map(|condition| lower_rule_condition(condition, item, names, origins, "claim-ensures"))
+            .transpose()?,
+    ))
+}
+
+fn lower_claim_binders(
+    binders: &[krs_ir::SemanticClaimBinder],
+    item: &StableItemId,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+    role: &'static str,
+) -> Result<Vec<DefinitionClaimBinder>, LoweringError> {
+    binders
+        .iter()
+        .enumerate()
+        .map(|(index, binder)| {
+            let discriminator = index.to_string();
+            Ok(DefinitionClaimBinder::new(
+                origins.lower(binder.origin(), role, Some(item), Some(&discriminator))?,
+                origins.lower(
+                    binder.name_origin(),
+                    "claim-binder-name",
+                    Some(item),
+                    Some(&discriminator),
+                )?,
+                binder.id().clone(),
+                origins.lower(
+                    binder.sort_origin(),
+                    "claim-binder-sort",
+                    Some(item),
+                    Some(&discriminator),
+                )?,
+                lower_sort_ref(binder.sort(), names)?,
+            ))
+        })
+        .collect()
 }
 
 fn lower_variables(
@@ -499,7 +1137,7 @@ fn lower_variables(
         .map(|variable| {
             Ok(krs_ir::DefinitionVariable::new(
                 variable.id().clone(),
-                names.sort_id(variable.sort())?,
+                lower_sort_ref(variable.sort(), names)?,
             ))
         })
         .collect()
@@ -515,6 +1153,153 @@ fn lower_sort_ref(
     }
 }
 
+fn lower_production_items(
+    production: &SemanticProduction,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<Vec<ProductionItem>, LoweringError> {
+    production
+        .items()
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            let origin = origins.lower(
+                item.origin(),
+                "production-item",
+                Some(production.id()),
+                Some(&index.to_string()),
+            )?;
+            match item.kind() {
+                GrammarProductionItemKind::Terminal { text } => {
+                    ProductionItem::terminal(origin, text.clone()).map_err(|error| {
+                        LoweringError::InvalidProductionTemplate {
+                            production: Box::new(production.id().clone()),
+                            detail: error.to_string(),
+                        }
+                    })
+                }
+                GrammarProductionItemKind::NonTerminal { field, sort } => {
+                    Ok(ProductionItem::non_terminal(
+                        origin,
+                        field.clone(),
+                        lower_sort_ref(sort, names)?,
+                    ))
+                }
+                GrammarProductionItemKind::RegexTerminal {
+                    precede_regex,
+                    regex,
+                    follow_regex,
+                } => ProductionItem::regex_terminal(
+                    origin,
+                    precede_regex.clone(),
+                    regex.clone(),
+                    follow_regex.clone(),
+                )
+                .map_err(|error| LoweringError::InvalidProductionTemplate {
+                    production: Box::new(production.id().clone()),
+                    detail: error.to_string(),
+                }),
+            }
+        })
+        .collect()
+}
+
+#[allow(clippy::too_many_lines)]
+fn lower_production_attributes(
+    production: &SemanticProduction,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<Vec<krs_ir::DefinitionProductionAttribute>, LoweringError> {
+    production
+        .attributes()
+        .iter()
+        .enumerate()
+        .map(|(index, attribute)| {
+            let origin = origins.lower(
+                attribute.origin(),
+                "production-attribute",
+                Some(production.id()),
+                Some(&index.to_string()),
+            )?;
+            Ok(match attribute {
+                ProductionAttribute::Documentation { text, .. } => {
+                    ProductionAttribute::Documentation {
+                        origin,
+                        text: text.clone(),
+                    }
+                }
+                ProductionAttribute::Function { .. } => ProductionAttribute::Function { origin },
+                ProductionAttribute::Total { .. } => ProductionAttribute::Total { origin },
+                ProductionAttribute::Alias { .. } => ProductionAttribute::Alias { origin },
+                ProductionAttribute::Token {
+                    lexical_precedence, ..
+                } => ProductionAttribute::Token {
+                    origin,
+                    lexical_precedence: *lexical_precedence,
+                },
+                ProductionAttribute::Group { group, .. } => ProductionAttribute::Group {
+                    origin,
+                    group: group.clone(),
+                },
+                ProductionAttribute::Bracket { .. } => ProductionAttribute::Bracket { origin },
+                ProductionAttribute::Avoid { .. } => ProductionAttribute::Avoid { origin },
+                ProductionAttribute::Format { fragments, .. } => ProductionAttribute::Format {
+                    origin,
+                    fragments: fragments.clone(),
+                },
+                ProductionAttribute::Strictness {
+                    kind,
+                    using,
+                    fields,
+                    result_sort,
+                    ..
+                } => ProductionAttribute::Strictness {
+                    origin,
+                    kind: *kind,
+                    using: using
+                        .as_ref()
+                        .map(|using| -> Result<_, LoweringError> {
+                            Ok(ProductionContextAliasReference::new(
+                                origins.lower(
+                                    using.origin(),
+                                    "production-strictness-using",
+                                    Some(production.id()),
+                                    None,
+                                )?,
+                                using.alias().clone(),
+                            ))
+                        })
+                        .transpose()?,
+                    fields: fields
+                        .iter()
+                        .enumerate()
+                        .map(|(field_index, field)| {
+                            Ok(ProductionFieldReference::new(
+                                origins.lower(
+                                    field.origin(),
+                                    "production-strictness-field",
+                                    Some(production.id()),
+                                    Some(&field_index.to_string()),
+                                )?,
+                                field.field().clone(),
+                            ))
+                        })
+                        .collect::<Result<Vec<_>, LoweringError>>()?,
+                    result_sort: ProductionResultSort::new(
+                        origins.lower(
+                            result_sort.origin(),
+                            "production-result-sort",
+                            Some(production.id()),
+                            None,
+                        )?,
+                        lower_sort_ref(result_sort.sort(), names)?,
+                    ),
+                },
+            })
+        })
+        .collect()
+}
+
 fn lower_term(
     term: &SemanticTerm,
     names: &NamingPass,
@@ -522,145 +1307,59 @@ fn lower_term(
 ) -> Result<DefinitionTerm, LoweringError> {
     let origin = origins.lower(term.origin(), "term", None, None)?;
     match term.kind() {
-        SemanticTermKind::Variable { variable } => {
-            let SemanticSortRef::Declared(sort) = term.sort() else {
-                return Err(LoweringError::UnsupportedShape {
-                    node: "variable",
-                    detail: "variables over builtin KSequence are not in M2".to_owned(),
-                });
-            };
-            Ok(DefinitionTerm::variable(
-                origin,
-                names.sort_id(sort)?,
-                variable.clone(),
-            ))
-        }
+        SemanticTermKind::Variable { variable } => Ok(DefinitionTerm::variable(
+            origin,
+            lower_sort_ref(term.sort(), names)?,
+            variable.clone(),
+        )),
         SemanticTermKind::Application {
-            production,
+            application,
             arguments,
-        } => {
-            let SemanticSortRef::Declared(sort) = term.sort() else {
-                return Err(LoweringError::UnsupportedShape {
-                    node: "application",
-                    detail: "applications must have a declared result sort".to_owned(),
-                });
-            };
-            Ok(DefinitionTerm::application(
-                origin,
-                names.sort_id(sort)?,
-                names.production(production)?.id().clone(),
-                arguments
-                    .iter()
-                    .map(|argument| lower_term(argument, names, origins))
-                    .collect::<Result<Vec<_>, _>>()?,
-            ))
-        }
-        SemanticTermKind::Token { value } => {
-            let SemanticSortRef::Declared(sort) = term.sort() else {
-                return Err(LoweringError::UnsupportedShape {
-                    node: "token",
-                    detail: "tokens must have a declared result sort".to_owned(),
-                });
-            };
-            Ok(DefinitionTerm::token(origin, names.sort_id(sort)?, value.clone())?)
-        }
+        } => Ok(DefinitionTerm::application(
+            origin,
+            lower_sort_ref(term.sort(), names)?,
+            match application {
+                ApplicationRef::Declared(production) => {
+                    ApplicationRef::Declared(names.production(production)?.id().clone())
+                }
+                ApplicationRef::Builtin(operation) => ApplicationRef::Builtin(*operation),
+            },
+            arguments
+                .iter()
+                .map(|argument| lower_term(argument, names, origins))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+        SemanticTermKind::Token { value } => Ok(DefinitionTerm::token(
+            origin,
+            lower_sort_ref(term.sort(), names)?,
+            value.clone(),
+        )?),
         SemanticTermKind::KSequence { item_sort, items } => Ok(DefinitionTerm::k_sequence(
             origin,
-            names.sort_id(item_sort)?,
+            lower_sort_ref(item_sort, names)?,
             items
                 .iter()
                 .map(|item| lower_term(item, names, origins))
                 .collect::<Result<Vec<_>, _>>()?,
         )),
-        SemanticTermKind::Rewrite { from, to } => {
-            let SemanticSortRef::Declared(sort) = term.sort() else {
-                return Err(LoweringError::UnsupportedShape {
-                    node: "rewrite",
-                    detail: "rewrites over builtin KSequence are not in M2".to_owned(),
-                });
-            };
-            Ok(DefinitionTerm::rewrite(
-                origin,
-                names.sort_id(sort)?,
-                lower_term(from, names, origins)?,
-                lower_term(to, names, origins)?,
-            )?)
-        }
+        SemanticTermKind::Rewrite { from, to } => Ok(DefinitionTerm::rewrite(
+            origin,
+            lower_sort_ref(term.sort(), names)?,
+            lower_term(from, names, origins)?,
+            lower_term(to, names, origins)?,
+        )?),
+        SemanticTermKind::Map {
+            operation,
+            arguments,
+        } => Ok(DefinitionTerm::map(
+            origin,
+            *operation,
+            arguments
+                .iter()
+                .map(|argument| lower_term(argument, names, origins))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
     }
-}
-
-fn validate_m2_shape(theory: &SemanticTheory) -> Result<(), LoweringError> {
-    let sorts = theory
-        .modules()
-        .iter()
-        .flat_map(SemanticModule::sorts)
-        .collect::<Vec<_>>();
-    if sorts.len() != 3 {
-        return Err(LoweringError::UnsupportedShape {
-            node: "sort graph",
-            detail: format!("expected exactly KItem, KResult, and one object sort; found {}", sorts.len()),
-        });
-    }
-    let named = |name: &str| {
-        sorts
-            .iter()
-            .copied()
-            .filter(|sort| sort.id().item_name() == name)
-            .collect::<Vec<_>>()
-    };
-    let k_items = named("KItem");
-    let k_results = named("KResult");
-    if k_items.len() != 1 || k_results.len() != 1 {
-        return Err(LoweringError::UnsupportedShape {
-            node: "sort graph",
-            detail: "expected unique KItem and KResult declarations".to_owned(),
-        });
-    }
-    let k_item = k_items[0];
-    let k_result = k_results[0];
-    let objects = sorts
-        .iter()
-        .copied()
-        .filter(|sort| sort.id() != k_item.id() && sort.id() != k_result.id())
-        .collect::<Vec<_>>();
-    let object = objects[0];
-    if !k_item.direct_parents().is_empty()
-        || k_result.direct_parents() != [k_item.id().clone()]
-        || object.direct_parents() != [k_result.id().clone()]
-    {
-        return Err(LoweringError::UnsupportedShape {
-            node: "sort graph",
-            detail: format!(
-                "expected exact {} < KResult < KItem chain",
-                object.id().item_name()
-            ),
-        });
-    }
-    for module in theory.modules() {
-        if let Some(configuration) = module.configuration()
-            && (configuration.cell().name() != "k"
-                || configuration.cell().sort() != &SemanticSortRef::k_sequence()
-                || !matches!(
-                    configuration.initializer().body().kind(),
-                    SemanticTermKind::KSequence { .. }
-                ))
-        {
-            return Err(LoweringError::UnsupportedShape {
-                node: "configuration",
-                detail: "M2 requires one <k> cell of KSequence initialized by a KSequence"
-                    .to_owned(),
-            });
-        }
-        for rule in module.rules() {
-            if rule.kind() != krs_ir::SentenceKind::Transition {
-                return Err(LoweringError::UnsupportedShape {
-                    node: "sentence",
-                    detail: format!("only unconditional transition rules are supported, found {:?}", rule.kind()),
-                });
-            }
-        }
-    }
-    Ok(())
 }
 
 fn select_main_module(theory: &SemanticTheory) -> Result<&SemanticModule, LoweringError> {
@@ -676,89 +1375,6 @@ fn select_main_module(theory: &SemanticTheory) -> Result<&SemanticModule, Loweri
             detail: format!("expected one configured module, found {}", configured.len()),
         }),
     }
-}
-
-fn parse_template(production: &SemanticProduction) -> Result<Vec<ProductionItem>, LoweringError> {
-    let mut items = Vec::new();
-    let mut holes = BTreeSet::new();
-    let mut argument = 0_usize;
-    let source = production.syntax();
-    let mut index = 0_usize;
-    while index < source.len() {
-        let character = source[index..].chars().next().expect("index is on character boundary");
-        if character.is_whitespace() {
-            index += character.len_utf8();
-            continue;
-        }
-        if character == '{' {
-            let remainder = &source[index + 1..];
-            let Some(close) = remainder.find('}') else {
-                return template_error(production, "unclosed `{` placeholder");
-            };
-            let name = &remainder[..close];
-            if !is_field_name(name) {
-                return template_error(production, format!("invalid placeholder name {name:?}"));
-            }
-            if !holes.insert(name.to_owned()) {
-                return template_error(production, format!("repeated placeholder {name:?}"));
-            }
-            let Some(sort) = production.argument_sorts().get(argument) else {
-                return template_error(production, "more placeholders than constructor fields");
-            };
-            items.push(ProductionItem::non_terminal(SymbolId::new(format!(
-                "sort:{}",
-                hex_encode(stable_item_text(sort).as_bytes())
-            ))?));
-            argument += 1;
-            index += close + 2;
-            continue;
-        }
-        if character == '}' {
-            return template_error(production, "unmatched `}` placeholder delimiter");
-        }
-
-        let start = index;
-        let word = character.is_alphanumeric() || character == '_';
-        let singleton = matches!(character, '(' | ')' | '[' | ']' | ',' | ';');
-        index += character.len_utf8();
-        if !singleton {
-            while index < source.len() {
-                let next = source[index..].chars().next().expect("character boundary");
-                let next_word = next.is_alphanumeric() || next == '_';
-                if next.is_whitespace()
-                    || matches!(next, '{' | '}' | '(' | ')' | '[' | ']' | ',' | ';')
-                    || next_word != word
-                {
-                    break;
-                }
-                index += next.len_utf8();
-            }
-        }
-        items.push(ProductionItem::terminal(&source[start..index])?);
-    }
-    if argument != production.argument_sorts().len() {
-        return template_error(
-            production,
-            format!(
-                "template has {argument} placeholders for {} constructor fields",
-                production.argument_sorts().len()
-            ),
-        );
-    }
-    if items.is_empty() {
-        return template_error(production, "template contains no grammar items");
-    }
-    Ok(items)
-}
-
-fn template_error<T>(
-    production: &SemanticProduction,
-    detail: impl Into<String>,
-) -> Result<T, LoweringError> {
-    Err(LoweringError::InvalidProductionTemplate {
-        production: Box::new(production.id().clone()),
-        detail: detail.into(),
-    })
 }
 
 fn claim(
@@ -801,7 +1417,9 @@ fn validate_sort_name(value: &str) -> Result<(), LoweringError> {
         .bytes()
         .next()
         .is_some_and(|byte| byte.is_ascii_uppercase())
-        && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
     if valid {
         Ok(())
     } else {
@@ -832,8 +1450,10 @@ fn validate_label_name(role: &'static str, value: &str) -> Result<(), LoweringEr
     let valid = value
         .bytes()
         .next()
-        .is_some_and(|byte| byte.is_ascii_alphabetic())
-        && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'));
     if valid {
         Ok(())
     } else {
@@ -853,6 +1473,14 @@ fn stable_item_text(id: &StableItemId) -> String {
     push_component(&mut text, id.item_name());
     push_component(&mut text, &format!("{:?}", id.item_kind()));
     push_component(&mut text, id.disambiguator());
+    text
+}
+
+fn stable_symbol_text(id: &StableItemId, explicit: Option<&krs_ir::ExplicitSymbol>) -> String {
+    let mut text = stable_item_text(id);
+    if let Some(explicit) = explicit {
+        push_component(&mut text, explicit.as_str());
+    }
     text
 }
 
@@ -891,16 +1519,6 @@ fn upper_camel(value: &str) -> String {
         Some(first) => first.to_uppercase().chain(characters).collect(),
         None => String::new(),
     }
-}
-
-fn is_field_name(value: &str) -> bool {
-    value
-        .bytes()
-        .next()
-        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 #[allow(dead_code)]

@@ -1,10 +1,12 @@
+//! Legacy one-cell M2 compatibility lowering on the current classified IR.
+
 use krs_compiler::{LoweringError, emit_k, lower_semantic_theory};
 use krs_ir::{
-    DefinitionSentence, ItemKind, ModuleId, NodeOrigin, OriginFrame, OriginStack, PackageId,
-    RangedOriginKind, SemanticCell, SemanticConfiguration, SemanticId, SemanticInitializer,
-    SemanticModule, SemanticProduction, SemanticRule, SemanticSort, SemanticSortRef, SemanticTerm,
-    SemanticTheory, SentenceKind, Sha256Digest, SourceFileId, SourceMapKey, SourceRange,
-    StableItemId, TransformationOriginKind,
+    ApplicationRef, DefinitionSentence, ItemKind, ModuleId, NodeOrigin, OriginFrame, OriginStack,
+    PackageId, RangedOriginKind, SemanticCell, SemanticConfiguration, SemanticId,
+    SemanticInitializer, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
+    SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind,
+    Sha256Digest, SourceFileId, SourceMapKey, SourceRange, StableItemId, TransformationOriginKind,
 };
 
 fn package() -> PackageId {
@@ -40,37 +42,45 @@ fn theory(reverse: bool) -> SemanticTheory {
     let k_item = item("syntax", "KItem", ItemKind::Sort);
     let k_result = item("syntax", "KResult", ItemKind::Sort);
     let object = item("syntax", "M2Obj", ItemKind::Sort);
-    let foo = item("syntax", "Foo", ItemKind::Constructor);
+    let foo_production = item("syntax", "Foo", ItemKind::Constructor);
     let bar = item("syntax", "Bar", ItemKind::Constructor);
     let rule = item("rules", "foo_to_bar", ItemKind::Rule);
     let mut sorts = vec![
-        SemanticSort::new(origin("sem.sort.kitem"), k_item.clone(), vec![]),
-        SemanticSort::new(
-            origin("sem.sort.kresult"),
-            k_result.clone(),
-            vec![k_item.clone()],
+        SemanticSort::new(origin("sem.sort.kitem"), k_item.clone()),
+        SemanticSort::new(origin("sem.sort.kresult"), k_result.clone()),
+        SemanticSort::new(origin("sem.sort.object"), object.clone()),
+    ];
+    let subsorts = vec![
+        SemanticSubsort::new(
+            origin("sem.subsort.kresult-kitem"),
+            SemanticSortRef::Declared(k_result.clone()),
+            SemanticSortRef::Declared(k_item.clone()),
         ),
-        SemanticSort::new(
-            origin("sem.sort.object"),
-            object.clone(),
-            vec![k_result],
+        SemanticSubsort::new(
+            origin("sem.subsort.object-kresult"),
+            SemanticSortRef::Declared(object.clone()),
+            SemanticSortRef::Declared(k_result),
         ),
     ];
     let mut productions = vec![
         SemanticProduction::new(
             origin("sem.production.foo"),
-            foo.clone(),
-            object.clone(),
+            foo_production.clone(),
+            SemanticSortRef::Declared(object.clone()),
+            vec![
+                SemanticProductionItem::terminal(origin("sem.production.foo.item"), "foo").unwrap(),
+            ],
             vec![],
-            "foo",
         )
         .unwrap(),
         SemanticProduction::new(
             origin("sem.production.bar"),
             bar.clone(),
-            object.clone(),
+            SemanticSortRef::Declared(object.clone()),
+            vec![
+                SemanticProductionItem::terminal(origin("sem.production.bar.item"), "bar").unwrap(),
+            ],
             vec![],
-            "bar",
         )
         .unwrap(),
     ];
@@ -94,11 +104,11 @@ fn theory(reverse: bool) -> SemanticTheory {
             vec![],
             SemanticTerm::k_sequence(
                 origin("sem.term.init.sequence"),
-                k_item,
+                SemanticSortRef::Declared(k_item),
                 vec![SemanticTerm::application(
                     origin("sem.term.init.foo"),
-                    object.clone(),
-                    foo.clone(),
+                    SemanticSortRef::Declared(object.clone()),
+                    ApplicationRef::Declared(foo_production.clone()),
                     vec![],
                 )],
             ),
@@ -106,14 +116,19 @@ fn theory(reverse: bool) -> SemanticTheory {
     );
     let rewrite = SemanticTerm::rewrite(
         origin("sem.term.rule.rewrite"),
-        object.clone(),
+        SemanticSortRef::Declared(object.clone()),
         SemanticTerm::application(
             origin("sem.term.rule.foo"),
-            object.clone(),
-            foo,
+            SemanticSortRef::Declared(object.clone()),
+            ApplicationRef::Declared(foo_production),
             vec![],
         ),
-        SemanticTerm::application(origin("sem.term.rule.bar"), object, bar, vec![]),
+        SemanticTerm::application(
+            origin("sem.term.rule.bar"),
+            SemanticSortRef::Declared(object),
+            ApplicationRef::Declared(bar),
+            vec![],
+        ),
     )
     .unwrap();
     let rule = SemanticRule::new(
@@ -129,7 +144,10 @@ fn theory(reverse: bool) -> SemanticTheory {
         ModuleId::new("KRS-M2-REFERENCE").unwrap(),
         vec![],
         sorts,
+        subsorts,
         productions,
+        vec![],
+        vec![],
         Some(configuration),
         vec![rule],
     )])
@@ -170,7 +188,7 @@ fn exact_source_snapshot_and_reordering_are_byte_identical() {
 
   configuration <k> foo </k>
 
-  rule foo => bar [label(krsRule_1d8b3a8a977ae6f58988f622)]
+  rule foo => bar [label(krsRule_725f2944b8a5a8eaf4b9fc6c)]
 endmodule
 "#
     );
@@ -200,11 +218,13 @@ fn lowering_appends_definition_origins_and_source_ranges_are_honest() {
     assert!(emitted.source_map().entries().iter().all(|entry| {
         entry.generated().is_some() || entry.node_kind() == krs_compiler::SourceMapNodeKind::Term
     }));
-    assert!(emitted
-        .source_map()
-        .to_canonical_json()
-        .unwrap()
-        .contains("\"artifact\": \"definition.k\""));
+    assert!(
+        emitted
+            .source_map()
+            .to_canonical_json()
+            .unwrap()
+            .contains("\"artifact\": \"definition.k\"")
+    );
 }
 
 #[test]
@@ -214,19 +234,19 @@ fn exact_chain_configuration_and_initializer_remain_structural() {
         .definition()
         .modules()
         .iter()
-        .flat_map(|module| module.sentences())
+        .flat_map(krs_ir::DefinitionModule::sentences)
         .find_map(|sentence| match sentence {
             DefinitionSentence::Configuration(value) => Some(value),
             _ => None,
         })
         .unwrap();
-    assert_eq!(configuration.cell().symbol().emitted_name(), "k");
+    assert_eq!(configuration.cell().unwrap().symbol().emitted_name(), "k");
     assert_eq!(
-        configuration.initializer().symbol().emitted_name(),
+        configuration.initializer().unwrap().symbol().emitted_name(),
         "initKCell"
     );
     assert!(matches!(
-        configuration.initializer().body().kind(),
+        configuration.initializer().unwrap().body().kind(),
         krs_ir::DefinitionTermKind::KSequence { items, .. } if items.len() == 1
     ));
 }
@@ -239,6 +259,7 @@ fn name_collisions_are_rejected_before_definition_construction() {
     let mut second = duplicate;
     second["id"]["module_path"] = serde_json::json!(["extension"]);
     second["origin"]["key"] = serde_json::json!("sem.production.colliding-foo");
+    second["items"][0]["origin"]["key"] = serde_json::json!("sem.production.colliding-foo.item");
     module["productions"].as_array_mut().unwrap().push(second);
     let theory: SemanticTheory = serde_json::from_value(json).unwrap();
     assert!(matches!(
@@ -252,45 +273,27 @@ fn name_collisions_are_rejected_before_definition_construction() {
 }
 
 #[test]
-fn malformed_record_template_fails_typed_and_is_never_dropped() {
+fn stale_template_shaped_production_is_rejected_by_schema_nine() {
     let mut json = serde_json::to_value(theory(false)).unwrap();
     let module = &mut json["modules"][0];
-    let object = module["sorts"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|sort| sort["id"]["item_name"] == "M2Obj")
-        .unwrap()["id"]
-        .clone();
     let production = module["productions"]
         .as_array_mut()
         .unwrap()
         .iter_mut()
         .find(|production| production["id"]["item_name"] == "Foo")
         .unwrap();
-    production["argument_sorts"] = serde_json::json!([object]);
+    production["argument_sorts"] = serde_json::json!([]);
     production["syntax"] = serde_json::json!("box");
-    let theory = serde_json::from_value::<SemanticTheory>(json).unwrap();
-    assert!(matches!(
-        lower_semantic_theory(&theory),
-        Err(LoweringError::InvalidProductionTemplate { .. })
-    ));
+    assert!(serde_json::from_value::<SemanticTheory>(json).is_err());
 }
 
 #[test]
-fn unsupported_sentence_kind_fails_typed() {
+fn invalid_equation_root_is_rejected_before_lowering() {
     let mut json = serde_json::to_value(theory(false)).unwrap();
     let rule = &mut json["modules"][0]["rules"][0];
     rule["kind"] = serde_json::json!("equation");
     rule["id"]["item_kind"] = serde_json::json!("equation");
-    let theory = serde_json::from_value::<SemanticTheory>(json).unwrap();
-    assert!(matches!(
-        lower_semantic_theory(&theory),
-        Err(LoweringError::UnsupportedShape {
-            node: "sentence",
-            ..
-        })
-    ));
+    assert!(serde_json::from_value::<SemanticTheory>(json).is_err());
 }
 
 #[test]

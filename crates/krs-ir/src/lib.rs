@@ -119,9 +119,10 @@ pub use semantic::{
     SemanticApplicationRef, SemanticCell, SemanticClaim, SemanticClaimBinder,
     SemanticConfiguration, SemanticContextAlias, SemanticInitializer, SemanticModule,
     SemanticProduction, SemanticProductionAttribute, SemanticProductionItem, SemanticRule,
-    SemanticRuleCondition, SemanticRuleLabel, SemanticRulePriority, SemanticSimplification,
-    SemanticSimplificationPriority, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm,
-    SemanticTermKind, SemanticTheory, SemanticValidationError, SemanticVariable,
+    SemanticRuleBody, SemanticRuleCondition, SemanticRuleLabel, SemanticRulePriority,
+    SemanticSimplification, SemanticSimplificationPriority, SemanticSort, SemanticSortRef,
+    SemanticSubsort, SemanticTerm, SemanticTermKind, SemanticTheory, SemanticValidationError,
+    SemanticVariable,
 };
 pub use state::{
     CellAttribute, CellColor, CellContentFrame, CellPost, ConfigurationRoot, FixedCell,
