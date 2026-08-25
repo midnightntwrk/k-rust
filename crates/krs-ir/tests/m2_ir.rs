@@ -1,11 +1,12 @@
 //! M2 target-neutral semantic and Definition IR contracts.
 
 use krs_ir::{
-    CellDeclaration, ConfigurationSentence, DefinitionIr, DefinitionModule, DefinitionSentence,
-    DefinitionTerm, InitializerDeclaration, IrSchemaVersion, ItemKind, LabelId, LabelIdentity,
-    ModuleId, NodeOrigin, OriginStack, PackageId, ProductionItem, ProductionSentence, RuleSentence,
-    SemanticCell, SemanticConfiguration, SemanticId, SemanticInitializer, SemanticModule,
-    SemanticProduction, SemanticRule, SemanticSort, SemanticTerm, SemanticTheory, SentenceKind,
+    ApplicationRef, CellDeclaration, ConfigurationSentence, DefinitionIr, DefinitionModule,
+    DefinitionSentence, DefinitionSortRef, DefinitionTerm, InitializerDeclaration, IrSchemaVersion,
+    ItemKind, LabelId, LabelIdentity, ModuleId, NodeOrigin, OriginStack, PackageId, ProductionItem,
+    ProductionSentence, RuleSentence, SemanticCell, SemanticConfiguration, SemanticId,
+    SemanticInitializer, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
+    SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind,
     Sha256Digest, SourceFileId, SourceMapKey, SourceRange, StableItemId, SymbolId, SymbolIdentity,
     SymbolKind, SyntaxSortSentence,
 };
@@ -40,38 +41,49 @@ fn semantic_theory(reverse_sets: bool, bar_reference: Option<StableItemId>) -> S
     let rule_id = item("rules", "foo_to_bar", ItemKind::Rule);
 
     let mut sorts = vec![
-        SemanticSort::new(node("sem.sort.kitem"), k_item, vec![]),
-        SemanticSort::new(
-            node("sem.sort.kresult"),
-            k_result.clone(),
-            vec![item("syntax", "KItem", ItemKind::Sort)],
+        SemanticSort::new(node("sem.sort.kitem"), k_item.clone()),
+        SemanticSort::new(node("sem.sort.kresult"), k_result.clone()),
+        SemanticSort::new(node("sem.sort.value"), value.clone()),
+    ];
+    let mut subsorts = vec![
+        SemanticSubsort::new(
+            node("sem.subsort.kresult-kitem"),
+            SemanticSortRef::declared(k_result.clone()),
+            SemanticSortRef::declared(k_item),
         ),
-        SemanticSort::new(
-            node("sem.sort.value"),
-            value.clone(),
-            vec![k_result],
+        SemanticSubsort::new(
+            node("sem.subsort.value-kresult"),
+            SemanticSortRef::declared(value.clone()),
+            SemanticSortRef::declared(k_result),
         ),
     ];
     let mut productions = vec![
         SemanticProduction::new(
             node("sem.production.foo"),
             foo.clone(),
-            value.clone(),
+            SemanticSortRef::declared(value.clone()),
+            vec![
+                SemanticProductionItem::terminal(node("sem.production.foo.terminal"), "foo")
+                    .unwrap(),
+            ],
             vec![],
-            "foo",
         )
         .unwrap(),
         SemanticProduction::new(
             node("sem.production.bar"),
             bar.clone(),
-            value.clone(),
+            SemanticSortRef::declared(value.clone()),
+            vec![
+                SemanticProductionItem::terminal(node("sem.production.bar.terminal"), "bar")
+                    .unwrap(),
+            ],
             vec![],
-            "bar",
         )
         .unwrap(),
     ];
     if reverse_sets {
         sorts.reverse();
+        subsorts.reverse();
         productions.reverse();
     }
 
@@ -82,7 +94,10 @@ fn semantic_theory(reverse_sets: bool, bar_reference: Option<StableItemId>) -> S
         syntax_id.clone(),
         vec![],
         sorts,
+        subsorts,
         productions,
+        vec![],
+        vec![],
         None,
         vec![],
     );
@@ -92,8 +107,8 @@ fn semantic_theory(reverse_sets: bool, bar_reference: Option<StableItemId>) -> S
         vec![],
         SemanticTerm::application(
             node("sem.term.init.foo"),
-            value.clone(),
-            foo.clone(),
+            SemanticSortRef::declared(value.clone()),
+            ApplicationRef::Declared(foo.clone()),
             vec![],
         ),
     );
@@ -104,24 +119,30 @@ fn semantic_theory(reverse_sets: bool, bar_reference: Option<StableItemId>) -> S
             node("sem.cell.k"),
             SemanticId::new("machine.k").unwrap(),
             "k",
-            value.clone(),
+            SemanticSortRef::declared(value.clone()),
         )
         .unwrap(),
         initializer,
     );
     let lhs = SemanticTerm::application(
         node("sem.term.rule.foo"),
-        value.clone(),
-        foo,
+        SemanticSortRef::declared(value.clone()),
+        ApplicationRef::Declared(foo),
         vec![],
     );
     let rhs = SemanticTerm::application(
         node("sem.term.rule.bar"),
-        value.clone(),
-        bar_reference.unwrap_or(bar),
+        SemanticSortRef::declared(value.clone()),
+        ApplicationRef::Declared(bar_reference.unwrap_or(bar)),
         vec![],
     );
-    let rewrite = SemanticTerm::rewrite(node("sem.term.rule.rewrite"), value, lhs, rhs).unwrap();
+    let rewrite = SemanticTerm::rewrite(
+        node("sem.term.rule.rewrite"),
+        SemanticSortRef::declared(value),
+        lhs,
+        rhs,
+    )
+    .unwrap();
     let rule = SemanticRule::new(
         node("sem.rule.foo-to-bar"),
         rule_id,
@@ -136,10 +157,17 @@ fn semantic_theory(reverse_sets: bool, bar_reference: Option<StableItemId>) -> S
         vec![syntax_id],
         vec![],
         vec![],
+        vec![],
+        vec![],
+        vec![],
         Some(configuration),
         vec![rule],
     );
-    let modules = if reverse_sets { vec![main, syntax] } else { vec![syntax, main] };
+    let modules = if reverse_sets {
+        vec![main, syntax]
+    } else {
+        vec![syntax, main]
+    };
     SemanticTheory::new(modules).unwrap()
 }
 
@@ -148,8 +176,6 @@ fn symbol(id: &str, name: &str, kind: SymbolKind) -> SymbolIdentity {
 }
 
 fn definition_ir(reverse_sets: bool, bar_reference: Option<SymbolId>) -> DefinitionIr {
-    let k_item = SymbolId::new("sort.kitem").unwrap();
-    let k_result = SymbolId::new("sort.kresult").unwrap();
     let value = SymbolId::new("sort.value").unwrap();
     let foo = SymbolId::new("production.foo").unwrap();
     let bar = SymbolId::new("production.bar").unwrap();
@@ -180,8 +206,9 @@ fn definition_ir(reverse_sets: bool, bar_reference: Option<SymbolId>) -> Definit
             ProductionSentence::new(
                 node("def.production.foo"),
                 symbol("production.foo", "Lblfoo", SymbolKind::Production),
-                value.clone(),
-                vec![ProductionItem::terminal("foo").unwrap()],
+                DefinitionSortRef::declared(value.clone()),
+                vec![ProductionItem::terminal(node("def.production.foo.terminal"), "foo").unwrap()],
+                vec![],
             )
             .unwrap(),
         ),
@@ -189,8 +216,9 @@ fn definition_ir(reverse_sets: bool, bar_reference: Option<SymbolId>) -> Definit
             ProductionSentence::new(
                 node("def.production.bar"),
                 symbol("production.bar", "Lblbar", SymbolKind::Production),
-                value.clone(),
-                vec![ProductionItem::terminal("bar").unwrap()],
+                DefinitionSortRef::declared(value.clone()),
+                vec![ProductionItem::terminal(node("def.production.bar.terminal"), "bar").unwrap()],
+                vec![],
             )
             .unwrap(),
         ),
@@ -204,17 +232,22 @@ fn definition_ir(reverse_sets: bool, bar_reference: Option<SymbolId>) -> Definit
         node("def.module.syntax"),
         syntax_id.clone(),
         vec![],
+        vec![],
         syntax_sentences,
     );
 
     let init = InitializerDeclaration::new(
         node("def.initializer"),
-        symbol("initializer.machine", "initMachine", SymbolKind::Initializer),
+        symbol(
+            "initializer.machine",
+            "initMachine",
+            SymbolKind::Initializer,
+        ),
         vec![],
         DefinitionTerm::application(
             node("def.term.init.foo"),
-            value.clone(),
-            foo.clone(),
+            DefinitionSortRef::declared(value.clone()),
+            ApplicationRef::Declared(foo.clone()),
             vec![],
         ),
     )
@@ -222,7 +255,7 @@ fn definition_ir(reverse_sets: bool, bar_reference: Option<SymbolId>) -> Definit
     let cell = CellDeclaration::new(
         node("def.cell.k"),
         symbol("cell.k", "k", SymbolKind::Cell),
-        value.clone(),
+        DefinitionSortRef::declared(value.clone()),
     )
     .unwrap();
     let configuration = DefinitionSentence::Configuration(ConfigurationSentence::new(
@@ -232,17 +265,23 @@ fn definition_ir(reverse_sets: bool, bar_reference: Option<SymbolId>) -> Definit
     ));
     let lhs = DefinitionTerm::application(
         node("def.term.rule.foo"),
-        value.clone(),
-        foo,
+        DefinitionSortRef::declared(value.clone()),
+        ApplicationRef::Declared(foo),
         vec![],
     );
     let rhs = DefinitionTerm::application(
         node("def.term.rule.bar"),
-        value.clone(),
-        bar_reference.unwrap_or(bar),
+        DefinitionSortRef::declared(value.clone()),
+        ApplicationRef::Declared(bar_reference.unwrap_or(bar)),
         vec![],
     );
-    let rewrite = DefinitionTerm::rewrite(node("def.term.rule.rewrite"), value, lhs, rhs).unwrap();
+    let rewrite = DefinitionTerm::rewrite(
+        node("def.term.rule.rewrite"),
+        DefinitionSortRef::declared(value),
+        lhs,
+        rhs,
+    )
+    .unwrap();
     let rule = DefinitionSentence::Rule(
         RuleSentence::new(
             node("def.rule.foo-to-bar"),
@@ -266,9 +305,14 @@ fn definition_ir(reverse_sets: bool, bar_reference: Option<SymbolId>) -> Definit
         node("def.module.main"),
         main_id.clone(),
         vec![syntax_id],
+        vec![],
         main_sentences,
     );
-    let modules = if reverse_sets { vec![main, syntax] } else { vec![syntax, main] };
+    let modules = if reverse_sets {
+        vec![main, syntax]
+    } else {
+        vec![syntax, main]
+    };
     DefinitionIr::new(main_id, modules).unwrap()
 }
 
@@ -290,9 +334,18 @@ fn definition_foo_bar_matches_golden_and_set_reordering() {
 
 #[test]
 fn schema_version_is_not_the_collector_protocol() {
-    assert_eq!(semantic_theory(false, None).schema_version(), IrSchemaVersion::CURRENT);
-    assert_eq!(definition_ir(false, None).schema_version(), IrSchemaVersion::CURRENT);
-    assert_ne!(IrSchemaVersion::CURRENT.0, krs_ir::ProtocolVersion::CURRENT.0);
+    assert_eq!(
+        semantic_theory(false, None).schema_version(),
+        IrSchemaVersion::CURRENT
+    );
+    assert_eq!(
+        definition_ir(false, None).schema_version(),
+        IrSchemaVersion::CURRENT
+    );
+    assert_ne!(
+        IrSchemaVersion::CURRENT.0,
+        krs_ir::ProtocolVersion::CURRENT.0
+    );
 }
 
 #[test]
@@ -354,6 +407,12 @@ fn prior_ir_schema_is_rejected() {
 
 #[test]
 fn print_goldens_for_review() {
-    println!("SEMANTIC\n{}", semantic_theory(false, None).to_canonical_json().unwrap());
-    println!("DEFINITION\n{}", definition_ir(false, None).to_canonical_json().unwrap());
+    println!(
+        "SEMANTIC\n{}",
+        semantic_theory(false, None).to_canonical_json().unwrap()
+    );
+    println!(
+        "DEFINITION\n{}",
+        definition_ir(false, None).to_canonical_json().unwrap()
+    );
 }

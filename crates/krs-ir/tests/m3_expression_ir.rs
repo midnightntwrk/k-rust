@@ -6,22 +6,17 @@ use krs_ir::{
     DefinitionValidationError, DefinitionVariable, FormatFragment, GroupAssociativity,
     GroupAssociativitySentence, InitializerDeclaration, LabelId, LabelIdentity, ModuleId,
     NodeOrigin, OriginStack, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
-    ProductionGroupId, ProductionGroupIdentity, ProductionItem, ProductionSentence, SemanticId,
-    SemanticCell, SemanticConfiguration, SemanticInitializer, SemanticModule, SemanticProduction,
-    SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort,
-    SemanticTerm, SemanticTheory, SentenceKind, Sha256Digest, SourceFileId, SourceMapKey,
-    SourceRange, StableItemId, StrictnessKind, SubsortSentence, SymbolId, SymbolIdentity,
-    SymbolKind, SyntaxSortSentence,
+    ProductionFieldReference, ProductionGroupId, ProductionGroupIdentity, ProductionItem,
+    ProductionResultSort, ProductionSentence, SemanticCell, SemanticConfiguration, SemanticId,
+    SemanticInitializer, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
+    SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind,
+    Sha256Digest, SourceFileId, SourceMapKey, SourceRange, StableItemId, StrictnessKind,
+    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 
 fn node(key: &str) -> NodeOrigin {
-    let package = krs_ir::PackageId::new(
-        "ORG-EXAMPLE-EXPR",
-        "expr-semantics",
-        "0.1.0",
-        "workspace",
-    )
-    .unwrap();
+    let package =
+        krs_ir::PackageId::new("ORG-EXAMPLE-EXPR", "expr-semantics", "0.1.0", "workspace").unwrap();
     let file = SourceFileId::new(
         package,
         "src/expr.rs",
@@ -46,19 +41,21 @@ fn field(name: &str) -> ProductionFieldId {
     ProductionFieldId::new(name).unwrap()
 }
 
+fn field_reference(key: &str, name: &str) -> ProductionFieldReference {
+    ProductionFieldReference::new(node(key), field(name))
+}
+
+fn result_sort<S>(key: &str, sort: S) -> ProductionResultSort<S> {
+    ProductionResultSort::new(node(key), sort)
+}
+
 fn group(name: &str) -> ProductionGroupId {
     ProductionGroupId::new(name).unwrap()
 }
 
 fn stable_item(module: &str, name: &str, kind: krs_ir::ItemKind) -> StableItemId {
     StableItemId::new(
-        krs_ir::PackageId::new(
-            "ORG-EXAMPLE-EXPR",
-            "expr-semantics",
-            "0.1.0",
-            "workspace",
-        )
-        .unwrap(),
+        krs_ir::PackageId::new("ORG-EXAMPLE-EXPR", "expr-semantics", "0.1.0", "workspace").unwrap(),
         [module],
         name,
         kind,
@@ -117,11 +114,7 @@ fn expression_definition(reverse_sets: bool) -> Result<DefinitionIr, DefinitionV
 
     let mut groups = vec![
         ProductionGroupIdentity::new(node("group.prefix"), group("prefix"), "exprPrefix")?,
-        ProductionGroupIdentity::new(
-            node("group.additive"),
-            group("additive"),
-            "exprAdditive",
-        )?,
+        ProductionGroupIdentity::new(node("group.additive"), group("additive"), "exprAdditive")?,
         ProductionGroupIdentity::new(
             node("group.conjunction"),
             group("conjunction"),
@@ -190,13 +183,15 @@ fn expression_definition(reverse_sets: bool) -> Result<DefinitionIr, DefinitionV
             "production.id",
             "LblId",
             declared("sort.id"),
-            vec![ProductionItem::regex_terminal(
-                node("production.id.regex"),
-                Some("[A-Za-z0-9_]".into()),
-                "[A-Za-z][A-Za-z0-9_]*",
-                Some("[A-Za-z0-9_]".into()),
-            )
-            .unwrap()],
+            vec![
+                ProductionItem::regex_terminal(
+                    node("production.id.regex"),
+                    Some("[A-Za-z0-9_]".into()),
+                    "[A-Za-z][A-Za-z0-9_]*",
+                    Some("[A-Za-z0-9_]".into()),
+                )
+                .unwrap(),
+            ],
             vec![
                 ProductionAttribute::Token {
                     origin: node("production.id.token"),
@@ -253,8 +248,8 @@ fn expression_definition(reverse_sets: bool) -> Result<DefinitionIr, DefinitionV
                     origin: node("production.neg.strict"),
                     kind: StrictnessKind::Strict,
                     using: None,
-                    fields: vec![field("operand")],
-                    result_sort: k_result.clone(),
+                    fields: vec![field_reference("production.neg.strict.operand", "operand")],
+                    result_sort: result_sort("production.neg.strict.result-sort", k_result.clone()),
                 },
             ],
         ),
@@ -287,8 +282,14 @@ fn expression_definition(reverse_sets: bool) -> Result<DefinitionIr, DefinitionV
                     origin: node("production.add.seqstrict"),
                     kind: StrictnessKind::SeqStrict,
                     using: None,
-                    fields: vec![field("lhs"), field("rhs")],
-                    result_sort: k_result.clone(),
+                    fields: vec![
+                        field_reference("production.add.seqstrict.lhs", "lhs"),
+                        field_reference("production.add.seqstrict.rhs", "rhs"),
+                    ],
+                    result_sort: result_sort(
+                        "production.add.seqstrict.result-sort",
+                        k_result.clone(),
+                    ),
                 },
             ],
         ),
@@ -321,29 +322,35 @@ fn expression_definition(reverse_sets: bool) -> Result<DefinitionIr, DefinitionV
                     origin: node("production.and.strict"),
                     kind: StrictnessKind::Strict,
                     using: None,
-                    fields: vec![field("lhs")],
-                    result_sort: k_result.clone(),
+                    fields: vec![field_reference("production.and.strict.lhs", "lhs")],
+                    result_sort: result_sort("production.and.strict.result-sort", k_result.clone()),
                 },
             ],
         ),
-        DefinitionSentence::Precedence(PrecedenceRelation::new(
-            node("precedence.prefix-additive"),
-            vec![group("prefix")],
-            vec![group("additive")],
-        )
-        .unwrap()),
-        DefinitionSentence::Precedence(PrecedenceRelation::new(
-            node("precedence.additive-conjunction"),
-            vec![group("additive")],
-            vec![group("conjunction")],
-        )
-        .unwrap()),
-        DefinitionSentence::Associativity(GroupAssociativitySentence::new(
-            node("associativity.left"),
-            GroupAssociativity::Left,
-            vec![group("additive"), group("conjunction")],
-        )
-        .unwrap()),
+        DefinitionSentence::Precedence(
+            PrecedenceRelation::new(
+                node("precedence.prefix-additive"),
+                vec![group("prefix")],
+                vec![group("additive")],
+            )
+            .unwrap(),
+        ),
+        DefinitionSentence::Precedence(
+            PrecedenceRelation::new(
+                node("precedence.additive-conjunction"),
+                vec![group("additive")],
+                vec![group("conjunction")],
+            )
+            .unwrap(),
+        ),
+        DefinitionSentence::Associativity(
+            GroupAssociativitySentence::new(
+                node("associativity.left"),
+                GroupAssociativity::Left,
+                vec![group("additive"), group("conjunction")],
+            )
+            .unwrap(),
+        ),
     ];
 
     let int_x = DefinitionVariable::new(SemanticId::new("x").unwrap(), DefinitionSortRef::int());
@@ -395,7 +402,10 @@ fn expression_definition(reverse_sets: bool) -> Result<DefinitionIr, DefinitionV
         node("rule.add"),
         LabelIdentity::new(LabelId::new("rule.add").unwrap(), "expr.add")?,
         SentenceKind::Transition,
-        vec![int_y, DefinitionVariable::new(SemanticId::new("x").unwrap(), DefinitionSortRef::int())],
+        vec![
+            int_y,
+            DefinitionVariable::new(SemanticId::new("x").unwrap(), DefinitionSortRef::int()),
+        ],
         DefinitionTerm::rewrite(node("term.add.rewrite"), expr.clone(), add_lhs, add_rhs)?,
     )?);
 
@@ -546,13 +556,15 @@ fn semantic_expression_contract_resolves_builtin_sorts_and_applications() {
             node("sem.production.id"),
             id_token,
             SemanticSortRef::declared(id_sort),
-            vec![SemanticProductionItem::regex_terminal(
-                node("sem.production.id.regex"),
-                None,
-                "[A-Za-z][A-Za-z0-9_]*",
-                None,
-            )
-            .unwrap()],
+            vec![
+                SemanticProductionItem::regex_terminal(
+                    node("sem.production.id.regex"),
+                    None,
+                    "[A-Za-z][A-Za-z0-9_]*",
+                    None,
+                )
+                .unwrap(),
+            ],
             vec![ProductionAttribute::Token {
                 origin: node("sem.production.id.token"),
                 lexical_precedence: Some(2),
@@ -564,8 +576,7 @@ fn semantic_expression_contract_resolves_builtin_sorts_and_applications() {
             neg,
             SemanticSortRef::declared(expr.clone()),
             vec![
-                SemanticProductionItem::terminal(node("sem.production.neg.minus"), "-")
-                    .unwrap(),
+                SemanticProductionItem::terminal(node("sem.production.neg.minus"), "-").unwrap(),
                 SemanticProductionItem::non_terminal(
                     node("sem.production.neg.operand"),
                     field("operand"),
@@ -588,8 +599,7 @@ fn semantic_expression_contract_resolves_builtin_sorts_and_applications() {
                     field("lhs"),
                     SemanticSortRef::declared(expr.clone()),
                 ),
-                SemanticProductionItem::terminal(node("sem.production.add.plus"), "+")
-                    .unwrap(),
+                SemanticProductionItem::terminal(node("sem.production.add.plus"), "+").unwrap(),
                 SemanticProductionItem::non_terminal(
                     node("sem.production.add.rhs"),
                     field("rhs"),
@@ -605,8 +615,14 @@ fn semantic_expression_contract_resolves_builtin_sorts_and_applications() {
                     origin: node("sem.production.add.strict"),
                     kind: StrictnessKind::SeqStrict,
                     using: None,
-                    fields: vec![field("lhs"), field("rhs")],
-                    result_sort: SemanticSortRef::declared(k_result),
+                    fields: vec![
+                        field_reference("sem.production.add.strict.lhs", "lhs"),
+                        field_reference("sem.production.add.strict.rhs", "rhs"),
+                    ],
+                    result_sort: result_sort(
+                        "sem.production.add.strict.result-sort",
+                        SemanticSortRef::declared(k_result),
+                    ),
                 },
             ],
         )
@@ -620,12 +636,14 @@ fn semantic_expression_contract_resolves_builtin_sorts_and_applications() {
         sorts,
         subsorts,
         productions,
-        vec![PrecedenceRelation::new(
-            node("sem.precedence.prefix-additive"),
-            vec![group("prefix")],
-            vec![group("additive")],
-        )
-        .unwrap()],
+        vec![
+            PrecedenceRelation::new(
+                node("sem.precedence.prefix-additive"),
+                vec![group("prefix")],
+                vec![group("additive")],
+            )
+            .unwrap(),
+        ],
         vec![],
         None,
         vec![],
@@ -638,8 +656,16 @@ fn semantic_expression_contract_resolves_builtin_sorts_and_applications() {
         SemanticSortRef::declared(expr.clone()),
         ApplicationRef::Declared(add),
         vec![
-            SemanticTerm::variable(node("sem.term.add.x.lhs"), SemanticSortRef::int(), x_id.clone()),
-            SemanticTerm::variable(node("sem.term.add.y.lhs"), SemanticSortRef::int(), y_id.clone()),
+            SemanticTerm::variable(
+                node("sem.term.add.x.lhs"),
+                SemanticSortRef::int(),
+                x_id.clone(),
+            ),
+            SemanticTerm::variable(
+                node("sem.term.add.y.lhs"),
+                SemanticSortRef::int(),
+                y_id.clone(),
+            ),
         ],
     );
     let rhs = SemanticTerm::application(
@@ -647,8 +673,16 @@ fn semantic_expression_contract_resolves_builtin_sorts_and_applications() {
         SemanticSortRef::int(),
         ApplicationRef::Builtin(BuiltinOperation::IntAdd),
         vec![
-            SemanticTerm::variable(node("sem.term.add.x.rhs"), SemanticSortRef::int(), x_id.clone()),
-            SemanticTerm::variable(node("sem.term.add.y.rhs"), SemanticSortRef::int(), y_id.clone()),
+            SemanticTerm::variable(
+                node("sem.term.add.x.rhs"),
+                SemanticSortRef::int(),
+                x_id.clone(),
+            ),
+            SemanticTerm::variable(
+                node("sem.term.add.y.rhs"),
+                SemanticSortRef::int(),
+                y_id.clone(),
+            ),
         ],
     );
     let rule = SemanticRule::new(
@@ -728,17 +762,13 @@ fn syntax_module_mut(json: &mut serde_json::Value) -> &mut serde_json::Value {
         .unwrap()
 }
 
-fn production_mut<'a>(
-    json: &'a mut serde_json::Value,
-    id: &str,
-) -> &'a mut serde_json::Value {
+fn production_mut<'a>(json: &'a mut serde_json::Value, id: &str) -> &'a mut serde_json::Value {
     syntax_module_mut(json)["sentences"]
         .as_array_mut()
         .unwrap()
         .iter_mut()
         .find(|sentence| {
-            sentence["sentence_kind"] == "production"
-                && sentence["sentence"]["symbol"]["id"] == id
+            sentence["sentence_kind"] == "production" && sentence["sentence"]["symbol"]["id"] == id
         })
         .unwrap()
 }
@@ -746,8 +776,7 @@ fn production_mut<'a>(
 #[test]
 fn rejects_regex_without_classified_token_metadata() {
     let mut json = expression_json();
-    production_mut(&mut json, "production.id")["sentence"]["attributes"] =
-        serde_json::json!([]);
+    production_mut(&mut json, "production.id")["sentence"]["attributes"] = serde_json::json!([]);
     assert!(serde_json::from_value::<DefinitionIr>(json).is_err());
 }
 
@@ -761,7 +790,10 @@ fn rejects_strictness_for_an_unknown_field() {
         .iter_mut()
         .find(|attribute| attribute["attribute_kind"] == "strictness")
         .unwrap();
-    strictness["fields"] = serde_json::json!(["missing"]);
+    strictness["fields"] = serde_json::json!([{
+        "origin": serde_json::to_value(node("production.add.seqstrict.missing")).unwrap(),
+        "field": "missing"
+    }]);
     assert!(serde_json::from_value::<DefinitionIr>(json).is_err());
 }
 
@@ -822,7 +854,9 @@ fn rejects_wrong_builtin_signature_and_raw_or_adapter_attributes() {
         .as_array_mut()
         .unwrap()
         .iter_mut()
-        .find(|sentence| sentence["sentence_kind"] == "rule" && sentence["sentence"]["label"]["id"] == "rule.neg")
+        .find(|sentence| {
+            sentence["sentence_kind"] == "rule" && sentence["sentence"]["label"]["id"] == "rule.neg"
+        })
         .unwrap();
     neg["sentence"]["body"]["to"]["arguments"][0]["sort"] =
         serde_json::json!({"sort_source": "builtin", "sort": "bool"});
