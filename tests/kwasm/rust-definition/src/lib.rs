@@ -2,7 +2,7 @@
 //!
 //! The source mapping is pinned in `../../../draft/readability/kwasm/README.md`.
 //! This definition preserves `KWasm`'s constant normalization, value transfer,
-//! operand loading, and functional arithmetic stages.
+//! operand loading, functional arithmetic, and division traps.
 
 use k::KResult;
 use k::builtin::{Int, KSequence, int};
@@ -26,7 +26,7 @@ pub enum IntegerType {
 }
 
 #[k::constructors(sort = IBinOp, result = KResult)]
-#[k::precedence((Add, Sub, Mul))]
+#[k::precedence((Add, Sub, Mul, DivU))]
 pub enum IntegerBinOp {
     #[k::syntax("add")]
     Add,
@@ -34,13 +34,17 @@ pub enum IntegerBinOp {
     Sub,
     #[k::syntax("mul")]
     Mul,
+    #[k::syntax("div_u")]
+    DivU,
 }
 
 #[k::constructors(sort = Val, result = KResult)]
-#[k::precedence((Integer))]
+#[k::precedence((Integer, Undefined))]
 pub enum Value {
     #[k::syntax("< {ty} > {value}")]
     Integer { ty: IValType, value: Int },
+    #[k::syntax("undefined")]
+    Undefined(),
 }
 
 #[k::constructors(sort = ValStack, result = KResult)]
@@ -53,12 +57,14 @@ pub enum Stack {
 }
 
 #[k::constructors(sort = Instr, result = KResult)]
-#[k::precedence((Const, Binary))]
+#[k::precedence((Const, Binary, Trap))]
 pub enum Instruction {
     #[k::syntax("{ty}.const {value}")]
     Const { ty: IValType, value: Int },
     #[k::syntax("{ty}.{op}")]
     Binary { ty: IValType, op: IBinOp },
+    #[k::syntax("trap")]
+    Trap(),
 }
 
 /// A concrete right-recursive program list, corresponding to `KWasm`'s `Instrs`.
@@ -144,6 +150,18 @@ fn mul(k::term![IntBinOp(ty, IntegerBinOp::Mul, lhs, rhs)]: k::Term<Val>) -> k::
     k::term![Chop(ty, int::mul(lhs, rhs))]
 }
 
+#[k::requires(int::ne(rhs, 0))]
+#[k::equation]
+fn div_u(k::term![IntBinOp(ty, IntegerBinOp::DivU, lhs, rhs)]: k::Term<Val>) -> k::Term<Val> {
+    k::term![Value::Integer(ty, int::div(lhs, rhs))]
+}
+
+#[k::requires(int::eq(rhs, 0))]
+#[k::equation]
+fn div_u_zero(k::term![IntBinOp(_, IntegerBinOp::DivU, _, rhs)]: k::Term<Val>) -> k::Term<Val> {
+    k::term![Value::Undefined()]
+}
+
 /// The two operational cells selected from `KWasm`'s `<wasm>` configuration.
 #[k::configuration]
 pub struct Machine {
@@ -202,6 +220,12 @@ k::rules! {
         instrs: [crate::Chop(IntegerType::I64, int::add(value, 18_446_744_073_709_551_616),), ..],
     }
     where value: Int;
+
+    undefined_traps: {
+        instrs: [Value::Undefined(), ..],
+    } => {
+        instrs: [Trap(), ..],
+    };
 
     load_binary_i32: {
         instrs: [Binary(IntegerType::I32, op), ..],
@@ -304,6 +328,12 @@ mod tests {
         assert!(source.contains("load-binary-i32"));
         assert!(source.contains("load-binary-i64"));
         assert!(source.contains("# kwasmIntBinOp"));
+        assert!(source.contains("div_u"));
+        assert!(source.contains("=> undefined"));
+        assert!(source.contains("undefined-traps"));
+        assert!(source.contains("=/=Int"));
+        assert!(source.contains("==Int"));
+        assert!(source.contains("trap"));
         assert!(source.contains("4294967296"));
         assert!(source.contains("18446744073709551616"));
     }

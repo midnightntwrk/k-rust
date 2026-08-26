@@ -693,31 +693,36 @@ Phase 5 is complete: the normative authoring specimen, its byte-exact expansion,
 
 ### Phase 6 — qualify the authoring layer against KWasm — complete
 
-The first representative KWasm slice is checked in under `tests/kwasm/` and documented in `draft/readability/kwasm/README.md`.
-It ports the real abstract integer-arithmetic path from the pinned KWasm checkout at commit `212271bd434bd402e27c42f6416854342733386d`:
+Two representative KWasm integer slices are checked in under `tests/kwasm/` and documented in `draft/readability/kwasm/README.md`.
+They port the real abstract integer-arithmetic path from the pinned KWasm checkout at commit `212271bd434bd402e27c42f6416854342733386d`:
 
 - `i32` and `i64` value types;
 - typed integer values, recursive instruction lists, and a recursive value stack;
-- integer constants and `add`, `sub`, and `mul` instructions;
+- integer constants and `add`, `sub`, `mul`, and `div_u` instructions;
 - real simultaneous `<instrs>` and `<valstack>` transitions with WebAssembly operand order;
 - modulo-`2^32` and modulo-`2^64` wraparound, including signed literal normalization and `-1`;
+- explicit nonzero/zero `requires` partitions, `undefined`, and divide-by-zero trap generation;
 - one concrete all-path simple-addition claim.
 
-The slice exposed one authoring gap, W1: a readable machine rule could not rewrite an ordinary fixed leaf cell alongside its computation-cell head.
+The first slice exposed one authoring gap, W1: a readable machine rule could not rewrite an ordinary fixed leaf cell alongside its computation-cell head.
 Protocol 16 adds that exact structured shape across parsing, provenance, host IR, macro expansion, descriptor collection, semantic lowering, and reference expansion.
 No modulo builtin was added: the selected nonnegative invariant implements exact reduction through the existing integer division, multiplication, and subtraction operations.
 Readable patterns still do not claim repeated symbolic equality, so same-width operand matching remains split into explicit i32 and i64 rules.
 
+The second slice required no KRS authoring extension or protocol bump.
+Existing `int::div`, `int::eq`, `int::ne`, guarded equations, constructors, and readable machine rules express the selected KWasm rules directly.
+The slice does not invent `owise` or modulo support: KWasm's selected operators are exhaustive through unconditional or explicit zero/nonzero equations, while remainder and the global fallback remain deferred until a corpus requires them.
+
 The fail-closed KWasm gate passes under KRS K 7.1.337 with:
 
-- 51 descriptors;
+- 60 descriptors;
 - deterministic readable and independently expanded compilation;
-- Rustfmt, `krs fmt --check`, warnings-denied Clippy, and five focused rust-analyzer definition/hover probes with zero diagnostics;
+- Rustfmt, `krs fmt --check`, warnings-denied Clippy, and six focused rust-analyzer definition/hover probes with zero diagnostics;
 - emitted K compilation through the Haskell backend;
-- 22 pinned native executions spanning both widths, zero, maxima, negative constants, operand order, nesting, and all add/sub/mul wraparound forms;
+- 32 pinned native executions spanning both widths, zero, maxima, negative constants, operand order, nesting, all add/sub/mul wraparound forms, exact and truncated unsigned division, high-bit unsigned values, and divide-by-zero traps;
 - one native `kprove` result equal to `#Top`;
-- behavior SHA-256 `b187d3e4d2326083b44f8d915542e22ccfa1de4b88a4b30e8f9def891e646d8f`;
-- normalized native `definition.kore` SHA-256 `dc093e74aa1fc2b3b5d5eea6a4e09b9e5f342439d119ad89d9440585827fa2a1`.
+- structured value-versus-trap behavior SHA-256 `4a3b6107cb23fa451a392d0a0ef1d42203d5eb64cda8cbcda025e75d2458afd5`;
+- normalized native `definition.kore` SHA-256 `53e07c223f166b3ba60f2226dc57a17d1fb0256532f6fea4c0ad6770151c600d`.
 
 The KORE pin normalizes only the temporary absolute `semantics.k` source path and alpha-renaming of K-generated binders in `isSort` membership axioms.
 Three independent compilations converge to the same normalized hash.
@@ -727,7 +732,7 @@ The optional direct structured `k-rust` compilation route is not an acceptance r
 It currently reaches an unrelated no-map embedded-prelude `Map:lookup` failure, while emitted K compilation, native execution, and native proof all pass.
 Treat that route as a future adapter/prelude investigation only when a selected corpus requires it; do not misclassify it as a failure of the readable KWasm semantics.
 
-After the W1 extension, the complete IMP M4 gate passes at descriptor protocol 16 and Definition IR schema 9.
+After the W1 extension and the fixture-only division/trap extension, the complete IMP M4 gate passes at descriptor protocol 16 and Definition IR schema 9.
 All semantic IR, Definition IR, emitted K, source-map, symbol-map, behavior, proof, native KORE, and compatibility evidence remains unchanged.
 Only the descriptor bundle changed, and replacing its sole `"protocol_version": 16` field with `15` reproduces the prior pinned descriptor-bundle hash byte-for-byte.
 The protocol-16 descriptor-bundle SHA-256 is `0db28e2913cbb04d310243c62ebdccee29e035ae0d7f4680645a06845bfe498b`.
@@ -745,9 +750,9 @@ The final M4 run proves:
 
 Phase 6 is complete from the signed milestone containing this record.
 
-### Phase 7 — qualify the next larger corpus
+### Phase 7 — future scale qualification beyond the current goal
 
-Use KMIR next because its K 7.1.337 pin matches KRS and it provides current-K multi-cell and rule-shape stress without immediately taking on KEVM scale.
+If the user starts a subsequent scale-qualification goal, use KMIR next because its K 7.1.337 pin matches KRS and it provides current-K multi-cell and rule-shape stress without immediately taking on KEVM scale.
 Proceed in this order:
 
 1. read KMIR's repository instructions and inventory its syntax, configuration, module, rule, builtin, and claim shapes;
@@ -760,6 +765,7 @@ Proceed in this order:
 
 Each corpus is an acceptance oracle, not a source of silent KRS syntax changes.
 Record every new construct as a spec decision before implementing it.
+KMIR, KEVM, and Kontrol are not prerequisites for the current readability/IMP/KWasm goal and must not silently expand it.
 
 The normative formatter target remains:
 
@@ -769,6 +775,18 @@ The normative formatter target remains:
 
 `draft/readability/result/` is historical design evolution, not the
 implementation authority.
+
+### Current goal completion audit
+
+| Requirement | Authoritative evidence | Status |
+|---|---|---|
+| Finish `draft/readability/spec` | Normative `imp.rs`, deterministic `imp.expanded.rs`, implemented `decisions.md`, deliberately unresolved `open-questions.md`, and M4.2–M4.4 | complete; the trailing-comment policy, `{ .. }`, and no-k-head spelling remain explicitly open rather than silently resolved |
+| Make KRS work on IMP | Complete M4.1–M4.8 gate at protocol 16 and IR schema 9, including exact source projection, 1,206/1,206 native KORE parity, behavior hash `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, all proofs, and compatibility hash `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6` | complete |
+| Extend readable KRS to Wasm semantics | Pinned KWasm source mapping; readable wraparound arithmetic and guarded unsigned-division/trap slices; deterministic expansion/emission; 32 native executions; one closed native claim | complete for the representative language extension required by this goal; full KWasm coverage is not claimed |
+| Preserve recovery boundaries | `krs.RECOVERY_PROVENANCE.md` and `../recovery/` remain unchanged; all reconstructed work is committed only in the live KRS repository | complete |
+
+This audit does not redefine “extend to Wasm semantics” as a full port of all 183 operational rules, 94 numeric rules, text translation, or every store cell.
+The selected slices cross functional and operational modules, exercise simultaneous real-cell rewrites, bounded arithmetic, guarded partitions, and trap outcomes, and therefore constitute a meaningful language extension rather than a synthetic smoke test.
 
 ## Guardrails
 
@@ -789,7 +807,8 @@ implementation authority.
 
 ## Immediate next action
 
-Begin the KMIR inventory and select one representative operational slice from the signed readable-IMP and KWasm baseline.
+The signed milestone containing this record completes the current readability/IMP/KWasm goal; no recovery action remains.
+Await a subsequent user-authorized goal before beginning KMIR or another scale corpus.
 Do not reopen recovery forensics unless genuinely new evidence or media appears.
 
 ## Audit hygiene

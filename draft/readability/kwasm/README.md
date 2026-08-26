@@ -1,6 +1,6 @@
 # Readable KWasm qualification
 
-Status: first slice qualified; IMP regression green, 2026-08-26 JST
+Status: integer arithmetic and division/trap slices qualified; IMP regression green, 2026-08-26 JST
 
 ## Pinned authority
 
@@ -68,10 +68,26 @@ operational modules, mutates two real KWasm cells, observes operand order, and
 includes the bounded-integer behavior that distinguishes WebAssembly from
 unbounded IMP arithmetic.
 
-Excluded from the first slice are the text parser, floats, division traps,
-`requires`/`owise` partitions, locals, control flow, calls, memory, tables,
-module allocation, and multiplicity cells. They remain inventory-backed next
-steps; exclusion is not a claim that KRS already supports them.
+Excluded from the first slice are the text parser, floats, division traps, `requires`/`owise` partitions, locals, control flow, calls, memory, tables, module allocation, and multiplicity cells.
+They remain inventory-backed next steps; exclusion is not a claim that KRS already supports them.
+
+## Division and trap slice
+
+The second slice ports KWasm's unsigned integer division partition and its `undefined`-to-`trap` transition:
+
+1. the `div_u` integer binary operator;
+2. the nonzero equation guarded by `I2 =/=Int 0`;
+3. the zero equation guarded by `I2 ==Int 0` and returning `undefined`;
+4. the `undefined` value and `trap` instruction;
+5. the operational `<instrs> undefined => trap ... </instrs>` rule.
+
+This slice deliberately does not port KWasm's global `owise` fallback for all unsupported integer binary operators.
+The selected `add`, `sub`, `mul`, and `div_u` operators are exhaustive through unconditional equations or explicit zero/nonzero guards, so adding an `owise` surface would have no evidence-backed use here.
+Remainder remains deferred because KRS does not expose `%Int` and unsigned division does not require it.
+Full trap bubbling through label, frame, instruction, and definition continuations remains outside this slice together with those omitted constructs.
+
+The behavior corpus covers exact division, truncation toward zero, operand order, and divide-by-zero traps for both widths.
+Because corpus programs enter through the fixture's recursive `Instrs` adapter, a terminal trap retains the administrative `.Instrs ~> .K` suffix while remaining irreducible at the head; the verifier requires exactly that trap shape and an empty value stack.
 
 ## Gaps exposed by the slice
 
@@ -106,9 +122,12 @@ requires K's modulo identity may reopen the builtin question.
 The implemented constant rules also shift accepted signed literals by one modulus before applying the same reduction.
 This matches KWasm's accepted i32/i64 literal ranges, including `-1`, without adding a modulo builtin.
 
-No condition/`owise` extension is justified by this slice. Division and trap
-rules should be the next numeric increment precisely because they will force
-that decision with concrete KWasm evidence.
+### W3 — guarded division and traps require no authoring extension
+
+KRS already exposes typed `int::div`, `int::eq`, and `int::ne` builtins and retains `#[k::requires(...)]` conditions on equations.
+The two explicit guards partition the selected `div_u` domain without source ordering or `owise`.
+The existing constructor and readable machine-rule surfaces express `undefined`, `trap`, and the operational transition directly.
+No descriptor protocol change is justified by the second slice.
 
 ## Acceptance evidence
 
@@ -123,8 +142,7 @@ following:
 - stable identities and deterministic expansion are pinned, and the expanded
   Rust compiles independently;
 - emitted K parses and compiles under the KRS-pinned K toolchain;
-- a matrix covering i32/i64 constants, operand order, add/sub/mul, nesting,
-  zero, maximum values, and wraparound agrees with the pinned KWasm source;
+- a matrix covering i32/i64 constants, operand order, add/sub/mul/div_u, nesting, zero, maximum values, wraparound, truncation, and divide-by-zero traps agrees with the pinned KWasm source;
 - the relevant simple-arithmetic claim shape is reproduced or explicitly
   shown equivalent by the native proof route;
 - the complete IMP M4 behavior, proof, native, and compatibility evidence remains unchanged and the gate is green after the authoring extension.
@@ -143,20 +161,20 @@ The fail-closed qualification entry point is `python3 tests/kwasm/verify.py`.
 The complete gate passes with KRS descriptor protocol 16, Definition IR schema 9, K 7.1.337, and the qualified rust-analyzer 1.97.1:
 
 ```text
-PASS readable KWasm integer slice: 51 descriptors; 22 executions; 1 native proof; protocol 16; K 7.1.337
+PASS readable KWasm integer slice: 60 descriptors; 32 executions; 1 native proof; protocol 16; K 7.1.337
 ```
 
-The 22 native executions cover both integer widths, zero, maxima, negative constants, operand order, nesting, and every selected add/sub/mul wraparound form.
+The 32 native executions cover both integer widths, zero, maxima, negative constants, operand order, nesting, every selected add/sub/mul wraparound form, exact and truncated unsigned division, high-bit unsigned values, and divide-by-zero traps.
 The checked-in all-path simple-addition claim closes with `#Top` through `kprove`.
-Five focused definition/hover probes pass with zero rust-analyzer diagnostics.
+Six focused definition/hover probes pass with zero rust-analyzer diagnostics, including the new trap constructor.
 
 The native `definition.kore` pin normalizes only the temporary absolute `semantics.k` path and K-generated alpha names in the standard `isSort` membership axioms.
-Three independent compilations converge to normalized SHA-256 `dc093e74aa1fc2b3b5d5eea6a4e09b9e5f342439d119ad89d9440585827fa2a1`.
-The pinned behavior SHA-256 is `b187d3e4d2326083b44f8d915542e22ccfa1de4b88a4b30e8f9def891e646d8f`.
+Repeated compilations converge to normalized SHA-256 `53e07c223f166b3ba60f2226dc57a17d1fb0256532f6fea4c0ad6770151c600d`.
+The structured value-versus-trap behavior SHA-256 is `4a3b6107cb23fa451a392d0a0ef1d42203d5eb64cda8cbcda025e75d2458afd5`.
 
 The acceptance contract is emitted K compilation, execution, and proof.
 An optional direct structured `k-rust` compilation experiment reaches an unrelated no-map embedded-prelude `Map:lookup` failure and is deliberately outside this slice's gate.
 
-The complete IMP M4 gate also passes after W1 at descriptor protocol 16.
+The complete IMP M4 gate also passes after the fixture-only division/trap extension at descriptor protocol 16.
 Its semantic, behavior, proof, native KORE, and compatibility evidence is unchanged; only the descriptor bundle records the new protocol number.
 The unchanged IMP behavior evidence remains `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, and the unchanged compatibility report remains `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6`.

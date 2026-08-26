@@ -154,8 +154,10 @@ bug — report it, don't guess.
   configuration struct and the layer-2 expansion nearly 1:1 (truest to
   mechanism; easiest to debug). A cell in the pattern but absent from the
   result is unchanged (framed) — the invisible-frame convention is
-  accepted, mitigated by documentation (the Verus precedent). Multi-cell
-  rules are laid out multi-line, one cell per line (single-cell table
+  accepted, mitigated by documentation (the Verus precedent).
+  A non-computation leaf cell may carry an ordinary constructor or literal pattern plus an ordinary replacement term; such a fixed-leaf rewrite must name the cell on both sides.
+  This is the protocol-16 W1 extension qualified by KWasm's `<valstack>` operand-loading rules; it preserves the distinct framed-map forms and does not imply repeated symbolic equality in patterns.
+  Multi-cell rules are laid out multi-line, one cell per line (single-cell table
   clauses stay one-liners) — **conditional on `krs fmt` enforcing the
   layout (F1)**; the recorded fallback if that ever fails is the
   trailing-per-cell-clause form (14 §C/D). Costs accepted knowingly: no

@@ -1,8 +1,8 @@
 schema = 1
-corpus_sha256 = "f8cfe5c930b7901cf2c669c8ac41b6a76ef1450a74bea38b4e35f1896a456ab9"
-expansion_sha256 = "2f0f83c4a19483bcd373e3656e38c2ba050f47d44379a83ef71a24b484329b0f"
-behavior_sha256 = "b187d3e4d2326083b44f8d915542e22ccfa1de4b88a4b30e8f9def891e646d8f"
-definition_kore_sha256 = "dc093e74aa1fc2b3b5d5eea6a4e09b9e5f342439d119ad89d9440585827fa2a1"
+corpus_sha256 = "1c87b15baef19c0429fed9fb694d3763f8057a3215857c16b92aec04a60484e2"
+expansion_sha256 = "30d67e41de850d425a83e1c5cba6fa98b81835fef88d8caf8b02ff38b5483f13"
+behavior_sha256 = "4a3b6107cb23fa451a392d0a0ef1d42203d5eb64cda8cbcda025e75d2458afd5"
+definition_kore_sha256 = "53e07c223f166b3ba60f2226dc57a17d1fb0256532f6fea4c0ad6770151c600d"
 
 [schemas]
 descriptor_protocol = 16
@@ -25,13 +25,13 @@ commit = "212271bd434bd402e27c42f6416854342733386d"
 "crates/krs-macros/src/expand.rs" = "a4e3d56f6b6fb3877e53f17204311e5acc0447d7b8a9bfb297c3399183f4b9d3"
 "crates/krs-syntax/src/rule.rs" = "18ce94f079887150675156d47140e1753cd57d3c7e51d0f1c3f6979dfc82c6fe"
 "crates/krs-syntax/tests/rule_blocks.rs" = "bdb7fb933b21da22665d54c124524f0fe06a55799cdc9a21f5327747ecda7c6d"
-"draft/readability/kwasm/README.md" = "154dbefa320a8b94be26089251af6f61f8e4924a832af2a50797aa0246b76a8b"
-"tests/kwasm/corpus.toml" = "f8cfe5c930b7901cf2c669c8ac41b6a76ef1450a74bea38b4e35f1896a456ab9"
-"tests/kwasm/lsp_probe.py" = "6f5609ec0e2c80458926e0254db4d9d33e7128d9823df2a49e1d6758082d0147"
+"draft/readability/kwasm/README.md" = "40cbf503383552089a1f09932c8bedc28505fef5c8d3ede6a6ccb7702659d8a5"
+"tests/kwasm/corpus.toml" = "1c87b15baef19c0429fed9fb694d3763f8057a3215857c16b92aec04a60484e2"
+"tests/kwasm/lsp_probe.py" = "12ddb51af17222f7a97eee92da4d5b55de4dbef6410bf970b85726b7b512aa40"
 "tests/kwasm/rust-definition/Cargo.lock" = "ea7f5ad1a6c375be091b0cdb0e11ae5a10851e81471374786ce3d97a4f136401"
 "tests/kwasm/rust-definition/Cargo.toml" = "17bf40e85360a952627df99ac11a89202023abd0c7875a123fafedc195c7f5f8"
-"tests/kwasm/rust-definition/src/lib.rs" = "75d1bf1fdb17c6442e5b4f998021d1dfbe2b7e625b1060741c9a35f02c391338"
-"tests/kwasm/verify.py" = "dd85aee7037ccfdd7a76353a61f67852e8e42d36b39432929832b3598115c35a"
+"tests/kwasm/rust-definition/src/lib.rs" = "66cfe1c39a8f7790014947cd98f37252abb3ded76856555e55b9df151a20b9e5"
+"tests/kwasm/verify.py" = "ac8a0f7c75b906b2590290c1d89d280545ce13bef3fcf04234a48277894ca402"
 
 [external_sha256]
 "pykwasm/src/pykwasm/kdist/wasm-semantics/wasm-data.md" = "0dd08060ffe9a2e50a30da7a2370b28b3f84b7c626bc3df54ec46b328426a424"
@@ -42,9 +42,9 @@ commit = "212271bd434bd402e27c42f6416854342733386d"
 
 [artifact_sha256]
 ".krs-artifacts" = "4992e03ec15408f887a401455c9f719384c6d5bb69e661487f91abe576ceb1b5"
-"definition-ir.json" = "2d5f1f177acfbff836b57e1008530d8b323217c6d903a9889473f34754004138"
-"definition.k" = "7ef4eafde7b728165b530fed250a8531deeb04606e79405adb2b4c3d966e554a"
-"descriptor-bundle.json" = "6a0761315448282aad46ab5e81b1869f62f14318972deedbb45bdd085c569820"
-"semantic-ir.json" = "582db737ed89344783503d43f091f3a63ae05e20911ad99fb6d91b69fb5a57c9"
-"sources.json" = "e277c8af84506db10a79451fa4e0b777464c5b6eaf2dd901c558c1599a0ae724"
-"symbols.json" = "5f66064008b59852a2767538d9b2ae18b83266ac8e9e940da9c13ba3fc4f31f3"
+"definition-ir.json" = "93c2938f57e1cdae3f5450847a86618e00c5b7ffdf1acc34889ba50c1aa3baa3"
+"definition.k" = "8da39f3d2c01629b23f8d5b1efe937ad302bf9110fd45402351a7b258b13ec38"
+"descriptor-bundle.json" = "c0efb13c3fbb93fb6245535e963b159fb6e5d05c0e2ff08024073f1167400440"
+"semantic-ir.json" = "7d1be0208381f4c482fd7a9af041741d020b218bf81f4a59ba4e2e202b5c6a0e"
+"sources.json" = "e308a71f41c682ac936a9e3e64c56bcfcab10bd7491f6cb24916a01848c132d9"
+"symbols.json" = "c289df5c05424add4a1231b731f8247228cbc5f186f698f0154c1e5b527353be"

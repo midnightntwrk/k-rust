@@ -35,7 +35,8 @@ The production acceptance specimen is `tests/m4/rust-definition/src/imp.rs`.
 
 The only unresolved IMP formatter presentation choice is the trailing-clause-comment policy: aligned comment column or fixed two-space gutter.
 Both behaviors have stable snapshots; `aligned` is the current provisional default pending the explicit decision in `open-questions.md` §4.
-The next qualification target is a representative readable KWasm port, which must expose any remaining language-scale gaps rather than reopening implemented IMP decisions.
+Two representative readable KWasm integer slices are qualified: wraparound arithmetic first exposed ordinary fixed-leaf-cell rewrites, while guarded unsigned division and traps required no additional authoring syntax.
+Further qualification must target genuinely unsupported language-scale dimensions such as locals, structured control flow, memory, or multiplicity without reopening implemented IMP decisions or silently resolving `open-questions.md`.
 
 ## Acceptance oracles
 
@@ -45,6 +46,7 @@ The next qualification target is a representative readable KWasm port, which mus
 - **The four method gates** (F3): LSP goldens, byte-exact provenance
   re-parse, frozen `ProvenanceRole` seam, stable identities.
 - **Formatter invariants** (F1): `krs_fmt` is idempotent, output re-parses, the ordered comment and DSL token payloads survive, `rustfmt(krs_fmt(x)) == krs_fmt(x)`, the readable corpus is fixed, and label-renaming edit stability is pinned.
+- **Cross-language qualification**: `tests/kwasm/verify.py` pins the external KWasm revision and source mapping, deterministically compiles the readable and expanded Rust routes, compiles emitted K, executes both value and trap outcomes, and closes a native claim.
 - **Density**: `imp.rs` contains 139 non-comment, nonblank lines against K's 108 (~1.3× K).
   A construct change that materially regresses this ratio requires an explicit decision.
 

@@ -353,7 +353,7 @@ def artifact_gate(
         DEFINITION,
     ]
     check = run([krs, "check", *base], environment=environment)
-    if "51 descriptors" not in check.stdout:
+    if "60 descriptors" not in check.stdout:
         raise GateError(f"unexpected descriptor count: {check.stdout.strip()}")
     expansions = [run([krs, "expand", *base], environment=environment).stdout for _ in range(2)]
     if expansions[0] != expansions[1]:
@@ -461,6 +461,9 @@ def native_gate(
     outcomes: list[dict[str, str]] = []
     for case in behavior:
         case_id = str(case["id"])
+        expected_outcome = str(case.get("expected_outcome", "value"))
+        if expected_outcome not in {"trap", "value"}:
+            raise GateError(f"{case_id} has an unsupported expected outcome")
         result = run(
             [
                 k_bin / "krun",
@@ -473,20 +476,39 @@ def native_gate(
             ],
             timeout=120,
         ).stdout
-        if not re.search(r"<instrs>\s*\.K\s*</instrs>", result):
-            raise GateError(f"{case_id} did not finish its instruction stream: {result}")
-        match = re.search(
-            r"<valstack>\s*<\s*(i32|i64)\s*>\s*(-?[0-9]+)\s*:\s*\.ValStack\s*</valstack>",
-            result,
-        )
-        if match is None:
-            raise GateError(f"{case_id} has an unexpected value stack: {result}")
-        observed = {"id": case_id, "type": match.group(1), "value": match.group(2)}
-        expected = {
-            "id": case_id,
-            "type": str(case["expected_type"]),
-            "value": str(case["expected_value"]),
-        }
+        if expected_outcome == "trap":
+            if not re.search(
+                r"<instrs>\s*trap\s*~>\s*\.Instrs\s*~>\s*\.K\s*</instrs>",
+                result,
+            ):
+                raise GateError(f"{case_id} did not finish with a trap: {result}")
+            if not re.search(r"<valstack>\s*\.ValStack\s*</valstack>", result):
+                raise GateError(f"{case_id} trapped with an unexpected stack: {result}")
+            observed = {"id": case_id, "outcome": "trap"}
+            expected = {"id": case_id, "outcome": "trap"}
+        else:
+            if not re.search(r"<instrs>\s*\.K\s*</instrs>", result):
+                raise GateError(
+                    f"{case_id} did not finish its instruction stream: {result}"
+                )
+            match = re.search(
+                r"<valstack>\s*<\s*(i32|i64)\s*>\s*(-?[0-9]+)\s*:\s*\.ValStack\s*</valstack>",
+                result,
+            )
+            if match is None:
+                raise GateError(f"{case_id} has an unexpected value stack: {result}")
+            observed = {
+                "id": case_id,
+                "outcome": "value",
+                "type": match.group(1),
+                "value": match.group(2),
+            }
+            expected = {
+                "id": case_id,
+                "outcome": "value",
+                "type": str(case["expected_type"]),
+                "value": str(case["expected_value"]),
+            }
         if observed != expected:
             raise GateError(f"{case_id} differs: expected={expected}, actual={observed}")
         outcomes.append(observed)
@@ -548,7 +570,7 @@ def main() -> int:
         print("all observed values matched their pins")
     print(
         "PASS readable KWasm integer slice: "
-        f"51 descriptors; {behavior_count} executions; {proof_count} native proof; "
+        f"60 descriptors; {behavior_count} executions; {proof_count} native proof; "
         f"protocol {pins['schemas']['descriptor_protocol']}; K {pins['k']['version']}"
     )
     return 0

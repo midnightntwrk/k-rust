@@ -247,6 +247,12 @@ def main() -> None:
                 "rhs",
                 "valstack: Stack::Cons(Value::Integer(IntegerType::I32, rhs)",
             ),
+            (
+                "trap constructor",
+                "instrs: [Trap(), ..]",
+                "Trap",
+                "    Trap(),",
+            ),
         ]
         counts: dict[str, int] = {}
         for name, fragment, needle, target_fragment in probes:

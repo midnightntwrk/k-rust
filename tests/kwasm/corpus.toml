@@ -2,15 +2,15 @@ schema = 1
 
 [[source_evidence]]
 path = "pykwasm/src/pykwasm/kdist/wasm-semantics/wasm-data.md"
-contract = "IValType, IVal, ValStack, integer bounds, and chop"
+contract = "IValType, IVal, ValStack, undefined, integer bounds, and chop"
 
 [[source_evidence]]
 path = "pykwasm/src/pykwasm/kdist/wasm-semantics/numeric.md"
-contract = "IBinOp and add, sub, and mul equations"
+contract = "IBinOp and add, sub, mul, and guarded div_u equations"
 
 [[source_evidence]]
 path = "pykwasm/src/pykwasm/kdist/wasm-semantics/wasm.md"
-contract = "Instrs, integer instructions, configuration cells, value transfer, and operand loading"
+contract = "Instrs, integer instructions, configuration cells, value transfer, operand loading, and trap generation"
 
 [[source_evidence]]
 path = "tests/simple/arithmetic.wast"
@@ -151,3 +151,61 @@ id = "i64-mul-wrap"
 program = "i64.const 18446744073709551615 ; i64.const 18446744073709551615 ; i64.mul ; .Instrs"
 expected_type = "i64"
 expected_value = "1"
+
+[[behavior]]
+id = "i32-div-u"
+program = "i32.const 84 ; i32.const 2 ; i32.div_u ; .Instrs"
+expected_type = "i32"
+expected_value = "42"
+
+[[behavior]]
+id = "i64-div-u"
+program = "i64.const 126 ; i64.const 3 ; i64.div_u ; .Instrs"
+expected_type = "i64"
+expected_value = "42"
+
+[[behavior]]
+id = "i32-div-u-operand-order"
+program = "i32.const 3 ; i32.const 5 ; i32.div_u ; .Instrs"
+expected_type = "i32"
+expected_value = "0"
+
+[[behavior]]
+id = "i64-div-u-operand-order"
+program = "i64.const 3 ; i64.const 5 ; i64.div_u ; .Instrs"
+expected_type = "i64"
+expected_value = "0"
+
+[[behavior]]
+id = "i32-div-u-truncation"
+program = "i32.const 7 ; i32.const 2 ; i32.div_u ; .Instrs"
+expected_type = "i32"
+expected_value = "3"
+
+[[behavior]]
+id = "i64-div-u-truncation"
+program = "i64.const 7 ; i64.const 2 ; i64.div_u ; .Instrs"
+expected_type = "i64"
+expected_value = "3"
+
+[[behavior]]
+id = "i32-div-u-unsigned-maximum"
+program = "i32.const 4294967295 ; i32.const 2 ; i32.div_u ; .Instrs"
+expected_type = "i32"
+expected_value = "2147483647"
+
+[[behavior]]
+id = "i64-div-u-unsigned-maximum"
+program = "i64.const 18446744073709551615 ; i64.const 2 ; i64.div_u ; .Instrs"
+expected_type = "i64"
+expected_value = "9223372036854775807"
+
+[[behavior]]
+id = "i32-div-u-zero"
+program = "i32.const 7 ; i32.const 0 ; i32.div_u ; .Instrs"
+expected_outcome = "trap"
+
+[[behavior]]
+id = "i64-div-u-zero"
+program = "i64.const 7 ; i64.const 0 ; i64.div_u ; .Instrs"
+expected_outcome = "trap"
