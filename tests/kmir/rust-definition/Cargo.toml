@@ -1,0 +1,36 @@
+[package]
+name = "krs-kmir-operational-slice"
+description = "Readable KRS qualification slice for KMIR block execution"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[lib]
+name = "krs_kmir_operational_slice"
+path = "src/lib.rs"
+
+[dependencies]
+k = { package = "krs", path = "../../../crates/krs" }
+
+[dev-dependencies]
+krs-compiler = { path = "../../../crates/krs-compiler" }
+krs-ir = { path = "../../../crates/krs-ir" }
+serde_json = "1"
+
+[package.metadata.krs]
+k-namespace = "KRS-KMIR-OPERATIONAL-SLICE"
+
+[package.metadata.krs.definitions.main]
+root = "crate"
+syntax-root = "crate"
+
+[workspace]
+resolver = "3"
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"

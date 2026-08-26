@@ -2243,7 +2243,7 @@
     "crates/krs-compiler/src/lib.rs": "04de917f6fa2fe71c9f094e323b70245409a91d1e1b921e9d0dbd64a8d185888",
     "crates/krs-compiler/src/lowering.rs": "765912f9cff35e7e578be6ef68232bca70463a026c4eb5cd068ca5fd81b799ab",
     "crates/krs-compiler/src/overlap.rs": "dac2da9429565306839689b595a1a7bdadb913bca51282bdfdc3f08318ca26c7",
-    "crates/krs-compiler/src/reference.rs": "54c474be2afa3a3d1650acf71771a55f25df406aac66cf41479d9e26095ff47b",
+    "crates/krs-compiler/src/reference.rs": "9cc251470c7211a0c95a905799ec12a32ca4c0f45b04d252835f49c38b21727d",
     "crates/krs-compiler/src/semantic.rs": "cfc63708b1116e61ac71a8a2372bd8f33ea0cf5b7c6e646f66bd1c245f28e76a",
     "crates/krs-compiler/src/sidecar.rs": "da141be851a3c7e1e65ef1d0ca5a7184c7816ae071e3586b63e3463d476626be",
     "crates/krs-compiler/tests/collection.rs": "a1fd6595573557cbd860529ae428998146f36acfb8de3dfa37567057350df5d4",

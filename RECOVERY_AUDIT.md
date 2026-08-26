@@ -781,24 +781,29 @@ one native all-path claim closing with `#Top`. The behavior hash is
 normalized KORE hash is
 `672953aa73dbcce4aa15aae8e663e1a42e86d12816e6a16a21d4966edb7e5a04`.
 
-### Phase 8 — KMIR scale qualification — next
+### Phase 8 — readable KMIR operational milestone — complete
 
-With the user-requested KEVM milestone green, use KMIR next because its K
-7.1.337 pin matches KRS and it provides current-K control-flow, nested-state,
-and rule-shape stress distinct from both KWasm and the selected KEVM slice.
-Proceed in this order:
+The first KMIR milestone is checked in under `tests/kmir/` and documented in `draft/readability/kmir/README.md`.
+It pins the clean KMIR checkout at `4d793252bcd77091ee759ca6cd1629db41ed5496`, whose K 7.1.337 release exactly matches KRS.
 
-1. read KMIR's repository instructions and inventory its syntax, configuration, module, rule, builtin, and claim shapes;
-2. select the smallest operational slice that materially exceeds the KWasm W1 coverage;
-3. record the source-to-readable mapping and concrete unsupported shapes before changing KRS;
-4. implement only gaps required by the selected evidence;
-5. rerun the complete IMP, KWasm, and KMIR gates after each authoring extension;
-6. preserve the signed KEVM milestone while qualifying KMIR;
-7. use Kontrol only when shaping product-facing proving and CLI workflows.
+The selected slice follows KMIR's actual `#execBlockIdx` / `#execBlock` / `#execStmts` / `#execStmt` / `#execTerminator` pipeline.
+A recursive adapter replaces serialized builtin Lists at the body boundary and installs a graph into `Map<Int, BasicBlock>`.
+A second map represents the selected untyped-local boundary while preserving indexed copies, persistent updates, read-before-write staging, integer addition, `Goto`, Boolean `SwitchInt`, local `_0`, and top-level return.
+Calls, types, projections, memory, references, unwind, arbitrary switch branch lists, and generated proof workflows remain explicit future evidence.
 
-Each corpus is an acceptance oracle, not a source of silent KRS syntax changes.
-Record every new construct as a spec decision before implementing it.
-Kontrol is not part of the active KEVM/KMIR scale goal and must not silently expand it.
+The slice exposed one narrow independent-expansion gap, K1.
+Readable map rules caused reference expansion to insert `use k::map` even when the authored module already imported that macro for a concrete map claim.
+The duplicate macro import made the expanded crate fail to compile.
+The compiler now compares use trees before insertion, with a focused unit regression for attributed equivalent imports and unrelated imports.
+No descriptor protocol, IR schema, syntax, lowering, or runtime change was required.
+
+The fail-closed gate passes with 103 descriptors, deterministic readable and expanded compilation, 11 native executions, six zero-diagnostic rust-analyzer probes, and one native all-path claim closing with `#Top`.
+The behavior hash is `e150e7a86c513ec5966185fe079d8f58c34c57a66e73991ff8ac9b1f9aaee5c5`; the normalized KORE hash is `5b05ecb38c803c8ae95d517e46f10e2725ac74f45f3cb7867cf85e600c818f7c`.
+The all-path claim spans installation, graph lookup, ordered statements, copied locals, addition, `Goto`, true `SwitchInt`, and return.
+The unchanged KEVM and KWasm gates pass, and the complete IMP M4 gate retains its 1,206/1,206 native KORE parity, behavior evidence `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, all proofs, and compatibility evidence `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6`.
+
+Each corpus remains an acceptance oracle, not a source of silent KRS syntax changes.
+Kontrol is not part of the completed KEVM/KMIR scale goal and must not silently expand it.
 
 The normative formatter target remains:
 
@@ -840,9 +845,8 @@ The selected slices cross functional and operational modules, exercise simultane
 
 ## Immediate next action
 
-Rerun the complete IMP and KWasm regressions, sign the coherent KEVM
-milestone, then inventory and qualify the user-requested KMIR corpus. Do not
-reopen recovery forensics unless genuinely new evidence or media appears.
+Choose the next product-facing semantics or proving workflow from the known project objective now that the coherent KMIR milestone is signed.
+Do not reopen recovery forensics unless genuinely new evidence or media appears.
 
 ## Audit hygiene
 

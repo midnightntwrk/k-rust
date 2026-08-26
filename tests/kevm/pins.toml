@@ -18,7 +18,7 @@ commit = "d818397e9b7ffa213d687e64418dc8f5293e1ce2"
 
 [source_sha256]
 "crates/krs-compiler/src/collect.rs" = "d5b3249f4d2c36a9997ca17ea711656d502f462add60aa004f4c5a4bb319c30b"
-"crates/krs-compiler/src/reference.rs" = "54c474be2afa3a3d1650acf71771a55f25df406aac66cf41479d9e26095ff47b"
+"crates/krs-compiler/src/reference.rs" = "9cc251470c7211a0c95a905799ec12a32ca4c0f45b04d252835f49c38b21727d"
 "crates/krs-compiler/src/semantic.rs" = "cfc63708b1116e61ac71a8a2372bd8f33ea0cf5b7c6e646f66bd1c245f28e76a"
 "crates/krs-ir/src/head_rule.rs" = "5a1938acd498bc2072830b4c1596e247492b9e4506208c869a40f2f038a6aef9"
 "crates/krs-ir/src/lib.rs" = "31851850c94039fa64d88129accfa13ebf02c2336be1c24356a7955295671fe5"

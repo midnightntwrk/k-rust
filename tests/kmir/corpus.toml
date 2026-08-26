@@ -1,0 +1,149 @@
+schema = 1
+
+[[source_evidence]]
+path = "kmir/src/kmir/kdist/mir-semantics/kmir.md"
+contract = "block execution, assignment dispatch, goto, SwitchInt, and top-level return"
+
+[[source_evidence]]
+path = "kmir/src/kmir/kdist/mir-semantics/body.md"
+contract = "BasicBlock, Statement, Rvalue, Operand, and Terminator constructor families"
+
+[[source_evidence]]
+path = "kmir/src/kmir/kdist/mir-semantics/rt/configuration.md"
+contract = "computation, current-body, locals, and return-value state"
+
+[[source_evidence]]
+path = "kmir/src/kmir/kdist/mir-semantics/rt/data.md"
+contract = "copied-local reads, local updates, rvalue use, binary operations, and integer addition"
+
+[[source_evidence]]
+path = "kmir/src/tests/integration/data/schema-parse/basicblock1/input.json"
+contract = "serialized basic-block boundary"
+
+[[source_evidence]]
+path = "kmir/src/tests/integration/data/schema-parse/basicblock1/reference.kmir"
+contract = "parsed basic-block constructor shape"
+
+[[source_evidence]]
+path = "kmir/src/tests/integration/data/schema-parse/statementassign1/input.json"
+contract = "serialized assignment boundary"
+
+[[source_evidence]]
+path = "kmir/src/tests/integration/data/schema-parse/statementassign1/reference.kmir"
+contract = "parsed assignment constructor shape"
+
+[[source_evidence]]
+path = "kmir/src/tests/integration/data/schema-parse/terminatorgoto/input.json"
+contract = "serialized Goto boundary"
+
+[[source_evidence]]
+path = "kmir/src/tests/integration/data/schema-parse/terminatorgoto/reference.kmir"
+contract = "parsed Goto constructor shape"
+
+[[source_evidence]]
+path = "kmir/src/tests/integration/data/schema-parse/terminatorreturn/input.json"
+contract = "serialized Return boundary"
+
+[[source_evidence]]
+path = "kmir/src/tests/integration/data/schema-parse/terminatorreturn/reference.kmir"
+contract = "parsed Return constructor shape"
+
+[[source_evidence]]
+path = "kmir/src/tests/integration/data/prove-rs/if.rs"
+contract = "representative true Boolean branch program"
+
+[[source_evidence]]
+path = "kmir/src/tests/integration/data/prove-rs/else.rs"
+contract = "representative false Boolean branch program"
+
+[[source_evidence]]
+path = "kmir/src/tests/integration/data/prove-rs/const-arithm-simple.rs"
+contract = "representative constants, locals, arithmetic comparison, and return program"
+
+[[behavior]]
+id = "return-existing-local-zero"
+program = "blockEntry(0, basicBlock(.Statements, return), .BlockProgram)"
+locals = "0 |-> mirInt(7)"
+expected_locals = "0 |-> mirInt(7)"
+expected_return = "return(mirInt(7))"
+expected_block_count = 1
+
+[[behavior]]
+id = "constant-assignment"
+program = "blockEntry(0, basicBlock(assign(local(0), use(const(mirInt(9)))) ; .Statements, return), .BlockProgram)"
+locals = ".Map"
+expected_locals = "0 |-> mirInt(9)"
+expected_return = "return(mirInt(9))"
+expected_block_count = 1
+
+[[behavior]]
+id = "ordered-copy-assignment"
+program = "blockEntry(0, basicBlock(assign(local(1), use(const(mirInt(9)))) ; assign(local(0), use(copy(local(1)))) ; .Statements, return), .BlockProgram)"
+locals = ".Map"
+expected_locals = "0 |-> mirInt(9) 1 |-> mirInt(9)"
+expected_return = "return(mirInt(9))"
+expected_block_count = 1
+
+[[behavior]]
+id = "integer-addition"
+program = "blockEntry(0, basicBlock(assign(local(1), use(const(mirInt(20)))) ; assign(local(2), use(const(mirInt(22)))) ; assign(local(0), add(copy(local(1)), copy(local(2)))) ; .Statements, return), .BlockProgram)"
+locals = ".Map"
+expected_locals = "0 |-> mirInt(42) 1 |-> mirInt(20) 2 |-> mirInt(22)"
+expected_return = "return(mirInt(42))"
+expected_block_count = 1
+
+[[behavior]]
+id = "goto-nonadjacent-block"
+program = "blockEntry(0, basicBlock(.Statements, goto(7)), blockEntry(7, basicBlock(assign(local(0), use(const(mirInt(7)))) ; .Statements, return), .BlockProgram))"
+locals = ".Map"
+expected_locals = "0 |-> mirInt(7)"
+expected_return = "return(mirInt(7))"
+expected_block_count = 2
+
+[[behavior]]
+id = "switch-true"
+program = "blockEntry(0, basicBlock(.Statements, switchInt(const(mirBool(true)), 1, 2)), blockEntry(1, basicBlock(assign(local(0), use(const(mirInt(1)))) ; .Statements, return), blockEntry(2, basicBlock(assign(local(0), use(const(mirInt(2)))) ; .Statements, return), .BlockProgram)))"
+locals = ".Map"
+expected_locals = "0 |-> mirInt(1)"
+expected_return = "return(mirInt(1))"
+expected_block_count = 3
+
+[[behavior]]
+id = "switch-false"
+program = "blockEntry(0, basicBlock(.Statements, switchInt(const(mirBool(false)), 1, 2)), blockEntry(1, basicBlock(assign(local(0), use(const(mirInt(1)))) ; .Statements, return), blockEntry(2, basicBlock(assign(local(0), use(const(mirInt(2)))) ; .Statements, return), .BlockProgram)))"
+locals = ".Map"
+expected_locals = "0 |-> mirInt(2)"
+expected_return = "return(mirInt(2))"
+expected_block_count = 3
+
+[[behavior]]
+id = "read-before-overwrite"
+program = "blockEntry(0, basicBlock(assign(local(0), add(copy(local(0)), const(mirInt(2)))) ; .Statements, return), .BlockProgram)"
+locals = "0 |-> mirInt(5)"
+expected_locals = "0 |-> mirInt(7)"
+expected_return = "return(mirInt(7))"
+expected_block_count = 1
+
+[[behavior]]
+id = "installer-order-independent-lookup"
+program = "blockEntry(7, basicBlock(assign(local(0), use(const(mirInt(7)))) ; .Statements, return), blockEntry(0, basicBlock(.Statements, goto(7)), .BlockProgram))"
+locals = ".Map"
+expected_locals = "0 |-> mirInt(7)"
+expected_return = "return(mirInt(7))"
+expected_block_count = 2
+
+[[behavior]]
+id = "combined-true-path"
+program = "blockEntry(0, basicBlock(assign(local(1), use(const(mirInt(20)))) ; assign(local(2), use(const(mirInt(22)))) ; assign(local(3), add(copy(local(1)), copy(local(2)))) ; assign(local(4), use(const(mirBool(true)))) ; .Statements, goto(1)), blockEntry(1, basicBlock(.Statements, switchInt(copy(local(4)), 2, 3)), blockEntry(2, basicBlock(assign(local(0), use(copy(local(3)))) ; .Statements, return), blockEntry(3, basicBlock(assign(local(0), use(const(mirInt(0)))) ; .Statements, return), .BlockProgram))))"
+locals = ".Map"
+expected_locals = "0 |-> mirInt(42) 1 |-> mirInt(20) 2 |-> mirInt(22) 3 |-> mirInt(42) 4 |-> mirBool(true)"
+expected_return = "return(mirInt(42))"
+expected_block_count = 4
+
+[[behavior]]
+id = "combined-false-path"
+program = "blockEntry(0, basicBlock(assign(local(1), use(const(mirInt(20)))) ; assign(local(2), use(const(mirInt(22)))) ; assign(local(3), add(copy(local(1)), copy(local(2)))) ; assign(local(4), use(const(mirBool(false)))) ; .Statements, goto(1)), blockEntry(1, basicBlock(.Statements, switchInt(copy(local(4)), 2, 3)), blockEntry(2, basicBlock(assign(local(0), use(copy(local(3)))) ; .Statements, return), blockEntry(3, basicBlock(assign(local(0), use(const(mirInt(0)))) ; .Statements, return), .BlockProgram))))"
+locals = ".Map"
+expected_locals = "0 |-> mirInt(0) 1 |-> mirInt(20) 2 |-> mirInt(22) 3 |-> mirInt(42) 4 |-> mirBool(false)"
+expected_return = "return(mirInt(0))"
+expected_block_count = 4

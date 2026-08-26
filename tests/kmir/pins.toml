@@ -1,0 +1,59 @@
+schema = 1
+corpus_sha256 = "e296926e62ba4bdc026ecf6f5b8465582ca836b8fb7caeb9720032848dc9f2f6"
+expansion_sha256 = "bd1040c39c9153d4ab9e74e8496492bec801ce3effbaf353999c71c09298d8e2"
+behavior_sha256 = "e150e7a86c513ec5966185fe079d8f58c34c57a66e73991ff8ac9b1f9aaee5c5"
+definition_kore_sha256 = "5b05ecb38c803c8ae95d517e46f10e2725ac74f45f3cb7867cf85e600c818f7c"
+
+[schemas]
+descriptor_protocol = 16
+definition_ir = 9
+
+[k]
+version = "7.1.337"
+commit = "4a46d1231473b599c699160132fd6e76a5c46406"
+
+[kmir]
+version = "7.1.337"
+commit = "4d793252bcd77091ee759ca6cd1629db41ed5496"
+
+[source_sha256]
+"crates/krs-compiler/src/collect.rs" = "d5b3249f4d2c36a9997ca17ea711656d502f462add60aa004f4c5a4bb319c30b"
+"crates/krs-compiler/src/reference.rs" = "9cc251470c7211a0c95a905799ec12a32ca4c0f45b04d252835f49c38b21727d"
+"crates/krs-compiler/src/semantic.rs" = "cfc63708b1116e61ac71a8a2372bd8f33ea0cf5b7c6e646f66bd1c245f28e76a"
+"crates/krs-ir/src/head_rule.rs" = "5a1938acd498bc2072830b4c1596e247492b9e4506208c869a40f2f038a6aef9"
+"crates/krs-ir/src/lib.rs" = "31851850c94039fa64d88129accfa13ebf02c2336be1c24356a7955295671fe5"
+"crates/krs-macros/src/expand.rs" = "a4e3d56f6b6fb3877e53f17204311e5acc0447d7b8a9bfb297c3399183f4b9d3"
+"crates/krs-syntax/src/rule.rs" = "18ce94f079887150675156d47140e1753cd57d3c7e51d0f1c3f6979dfc82c6fe"
+"draft/readability/kmir/README.md" = "2beb94e3db9143fdd85f5c02088847f39c59d7088a5dac9287e1cfc3ca334578"
+"tests/kmir/corpus.toml" = "e296926e62ba4bdc026ecf6f5b8465582ca836b8fb7caeb9720032848dc9f2f6"
+"tests/kmir/lsp_probe.py" = "f6b1b0876335b9ae00de2d63d0074261979123f88ab8365e582dd8e37dc5d4c0"
+"tests/kmir/rust-definition/Cargo.lock" = "da93af53b2aa4ab7e0495d95a6a846f576f32a90ac2fef35d7fa1cf3c3f79b00"
+"tests/kmir/rust-definition/Cargo.toml" = "9d90b365d828deb391d36d87a85363ae74cdbeaef2b289c475939e7cbc0bab5b"
+"tests/kmir/rust-definition/src/lib.rs" = "ed37cbf9d36929a803668bfdf89c9687dd0b68bfb149799f63cd75a813e0bf3e"
+"tests/kmir/verify.py" = "ff1c760b4dc564183c45afe46f48c12875a2d9136a13ccae56cfed6b4e39cc59"
+
+[external_sha256]
+"kmir/src/kmir/kdist/mir-semantics/kmir.md" = "954cc1dd57adc460fdbe12877e21366ac84ca923434e243798362776dbbaade7"
+"kmir/src/kmir/kdist/mir-semantics/body.md" = "18e4723d29a662afc18e7354b7d97ca1cb66905ca94f3e21f8f934520ca1ff0d"
+"kmir/src/kmir/kdist/mir-semantics/rt/configuration.md" = "a97156b5b34b85291dd7f3dada374a355b03cf027f20a09efd8ea0c9dd6a3377"
+"kmir/src/kmir/kdist/mir-semantics/rt/data.md" = "e08848f59f0c4aff28953b74b4c3a40392135febbc776201fef446bd6aca2a23"
+"kmir/src/tests/integration/data/schema-parse/basicblock1/input.json" = "0a103be97aeff06a055558a7fcda0c8295c51e1da6610402e17ab1471422defc"
+"kmir/src/tests/integration/data/schema-parse/basicblock1/reference.kmir" = "4dca93b0d00bae74fdd6cca9dcc1f9fa49f6f6f5e463594d8e0a7597555f74d8"
+"kmir/src/tests/integration/data/schema-parse/statementassign1/input.json" = "39a704b91bb69c2e11b781f66881ceaa64fac6e918863c7d210a4d7e6bc04b46"
+"kmir/src/tests/integration/data/schema-parse/statementassign1/reference.kmir" = "073806cd964227e22784e66ddd2ecae0f81126609df72f0e1b4951844bb42631"
+"kmir/src/tests/integration/data/schema-parse/terminatorgoto/input.json" = "a927fb39527bb57e7214bcb91f6732343d0cb0685965e31d6e156e8b58f2385b"
+"kmir/src/tests/integration/data/schema-parse/terminatorgoto/reference.kmir" = "9b0018a752b334dcca1734b0801e790fdac83b71af34da69e8877a68b726d99b"
+"kmir/src/tests/integration/data/schema-parse/terminatorreturn/input.json" = "e304e7265056af72210c7e8c6dcc01d74516d08333cc157ff4d0af1c01c0e031"
+"kmir/src/tests/integration/data/schema-parse/terminatorreturn/reference.kmir" = "3caeae1b6537cabf67e1c9a26d5101337d3aad8ee1dfe25441dad7e3ed865916"
+"kmir/src/tests/integration/data/prove-rs/if.rs" = "c804789c229508ae9c835dce5534ac03c0db2f1f64e66e6718236ddeaa527f75"
+"kmir/src/tests/integration/data/prove-rs/else.rs" = "f31d0573100790736ece8f7ac11740abfce5f31a31b772d184504a4d49f8c7ec"
+"kmir/src/tests/integration/data/prove-rs/const-arithm-simple.rs" = "e1a8353cd7fd19b30676661b880a37fab449646cce59e5a471697e8484a90ef0"
+
+[artifact_sha256]
+".krs-artifacts" = "4992e03ec15408f887a401455c9f719384c6d5bb69e661487f91abe576ceb1b5"
+"definition-ir.json" = "eec4a63072d76f668631d79d62939fd3be227b47d7b73bbf0f7036b82084bdc5"
+"definition.k" = "e014dfb8119e32f34100835f69a70eb86e7b7d7255cabba40e5b1b6240956411"
+"descriptor-bundle.json" = "cca407740476d153ed1e15c6d425985bf552522f815b85ece33a1e30ca42bd35"
+"semantic-ir.json" = "d0b8c1ad44c3c945382c2b907e4d793428a807036fedbb403666e587769563e0"
+"sources.json" = "2f6f25e8bbff9165b9461654fe933b07231d15042858cedf2818583fc275403a"
+"symbols.json" = "924ec159f4bb96e570479cc852d0fdbfac8a988335ff8aa5b22d267d384ecd6b"
