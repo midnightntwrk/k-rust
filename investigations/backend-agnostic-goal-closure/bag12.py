@@ -128,34 +128,37 @@ def oracle_schema() -> dict[str, Any]:
         "name": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9_]*$"},
         "sort": {"type": "string", "minLength": 1}, "value": TERM_REF,
     })
-    normalized = {
-        "oneOf": [
-            obj(["terminalClass", "exitCode"], {
-                "terminalClass": {"enum": ["normal", "stuck"]},
-                "exitCode": {"oneOf": [{"type": "integer"}, {"type": "null"}]},
-            }),
-            obj(["terminalState", "projection", "term"], {
-                "terminalState": typed_key("terminal-state"), "projection": {"const": "whole-portable-term-v1"}, "term": TERM_REF,
-            }),
-            obj(["terminalState", "projection", "paths"], {
-                "terminalState": typed_key("terminal-state"), "projection": {"const": "selected-term-paths-v1"},
-                "paths": array(path_value, minimum=1),
-            }),
-            obj(["channels"], {"channels": array(channel_value, minimum=1)}),
-            obj(["status", "witnesses"], {
-                "status": {"enum": ["reached", "not-reached"]},
-                "witnesses": array(typed_key("reachability-witness")),
-            }),
-            obj(["patternResult", "outcome", "bindingTuples"], {
-                "patternResult": typed_key("pattern-result"), "outcome": {"enum": ["match", "no-match"]},
-                "bindingTuples": array(array(tuple_binding)),
-            }),
-            obj(["query", "input", "inputProjectionDigest", "bindings", "bindingsDigest", "result"], {
-                "query": typed_key("predicate-query"), "input": ARTIFACT_REF, "inputProjectionDigest": DIGEST_REF,
-                "bindings": array(BINDING_REF), "bindingsDigest": DIGEST_REF, "result": {"type": "boolean"},
-            }),
-        ]
+    normalized_by_kind = {
+        "exit-stop": obj(["terminalClass", "exitCode"], {
+            "terminalClass": {"enum": ["normal", "stuck"]},
+            "exitCode": {"oneOf": [{"type": "integer"}, {"type": "null"}]},
+        }),
+        "final-result": {
+            "oneOf": [
+                obj(["terminalState", "projection", "term"], {
+                    "terminalState": typed_key("terminal-state"), "projection": {"const": "whole-portable-term-v1"}, "term": TERM_REF,
+                }),
+                obj(["terminalState", "projection", "paths"], {
+                    "terminalState": typed_key("terminal-state"), "projection": {"const": "selected-term-paths-v1"},
+                    "paths": array(path_value, minimum=1),
+                }),
+            ]
+        },
+        "concrete-output": obj(["channels"], {"channels": array(channel_value, minimum=1)}),
+        "reachability": obj(["status", "witnesses"], {
+            "status": {"enum": ["reached", "not-reached"]},
+            "witnesses": array(typed_key("reachability-witness")),
+        }),
+        "execution-pattern": obj(["patternResult", "outcome", "bindingTuples"], {
+            "patternResult": typed_key("pattern-result"), "outcome": {"enum": ["match", "no-match"]},
+            "bindingTuples": array(array(tuple_binding)),
+        }),
+        "structured-predicate": obj(["query", "input", "inputProjectionDigest", "bindings", "bindingsDigest", "result"], {
+            "query": typed_key("predicate-query"), "input": ARTIFACT_REF, "inputProjectionDigest": DIGEST_REF,
+            "bindings": array(BINDING_REF), "bindingsDigest": DIGEST_REF, "result": {"type": "boolean"},
+        }),
     }
+    normalized = {"oneOf": [normalized_by_kind[kind] for kind in KINDS]}
     portable_projection = obj(["mode", "projectionId"], {
         "mode": {"const": "portable-built-in"}, "projectionId": {"enum": list(PROJECTION_IDS)},
     })
@@ -173,7 +176,12 @@ def oracle_schema() -> dict[str, Any]:
     })
     expected_side = {
         "oneOf": [
-            obj(["kind", "normalizedValue"], {"kind": {"enum": list(KINDS)}, "normalizedValue": {"$ref": "#/$defs/normalizedValue"}}),
+            *[
+                obj(["kind", "normalizedValue"], {
+                    "kind": {"const": kind}, "normalizedValue": normalized_by_kind[kind],
+                })
+                for kind in KINDS
+            ],
             typed_key("semantic-crash"),
         ]
     }
@@ -1198,6 +1206,8 @@ def finalize_refresh(root: Path) -> None:
     )
     for pattern in generated_fixture_patterns:
         for path in fixtures.glob(pattern):
+            if path.name in {"predicate-query.json", "reachability-witness.json"}:
+                continue
             path.unlink()
     generated_material_patterns = (
         "oracle-declaration-*.json", "oracle-operand-*.json", "oracle-comparison-*.json",
@@ -1207,6 +1217,8 @@ def finalize_refresh(root: Path) -> None:
     )
     for pattern in generated_material_patterns:
         for path in (root / "material").glob(pattern):
+            if path.name in {"predicate-query.json", "reachability-witness.json"}:
+                continue
             path.unlink()
     baseline_definition = manifest["definitionDigest"]
     mutant = campaign["mutants"][0]
@@ -1652,13 +1664,31 @@ def finalize_refresh(root: Path) -> None:
         "output-other-subject", "gate-mutant-as-baseline", "gate-abort-retains-scoring", "failure-source-context",
         "failure-resource-disposition", "incomparable-missing-comparison", "incomparable-missing-side",
         "arbitrary-k-role", "missing-production-authority", "nonconformant-authority", "receipt-as-conformance",
-        "expected-side-kind", "comparison-outcome-assertion", "manifest-slot-order", "cache-test-root",
+        "expected-side-kind", "expected-side-value-integrity", "comparison-outcome-assertion", "manifest-slot-order", "cache-test-root",
         "campaign-report-test-root", "global-oracle-join", "reachability-incomplete-absence", "utf8-byte-text-drift",
     ]
+    inline_expectation_cases = []
+    for case in evidence_cases:
+        pair = (case["projectionId"], case["comparatorId"])
+        if case["expectedOutcome"] != "agree" or pair not in REGISTRY[case["kind"]]:
+            continue
+        operand_key = case["baselineOperand"]
+        assert operand_key is not None
+        operand = operands[operand_key["digest"]]
+        inline_expectation_cases.append({
+            "id": case["id"],
+            "kind": case["kind"],
+            "projectionId": case["projectionId"],
+            "comparatorId": case["comparatorId"],
+            "declaration": deepcopy(case["declaration"]),
+            "baselineOperand": deepcopy(operand_key),
+            "expectedSide": {"kind": case["kind"], "normalizedValue": deepcopy(operand["normalizedValue"])},
+        })
     vectors_value = {
         "schemaVersion": 1,
         "registry": [{"kind": kind, "projectionId": projection, "comparatorId": comparator} for kind, pairs in REGISTRY.items() for projection, comparator in pairs],
         "evidenceCases": evidence_cases,
+        "inlineExpectationCases": inline_expectation_cases,
         "incompleteCases": [
             {"id": "reachability-bounded-unknown", "failure": taxonomy_failure("oracle", "evaluator-unavailable", "oracle-operand-production", "test"), "expected": "unknown"},
             {"id": "predicate-missing-row", "failure": taxonomy_failure("oracle", "evaluator-unavailable", "oracle-operand-production", "test"), "expected": "unknown"},
@@ -1836,6 +1866,7 @@ class OracleVerifier:
         gate = declaration["baselineGate"]
         if gate["mode"] == "assert" and isinstance(gate["expectedSide"], dict) and "kind" in gate["expectedSide"]:
             self.ok(gate["expectedSide"]["kind"] == declaration["kind"], "asserted expected normal side has another oracle kind")
+            self.validate_expected_normal_value(declaration, gate["expectedSide"]["normalizedValue"])
         config = declaration["kindConfig"]
         if declaration["kind"] == "final-result":
             if projection.get("projectionId") == "selected-term-paths-v1":
@@ -1857,6 +1888,121 @@ class OracleVerifier:
             self.ok(config["query"]["digest"] in self.reach_queries, "reachability declaration query is dangling")
         elif declaration["kind"] == "structured-predicate":
             self.ok(config["query"]["digest"] in self.predicate_queries, "predicate declaration query is dangling")
+
+    def validate_expected_normal_value(self, declaration: dict[str, Any], normalized: dict[str, Any]) -> None:
+        """Validate an inline assertion value without manufacturing an operand.
+
+        Inline values are declaration-owned expectations, not produced sides,
+        so they have no completion evidence or operand identity.  Every
+        referenced artifact and every kind-specific derived field must still
+        be valid before the comparator may project away provenance.
+        """
+        self.ok(
+            declaration["projectionSpec"]["mode"] == declaration["comparisonSpec"]["mode"] == "portable-built-in",
+            "inline expected normal value requires portable built-in validation",
+        )
+        kind = declaration["kind"]
+        config = declaration["kindConfig"]
+        projection = declaration["projectionSpec"]["projectionId"]
+        if kind == "exit-stop":
+            terminal_class = normalized["terminalClass"]
+            exit_code = normalized["exitCode"]
+            self.ok(
+                exit_code is None if config["exitCodeMode"] == "none" or terminal_class == "stuck" else isinstance(exit_code, int),
+                "inline expected exit-stop value violates declared object-program exit mode",
+            )
+            return
+        if kind == "final-result":
+            terminal_key = normalized["terminalState"]
+            terminal = self.terminals.get(terminal_key["digest"])
+            self.ok(
+                terminal is not None
+                and terminal["terminalStateDigest"] == digest("k-in-k/terminal-state/v1", without(terminal, "terminalStateDigest")),
+                "inline expected final-result terminal is absent or invalid",
+            )
+            self.ok(terminal["definitionDigest"] == self.manifest["definitionDigest"], "inline expected final-result terminal belongs to another definition")
+            self.ok(normalized["projection"] == projection, "inline expected final-result projection differs from its declaration")
+            if projection == "whole-portable-term-v1":
+                self.ok(normalized["term"] == terminal["value"], "inline expected whole term differs from its cataloged terminal")
+            else:
+                paths = config["paths"]
+                self.ok([row["path"] for row in normalized["paths"]] == paths, "inline expected final-result paths omit or reorder declaration paths")
+                for row in normalized["paths"]:
+                    resolved = term_at_path(terminal["value"], row["path"])
+                    self.ok(row["sort"] == resolved["sort"] and row["value"] == resolved, "inline expected final-result path is self-asserted")
+            return
+        if kind == "concrete-output":
+            self.validate_output_channels(declaration, normalized)
+            return
+        if kind == "reachability":
+            witness_keys = normalized["witnesses"]
+            self.ok(len(witness_keys) == len({item["digest"] for item in witness_keys}), "inline expected reachability witness is duplicated")
+            self.ok(normalized["status"] == ("reached" if witness_keys else "not-reached"), "inline expected reachability status differs from its witness set")
+            query_key = config["query"]
+            query = self.reach_queries.get(query_key["digest"])
+            self.ok(query is not None, "inline expected reachability query is dangling")
+            plan = self.reach_plans[query["plan"]["digest"]]
+            variables = {item["name"]: item["sort"] for item in plan["variables"]}
+            for witness_key in witness_keys:
+                witness = self.reach_witnesses.get(witness_key["digest"])
+                self.ok(
+                    witness is not None
+                    and witness["witnessId"] == digest("k-in-k/reachability-witness/v1", without(witness, "witnessId"))
+                    and witness["query"] == query_key,
+                    "inline expected reachability witness is dangling, invalid, or belongs to another query",
+                )
+                terminal = self.terminals.get(witness["terminalState"]["digest"])
+                self.ok(terminal is not None and terminal["definitionDigest"] == self.manifest["definitionDigest"], "inline expected reachability witness belongs to another definition")
+                bound: dict[str, dict[str, Any]] = {}
+                self.ok(self.match_term(plan["statePattern"], terminal["value"], variables, bound), "inline expected reachability witness does not match its proposition")
+                self.ok(self.reachability_side_condition(plan, witness["terminalState"], bound), "inline expected reachability witness violates its side condition")
+                expected_bindings = [{"name": item["name"], "term": bound[item["name"]]} for item in plan["variables"]]
+                self.ok(witness["bindings"] == expected_bindings, "inline expected reachability witness bindings are self-asserted")
+            return
+        if kind == "execution-pattern":
+            result = self.patterns.get(normalized["patternResult"]["digest"])
+            self.ok(
+                result is not None and result["resultId"] == digest("k-in-k/pattern-result/v1", without(result, "resultId")),
+                "inline expected execution-pattern result is absent or invalid",
+            )
+            subject = {"side": "baseline", "definitionDigest": self.manifest["definitionDigest"]}
+            self.validate_pattern_producer(result, declaration, subject)
+            self.ok(result["outcome"] in {"match", "no-match"}, "inline expected execution-pattern result is incomplete")
+            expected_tuples = [] if projection == "pattern-outcome-v1" else binding_tuple(result, self.pattern_plans[config["patternPlan"]["digest"]])
+            self.ok(
+                normalized == {"patternResult": key("pattern-result", result["resultId"]), "outcome": result["outcome"], "bindingTuples": expected_tuples},
+                "inline expected execution-pattern value is self-asserted",
+            )
+            return
+        self.ok(kind == "structured-predicate", "inline expected value has an unknown oracle kind")
+        self.ok(normalized["query"] == config["query"], "inline expected predicate query differs from its declaration")
+        query = self.predicate_queries.get(normalized["query"]["digest"])
+        self.ok(query is not None, "inline expected predicate query is dangling")
+        plan = self.predicate_plans[query["plan"]["digest"]]
+        input_key = normalized["input"]
+        self.ok(input_key["role"] == "terminal-state" and input_key["digest"] in self.terminals, "inline expected predicate input is not a cataloged terminal")
+        terminal = self.terminals[input_key["digest"]]
+        self.ok(terminal["definitionDigest"] == self.manifest["definitionDigest"], "inline expected predicate input belongs to another definition")
+        self.ok(normalized["inputProjectionDigest"] == self.predicate_input_projection(plan, input_key), "inline expected predicate input projection drift")
+        self.ok(normalized["bindingsDigest"] == digest("k-in-k/bindings/v1", normalized["bindings"]), "inline expected predicate binding digest drift")
+        self.ok([item["name"] for item in normalized["bindings"]] == [item["name"] for item in plan["variables"]], "inline expected predicate binding order or coverage drift")
+        self.ok(all(binding["term"]["sort"] == variable["sort"] for binding, variable in zip(normalized["bindings"], plan["variables"])), "inline expected predicate binding sort drift")
+        rows = [
+            row
+            for table in self.predicate_tables.values()
+            for row in table["rows"]
+            if row["query"] == normalized["query"]
+            and row["input"] == input_key
+            and row["bindingsDigest"] == normalized["bindingsDigest"]
+        ]
+        self.ok(len(rows) == 1, "inline expected predicate value lacks one exact finite authority row")
+        row = rows[0]
+        self.ok(
+            row["testInvocationDigest"] == declaration["testInvocationDigest"]
+            and row["subject"] == {"side": "baseline", "definitionDigest": self.manifest["definitionDigest"]}
+            and normalized == {field: row[field] for field in ("query", "input", "inputProjectionDigest", "bindings", "bindingsDigest", "result")},
+            "inline expected predicate result or finite authority roots are self-asserted",
+        )
 
     def validate_manifest(self, manifest: dict[str, Any] | None = None) -> None:
         value = self.manifest if manifest is None else manifest
@@ -1917,6 +2063,7 @@ class OracleVerifier:
         return payload
 
     def validate_pattern_producer(self, result: dict[str, Any], declaration: dict[str, Any], subject: dict[str, Any]) -> None:
+        self.validate_pattern_denotation(result)
         matches = [replay for replay in self.replays.values() if replay["invocationDigest"] == result["inputs"]["replayInvocationDigest"]]
         self.ok(len(matches) == 1, "pattern result does not resolve one active-catalog replay invocation")
         replay = matches[0]
@@ -1939,6 +2086,11 @@ class OracleVerifier:
         self.ok(trace_keys and all(item["role"] == "event-trace" and item["digest"] in self.traces for item in trace_keys), "pattern result trace closure is absent from active catalog")
         for trace_key in trace_keys:
             self.validate_trace_subject(trace_key, subject, declaration)
+
+    def validate_pattern_denotation(self, result: dict[str, Any]) -> None:
+        checker = self.api.get("validate_pattern_result_semantics")
+        self.ok(callable(checker), "BAG-11 complete-denotation validator is unavailable")
+        checker(result, self.traces, self.taxonomy)
 
     def validate_pattern_operand(self, operand: dict[str, Any], declaration: dict[str, Any], result: dict[str, Any]) -> None:
         config = declaration["kindConfig"]
@@ -2033,6 +2185,9 @@ class OracleVerifier:
         self.ok(terminal is not None and terminal["definitionDigest"] == subject_definition(operand["subject"]), "semantic output terminal belongs to another subject")
         self.validate_trace_subject(row["producerTrace"], operand["subject"], declaration, row["terminal"])
         self.ok(normalized == {"channels": row["channels"]}, "semantic output bytes were not derived from the exact finite production row")
+        self.validate_output_channels(declaration, normalized)
+
+    def validate_output_channels(self, declaration: dict[str, Any], normalized: dict[str, Any]) -> None:
         channels = normalized["channels"]
         self.ok([item["name"] for item in channels] == declaration["kindConfig"]["channels"], "semantic output channel coverage/order drift")
         self.ok(len({item["name"] for item in channels}) == len(channels), "duplicate semantic output channel")
@@ -2593,6 +2748,17 @@ class OracleVerifier:
         self.ok({case["kind"] for case in cases} == set(KINDS), "not all six oracle kinds have end-to-end evidence")
         self.ok(nonordinary_gate, "no non-ordinary baseline side is accepted end to end")
         self.ok(asserted_gate, "no kind-correct asserted normal baseline gate is accepted end to end")
+        inline_cases = vectors["inlineExpectationCases"]
+        inline_pairs = {(case["kind"], case["projectionId"], case["comparatorId"]) for case in inline_cases}
+        self.ok(inline_pairs == expected and len(inline_cases) == len(expected), "inline expectation positives do not cover every portable built-in pair exactly once")
+        for case in inline_cases:
+            declaration = self.declarations.get(case["declaration"]["digest"])
+            operand = self.operands.get(case["baselineOperand"]["digest"])
+            self.ok(declaration is not None and operand is not None, f"{case['id']} inline expectation roots are dangling")
+            expected_side = case["expectedSide"]
+            self.ok(expected_side["kind"] == declaration["kind"] and operand["declaration"] == case["declaration"] and operand["subject"]["side"] == "baseline", f"{case['id']} inline expectation belongs to another kind/declaration/side")
+            self.validate_expected_normal_value(declaration, expected_side["normalizedValue"])
+            self.ok(self.comparator(declaration, expected_side["normalizedValue"], operand["normalizedValue"]) == "agree", f"{case['id']} valid inline expectation did not agree")
         incomplete = {(item["failure"]["stage"], item["failure"]["classification"], item["failure"]["context"], item["expected"]) for item in vectors["incompleteCases"]}
         self.ok({("oracle", "evaluator-unavailable", "oracle-operand-production", "unknown"), ("oracle", "projection-invalid", "oracle-operand-production", "error"), ("input", "missing-artifact", "oracle-operand-production", "error"), ("execution", "solver-unknown", "oracle-operand-production", "unknown")} <= incomplete, "BAG-10 operand-production incomplete placements missing")
         advertised = [(item["id"], item["probe"]) for item in vectors["adversaries"]]
@@ -2854,6 +3020,47 @@ class OracleVerifier:
             declaration["baselineGate"]["expectedSide"]["kind"] = "final-result"
             registered_declaration(declaration, "wrong expected normal oracle kind survived")
 
+        def expected_value_integrity() -> None:
+            baseline_operands = {
+                kind: next(
+                    operand for operand in self.operands.values()
+                    if operand["subject"]["side"] == "baseline"
+                    and self.declarations[operand["declaration"]["digest"]]["kind"] == kind
+                )
+                for kind in KINDS
+            }
+            for kind, operand in baseline_operands.items():
+                declaration = deepcopy(self.declarations[operand["declaration"]["digest"]])
+                expected = deepcopy(operand["normalizedValue"])
+                declaration["baselineGate"] = {"mode": "assert", "expectedSide": {"kind": kind, "normalizedValue": expected}}
+                if kind == "exit-stop":
+                    expected["exitCode"] = 0 if declaration["kindConfig"]["exitCodeMode"] == "none" else None
+                elif kind == "final-result":
+                    expected["terminalState"]["digest"] = "f" * 64
+                elif kind == "concrete-output":
+                    expected["channels"][0]["contentSha256"] = "f" * 64
+                elif kind == "reachability":
+                    if expected["witnesses"]:
+                        expected["witnesses"][0]["digest"] = "f" * 64
+                    else:
+                        expected["witnesses"].append(key("reachability-witness", "f" * 64))
+                elif kind == "execution-pattern":
+                    expected["patternResult"]["digest"] = "f" * 64
+                else:
+                    expected["inputProjectionDigest"] = "f" * 64
+                if kind != "exit-stop":
+                    self.ok(self.comparator(declaration, expected, operand["normalizedValue"]) == "agree", f"{kind} integrity adversary did not preserve the compared projection")
+                registered_declaration(declaration, f"invalid inline expected {kind} value survived kind-specific validation")
+                if kind == "structured-predicate":
+                    result_declaration = deepcopy(self.declarations[operand["declaration"]["digest"]])
+                    result_expected = deepcopy(operand["normalizedValue"])
+                    result_expected["result"] = not result_expected["result"]
+                    result_declaration["baselineGate"] = {
+                        "mode": "assert",
+                        "expectedSide": {"kind": kind, "normalizedValue": result_expected},
+                    }
+                    registered_declaration(result_declaration, "self-asserted inline expected predicate result survived finite authority validation")
+
         def comparison_assertion() -> None:
             bad = deepcopy(normal_comparison)
             bad["outcome"] = "distinguish" if bad["outcome"] == "agree" else "agree"
@@ -2949,6 +3156,7 @@ class OracleVerifier:
             "nonconformant-authority": nonconformant,
             "receipt-as-conformance": receipt_as_conformance,
             "expected-side-kind": expected_kind,
+            "expected-side-value-integrity": expected_value_integrity,
             "comparison-outcome-assertion": comparison_assertion,
             "manifest-slot-order": manifest_slot_order,
             "cache-test-root": cache_root,
@@ -2971,6 +3179,11 @@ class OracleVerifier:
 
     def run(self) -> None:
         self.validate_manifest()
+        validated_pattern_ids = set()
+        for result_id, result in self.patterns.items():
+            self.validate_pattern_denotation(result)
+            validated_pattern_ids.add(result_id)
+        self.ok(validated_pattern_ids == set(self.patterns), "active-catalog pattern-result denotation coverage is incomplete")
         self.validate_reachability_assets()
         self.validate_predicate_assets()
         for operand in self.operands.values():

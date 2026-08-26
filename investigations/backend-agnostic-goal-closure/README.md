@@ -1,7 +1,9 @@
 # Backend-agnostic goal closure
 
-Status: active portable investigation package; BAG-12 repair refreshed and
-awaiting fresh independent acceptance audit, 23 August 2026.
+Status: active portable investigation package; the refreshed BAG-11 witness-
+order and complete-denotation repairs and BAG-12 typed-oracle and inline-
+expectation repairs are independently accepted. BAG-14 awaits its own
+independent preflight, 26 August 2026.
 
 This package records the semantic work that can be completed before K-in-K
 moves to its Rust-based execution stack. It deliberately does not preserve,
@@ -59,9 +61,10 @@ Rust-stack differential gates in the handoff are the future execution proof.
 The BAG-12 repair resolves its corpus, observation vocabulary, typed oracle
 graph, terminal/crash provenance, and finite authorities only through the
 active catalog. It publishes end-to-end agree/distinguish evidence for every
-built-in pair, both incomparable orientations, incomplete cases, and 35
-one-to-one executable adversaries. These are repair-gate results, not an
-acceptance claim.
+built-in pair, positive inline expectations for all nine built-in
+projection/comparator pairs, both incomparable orientations, incomplete cases,
+and 36 one-to-one executable adversaries. These are repair-gate results, not
+an acceptance claim.
 
 ## Artifact availability and current replay recipes
 

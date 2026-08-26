@@ -1,7 +1,9 @@
 # Backend-agnostic investigation completion audit
 
-Status: BAG-12 typed oracle semantics and BAG-13 rejection findings repaired;
-fresh independent acceptance audits remain pending, 23 August 2026.
+Status: refreshed BAG-11 witness-order and complete-denotation coverage and
+BAG-12 typed-oracle and inline-expectation integrity are independently
+accepted. BAG-13 rejection findings remain repaired, and BAG-14 awaits its own
+independent preflight, 26 August 2026.
 
 This audit closes only work whose result can remain valid across execution
 backends. It does not treat a Python fixture oracle as implementation evidence
@@ -31,7 +33,7 @@ semantics.
 - Artifact identity/resolution now has separate semantic and byte roots, a
   closed role registry, strict locator/resolver rules, bundled canonical and
   opaque positives, derived replay closure, and permanent boundary
-  adversaries. The integrated resource-capped zero-backend run passes 334,131
+  adversaries. The integrated resource-capped zero-backend run passes 397,474
   serial checks, and the separate official-only Draft 2020-12 schema and
   fixture validation passes. Independent claim review remains pending.
 - BAG-10 closes the entry-centric failure taxonomy, exact failure-site
@@ -62,7 +64,13 @@ semantics.
   policy, campaign, and report identities retain exact ordered selections and
   repetitions. K compilation, compiler-receipt correctness, solver
   evaluation, and source/plan equivalence remain future Rust proof. Retired
-  whole-trace evidence remains historical only.
+  whole-trace evidence remains historical only. Stable keyed witnesses now
+  sort by path key, then semantic occurrence indices, binding digest, and arm
+  ordinal; the occurrence replay digest is identity, not ordering authority.
+  A persisted two-occurrence adversary permanently rejects replay-hash order
+  selecting a later primary, and the verifier denotationally rederives every
+  active-catalog pattern result whether or not another campaign consumer
+  happens to select it.
 - BAG-12 closes the portable semantics of all six admitted oracle kinds. The
   published manifest has one authority: ordered per-test
   `oracleDeclarations`; the active catalog contains typed declaration,
@@ -78,9 +86,14 @@ semantics.
   declaration, subject, test, profiles, terminal/crash, and producer attempt.
   Concrete-output media types and bytes, reachability side conditions and
   exact term sorts, predicate input provenance, and BAG-10 outer-side absence
-  relations are all rederived. Incomparable results retain both sides and the
+  relations are all rederived. Inline normal expectations are schema-
+  discriminated by kind and undergo the corresponding active-catalog,
+  definition, projection, and derived-field validation before comparison; all
+  nine built-in pairs have positive inline vectors, and one six-kind adversary
+  rejects provenance drift that the comparator deliberately projects away.
+  Incomparable results retain both sides and the
   exact comparison while carrying the taxonomy-bound failure. Gate rejection
-  aborts scoring, and score counts and exclusions are rederived. All 35
+  aborts scoring, and score counts and exclusions are rederived. All 36
   advertised drift cases execute exactly once as rejection tests; the
   inventory is not accepted as evidence by itself.
   Portable built-ins and exact finite rows are the only zero-backend decision
@@ -89,7 +102,8 @@ semantics.
   owns native exhaustive branch collections.
 - Evidence inventory, checklist, contracts, and Rust handoff are updated for
   this repair. D1 and roadmap are intentionally outside this packet. Fresh
-  independent acceptance audit remains pending.
+  independent BAG-11 and BAG-12 acceptance found no remaining blocker; this
+  does not substitute for BAG-14's own preflight or later packet gates.
 
 The final revision will replace the remaining pending entries with
 finding-by-finding results and list the residual Rust-only questions.

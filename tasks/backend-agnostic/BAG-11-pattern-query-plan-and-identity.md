@@ -1,12 +1,8 @@
 # BAG-11: pattern query plan and identity
 
-Status: integrated and root-verified backend-agnostic closure packet; final
-independent acceptance rerun is pending.
-
-Accepted evidence: two ordinary refreshes are cache-clean and byte-idempotent
-at package hash `9f16d94e52e2fe92a4e5e2f650573dd4936ff301525d349577886c5e5c92bb1e`;
-official Draft 2020-12 validation and `804443` zero-backend verifier checks
-pass.
+Status: refreshed portable repair independently accepted on 26 August 2026.
+The acceptance observed the real two-occurrence refresh producer and exact
+active-catalog denotation coverage; BAG-14 still requires its own preflight.
 
 ## Objective
 
@@ -219,6 +215,25 @@ evaluate a solver, or run backend code.
 - no K, Java, Rust executor, compiler, backend, or solver command is run;
 - checks are tiny and serial; and
 - `git diff --check` passes.
+
+### Recovery re-audit repair gate — 26 August 2026
+
+The recovered packet is not accepted merely because its original verifier
+passes. Fresh acceptance must confirm both repairs below against the refreshed
+package.
+
+1. A keyed witness list sorts by stable path key, then lexicographic event-
+   index tuple, canonical binding digest, and arm declaration ordinal. The
+   per-occurrence `replayKey` remains a derived identity over test, path, and
+   indices and must not precede event indices in ordering. The persisted
+   two-occurrence adversary must demonstrate that replay-key hash order would
+   select the later occurrence and that semantic occurrence order rejects that
+   result after all enclosing IDs are refreshed.
+2. Every active-catalog `pattern-result` must run the complete BAG-11 finite
+   denotation validator with its resolved trace registry, even when no fixed
+   legacy mutation registry or currently selected campaign edge reaches it.
+   Identity/provenance-only producer validation is insufficient. Instrumented
+   audit must observe exact coverage of the active pattern-result registry.
 
 ## Stop rule
 

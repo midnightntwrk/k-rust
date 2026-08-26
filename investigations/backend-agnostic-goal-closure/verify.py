@@ -254,7 +254,9 @@ def validate_official_instance(value: Any, schema_name: str) -> None:
     from referencing import Registry, Resource
     schema_documents = [load(path) for path in sorted(SCHEMAS.glob("*.schema.json"))]
     registry = Registry().with_resources((schema["$id"], Resource.from_contents(schema)) for schema in schema_documents)
-    schema = next(item for item in schema_documents if item["$id"].endswith(f"/{schema_name}"))
+    file_name, separator, fragment = schema_name.partition("#")
+    schema_root = next(item for item in schema_documents if item["$id"].endswith(f"/{file_name}"))
+    schema = {"$ref": f"{schema_root['$id']}#{fragment}"} if separator else schema_root
     errors = list(Draft202012Validator(schema, registry=registry).iter_errors(value))
     ok(not errors, f"official Draft 2020-12 validation failed for synthetic {schema_name}: {errors[0].message if errors else ''}")
 
@@ -1055,12 +1057,12 @@ def validate_trace_semantics(trace: dict[str, Any], terminal_registry: tuple[dic
 
 
 def witness_order_key(witness: dict[str, Any]) -> tuple[Any, ...]:
-    return (witness["replayKey"], tuple(witness["eventIndices"]), digest("k-in-k/bindings/v1", witness["bindings"]), witness["armOrdinal"])
+    return (witness["pathKey"], tuple(witness["eventIndices"]), digest("k-in-k/bindings/v1", witness["bindings"]), witness["armOrdinal"])
 
 
 def unkeyed_witness_order_key(witness: dict[str, Any], path_identities: dict[int, str]) -> tuple[Any, ...]:
     schedule_independent = value_without(witness, "pathOrdinal")
-    return (path_identities[witness["pathOrdinal"]], tuple(witness["eventIndices"]), digest("k-in-k/bindings/v1", witness["bindings"]), digest("k-in-k/unkeyed-witness-order/v1", schedule_independent), witness["armOrdinal"])
+    return (path_identities[witness["pathOrdinal"]], tuple(witness["eventIndices"]), digest("k-in-k/bindings/v1", witness["bindings"]), witness["armOrdinal"], digest("k-in-k/unkeyed-witness-order/v1", schedule_independent))
 
 
 def resolved_fixture_query(inputs: dict[str, Any], query_id: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -3501,7 +3503,7 @@ def denotational_vector_result(case: dict[str, Any], data: dict[str, Any]) -> tu
     for path_ordinal, path in enumerate(case["paths"]):
         events = [data["events"][reference] for reference in path["eventRefs"]]
         path_key = path.get("pathKey")
-        path_order = path.get("replayKey", path_key) if stable_path_keys else digest("k-in-k/unkeyed-vector-path/v1", value_without(path, "pathKey", "replayKey"))
+        path_order = path_key if stable_path_keys else digest("k-in-k/unkeyed-vector-path/v1", value_without(path, "pathKey", "replayKey"))
 
         def extend(arm: dict[str, Any], arm_ordinal: int, atom_ordinal: int, indices: list[int], bindings: dict[str, str]) -> None:
             nonlocal indeterminate
@@ -3580,6 +3582,7 @@ def verify_execution() -> None:
         path_keys: set[str] = set()
         for path in case["paths"]:
             validate_path_relations(path, data)
+            ok("replayKey" not in path, f"{case['id']}: path-level replay key was accepted as witness ordering authority")
             if stable_path_keys:
                 ok(isinstance(path.get("pathKey"), str) and path["pathKey"] not in path_keys, f"{case['id']}: missing or duplicate stable path key")
                 path_keys.add(path["pathKey"])
@@ -3981,6 +3984,112 @@ def verify_bag11_adversaries() -> None:
     wrong_status.pop("primaryWitness")
     wrong_status["resultId"] = digest("k-in-k/pattern-result/v1", value_without(wrong_status, "resultId"))
     expect_semantic_rejection(lambda value: validate_pattern_result_semantics(value, {trace_digest: trace}), wrong_status, "self-asserted path status was accepted")
+
+    two_occurrence_trace = deepcopy(trace)
+    later_load = deepcopy(two_occurrence_trace["events"][-1])
+    later_load.update({"index": 2, "transitionOrdinal": later_load["transitionOrdinal"] + 1, "emissionOrdinal": 0})
+    two_occurrence_trace["events"].append(later_load)
+    identity_payload = value_without(two_occurrence_trace, "pathOrdinal", "pathKey", "pathIdentityDigest")
+    two_occurrence_trace["pathIdentityDigest"] = digest("k-in-k/unkeyed-path/v1", identity_payload)
+    two_occurrence_trace_digest = digest("k-in-k/event-trace/v1", two_occurrence_trace)
+    two_occurrence_result = deepcopy(result)
+    two_occurrence_path = two_occurrence_result["pathResults"][0]
+    two_occurrence_path["traceDigest"] = two_occurrence_trace_digest
+    two_occurrence_path["pathIdentityDigest"] = two_occurrence_trace["pathIdentityDigest"]
+    for artifact in two_occurrence_result["inputs"]["artifacts"]:
+        if artifact["role"] == "event-trace" and artifact["digest"] == trace_digest:
+            artifact["digest"] = two_occurrence_trace_digest
+    plan, _query, _observation, side_table = resolved_fixture_query(two_occurrence_result["inputs"], two_occurrence_result["queryId"])
+    derived_occurrences, indeterminate = derive_trace_plan_witnesses(two_occurrence_result, plan, side_table, two_occurrence_trace, two_occurrence_path)
+    ok(not indeterminate and {tuple(witness["eventIndices"]) for witness in derived_occurrences} == {(0, 1), (0, 2)}, "persisted two-occurrence adversary did not derive both matches")
+    from refresh_fixture_ids import bag11_fixture_witnesses, refresh_replay
+    produced_occurrences = bag11_fixture_witnesses(plan, two_occurrence_trace, two_occurrence_path)
+    ok(produced_occurrences == sorted(derived_occurrences, key=witness_order_key), "refresh producer differs from the complete verifier denotation or its semantic order")
+    two_occurrence_result["witnesses"] = produced_occurrences
+    two_occurrence_result["primaryWitness"] = deepcopy(produced_occurrences[0])
+
+    two_occurrence_replay = deepcopy(replay)
+    two_occurrence_replay["steps"][2]["expectedArtifacts"] = [{"role": "event-trace", "digest": two_occurrence_trace_digest}]
+    two_occurrence_replay["steps"][3]["inputArtifacts"][0] = {"role": "event-trace", "digest": two_occurrence_trace_digest}
+    refresh_replay(two_occurrence_replay)
+    two_occurrence_result["inputs"]["replayInvocationDigest"] = two_occurrence_replay["invocationDigest"]
+    two_occurrence_result["resultId"] = digest("k-in-k/pattern-result/v1", value_without(two_occurrence_result, "resultId"))
+    two_occurrence_replay["expectedResultDigest"] = two_occurrence_result["resultId"]
+    two_occurrence_replay["steps"][3]["expectedArtifacts"] = [{"role": "pattern-result", "digest": two_occurrence_result["resultId"]}]
+    refresh_replay(two_occurrence_replay)
+    validate_official_instance(two_occurrence_result, "pattern-result.schema.json")
+    validate_pattern_result_semantics(two_occurrence_result, {two_occurrence_trace_digest: two_occurrence_trace})
+    validate_official_instance(two_occurrence_replay, "replay-manifest.schema.json")
+    validate_replay_semantics(two_occurrence_replay)
+    ok(two_occurrence_result["primaryWitness"]["eventIndices"] == [0, 1], "persisted two-occurrence primary is not the earliest occurrence")
+    ok(two_occurrence_replay["expectedResultDigest"] == two_occurrence_result["resultId"] and two_occurrence_result["inputs"]["replayInvocationDigest"] == two_occurrence_replay["invocationDigest"], "refresh producer result did not propagate through replay identities")
+    replay_hash_order = sorted(produced_occurrences, key=lambda witness: witness["replayKey"])
+    ok(replay_hash_order[0]["eventIndices"] == [0, 2], "two-occurrence adversary no longer distinguishes replay identity from semantic order")
+    replay_ordered_result = deepcopy(two_occurrence_result)
+    replay_ordered_result["witnesses"] = replay_hash_order
+    replay_ordered_result["primaryWitness"] = deepcopy(replay_hash_order[0])
+    replay_ordered_result["resultId"] = digest("k-in-k/pattern-result/v1", value_without(replay_ordered_result, "resultId"))
+    expect_semantic_rejection(
+        lambda value: validate_pattern_result_semantics(value, {two_occurrence_trace_digest: two_occurrence_trace}),
+        replay_ordered_result,
+        "replay-ID hash order promoted a later persisted occurrence to primary",
+    )
+
+    pattern_operand = next(
+        value
+        for path in sorted(FIXTURES.glob("oracle-operand-*.json"))
+        for value in [load(path)]
+        if value["subject"]["side"] == "baseline"
+        and value["normalizedValue"].get("patternResult") == {"role": "pattern-result", "digest": result["resultId"]}
+        and value["normalizedValue"]["bindingTuples"] == []
+    )
+    refreshed_operand = deepcopy(pattern_operand)
+    refreshed_result_key = {"role": "pattern-result", "digest": two_occurrence_result["resultId"]}
+    refreshed_operand["completionEvidence"]["patternResult"] = refreshed_result_key
+    refreshed_operand["normalizedValue"]["patternResult"] = refreshed_result_key
+    refreshed_operand["operandId"] = digest("k-in-k/oracle-operand/v1", value_without(refreshed_operand, "operandId"))
+    validate_official_instance(refreshed_operand, "oracle-semantics.schema.json#/$defs/operand")
+
+    def external_structured_entry(role: str, identity: str, value: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "role": role,
+            "digest": identity,
+            "contentModel": "canonical-json",
+            "mediaType": "application/json",
+            "contentSha256": hashlib.sha256(canonical(value).encode("utf-8")).hexdigest(),
+            "availability": "external-required",
+            "logicalPath": f"artifact://bag11-two-occurrence/{role}/{identity}",
+            "resolverId": "rust-artifact-store-v1",
+        }
+
+    refreshed_catalog = deepcopy(catalog)
+    refreshed_catalog["entries"].extend([
+        external_structured_entry("event-trace", two_occurrence_trace_digest, two_occurrence_trace),
+        external_structured_entry("pattern-result", two_occurrence_result["resultId"], two_occurrence_result),
+        external_structured_entry("replay-manifest", two_occurrence_replay["replayId"], two_occurrence_replay),
+        external_structured_entry("oracle-operand", refreshed_operand["operandId"], refreshed_operand),
+    ])
+    refreshed_catalog["entries"].sort(key=lambda entry: (entry["role"], entry["digest"]))
+    refreshed_catalog["catalogId"] = digest("k-in-k/artifact-catalog/v1", value_without(refreshed_catalog, "catalogId"))
+    validate_official_instance(refreshed_catalog, "artifact-catalog.schema.json")
+    validate_artifact_catalog(refreshed_catalog)
+    require_catalog_entries(refreshed_catalog, [
+        ("event-trace", two_occurrence_trace_digest),
+        ("pattern-result", two_occurrence_result["resultId"]),
+        ("replay-manifest", two_occurrence_replay["replayId"]),
+        ("oracle-operand", refreshed_operand["operandId"]),
+    ], "persisted two-occurrence refreshed output closure")
+    ok(
+        all(refreshed != original for refreshed, original in (
+            (two_occurrence_trace_digest, trace_digest),
+            (two_occurrence_result["resultId"], result["resultId"]),
+            (two_occurrence_replay["invocationDigest"], replay["invocationDigest"]),
+            (two_occurrence_replay["replayId"], replay["replayId"]),
+            (refreshed_operand["operandId"], pattern_operand["operandId"]),
+            (refreshed_catalog["catalogId"], catalog["catalogId"]),
+        )),
+        "two-occurrence fixture change did not refresh every enclosing portable identity",
+    )
 
     selected_root = root_for(single_query)
     require_catalog_entries(catalog, [(value["role"], value["digest"]) for value in selected_root.values()], "identity propagation query")
@@ -6510,6 +6619,7 @@ def main() -> int:
     verify_bag12_package(PACKAGE, {
         "ok": ok,
         "expect_schema_rejection": expect_schema_rejection,
+        "validate_pattern_result_semantics": validate_pattern_result_semantics,
     })
     verify_semantic_termination_and_crash_oracle()
     verify_policy_generation_fixtures()

@@ -1,8 +1,8 @@
 # BAG-14: cache granularity and completeness
 
-Status: fleshed backend-agnostic closure packet; root successor-compatibility
-reviewed after the BAG-12 repair, but activation remains held until fresh
-independent BAG-12 acceptance and an independent BAG-14 preflight.
+Status: active portable implementation after fresh BAG-11/BAG-12 acceptance
+and independent BAG-14 preflight acceptance on 26 August 2026. BAG-15 and
+later packets remain gated.
 
 ## Objective
 
@@ -193,8 +193,9 @@ The persisted reuse class is an intrinsic evidence classification, derived and
 never trusted. `semantic-result` requires a kind-compatible complete terminal/
 comparison and sufficient production/conformance evidence.
 `exact-bounded-attempt` requires the exact bounded-stop terminal and identical
-`not-proven` native execution, producer/output disagreement, and every
-infrastructure/backend/worker failure derive `not-reusable`. A semantic crash
+bounds and profiles. `not-proven` native execution, producer/output
+disagreement, and every infrastructure/backend/worker failure derive
+`not-reusable`. A semantic crash
 may be `semantic-result` only through BAG-09's typed crash boundary; a BAG-12
 incomparable comparison is a complete typed result but remains non-killing and
 is reusable only as that exact error/exclusion result.
@@ -383,6 +384,14 @@ no fabricated BAG-15 role—remain consistent with the repaired package.
 Before delegation, an independent preflight must still verify the exact
 current BAG-12 schemas/roles and confirm that BAG-14 does not copy BAG-12's
 finite-row authority into a general native-production claim.
+
+### Independent activation preflight — 26 August 2026
+
+Independent review accepted portable activation against the exact current
+BAG-12 declaration, operand, side, gate, comparison, evaluator-conformance,
+campaign, and catalog roles. It confirmed that finite-vector evidence is not
+native authority, `operation-receipt` remains absent until BAG-15, and the
+packet has no dependency on the retired backend-specific path.
 
 ## Stop rule
 

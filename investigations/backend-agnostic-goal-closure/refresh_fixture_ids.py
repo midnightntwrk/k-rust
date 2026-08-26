@@ -827,7 +827,7 @@ def bag11_fixture_witnesses(plan: dict[str, Any], trace: dict[str, Any], path_re
         if path_key is not None:
             witness["pathKey"] = path_key
             witness["replayKey"] = digest("k-in-k/witness-replay-key/v1", {"testId": trace["testId"], "pathKey": path_key, "eventIndices": indices})
-    derived.sort(key=lambda witness: (witness.get("replayKey", ""), tuple(witness["eventIndices"]), digest("k-in-k/bindings/v1", witness["bindings"]), witness["armOrdinal"]))
+    derived.sort(key=lambda witness: (witness.get("pathKey", ""), tuple(witness["eventIndices"]), digest("k-in-k/bindings/v1", witness["bindings"]), witness["armOrdinal"]))
     return derived
 
 

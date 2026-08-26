@@ -1132,7 +1132,6 @@
       "paths": [
         {
           "pathKey": "later",
-          "replayKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
           "complete": true,
           "stopReason": "terminal",
           "eventRefs": [
@@ -1142,7 +1141,6 @@
         },
         {
           "pathKey": "earlier",
-          "replayKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "complete": true,
           "stopReason": "terminal",
           "eventRefs": [

@@ -80,92 +80,96 @@
           }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "terminalState",
-            "projection",
-            "term"
-          ],
-          "properties": {
-            "terminalState": {
+          "oneOf": [
+            {
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "role",
-                "digest"
+                "terminalState",
+                "projection",
+                "term"
               ],
               "properties": {
-                "role": {
-                  "const": "terminal-state"
-                },
-                "digest": {
-                  "$ref": "common.schema.json#/$defs/digest"
-                }
-              }
-            },
-            "projection": {
-              "const": "whole-portable-term-v1"
-            },
-            "term": {
-              "$ref": "common.schema.json#/$defs/term"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "terminalState",
-            "projection",
-            "paths"
-          ],
-          "properties": {
-            "terminalState": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "role",
-                "digest"
-              ],
-              "properties": {
-                "role": {
-                  "const": "terminal-state"
-                },
-                "digest": {
-                  "$ref": "common.schema.json#/$defs/digest"
-                }
-              }
-            },
-            "projection": {
-              "const": "selected-term-paths-v1"
-            },
-            "paths": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "path",
-                  "sort",
-                  "value"
-                ],
-                "properties": {
-                  "path": {
-                    "$ref": "common.schema.json#/$defs/path"
-                  },
-                  "sort": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "value": {
-                    "$ref": "common.schema.json#/$defs/term"
+                "terminalState": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "role",
+                    "digest"
+                  ],
+                  "properties": {
+                    "role": {
+                      "const": "terminal-state"
+                    },
+                    "digest": {
+                      "$ref": "common.schema.json#/$defs/digest"
+                    }
                   }
+                },
+                "projection": {
+                  "const": "whole-portable-term-v1"
+                },
+                "term": {
+                  "$ref": "common.schema.json#/$defs/term"
                 }
-              },
-              "minItems": 1
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "terminalState",
+                "projection",
+                "paths"
+              ],
+              "properties": {
+                "terminalState": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "role",
+                    "digest"
+                  ],
+                  "properties": {
+                    "role": {
+                      "const": "terminal-state"
+                    },
+                    "digest": {
+                      "$ref": "common.schema.json#/$defs/digest"
+                    }
+                  }
+                },
+                "projection": {
+                  "const": "selected-term-paths-v1"
+                },
+                "paths": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "path",
+                      "sort",
+                      "value"
+                    ],
+                    "properties": {
+                      "path": {
+                        "$ref": "common.schema.json#/$defs/path"
+                      },
+                      "sort": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "value": {
+                        "$ref": "common.schema.json#/$defs/term"
+                      }
+                    }
+                  },
+                  "minItems": 1
+                }
+              }
             }
-          }
+          ]
         },
         {
           "type": "object",
@@ -651,17 +655,393 @@
                       ],
                       "properties": {
                         "kind": {
-                          "enum": [
-                            "exit-stop",
-                            "final-result",
-                            "concrete-output",
-                            "reachability",
-                            "execution-pattern",
-                            "structured-predicate"
-                          ]
+                          "const": "exit-stop"
                         },
                         "normalizedValue": {
-                          "$ref": "#/$defs/normalizedValue"
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "terminalClass",
+                            "exitCode"
+                          ],
+                          "properties": {
+                            "terminalClass": {
+                              "enum": [
+                                "normal",
+                                "stuck"
+                              ]
+                            },
+                            "exitCode": {
+                              "oneOf": [
+                                {
+                                  "type": "integer"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "normalizedValue"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "final-result"
+                        },
+                        "normalizedValue": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "terminalState",
+                                "projection",
+                                "term"
+                              ],
+                              "properties": {
+                                "terminalState": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "role",
+                                    "digest"
+                                  ],
+                                  "properties": {
+                                    "role": {
+                                      "const": "terminal-state"
+                                    },
+                                    "digest": {
+                                      "$ref": "common.schema.json#/$defs/digest"
+                                    }
+                                  }
+                                },
+                                "projection": {
+                                  "const": "whole-portable-term-v1"
+                                },
+                                "term": {
+                                  "$ref": "common.schema.json#/$defs/term"
+                                }
+                              }
+                            },
+                            {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "terminalState",
+                                "projection",
+                                "paths"
+                              ],
+                              "properties": {
+                                "terminalState": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "role",
+                                    "digest"
+                                  ],
+                                  "properties": {
+                                    "role": {
+                                      "const": "terminal-state"
+                                    },
+                                    "digest": {
+                                      "$ref": "common.schema.json#/$defs/digest"
+                                    }
+                                  }
+                                },
+                                "projection": {
+                                  "const": "selected-term-paths-v1"
+                                },
+                                "paths": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "path",
+                                      "sort",
+                                      "value"
+                                    ],
+                                    "properties": {
+                                      "path": {
+                                        "$ref": "common.schema.json#/$defs/path"
+                                      },
+                                      "sort": {
+                                        "type": "string",
+                                        "minLength": 1
+                                      },
+                                      "value": {
+                                        "$ref": "common.schema.json#/$defs/term"
+                                      }
+                                    }
+                                  },
+                                  "minItems": 1
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "normalizedValue"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "concrete-output"
+                        },
+                        "normalizedValue": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "channels"
+                          ],
+                          "properties": {
+                            "channels": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "name",
+                                  "mediaType",
+                                  "contentSha256",
+                                  "bytesArtifact",
+                                  "text"
+                                ],
+                                "properties": {
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "mediaType": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "contentSha256": {
+                                    "$ref": "common.schema.json#/$defs/digest"
+                                  },
+                                  "bytesArtifact": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "role",
+                                      "digest"
+                                    ],
+                                    "properties": {
+                                      "role": {
+                                        "const": "semantic-output-bytes"
+                                      },
+                                      "digest": {
+                                        "$ref": "common.schema.json#/$defs/digest"
+                                      }
+                                    }
+                                  },
+                                  "text": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  }
+                                }
+                              },
+                              "minItems": 1
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "normalizedValue"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "reachability"
+                        },
+                        "normalizedValue": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "status",
+                            "witnesses"
+                          ],
+                          "properties": {
+                            "status": {
+                              "enum": [
+                                "reached",
+                                "not-reached"
+                              ]
+                            },
+                            "witnesses": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "role",
+                                  "digest"
+                                ],
+                                "properties": {
+                                  "role": {
+                                    "const": "reachability-witness"
+                                  },
+                                  "digest": {
+                                    "$ref": "common.schema.json#/$defs/digest"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "normalizedValue"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "execution-pattern"
+                        },
+                        "normalizedValue": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "patternResult",
+                            "outcome",
+                            "bindingTuples"
+                          ],
+                          "properties": {
+                            "patternResult": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "role",
+                                "digest"
+                              ],
+                              "properties": {
+                                "role": {
+                                  "const": "pattern-result"
+                                },
+                                "digest": {
+                                  "$ref": "common.schema.json#/$defs/digest"
+                                }
+                              }
+                            },
+                            "outcome": {
+                              "enum": [
+                                "match",
+                                "no-match"
+                              ]
+                            },
+                            "bindingTuples": {
+                              "type": "array",
+                              "items": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "name",
+                                    "sort",
+                                    "value"
+                                  ],
+                                  "properties": {
+                                    "name": {
+                                      "type": "string",
+                                      "pattern": "^[A-Z][A-Za-z0-9_]*$"
+                                    },
+                                    "sort": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "value": {
+                                      "$ref": "common.schema.json#/$defs/term"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "normalizedValue"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "structured-predicate"
+                        },
+                        "normalizedValue": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "query",
+                            "input",
+                            "inputProjectionDigest",
+                            "bindings",
+                            "bindingsDigest",
+                            "result"
+                          ],
+                          "properties": {
+                            "query": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "role",
+                                "digest"
+                              ],
+                              "properties": {
+                                "role": {
+                                  "const": "predicate-query"
+                                },
+                                "digest": {
+                                  "$ref": "common.schema.json#/$defs/digest"
+                                }
+                              }
+                            },
+                            "input": {
+                              "$ref": "common.schema.json#/$defs/artifactKey"
+                            },
+                            "inputProjectionDigest": {
+                              "$ref": "common.schema.json#/$defs/digest"
+                            },
+                            "bindings": {
+                              "type": "array",
+                              "items": {
+                                "$ref": "common.schema.json#/$defs/binding"
+                              }
+                            },
+                            "bindingsDigest": {
+                              "$ref": "common.schema.json#/$defs/digest"
+                            },
+                            "result": {
+                              "type": "boolean"
+                            }
+                          }
                         }
                       }
                     },
@@ -1496,92 +1876,96 @@
               }
             },
             {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "terminalState",
-                "projection",
-                "term"
-              ],
-              "properties": {
-                "terminalState": {
+              "oneOf": [
+                {
                   "type": "object",
                   "additionalProperties": false,
                   "required": [
-                    "role",
-                    "digest"
+                    "terminalState",
+                    "projection",
+                    "term"
                   ],
                   "properties": {
-                    "role": {
-                      "const": "terminal-state"
-                    },
-                    "digest": {
-                      "$ref": "common.schema.json#/$defs/digest"
-                    }
-                  }
-                },
-                "projection": {
-                  "const": "whole-portable-term-v1"
-                },
-                "term": {
-                  "$ref": "common.schema.json#/$defs/term"
-                }
-              }
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "terminalState",
-                "projection",
-                "paths"
-              ],
-              "properties": {
-                "terminalState": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "role",
-                    "digest"
-                  ],
-                  "properties": {
-                    "role": {
-                      "const": "terminal-state"
-                    },
-                    "digest": {
-                      "$ref": "common.schema.json#/$defs/digest"
-                    }
-                  }
-                },
-                "projection": {
-                  "const": "selected-term-paths-v1"
-                },
-                "paths": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "path",
-                      "sort",
-                      "value"
-                    ],
-                    "properties": {
-                      "path": {
-                        "$ref": "common.schema.json#/$defs/path"
-                      },
-                      "sort": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "value": {
-                        "$ref": "common.schema.json#/$defs/term"
+                    "terminalState": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "role",
+                        "digest"
+                      ],
+                      "properties": {
+                        "role": {
+                          "const": "terminal-state"
+                        },
+                        "digest": {
+                          "$ref": "common.schema.json#/$defs/digest"
+                        }
                       }
+                    },
+                    "projection": {
+                      "const": "whole-portable-term-v1"
+                    },
+                    "term": {
+                      "$ref": "common.schema.json#/$defs/term"
                     }
-                  },
-                  "minItems": 1
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "terminalState",
+                    "projection",
+                    "paths"
+                  ],
+                  "properties": {
+                    "terminalState": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "role",
+                        "digest"
+                      ],
+                      "properties": {
+                        "role": {
+                          "const": "terminal-state"
+                        },
+                        "digest": {
+                          "$ref": "common.schema.json#/$defs/digest"
+                        }
+                      }
+                    },
+                    "projection": {
+                      "const": "selected-term-paths-v1"
+                    },
+                    "paths": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "path",
+                          "sort",
+                          "value"
+                        ],
+                        "properties": {
+                          "path": {
+                            "$ref": "common.schema.json#/$defs/path"
+                          },
+                          "sort": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "value": {
+                            "$ref": "common.schema.json#/$defs/term"
+                          }
+                        }
+                      },
+                      "minItems": 1
+                    }
+                  }
                 }
-              }
+              ]
             },
             {
               "type": "object",

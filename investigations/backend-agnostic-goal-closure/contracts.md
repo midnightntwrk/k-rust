@@ -503,19 +503,23 @@ not a solver or evidence of equivalence to the K-authored condition.
 
 For a single path with multiple valid occurrences, the canonical primary
 witness is the lexicographically smallest event-index tuple, followed by the
-canonical binding digest and arm declaration ordinal. Across paths, the executor returns all normalized
-witnesses or a primary witness selected by a stable replay-key order. A future
+canonical binding digest and arm declaration ordinal. Across keyed paths, the
+executor returns all normalized witnesses in stable `pathKey` order, with the
+same occurrence ordering inside each path, and selects the first as primary. A future
 stack that cannot reproduce stable path keys must omit both keys, report all
 witnesses, and leave `primaryWitness` absent rather than choose by scheduling
-order. Unkeyed witnesses sort by event-index tuple, binding digest, and then a
-digest of the complete witness solely to make serialization deterministic;
-that order never promotes an item to primary.
+order. Unkeyed paths sort by intrinsic path-identity digest; witnesses within
+each path sort by event-index tuple, binding digest, and arm declaration
+ordinal, followed by a digest of the complete witness solely to make
+serialization deterministic. That order never promotes an item to primary.
 
 When a stable path key exists, `replayKey` is
 `k-in-k/witness-replay-key/v1` over test ID, path key, and ordered event
-indices. Witnesses sort by replay key, event-index tuple, binding digest, and
-alternative declaration order. A present `primaryWitness` is exactly the
-first item in that normalized list.
+indices. It identifies that exact replay occurrence but is not ordering
+authority because hashing event indices can invert their semantic order.
+Witnesses sort by path key, event-index tuple, binding digest, and alternative
+declaration order. A present `primaryWitness` is exactly the first item in that
+normalized list.
 
 Occurrence matching scans the entire finite event sequence; prefix and suffix
 events do not need to be consumed. Empty patterns and zero-length sequence
@@ -706,7 +710,17 @@ The baseline gate is a separate `baseline-oracle-gate-result` artifact.
 policy (`normal-only`, `normal-or-stuck`, `normal-or-crash`, or
 `normal-stuck-or-crash`). `assert` compares the actual side with the
 declaration-owned expected side through the same crash policy and kind
-comparator. Only `agree` is accepted. Gate status, assertion outcome, and an
+comparator. An inline normal expected side is discriminated by the declaration
+kind and must pass the same portable kind-specific value-integrity rules before
+comparison may project away provenance: terminal states, output bytes,
+reachability witnesses, pattern results, and predicate inputs must resolve
+through the active catalog; their definition/query/projection/binding roots
+must agree with the declaration; and every derivable term, path, hash, text,
+witness, result, and binding field must be rederived. Inline expectations do
+not acquire operand identities or production evidence. A normal inline
+expectation for a K-authored operation is not zero-backend decision authority
+and must reject until a later production contract supplies an equivalent
+kind-specific validator. Only `agree` is accepted. Gate status, assertion outcome, and an
 exact `baseline-oracle-gate`/`baseline-mismatch` failure are rederived; a gate
 result never recopies its expected value.
 

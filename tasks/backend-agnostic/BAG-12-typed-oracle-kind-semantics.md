@@ -1,7 +1,8 @@
 # BAG-12: typed oracle-kind semantics
 
-Status: active repair packet after independent BAG-11/BAG-12 rejection; not
-accepted and BAG-14 remains held.
+Status: refreshed portable repair independently accepted on 26 August 2026,
+including the kind-specific inline expected-value integrity repair. BAG-14
+still requires its own independent preflight.
 
 ## Objective
 
@@ -545,7 +546,7 @@ predicates/comparisons in Python, or run backend code.
 - checks are tiny and serial; and
 - `git diff --check` passes.
 
-### Root re-audit repair gate — 23 August 2026
+### Root re-audit repair gate — updated 26 August 2026
 
 The first integrated build passed its own zero-backend verifier but failed
 three fresh independent audits. A repair is accepted only when all of the
@@ -614,6 +615,27 @@ self-IDs, and official-schema acceptance are not evidence by themselves.
     official Draft 2020-12 validation, JSON/whitespace/cache/diff hygiene, and
     fresh independent audits over the refreshed state. Record only the final
     refreshed package hash; a pre-refresh hash is not completion evidence.
+11. An asserted inline normal expected side must use the declaration kind's
+    exact schema branch and pass kind-specific semantic validation before the
+    comparator may discard provenance fields. Resolve and rederive referenced
+    terminal states, output bytes and hashes/text, reachability witnesses,
+    pattern results, predicate inputs/projections/bindings, and all applicable
+    definition/query roots. Publish positive inline expectations for every
+    built-in pair and executable rejection coverage for all six kinds,
+    including a final-result expectation whose term agrees while its terminal
+    key is absent from the active catalog.
+
+### Refreshed acceptance evidence — 26 August 2026
+
+Two consecutive ordinary refreshes produced identical package bytes. The
+package fold over every file below `investigations/backend-agnostic-goal-closure/`
+except `__pycache__` is
+`c7e4ba9b91da20ecc800872f664d99447155c24a2de882a9e763a47ad738061b`.
+The official Draft 2020-12 verifier passes 397,474 zero-backend checks.
+Independent BAG-12 review accepted the kind-discriminated inline expectation
+schemas, semantic provenance validation, nine built-in positives, and the
+six-kind executable integrity probe. Fresh independent BAG-11 review accepted
+the repaired producer ordering and complete active-catalog denotation sweep.
 
 ## Stop rule
 
