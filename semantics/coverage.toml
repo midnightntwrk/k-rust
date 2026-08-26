@@ -49,16 +49,17 @@ authority_k_version = "7.1.337"
 source_files = 98
 source_syntax_declarations = 478
 source_rules = 3440
-krs_equations = 20
-krs_machine_rules = 14
-krs_claims = 1
-pinned_executions = 14
+krs_equations = 37
+krs_machine_rules = 30
+krs_claims = 2
+pinned_executions = 25
 complete = false
 implemented = [
-  "PUSH, ADD, PC, STOP, and INVALID",
+  "PUSH, ADD, MUL, SUB, DIV, MOD, PC, STOP, and INVALID",
   "word-stack and program-counter transitions",
-  "modulo-2^256 addition",
-  "Shanghai gas charging",
+  "modulo-2^256 addition, multiplication, and subtraction",
+  "totalized unsigned word division and modulus",
+  "Shanghai Gzero, Gbase, Gverylow, and Glow gas charging",
   "success and selected exceptional statuses",
   "builtin Bytes program storage, opcode lookup, and PUSH immediate decoding",
 ]
@@ -106,19 +107,26 @@ deferred = [
 
 [[tranche]]
 priority = 1
+name = "Euclidean Int modulus"
+consumers = ["kwasm", "kevm"]
+status = "implemented"
+rationale = "selects K's INT.mod directly for source-faithful word normalization, including negative SUB intermediates"
+
+[[tranche]]
+priority = 2
 name = "builtin associative List surface"
 consumers = ["kwasm", "kmir"]
 status = "in_progress"
 rationale = "implemented in shared KRS and KMIR; the remaining KWasm migration removes its recursive instruction and value-stack boundaries"
 
 [[tranche]]
-priority = 2
+priority = 3
 name = "Bytes surface"
 consumers = ["kwasm", "kevm"]
 rationale = "unlocks real Wasm binary programs and KEVM opcode decoding"
 
 [[tranche]]
-priority = 3
+priority = 4
 name = "nested and collection configuration"
 consumers = ["kwasm", "kevm", "kmir"]
 rationale = "required for stores, frames, accounts, calls, and the source configurations"

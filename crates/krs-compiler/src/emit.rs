@@ -1657,6 +1657,7 @@ fn render_builtin_application(
         BuiltinOperation::IntSub => (None, Some("-Int"), 2),
         BuiltinOperation::IntMul => (None, Some("*Int"), 2),
         BuiltinOperation::IntTDiv => (None, Some("/Int"), 2),
+        BuiltinOperation::IntMod => (None, Some("modInt"), 2),
         BuiltinOperation::IntGreaterEqual => (None, Some(">=Int"), 2),
         BuiltinOperation::IntGreater => (None, Some(">Int"), 2),
         BuiltinOperation::IntLessEqual => (None, Some("<=Int"), 2),

@@ -27,6 +27,8 @@ pub enum BuiltinOperation {
     IntMul,
     /// `_/Int_`, truncating division (`INT.tdiv`).
     IntTDiv,
+    /// `_modInt_`, Euclidean modulus (`INT.mod`).
+    IntMod,
     /// `_>=Int_`.
     IntGreaterEqual,
     /// `_>Int_`.
@@ -57,11 +59,12 @@ pub enum BuiltinOperation {
 
 impl BuiltinOperation {
     /// Complete protocol catalog in stable semantic order.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::IntAdd,
         Self::IntSub,
         Self::IntMul,
         Self::IntTDiv,
+        Self::IntMod,
         Self::IntGreaterEqual,
         Self::IntGreater,
         Self::IntLessEqual,
@@ -85,6 +88,7 @@ impl BuiltinOperation {
             | Self::IntSub
             | Self::IntMul
             | Self::IntTDiv
+            | Self::IntMod
             | Self::BytesLength
             | Self::BytesGet => BuiltinSort::Int,
             Self::IntGreaterEqual
@@ -113,6 +117,7 @@ impl BuiltinOperation {
             | Self::IntSub
             | Self::IntMul
             | Self::IntTDiv
+            | Self::IntMod
             | Self::IntGreaterEqual
             | Self::IntGreater
             | Self::IntLessEqual
@@ -142,6 +147,7 @@ impl BuiltinOperation {
             | Self::IntSub
             | Self::IntMul
             | Self::IntTDiv
+            | Self::IntMod
             | Self::IntGreaterEqual
             | Self::IntGreater
             | Self::IntLessEqual

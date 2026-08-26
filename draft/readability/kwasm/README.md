@@ -158,10 +158,10 @@ The fail-closed qualification entry point is `python3 tests/kwasm/verify.py`.
 
 ## Qualification result
 
-The complete gate passes with KRS descriptor protocol 18, Definition IR schema 11, K 7.1.337, and the qualified rust-analyzer 1.97.1:
+The complete gate passes with KRS descriptor protocol 19, Definition IR schema 12, K 7.1.337, and the qualified rust-analyzer 1.97.1:
 
 ```text
-PASS readable KWasm integer slice: 60 descriptors; 32 executions; 1 native proof; protocol 18; K 7.1.337
+PASS readable KWasm integer slice: 60 descriptors; 32 executions; 1 native proof; protocol 19; K 7.1.337
 ```
 
 The 32 native executions cover both integer widths, zero, maxima, negative constants, operand order, nesting, every selected add/sub/mul wraparound form, exact and truncated unsigned division, high-bit unsigned values, and divide-by-zero traps.
@@ -175,6 +175,8 @@ The structured value-versus-trap behavior SHA-256 is `4a3b6107cb23fa451a392d0a0e
 The acceptance contract is emitted K compilation, execution, and proof.
 An optional direct structured `k-rust` compilation experiment reaches an unrelated no-map embedded-prelude `Map:lookup` failure and is deliberately outside this slice's gate.
 
-The complete IMP M4 gate also passes at descriptor protocol 18 and Definition IR schema 11.
+Descriptor protocol 19 and Definition IR schema 12 add K's selected `INT.mod` identity for the source-faithful KEVM arithmetic tranche.
+KWasm behavior, emitted K, and native proof evidence remain unchanged because this baseline does not yet consume that shared operation directly.
+The complete IMP M4 gate also passes at descriptor protocol 19 and Definition IR schema 12.
 Its emitted K, behavior, proofs, native KORE, and compatibility evidence remain unchanged across the shared Bytes and List additions.
 The unchanged IMP behavior evidence remains `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, and the unchanged compatibility report remains `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6`.

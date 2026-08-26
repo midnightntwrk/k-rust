@@ -293,13 +293,14 @@ fn v7_builtin_registry_requires_map_and_id() {
                 13 => HostTypeKey(marker::<20>),
                 14 => HostTypeKey(marker::<21>),
                 15 => HostTypeKey(marker::<22>),
-                _ => HostTypeKey(marker::<23>),
+                16 => HostTypeKey(marker::<23>),
+                _ => HostTypeKey(marker::<24>),
             },
         })
         .collect();
     let map_operations = vec![HostMapOperationRegistration {
         operation: MapOperation::Update,
-        target: HostTypeKey(marker::<24>),
+        target: HostTypeKey(marker::<25>),
     }];
     let list_operations = ListOperation::TERM_APPLICATIONS
         .into_iter()
@@ -307,12 +308,12 @@ fn v7_builtin_registry_requires_map_and_id() {
         .map(|(index, operation)| HostListOperationRegistration {
             operation,
             target: match index {
-                0 => HostTypeKey(marker::<25>),
-                1 => HostTypeKey(marker::<26>),
-                2 => HostTypeKey(marker::<27>),
-                3 => HostTypeKey(marker::<28>),
-                4 => HostTypeKey(marker::<29>),
-                _ => HostTypeKey(marker::<30>),
+                0 => HostTypeKey(marker::<26>),
+                1 => HostTypeKey(marker::<27>),
+                2 => HostTypeKey(marker::<28>),
+                3 => HostTypeKey(marker::<29>),
+                4 => HostTypeKey(marker::<30>),
+                _ => HostTypeKey(marker::<31>),
             },
         })
         .collect();
@@ -655,7 +656,7 @@ fn configuration_rule_round_trips_with_exact_side_specific_provenance() {
         payload: DescriptorPayload::ConfigurationRule(Box::new(rule)),
     }]);
     let json = bundle.to_canonical_json().unwrap();
-    assert!(json.contains("\"protocol_version\": 18"));
+    assert!(json.contains("\"protocol_version\": 19"));
     assert!(json.contains("\"configuration_rule\""));
     let decoded: DescriptorBundle = serde_json::from_str(&json).unwrap();
     assert_eq!(decoded, bundle);
@@ -1117,5 +1118,5 @@ fn protocol_seven_is_rejected_after_v9_cutover() {
         r#"{"protocol_version":7,"descriptors":[],"declarations":[]}"#,
     )
     .unwrap_err();
-    assert!(error.to_string().contains("expected 18"));
+    assert!(error.to_string().contains("expected 19"));
 }

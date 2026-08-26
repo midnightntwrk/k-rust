@@ -1,5 +1,5 @@
 {
-  "schema_version": 11,
+  "schema_version": 12,
   "main_module": "EXPR",
   "modules": [
     {

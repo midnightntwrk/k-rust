@@ -30,7 +30,7 @@ PACKAGE = "krs-kevm-semantics"
 DEFINITION = "main"
 MODULE = "KRS-KEVM"
 SPEC_MODULE = f"{MODULE}-SPEC"
-DESCRIPTOR_COUNT = 85
+DESCRIPTOR_COUNT = 131
 ARTIFACTS = (
     ".krs-artifacts",
     "definition-ir.json",
@@ -182,6 +182,32 @@ def exact_directory(first: Path, second: Path) -> dict[str, str]:
     return hashes
 
 
+def split_claims(source: str) -> tuple[str, list[str]]:
+    lines = source.splitlines(keepends=True)
+    starters = re.compile(
+        r"^(?:endmodule\b|  (?:syntax\b|configuration\b|context alias\b|rule\b|claim \[))"
+    )
+    semantics: list[str] = []
+    claims: list[str] = []
+    index = 0
+    while index < len(lines):
+        if not lines[index].startswith("  claim ["):
+            semantics.append(lines[index])
+            index += 1
+            continue
+        start = index
+        index += 1
+        while index < len(lines) and starters.match(lines[index]) is None:
+            index += 1
+        claims.extend(lines[start:index])
+    value = "".join(semantics)
+    if sum(line.startswith("  claim [") for line in claims) != 2:
+        raise GateError("expected exactly two emitted KEVM claims")
+    if "  claim [" in value or not value.endswith("endmodule\n"):
+        raise GateError("claim stripping did not preserve a claim-free module")
+    return value, claims
+
+
 def artifact_gate(workspace: Path, krs: Path, pins: Mapping[str, Any], environment: Mapping[str, str]) -> Path:
     base = ["--manifest-path", MANIFEST, "--package", PACKAGE, "--definition", DEFINITION]
     check = run([krs, "check", *base], environment=environment)
@@ -262,7 +288,7 @@ def observed_cell(result: str, name: str) -> str:
 
 
 def native_gate(workspace: Path, artifacts: Path, k_bin: Path, pins: Mapping[str, Any], corpus: Mapping[str, Any]) -> tuple[int, int]:
-    claim_free, claims = support.split_claims((artifacts / "definition.k").read_text(encoding="utf-8"))
+    claim_free, claims = split_claims((artifacts / "definition.k").read_text(encoding="utf-8"))
     semantics = workspace / "semantics.k"
     semantics.write_text(claim_free, encoding="utf-8")
     definition = workspace / "semantics-kompiled"
@@ -321,7 +347,7 @@ def native_gate(workspace: Path, artifacts: Path, k_bin: Path, pins: Mapping[str
     proof = run([k_bin / "kprove", spec_path, "--definition", definition, "--spec-module", SPEC_MODULE], timeout=300)
     if proof.stdout.strip() != "#Top":
         raise GateError(f"KEVM claim did not close: {proof.stdout.strip()}")
-    return len(outcomes), 1
+    return len(outcomes), sum(line.startswith("  claim [") for line in claims)
 
 
 def main() -> int:
@@ -338,7 +364,7 @@ def main() -> int:
             executions, proofs = native_gate(workspace, artifacts, k_bin, pins, corpus)
         print(
             f"PASS readable KEVM operational slice: {DESCRIPTOR_COUNT} descriptors; {executions} executions; "
-            f"{proofs} native proof; protocol {pins['schemas']['descriptor_protocol']}; K {pins['k']['version']}"
+            f"{proofs} native proofs; protocol {pins['schemas']['descriptor_protocol']}; K {pins['k']['version']}"
         )
         return 0
     except (GateError, OSError, subprocess.TimeoutExpired, AssertionError) as error:

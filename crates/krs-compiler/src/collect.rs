@@ -4289,6 +4289,7 @@ mod protocol_v6_tests {
     struct Op14;
     struct Op15;
     struct Op16;
+    struct Op17;
     struct MapUpdateOp;
     struct ListOp0;
     struct ListOp1;
@@ -4329,6 +4330,7 @@ mod protocol_v6_tests {
             HostTypeKey(marker_key::<Op14>),
             HostTypeKey(marker_key::<Op15>),
             HostTypeKey(marker_key::<Op16>),
+            HostTypeKey(marker_key::<Op17>),
         ];
         HostBuiltinRegistry {
             sorts: BuiltinSort::ALL
@@ -4488,6 +4490,24 @@ mod protocol_v6_tests {
         assert_eq!(
             application.application,
             DescriptorApplicationRef::Builtin(krs_ir::BuiltinOperation::IntAdd)
+        );
+
+        let integer_modulus = resolve_application_reference(
+            &HostApplicationReference {
+                key: ProvenanceKey::new("rule_right_application_head", 1).unwrap(),
+                target: HostApplicationTarget::Nominal(HostTypeReference {
+                    key: HostTypeKey(marker_key::<Op4>),
+                    authored_path: "RenamedModulus".into(),
+                }),
+            },
+            &HashMap::new(),
+            Some(&registry),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            integer_modulus.application,
+            DescriptorApplicationRef::Builtin(krs_ir::BuiltinOperation::IntMod)
         );
 
         let map_update = resolve_application_reference(

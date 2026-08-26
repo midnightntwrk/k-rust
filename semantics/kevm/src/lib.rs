@@ -15,12 +15,20 @@ k::sorts! {
 }
 
 #[k::constructors(sort = OpCode, result = k::KResult)]
-#[k::precedence((Push, Add, ProgramCounter, Stop, Invalid, End))]
+#[k::precedence((Push, Add, Mul, Sub, Div, Mod, ProgramCounter, Stop, Invalid, End))]
 pub enum Operation {
     #[k::syntax("PUSH({width}, {value})")]
     Push { width: Int, value: Int },
     #[k::syntax("ADD")]
     Add,
+    #[k::syntax("MUL")]
+    Mul,
+    #[k::syntax("SUB")]
+    Sub,
+    #[k::syntax("DIV")]
+    Div,
+    #[k::syntax("MOD")]
+    Mod,
     #[k::syntax("PC")]
     ProgramCounter,
     #[k::syntax("STOP")]
@@ -74,6 +82,18 @@ pub enum ExecutionCommand {
 #[k::function(total, sort = Int, syntax = "#kevmChop({value})")]
 pub struct Chop {
     pub value: k::Term<Int>,
+}
+
+#[k::function(total, sort = Int, syntax = "#kevmWordDiv({dividend}, {divisor})")]
+pub struct WordDiv {
+    pub dividend: k::Term<Int>,
+    pub divisor: k::Term<Int>,
+}
+
+#[k::function(total, sort = Int, syntax = "#kevmWordMod({dividend}, {divisor})")]
+pub struct WordMod {
+    pub dividend: k::Term<Int>,
+    pub divisor: k::Term<Int>,
 }
 
 #[k::function(total, sort = GasStep, syntax = "#kevmCharge({op}, {gas})")]
@@ -148,6 +168,50 @@ fn decode_add(
 }
 
 #[k::equation]
+fn decode_mul(
+    k::term![Decode {
+        opcode: 2,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Mul]
+}
+
+#[k::equation]
+fn decode_sub(
+    k::term![Decode {
+        opcode: 3,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Sub]
+}
+
+#[k::equation]
+fn decode_div(
+    k::term![Decode {
+        opcode: 4,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Div]
+}
+
+#[k::equation]
+fn decode_mod(
+    k::term![Decode {
+        opcode: 6,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Mod]
+}
+
+#[k::equation]
 fn decode_pc(
     k::term![Decode {
         opcode: 88,
@@ -178,7 +242,19 @@ fn decode_push(
     }]
 }
 
-#[k::requires(bool::and(int::ge(opcode, 2), int::le(opcode, 87)))]
+#[k::requires(int::eq(opcode, 5))]
+#[k::equation]
+fn decode_invalid_signed_div(
+    k::term![Decode {
+        opcode,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Invalid]
+}
+
+#[k::requires(bool::and(int::ge(opcode, 7), int::le(opcode, 87)))]
 #[k::equation]
 fn decode_invalid_low(
     k::term![Decode {
@@ -249,22 +325,37 @@ fn read_immediate_byte(
 // its host integer lexer while the object-language computation stays exact.
 #[k::equation]
 fn chop_word(k::term![Chop(value)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::sub(
+    k::term![int::modulo(
         value,
         int::mul(
-            int::div(
-                value,
-                int::mul(
-                    int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-                    int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-                ),
-            ),
-            int::mul(
-                int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-                int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-            ),
+            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
+            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
         ),
     )]
+}
+
+#[k::requires(int::eq(divisor, 0))]
+#[k::equation]
+fn word_div_zero(k::term![WordDiv { dividend, divisor }]: k::Term<Int>) -> k::Term<Int> {
+    k::term![0]
+}
+
+#[k::requires(int::ne(divisor, 0))]
+#[k::equation]
+fn word_div_nonzero(k::term![WordDiv { dividend, divisor }]: k::Term<Int>) -> k::Term<Int> {
+    k::term![int::div(dividend, divisor)]
+}
+
+#[k::requires(int::eq(divisor, 0))]
+#[k::equation]
+fn word_mod_zero(k::term![WordMod { dividend, divisor }]: k::Term<Int>) -> k::Term<Int> {
+    k::term![0]
+}
+
+#[k::requires(int::ne(divisor, 0))]
+#[k::equation]
+fn word_mod_nonzero(k::term![WordMod { dividend, divisor }]: k::Term<Int>) -> k::Term<Int> {
+    k::term![int::modulo(dividend, divisor)]
 }
 
 #[k::requires(int::ge(gas, 3))]
@@ -298,6 +389,66 @@ fn charge_add(k::term![Charge(Operation::Add, gas)]: k::Term<GasStep>) -> k::Ter
 #[k::requires(int::lt(gas, 3))]
 #[k::equation]
 fn charge_add_fails(k::term![Charge(Operation::Add, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
+    k::term![GasResult::InsufficientGas()]
+}
+
+#[k::requires(int::ge(gas, 3))]
+#[k::equation]
+fn charge_sub(k::term![Charge(Operation::Sub, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
+    k::term![GasResult::EnoughGas {
+        op: Operation::Sub,
+        remaining: int::sub(gas, 3)
+    }]
+}
+
+#[k::requires(int::lt(gas, 3))]
+#[k::equation]
+fn charge_sub_fails(k::term![Charge(Operation::Sub, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
+    k::term![GasResult::InsufficientGas()]
+}
+
+#[k::requires(int::ge(gas, 5))]
+#[k::equation]
+fn charge_mul(k::term![Charge(Operation::Mul, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
+    k::term![GasResult::EnoughGas {
+        op: Operation::Mul,
+        remaining: int::sub(gas, 5)
+    }]
+}
+
+#[k::requires(int::lt(gas, 5))]
+#[k::equation]
+fn charge_mul_fails(k::term![Charge(Operation::Mul, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
+    k::term![GasResult::InsufficientGas()]
+}
+
+#[k::requires(int::ge(gas, 5))]
+#[k::equation]
+fn charge_div(k::term![Charge(Operation::Div, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
+    k::term![GasResult::EnoughGas {
+        op: Operation::Div,
+        remaining: int::sub(gas, 5)
+    }]
+}
+
+#[k::requires(int::lt(gas, 5))]
+#[k::equation]
+fn charge_div_fails(k::term![Charge(Operation::Div, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
+    k::term![GasResult::InsufficientGas()]
+}
+
+#[k::requires(int::ge(gas, 5))]
+#[k::equation]
+fn charge_mod(k::term![Charge(Operation::Mod, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
+    k::term![GasResult::EnoughGas {
+        op: Operation::Mod,
+        remaining: int::sub(gas, 5)
+    }]
+}
+
+#[k::requires(int::lt(gas, 5))]
+#[k::equation]
+fn charge_mod_fails(k::term![Charge(Operation::Mod, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
     k::term![GasResult::InsufficientGas()]
 }
 
@@ -398,6 +549,50 @@ k::rules! {
     }
     where w0: Int, w1: Int, rest: WordStack, gas: Int;
 
+    begin_mul: {
+        k: [Operation::Mul, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::Charge(Operation::Mul, gas), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
+    begin_sub: {
+        k: [Operation::Sub, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::Charge(Operation::Sub, gas), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
+    begin_div: {
+        k: [Operation::Div, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::Charge(Operation::Div, gas), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
+    begin_mod: {
+        k: [Operation::Mod, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::Charge(Operation::Mod, gas), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
     begin_pc: {
         k: [Operation::ProgramCounter, ..],
         gas: gas,
@@ -445,6 +640,58 @@ k::rules! {
     }
     where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
 
+    exec_mul: {
+        k: [GasResult::EnoughGas(Operation::Mul, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::Chop(int::mul(w0, w1)), rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_sub: {
+        k: [GasResult::EnoughGas(Operation::Sub, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::Chop(int::sub(w0, w1)), rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_div: {
+        k: [GasResult::EnoughGas(Operation::Div, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::WordDiv { dividend: w0, divisor: w1 }, rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_mod: {
+        k: [GasResult::EnoughGas(Operation::Mod, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::WordMod { dividend: w0, divisor: w1 }, rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
     exec_pc: {
         k: [GasResult::EnoughGas(Operation::ProgramCounter, remaining), ..],
         word_stack: stack,
@@ -485,6 +732,94 @@ k::rules! {
 
     add_underflow_one: {
         k: [Operation::Add, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    mul_underflow_empty: {
+        k: [Operation::Mul, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    mul_underflow_one: {
+        k: [Operation::Mul, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    sub_underflow_empty: {
+        k: [Operation::Sub, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    sub_underflow_one: {
+        k: [Operation::Sub, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    div_underflow_empty: {
+        k: [Operation::Div, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    div_underflow_one: {
+        k: [Operation::Div, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    mod_underflow_empty: {
+        k: [Operation::Mod, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    mod_underflow_one: {
+        k: [Operation::Mod, ..],
         word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
         status_code: status,
     } => {
@@ -544,6 +879,28 @@ fn push_add_pc_stop(
     }
 }
 
+/// All-path claim spanning the selected core arithmetic family and both gas classes.
+#[k::claim(all_paths, label = "core-arithmetic-stop")]
+fn core_arithmetic_stop(
+    k::cells! {
+        k: k::configuration::KCell(ExecutionCommand::Run()),
+        program: k::configuration::Cell(k::bytes!(b"\x60\x02\x60\x03\x02\x60\x04\x60\x09\x03\x60\x03\x60\x09\x04\x60\x04\x60\x0b\x06\x00")),
+        word_stack: k::configuration::Cell(Stack::StackEmpty()),
+        pc: k::configuration::Cell(0),
+        gas: k::configuration::Cell(42),
+        status_code: k::configuration::Cell(Status::Running()),
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(.K),
+        program: k::configuration::Cell(k::bytes!(b"\x60\x02\x60\x03\x02\x60\x04\x60\x09\x03\x60\x03\x60\x09\x04\x60\x04\x60\x0b\x06\x00")),
+        word_stack: k::configuration::Cell(Stack::StackCons(3, Stack::StackCons(3, Stack::StackCons(5, Stack::StackCons(6, Stack::StackEmpty()))))),
+        pc: k::configuration::Cell(20),
+        gas: k::configuration::Cell(0),
+        status_code: k::configuration::Cell(Status::Success()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -587,6 +944,13 @@ mod tests {
         let semantic = lower_descriptor_bundle(&first).expect("KEVM descriptors lower");
         let definition = lower_semantic_theory(&semantic).expect("KEVM theory lowers");
         let source = emit_k(&definition).expect("KEVM definition emits");
+        let descriptors_json = first.to_canonical_json().unwrap();
+        let semantic_json = semantic.to_canonical_json().unwrap();
+        let definition_json = definition.definition().to_canonical_json().unwrap();
+        assert!(descriptors_json.contains(r#""application": "int_mod""#));
+        assert!(semantic_json.contains(r#""application": "int_mod""#));
+        assert!(definition_json.contains(r#""application": "int_mod""#));
+        assert!(source.source().contains(" modInt "));
         assert!(source.source().contains("<wordStack>"));
         assert!(source.source().contains("EVMC_OUT_OF_GAS"));
     }

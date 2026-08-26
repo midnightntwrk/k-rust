@@ -805,7 +805,7 @@ fn main() {
         8
     );
     assert_eq!(kind_count(&descriptors, ItemKind::Cell), 1);
-    assert_eq!(ProtocolVersion::CURRENT, ProtocolVersion(18));
+    assert_eq!(ProtocolVersion::CURRENT, ProtocolVersion(19));
     assert!(
         descriptors
             .iter()

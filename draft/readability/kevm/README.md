@@ -1,6 +1,6 @@
 # Readable KEVM qualification
 
-Status: Bytes-backed operational slice qualified, 2026-08-26 JST
+Status: Bytes-backed core arithmetic slice qualified, 2026-08-26 JST
 
 ## Pinned authority
 
@@ -39,20 +39,19 @@ hooks, and symbolic summaries. This milestone does not claim those features.
 
 ## Representative operational slice
 
-The first slice follows KEVM's `#next`/`#exec`/`#gas`/`#pc` pipeline and the
-checked-in `push`, `add`, `pc`, `gas`, `stop`, and `invalid` summaries:
+The current slice follows KEVM's `#next`/`#exec`/`#gas`/`#pc` pipeline, its unsigned word operations, and the checked-in `push`, `add`, `sub`, `div`, `mod`, `pc`, `gas`, `stop`, and `invalid` summaries:
 
 1. a recursive word stack and K's builtin `Bytes` program domain;
-2. `PUSH`, `ADD`, `PC`, `STOP`, and `INVALID` opcodes;
+2. `PUSH`, `ADD`, `MUL`, `SUB`, `DIV`, `MOD`, `PC`, `STOP`, and `INVALID` opcodes;
 3. simultaneous program, stack, program-counter, gas, and status transitions;
 4. `PUSH` widths and their effect on the program counter;
-5. modulo-`2^256` word normalization for addition;
-6. Shanghai-compatible `Gverylow = 3`, `Gbase = 2`, and `Gzero = 0` costs;
-7. the guarded sufficient-gas/out-of-gas partition from `#deductGas`;
-8. structural zero/one-element `ADD` stack-underflow branches;
-9. successful stop/end-of-program and invalid-instruction outcomes;
-10. one all-path native claim spanning push, arithmetic, PC observation, gas,
-    and successful halt.
+5. modulo-`2^256` word normalization for addition, multiplication, and subtraction;
+6. KEVM's zero-divisor result for unsigned division and modulus;
+7. Shanghai-compatible `Glow = 5`, `Gverylow = 3`, `Gbase = 2`, and `Gzero = 0` costs;
+8. the guarded sufficient-gas/out-of-gas partition from `#deductGas`;
+9. structural zero/one-element binary-op stack-underflow branches;
+10. successful stop/end-of-program and invalid-instruction outcomes;
+11. two all-path native claims spanning push, both gas classes, arithmetic, PC observation, and successful halt.
 
 KEVM stores executable code as `Bytes` and decodes it with `#lookupOpCode`.
 The KRS definition now uses the pinned `BYTES` implementation directly: `lengthBytes(PROGRAM)` bounds lookup, `PROGRAM [ PC ]` reads the opcode byte, and a recursive big-endian decoder reads `PUSH1` through `PUSH32` immediates.
@@ -65,13 +64,12 @@ The program bytes remain unchanged across execution, matching KEVM's program-cel
   `<statusCode>` cells;
 - `evm.md` single-step and exceptional checks: `#next`, `#exec`, stack
   underflow, `#pc`, and end status;
-- `evm.md` opcode rules: `#push`, `PUSH`, `ADD`, `PC`, `STOP`, and `INVALID`;
+- `evm.md` opcode rules: `#push`, `PUSH`, core unsigned binary arithmetic, `PC`, `STOP`, and `INVALID`;
 - `evm.md` gas rules: `#gas`, `#deductGas`, and the out-of-gas status;
 - `word.md`: `Word`, `WordStack`, and `chop` modulo `2^256`;
+- `evm-types.md`: unsigned word arithmetic and zero-totalized division and modulus;
 - `schedule.md`: the selected Shanghai gas constants;
-- `summaries/push-summary.k`, `add-summary.k`, `pc-summary.k`,
-  `gas-summary.k`, `stop-summary.k`, and `invalid-summary.k`: direct
-  multi-cell transition oracle.
+- `summaries/push-summary.k`, `add-summary.k`, `sub-summary.k`, `div-summary.k`, `mod-summary.k`, `pc-summary.k`, `gas-summary.k`, `stop-summary.k`, and `invalid-summary.k`: direct multi-cell transition oracles.
 
 ## Selected KRS extension
 
@@ -79,6 +77,10 @@ Descriptor protocol 17 and Definition IR schema 10 introduced the pinned `Bytes`
 The compiler emits the native K surface exactly as `Bytes`, `lengthBytes(B)`, `B [ I ]`, and `b"\xhh..."`.
 The token transport is canonical lower hexadecimal and rejects malformed or noncanonical descriptor payloads.
 Reference expansion reconstructs `k::bytes!(b"...")` without retaining target-specific token text in authored Rust.
+
+Descriptor protocol 19 and Definition IR schema 12 select K's builtin `INT.mod` operation.
+KRS emits `int::modulo(A, B)` exactly as `A modInt B` and preserves that typed builtin identity through descriptors, Semantic IR, Definition IR, reference expansion, and native adaptation.
+`#kevmChop` now uses the pinned operation directly, matching upstream behavior for negative subtraction intermediates rather than approximating Euclidean modulus with truncating division.
 
 Deferred corpus shapes include the remaining Bytes operations, `%Int`, `owise`,
 rule-table guards, nested/multiplicity configurations, bags and sets, map
@@ -102,21 +104,16 @@ The canonical KRS port is `semantics/kevm`, the corpus is
 
 ## Qualification result
 
-The complete gate passes at descriptor protocol 18 and Definition IR schema 11 without a change to emitted KEVM K, native behavior, or proof:
+The refreshed complete gate passes at descriptor protocol 19 and Definition IR schema 12:
 
 ```text
-PASS readable KEVM operational slice: 85 descriptors; 14 executions; 1 native proof; protocol 18; K 7.1.337
+PASS readable KEVM operational slice: 131 descriptors; 25 executions; 2 native proofs; protocol 19; K 7.1.337
 ```
 
-The behavior matrix covers empty-program success, one- and 32-byte PUSH
-widths, ADD, modulo-`2^256` wraparound, PC observation, the combined
-PUSH/ADD/PC/STOP path, both structural ADD-underflow shapes, out-of-gas for
-PUSH/ADD/PC, invalid instruction, and zero-gas STOP. The structured behavior
-SHA-256 is `8c0359e611d760916bdbca2966998b02a9ef38ee1e4a8467861b38bb793e86d7`.
-The all-path combined claim closes with `#Top` through native `kprove`.
-
-The normalized native `definition.kore` SHA-256 is
-`957aa5e19a3a49a832ad92753f785e797d1aa2f731c280030fc903791ed5f7a0`.
+The behavior matrix adds normal and wraparound multiplication, top-first subtraction and negative wraparound, unsigned division and modulus including zero divisors, `Glow` out-of-gas, family underflow, and a combined arithmetic path to the prior baseline.
+The structured behavior SHA-256 is `94652cf0651fc95b2e4746f5945463ea7591d6eae50463f3dabe4d7cf83ca16a`.
+Both all-path claims close with `#Top` through native `kprove`.
+The normalized native `definition.kore` SHA-256 is `64846d863fb029bfd4a33626ef52c410ef6a89fe7b54853c1d7927e69a3935bd`.
 Normalization is limited to the temporary semantics path and K-generated
 sort-membership binder names, using the already-qualified KWasm policy.
 Six focused definition/hover probes pass with zero rust-analyzer diagnostics.

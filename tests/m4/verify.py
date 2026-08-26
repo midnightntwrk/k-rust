@@ -683,8 +683,8 @@ def phase_preflight(context: Context) -> str:
         "backends": ["haskell", "llvm"],
         "msrv": "1.88.0",
         "builtin_sorts": ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "List"],
-        "descriptor_protocol": 18,
-        "definition_ir_schema": 11,
+        "descriptor_protocol": 19,
+        "definition_ir_schema": 12,
         "k_commit": expected["k"],
         "k_rust_commit": expected["k_rust"],
         "llvm_existential_policy": "typed-backend-capability-error",
@@ -695,7 +695,7 @@ def phase_preflight(context: Context) -> str:
     lock_path = ROOT / "Krs.lock"
     expected_lock = {
         "schema": 1,
-        "schemas": {"descriptor_protocol": 18, "definition_ir": 11, "kast_json": 4},
+        "schemas": {"descriptor_protocol": 19, "definition_ir": 12, "kast_json": 4},
         "cargo": {"lock_sha256": sha256(ROOT / "Cargo.lock"), "msrv": "1.88.0"},
         "k": {
             "version": "7.1.337",
@@ -725,8 +725,8 @@ def phase_preflight(context: Context) -> str:
     expected_lock_text = '''schema = 1
 
 [schemas]
-descriptor_protocol = 18
-definition_ir = 11
+descriptor_protocol = 19
+definition_ir = 12
 kast_json = 4
 
 [cargo]
@@ -747,7 +747,7 @@ commit = "58f33885b736148dae189623d1aac989ce9be475"
 tracked_crate_sha256 = "0365ddf085bef244a00c04aaabd72a0ebd8cadbaaf8190605a31c5e387658d64"
 
 [builtin_registry]
-source_sha256 = "9aef5b42fc697cab762b723e41ed7e60a5fafa6fcadd303c614ab67c1f8b2097"
+source_sha256 = "c8010aac9b11b180939f8b1e9912fa96876e90f04d8043daba84c353428e5b98"
 sorts = ["KSequence", "Int", "Bool", "Map", "Id", "Bytes"]
 
 [solver]
@@ -788,7 +788,7 @@ llvm_existential_claims = "typed-backend-capability-error"
     msrv = run(["rustc", "+1.88.0", "--version"], timeout=30).stdout.strip()
     if not msrv.startswith("rustc 1.88.0 "):
         raise GateError(f"MSRV toolchain differs from Krs.lock: {msrv}")
-    return "exact sources, ledgers, tools, revisions, protocol 18, and IR schema 11"
+    return "exact sources, ledgers, tools, revisions, protocol 19, and IR schema 12"
 
 
 def phase_rust(context: Context) -> str:

@@ -2586,6 +2586,7 @@ const fn builtin_label(operation: BuiltinOperation) -> &'static str {
         BuiltinOperation::IntSub => "_-Int_",
         BuiltinOperation::IntMul => "_*Int_",
         BuiltinOperation::IntTDiv => "_/Int_",
+        BuiltinOperation::IntMod => "_modInt_",
         BuiltinOperation::IntGreaterEqual => "_>=Int_",
         BuiltinOperation::IntGreater => "_>Int_",
         BuiltinOperation::IntLessEqual => "_<=Int_",

@@ -1219,6 +1219,7 @@ fn render_builtin_operation(operation: BuiltinOperation) -> TokenStream {
         BuiltinOperation::IntSub => (format_ident!("int"), format_ident!("sub")),
         BuiltinOperation::IntMul => (format_ident!("int"), format_ident!("mul")),
         BuiltinOperation::IntTDiv => (format_ident!("int"), format_ident!("div")),
+        BuiltinOperation::IntMod => (format_ident!("int"), format_ident!("modulo")),
         BuiltinOperation::IntGreaterEqual => (format_ident!("int"), format_ident!("ge")),
         BuiltinOperation::IntGreater => (format_ident!("int"), format_ident!("gt")),
         BuiltinOperation::IntLessEqual => (format_ident!("int"), format_ident!("le")),

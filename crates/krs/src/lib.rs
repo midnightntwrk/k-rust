@@ -325,6 +325,10 @@ pub mod builtin {
         #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub struct Div(pub Int, pub Int);
 
+        /// Marker for Euclidean integer modulus, with its Rust-checked operand shape.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Mod(pub Int, pub Int);
+
         /// Marker for integer greater-than-or-equal comparison.
         #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub struct Ge(pub Int, pub Int);
@@ -359,6 +363,7 @@ pub mod builtin {
         pub use Gt as gt;
         pub use Le as le;
         pub use Lt as lt;
+        pub use Mod as modulo;
         pub use Mul as mul;
         pub use Ne as ne;
         pub use Sub as sub;
@@ -485,6 +490,7 @@ builtin_operation_keys! {
     (int_sub_builtin_key, builtin::int::sub),
     (int_mul_builtin_key, builtin::int::mul),
     (int_tdiv_builtin_key, builtin::int::div),
+    (int_mod_builtin_key, builtin::int::modulo),
     (int_ge_builtin_key, builtin::int::ge),
     (int_gt_builtin_key, builtin::int::gt),
     (int_le_builtin_key, builtin::int::le),
@@ -561,6 +567,7 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
         (BuiltinOperation::IntSub, int_sub_builtin_key),
         (BuiltinOperation::IntMul, int_mul_builtin_key),
         (BuiltinOperation::IntTDiv, int_tdiv_builtin_key),
+        (BuiltinOperation::IntMod, int_mod_builtin_key),
         (BuiltinOperation::IntGreaterEqual, int_ge_builtin_key),
         (BuiltinOperation::IntGreater, int_gt_builtin_key),
         (BuiltinOperation::IntLessEqual, int_le_builtin_key),
@@ -995,6 +1002,10 @@ mod tests {
             (TypeId::of::<builtin::int::sub>(), BuiltinOperation::IntSub),
             (TypeId::of::<builtin::int::mul>(), BuiltinOperation::IntMul),
             (TypeId::of::<builtin::int::div>(), BuiltinOperation::IntTDiv),
+            (
+                TypeId::of::<builtin::int::modulo>(),
+                BuiltinOperation::IntMod,
+            ),
             (
                 TypeId::of::<builtin::int::ge>(),
                 BuiltinOperation::IntGreaterEqual,

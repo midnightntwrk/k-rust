@@ -27,15 +27,16 @@ use crate::OriginStack;
 /// v9 carries constructor-production documentation through Semantic and
 /// Definition IR for canonical K source emission. Schema v10 adds K's builtin
 /// `Bytes` sort and its selected operation identities. Schema v11 adds K's
-/// builtin associative `List` sort and selected operations.
+/// builtin associative `List` sort and selected operations. Schema v12 adds
+/// K's builtin Euclidean integer-modulus operation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct IrSchemaVersion(pub u32);
 
 impl IrSchemaVersion {
     /// Schema written by this release.
-    /// Schema v11 adds the selected builtin associative `List` surface.
-    pub const CURRENT: Self = Self(11);
+    /// Schema v12 adds the selected builtin `INT.mod` operation.
+    pub const CURRENT: Self = Self(12);
 }
 
 impl Default for IrSchemaVersion {

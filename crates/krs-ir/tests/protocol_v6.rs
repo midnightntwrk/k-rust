@@ -327,7 +327,7 @@ fn expression_grammar_and_rule_round_trip_deterministically() {
         .to_canonical_json()
         .unwrap();
     assert_eq!(forward, reverse);
-    assert!(forward.contains("\"protocol_version\": 18"));
+    assert!(forward.contains("\"protocol_version\": 19"));
     assert!(forward.contains("\"attribute_kind\": \"documentation\""));
     assert!(forward.contains("Adds two values."));
     assert!(forward.contains("\"structured_rule\""));
@@ -335,7 +335,7 @@ fn expression_grammar_and_rule_round_trip_deterministically() {
     assert!(!forward.contains("TypeId"));
     assert!(!forward.contains("_+Int_"));
     let decoded: DescriptorBundle = serde_json::from_str(&forward).unwrap();
-    assert_eq!(decoded.protocol_version().0, 18);
+    assert_eq!(decoded.protocol_version().0, 19);
 }
 
 #[test]
@@ -1060,6 +1060,7 @@ type_keys! {
     int_sub_key => (u8, u16),
     int_mul_key => (u8, u32),
     int_tdiv_key => (u8, u64),
+    int_mod_key => (u8, i8),
     int_ge_key => (u16, u8),
     int_gt_key => (u16, u16),
     int_le_key => (u16, u32),
@@ -1103,6 +1104,7 @@ fn registry() -> HostBuiltinRegistry {
         (BuiltinOperation::IntSub, int_sub_key),
         (BuiltinOperation::IntMul, int_mul_key),
         (BuiltinOperation::IntTDiv, int_tdiv_key),
+        (BuiltinOperation::IntMod, int_mod_key),
         (BuiltinOperation::IntGreaterEqual, int_ge_key),
         (BuiltinOperation::IntGreater, int_gt_key),
         (BuiltinOperation::IntLessEqual, int_le_key),
@@ -1164,6 +1166,10 @@ fn builtin_registry_is_complete_exact_and_alias_safe() {
     assert_eq!(
         registry.resolve_operation(int_tdiv_key()),
         Some(BuiltinOperation::IntTDiv)
+    );
+    assert_eq!(
+        registry.resolve_operation(int_mod_key()),
+        Some(BuiltinOperation::IntMod)
     );
     assert_eq!(
         registry.resolve_map_operation(map_update_key()),
@@ -1448,7 +1454,7 @@ fn protocol_five_is_rejected_without_compatibility_guessing() {
         r#"{"protocol_version":5,"descriptors":[],"declarations":[]}"#,
     )
     .unwrap_err();
-    assert!(error.to_string().contains("expected 18"));
+    assert!(error.to_string().contains("expected 19"));
 }
 
 fn first_object_with_key_mut<'a>(
