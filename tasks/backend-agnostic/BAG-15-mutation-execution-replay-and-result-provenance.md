@@ -1,7 +1,8 @@
 # BAG-15: mutation execution replay and result provenance
 
-Status: fleshed and authorized backend-agnostic closure packet; activation is
-held until BAG-12 is independently accepted and BAG-14 is integrated.
+Status: active portable implementation after independent BAG-12 and BAG-14
+acceptance and independent repaired-contract preflight acceptance on 26 August
+2026. BAG-16 remains gated.
 
 ## Objective
 
@@ -29,18 +30,29 @@ Separate these closed replay operations:
    not claim to reproduce tests or classification.
 2. **Execution attempt**: exact baseline or mutant definition plus one test
    invocation, profiles, bounds, observation inputs, and execution adapter
-   produce one typed terminal execution record. Its invocation identity is
-   the same identity used by BAG-14 cache records.
-3. **Baseline admission**: one exact baseline attempt/operand plus the
+   produce one cycle-free `execution-attempt-result` artifact containing the
+   typed terminal record and exact ordered produced-artifact keys. Its embedded request identity
+   is the exact BAG-14 cache key. The enclosing generic operation invocation
+   has a distinct receipt-layer identity and may not replace that key.
+3. **Oracle operand production**: one exact declaration-scoped projection of
+   a completed baseline or mutant execution, including its terminal/trace,
+   subject, profiles, evaluator authority, and execution receipt, produces one
+   BAG-12 oracle operand. Execution keys remain declaration-independent.
+4. **Baseline admission**: one exact baseline attempt/operand plus the
    test-scoped BAG-12 declaration and BAG-09 baseline policy produce the
    one-sided gate result. It is not a degenerate two-sided comparison.
-4. **Baseline-mutant oracle comparison**: exact ordered baseline and mutant
+5. **Baseline-mutant oracle comparison**: exact ordered baseline and mutant
    operands/attempt records plus one test-scoped BAG-12 declaration and its
    artifacts produce a typed comparison receipt/outcome.
-5. **Campaign derivation**: exact manifest/operator/materialization roots,
+6. **Campaign derivation**: exact manifest/operator/materialization roots,
    ordered attempt and oracle receipts, failure taxonomy, and scheduling mode
-   produce the candidate statuses, campaign status, exclusions, score, and
-   normalized report.
+   produce one cycle-free campaign-derivation result containing candidate
+   statuses, campaign status, exclusions, and score. It does not contain the
+   derivation receipt or final report.
+7. **Report publication**: the derivation result and receipt plus the exact
+   recursive version registry produce the normalized report. The report may
+   point backward to the derivation receipt; it never points to its own
+   publication receipt.
 
 The campaign's declared schema/operation versions are semantic provenance,
 not an unchecked decorative object. They exactly cover every schema and
@@ -108,7 +120,10 @@ the requested portable-to-native adapter contract, not a process or command.
 `inputs` is an ordered array of `{edgeRole, artifact}` with a role-typed
 BAG-08 key. `childReceipts` is an ordered array of `{edgeRole, receipt}` with
 an already-resolved `operation-receipt` key. `outputRoles` is the exact
-nonempty requested artifact-role sequence. Edge roles are closed per
+nonempty operation-specific requested artifact-role sequence. Every completed
+execution attempt requests exactly one `execution-attempt-result`, independent
+of whether the eventual terminal is normal, crash, bounded, diagnostic, or
+another closed result. Edge roles are closed per
 operation, unique where the operation is one-to-one, and may repeat only where
 that operation's declared cardinality permits repetition. There is no generic
 unchecked `artifacts` array.
@@ -123,7 +138,13 @@ unchecked `artifacts` array.
 - `execution-attempt` contains exactly the complete BAG-14
   `execution-attempt-key` and key digest. The generic input edges must equal
   the deterministic typed artifact traversal of that key; they are DAG edges,
-  not a second independently editable request.
+  not a second independently editable request. Its sole output role is
+  `execution-attempt-result`.
+- `oracle-operand-production` contains the declaration, exact baseline or
+  mutant subject, execution invocation/key and completed execution receipt,
+  terminal/trace inputs, profiles, and evaluator/conformance authority needed
+  to derive one declaration-bound operand. Its execution child cannot depend
+  on the declaration or operand output.
 - `baseline-admission` contains exactly the BAG-14
   `oracle-evaluation-key` whose kind is `baseline-admission`.
 - `oracle-comparison` contains exactly the BAG-14 oracle-evaluation key whose
@@ -131,10 +152,13 @@ unchecked `artifacts` array.
 - `campaign-derivation` contains the pre-execution campaign invocation key,
   schedule mode, exact ordered materialized plan entries, and selected cache-
   record/child-receipt keys. Its inputs and children equal that selection in
-  manifest/test/oracle order.
-- `report-publication` contains the derivation invocation/receipt, exact
-  recursive version registry, and normalized report body excluding report and
-  receipt self-IDs.
+  manifest/test/oracle order, and its sole output is a cycle-free
+  `campaign-derivation-result` artifact.
+- `report-publication` contains the derivation-result key, derivation receipt,
+  exact recursive version registry, and requested report role/version. It does
+  not contain expected report bytes, a report digest, or a normalized report
+  body; the portable verifier derives the report independently, and the
+  completed receipt binds the resulting report key.
 
 An operation-specific schema freezes each arm's field set, input edge roles,
 child roles, output roles, and cardinalities. A digest with a plausible role
@@ -158,9 +182,14 @@ executionConformance}`; `executionConformance` is `finite-vector-proven`,
 `producerStatus` is `complete` or `failed`. `complete` means the producer
 atomically published the declared output sequence and typed terminal, even
 when that terminal is timeout, unknown, semantic crash, incomparable, or
-another ordinary semantic failure. `failed` is reserved for producer/
-infrastructure failure, has no semantic-success terminal, and cannot be
-reused as semantic evidence.
+another ordinary semantic failure. A complete producer may also publish an
+operation-compatible diagnostic terminal with its exact BAG-10 failure; this
+means the diagnostic result was completely recorded, not that it is normal or
+reusable. `failed` means the producer did not atomically publish any semantic
+terminal, has no outputs, carries one exact BAG-10 producer/infrastructure
+failure in the operation's existing context, and cannot be reused as semantic
+evidence. Cache-record publication completion and producer completion remain
+distinct states.
 
 For `producerStatus: complete`, `outputs` is an ordered array of `{edgeRole,
 artifact}` and must match `invocation.outputRoles` exactly in length, role,
@@ -169,9 +198,11 @@ resolver. For `producerStatus: failed`, `outputs` is empty,
 `semanticTerminal` is null, and `failure` is one exact BAG-10 producer/
 infrastructure failure; intended output roles remain only in the invocation
 and no downstream edge may consume them. `semanticTerminal` for a complete
-producer is a closed operation-compatible union of the BAG-09 execution
-terminal/crash/failure, BAG-12 gate/comparison/failure, materialization
-validation result, or campaign/report result keys. `failure` is null exactly
+producer is a closed operation-compatible union of the BAG-15
+execution-attempt result, BAG-09 terminal/crash/failure, BAG-12
+operand/gate/comparison/failure,
+materialization validation result, campaign-derivation result, or report
+result keys. `failure` is null exactly
 when the selected complete-terminal relation permits it and otherwise one
 BAG-10 failure with the exact operation context. The receipt never copies
 cache-hit state, host exit, timestamps, paths, diagnostics, argv, or worker
@@ -181,7 +212,10 @@ Receipt wrapping does not invent a generic `operation-production` failure
 context. Preserve the closest BAG-10 semantic boundary: baseline or mutant
 execution, baseline-oracle gate, oracle comparison, campaign, or report
 publication as appropriate. `operationKind` already records which producer
-step failed. Any genuinely new placement introduced by a receipt arm must be
+step failed. A `failed` receipt arm exists only where BAG-10 already admits an
+exact producer/infrastructure placement for that operation context; absence of
+such a placement means the schema has no failed form for that operation.
+Any genuinely new placement introduced by a receipt arm must be
 added bidirectionally to BAG-10's schema/taxonomy inventory; malformed receipt
 graphs themselves are report schema/referential-integrity rejection, not
 runtime semantic failures.
@@ -201,6 +235,21 @@ A produced trace, value, or branch collection binds the cycle-free execution
 `invocationDigest`, never the completed receipt ID. The receipt then binds its
 output keys and relational validation proves the association. An output cannot
 contain the ID of a receipt whose own ID covers that output.
+
+The embedded BAG-14 `keyDigest` remains the cache/request identity. The
+receipt-layer `invocationDigest` wraps that exact key and is the producing
+invocation provenance carried by new BAG-15 output derivatives. Existing
+accepted BAG-11 through BAG-14 artifacts are not relabelled in place merely to
+add that field; BAG-15 uses new derivative artifacts where invocation binding
+is required.
+
+`execution-attempt-result` contains exactly the BAG-14 key digest, generic
+invocation digest, closed terminal record, and ordered produced-artifact keys.
+Its semantic ID covers those fields and it never contains a receipt ID. The
+completed receipt outputs that one result artifact. BAG-14's
+`operation-receipt` production-evidence arm resolves the result and requires
+its key, terminal, and produced-artifact sequence to equal the cache record;
+the cache record never becomes a receipt output and no cycle is introduced.
 
 Parallel digest/role arrays must have equal arity, and every transformation
 digest has a corresponding role or its own ordered transform step. If v1
@@ -252,7 +301,8 @@ receipt over derived statuses, exclusions, and score. The DAG is globally
 acyclic, all inputs are available before their consumers, declared output
 role/arity agrees exactly, and no dangling or surplus intermediate edge exists.
 
-The campaign report links its derivation receipt, and each child result links
+The campaign report links its cycle-free derivation result and derivation
+receipt, and each child result links
 its own receipt. Replaying materialization alone may prove the output mutant
 and diff; it cannot substantiate `killed`, `survived`, or any test/oracle
 outcome.
