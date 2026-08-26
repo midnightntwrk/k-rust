@@ -1,10 +1,9 @@
 # BAG-16: corpus search and branch-trace replay completeness
 
-Status: repaired portable contract independently accepted on 26 August 2026
-after fifteen preflight rejection reports. Semantic and graph/version/cache/
-registry auditors both accepted frozen SHA-256
-`059e8ad93131caef35fbb7f0b78407e86b3035a15b957d76753e4943e246c9cd`;
-portable implementation may now activate.
+Status: repaired portable contract accepted at Git commit `209df2e` after
+fifteen preflight rejection reports. The implementation candidate includes the
+subsequent test-local/global-root clarification below and remains pending final
+independent acceptance.
 
 ## Objective
 
@@ -717,8 +716,9 @@ semantic manifest, binds the exact resolver snapshot.
 
 `tests` is ordered. Each test contains exactly `{testOrdinal,
 testInvocationDigest, slots}`. The digest resolves the exact query-neutral
-execution-test-invocation/v2 and its test/program/parser/start/options/bounds
-must equal the manifest's global roots. `testOrdinal`
+execution-test-invocation/v2. Its program, parser, and options are exact
+catalog-resolved test-local roots; its test ID and start symbol are likewise
+test-local, while its bounds equal the manifest's global bounds. `testOrdinal`
 equals its array position. Each ordered declaration/query slot contains
 exactly:
 
