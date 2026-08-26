@@ -137,6 +137,10 @@ path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/gas-summary.k"
 contract = "gas observation and deduction ordering"
 
 [[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/jumpdest-summary.k"
+contract = "direct JUMPDEST transition with Gjumpdest charging"
+
+[[source_evidence]]
 path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/stop-summary.k"
 contract = "successful halt status"
 
@@ -1233,5 +1237,149 @@ gas = "149"
 expected_program = 'b"\x60\x08\x60\x02\x0a\x60\x80\x60\x00\x0b\x60\x0f\x60\x33\x16\x60\x0f\x60\x33\x17\x60\x0f\x60\x33\x18\x60\x00\x19\x61\xab\xcd\x60\x1e\x1a\x60\x03\x60\x04\x1b\x60\x80\x60\x03\x1c\x60\x00\x19\x60\x01\x1d\x00"'
 expected_stack = "115792089237316195423570985008687907853269984665640564039457584007913129639935 : 16 : 48 : 171 : 115792089237316195423570985008687907853269984665640564039457584007913129639935 : 60 : 63 : 3 : 115792089237316195423570985008687907853269984665640564039457584007913129639808 : 256 : .WordStack"
 expected_pc = "50"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "jump-forward"
+program = 'b"\x60\x04\x56\xfe\x5b\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "12"
+expected_program = 'b"\x60\x04\x56\xfe\x5b\x00"'
+expected_stack = ".WordStack"
+expected_pc = "5"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "jump-invalid-opcode"
+program = 'b"\x60\x04\x56\xfe\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "11"
+expected_program = 'b"\x60\x04\x56\xfe\x00"'
+expected_stack = ".WordStack"
+expected_pc = "2"
+expected_gas = "0"
+expected_status = "EVMC_BAD_JUMP_DESTINATION"
+
+[[behavior]]
+id = "jump-rejects-push-immediate"
+program = 'b"\x60\x5b\x56"'
+stack = "1 : .WordStack"
+pc = "2"
+gas = "8"
+expected_program = 'b"\x60\x5b\x56"'
+expected_stack = ".WordStack"
+expected_pc = "2"
+expected_gas = "0"
+expected_status = "EVMC_BAD_JUMP_DESTINATION"
+
+[[behavior]]
+id = "jump-outside-program"
+program = 'b"\x56"'
+stack = "9 : .WordStack"
+pc = "0"
+gas = "8"
+expected_program = 'b"\x56"'
+expected_stack = ".WordStack"
+expected_pc = "0"
+expected_gas = "0"
+expected_status = "EVMC_BAD_JUMP_DESTINATION"
+
+[[behavior]]
+id = "jump-if-true"
+program = 'b"\x57\xfe\xfe\xfe\x5b\x00"'
+stack = "4 : 1 : .WordStack"
+pc = "0"
+gas = "11"
+expected_program = 'b"\x57\xfe\xfe\xfe\x5b\x00"'
+expected_stack = ".WordStack"
+expected_pc = "5"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "jump-if-false-ignores-destination"
+program = 'b"\x57\x00"'
+stack = "999 : 0 : .WordStack"
+pc = "0"
+gas = "10"
+expected_program = 'b"\x57\x00"'
+expected_stack = ".WordStack"
+expected_pc = "1"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "jump-if-true-invalid-destination"
+program = 'b"\x57\x00"'
+stack = "999 : 1 : .WordStack"
+pc = "0"
+gas = "10"
+expected_program = 'b"\x57\x00"'
+expected_stack = ".WordStack"
+expected_pc = "0"
+expected_gas = "0"
+expected_status = "EVMC_BAD_JUMP_DESTINATION"
+
+[[behavior]]
+id = "jump-underflow"
+program = 'b"\x56\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "8"
+expected_program = 'b"\x56\x00"'
+expected_stack = ".WordStack"
+expected_pc = "0"
+expected_gas = "8"
+expected_status = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "jump-if-underflow-one"
+program = 'b"\x57\x00"'
+stack = "1 : .WordStack"
+pc = "0"
+gas = "10"
+expected_program = 'b"\x57\x00"'
+expected_stack = "1 : .WordStack"
+expected_pc = "0"
+expected_gas = "10"
+expected_status = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "jump-out-of-gas"
+program = 'b"\x56\x00"'
+stack = "1 : .WordStack"
+pc = "0"
+gas = "7"
+expected_program = 'b"\x56\x00"'
+expected_stack = "1 : .WordStack"
+expected_pc = "0"
+expected_gas = "7"
+expected_status = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "jumpdest-out-of-gas"
+program = 'b"\x5b\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "0"
+expected_program = 'b"\x5b\x00"'
+expected_stack = ".WordStack"
+expected_pc = "0"
+expected_gas = "0"
+expected_status = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "control-flow-tranche-stop"
+program = 'b"\x60\x00\x60\xff\x57\x60\x01\x60\x0d\x57\xfe\xfe\xfe\x5b\x60\x12\x56\xfe\x5b\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "45"
+expected_program = 'b"\x60\x00\x60\xff\x57\x60\x01\x60\x0d\x57\xfe\xfe\xfe\x5b\x60\x12\x56\xfe\x5b\x00"'
+expected_stack = ".WordStack"
+expected_pc = "19"
 expected_gas = "0"
 expected_status = "EVMC_SUCCESS"

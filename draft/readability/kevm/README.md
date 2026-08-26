@@ -1,6 +1,6 @@
 # Readable KEVM qualification
 
-Status: Bytes-backed Shanghai stack-manipulation slice qualified, 2026-08-27 JST
+Status: Bytes-backed Shanghai control-flow slice qualified, 2026-08-27 JST
 
 ## Pinned authority
 
@@ -42,7 +42,7 @@ hooks, and symbolic summaries. This milestone does not claim those features.
 The current slice follows KEVM's `#next`/`#exec`/`#gas`/`#pc` pipeline, its core word operations, and the checked-in arithmetic, `push`, `pc`, `gas`, `stop`, and `invalid` summaries:
 
 1. a recursive word stack and K's builtin `Bytes` program domain;
-2. `PUSH`, `POP`, `DUP1` through `DUP16`, `SWAP1` through `SWAP16`, `ADD`, `MUL`, `SUB`, `DIV`, `SDIV`, `MOD`, `SMOD`, `ADDMOD`, `MULMOD`, `EXP`, `SIGNEXTEND`, `LT`, `GT`, `SLT`, `SGT`, `EQ`, `ISZERO`, `AND`, `OR`, `XOR`, `NOT`, `BYTE`, `SHL`, `SHR`, `SAR`, `PC`, `STOP`, and `INVALID` opcodes;
+2. `PUSH`, `POP`, `DUP1` through `DUP16`, `SWAP1` through `SWAP16`, `ADD`, `MUL`, `SUB`, `DIV`, `SDIV`, `MOD`, `SMOD`, `ADDMOD`, `MULMOD`, `EXP`, `SIGNEXTEND`, `LT`, `GT`, `SLT`, `SGT`, `EQ`, `ISZERO`, `AND`, `OR`, `XOR`, `NOT`, `BYTE`, `SHL`, `SHR`, `SAR`, `PC`, `JUMP`, `JUMPI`, `JUMPDEST`, `STOP`, and `INVALID` opcodes;
 3. simultaneous program, stack, program-counter, gas, and status transitions;
 4. `PUSH` widths and their effect on the program counter;
 5. modulo-`2^256` word normalization for addition, multiplication, and subtraction;
@@ -53,28 +53,33 @@ The current slice follows KEVM's `#next`/`#exec`/`#gas`/`#pc` pipeline, its core
 10. modular exponentiation, Shanghai exponent-byte gas charging, byte-indexed sign extension, big-endian byte extraction, bitwise operations, and totalized logical and arithmetic shifts;
 11. recursive stack size, depth-indexed lookup, and depth-indexed replacement for `POP`, `DUP`, and `SWAP`;
 12. the 1,024-word `DUP` stack-overflow boundary and family-specific underflow partitions;
-13. Shanghai-compatible `Gexp = 10`, `Gexpbyte = 50`, `Gmid = 8`, `Glow = 5`, `Gverylow = 3`, `Gbase = 2`, and `Gzero = 0` costs;
-14. the guarded sufficient-gas/out-of-gas partition from `#deductGas`;
-15. structural unary, binary, ternary, and depth-indexed stack-underflow branches;
-16. successful stop/end-of-program and invalid-instruction outcomes;
-17. four all-path native claims, including claims spanning every selected Shanghai-active pure-word expression opcode and the selected stack-manipulation family through successful halt.
+13. bytecode-scanned jump-destination validation that rejects out-of-range destinations, non-`JUMPDEST` opcodes, and `0x5b` bytes inside `PUSH1` through `PUSH32` immediate data;
+14. Shanghai-compatible `Gexp = 10`, `Gexpbyte = 50`, `Ghigh = 10`, `Gmid = 8`, `Glow = 5`, `Gverylow = 3`, `Gbase = 2`, `Gjumpdest = 1`, and `Gzero = 0` costs;
+15. the guarded sufficient-gas/out-of-gas partition from `#deductGas`;
+16. structural unary, binary, ternary, depth-indexed, and control-flow stack-underflow branches;
+17. successful stop/end-of-program plus bad-jump-destination and invalid-instruction outcomes;
+18. five all-path native claims, including claims spanning every selected Shanghai-active pure-word expression opcode, the selected stack-manipulation family, and both conditional-jump outcomes through successful halt.
 
 KEVM stores executable code as `Bytes` and decodes it with `#lookupOpCode`.
 The KRS definition now uses the pinned `BYTES` implementation directly: `lengthBytes(PROGRAM)` bounds lookup, `PROGRAM [ PC ]` reads the opcode byte, and a recursive big-endian decoder reads `PUSH1` through `PUSH32` immediates.
 The operational effects after decoding remain mapped to the checked-in summary rules.
 The program bytes remain unchanged across execution, matching KEVM's program-cell boundary.
+`JUMP` and true `JUMPI` scan those same bytes from offset zero, advancing over
+entire PUSH instructions so immediate data cannot become an executable jump
+destination. False `JUMPI` deliberately bypasses destination validation, as in
+the pinned `jumpi.false` rule.
 
 ## Source mapping
 
 - `evm.md` configuration: `<program>`, `<wordStack>`, `<pc>`, `<gas>`, and
   `<statusCode>` cells;
 - `evm.md` single-step and exceptional checks: `#next`, `#exec`, stack underflow, stack overflow, `#pc`, and end status;
-- `evm.md` opcode rules: `#push`, `PUSH`, `POP`, `DUP`, `SWAP`, core unsigned, signed, and ternary modular arithmetic, exponentiation, sign extension, comparison, bitwise, byte, shift, `PC`, `STOP`, and `INVALID`;
+- `evm.md` opcode rules: `#push`, `PUSH`, `POP`, `DUP`, `SWAP`, core unsigned, signed, and ternary modular arithmetic, exponentiation, sign extension, comparison, bitwise, byte, shift, `PC`, `JUMP`, `JUMPI`, `JUMPDEST`, `STOP`, and `INVALID`;
 - `evm.md` gas rules: `#gas`, `#deductGas`, and the out-of-gas status;
 - `word.md`: `Word`, `WordStack`, and `chop` modulo `2^256`;
 - `evm-types.md`: unsigned word arithmetic, two's-complement sign and magnitude, signed division and modulus, zero-totalized word division and modulus, Boolean-to-word conversion, word comparisons, byte selection, sign extension, and signed shifting;
 - `schedule.md`: the selected Shanghai gas constants;
-- `summaries/push-summary.k`, `pop-summary.k`, `dup-summary.k`, `swap-summary.k`, the selected arithmetic and comparison summaries, `pc-summary.k`, `gas-summary.k`, `stop-summary.k`, and `invalid-summary.k`: direct multi-cell transition oracles.
+- `summaries/push-summary.k`, `pop-summary.k`, `dup-summary.k`, `swap-summary.k`, the selected arithmetic and comparison summaries, `pc-summary.k`, `gas-summary.k`, `jumpdest-summary.k`, `stop-summary.k`, and `invalid-summary.k`: direct multi-cell transition oracles.
 
 ## Selected KRS extension
 
@@ -116,16 +121,16 @@ The canonical KRS port is `semantics/kevm`, the corpus is
 The refreshed complete gate passes at descriptor protocol 20 and Definition IR schema 13:
 
 ```text
-PASS readable KEVM operational slice: 400 descriptors; 91 executions; 4 native proofs; protocol 20; K 7.1.337
+PASS readable KEVM operational slice: 449 descriptors; 103 executions; 5 native proofs; protocol 20; K 7.1.337
 ```
 
-The behavior matrix adds `POP`, first- and sixteenth-depth `DUP` and `SWAP`, dynamic-depth underflow, fixed-cost out-of-gas, and the 1,024-word `DUP` overflow boundary to the prior baseline.
-The structured behavior SHA-256 is `45f9d16df4836a1d5895d6c035112922e6f4338c89dc385e2e55fd46da45b596`.
-All four all-path claims close with `#Top` through native `kprove`.
-The normalized native `definition.kore` SHA-256 is `0c650f24525918a49de4747e55a9c261f3aa4af4427eaaf9f7b54053ca550c19`.
+The behavior matrix adds forward and conditional jumps, false-condition destination bypass, non-opcode and out-of-range rejection, PUSH-immediate exclusion, control-flow underflow, family gas boundaries, and a combined false/true conditional plus unconditional-jump execution to the prior baseline.
+The structured behavior SHA-256 is `a3e2c4910a24ac98d11424e15016c06f0f6b83ae18c0669c9eddf35aabfb2991`.
+All five all-path claims close with `#Top` through native `kprove`.
+The normalized native `definition.kore` SHA-256 is `f40756568a8f7d594eb14831e5dbf0ec1d70d312bfce4dad418617d1e5f3f04d`.
 Normalization is limited to the temporary semantics path and K-generated
 sort-membership binder names, using the already-qualified KWasm policy.
 Six focused definition/hover probes pass with zero rust-analyzer diagnostics.
 
-This result preserves the removed structured-program adapter while widening the qualified opcode set through the Shanghai stack-manipulation boundary.
+This result preserves the removed structured-program adapter while widening the qualified opcode set through the Shanghai control-flow boundary.
 The remaining opcode families and stateful EVM surfaces remain explicit future evidence, not implicit claims.

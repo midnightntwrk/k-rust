@@ -11,11 +11,12 @@ k::sorts! {
     WordStack;
     StatusCode;
     GasStep: k::KItem;
+    JumpStep: k::KItem;
     Command: k::KItem;
 }
 
 #[k::constructors(sort = OpCode, result = k::KResult)]
-#[k::precedence((Push, Pop, Duplicate, Swap, Add, Mul, Sub, Div, SignedDiv, Mod, SignedMod, AddMod, MulMod, Exponent, SignExtend, LessThan, GreaterThan, SignedLessThan, SignedGreaterThan, Equal, IsZero, BitAnd, BitOr, BitXor, BitNot, Byte, ShiftLeft, ShiftRight, SignedShiftRight, ProgramCounter, Stop, Invalid, End))]
+#[k::precedence((Push, Pop, Duplicate, Swap, Add, Mul, Sub, Div, SignedDiv, Mod, SignedMod, AddMod, MulMod, Exponent, SignExtend, LessThan, GreaterThan, SignedLessThan, SignedGreaterThan, Equal, IsZero, BitAnd, BitOr, BitXor, BitNot, Byte, ShiftLeft, ShiftRight, SignedShiftRight, ProgramCounter, Jump, JumpIf, JumpDest, Stop, Invalid, End))]
 pub enum Operation {
     #[k::syntax("PUSH({width}, {value})")]
     Push { width: Int, value: Int },
@@ -77,6 +78,12 @@ pub enum Operation {
     SignedShiftRight,
     #[k::syntax("PC")]
     ProgramCounter,
+    #[k::syntax("JUMP")]
+    Jump,
+    #[k::syntax("JUMPI")]
+    JumpIf,
+    #[k::syntax("JUMPDEST")]
+    JumpDest,
     #[k::syntax("STOP")]
     Stop,
     #[k::syntax("INVALID")]
@@ -95,7 +102,7 @@ pub enum Stack {
 }
 
 #[k::constructors(sort = StatusCode, result = k::KResult)]
-#[k::precedence((Running, Success, StackUnderflow, StackOverflow, OutOfGas, InvalidInstruction))]
+#[k::precedence((Running, Success, StackUnderflow, StackOverflow, OutOfGas, BadJumpDestination, InvalidInstruction))]
 pub enum Status {
     #[k::syntax(".StatusCode")]
     Running(),
@@ -107,6 +114,8 @@ pub enum Status {
     StackOverflow(),
     #[k::syntax("EVMC_OUT_OF_GAS")]
     OutOfGas(),
+    #[k::syntax("EVMC_BAD_JUMP_DESTINATION")]
+    BadJumpDestination(),
     #[k::syntax("EVMC_INVALID_INSTRUCTION")]
     InvalidInstruction(),
 }
@@ -122,6 +131,17 @@ pub enum GasResult {
     StackUnderflowResult(),
     #[k::syntax("#stackOverflow")]
     StackOverflowResult(),
+}
+
+#[k::constructors(sort = JumpStep, result = k::KResult)]
+#[k::precedence((JumpValid, JumpInvalid, JumpFallthrough))]
+pub enum JumpResult {
+    #[k::syntax("#jumpValid({destination})")]
+    JumpValid { destination: Int },
+    #[k::syntax("#jumpInvalid")]
+    JumpInvalid(),
+    #[k::syntax("#jumpFallthrough")]
+    JumpFallthrough(),
 }
 
 #[k::constructors(sort = Command, result = k::KResult)]
@@ -303,6 +323,44 @@ pub struct ReadImmediate {
     pub at: k::Term<Int>,
     pub remaining: k::Term<Int>,
     pub value: k::Term<Int>,
+}
+
+#[k::function(
+    total,
+    sort = Bool,
+    syntax = "#kevmValidJumpDestination({program}, {destination})"
+)]
+pub struct ValidJumpDestination {
+    pub program: k::Term<Bytes>,
+    pub destination: k::Term<Int>,
+}
+
+#[k::function(
+    total,
+    sort = Bool,
+    syntax = "#kevmScanJumpDestination({program}, {destination}, {cursor})"
+)]
+pub struct ScanJumpDestination {
+    pub program: k::Term<Bytes>,
+    pub destination: k::Term<Int>,
+    pub cursor: k::Term<Int>,
+}
+
+#[k::function(total, sort = JumpStep, syntax = "#kevmResolveJump({program}, {destination})")]
+pub struct ResolveJump {
+    pub program: k::Term<Bytes>,
+    pub destination: k::Term<Int>,
+}
+
+#[k::function(
+    total,
+    sort = JumpStep,
+    syntax = "#kevmResolveJumpIf({program}, {destination}, {condition})"
+)]
+pub struct ResolveJumpIf {
+    pub program: k::Term<Bytes>,
+    pub destination: k::Term<Int>,
+    pub condition: k::Term<Int>,
 }
 
 #[k::requires(bool::and(int::ge(pc, 0), int::lt(pc, bytes::length(program))))]
@@ -635,6 +693,39 @@ fn decode_pc(
     k::term![Operation::ProgramCounter]
 }
 
+#[k::equation]
+fn decode_jump(
+    k::term![Decode {
+        opcode: 86,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Jump]
+}
+
+#[k::equation]
+fn decode_jump_if(
+    k::term![Decode {
+        opcode: 87,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::JumpIf]
+}
+
+#[k::equation]
+fn decode_jump_dest(
+    k::term![Decode {
+        opcode: 91,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::JumpDest]
+}
+
 #[k::requires(bool::and(int::ge(opcode, 96), int::le(opcode, 127)))]
 #[k::equation]
 fn decode_push(
@@ -707,7 +798,7 @@ fn decode_invalid_after_comparison(
     k::term![Operation::Invalid]
 }
 
-#[k::requires(bool::and(int::ge(opcode, 81), int::le(opcode, 87)))]
+#[k::requires(bool::and(int::ge(opcode, 81), int::le(opcode, 85)))]
 #[k::equation]
 fn decode_invalid_before_pc(
     k::term![Decode {
@@ -719,7 +810,10 @@ fn decode_invalid_before_pc(
     k::term![Operation::Invalid]
 }
 
-#[k::requires(bool::and(int::ge(opcode, 89), int::le(opcode, 95)))]
+#[k::requires(bool::or(
+    bool::and(int::ge(opcode, 89), int::le(opcode, 90)),
+    bool::and(int::ge(opcode, 92), int::le(opcode, 95)),
+))]
 #[k::equation]
 fn decode_invalid_middle(
     k::term![Decode {
@@ -771,6 +865,161 @@ fn read_immediate_byte(
         at: int::add(at, 1),
         remaining: int::sub(remaining, 1),
         value: int::add(int::mul(value, 256), bytes::get(program, at))
+    }]
+}
+
+#[k::requires(bool::or(int::lt(destination, 0), int::ge(destination, bytes::length(program)),))]
+#[k::equation]
+fn invalid_jump_destination_outside_program(
+    k::term![ValidJumpDestination {
+        program,
+        destination
+    }]: k::Term<Bool>,
+) -> k::Term<Bool> {
+    k::term![false]
+}
+
+#[k::requires(bool::and(int::ge(destination, 0), int::lt(destination, bytes::length(program)),))]
+#[k::equation]
+fn scan_jump_destination(
+    k::term![ValidJumpDestination {
+        program,
+        destination
+    }]: k::Term<Bool>,
+) -> k::Term<Bool> {
+    k::term![ScanJumpDestination {
+        program,
+        destination,
+        cursor: 0
+    }]
+}
+
+#[k::requires(int::gt(cursor, destination))]
+#[k::equation]
+fn scan_jump_destination_skipped(
+    k::term![ScanJumpDestination {
+        program,
+        destination,
+        cursor
+    }]: k::Term<Bool>,
+) -> k::Term<Bool> {
+    k::term![false]
+}
+
+#[k::requires(int::eq(cursor, destination))]
+#[k::equation]
+fn scan_jump_destination_found(
+    k::term![ScanJumpDestination {
+        program,
+        destination,
+        cursor
+    }]: k::Term<Bool>,
+) -> k::Term<Bool> {
+    k::term![int::eq(bytes::get(program, cursor), 91)]
+}
+
+#[k::requires(bool::and(
+    int::lt(cursor, destination),
+    bool::and(
+        int::ge(bytes::get(program, cursor), 96),
+        int::le(bytes::get(program, cursor), 127),
+    ),
+))]
+#[k::equation]
+fn scan_jump_destination_past_push(
+    k::term![ScanJumpDestination {
+        program,
+        destination,
+        cursor
+    }]: k::Term<Bool>,
+) -> k::Term<Bool> {
+    k::term![ScanJumpDestination {
+        program,
+        destination,
+        cursor: int::add(cursor, int::sub(bytes::get(program, cursor), 94),)
+    }]
+}
+
+#[k::requires(bool::and(
+    int::lt(cursor, destination),
+    bool::or(
+        int::lt(bytes::get(program, cursor), 96),
+        int::gt(bytes::get(program, cursor), 127),
+    ),
+))]
+#[k::equation]
+fn scan_jump_destination_past_opcode(
+    k::term![ScanJumpDestination {
+        program,
+        destination,
+        cursor
+    }]: k::Term<Bool>,
+) -> k::Term<Bool> {
+    k::term![ScanJumpDestination {
+        program,
+        destination,
+        cursor: int::add(cursor, 1)
+    }]
+}
+
+#[k::requires(bool::eq(
+    ValidJumpDestination {
+        program,
+        destination
+    },
+    true,
+))]
+#[k::equation]
+fn resolve_valid_jump(
+    k::term![ResolveJump {
+        program,
+        destination
+    }]: k::Term<JumpStep>,
+) -> k::Term<JumpStep> {
+    k::term![JumpResult::JumpValid { destination }]
+}
+
+#[k::requires(bool::eq(
+    ValidJumpDestination {
+        program,
+        destination
+    },
+    false,
+))]
+#[k::equation]
+fn resolve_invalid_jump(
+    k::term![ResolveJump {
+        program,
+        destination
+    }]: k::Term<JumpStep>,
+) -> k::Term<JumpStep> {
+    k::term![JumpResult::JumpInvalid()]
+}
+
+#[k::requires(int::eq(condition, 0))]
+#[k::equation]
+fn resolve_false_jump_if(
+    k::term![ResolveJumpIf {
+        program,
+        destination,
+        condition
+    }]: k::Term<JumpStep>,
+) -> k::Term<JumpStep> {
+    k::term![JumpResult::JumpFallthrough()]
+}
+
+#[k::requires(int::ne(condition, 0))]
+#[k::equation]
+fn resolve_true_jump_if(
+    k::term![ResolveJumpIf {
+        program,
+        destination,
+        condition
+    }]: k::Term<JumpStep>,
+) -> k::Term<JumpStep> {
+    k::term![ResolveJump {
+        program,
+        destination
     }]
 }
 
@@ -1987,6 +2236,37 @@ k::rules! {
     }
     where gas: Int;
 
+    begin_jump: {
+        k: [Operation::Jump, ..],
+        word_stack: Stack::StackCons(destination, rest),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed { op: Operation::Jump, gas, cost: 8 }, ..],
+        word_stack: Stack::StackCons(destination, rest),
+        gas: gas,
+    }
+    where destination: Int, rest: WordStack, gas: Int;
+
+    begin_jump_if: {
+        k: [Operation::JumpIf, ..],
+        word_stack: Stack::StackCons(destination, Stack::StackCons(condition, rest)),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed { op: Operation::JumpIf, gas, cost: 10 }, ..],
+        word_stack: Stack::StackCons(destination, Stack::StackCons(condition, rest)),
+        gas: gas,
+    }
+    where destination: Int, condition: Int, rest: WordStack, gas: Int;
+
+    begin_jump_dest: {
+        k: [Operation::JumpDest, ..],
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed { op: Operation::JumpDest, gas, cost: 1 }, ..],
+        gas: gas,
+    }
+    where gas: Int;
+
     begin_stop: {
         k: [Operation::Stop, ..],
         gas: gas,
@@ -2389,6 +2669,70 @@ k::rules! {
     }
     where remaining: Int, stack: WordStack, pc: Int, gas: Int;
 
+    inspect_jump_destination: {
+        k: [GasResult::EnoughGas(Operation::Jump, remaining), ..],
+        program: program,
+        word_stack: Stack::StackCons(destination, rest),
+        gas: gas,
+    } => {
+        k: [crate::ResolveJump { program, destination }, ..],
+        program: program,
+        word_stack: rest,
+        gas: remaining,
+    }
+    where remaining: Int, program: Bytes, destination: Int, rest: WordStack, gas: Int;
+
+    inspect_jump_if_destination: {
+        k: [GasResult::EnoughGas(Operation::JumpIf, remaining), ..],
+        program: program,
+        word_stack: Stack::StackCons(destination, Stack::StackCons(condition, rest)),
+        gas: gas,
+    } => {
+        k: [crate::ResolveJumpIf { program, destination, condition }, ..],
+        program: program,
+        word_stack: rest,
+        gas: remaining,
+    }
+    where remaining: Int, program: Bytes, destination: Int, condition: Int, rest: WordStack, gas: Int;
+
+    exec_valid_jump: {
+        k: [JumpResult::JumpValid { destination }, ..],
+        pc: pc,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        pc: destination,
+    }
+    where destination: Int, pc: Int;
+
+    exec_false_jump_if: {
+        k: [JumpResult::JumpFallthrough(), ..],
+        pc: pc,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        pc: int::add(pc, 1),
+    }
+    where pc: Int;
+
+    exec_invalid_jump: {
+        k: [JumpResult::JumpInvalid(), ..],
+        status_code: status,
+    } => {
+        k: [..],
+        status_code: Status::BadJumpDestination(),
+    }
+    where status: StatusCode;
+
+    exec_jump_dest: {
+        k: [GasResult::EnoughGas(Operation::JumpDest, remaining), ..],
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, pc: Int, gas: Int;
+
     exec_stop: {
         k: [GasResult::EnoughGas(Operation::Stop, remaining), ..],
         gas: gas,
@@ -2403,6 +2747,39 @@ k::rules! {
 
 k::rules! {
     for Machine;
+    jump_underflow: {
+        k: [Operation::Jump, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    jump_if_underflow_empty: {
+        k: [Operation::JumpIf, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    jump_if_underflow_one: {
+        k: [Operation::JumpIf, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
     add_underflow_empty: {
         k: [Operation::Add, ..],
         word_stack: Stack::StackEmpty(),
@@ -3139,6 +3516,28 @@ fn stack_manipulation_stop(
             Stack::StackCons(1, Stack::StackCons(1, Stack::StackEmpty())),
         )),
         pc: k::configuration::Cell(9),
+        gas: k::configuration::Cell(0),
+        status_code: k::configuration::Cell(Status::Success()),
+    }
+}
+
+/// All-path claim spanning false and true JUMPI, JUMP, and JUMPDEST execution.
+#[k::claim(all_paths, label = "control-flow-tranche-stop")]
+fn control_flow_tranche_stop(
+    k::cells! {
+        k: k::configuration::KCell(ExecutionCommand::Run()),
+        program: k::configuration::Cell(k::bytes!(b"\x60\x00\x60\xff\x57\x60\x01\x60\x0d\x57\xfe\xfe\xfe\x5b\x60\x12\x56\xfe\x5b\x00")),
+        word_stack: k::configuration::Cell(Stack::StackEmpty()),
+        pc: k::configuration::Cell(0),
+        gas: k::configuration::Cell(45),
+        status_code: k::configuration::Cell(Status::Running()),
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(.K),
+        program: k::configuration::Cell(k::bytes!(b"\x60\x00\x60\xff\x57\x60\x01\x60\x0d\x57\xfe\xfe\xfe\x5b\x60\x12\x56\xfe\x5b\x00")),
+        word_stack: k::configuration::Cell(Stack::StackEmpty()),
+        pc: k::configuration::Cell(19),
         gas: k::configuration::Cell(0),
         status_code: k::configuration::Cell(Status::Success()),
     }

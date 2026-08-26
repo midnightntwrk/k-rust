@@ -1022,6 +1022,25 @@ The added combined claim spans `DUP3`, `SWAP2`, `POP`, gas exhaustion, and succe
 This tranche advances the explicit KEVM inventory but does not complete the port.
 Environmental, memory, storage, control-flow, call, creation, log, termination, transaction, schedule, account, cryptographic, and symbolic surfaces remain uncovered.
 
+### Phase 18 — KEVM Shanghai control-flow tranche — complete; port incomplete
+
+The next KEVM tranche selects `JUMP`, `JUMPI`, and `JUMPDEST` from the pinned `evm.md`, Shanghai schedule, and direct `JUMPDEST` summary.
+The canonical package decodes all three opcodes and scans the immutable `Bytes` program to validate destinations.
+The scan advances over whole `PUSH1` through `PUSH32` instructions, so a `0x5b` immediate byte cannot be mistaken for executable `JUMPDEST` syntax.
+It preserves KEVM's false-`JUMPI` destination bypass, true-branch and unconditional destination checks, `Gjumpdest = 1`, `Gmid = 8`, `Ghigh = 10`, unary/binary underflow partitions, insufficient-gas behavior, and `EVMC_BAD_JUMP_DESTINATION` outcome.
+
+The fail-closed KEVM gate passes with 449 descriptors, 103 native executions, and five native all-path proofs under K 7.1.337.
+The twelve added behavior cases cover valid forward `JUMP`, true and false `JUMPI`, invalid opcode, out-of-range and PUSH-immediate destinations, both family underflow boundaries, insufficient gas, and a combined execution containing both conditional outcomes plus an unconditional jump.
+Its structured behavior SHA-256 is `a3e2c4910a24ac98d11424e15016c06f0f6b83ae18c0669c9eddf35aabfb2991`.
+Its normalized KORE SHA-256 is `f40756568a8f7d594eb14831e5dbf0ec1d70d312bfce4dad418617d1e5f3f04d`.
+The combined control-flow claim and all four prior claims close with `#Top` through native `kprove`.
+
+The unchanged KWasm and KMIR gates pass with 32 and 11 executions and one native proof each.
+The complete IMP M4.1–M4.8 gate also passes with exact 1,206/1,206 native KORE parity, unchanged behavior evidence `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, all 21 proof specifications, and unchanged compatibility evidence `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6`.
+
+This tranche advances the explicit KEVM inventory but does not complete the port.
+Environmental, memory, storage, call, creation, log, termination, transaction, schedule, account, cryptographic, and symbolic surfaces remain uncovered.
+
 The normative formatter target remains:
 
 - `draft/readability/spec/imp.rs` first;
@@ -1038,7 +1057,7 @@ implementation authority.
 | Finish `draft/readability/spec` | Normative `imp.rs`, deterministic `imp.expanded.rs`, implemented `decisions.md`, deliberately unresolved `open-questions.md`, and M4.2–M4.4 | complete; the trailing-comment policy, `{ .. }`, and no-k-head spelling remain explicitly open rather than silently resolved |
 | Make KRS work on IMP | Complete M4.1–M4.8 gate at protocol 20 and IR schema 13, including exact source projection, 1,206/1,206 native KORE parity, behavior hash `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, all proofs, and compatibility hash `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6` | complete |
 | Complete the KRS KWasm port | `semantics/coverage.toml`, canonical `semantics/kwasm`, and the fail-closed KWasm gate | incomplete: 8 equations and 8 machine rules qualify the arithmetic baseline against an 884-rule source inventory; recursive instruction and value-stack boundaries and deferred semantic surfaces remain |
-| Complete the KRS KEVM port | `semantics/coverage.toml`, canonical `semantics/kevm`, and the fail-closed KEVM gate | incomplete: 128 equations and 118 machine rules qualify the Bytes-backed Shanghai stack-manipulation baseline against a 3,440-rule source inventory; the program adapter is removed, while environmental, control-flow, and stateful semantic surfaces remain |
+| Complete the KRS KEVM port | `semantics/coverage.toml`, canonical `semantics/kevm`, and the fail-closed KEVM gate | incomplete: 141 equations and 130 machine rules qualify the Bytes-backed Shanghai control-flow baseline against a 3,440-rule source inventory; the program adapter is removed, while environmental and stateful semantic surfaces remain |
 | Complete the KRS KMIR port | `semantics/coverage.toml`, canonical `semantics/kmir`, and the fail-closed KMIR gate | incomplete: 22 machine rules qualify the block-execution baseline against a 787-rule source inventory; the block-program adapter is removed, while untyped locals and deferred semantic surfaces remain |
 | Preserve recovery boundaries | `krs.RECOVERY_PROVENANCE.md` and `../recovery/` remain unchanged; all reconstructed work is committed only in the live KRS repository | complete |
 
@@ -1066,7 +1085,7 @@ A port may be marked complete only when its pinned syntax, configuration, execut
 
 Resume full KEVM coverage next against the pinned `evm-semantics` inventory and its upstream behavior and proof suites.
 Select each next implementation tranche from an uncovered upstream syntax, configuration, executable-rule, behavior, or proof requirement; do not optimize further for already removed adapters or recovered intermediate state.
-After the Shanghai stack-manipulation milestone, select the next coherent opcode family from explicit upstream syntax, rule, behavior, and proof evidence; do not widen by byte adjacency alone.
+After the Shanghai control-flow milestone, select the next coherent opcode family from explicit upstream syntax, rule, behavior, and proof evidence; do not widen by byte adjacency alone.
 After KEVM satisfies the completion contract, complete KMIR against the pinned `mir-semantics` inventory, beginning with its remaining typed-local and projection boundary only insofar as the selected upstream corpus requires it.
 Prefer shared KRS authoring features when the same source construct is required by multiple ports, but qualify every feature through the active port before broadening it.
 Preserve all three semantic gates and the complete IMP M4 gate at each coherent signed milestone.
