@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "packageVersion": "backend-agnostic-k-in-k-v1",
-  "asOf": "2026-08-22",
+  "asOf": "2026-08-26",
   "classifications": [
     "portable-contract",
     "portable-oracle-vector",
@@ -192,6 +192,42 @@
       "notProven": ["any R3-G-05 or R4 leaf"]
     },
     {
+      "id": "bag11-complete-denotation",
+      "paths": ["investigations/backend-agnostic-goal-closure/vectors/execution-pattern-vectors.json"],
+      "classification": ["portable-contract", "portable-oracle-vector"],
+      "disposition": "accepted-portable-finite-conformance",
+      "portableClaims": ["complete occurrence enumeration", "canonical witness order", "primary witness derivation", "query root propagation"],
+      "proofScope": "deterministic finite trace and query derivation",
+      "notProven": ["native event production", "native branch discovery", "native solver fidelity"]
+    },
+    {
+      "id": "bag12-typed-oracle-semantics",
+      "paths": ["investigations/backend-agnostic-goal-closure/vectors/oracle-semantics-vectors.json"],
+      "classification": ["portable-contract", "portable-oracle-vector"],
+      "disposition": "accepted-portable-finite-conformance",
+      "portableClaims": ["typed oracle declarations and sides", "baseline gate", "comparison authority", "kind-specific inline expected terminal validation"],
+      "proofScope": "deterministic typed finite tables and contradiction probes",
+      "notProven": ["native operand production", "native evaluator fidelity", "native execution isolation"]
+    },
+    {
+      "id": "bag13-portable-semantic-slice",
+      "paths": ["investigations/backend-agnostic-goal-closure/claim-boundary.json", "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-identity-output.json"],
+      "classification": ["portable-contract", "portable-oracle-vector"],
+      "disposition": "accepted-portable-finite-conformance",
+      "portableClaims": ["supported portable term and sentence slice", "signature-backed well-formedness", "unsupported/lossy-form rejection", "semantic identity propagation"],
+      "proofScope": "declared finite portable semantic slice only",
+      "notProven": ["native IR coverage", "native supported-surface injectivity", "native adapter fidelity"]
+    },
+    {
+      "id": "bag14-portable-cache-semantics",
+      "paths": ["investigations/backend-agnostic-goal-closure/vectors/cache-semantics-vectors.json"],
+      "classification": ["portable-contract", "portable-oracle-vector"],
+      "disposition": "accepted-portable-finite-conformance",
+      "portableClaims": ["attempt-key identity", "completion and evidence class", "reuse policy", "first-kill/full schedule folds", "same-key conflict rejection"],
+      "proofScope": "deterministic finite cache and schedule derivation",
+      "notProven": ["native store atomicity", "native locking", "native resolver availability", "native attempt production"]
+    },
+    {
       "id": "bag15-portable-operation-receipts",
       "paths": ["investigations/backend-agnostic-goal-closure/vectors/replay-provenance-vectors.json"],
       "classification": ["portable-contract"],
@@ -224,8 +260,8 @@
       "classification": ["portable-contract", "rust-stack-dependent-open"],
       "disposition": "contract-frozen-evidence-open",
       "portableClaims": ["operator/site/instance/mutant model", "exact/each/tuple selection", "canonical atomic patches", "honest validation and run statuses", "per-attempt cache identity, completeness, reuse, and schedule folds", "deterministic scoring/replay", "execution-pattern oracle"],
-      "proofScope": "proposed contract plus bounded R2 patch evidence",
-      "notProven": ["general operator discovery", "same-sentence and synthetic edits", "isolated Rust compilation/execution", "native BAG-15 production receipts", "cache storage atomicity, locking, resolver availability, and conflict remediation", "campaign scoring"]
+      "proofScope": "accepted BAG-09 through BAG-16 portable algebra, status, score, cache, oracle, receipt, and replay semantics plus bounded R2 patch evidence",
+      "notProven": ["native operator/site discovery", "native application of the supported typed patch operations", "isolated native compilation/execution", "native BAG-15 production receipts", "cache storage atomicity, locking, resolver availability, and conflict remediation"]
     }
   ]
 }

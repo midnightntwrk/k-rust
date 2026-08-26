@@ -7,7 +7,7 @@ BAG-16 collection-aware execution, pattern evaluation, corpus folding, and
 successor version provenance were independently accepted after finding-driven
 contract and implementation repair rounds, 26 August 2026. The accepted
 `bag16.py` SHA-256 is
-`ee0915a13836ec29acfd5118425c3089029c48e3ad50d5a0f88abc15bfd238b0`.
+`0fea820d9ad7c082404d788bca2589ff2575316bf13dcc436628c8fb4c6f1e33`.
 They make no native branch-discovery or execution claim.
 The mandatory post-BAG-16 BAG-10 taxonomy/schema placement rerun was
 independently accepted after closing the successor schema's broad failure
@@ -17,6 +17,13 @@ the historical v1 taxonomy and schemas remain byte-frozen.
 This package records the semantic work that can be completed before K-in-K
 moves to its Rust-based execution stack. It deliberately does not preserve,
 repair, or wrap the stopped Java/Haskell execution path.
+
+All BAG-02 through BAG-16 task packets are explicit completion authorities.
+In particular, BAG-05 closes the single `executionProfileDigest` identity and
+`execution-profile` catalog role, while BAG-06 closes bounded agreement as
+`survived` rather than equivalence. A future typed equivalence proof system,
+additional operator families, subsumption/bounded-equivalence analysis, and
+general equivalent-mutant detection retain separate product/scope decisions.
 
 The package has three purposes:
 
@@ -100,7 +107,7 @@ It contains derivative cache records whose accepted BAG-14 request keys, termina
 
 `fixtures/bag16-artifact-role-specs.json` and
 `fixtures/bag16-artifact-catalog.json` are the successor resolver authority for
-`vectors/corpus-search-replay-vectors.json`. The v2 dispatcher preserves exact
+`vectors/bag16-branch-collection-vectors.json`. The v2 dispatcher preserves exact
 historical schema bytes, admits an explicit legacy-no-version arm only where a
 frozen structured value lacks `schemaVersion`, and selects every other arm by
 its exact top-level integer. `portable-closure-root/v1` embeds this authority,
@@ -128,9 +135,10 @@ Plan variable declaration order is retained in witnesses, and side-condition tab
 Backend-agnostic investigation is complete only when all of the following are
 true together:
 
-1. every MVP acceptance clause in both goal specifications is represented in
-   the closure matrix as a portable contract, bounded historical proof, or a
-   specifically named Rust-proof requirement;
+1. every MVP acceptance clause and material architecture/scope claim in both
+   goal specifications has an exact source citation, positive derivation,
+   permanent adversary, and exactly one of the six dispositions in
+   `completion-checklist.json`;
 2. identity, definition, operator, patch, observation, event, pattern,
    corpus, mutation, diff, replay, failure, and scoring boundaries have closed
    schemas or normative algorithms and at least one positive fixture;
@@ -145,11 +153,23 @@ true together:
 6. D1, the roadmap, this package, and the Rust packet ordering agree about the
    superseding stack transition and do not claim that K was compared with a
    conventional AST library; and
-7. a fresh independent audit finds no remaining work that can be answered
-   credibly without the Rust semantic IR, executor, solver, or resource data.
+7. the live cycle-free audit subject matches `subjectPackageDigest`; its root
+   includes the normalized package inventory and content hashes, exact
+   requirement-ledger digest, verifier digest, and package version while the
+   manifest and audit record remain outside the root; and
+8. three independent audits of the exact same subject accept execution/
+   observation/query/corpus, mutation/patch/oracle/cache/receipt/campaign, and
+   completion/D1/roadmap/handoff with no pending findings.
 
 The verifier enforces the machine-checkable subset. The final completion audit
 records the requirement-to-evidence review for the prose and scope criteria.
+The only terminal dispositions are `portable-closed`,
+`portable-closed-rust-proof-pending`, `retired-stack-bounded`,
+`product-decision-held`, `product-decision-required`, and
+`out-of-scope-by-recorded-decision`. A Rust-open entry names the exact native
+fact and why finite backend-neutral evidence cannot establish it. Changing any
+normative package file changes the live subject root and invalidates every
+earlier audit binding.
 
 ## Versioning
 

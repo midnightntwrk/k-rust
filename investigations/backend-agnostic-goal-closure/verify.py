@@ -34,6 +34,114 @@ FIXTURES = PACKAGE / "fixtures"
 CHECKS = 0
 OFFICIAL_VALIDATORS: dict[str, Any] = {}
 FROZEN_LOWERING_RELATION = {"states": ["lowering-a", "lowering-b"], "edges": [["lowering-a", "lowering-b"], ["lowering-b", "lowering-a"]]}
+TERMINAL_DISPOSITIONS = {
+    "portable-closed", "portable-closed-rust-proof-pending",
+    "retired-stack-bounded", "product-decision-held",
+    "product-decision-required", "out-of-scope-by-recorded-decision",
+}
+REQUIRED_CHECKLIST_IDS = {
+    "EX-01-observation-selection", "EX-02-conservative-instrumentation",
+    "EX-03-domain-events-and-clocks", "EX-04-temporal-denotation",
+    "EX-05-symbolic-constraints-and-branches", "EX-06-four-way-status",
+    "EX-07-corpus-aggregation", "EX-08-witness-and-replay",
+    "EX-09-trace-stream-equivalence", "EX-10-deterministic-reports",
+    "EX-11-collection-corpus-replay", "EX-12-universal-temporal-proof",
+    "EX-13-unbounded-trace-retention", "EX-14-semantic-interface-boundary",
+    "EX-15-k-native-responsibility-split",
+    "EX-16-no-arbitrary-state-diff-events",
+    "EX-17-no-builtin-function-observation",
+    "EX-18-cross-backend-event-equivalence",
+    "EX-19-state-rule-domain-event-boundary",
+    "EX-20-transition-event-profile-scope",
+    "EX-21-full-thin-lowering-ownership", "EX-22-next-transition-clock",
+    "EX-23-bounded-gap-repetition", "EX-24-between-event-negation",
+    "EX-25-event-counts-aggregation", "EX-26-scoped-events",
+    "EX-27-unbounded-absence-liveness-proof", "MU-01-definition-and-identity",
+    "MU-02-operator-contract", "MU-03-selection-and-enumeration",
+    "MU-04-patch-operations-and-atomicity", "MU-05-layered-validation",
+    "MU-06-baseline-gate", "MU-07-oracle-semantics",
+    "MU-08-scheduling-and-isolation", "MU-09-report-diff-and-replay",
+    "MU-10-exact-score", "MU-11-ordinary-result-kill",
+    "MU-12-pattern-kill-same-result", "MU-13-invalid-not-killed",
+    "MU-14-timeout-and-unknown", "MU-15-coupled-one-mutant",
+    "MU-16-cross-family-generality", "MU-17-replay-result-provenance",
+    "MU-18-automatic-higher-order", "MU-19-coverage-guided-pruning",
+    "MU-20-post-lowering-mutation", "MU-21-distributed-resumable-scheduling",
+    "MU-22-source-preserving-formatting",
+    "MU-23-bounded-agreement-not-equivalence",
+    "MU-24-future-proven-equivalent-proof-boundary",
+    "MU-25-context-configuration-claim-generated-operators",
+    "MU-26-subsumption-bounded-equivalence",
+    "MU-27-general-equivalent-mutant-detection",
+    "SC-01-retired-backend-stop",
+    "SC-02-rust-handoff-boundary", "SC-03-optional-backend-logs",
+    "SC-04-c1-c2", "SC-05-large-corpus", "SC-06-execution-profile-identity",
+}
+REQUIRED_CLOSURE_IDS = {
+    "identity-domains", "canonical-json-and-digests",
+    "portable-semantic-slice-interchange", "portable-definition-fixtures",
+    "mutation-operator-declaration", "selection-policies",
+    "patch-operations-and-atomicity", "executable-patch-oracle",
+    "distinct-rule-transaction", "same-sentence-overlap-algebra",
+    "observation-selection-and-emission-order", "observation-manifest",
+    "observation-payload-path-and-sort-integrity", "conservativity-erasure",
+    "event-and-provenance-schema", "rule-applied-exact-adjacency",
+    "occurrence-temporal-denotation", "alternatives-side-conditions-and-imports",
+    "branch-status-and-aggregation", "finite-trace-denotational-oracle",
+    "corpus-manifest-result-and-replay", "trace-stream-equivalence",
+    "mutation-validation-and-status", "cache-granularity-completeness-and-scheduling",
+    "mutation-edit-origin-and-template-provenance", "structural-diff-and-campaign-integrity",
+    "mutation-score-and-oracle-semantics", "finite-reachability-and-predicate-authority",
+    "oracle-evaluator-conformance-authority", "pattern-plan-query-identity-and-denotation",
+    "same-result-pattern-kill", "failure-taxonomy", "evidence-classification",
+    "cross-family-generality", "mutation-replay-result-provenance",
+    "collection-aware-corpus-replay", "dependency-ordered-rust-handoff",
+    "old-backend-repair", "optional-backend-logs", "c1-c2-held",
+    "large-corpus-performance", "automatic-higher-order-mutation",
+    "coverage-guided-pruning", "execution-profile-identity",
+    "bounded-agreement-status-boundary", "future-equivalence-proof-system",
+    "context-configuration-claim-generated-operators",
+    "subsumption-bounded-equivalence", "general-equivalent-mutant-detection",
+}
+REQUIRED_COMPLETION_SOURCES = {
+    "draft/goal/execution-pattern-matching.md",
+    "draft/goal/semantic-mutation-testing.md",
+    *(f"tasks/backend-agnostic/BAG-{number:02d}-{slug}.md" for number, slug in (
+        (1, "evidence-completion-integrity"),
+        (2, "policy-derived-mutation-generation"),
+        (3, "structural-observation-selection"),
+        (4, "canonical-json-boundary"),
+        (5, "execution-profile-identity"),
+        (6, "equivalence-status-boundary"),
+        (7, "mutation-edit-origin-provenance"),
+        (8, "artifact-identity-and-resolution-boundary"),
+        (9, "semantic-termination-and-crash-oracle"),
+        (10, "closed-failure-disposition-and-semantic-evidence"),
+        (11, "pattern-query-plan-and-identity"),
+        (12, "typed-oracle-kind-semantics"),
+        (13, "portable-semantic-slice-and-local-well-formedness"),
+        (14, "cache-granularity-and-completeness"),
+        (15, "mutation-execution-replay-and-result-provenance"),
+        (16, "corpus-search-and-branch-trace-replay-completeness"),
+    )),
+    "draft/decisions/d1-stop-old-g-track-and-preserve-portable-contracts-2026-08-22.md",
+    "draft/k-in-k-execution-roadmap.md",
+    "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md",
+}
+REQUIRED_EVIDENCE_IDS = {
+    "w1-a-egress-boundary", "w1-b-capability-audit",
+    "w1-c-independent-replay", "w1-d-inprocess-definition-adapter",
+    "r2-g-01-definition-transport", "r2-g-02-single-sentence-patch",
+    "r2-g-03-atomic-two-sentence-patch", "r2-g-04-pre-cf-observation-seam",
+    "r2-g-05-pre-cf-hook-prototype", "r2-g-06-configuration-augmentation",
+    "r2-g-07-single-rule-observation", "r3-g-01-rule-applied-trace",
+    "r3-g-02-trace-configuration", "r3-g-03-head-match",
+    "r3-g-04-exact-adjacent-pair", "r3-g-05-final-stop",
+    "bag11-complete-denotation", "bag12-typed-oracle-semantics",
+    "bag13-portable-semantic-slice", "bag14-portable-cache-semantics",
+    "bag15-portable-operation-receipts", "bag16-portable-collection-replay",
+    "execution-pattern-rust-open", "semantic-mutation-rust-open",
+}
 
 
 def ok(condition: bool, message: str) -> None:
@@ -393,6 +501,43 @@ def verify_generic_failure_schema_inventory() -> None:
     ok(actual == expected, "context-specific failure schema placement inventory drift")
 
 
+def subject_artifact_inventory() -> list[dict[str, str]]:
+    excluded = {"completion-manifest.json", "completion-audit.md"}
+    paths = sorted(
+        path for path in PACKAGE.rglob("*")
+        if path.is_file()
+        and path.suffix in {".json", ".md", ".py"}
+        and "__pycache__" not in path.parts
+        and path.name not in excluded
+    )
+    return [
+        {
+            "path": str(path.relative_to(ROOT)),
+            "contentSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for path in paths
+    ]
+
+
+def live_completion_subject(manifest: dict[str, Any]) -> dict[str, Any]:
+    checklist = load(PACKAGE / "completion-checklist.json")
+    ledger_digest = digest("k-in-k/requirement-ledger/v1", checklist)
+    verifier_digest = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    inventory = subject_artifact_inventory()
+    payload = {
+        "packageVersion": manifest["packageVersion"],
+        "artifactInventory": inventory,
+        "requirementLedgerDigest": ledger_digest,
+        "verifierDigest": verifier_digest,
+    }
+    return {
+        "subjectPackageDigest": digest("k-in-k/completion-audit-subject/v1", payload),
+        "requirementLedgerDigest": ledger_digest,
+        "verifierDigest": verifier_digest,
+        "subjectArtifactCount": len(inventory),
+    }
+
+
 def verify_inventory() -> None:
     inventory = load(PACKAGE / "evidence-inventory.json")
     manifest = load(PACKAGE / "completion-manifest.json")
@@ -406,7 +551,8 @@ def verify_inventory() -> None:
             ok(not Path(relative).is_absolute(), f"absolute inventory path {relative}")
             ok((ROOT / relative).is_file(), f"missing inventory evidence {relative}")
     ok("r3-g-05-final-stop" in ids, "terminal stop missing from inventory")
-    required = set(manifest["requiredEvidenceIds"])
+    ok(set(manifest["requiredEvidenceIds"]) == REQUIRED_EVIDENCE_IDS, "completion manifest evidence ID set differs from the verifier-owned normative set")
+    required = REQUIRED_EVIDENCE_IDS
     ok(required <= ids, f"mandatory evidence IDs omitted: {sorted(required - ids)}")
     for evidence_id in sorted(required):
         reduced = ids - {evidence_id}
@@ -424,22 +570,63 @@ def verify_completion_checklist() -> None:
     ok(manifest["completionStatus"] in ("pending-independent-audit", "complete"), "unknown completion status")
     ok((ROOT / manifest["completionAudit"]).is_file(), "completion audit is missing")
     ok(checklist["packageVersion"] == manifest["packageVersion"], "completion package version mismatch")
-    for source in checklist["sources"]:
+    ok(set(checklist["states"]) == TERMINAL_DISPOSITIONS, "completion checklist terminal disposition vocabulary drift")
+    ok(set(manifest["requiredChecklistIds"]) == REQUIRED_CHECKLIST_IDS, "completion manifest checklist ID set differs from the verifier-owned normative set")
+    sources = set(checklist["sources"])
+    ok(len(sources) == len(checklist["sources"]), "completion source inventory contains duplicates")
+    ok(
+        sources == REQUIRED_COMPLETION_SOURCES,
+        f"completion source inventory mismatch: missing={sorted(REQUIRED_COMPLETION_SOURCES - sources)}, extra={sorted(sources - REQUIRED_COMPLETION_SOURCES)}",
+    )
+    for source in sorted(REQUIRED_COMPLETION_SOURCES):
         ok((ROOT / source).is_file(), f"missing completion source {source}")
-    allowed_states = set(checklist["states"])
+        reduced = sources - {source}
+        try:
+            ok(REQUIRED_COMPLETION_SOURCES <= reduced, f"missing mandatory completion source {source}")
+        except AssertionError:
+            ok(True, f"omission adversary for completion source {source}")
+        else:
+            raise AssertionError(f"omitting mandatory completion source {source} was accepted")
     inventory_ids = {entry["id"] for entry in load(PACKAGE / "evidence-inventory.json")["entries"]}
     ids: set[str] = set()
     for entry in checklist["entries"]:
         ok(entry["id"] not in ids, f"duplicate checklist ID {entry['id']}")
         ids.add(entry["id"])
         ok(entry["goal"] in ("execution-pattern", "semantic-mutation", "scope"), f"unknown checklist goal {entry['id']}")
-        ok(entry["state"] in allowed_states, f"unknown checklist state {entry['id']}")
-        ok(bool(entry["source"]) and bool(entry["rustProof"]), f"incomplete checklist boundary {entry['id']}")
+        ok(entry["state"] in TERMINAL_DISPOSITIONS and entry["terminalDisposition"] == entry["state"], f"unknown or inconsistent checklist disposition {entry['id']}")
+        ok(bool(entry["source"]) and bool(entry["sourceCitation"]) and bool(entry["sourceText"]), f"incomplete exact source citation {entry['id']}")
+        ok(bool(entry["rustProof"]) and bool(entry["necessity"]), f"incomplete residual boundary {entry['id']}")
         ok(bool(entry["artifacts"]), f"checklist entry without artifact {entry['id']}")
         for artifact in entry["artifacts"]:
             ok((ROOT / artifact).is_file(), f"missing checklist artifact {artifact}")
         ok(set(entry["historicalEvidence"]) <= inventory_ids, f"unknown historical evidence in {entry['id']}")
-    required = set(manifest["requiredChecklistIds"])
+        positive = entry["positiveDerivation"]
+        adversary = entry["permanentAdversary"]
+        ok(bool(positive["check"]) and (ROOT / positive["artifact"]).is_file(), f"missing positive derivation {entry['id']}")
+        ok(bool(adversary["case"]) and (ROOT / adversary["artifact"]).is_file(), f"missing permanent adversary {entry['id']}")
+        if "/vectors/" in adversary["artifact"]:
+            vector = load(ROOT / adversary["artifact"])
+            identifiers: set[str] = set()
+            def collect_identifiers(value: Any) -> None:
+                if isinstance(value, dict):
+                    for field in ("id", "probe"):
+                        if isinstance(value.get(field), str):
+                            identifiers.add(value[field])
+                    for child in value.values():
+                        collect_identifiers(child)
+                elif isinstance(value, list):
+                    for child in value:
+                        collect_identifiers(child)
+            collect_identifiers(vector)
+            ok(adversary["case"] in identifiers, f"unreachable permanent adversary for {entry['id']}")
+        packets = entry["rustPacketIds"]
+        ok(len(packets) == len(set(packets)) and set(packets) <= {f"RS-{index:02d}" for index in range(1, 9)}, f"invalid Rust packet routing for {entry['id']}")
+        if entry["state"] == "portable-closed-rust-proof-pending":
+            ok(bool(entry["nativeFact"]) and "finite portable artifacts" in entry["necessity"] and bool(packets) and "RS-08" not in packets, f"Rust-open necessity/routing test is incomplete for {entry['id']}")
+        else:
+            ok(entry["nativeFact"] is None, f"non-Rust disposition retained a native fact for {entry['id']}")
+            ok(packets == (["RS-08"] if entry["id"] == "EX-09-trace-stream-equivalence" else []), f"non-Rust requirement has an unexplained packet route for {entry['id']}")
+    required = REQUIRED_CHECKLIST_IDS
     ok(ids == required, f"completion checklist ID mismatch: missing={sorted(required - ids)}, extra={sorted(ids - required)}")
     for checklist_id in sorted(required):
         reduced = ids - {checklist_id}
@@ -449,21 +636,174 @@ def verify_completion_checklist() -> None:
             ok(True, f"omission adversary for checklist {checklist_id}")
         else:
             raise AssertionError(f"omitting mandatory checklist item {checklist_id} was accepted")
-    for artifact in manifest["requiredArtifacts"]:
-        ok(not Path(artifact).is_absolute() and (ROOT / artifact).is_file(), f"missing required package artifact {artifact}")
+    for stale in (
+        "schemas/pattern-result.schema.json", "schemas/corpus-manifest.schema.json",
+        "schemas/corpus-result.schema.json", "schemas/replay-closure.schema.json",
+    ):
+        for entry in checklist["entries"]:
+            if entry["id"] in {"EX-06-four-way-status", "EX-07-corpus-aggregation", "EX-08-witness-and-replay"}:
+                ok(not any(artifact.endswith(stale) for artifact in entry["artifacts"]), f"successor checklist entry cites historical singleton surface {stale}")
+
+    policy = manifest["subjectInventoryPolicy"]
+    ok(
+        policy == {
+            "root": "investigations/backend-agnostic-goal-closure",
+            "includeSuffixes": [".json", ".md", ".py"],
+            "exclude": ["completion-audit.md", "completion-manifest.json"],
+            "ordering": "repository-relative-codepoint",
+            "hash": "sha256-raw-bytes",
+        },
+        "completion subject inventory policy drift",
+    )
+    live = live_completion_subject(manifest)
+    for field, value in live.items():
+        ok(manifest[field] == value, f"stale completion audit subject field {field}")
+    expected_scopes = {
+        "execution-observation-query-corpus",
+        "mutation-patch-oracle-cache-receipt-campaign",
+        "completion-inventory-d1-roadmap-handoff",
+    }
+    audits = manifest["independentAudits"]
+    ok({audit["scope"] for audit in audits} == expected_scopes and len(audits) == 3, "independent audit scope coverage drift")
+    ok(all(audit["subjectPackageDigest"] == live["subjectPackageDigest"] for audit in audits), "independent audit is stale or bound to another subject")
+    ok(
+        all(
+            set(audit) == {"scope", "auditor", "auditorId", "status", "subjectPackageDigest", "findings"}
+            and audit["auditor"] == "gpt-5.6-sol"
+            and bool(audit["auditorId"])
+            for audit in audits
+        )
+        and len({audit["auditorId"] for audit in audits}) == 3,
+        "independent audit provenance is missing, non-Sol, or duplicated",
+    )
+    if manifest["completionStatus"] == "complete":
+        ok(manifest["auditStatus"] == "complete" and manifest["pendingFindings"] == [], "complete manifest retained pending audit findings")
+        ok(all(audit["status"] == "accepted" and audit["findings"] == [] for audit in audits), "complete manifest lacks three clean independent acceptances")
+    else:
+        ok(manifest["auditStatus"] == "pending" and any(audit["status"] == "pending" for audit in audits), "pending manifest has no pending audit")
 
 
 def verify_closure_matrix() -> None:
     matrix = load(PACKAGE / "closure-matrix.json")
-    allowed = set(matrix["states"])
+    ok(set(matrix["states"]) == TERMINAL_DISPOSITIONS, "closure matrix terminal disposition vocabulary drift")
     ids: set[str] = set()
     for item in matrix["requirements"]:
         ok(item["id"] not in ids, f"duplicate closure requirement {item['id']}")
         ids.add(item["id"])
-        ok(item["state"] in allowed, f"unknown closure state for {item['id']}")
+        ok(item["state"] in TERMINAL_DISPOSITIONS and item["terminalDisposition"] == item["state"], f"unknown closure state for {item['id']}")
         ok(bool(item["rustOpen"]), f"missing Rust boundary for {item['id']}")
+        ok(bool(item["necessity"]), f"missing closure necessity rationale for {item['id']}")
+        if item["state"] in {"portable-closed-rust-proof-pending", "retired-stack-bounded"}:
+            ok(bool(item["nativeFact"]), f"native residual is unnamed for {item['id']}")
+        else:
+            ok(item["nativeFact"] is None, f"non-native closure retained native fact for {item['id']}")
         for artifact in item["artifacts"]:
             ok((ROOT / artifact).is_file(), f"missing closure artifact {artifact}")
+    ok(ids == REQUIRED_CLOSURE_IDS, f"closure matrix ID mismatch: missing={sorted(REQUIRED_CLOSURE_IDS - ids)}, extra={sorted(ids - REQUIRED_CLOSURE_IDS)}")
+    for requirement_id in sorted(REQUIRED_CLOSURE_IDS):
+        reduced = ids - {requirement_id}
+        try:
+            ok(REQUIRED_CLOSURE_IDS <= reduced, f"missing mandatory closure requirement {requirement_id}")
+        except AssertionError:
+            ok(True, f"omission adversary for closure requirement {requirement_id}")
+        else:
+            raise AssertionError(f"omitting closure requirement {requirement_id} was accepted")
+    by_id = {item["id"]: item for item in matrix["requirements"]}
+    ok(by_id["same-sentence-overlap-algebra"]["state"] == "portable-closed-rust-proof-pending", "same-sentence portable algebra remains mislabeled")
+    ok(by_id["same-result-pattern-kill"]["state"] == "portable-closed-rust-proof-pending", "same-result pattern kill remains mislabeled")
+    ok("optional-backend-logs-c1-c2-large-corpus" not in ids, "distinct product residuals remain grouped")
+
+
+def verify_architecture_boundaries() -> None:
+    """Recompute the closed architecture/scope relations from the goal text."""
+    goal = (ROOT / "draft/goal/execution-pattern-matching.md").read_text(encoding="utf-8")
+    normalized_goal = " ".join(goal.split())
+    required_clauses = {
+        "state-rule-domain": "Three things can otherwise be conflated:",
+        "transition-first": "Transition-rule events are in scope first.",
+        "diagnostic-activity": "diagnostic events unless a later compatibility profile gives them a",
+        "printed-boundary": "do not make printed output or an ad-hoc parser the semantic interface",
+        "backend-log-boundary": "option (c) is not part of the canonical architecture",
+        "k-native-split": "Keep TypeScript responsible for running the backend, traversing branches, enforcing bounds, and aggregating corpus results.",
+        "structured-result-consumer": "TypeScript consumes structured match/stop results rather than interpreting a semantic trace.",
+        "lowering-owner": "The scope choice changes who performs lowering, not the pattern architecture.",
+        "clock-separation": "the two must never be conflated",
+        "later-bounded": "bounded gaps and repetition",
+        "later-negation": "negation between two events",
+        "later-counts": "event counts and aggregation",
+        "later-scopes": "call/return nesting or other scoped events",
+        "proof-boundary": "require a proof story, not merely a larger execution limit",
+    }
+    for label, clause in required_clauses.items():
+        ok(clause in normalized_goal, f"execution architecture source clause drift: {label}")
+
+    semantic_interfaces = {"typed-k-event", "structured-match-stop-result"}
+    rejected_interfaces = {"printed-output", "ad-hoc-parser", "debugger-log"}
+    ok(not semantic_interfaces & rejected_interfaces, "printed-output-as-semantic-interface")
+    expect_semantic_rejection(
+        lambda candidate: ok(candidate not in rejected_interfaces, "printed-output-as-semantic-interface"),
+        "printed-output", "printed-output-as-semantic-interface",
+    )
+    ownership = {
+        "k": {"typed-event-emission", "monitor-semantics", "pattern-matching"},
+        "host": {"backend-run", "branch-traversal", "bounds", "corpus-aggregation", "structured-result-consumption"},
+    }
+    ok(not ownership["k"] & ownership["host"], "K/host architecture responsibility overlap")
+    expect_semantic_rejection(
+        lambda candidate: ok(candidate not in ownership["k"], "host-reimplements-k-matching"),
+        "pattern-matching", "host-reimplements-k-matching",
+    )
+    event_classes = {"rule-application", "domain-event"}
+    expect_semantic_rejection(
+        lambda candidate: ok(candidate in event_classes, "state-shape-promoted-to-event"),
+        "state-shape", "state-shape-promoted-to-event",
+    )
+    stable_event_activity = {"transition-rule"}
+    diagnostic_activity = {"function", "simplification", "macro", "hook", "SMT"}
+    ok(not stable_event_activity & diagnostic_activity, "diagnostic-activity-promoted-without-profile")
+    expect_semantic_rejection(
+        lambda candidate: ok(candidate not in diagnostic_activity, "diagnostic-activity-promoted-without-profile"),
+        "simplification", "diagnostic-activity-promoted-without-profile",
+    )
+    pattern_architecture = {
+        "events": "typed-k-events", "monitor": "branch-local-k",
+        "result": "structured-match-stop",
+    }
+    architecture_by_lowering_owner = {
+        owner: dict(pattern_architecture) for owner in ("full-k-in-k", "thin-k-in-k")
+    }
+    ok(
+        architecture_by_lowering_owner["full-k-in-k"]
+        == architecture_by_lowering_owner["thin-k-in-k"],
+        "lowering-owner-changes-pattern-architecture",
+    )
+    expect_semantic_rejection(
+        lambda candidate: ok(
+            candidate["full-k-in-k"] == candidate["thin-k-in-k"],
+            "lowering-owner-changes-pattern-architecture",
+        ),
+        {
+            "full-k-in-k": dict(pattern_architecture),
+            "thin-k-in-k": {
+                "events": "typed-k-events",
+                "monitor": "host-reimplemented",
+                "result": "host-interpreted-trace",
+            },
+        },
+        "lowering-owner-changes-pattern-architecture",
+    )
+    clocks = {"next-event": "observed-event", "next-transition": "language-transition"}
+    ok(clocks["next-event"] != clocks["next-transition"], "next-event-next-transition-conflation")
+    expect_semantic_rejection(
+        lambda value: ok(value["next-event"] != value["next-transition"], "next-event-next-transition-conflation"),
+        {"next-event": "observed-event", "next-transition": "observed-event"},
+        "next-event-next-transition-conflation",
+    )
+    proof_sources = {"finite-exhaustion", "typed-proof-system"}
+    expect_semantic_rejection(
+        lambda source: ok(source in proof_sources, "larger-bound-promoted-to-unbounded-proof"),
+        "larger-execution-limit", "larger-bound-promoted-to-unbounded-proof",
+    )
 
 
 def verify_taxonomy() -> None:
@@ -6117,6 +6457,64 @@ def verify_semantic_termination_and_crash_oracle() -> None:
     validate_schema(manifest, manifest_schema, manifest_schema_path, manifest_schema)
 
 
+def verify_equivalence_status_boundary() -> None:
+    """Exercise the live BAG-06 v1 status and future-proof boundary."""
+    campaign = load(FIXTURES / "mutation-campaign.json")
+    bad_status = deepcopy(campaign)
+    bad_status["mutants"][0]["status"] = "unclassified-equivalent"
+    expect_schema_rejection(
+        bad_status,
+        "mutation-campaign.schema.json",
+        "removed equivalence status was accepted",
+    )
+    bad_proof = deepcopy(campaign)
+    bad_proof["mutants"][0]["equivalenceEvidence"] = {
+        "kind": "portable-equivalence-proof", "digest": "3" * 64,
+    }
+    expect_schema_rejection(
+        bad_proof,
+        "mutation-campaign.schema.json",
+        "opaque equivalence proof field was accepted",
+    )
+
+    cases = {case["id"]: case for case in load(VECTORS / "mutation-status-vectors.json")["cases"]}
+
+    def bounded_status(case: dict[str, Any]) -> str:
+        if case["validationOutcome"] != "valid":
+            return "invalid"
+        outcomes = case["oracleOutcomes"]
+        if "distinguish" in outcomes:
+            return "killed"
+        if outcomes and all(outcome == "agree" for outcome in outcomes):
+            return "survived"
+        return "incomplete"
+
+    bounded = cases["bounded-agreement-is-survived-not-equivalent"]
+    ok(
+        bounded_status(bounded) == bounded["mutantStatus"] == "survived",
+        "bounded complete agreement did not derive survived",
+    )
+    distinguishing = cases["ordinary-result-kill"]
+    expect_semantic_rejection(
+        lambda claimed: ok(
+            claimed == bounded_status(distinguishing),
+            "distinguishing oracle fabricated bounded survival",
+        ),
+        "survived",
+        "distinguishing oracle fabricated bounded survival",
+    )
+    incomplete = deepcopy(bounded)
+    incomplete["oracleOutcomes"][-1] = "skipped"
+    expect_semantic_rejection(
+        lambda claimed: ok(
+            claimed == bounded_status(incomplete),
+            "skipped evidence fabricated bounded survival",
+        ),
+        "survived",
+        "skipped evidence fabricated bounded survival",
+    )
+
+
 def verify_campaign_fixture() -> None:
     campaign = load(FIXTURES / "mutation-campaign.json")
     validate_campaign_semantics(campaign)
@@ -6423,7 +6821,7 @@ def verify_policy_generation_fixtures() -> None:
     expect_semantic_rejection(lambda value: validate_mutation_site_registry(value, counter_definition, counter_operator), old_site_registry, "legacy mutation site identity without termPath was accepted")
 
 
-def verify_mutation_status_vectors() -> None:
+def _verify_legacy_mutation_status_vectors() -> None:
     data = load(VECTORS / "mutation-status-vectors.json")
     base = load(FIXTURES / data["baseFixture"])
     schema_path = SCHEMAS / "mutation-campaign.schema.json"
@@ -6602,7 +7000,7 @@ def verify_mutation_status_vectors() -> None:
     missing_disposition["score"] = {"killed": 0, "survived": 0, "denominator": 0, "ratio": None, "excluded": {key: 0 for key in excluded_keys}}
     missing_disposition["reportId"] = digest("k-in-k/mutation-report/v1", value_without(missing_disposition, "reportId"))
     expect_semantic_rejection(validate_campaign_semantics, missing_disposition, "complete campaign silently omitted a candidate disposition")
-    for case in data["scoreCases"]:
+    for score_index, case in enumerate(data["scoreCases"]):
         killed = case["statuses"].count("killed")
         survived = case["statuses"].count("survived")
         denominator = killed + survived
@@ -6613,6 +7011,144 @@ def verify_mutation_status_vectors() -> None:
             ratio = None
         derived = {"killed": killed, "survived": survived, "denominator": denominator, "ratio": ratio}
         ok(derived == case["expected"], "exact mutation score vector")
+
+
+def verify_mutation_status_vectors() -> None:
+    """Check the status algebra against the active BAG-12 typed result shape."""
+    data = load(VECTORS / "mutation-status-vectors.json")
+    campaign = load(FIXTURES / data["baseFixture"])
+    taxonomy = load(FIXTURES / "bag16-failure-taxonomy.json")
+    schema_path = SCHEMAS / "mutation-campaign.schema.json"
+    schema = load(schema_path)
+    oracle_schema = schema["$defs"]["oracleResult"]
+    templates = campaign["mutants"][0]["oracleResults"]
+    ok(bool(templates), "active mutation campaign has no typed oracle result")
+    for result in templates:
+        ok(
+            set(result) == {
+                "declaration", "outcome", "baselineSide", "mutantSide",
+                "comparison", "failure",
+            }
+            and "operands" not in result and "kind" not in result,
+            "mutation status evidence retained the retired oracle result shape",
+        )
+
+    def materialize_results(case: dict[str, Any]) -> list[dict[str, Any]]:
+        materialized: list[dict[str, Any]] = []
+        for index, outcome in enumerate(case.get("oracleOutcomes", [])):
+            result = deepcopy(templates[index])
+            result["outcome"] = outcome
+            result["failure"] = None
+            if outcome == "skipped":
+                result.update({"baselineSide": None, "mutantSide": None, "comparison": None})
+            elif outcome in {"timeout", "unknown", "error"}:
+                result.update({
+                    "mutantSide": None,
+                    "comparison": None,
+                    "failure": {
+                        "sourceSide": "mutant-execution",
+                        "failure": deepcopy(case["failure"]),
+                    },
+                })
+            if result["failure"] is None:
+                validate_schema(result, oracle_schema, schema_path, schema)
+            else:
+                ok(
+                    set(result["failure"]) == {"sourceSide", "failure"}
+                    and result["failure"]["sourceSide"] == "mutant-execution"
+                    and result["baselineSide"] is not None
+                    and result["mutantSide"] is None
+                    and result["comparison"] is None,
+                    f"{case['id']}: active typed failure result shape",
+                )
+            materialized.append(result)
+        return materialized
+
+    def derived_status(case: dict[str, Any], results: list[dict[str, Any]]) -> str:
+        validation = case["validationOutcome"]
+        outcomes = [result["outcome"] for result in results]
+        failure = case.get("failure")
+        disposition = (
+            consume_failure_disposition(failure, "campaign", taxonomy)
+            if failure is not None else None
+        )
+        if validation == "invalid":
+            ok(disposition == "invalid", f"{case['id']}: invalid validation lacks invalid disposition")
+            return "invalid"
+        if validation == "error":
+            ok(disposition == "error", f"{case['id']}: error validation lacks error disposition")
+            return "error"
+        ok(validation == "valid", f"{case['id']}: open validation outcome")
+        if "distinguish" in outcomes:
+            return "killed"
+        if outcomes and all(outcome == "agree" for outcome in outcomes):
+            return "survived"
+        ok(disposition in {"invalid", "timeout", "unknown", "error"}, f"{case['id']}: incomplete outcomes lack terminal disposition")
+        return disposition
+
+    seen: set[str] = set()
+    excluded_keys = ("invalid", "timeout", "unknown", "error", "duplicate", "no-change")
+    for case in data["cases"]:
+        ok(case["id"] not in seen, f"duplicate mutation status vector {case['id']}")
+        seen.add(case["id"])
+        expected = case["expected"]
+        if "baselineStatus" in case or case.get("generationComplete") is False:
+            disposition = consume_failure_disposition(case["failure"], "campaign", taxonomy)
+            ok(not expected["scored"] and disposition == expected["campaignStatus"], f"{case['id']}: unscored campaign disposition")
+            continue
+        results = materialize_results(case)
+        status = derived_status(case, results)
+        ok(status == case["mutantStatus"], f"{case['id']}: status is not derived from typed oracle results")
+        killed = int(status == "killed")
+        survived = int(status == "survived")
+        excluded = {key: int(status == key) for key in excluded_keys}
+        ok(expected["scored"] and (killed, survived) == (expected["killed"], expected["survived"]), f"{case['id']}: score counts")
+        ok((next((key for key, count in excluded.items() if count), None)) == expected["excludedStatus"], f"{case['id']}: excluded score bucket")
+
+    for case in data["statusContradictionCases"]:
+        results = materialize_results(case)
+        actual = derived_status(case, results)
+        ok(actual != case["mutantStatus"], f"{case['id']}: contradictory status was accepted")
+
+    for case in data["scheduleCases"]:
+        executed: list[str] = []
+        killing: list[str] = []
+        for test in case["manifestOrder"]:
+            executed.append(test["id"])
+            if test["outcome"] == "distinguish":
+                killing.append(test["id"])
+                if case["mode"] == "first-kill":
+                    break
+        status = "killed" if killing else "survived"
+        ok(
+            status == case["expected"]["status"]
+            and executed == case["expected"]["executed"]
+            and killing == case["expected"]["killingTests"],
+            f"{case['id']}: scheduling semantics",
+        )
+
+    for case in data["candidateRejectionCases"]:
+        ok(
+            case["status"] in {"duplicate", "no-change"}
+            and case["expected"]["mutantCount"] == int(case["status"] == "duplicate")
+            and case["expected"]["excludedKey"] == case["status"]
+            and case["expected"]["excludedCount"] == 1,
+            f"{case['id']}: candidate rejection disposition",
+        )
+    for score_index, case in enumerate(data["scoreCases"]):
+        killed = case["statuses"].count("killed")
+        survived = case["statuses"].count("survived")
+        denominator = killed + survived
+        if denominator:
+            divisor = math.gcd(killed, denominator)
+            ratio = {"numerator": killed // divisor, "denominator": denominator // divisor}
+        else:
+            ratio = None
+        ok(
+            {"killed": killed, "survived": survived, "denominator": denominator, "ratio": ratio}
+            == case["expected"],
+            f"score case {score_index}: exact mutation score vector",
+        )
 
 
 def verify_cross_feature() -> None:
@@ -6643,6 +7179,7 @@ def main() -> int:
     verify_inventory()
     verify_completion_checklist()
     verify_closure_matrix()
+    verify_architecture_boundaries()
     verify_taxonomy()
     verify_lowering_proof_protocol()
     verify_canonicalization()
@@ -6653,6 +7190,7 @@ def main() -> int:
     verify_corpus_vectors()
     verify_observation()
     verify_mutation()
+    verify_mutation_status_vectors()
     verify_patch_applications()
     verify_bag12_package(PACKAGE, {
         "ok": ok,
@@ -6673,6 +7211,7 @@ def main() -> int:
         "expect_schema_rejection": expect_schema_rejection,
     })
     verify_semantic_termination_and_crash_oracle()
+    verify_equivalence_status_boundary()
     verify_policy_generation_fixtures()
     verify_cross_feature()
     print(f"PASS backend-agnostic-k-in-k-v1: {CHECKS} zero-backend checks")

@@ -3,12 +3,34 @@
   "packageVersion": "backend-agnostic-k-in-k-v1",
   "sources": [
     "draft/goal/execution-pattern-matching.md",
-    "draft/goal/semantic-mutation-testing.md"
+    "draft/goal/semantic-mutation-testing.md",
+    "tasks/backend-agnostic/BAG-01-evidence-completion-integrity.md",
+    "tasks/backend-agnostic/BAG-02-policy-derived-mutation-generation.md",
+    "tasks/backend-agnostic/BAG-03-structural-observation-selection.md",
+    "tasks/backend-agnostic/BAG-04-canonical-json-boundary.md",
+    "tasks/backend-agnostic/BAG-05-execution-profile-identity.md",
+    "tasks/backend-agnostic/BAG-06-equivalence-status-boundary.md",
+    "tasks/backend-agnostic/BAG-07-mutation-edit-origin-provenance.md",
+    "tasks/backend-agnostic/BAG-08-artifact-identity-and-resolution-boundary.md",
+    "tasks/backend-agnostic/BAG-09-semantic-termination-and-crash-oracle.md",
+    "tasks/backend-agnostic/BAG-10-closed-failure-disposition-and-semantic-evidence.md",
+    "tasks/backend-agnostic/BAG-11-pattern-query-plan-and-identity.md",
+    "tasks/backend-agnostic/BAG-12-typed-oracle-kind-semantics.md",
+    "tasks/backend-agnostic/BAG-13-portable-semantic-slice-and-local-well-formedness.md",
+    "tasks/backend-agnostic/BAG-14-cache-granularity-and-completeness.md",
+    "tasks/backend-agnostic/BAG-15-mutation-execution-replay-and-result-provenance.md",
+    "tasks/backend-agnostic/BAG-16-corpus-search-and-branch-trace-replay-completeness.md",
+    "draft/decisions/d1-stop-old-g-track-and-preserve-portable-contracts-2026-08-22.md",
+    "draft/k-in-k-execution-roadmap.md",
+    "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md"
   ],
   "states": [
     "portable-closed",
     "portable-closed-rust-proof-pending",
-    "explicitly-held"
+    "retired-stack-bounded",
+    "product-decision-held",
+    "product-decision-required",
+    "out-of-scope-by-recorded-decision"
   ],
   "entries": [
     {
@@ -26,7 +48,23 @@
       "historicalEvidence": [
         "r2-g-07-single-rule-observation"
       ],
-      "rustProof": "native declarative structural-term installation plus differential arbitrary K-authored discovery and atomic multi-rule installation"
+      "rustProof": "native declarative structural-term installation plus differential arbitrary K-authored discovery and atomic multi-rule installation",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — sections 4.1 and 9",
+      "sourceText": "§4.1: select transition sentences; bind terms; declare emitted domain events; advance a monitor.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/observation-vectors.json",
+        "check": "verify.py::verify_observation"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/observation-vectors.json",
+        "case": "duplicate-label-excessive"
+      },
+      "nativeFact": "native declarative structural-term installation plus differential arbitrary K-authored discovery and atomic multi-rule installation",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-03"
+      ]
     },
     {
       "id": "EX-02-conservative-instrumentation",
@@ -40,7 +78,23 @@
       "historicalEvidence": [
         "r2-g-07-single-rule-observation"
       ],
-      "rustProof": "erasure equivalence for branching, predicates, termination, and supported rule shapes"
+      "rustProof": "erasure equivalence for branching, predicates, termination, and supported rule shapes",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — sections 4.2 and 9",
+      "sourceText": "§4.2 and §9: erasure preserves applicability, program state, priority, branch structure, provenance, and disabled behavior.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/observation-vectors.json",
+        "check": "verify.py::verify_observation"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/observation-vectors.json",
+        "case": "program-state-change-fails-erasure"
+      },
+      "nativeFact": "erasure equivalence for branching, predicates, termination, and supported rule shapes",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-03"
+      ]
     },
     {
       "id": "EX-03-domain-events-and-clocks",
@@ -55,7 +109,24 @@
         "r3-g-01-rule-applied-trace",
         "r3-g-04-exact-adjacent-pair"
       ],
-      "rustProof": "native distinct domain event production and branch-local clocks"
+      "rustProof": "native distinct domain event production and branch-local clocks",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — sections 4.3, 5, and 9",
+      "sourceText": "§4.3 and §5: distinct domain events use observed-event order with branch-local transition and emission ordinals.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/observation-vectors.json",
+        "check": "verify.py::verify_observation"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/observation-vectors.json",
+        "case": "rule-applied-interrupts-domain-next-event"
+      },
+      "nativeFact": "native distinct domain event production and branch-local clocks",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-04",
+        "RS-05"
+      ]
     },
     {
       "id": "EX-04-temporal-denotation",
@@ -75,7 +146,24 @@
         "r3-g-03-head-match",
         "r3-g-04-exact-adjacent-pair"
       ],
-      "rustProof": "native K source-to-plan compilation receipt, solver correctness, and differential occurrence results"
+      "rustProof": "native K source-to-plan compilation receipt, solver correctness, and differential occurrence results",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — sections 5 and 9",
+      "sourceText": "§5 and §9: single, ordered, next-event, eventually-after, alternatives, shared variables, side conditions, imports, and occurrence reporting.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "check": "verify.py::verify_execution / verify_corpus_vectors"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/execution-pattern-vectors.json",
+        "case": "reversed-order"
+      },
+      "nativeFact": "native K source-to-plan compilation receipt, solver correctness, and differential occurrence results",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-04",
+        "RS-05"
+      ]
     },
     {
       "id": "EX-05-symbolic-constraints-and-branches",
@@ -86,7 +174,23 @@
         "investigations/backend-agnostic-goal-closure/vectors/execution-pattern-vectors.json"
       ],
       "historicalEvidence": [],
-      "rustProof": "solver feasibility, sibling isolation, stable path identity, and replay"
+      "rustProof": "solver feasibility, sibling isolation, stable path identity, and replay",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — sections 6 and 9",
+      "sourceText": "§6 and §9: retain path constraints, never combine siblings, and classify incomplete bounded absence as unknown.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/execution-pattern-vectors.json",
+        "check": "verify.py::verify_execution / verify_corpus_vectors"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/execution-pattern-vectors.json",
+        "case": "sibling-branches-never-combine"
+      },
+      "nativeFact": "solver feasibility, sibling isolation, stable path identity, and replay",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-05"
+      ]
     },
     {
       "id": "EX-06-four-way-status",
@@ -94,13 +198,31 @@
       "source": "sections 6 and 9",
       "state": "portable-closed-rust-proof-pending",
       "artifacts": [
-        "investigations/backend-agnostic-goal-closure/schemas/pattern-result.schema.json",
-        "investigations/backend-agnostic-goal-closure/failure-taxonomy.json"
+        "investigations/backend-agnostic-goal-closure/schemas/branch-trace-collection.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/pattern-result-v2.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag16-failure-taxonomy.json",
+        "investigations/backend-agnostic-goal-closure/vectors/bag16-branch-collection-vectors.json"
       ],
       "historicalEvidence": [
         "r3-g-03-head-match"
       ],
-      "rustProof": "executor exhaustiveness and native stop-reason fidelity"
+      "rustProof": "executor exhaustiveness and native stop-reason fidelity",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — sections 6 and 9",
+      "sourceText": "§6 and §9: reports distinguish match, no-match, unknown, and error from explicit stop evidence.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/bag16-branch-collection-vectors.json",
+        "check": "verify.py::verify_bag16_package"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/execution-pattern-vectors.json",
+        "case": "bounded-absence-is-unknown"
+      },
+      "nativeFact": "executor exhaustiveness and native stop-reason fidelity",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-05"
+      ]
     },
     {
       "id": "EX-07-corpus-aggregation",
@@ -108,12 +230,30 @@
       "source": "sections 7 and 9",
       "state": "portable-closed-rust-proof-pending",
       "artifacts": [
-        "investigations/backend-agnostic-goal-closure/schemas/corpus-manifest.schema.json",
-        "investigations/backend-agnostic-goal-closure/schemas/corpus-result.schema.json",
-        "investigations/backend-agnostic-goal-closure/vectors/corpus-vectors.json"
+        "investigations/backend-agnostic-goal-closure/schemas/corpus-manifest-v2.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/corpus-result-v2.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag16-corpus-result-two-execution.json",
+        "investigations/backend-agnostic-goal-closure/vectors/bag16-branch-collection-vectors.json"
       ],
       "historicalEvidence": [],
-      "rustProof": "isolated native corpus execution and artifact collection"
+      "rustProof": "isolated native corpus execution and artifact collection",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — sections 7 and 9",
+      "sourceText": "§7 and §9: ordered isolated tests answer per-test and existential corpus questions without losing incomplete results.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/bag16-branch-collection-vectors.json",
+        "check": "verify.py::verify_bag16_package"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/bag16-branch-collection-vectors.json",
+        "case": "corpus-component-reorder"
+      },
+      "nativeFact": "isolated native corpus execution and artifact collection",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-05",
+        "RS-07"
+      ]
     },
     {
       "id": "EX-08-witness-and-replay",
@@ -121,31 +261,61 @@
       "source": "sections 8 and 9",
       "state": "portable-closed-rust-proof-pending",
       "artifacts": [
-        "investigations/backend-agnostic-goal-closure/schemas/pattern-result.schema.json",
-        "investigations/backend-agnostic-goal-closure/schemas/replay-manifest.schema.json",
-        "investigations/backend-agnostic-goal-closure/fixtures/pattern-plan-write-eventually-load.json",
-        "investigations/backend-agnostic-goal-closure/fixtures/pattern-query-write-eventually-load.json",
-        "investigations/backend-agnostic-goal-closure/schemas/artifact-catalog.schema.json",
-        "investigations/backend-agnostic-goal-closure/schemas/replay-closure.schema.json",
-        "investigations/backend-agnostic-goal-closure/artifact-role-specs.json",
-        "investigations/backend-agnostic-goal-closure/fixtures/replay-closure.json"
+        "investigations/backend-agnostic-goal-closure/schemas/pattern-result-v2.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/operation-receipt-v2.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/replay-version-registry-v2.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/portable-closure-root.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag16-closure-pattern-evaluation.json",
+        "investigations/backend-agnostic-goal-closure/vectors/bag16-branch-collection-vectors.json"
       ],
       "historicalEvidence": [
         "r3-g-03-head-match",
         "r3-g-04-exact-adjacent-pair"
       ],
-      "rustProof": "stable KCFG/path keys and replay from recorded native artifacts"
+      "rustProof": "stable KCFG/path keys and replay from recorded native artifacts",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — sections 8 and 9",
+      "sourceText": "§8 and §9: witnesses retain exact identities, indices, payloads, bindings, path predicate, stop reason, and replay inputs.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/fixtures/bag16-closure-pattern-evaluation.json",
+        "check": "verify.py::verify_bag16_package"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/bag16-branch-collection-vectors.json",
+        "case": "witness-digest-order"
+      },
+      "nativeFact": "stable KCFG/path keys and replay from recorded native artifacts",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-05"
+      ]
     },
     {
       "id": "EX-09-trace-stream-equivalence",
       "goal": "execution-pattern",
       "source": "section 4.4",
-      "state": "explicitly-held",
+      "state": "product-decision-held",
       "artifacts": [
         "investigations/backend-agnostic-goal-closure/vectors/observation-vectors.json"
       ],
       "historicalEvidence": [],
-      "rustProof": "activate only after the trace reference is accepted and performance evidence justifies it"
+      "rustProof": "activate only after the trace reference is accepted and performance evidence justifies it",
+      "terminalDisposition": "product-decision-held",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — section 4.4",
+      "sourceText": "§4.4: streaming is an optimization activated only after equivalence and performance need are established.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/observation-vectors.json",
+        "check": "verify.py::verify_observation"
+      },
+      "permanentAdversary": {
+        "artifact": "draft/goal/execution-pattern-matching.md",
+        "case": "§4.4 activation gate"
+      },
+      "nativeFact": null,
+      "necessity": "Activation depends on the recorded product/performance gate, not on another portable semantic derivation.",
+      "rustPacketIds": [
+        "RS-08"
+      ]
     },
     {
       "id": "EX-10-deterministic-reports",
@@ -160,7 +330,25 @@
         "investigations/backend-agnostic-goal-closure/verify.py"
       ],
       "historicalEvidence": [],
-      "rustProof": "repeated native run equality"
+      "rustProof": "repeated native run equality",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — section 9 acceptance",
+      "sourceText": "§9 acceptance: repeated runs produce identical normalized artifacts and reports.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "check": "verify.py::verify_execution / verify_corpus_vectors"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/execution-pattern-vectors.json",
+        "case": "unkeyed-full-report-is-permutation-invariant"
+      },
+      "nativeFact": "repeated native run equality",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-04",
+        "RS-05",
+        "RS-07"
+      ]
     },
     {
       "id": "MU-01-definition-and-identity",
@@ -179,7 +367,23 @@
       "historicalEvidence": [
         "r2-g-01-definition-transport"
       ],
-      "rustProof": "enumerate supported native K forms and declaration/signature tables; prove parsed-K/native-IR coverage and injectivity over the explicitly declared supported surface, reject unsupported/lossy forms, and derive native-backed identities"
+      "rustProof": "enumerate supported native K forms and declaration/signature tables; prove parsed-K/native-IR coverage and injectivity over the explicitly declared supported surface, reject unsupported/lossy forms, and derive native-backed identities",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — sections 4 and 12",
+      "sourceText": "§4 and §12: lossless supported definition structure and stable semantic identities.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-identity-output.json",
+        "check": "verify.py::verify_mutation / verify_patch_applications / verify_bag12_package"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/identity-vectors.json",
+        "case": "checkout-relocation-is-invisible"
+      },
+      "nativeFact": "enumerate supported native K forms and declaration/signature tables; prove parsed-K/native-IR coverage and injectivity over the explicitly declared supported surface, reject unsupported/lossy forms, and derive native-backed identities",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-01"
+      ]
     },
     {
       "id": "MU-02-operator-contract",
@@ -193,7 +397,23 @@
         "investigations/backend-agnostic-goal-closure/verify.py"
       ],
       "historicalEvidence": [],
-      "rustProof": "native K-authored selector/join/template discovery, template evaluation, and differential receipt production"
+      "rustProof": "native K-authored selector/join/template discovery, template evaluation, and differential receipt production",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — section 5",
+      "sourceText": "§5: stable operator identity, phase, selector, join, patch, enumeration, conditions, generated policy, and rationale.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "check": "verify.py::verify_mutation / verify_patch_applications / verify_bag12_package"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/mutation-vectors.json",
+        "case": "malformed-operator"
+      },
+      "nativeFact": "native K-authored selector/join/template discovery, template evaluation, and differential receipt production",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-06"
+      ]
     },
     {
       "id": "MU-03-selection-and-enumeration",
@@ -207,7 +427,23 @@
         "investigations/backend-agnostic-goal-closure/vectors/mutation-vectors.json"
       ],
       "historicalEvidence": [],
-      "rustProof": "native exact/each/tuple-each/all-matches discovery"
+      "rustProof": "native exact/each/tuple-each/all-matches discovery",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — sections 6, 7, and 12",
+      "sourceText": "§6, §7, and §12: exact/each/tuple/all selection derives deterministic instances and cardinality failures.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/mutation-vectors.json",
+        "check": "verify.py::verify_mutation / verify_patch_applications / verify_bag12_package"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/mutation-vectors.json",
+        "case": "exact-excessive"
+      },
+      "nativeFact": "native exact/each/tuple-each/all-matches discovery",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-06"
+      ]
     },
     {
       "id": "MU-04-patch-operations-and-atomicity",
@@ -222,7 +458,23 @@
         "r2-g-02-single-sentence-patch",
         "r2-g-03-atomic-two-sentence-patch"
       ],
-      "rustProof": "native application of every typed operation and conflict vector"
+      "rustProof": "native application of every typed operation and conflict vector",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — sections 5, 6, and 12",
+      "sourceText": "§5, §6, and §12: typed edits validate together and either all commit or none do.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/patch-application-vectors.json",
+        "check": "verify.py::verify_mutation / verify_patch_applications / verify_bag12_package"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/patch-application-vectors.json",
+        "case": "stale-precondition-is-atomic"
+      },
+      "nativeFact": "native application of every typed operation and conflict vector",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-02"
+      ]
     },
     {
       "id": "MU-05-layered-validation",
@@ -237,7 +489,23 @@
         "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json"
       ],
       "historicalEvidence": [],
-      "rustProof": "actual IR, lowering, backend, execution, and oracle boundary classification"
+      "rustProof": "actual IR, lowering, backend, execution, and oracle boundary classification",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — section 8",
+      "sourceText": "§8: validation stops at and records the closest failed IR, lowering, backend, or execution stage.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json",
+        "check": "verify.py::verify_mutation_status_vectors"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json",
+        "case": "killed-cannot-fail-validation"
+      },
+      "nativeFact": "actual IR, lowering, backend, execution, and oracle boundary classification",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-07"
+      ]
     },
     {
       "id": "MU-06-baseline-gate",
@@ -253,7 +521,23 @@
         "investigations/backend-agnostic-goal-closure/vectors/oracle-semantics-vectors.json"
       ],
       "historicalEvidence": [],
-      "rustProof": "native baseline validation and oracle execution before mutants"
+      "rustProof": "native baseline validation and oracle execution before mutants",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — sections 8, 9, and 12",
+      "sourceText": "§8, §9, and §12: baseline validation/oracle gates precede all mutant scoring.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/oracle-semantics-vectors.json",
+        "check": "verify.py::verify_mutation / verify_patch_applications / verify_bag12_package"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json",
+        "case": "baseline-oracle-failure-aborts"
+      },
+      "nativeFact": "native baseline validation and oracle execution before mutants",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-07"
+      ]
     },
     {
       "id": "MU-07-oracle-semantics",
@@ -278,7 +562,24 @@
         "investigations/backend-agnostic-goal-closure/verify.py"
       ],
       "historicalEvidence": [],
-      "rustProof": "native operand production with an exact BAG-15 production receipt plus matching catalog-resolved conformant evaluator authority for K-authored projections, reachability, comparisons, and predicates"
+      "rustProof": "native operand production with an exact BAG-15 production receipt plus matching catalog-resolved conformant evaluator authority for K-authored projections, reachability, comparisons, and predicates",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — section 9",
+      "sourceText": "§9: declared exit, result, output, reachability, pattern, and structured-predicate oracles determine outcomes.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "check": "verify.py::verify_mutation / verify_patch_applications / verify_bag12_package"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/oracle-semantics-vectors.json",
+        "case": "comparison-outcome-assertion"
+      },
+      "nativeFact": "native operand production with an exact BAG-15 production receipt plus matching catalog-resolved conformant evaluator authority for K-authored projections, reachability, comparisons, and predicates",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-05",
+        "RS-07"
+      ]
     },
     {
       "id": "MU-08-scheduling-and-isolation",
@@ -303,7 +604,23 @@
         "investigations/backend-agnostic-goal-closure/verify.py"
       ],
       "historicalEvidence": [],
-      "rustProof": "native BAG-15 production receipts, real cache storage atomicity and locking, resolver-relative eligibility, same-key conflict policy, resource isolation, and first-kill/full runs"
+      "rustProof": "native BAG-15 production receipts, real cache storage atomicity and locking, resolver-relative eligibility, same-key conflict policy, resource isolation, and first-kill/full runs",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — sections 9, 10, and 12",
+      "sourceText": "§9, §10, and §12: selected tests are isolated and first-kill/full scheduling preserves classification.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "check": "verify.py::verify_mutation_status_vectors"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/cache-semantics-vectors.json",
+        "case": "first-kill-as-full"
+      },
+      "nativeFact": "native BAG-15 production receipts, real cache storage atomicity and locking, resolver-relative eligibility, same-key conflict policy, resource isolation, and first-kill/full runs",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-07"
+      ]
     },
     {
       "id": "MU-09-report-diff-and-replay",
@@ -321,7 +638,23 @@
         "investigations/backend-agnostic-goal-closure/verify.py"
       ],
       "historicalEvidence": [],
-      "rustProof": "native artifact paths/digests, commands/invocations, and replay"
+      "rustProof": "native artifact paths/digests, commands/invocations, and replay",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — sections 11 and 12",
+      "sourceText": "§11 and §12: reports retain ordered edits, structural diff, validation, tests, oracle details, and replay artifacts.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "check": "verify.py::verify_mutation / verify_patch_applications / verify_bag12_package"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/replay-provenance-vectors.json",
+        "case": "result-without-execution-receipt"
+      },
+      "nativeFact": "native artifact paths/digests, commands/invocations, and replay",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-07"
+      ]
     },
     {
       "id": "MU-10-exact-score",
@@ -333,7 +666,21 @@
         "investigations/backend-agnostic-goal-closure/verify.py"
       ],
       "historicalEvidence": [],
-      "rustProof": "none; native reports must conform"
+      "rustProof": "none; native reports must conform",
+      "terminalDisposition": "portable-closed",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — sections 9, 11, and 12",
+      "sourceText": "§9, §11, and §12: the exact score counts killed and survived mutants only, with typed excluded buckets.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "check": "verify.py::verify_mutation_status_vectors"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json",
+        "case": "duplicate-discovery-is-not-a-second-mutant"
+      },
+      "nativeFact": null,
+      "necessity": "No native fact remains for this portable completion record.",
+      "rustPacketIds": []
     },
     {
       "id": "MU-11-ordinary-result-kill",
@@ -344,7 +691,23 @@
         "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json"
       ],
       "historicalEvidence": [],
-      "rustProof": "one native ordinary-result kill"
+      "rustProof": "one native ordinary-result kill",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — section 12 acceptance",
+      "sourceText": "§12 acceptance: one mutant is killed by an ordinary result oracle.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json",
+        "check": "verify.py::verify_mutation_status_vectors"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json",
+        "case": "ordinary-result-kill"
+      },
+      "nativeFact": "one native ordinary-result kill",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-07"
+      ]
     },
     {
       "id": "MU-12-pattern-kill-same-result",
@@ -356,7 +719,24 @@
         "investigations/backend-agnostic-goal-closure/fixtures/mutation-campaign.json"
       ],
       "historicalEvidence": [],
-      "rustProof": "one native unchanged-final-result pattern kill"
+      "rustProof": "one native unchanged-final-result pattern kill",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — section 12 acceptance",
+      "sourceText": "§12 acceptance: unchanged final result can still be killed by a trace-pattern oracle.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/fixtures/mutation-campaign.json",
+        "check": "verify.py::verify_mutation / verify_patch_applications / verify_bag12_package"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/cross-feature-vectors.json",
+        "case": "unchanged-final-result-killed-by-event-pattern"
+      },
+      "nativeFact": "one native unchanged-final-result pattern kill",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-04",
+        "RS-07"
+      ]
     },
     {
       "id": "MU-13-invalid-not-killed",
@@ -367,7 +747,23 @@
         "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json"
       ],
       "historicalEvidence": [],
-      "rustProof": "one native ill-sorted/compile-invalid mutant"
+      "rustProof": "one native ill-sorted/compile-invalid mutant",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — section 12 acceptance",
+      "sourceText": "§12 acceptance: an ill-sorted mutant is invalid, not killed.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json",
+        "check": "verify.py::verify_mutation_status_vectors"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json",
+        "case": "ill-sorted-invalid"
+      },
+      "nativeFact": "one native ill-sorted/compile-invalid mutant",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-07"
+      ]
     },
     {
       "id": "MU-14-timeout-and-unknown",
@@ -378,7 +774,24 @@
         "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json"
       ],
       "historicalEvidence": [],
-      "rustProof": "native resource and solver stop enforcement"
+      "rustProof": "native resource and solver stop enforcement",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — sections 9 and 12 acceptance",
+      "sourceText": "§9 and §12 acceptance: timeout/solver limits never imply survival.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json",
+        "check": "verify.py::verify_mutation_status_vectors"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json",
+        "case": "lowering-time-limit-cannot-be-unknown"
+      },
+      "nativeFact": "native resource and solver stop enforcement",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-05",
+        "RS-07"
+      ]
     },
     {
       "id": "MU-15-coupled-one-mutant",
@@ -392,12 +805,29 @@
       "historicalEvidence": [
         "r2-g-03-atomic-two-sentence-patch"
       ],
-      "rustProof": "one native coupled candidate counted once"
+      "rustProof": "one native coupled candidate counted once",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — sections 6 and 12 acceptance",
+      "sourceText": "§6 and §12 acceptance: one coupled instance is one atomic mutant and one score entry.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/patch-application-vectors.json",
+        "check": "verify.py::verify_mutation / verify_patch_applications / verify_bag12_package"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/mutation-vectors.json",
+        "case": "coupled-patch-is-one-mutant"
+      },
+      "nativeFact": "one native coupled candidate counted once",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-02",
+        "RS-06"
+      ]
     },
     {
       "id": "MU-16-cross-family-generality",
       "goal": "semantic-mutation",
-      "source": "MVP generality guardrail",
+      "source": "BAG-13 required evidence",
       "state": "portable-closed-rust-proof-pending",
       "artifacts": [
         "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-memory.json",
@@ -407,12 +837,32 @@
       "historicalEvidence": [
         "r2-g-01-definition-transport"
       ],
-      "rustProof": "native discovery and application across both structural families"
+      "rustProof": "native discovery and application across both structural families",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "tasks/backend-agnostic/BAG-13-portable-semantic-slice-and-local-well-formedness.md — Required evidence, memory and counter definitions",
+      "sourceText": "BAG-13 requires locally well-formed memory and counter definitions to remain valid; the handoff requires two structurally different fixture families before native generality is claimed.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/patch-application-vectors.json",
+        "check": "verify.py::verify_mutation / verify_patch_applications / verify_bag12_package"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/patch-application-vectors.json",
+        "case": "replace-condition-second-family"
+      },
+      "nativeFact": "native discovery and application across both structural families",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-01",
+        "RS-02",
+        "RS-03",
+        "RS-04",
+        "RS-06"
+      ]
     },
     {
       "id": "MU-17-replay-result-provenance",
       "goal": "semantic-mutation",
-      "source": "BAG-15 acceptance",
+      "source": "BAG-15 acceptance bullets",
       "state": "portable-closed-rust-proof-pending",
       "artifacts": [
         "investigations/backend-agnostic-goal-closure/schemas/operation-receipt.schema.json",
@@ -422,12 +872,28 @@
         "investigations/backend-agnostic-goal-closure/bag15.py"
       ],
       "historicalEvidence": [],
-      "rustProof": "native adapter mapping, atomic publication, and native-proven receipts"
+      "rustProof": "native adapter mapping, atomic publication, and native-proven receipts",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "tasks/backend-agnostic/BAG-15-mutation-execution-replay-and-result-provenance.md — Acceptance bullets",
+      "sourceText": "BAG-15 acceptance requires exact operation receipts, result provenance, version closure, and replay ancestry.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/replay-provenance-vectors.json",
+        "check": "verify.py::verify_bag16_package / verify_bag15_package"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/replay-provenance-vectors.json",
+        "case": "cyclic-dag"
+      },
+      "nativeFact": "native adapter mapping, atomic publication, and native-proven receipts",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-07"
+      ]
     },
     {
       "id": "EX-11-collection-corpus-replay",
       "goal": "execution-pattern",
-      "source": "BAG-16 acceptance",
+      "source": "BAG-16 acceptance bullets",
       "state": "portable-closed-rust-proof-pending",
       "artifacts": [
         "investigations/backend-agnostic-goal-closure/schemas/branch-trace-collection.schema.json",
@@ -437,13 +903,30 @@
         "investigations/backend-agnostic-goal-closure/bag16.py"
       ],
       "historicalEvidence": [],
-      "rustProof": "native branch discovery, visit ordering, trace fidelity, and receipt-backed publication"
+      "rustProof": "native branch discovery, visit ordering, trace fidelity, and receipt-backed publication",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "tasks/backend-agnostic/BAG-16-corpus-search-and-branch-trace-replay-completeness.md — Acceptance (nine bullets)",
+      "sourceText": "BAG-16 acceptance requires exact collection-aware execution, pattern, corpus, cache, receipt, and replay closure.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/bag16-branch-collection-vectors.json",
+        "check": "verify.py::verify_bag16_package / verify_bag15_package"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/bag16-branch-collection-vectors.json",
+        "case": "path-stop-global-stop-drift"
+      },
+      "nativeFact": "native branch discovery, visit ordering, trace fidelity, and receipt-backed publication",
+      "necessity": "This is a fact about native producer, adapter, execution, isolation, store, or solver behavior; finite portable artifacts establish the contract and contradictions but cannot establish that a native implementation performs it.",
+      "rustPacketIds": [
+        "RS-05",
+        "RS-07"
+      ]
     },
     {
       "id": "SC-01-retired-backend-stop",
       "goal": "scope",
       "source": "D1 and terminal checkpoint",
-      "state": "portable-closed",
+      "state": "out-of-scope-by-recorded-decision",
       "artifacts": [
         "draft/decisions/d1-stop-old-g-track-and-preserve-portable-contracts-2026-08-22.md",
         "draft/k-in-k-r3-g-05-final-five-cycle-stop-checkpoint-2026-08-22.md"
@@ -451,7 +934,21 @@
       "historicalEvidence": [
         "r3-g-05-final-stop"
       ],
-      "rustProof": "none; do not retry"
+      "rustProof": "none; do not retry",
+      "terminalDisposition": "out-of-scope-by-recorded-decision",
+      "sourceCitation": "draft/decisions/d1-stop-old-g-track-and-preserve-portable-contracts-2026-08-22.md — D1 and terminal checkpoint",
+      "sourceText": "D1 §§Decision and Consequences: preserve portable work and never retry the stopped old G/backend track.",
+      "positiveDerivation": {
+        "artifact": "draft/decisions/d1-stop-old-g-track-and-preserve-portable-contracts-2026-08-22.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "draft/decisions/d1-stop-old-g-track-and-preserve-portable-contracts-2026-08-22.md",
+        "case": "old G/backend retry is forbidden"
+      },
+      "nativeFact": null,
+      "necessity": "The recorded D1 scope decision forbids reopening this path.",
+      "rustPacketIds": []
     },
     {
       "id": "SC-02-rust-handoff-boundary",
@@ -465,7 +962,729 @@
         "w1-d-inprocess-definition-adapter",
         "r3-g-05-final-stop"
       ],
-      "rustProof": "RS-01 through RS-07, with RS-08 held"
+      "rustProof": "RS-01 through RS-07, with RS-08 held",
+      "terminalDisposition": "portable-closed",
+      "sourceCitation": "draft/decisions/d1-stop-old-g-track-and-preserve-portable-contracts-2026-08-22.md — D1 and roadmap",
+      "sourceText": "D1 and roadmap: route only inherently native facts to dependency-ordered RS-01 through RS-07; RS-08 remains held.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md",
+        "case": "dependency order and RS-08 hold"
+      },
+      "nativeFact": null,
+      "necessity": "No native fact remains for this portable completion record.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "EX-12-universal-temporal-proof",
+      "goal": "execution-pattern",
+      "source": "sections 5 and 11",
+      "state": "out-of-scope-by-recorded-decision",
+      "artifacts": [
+        "draft/goal/execution-pattern-matching.md"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none; the MVP explicitly excludes universal temporal proof claims",
+      "terminalDisposition": "out-of-scope-by-recorded-decision",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §5 deferred features and §11 explicit non-goals",
+      "sourceText": "Universal path queries and temporal proof claims are deferred and explicitly outside the MVP.",
+      "positiveDerivation": {
+        "artifact": "draft/goal/execution-pattern-matching.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "draft/goal/execution-pattern-matching.md",
+        "case": "§11 universal temporal claims non-goal"
+      },
+      "nativeFact": null,
+      "necessity": "The recorded MVP scope excludes this product feature; it is not missing portable evidence.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "EX-13-unbounded-trace-retention",
+      "goal": "execution-pattern",
+      "source": "section 11",
+      "state": "out-of-scope-by-recorded-decision",
+      "artifacts": [
+        "draft/goal/execution-pattern-matching.md"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none; production retention of unbounded full traces is an explicit non-goal",
+      "terminalDisposition": "out-of-scope-by-recorded-decision",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §11 explicit non-goals",
+      "sourceText": "The MVP does not retain unbounded full traces in production.",
+      "positiveDerivation": {
+        "artifact": "draft/goal/execution-pattern-matching.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "draft/goal/execution-pattern-matching.md",
+        "case": "§11 unbounded full-trace retention non-goal"
+      },
+      "nativeFact": null,
+      "necessity": "The recorded product scope excludes this storage policy.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "MU-18-automatic-higher-order",
+      "goal": "semantic-mutation",
+      "source": "sections 13 and 15",
+      "state": "out-of-scope-by-recorded-decision",
+      "artifacts": [
+        "draft/goal/semantic-mutation-testing.md"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none; unrelated automatic combinations are excluded from the MVP",
+      "terminalDisposition": "out-of-scope-by-recorded-decision",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — §13 later extensions and §15 explicit non-goals",
+      "sourceText": "Bounded higher-order combinations are later work; automatic unrelated combinations are not an MVP feature.",
+      "positiveDerivation": {
+        "artifact": "draft/goal/semantic-mutation-testing.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "draft/goal/semantic-mutation-testing.md",
+        "case": "§15 automatic combination non-goal"
+      },
+      "nativeFact": null,
+      "necessity": "A recorded product-scope decision, not portable semantics, excludes this feature.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "MU-19-coverage-guided-pruning",
+      "goal": "semantic-mutation",
+      "source": "section 13",
+      "state": "product-decision-required",
+      "artifacts": [
+        "draft/goal/semantic-mutation-testing.md"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none until product activation selects a pruning policy",
+      "terminalDisposition": "product-decision-required",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — §13 later extensions",
+      "sourceText": "Proof-guided or coverage-guided mutant pruning is a later extension requiring activation and policy selection.",
+      "positiveDerivation": {
+        "artifact": "draft/goal/semantic-mutation-testing.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "draft/goal/semantic-mutation-testing.md",
+        "case": "§13 later-extension boundary"
+      },
+      "nativeFact": null,
+      "necessity": "No portable policy can be invented before the product chooses and activates one.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "MU-20-post-lowering-mutation",
+      "goal": "semantic-mutation",
+      "source": "section 13",
+      "state": "product-decision-required",
+      "artifacts": [
+        "draft/goal/semantic-mutation-testing.md"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none until a separate post-lowering/Kore phase is authorized",
+      "terminalDisposition": "product-decision-required",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — §13 later extensions",
+      "sourceText": "A post-lowering/Kore mutation phase is separate later work.",
+      "positiveDerivation": {
+        "artifact": "draft/goal/semantic-mutation-testing.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "draft/goal/semantic-mutation-testing.md",
+        "case": "§13 separate-phase boundary"
+      },
+      "nativeFact": null,
+      "necessity": "The product must first authorize a distinct mutation phase and its semantics.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "MU-21-distributed-resumable-scheduling",
+      "goal": "semantic-mutation",
+      "source": "section 13",
+      "state": "product-decision-required",
+      "artifacts": [
+        "draft/goal/semantic-mutation-testing.md"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none until distributed/resumable execution is activated",
+      "terminalDisposition": "product-decision-required",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — §13 later extensions",
+      "sourceText": "Distributed execution and resumable scheduling are later product extensions.",
+      "positiveDerivation": {
+        "artifact": "draft/goal/semantic-mutation-testing.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "draft/goal/semantic-mutation-testing.md",
+        "case": "§13 distributed/resumable boundary"
+      },
+      "nativeFact": null,
+      "necessity": "Activation, operational policy, and resource model require a product decision.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "MU-22-source-preserving-formatting",
+      "goal": "semantic-mutation",
+      "source": "sections 13 and 15",
+      "state": "out-of-scope-by-recorded-decision",
+      "artifacts": [
+        "draft/goal/semantic-mutation-testing.md"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none; exact comments/whitespace preservation is excluded",
+      "terminalDisposition": "out-of-scope-by-recorded-decision",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — §13 later extensions and §15 explicit non-goals",
+      "sourceText": "Source-preserving pretty printing is later work and exact comment/whitespace preservation is not an MVP promise.",
+      "positiveDerivation": {
+        "artifact": "draft/goal/semantic-mutation-testing.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "draft/goal/semantic-mutation-testing.md",
+        "case": "§15 formatting non-goal"
+      },
+      "nativeFact": null,
+      "necessity": "The recorded MVP scope excludes exact source-format fidelity.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "SC-06-execution-profile-identity",
+      "goal": "scope",
+      "source": "BAG-05 normative decision and acceptance",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "tasks/backend-agnostic/BAG-05-execution-profile-identity.md",
+        "investigations/backend-agnostic-goal-closure/schemas/artifact-catalog-v2.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/cache-semantics-v2.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/corpus-manifest-v2.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/corpus-result-v2.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/execution-attempt-result-v2.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/execution-test-invocation-v2.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/pattern-result-v2.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/replay-version-registry-v2.schema.json",
+        "investigations/backend-agnostic-goal-closure/vectors/bag16-branch-collection-vectors.json",
+        "investigations/backend-agnostic-goal-closure/bag16.py"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "native construction of the complete execution-engine profile payload and differential agreement of every native consumer",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "tasks/backend-agnostic/BAG-05-execution-profile-identity.md — normative decision, required changes 2–5, and acceptance",
+      "sourceText": "One executionProfileDigest and execution-profile catalog role identify the complete observable execution-engine configuration across invocation, replay, pattern, corpus, mutation cache, and catalog consumers; aliases and locally refreshed drift reject.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/bag16.py",
+        "check": "bag16.py::verify_package / bag14.py::verify_package / bag15.py::verify_package"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/vectors/bag16-branch-collection-vectors.json",
+        "case": "execution-key-execution-profile-drift"
+      },
+      "nativeFact": "native construction of the complete execution-engine profile payload and differential agreement of every native consumer",
+      "necessity": "The finite portable artifacts close the identity name, role, equality, and drift relation, but cannot establish that a native adapter captures every execution-engine setting that can change observable execution.",
+      "rustPacketIds": [
+        "RS-01"
+      ]
+    },
+    {
+      "id": "MU-23-bounded-agreement-not-equivalence",
+      "goal": "semantic-mutation",
+      "source": "BAG-06 normative decision and acceptance",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "tasks/backend-agnostic/BAG-06-equivalence-status-boundary.md",
+        "investigations/backend-agnostic-goal-closure/schemas/mutation-campaign.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-campaign.json",
+        "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "native campaign reporting of complete bounded agreement only as survived, with incomplete or incomparable evidence excluded",
+      "terminalDisposition": "portable-closed-rust-proof-pending",
+      "sourceCitation": "tasks/backend-agnostic/BAG-06-equivalence-status-boundary.md — normative decision, required changes 1–4, and acceptance",
+      "sourceText": "Complete agreement for every selected test and oracle reports a valid mutant as survived, never equivalent; unclassified-equivalent and equivalenceEvidence are absent, and incomplete evidence cannot survive.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "check": "verify.py::verify_equivalence_status_boundary / verify_mutation_status_vectors"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "case": "skipped evidence fabricated bounded survival"
+      },
+      "nativeFact": "native campaign reporting of complete bounded agreement only as survived, with incomplete or incomparable evidence excluded",
+      "necessity": "The portable report relation is closed, but finite portable artifacts cannot establish that a native campaign runner executes every selected obligation and reports its actual outcomes faithfully.",
+      "rustPacketIds": [
+        "RS-07"
+      ]
+    },
+    {
+      "id": "MU-24-future-proven-equivalent-proof-boundary",
+      "goal": "semantic-mutation",
+      "source": "BAG-06 future version boundary",
+      "state": "product-decision-required",
+      "artifacts": [
+        "tasks/backend-agnostic/BAG-06-equivalence-status-boundary.md",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none until a later version selects a typed proof artifact, scope, proof system/checker, identity, integrity, and scoring contract",
+      "terminalDisposition": "product-decision-required",
+      "sourceCitation": "tasks/backend-agnostic/BAG-06-equivalence-status-boundary.md — future proven-equivalent requirements",
+      "sourceText": "A future proven-equivalent status requires a later version with a typed proof artifact and role, bound proof scope, named proof system/checker, referential integrity and digest derivation, and sound score treatment.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "check": "verify.py::verify_equivalence_status_boundary"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "case": "opaque equivalence proof field was accepted"
+      },
+      "nativeFact": null,
+      "necessity": "A portable audit cannot choose or activate a future proof system and version; the current v1 contract instead rejects proof-shaped placeholders.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "MU-25-context-configuration-claim-generated-operators",
+      "goal": "semantic-mutation",
+      "source": "section 13 later extensions",
+      "state": "product-decision-required",
+      "artifacts": [
+        "draft/goal/semantic-mutation-testing.md"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none until operators over contexts, configurations, claims, or generated sentences are selected and specified",
+      "terminalDisposition": "product-decision-required",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — §13 later extensions",
+      "sourceText": "Operators over contexts, configurations, claims, and generated sentences are later extensions, not part of the closed MVP slice.",
+      "positiveDerivation": {
+        "artifact": "draft/goal/semantic-mutation-testing.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "draft/goal/semantic-mutation-testing.md",
+        "case": "§13 later operator-family boundary"
+      },
+      "nativeFact": null,
+      "necessity": "The product must select each additional operator family and define its typed matching, patch, and validation contract before implementation proof is meaningful.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "MU-26-subsumption-bounded-equivalence",
+      "goal": "semantic-mutation",
+      "source": "section 13 later extensions",
+      "state": "product-decision-required",
+      "artifacts": [
+        "draft/goal/semantic-mutation-testing.md",
+        "tasks/backend-agnostic/BAG-06-equivalence-status-boundary.md"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none until subsumption or bounded-equivalence analysis is activated with a typed scope and result contract",
+      "terminalDisposition": "product-decision-required",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — §13 later extensions; BAG-06 proof boundary",
+      "sourceText": "Subsumption and bounded-equivalence analysis are later extensions and must not be confused with v1 bounded oracle agreement or a general equivalence proof.",
+      "positiveDerivation": {
+        "artifact": "tasks/backend-agnostic/BAG-06-equivalence-status-boundary.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "case": "removed equivalence status was accepted"
+      },
+      "nativeFact": null,
+      "necessity": "Activation, analysis scope, evidence form, and report semantics require an explicit product decision rather than inference from finite agreement.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "MU-27-general-equivalent-mutant-detection",
+      "goal": "semantic-mutation",
+      "source": "section 15 explicit non-goals",
+      "state": "out-of-scope-by-recorded-decision",
+      "artifacts": [
+        "draft/goal/semantic-mutation-testing.md",
+        "tasks/backend-agnostic/BAG-06-equivalence-status-boundary.md"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none; general equivalent-mutant detection is explicitly excluded from the MVP",
+      "terminalDisposition": "out-of-scope-by-recorded-decision",
+      "sourceCitation": "draft/goal/semantic-mutation-testing.md — §15 explicit non-goals; BAG-06 finite-evidence boundary",
+      "sourceText": "General equivalent-mutant detection is not an MVP goal, and finite corpus agreement cannot be promoted to semantic equivalence.",
+      "positiveDerivation": {
+        "artifact": "draft/goal/semantic-mutation-testing.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "case": "distinguishing oracle fabricated bounded survival"
+      },
+      "nativeFact": null,
+      "necessity": "The goal records this as an explicit non-goal; a closure audit cannot silently activate a general equivalence detector.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "SC-03-optional-backend-logs",
+      "goal": "scope",
+      "source": "D1 and execution goal section 3.3",
+      "state": "product-decision-required",
+      "artifacts": [
+        "draft/goal/execution-pattern-matching.md",
+        "draft/decisions/d1-stop-old-g-track-and-preserve-portable-contracts-2026-08-22.md"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none until diagnostic backend-log work is separately authorized",
+      "terminalDisposition": "product-decision-required",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §3.3; D1 scope boundary",
+      "sourceText": "Backend logs are diagnostic, backend-specific, optional, and require separate authorization.",
+      "positiveDerivation": {
+        "artifact": "draft/goal/execution-pattern-matching.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "draft/decisions/d1-stop-old-g-track-and-preserve-portable-contracts-2026-08-22.md",
+        "case": "retired backend path remains inactive"
+      },
+      "nativeFact": null,
+      "necessity": "This optional diagnostic path cannot be activated by a portable evidence audit.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "SC-04-c1-c2",
+      "goal": "scope",
+      "source": "D1 and roadmap held work",
+      "state": "product-decision-held",
+      "artifacts": [
+        "draft/k-in-k-execution-roadmap.md",
+        "draft/decisions/d1-stop-old-g-track-and-preserve-portable-contracts-2026-08-22.md"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none while C1/C2 remain held",
+      "terminalDisposition": "product-decision-held",
+      "sourceCitation": "draft/k-in-k-execution-roadmap.md — held C1/C2 work; D1 decision",
+      "sourceText": "C1/C2 remain held and are not activated by backend-agnostic closure.",
+      "positiveDerivation": {
+        "artifact": "draft/k-in-k-execution-roadmap.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "draft/decisions/d1-stop-old-g-track-and-preserve-portable-contracts-2026-08-22.md",
+        "case": "no implicit activation"
+      },
+      "nativeFact": null,
+      "necessity": "Only an explicit product decision can activate held roadmap work.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "SC-05-large-corpus",
+      "goal": "scope",
+      "source": "Rust handoff separate-authorization boundary",
+      "state": "product-decision-required",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none until large-corpus/performance evidence is authorized",
+      "terminalDisposition": "product-decision-required",
+      "sourceCitation": "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md — residual boundary after RS-07",
+      "sourceText": "Large-corpus and performance work requires separate activation after portable semantics close.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md",
+        "case": "finite conformance is not scale evidence"
+      },
+      "nativeFact": null,
+      "necessity": "Scale and performance are empirical product evidence, not a backend-neutral finite semantic relation.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "EX-14-semantic-interface-boundary",
+      "goal": "execution-pattern",
+      "source": "sections 3.1 through 3.3",
+      "state": "portable-closed",
+      "artifacts": [
+        "draft/goal/execution-pattern-matching.md",
+        "investigations/backend-agnostic-goal-closure/contracts.md",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "historicalEvidence": [
+        "w1-a-egress-boundary",
+        "r3-g-05-final-stop"
+      ],
+      "rustProof": "none; printed output, debugger prose, and backend logs are not semantic interchange",
+      "terminalDisposition": "portable-closed",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §§3.1–3.3 design-choice rejection",
+      "sourceText": "Ad-hoc printed output, debugger formats, and optional backend logs are not the stable semantic interface.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "check": "verify.py::verify_architecture_boundaries"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "case": "printed-output-as-semantic-interface"
+      },
+      "nativeFact": null,
+      "necessity": "The architecture decision is fully portable and leaves no native proof question.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "EX-15-k-native-responsibility-split",
+      "goal": "execution-pattern",
+      "source": "section 3.4",
+      "state": "portable-closed",
+      "artifacts": [
+        "draft/goal/execution-pattern-matching.md",
+        "investigations/backend-agnostic-goal-closure/contracts.md",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none; typed K event/monitor semantics and TypeScript execution/traversal/bounds/aggregation/result consumption form a portable responsibility split",
+      "terminalDisposition": "portable-closed",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §3.4 recommended K-native architecture",
+      "sourceText": "The transformed definition emits typed K events and evaluates K-authored monitors; TypeScript runs the backend, traverses branches, enforces bounds, aggregates corpus results, and consumes structured match/stop results.",
+      "positiveDerivation": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "check": "verify.py::verify_architecture_boundaries"
+      },
+      "permanentAdversary": {
+        "artifact": "investigations/backend-agnostic-goal-closure/verify.py",
+        "case": "host-reimplements-k-matching"
+      },
+      "nativeFact": null,
+      "necessity": "The responsibility boundary is a portable architecture contract.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "EX-16-no-arbitrary-state-diff-events",
+      "goal": "execution-pattern",
+      "source": "section 11",
+      "state": "out-of-scope-by-recorded-decision",
+      "artifacts": [
+        "draft/goal/execution-pattern-matching.md"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none; arbitrary state-diff event inference is excluded",
+      "terminalDisposition": "out-of-scope-by-recorded-decision",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §11 explicit non-goals",
+      "sourceText": "The MVP does not infer domain events from arbitrary state differences.",
+      "positiveDerivation": {
+        "artifact": "draft/goal/execution-pattern-matching.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "draft/goal/execution-pattern-matching.md",
+        "case": "§11 state-diff inference non-goal"
+      },
+      "nativeFact": null,
+      "necessity": "The recorded MVP scope excludes this inference policy.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "EX-17-no-builtin-function-observation",
+      "goal": "execution-pattern",
+      "source": "section 11",
+      "state": "out-of-scope-by-recorded-decision",
+      "artifacts": [
+        "draft/goal/execution-pattern-matching.md"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none; builtin function evaluation is not a stable observation event",
+      "terminalDisposition": "out-of-scope-by-recorded-decision",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §11 explicit non-goals",
+      "sourceText": "The MVP does not observe builtin function evaluation as stable semantic behavior.",
+      "positiveDerivation": {
+        "artifact": "draft/goal/execution-pattern-matching.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "draft/goal/execution-pattern-matching.md",
+        "case": "§11 builtin observation non-goal"
+      },
+      "nativeFact": null,
+      "necessity": "The recorded MVP scope excludes this observation source.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "EX-18-cross-backend-event-equivalence",
+      "goal": "execution-pattern",
+      "source": "section 11",
+      "state": "out-of-scope-by-recorded-decision",
+      "artifacts": [
+        "draft/goal/execution-pattern-matching.md"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "none; cross-backend equivalence beyond the selected profile is not promised",
+      "terminalDisposition": "out-of-scope-by-recorded-decision",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §11 explicit non-goals",
+      "sourceText": "The MVP makes no cross-backend event-equivalence promise beyond the selected execution profile.",
+      "positiveDerivation": {
+        "artifact": "draft/goal/execution-pattern-matching.md",
+        "check": "verify.py::verify_completion_checklist"
+      },
+      "permanentAdversary": {
+        "artifact": "draft/goal/execution-pattern-matching.md",
+        "case": "§11 cross-backend equivalence non-goal"
+      },
+      "nativeFact": null,
+      "necessity": "The recorded scope bounds claims to the selected execution profile.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "EX-19-state-rule-domain-event-boundary",
+      "goal": "execution-pattern",
+      "source": "section 2",
+      "state": "portable-closed",
+      "artifacts": ["draft/goal/execution-pattern-matching.md", "investigations/backend-agnostic-goal-closure/verify.py"],
+      "historicalEvidence": [],
+      "rustProof": "none; state shapes, RuleApplied events, and domain events are distinct portable concepts",
+      "terminalDisposition": "portable-closed",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §2 numbered state/rule/domain distinction",
+      "sourceText": "A reachable state shape is not a rule application or domain event; the product event vocabulary admits RuleApplied and user-defined domain events.",
+      "positiveDerivation": {"artifact": "investigations/backend-agnostic-goal-closure/verify.py", "check": "verify.py::verify_architecture_boundaries"},
+      "permanentAdversary": {"artifact": "investigations/backend-agnostic-goal-closure/verify.py", "case": "state-shape-promoted-to-event"},
+      "nativeFact": null,
+      "necessity": "This distinction is a backend-neutral semantic vocabulary contract.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "EX-20-transition-event-profile-scope",
+      "goal": "execution-pattern",
+      "source": "section 2",
+      "state": "product-decision-required",
+      "artifacts": ["draft/goal/execution-pattern-matching.md", "investigations/backend-agnostic-goal-closure/verify.py"],
+      "historicalEvidence": [],
+      "rustProof": "none until a compatibility profile gives function, simplification, macro, hook, or SMT activity stable meaning",
+      "terminalDisposition": "product-decision-required",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §2 transition-event scope paragraph",
+      "sourceText": "Transition-rule events are in scope first; function, simplification, macro, hook, and SMT activity remains diagnostic absent a later stable compatibility profile.",
+      "positiveDerivation": {"artifact": "investigations/backend-agnostic-goal-closure/verify.py", "check": "verify.py::verify_architecture_boundaries"},
+      "permanentAdversary": {"artifact": "investigations/backend-agnostic-goal-closure/verify.py", "case": "diagnostic-activity-promoted-without-profile"},
+      "nativeFact": null,
+      "necessity": "The product must define and activate the later compatibility profile before this diagnostic activity gains semantic status.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "EX-21-full-thin-lowering-ownership",
+      "goal": "execution-pattern",
+      "source": "section 3.4",
+      "state": "portable-closed",
+      "artifacts": ["draft/goal/execution-pattern-matching.md", "investigations/backend-agnostic-goal-closure/verify.py"],
+      "historicalEvidence": [],
+      "rustProof": "none; full versus thin scope changes lowering ownership, not pattern architecture",
+      "terminalDisposition": "portable-closed",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §3.4 final paragraph",
+      "sourceText": "Full K-in-K may lower the instrumented definition; thin K-in-K may return it to official K, but the pattern architecture is invariant.",
+      "positiveDerivation": {"artifact": "investigations/backend-agnostic-goal-closure/verify.py", "check": "verify.py::verify_architecture_boundaries"},
+      "permanentAdversary": {"artifact": "investigations/backend-agnostic-goal-closure/verify.py", "case": "lowering-owner-changes-pattern-architecture"},
+      "nativeFact": null,
+      "necessity": "This is a portable ownership invariant, not an implementation proof.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "EX-22-next-transition-clock",
+      "goal": "execution-pattern",
+      "source": "section 5",
+      "state": "product-decision-required",
+      "artifacts": ["draft/goal/execution-pattern-matching.md", "investigations/backend-agnostic-goal-closure/verify.py"],
+      "historicalEvidence": [],
+      "rustProof": "none until the later next-transition operator is activated",
+      "terminalDisposition": "product-decision-required",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §5 adjacency-clock paragraph",
+      "sourceText": "next-event counts observed events; a later next-transition operator may count every language transition and must never be conflated with it.",
+      "positiveDerivation": {"artifact": "investigations/backend-agnostic-goal-closure/verify.py", "check": "verify.py::verify_architecture_boundaries"},
+      "permanentAdversary": {"artifact": "investigations/backend-agnostic-goal-closure/verify.py", "case": "next-event-next-transition-conflation"},
+      "nativeFact": null,
+      "necessity": "Activation and semantics for the distinct future clock require a product decision.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "EX-23-bounded-gap-repetition",
+      "goal": "execution-pattern",
+      "source": "section 5 later extensions",
+      "state": "product-decision-required",
+      "artifacts": ["draft/goal/execution-pattern-matching.md"],
+      "historicalEvidence": [],
+      "rustProof": "none until bounded gaps and repetition are activated",
+      "terminalDisposition": "product-decision-required",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §5 later extensions, bounded gaps and repetition",
+      "sourceText": "Bounded gaps and repetition are later extensions outside the first supported fragment.",
+      "positiveDerivation": {"artifact": "draft/goal/execution-pattern-matching.md", "check": "verify.py::verify_completion_checklist"},
+      "permanentAdversary": {"artifact": "draft/goal/execution-pattern-matching.md", "case": "bounded gaps and repetition"},
+      "nativeFact": null,
+      "necessity": "A product decision must activate and specify this later syntax and semantics.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "EX-24-between-event-negation",
+      "goal": "execution-pattern",
+      "source": "section 5 later extensions",
+      "state": "product-decision-required",
+      "artifacts": ["draft/goal/execution-pattern-matching.md"],
+      "historicalEvidence": [],
+      "rustProof": "none until negation between events is activated",
+      "terminalDisposition": "product-decision-required",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §5 later extensions, negation between two events",
+      "sourceText": "Negation between two events is a later extension outside the first supported fragment.",
+      "positiveDerivation": {"artifact": "draft/goal/execution-pattern-matching.md", "check": "verify.py::verify_completion_checklist"},
+      "permanentAdversary": {"artifact": "draft/goal/execution-pattern-matching.md", "case": "negation between two events"},
+      "nativeFact": null,
+      "necessity": "A product decision must activate and specify its finite and symbolic proof boundary.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "EX-25-event-counts-aggregation",
+      "goal": "execution-pattern",
+      "source": "section 5 later extensions",
+      "state": "product-decision-required",
+      "artifacts": ["draft/goal/execution-pattern-matching.md"],
+      "historicalEvidence": [],
+      "rustProof": "none until event counts and aggregation are activated",
+      "terminalDisposition": "product-decision-required",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §5 later extensions, event counts and aggregation",
+      "sourceText": "Event counts and aggregation are later extensions outside the first supported fragment.",
+      "positiveDerivation": {"artifact": "draft/goal/execution-pattern-matching.md", "check": "verify.py::verify_completion_checklist"},
+      "permanentAdversary": {"artifact": "draft/goal/execution-pattern-matching.md", "case": "event counts and aggregation"},
+      "nativeFact": null,
+      "necessity": "A product decision must activate and specify the aggregation algebra.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "EX-26-scoped-events",
+      "goal": "execution-pattern",
+      "source": "section 5 later extensions",
+      "state": "product-decision-required",
+      "artifacts": ["draft/goal/execution-pattern-matching.md"],
+      "historicalEvidence": [],
+      "rustProof": "none until call/return nesting or other scoped events are activated",
+      "terminalDisposition": "product-decision-required",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §5 later extensions, call/return nesting or other scoped events",
+      "sourceText": "Call/return nesting and other scoped events are later extensions outside the first supported fragment.",
+      "positiveDerivation": {"artifact": "draft/goal/execution-pattern-matching.md", "check": "verify.py::verify_completion_checklist"},
+      "permanentAdversary": {"artifact": "draft/goal/execution-pattern-matching.md", "case": "call/return nesting or other scoped events"},
+      "nativeFact": null,
+      "necessity": "A product decision must activate and specify scope identity and nesting semantics.",
+      "rustPacketIds": []
+    },
+    {
+      "id": "EX-27-unbounded-absence-liveness-proof",
+      "goal": "execution-pattern",
+      "source": "section 5 proof boundary",
+      "state": "product-decision-required",
+      "artifacts": ["draft/goal/execution-pattern-matching.md", "investigations/backend-agnostic-goal-closure/verify.py"],
+      "historicalEvidence": [],
+      "rustProof": "none until a typed proof system for unbounded absence, liveness, and universal symbolic properties is selected",
+      "terminalDisposition": "product-decision-required",
+      "sourceCitation": "draft/goal/execution-pattern-matching.md — §5 final proof-boundary sentence",
+      "sourceText": "Unbounded absence, liveness, and universal symbolic properties require a proof story and cannot follow from a larger execution limit.",
+      "positiveDerivation": {"artifact": "investigations/backend-agnostic-goal-closure/verify.py", "check": "verify.py::verify_architecture_boundaries"},
+      "permanentAdversary": {"artifact": "investigations/backend-agnostic-goal-closure/verify.py", "case": "larger-bound-promoted-to-unbounded-proof"},
+      "nativeFact": null,
+      "necessity": "The product must select a typed proof system and its scope before this proof feature can be specified.",
+      "rustPacketIds": []
     }
   ]
 }
