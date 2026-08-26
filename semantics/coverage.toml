@@ -49,20 +49,22 @@ authority_k_version = "7.1.337"
 source_files = 98
 source_syntax_declarations = 478
 source_rules = 3440
-krs_equations = 83
-krs_machine_rules = 71
-krs_claims = 2
-pinned_executions = 57
+krs_equations = 111
+krs_machine_rules = 110
+krs_claims = 3
+pinned_executions = 81
 complete = false
 implemented = [
-  "PUSH, ADD, MUL, SUB, DIV, SDIV, MOD, SMOD, ADDMOD, MULMOD, LT, GT, SLT, SGT, EQ, ISZERO, PC, STOP, and INVALID",
+  "PUSH, ADD, MUL, SUB, DIV, SDIV, MOD, SMOD, ADDMOD, MULMOD, EXP, SIGNEXTEND, LT, GT, SLT, SGT, EQ, ISZERO, AND, OR, XOR, NOT, BYTE, SHL, SHR, SAR, PC, STOP, and INVALID",
   "word-stack and program-counter transitions",
   "modulo-2^256 addition, multiplication, and subtraction",
   "totalized unsigned word division and modulus",
   "two's-complement word sign, magnitude, signed division, and signed modulus",
   "full-precision ternary modular arithmetic",
   "unsigned and two's-complement signed word comparisons, equality, and zero testing",
-  "Shanghai Gzero, Gbase, Gverylow, Glow, and Gmid gas charging",
+  "modular exponentiation and Shanghai exponent-byte gas charging",
+  "byte sign extension, bitwise operations, big-endian byte selection, and totalized logical and arithmetic shifts",
+  "Shanghai Gzero, Gbase, Gverylow, Glow, Gmid, Gexp, and Gexpbyte gas charging",
   "success and selected exceptional statuses",
   "builtin Bytes program storage, opcode lookup, and PUSH immediate decoding",
 ]

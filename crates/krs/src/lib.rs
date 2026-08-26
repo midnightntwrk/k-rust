@@ -329,6 +329,34 @@ pub mod builtin {
         #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub struct Mod(pub Int, pub Int);
 
+        /// Marker for modular integer exponentiation.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct PowMod(pub Int, pub Int, pub Int);
+
+        /// Marker for the integer base-two logarithm.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Log2(pub Int);
+
+        /// Marker for arithmetic integer right shift.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct ShiftRight(pub Int, pub Int);
+
+        /// Marker for integer left shift.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct ShiftLeft(pub Int, pub Int);
+
+        /// Marker for two's-complement integer bitwise conjunction.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct BitAnd(pub Int, pub Int);
+
+        /// Marker for two's-complement integer bitwise exclusive disjunction.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct BitXor(pub Int, pub Int);
+
+        /// Marker for two's-complement integer bitwise inclusive disjunction.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct BitOr(pub Int, pub Int);
+
         /// Marker for integer greater-than-or-equal comparison.
         #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub struct Ge(pub Int, pub Int);
@@ -358,14 +386,21 @@ pub mod builtin {
         // `TypeId::of::<...>()` in type position.
         pub use self::Eq as eq;
         pub use Add as add;
+        pub use BitAnd as bit_and;
+        pub use BitOr as bit_or;
+        pub use BitXor as bit_xor;
         pub use Div as div;
         pub use Ge as ge;
         pub use Gt as gt;
         pub use Le as le;
+        pub use Log2 as log2;
         pub use Lt as lt;
         pub use Mod as modulo;
         pub use Mul as mul;
         pub use Ne as ne;
+        pub use PowMod as pow_mod;
+        pub use ShiftLeft as shift_left;
+        pub use ShiftRight as shift_right;
         pub use Sub as sub;
     }
 
@@ -491,6 +526,13 @@ builtin_operation_keys! {
     (int_mul_builtin_key, builtin::int::mul),
     (int_tdiv_builtin_key, builtin::int::div),
     (int_mod_builtin_key, builtin::int::modulo),
+    (int_pow_mod_builtin_key, builtin::int::pow_mod),
+    (int_log2_builtin_key, builtin::int::log2),
+    (int_shift_right_builtin_key, builtin::int::shift_right),
+    (int_shift_left_builtin_key, builtin::int::shift_left),
+    (int_bit_and_builtin_key, builtin::int::bit_and),
+    (int_bit_xor_builtin_key, builtin::int::bit_xor),
+    (int_bit_or_builtin_key, builtin::int::bit_or),
     (int_ge_builtin_key, builtin::int::ge),
     (int_gt_builtin_key, builtin::int::gt),
     (int_le_builtin_key, builtin::int::le),
@@ -568,6 +610,13 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
         (BuiltinOperation::IntMul, int_mul_builtin_key),
         (BuiltinOperation::IntTDiv, int_tdiv_builtin_key),
         (BuiltinOperation::IntMod, int_mod_builtin_key),
+        (BuiltinOperation::IntPowMod, int_pow_mod_builtin_key),
+        (BuiltinOperation::IntLog2, int_log2_builtin_key),
+        (BuiltinOperation::IntShiftRight, int_shift_right_builtin_key),
+        (BuiltinOperation::IntShiftLeft, int_shift_left_builtin_key),
+        (BuiltinOperation::IntBitAnd, int_bit_and_builtin_key),
+        (BuiltinOperation::IntBitXor, int_bit_xor_builtin_key),
+        (BuiltinOperation::IntBitOr, int_bit_or_builtin_key),
         (BuiltinOperation::IntGreaterEqual, int_ge_builtin_key),
         (BuiltinOperation::IntGreater, int_gt_builtin_key),
         (BuiltinOperation::IntLessEqual, int_le_builtin_key),
@@ -1005,6 +1054,34 @@ mod tests {
             (
                 TypeId::of::<builtin::int::modulo>(),
                 BuiltinOperation::IntMod,
+            ),
+            (
+                TypeId::of::<builtin::int::pow_mod>(),
+                BuiltinOperation::IntPowMod,
+            ),
+            (
+                TypeId::of::<builtin::int::log2>(),
+                BuiltinOperation::IntLog2,
+            ),
+            (
+                TypeId::of::<builtin::int::shift_right>(),
+                BuiltinOperation::IntShiftRight,
+            ),
+            (
+                TypeId::of::<builtin::int::shift_left>(),
+                BuiltinOperation::IntShiftLeft,
+            ),
+            (
+                TypeId::of::<builtin::int::bit_and>(),
+                BuiltinOperation::IntBitAnd,
+            ),
+            (
+                TypeId::of::<builtin::int::bit_xor>(),
+                BuiltinOperation::IntBitXor,
+            ),
+            (
+                TypeId::of::<builtin::int::bit_or>(),
+                BuiltinOperation::IntBitOr,
             ),
             (
                 TypeId::of::<builtin::int::ge>(),

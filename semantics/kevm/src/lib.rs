@@ -15,7 +15,7 @@ k::sorts! {
 }
 
 #[k::constructors(sort = OpCode, result = k::KResult)]
-#[k::precedence((Push, Add, Mul, Sub, Div, SignedDiv, Mod, SignedMod, AddMod, MulMod, LessThan, GreaterThan, SignedLessThan, SignedGreaterThan, Equal, IsZero, ProgramCounter, Stop, Invalid, End))]
+#[k::precedence((Push, Add, Mul, Sub, Div, SignedDiv, Mod, SignedMod, AddMod, MulMod, Exponent, SignExtend, LessThan, GreaterThan, SignedLessThan, SignedGreaterThan, Equal, IsZero, BitAnd, BitOr, BitXor, BitNot, Byte, ShiftLeft, ShiftRight, SignedShiftRight, ProgramCounter, Stop, Invalid, End))]
 pub enum Operation {
     #[k::syntax("PUSH({width}, {value})")]
     Push { width: Int, value: Int },
@@ -37,6 +37,10 @@ pub enum Operation {
     AddMod,
     #[k::syntax("MULMOD")]
     MulMod,
+    #[k::syntax("EXP")]
+    Exponent,
+    #[k::syntax("SIGNEXTEND")]
+    SignExtend,
     #[k::syntax("LT")]
     LessThan,
     #[k::syntax("GT")]
@@ -49,6 +53,22 @@ pub enum Operation {
     Equal,
     #[k::syntax("ISZERO")]
     IsZero,
+    #[k::syntax("AND")]
+    BitAnd,
+    #[k::syntax("EVMOR")]
+    BitOr,
+    #[k::syntax("XOR")]
+    BitXor,
+    #[k::syntax("NOT")]
+    BitNot,
+    #[k::syntax("BYTE")]
+    Byte,
+    #[k::syntax("SHL")]
+    ShiftLeft,
+    #[k::syntax("SHR")]
+    ShiftRight,
+    #[k::syntax("SAR")]
+    SignedShiftRight,
     #[k::syntax("PC")]
     ProgramCounter,
     #[k::syntax("STOP")]
@@ -161,10 +181,62 @@ pub struct SignedLess {
     pub right: k::Term<Int>,
 }
 
+#[k::function(total, sort = Int, syntax = "#kevmExpCost({exponent})")]
+pub struct ExpCost {
+    pub exponent: k::Term<Int>,
+}
+
+#[k::function(total, sort = Int, syntax = "#kevmShiftLeft({value}, {shift})")]
+pub struct WordShiftLeft {
+    pub value: k::Term<Int>,
+    pub shift: k::Term<Int>,
+}
+
+#[k::function(total, sort = Int, syntax = "#kevmShiftRight({value}, {shift})")]
+pub struct WordShiftRight {
+    pub value: k::Term<Int>,
+    pub shift: k::Term<Int>,
+}
+
+#[k::function(total, sort = Int, syntax = "#kevmSignedShiftRight({value}, {shift})")]
+pub struct WordSignedShiftRight {
+    pub value: k::Term<Int>,
+    pub shift: k::Term<Int>,
+}
+
+#[k::function(total, sort = Int, syntax = "#kevmByte({index}, {value})")]
+pub struct WordByte {
+    pub index: k::Term<Int>,
+    pub value: k::Term<Int>,
+}
+
+#[k::function(total, sort = Int, syntax = "#kevmSignExtend({index}, {value})")]
+pub struct WordSignExtend {
+    pub index: k::Term<Int>,
+    pub value: k::Term<Int>,
+}
+
+#[k::function(total, sort = Int, syntax = "#kevmSignExtendByte({index}, {value})")]
+pub struct SignExtendByte {
+    pub index: k::Term<Int>,
+    pub value: k::Term<Int>,
+}
+
 #[k::function(total, sort = GasStep, syntax = "#kevmCharge({op}, {gas})")]
 pub struct Charge {
     pub op: k::Term<OpCode>,
     pub gas: k::Term<Int>,
+}
+
+#[k::function(
+    total,
+    sort = GasStep,
+    syntax = "#kevmChargeFixed({op}, {gas}, {cost})"
+)]
+pub struct ChargeFixed {
+    pub op: k::Term<OpCode>,
+    pub gas: k::Term<Int>,
+    pub cost: k::Term<Int>,
 }
 
 #[k::function(total, sort = OpCode, syntax = "#kevmLookup({program}, {pc})")]
@@ -321,6 +393,28 @@ fn decode_mul_mod(
 }
 
 #[k::equation]
+fn decode_exponent(
+    k::term![Decode {
+        opcode: 10,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Exponent]
+}
+
+#[k::equation]
+fn decode_sign_extend(
+    k::term![Decode {
+        opcode: 11,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::SignExtend]
+}
+
+#[k::equation]
 fn decode_less_than(
     k::term![Decode {
         opcode: 16,
@@ -387,6 +481,94 @@ fn decode_is_zero(
 }
 
 #[k::equation]
+fn decode_bit_and(
+    k::term![Decode {
+        opcode: 22,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::BitAnd]
+}
+
+#[k::equation]
+fn decode_bit_or(
+    k::term![Decode {
+        opcode: 23,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::BitOr]
+}
+
+#[k::equation]
+fn decode_bit_xor(
+    k::term![Decode {
+        opcode: 24,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::BitXor]
+}
+
+#[k::equation]
+fn decode_bit_not(
+    k::term![Decode {
+        opcode: 25,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::BitNot]
+}
+
+#[k::equation]
+fn decode_byte(
+    k::term![Decode {
+        opcode: 26,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Byte]
+}
+
+#[k::equation]
+fn decode_shift_left(
+    k::term![Decode {
+        opcode: 27,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::ShiftLeft]
+}
+
+#[k::equation]
+fn decode_shift_right(
+    k::term![Decode {
+        opcode: 28,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::ShiftRight]
+}
+
+#[k::equation]
+fn decode_signed_shift_right(
+    k::term![Decode {
+        opcode: 29,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::SignedShiftRight]
+}
+
+#[k::equation]
 fn decode_pc(
     k::term![Decode {
         opcode: 88,
@@ -417,7 +599,7 @@ fn decode_push(
     }]
 }
 
-#[k::requires(bool::and(int::ge(opcode, 10), int::le(opcode, 15)))]
+#[k::requires(bool::and(int::ge(opcode, 12), int::le(opcode, 15)))]
 #[k::equation]
 fn decode_invalid_low(
     k::term![Decode {
@@ -429,7 +611,7 @@ fn decode_invalid_low(
     k::term![Operation::Invalid]
 }
 
-#[k::requires(bool::and(int::ge(opcode, 22), int::le(opcode, 87)))]
+#[k::requires(bool::and(int::ge(opcode, 30), int::le(opcode, 87)))]
 #[k::equation]
 fn decode_invalid_after_comparison(
     k::term![Decode {
@@ -697,6 +879,173 @@ fn signed_less_negative_positive(
 #[k::equation]
 fn signed_less_negative(k::term![SignedLess { left, right }]: k::Term<Int>) -> k::Term<Int> {
     k::term![BoolToWord(int::lt(Magnitude(right), Magnitude(left)))]
+}
+
+#[k::requires(int::le(exponent, 0))]
+#[k::equation]
+fn exp_cost_zero(k::term![ExpCost(exponent)]: k::Term<Int>) -> k::Term<Int> {
+    k::term![10]
+}
+
+#[k::requires(int::gt(exponent, 0))]
+#[k::equation]
+fn exp_cost_positive(k::term![ExpCost(exponent)]: k::Term<Int>) -> k::Term<Int> {
+    k::term![int::add(
+        10,
+        int::mul(50, int::add(int::div(int::log2(exponent), 8), 1)),
+    )]
+}
+
+#[k::requires(bool::and(bool::and(int::ge(value, 0), int::ge(shift, 0)), int::lt(shift, 256),))]
+#[k::equation]
+fn shift_left_word(k::term![WordShiftLeft { value, shift }]: k::Term<Int>) -> k::Term<Int> {
+    k::term![Chop(int::shift_left(value, shift))]
+}
+
+#[k::requires(bool::or(int::lt(value, 0), bool::or(int::lt(shift, 0), int::ge(shift, 256)),))]
+#[k::equation]
+fn shift_left_outside_word(k::term![WordShiftLeft { value, shift }]: k::Term<Int>) -> k::Term<Int> {
+    k::term![0]
+}
+
+#[k::requires(bool::and(bool::and(int::ge(value, 0), int::ge(shift, 0)), int::lt(shift, 256),))]
+#[k::equation]
+fn shift_right_word(k::term![WordShiftRight { value, shift }]: k::Term<Int>) -> k::Term<Int> {
+    k::term![int::shift_right(value, shift)]
+}
+
+#[k::requires(bool::or(int::lt(value, 0), bool::or(int::lt(shift, 0), int::ge(shift, 256)),))]
+#[k::equation]
+fn shift_right_outside_word(
+    k::term![WordShiftRight { value, shift }]: k::Term<Int>,
+) -> k::Term<Int> {
+    k::term![0]
+}
+
+#[k::requires(bool::and(bool::and(int::ge(value, 0), int::ge(shift, 0)), int::lt(shift, 256),))]
+#[k::equation]
+fn signed_shift_right_word(
+    k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
+) -> k::Term<Int> {
+    k::term![Chop(int::shift_right(
+        int::mul(Magnitude(value), Sign(value)),
+        shift,
+    ))]
+}
+
+#[k::requires(bool::and(
+    bool::and(int::ge(value, 0), int::ge(shift, 256)),
+    int::eq(Sign(value), int::sub(0, 1)),
+))]
+#[k::equation]
+fn signed_shift_right_large_negative(
+    k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
+) -> k::Term<Int> {
+    k::term![int::sub(
+        int::mul(
+            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
+            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
+        ),
+        1,
+    )]
+}
+
+#[k::requires(bool::and(
+    bool::and(int::ge(value, 0), int::ge(shift, 256)),
+    int::ne(Sign(value), int::sub(0, 1)),
+))]
+#[k::equation]
+fn signed_shift_right_large_nonnegative(
+    k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
+) -> k::Term<Int> {
+    k::term![0]
+}
+
+#[k::requires(bool::or(int::lt(value, 0), int::lt(shift, 0)))]
+#[k::equation]
+fn signed_shift_right_outside_word(
+    k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
+) -> k::Term<Int> {
+    k::term![0]
+}
+
+#[k::requires(bool::and(int::ge(index, 0), int::lt(index, 32)))]
+#[k::equation]
+fn byte_in_word(k::term![WordByte { index, value }]: k::Term<Int>) -> k::Term<Int> {
+    k::term![int::modulo(
+        int::shift_right(value, int::mul(8, int::sub(31, index))),
+        256,
+    )]
+}
+
+#[k::requires(bool::or(int::lt(index, 0), int::ge(index, 32)))]
+#[k::equation]
+fn byte_outside_word(k::term![WordByte { index, value }]: k::Term<Int>) -> k::Term<Int> {
+    k::term![0]
+}
+
+#[k::equation]
+fn sign_extend_byte(k::term![SignExtendByte { index, value }]: k::Term<Int>) -> k::Term<Int> {
+    k::term![int::modulo(
+        int::shift_right(value, int::mul(8, index)),
+        256
+    )]
+}
+
+#[k::requires(bool::or(int::lt(index, 0), int::ge(index, 32)))]
+#[k::equation]
+fn sign_extend_invalid(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
+    k::term![value]
+}
+
+#[k::requires(bool::and(
+    bool::and(int::ge(index, 0), int::lt(index, 32)),
+    int::lt(SignExtendByte { index, value }, 128),
+))]
+#[k::equation]
+fn sign_extend_positive(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
+    k::term![Chop(int::bit_and(
+        int::sub(int::shift_left(1, int::mul(8, int::add(index, 1))), 1),
+        value,
+    ))]
+}
+
+#[k::requires(bool::and(
+    bool::and(int::ge(index, 0), int::lt(index, 32)),
+    int::ge(SignExtendByte { index, value }, 128),
+))]
+#[k::equation]
+fn sign_extend_negative(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
+    k::term![Chop(int::bit_or(
+        int::bit_xor(
+            int::sub(
+                int::mul(
+                    int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616,),
+                    int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616,),
+                ),
+                1,
+            ),
+            int::sub(int::shift_left(1, int::mul(8, int::add(index, 1))), 1),
+        ),
+        value,
+    ))]
+}
+
+#[k::requires(int::ge(gas, cost))]
+#[k::equation]
+fn charge_fixed(k::term![ChargeFixed { op, gas, cost }]: k::Term<GasStep>) -> k::Term<GasStep> {
+    k::term![GasResult::EnoughGas {
+        op,
+        remaining: int::sub(gas, cost)
+    }]
+}
+
+#[k::requires(int::lt(gas, cost))]
+#[k::equation]
+fn charge_fixed_fails(
+    k::term![ChargeFixed { op, gas, cost }]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![GasResult::InsufficientGas()]
 }
 
 #[k::requires(int::ge(gas, 3))]
@@ -1160,6 +1509,28 @@ k::rules! {
     }
     where w0: Int, w1: Int, w2: Int, rest: WordStack, gas: Int;
 
+    begin_exponent: {
+        k: [Operation::Exponent, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed { op: Operation::Exponent, gas, cost: crate::ExpCost(w1) }, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
+    begin_sign_extend: {
+        k: [Operation::SignExtend, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed { op: Operation::SignExtend, gas, cost: 5 }, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
     begin_less_than: {
         k: [Operation::LessThan, ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
@@ -1225,6 +1596,94 @@ k::rules! {
         gas: gas,
     }
     where w0: Int, rest: WordStack, gas: Int;
+
+    begin_bit_and: {
+        k: [Operation::BitAnd, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed { op: Operation::BitAnd, gas, cost: 3 }, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
+    begin_bit_or: {
+        k: [Operation::BitOr, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed { op: Operation::BitOr, gas, cost: 3 }, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
+    begin_bit_xor: {
+        k: [Operation::BitXor, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed { op: Operation::BitXor, gas, cost: 3 }, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
+    begin_bit_not: {
+        k: [Operation::BitNot, ..],
+        word_stack: Stack::StackCons(w0, rest),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed { op: Operation::BitNot, gas, cost: 3 }, ..],
+        word_stack: Stack::StackCons(w0, rest),
+        gas: gas,
+    }
+    where w0: Int, rest: WordStack, gas: Int;
+
+    begin_byte: {
+        k: [Operation::Byte, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed { op: Operation::Byte, gas, cost: 3 }, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
+    begin_shift_left: {
+        k: [Operation::ShiftLeft, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed { op: Operation::ShiftLeft, gas, cost: 3 }, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
+    begin_shift_right: {
+        k: [Operation::ShiftRight, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed { op: Operation::ShiftRight, gas, cost: 3 }, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
+    begin_signed_shift_right: {
+        k: [Operation::SignedShiftRight, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed { op: Operation::SignedShiftRight, gas, cost: 3 }, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
 
     begin_pc: {
         k: [Operation::ProgramCounter, ..],
@@ -1377,6 +1836,32 @@ k::rules! {
     }
     where remaining: Int, w0: Int, w1: Int, w2: Int, rest: WordStack, pc: Int, gas: Int;
 
+    exec_exponent: {
+        k: [GasResult::EnoughGas(Operation::Exponent, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(int::pow_mod(w0, w1, int::mul(int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616), int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),),), rest,),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_sign_extend: {
+        k: [GasResult::EnoughGas(Operation::SignExtend, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::WordSignExtend { index: w0, value: w1 }, rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
     exec_less_than: {
         k: [GasResult::EnoughGas(Operation::LessThan, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
@@ -1454,6 +1939,110 @@ k::rules! {
         gas: remaining,
     }
     where remaining: Int, w0: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_bit_and: {
+        k: [GasResult::EnoughGas(Operation::BitAnd, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(int::bit_and(w0, w1), rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_bit_or: {
+        k: [GasResult::EnoughGas(Operation::BitOr, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(int::bit_or(w0, w1), rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_bit_xor: {
+        k: [GasResult::EnoughGas(Operation::BitXor, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(int::bit_xor(w0, w1), rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_bit_not: {
+        k: [GasResult::EnoughGas(Operation::BitNot, remaining), ..],
+        word_stack: Stack::StackCons(w0, rest),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(int::bit_xor(w0, int::sub(int::mul(int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616,), int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616,),), 1,),), rest,),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_byte: {
+        k: [GasResult::EnoughGas(Operation::Byte, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::WordByte { index: w0, value: w1 }, rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_shift_left: {
+        k: [GasResult::EnoughGas(Operation::ShiftLeft, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::WordShiftLeft { value: w1, shift: w0 }, rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_shift_right: {
+        k: [GasResult::EnoughGas(Operation::ShiftRight, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::WordShiftRight { value: w1, shift: w0 }, rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_signed_shift_right: {
+        k: [GasResult::EnoughGas(Operation::SignedShiftRight, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::WordSignedShiftRight { value: w1, shift: w0 }, rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
 
     exec_pc: {
         k: [GasResult::EnoughGas(Operation::ProgramCounter, remaining), ..],
@@ -1823,6 +2412,215 @@ k::rules! {
     }
     where status: StatusCode;
 
+    exponent_underflow_empty: {
+        k: [Operation::Exponent, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    exponent_underflow_one: {
+        k: [Operation::Exponent, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    sign_extend_underflow_empty: {
+        k: [Operation::SignExtend, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    sign_extend_underflow_one: {
+        k: [Operation::SignExtend, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    bit_and_underflow_empty: {
+        k: [Operation::BitAnd, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    bit_and_underflow_one: {
+        k: [Operation::BitAnd, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    bit_or_underflow_empty: {
+        k: [Operation::BitOr, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    bit_or_underflow_one: {
+        k: [Operation::BitOr, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    bit_xor_underflow_empty: {
+        k: [Operation::BitXor, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    bit_xor_underflow_one: {
+        k: [Operation::BitXor, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    bit_not_underflow: {
+        k: [Operation::BitNot, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    byte_underflow_empty: {
+        k: [Operation::Byte, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    byte_underflow_one: {
+        k: [Operation::Byte, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    shift_left_underflow_empty: {
+        k: [Operation::ShiftLeft, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    shift_left_underflow_one: {
+        k: [Operation::ShiftLeft, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    shift_right_underflow_empty: {
+        k: [Operation::ShiftRight, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    shift_right_underflow_one: {
+        k: [Operation::ShiftRight, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    signed_shift_right_underflow_empty: {
+        k: [Operation::SignedShiftRight, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    signed_shift_right_underflow_one: {
+        k: [Operation::SignedShiftRight, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
     out_of_gas: {
         k: [GasResult::InsufficientGas(), ..],
         status_code: status,
@@ -1922,6 +2720,55 @@ fn arithmetic_comparison_tranches_stop(
     }
 }
 
+/// All-path claim spanning every Shanghai-active pure-word expression opcode.
+#[k::claim(all_paths, label = "pure-word-tranche-stop")]
+fn pure_word_tranche_stop(
+    k::cells! {
+        k: k::configuration::KCell(ExecutionCommand::Run()),
+        program: k::configuration::Cell(k::bytes!(b"\x60\x08\x60\x02\x0a\x60\x80\x60\x00\x0b\x60\x0f\x60\x33\x16\x60\x0f\x60\x33\x17\x60\x0f\x60\x33\x18\x60\x00\x19\x61\xab\xcd\x60\x1e\x1a\x60\x03\x60\x04\x1b\x60\x80\x60\x03\x1c\x60\x00\x19\x60\x01\x1d\x00")),
+        word_stack: k::configuration::Cell(Stack::StackEmpty()),
+        pc: k::configuration::Cell(0),
+        gas: k::configuration::Cell(149),
+        status_code: k::configuration::Cell(Status::Running()),
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(.K),
+        program: k::configuration::Cell(k::bytes!(b"\x60\x08\x60\x02\x0a\x60\x80\x60\x00\x0b\x60\x0f\x60\x33\x16\x60\x0f\x60\x33\x17\x60\x0f\x60\x33\x18\x60\x00\x19\x61\xab\xcd\x60\x1e\x1a\x60\x03\x60\x04\x1b\x60\x80\x60\x03\x1c\x60\x00\x19\x60\x01\x1d\x00")),
+        word_stack: k::configuration::Cell(Stack::StackCons(
+            115792089237316195423570985008687907853269984665640564039457584007913129639935,
+            Stack::StackCons(
+                16,
+                Stack::StackCons(
+                    48,
+                    Stack::StackCons(
+                        171,
+                        Stack::StackCons(
+                            115792089237316195423570985008687907853269984665640564039457584007913129639935,
+                            Stack::StackCons(
+                                60,
+                                Stack::StackCons(
+                                    63,
+                                    Stack::StackCons(
+                                        3,
+                                        Stack::StackCons(
+                                            115792089237316195423570985008687907853269984665640564039457584007913129639808,
+                                            Stack::StackCons(256, Stack::StackEmpty()),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )),
+        pc: k::configuration::Cell(50),
+        gas: k::configuration::Cell(0),
+        status_code: k::configuration::Cell(Status::Success()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -1969,9 +2816,21 @@ mod tests {
         let semantic_json = semantic.to_canonical_json().unwrap();
         let definition_json = definition.definition().to_canonical_json().unwrap();
         assert!(descriptors_json.contains(r#""application": "int_mod""#));
+        assert!(descriptors_json.contains(r#""application": "int_pow_mod""#));
+        assert!(descriptors_json.contains(r#""application": "int_shift_left""#));
+        assert!(descriptors_json.contains(r#""application": "int_bit_xor""#));
         assert!(semantic_json.contains(r#""application": "int_mod""#));
+        assert!(semantic_json.contains(r#""application": "int_pow_mod""#));
+        assert!(semantic_json.contains(r#""application": "int_shift_left""#));
+        assert!(semantic_json.contains(r#""application": "int_bit_xor""#));
         assert!(definition_json.contains(r#""application": "int_mod""#));
+        assert!(definition_json.contains(r#""application": "int_pow_mod""#));
+        assert!(definition_json.contains(r#""application": "int_shift_left""#));
+        assert!(definition_json.contains(r#""application": "int_bit_xor""#));
         assert!(source.source().contains(" modInt "));
+        assert!(source.source().contains(" ^%Int "));
+        assert!(source.source().contains(" <<Int "));
+        assert!(source.source().contains(" xorInt "));
         assert!(source.source().contains("<wordStack>"));
         assert!(source.source().contains("EVMC_OUT_OF_GAS"));
     }

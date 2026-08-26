@@ -338,7 +338,7 @@ fn prepared_with_structured_injection_for_test(
 #[test]
 fn pin_and_portable_capabilities_are_explicit() {
     let capabilities = std::hint::black_box(FRONTEND_CAPABILITIES);
-    assert_eq!(FRONTEND_PIN.crate_version, "0.3.0");
+    assert_eq!(FRONTEND_PIN.crate_version, "0.4.0");
     assert_eq!(FRONTEND_PIN.k_version, "7.1.337");
     assert!(capabilities.supports_backend(Backend::Llvm));
     assert!(capabilities.supports_backend(Backend::Haskell));

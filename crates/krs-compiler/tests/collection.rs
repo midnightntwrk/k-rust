@@ -837,7 +837,7 @@ fn foo_to_bar(Foo: Term<dyn M2Obj>) -> Term<dyn M2Obj> { term!(Bar) }
         semantic.to_canonical_json().unwrap(),
         reordered_semantic.to_canonical_json().unwrap()
     );
-    assert_eq!(semantic.schema_version().0, 12);
+    assert_eq!(semantic.schema_version().0, 13);
     let module = &semantic.modules()[0];
     let subsort_names = module
         .subsorts()
@@ -875,7 +875,7 @@ fn foo_to_bar(Foo: Term<dyn M2Obj>) -> Term<dyn M2Obj> { term!(Bar) }
     );
     let lowered = lower_semantic_theory(&semantic).unwrap();
     let reordered_lowered = lower_semantic_theory(&reordered_semantic).unwrap();
-    assert_eq!(lowered.definition().schema_version().0, 12);
+    assert_eq!(lowered.definition().schema_version().0, 13);
     let shared_ir = format!(
         "{}{}",
         semantic.to_canonical_json().unwrap(),
@@ -925,15 +925,15 @@ fn foo_to_bar(Foo: Term<dyn M2Obj>) -> Term<dyn M2Obj> { term!(Bar) }
     );
     assert_eq!(
         digest(&bundle.to_canonical_json().unwrap()),
-        "e82a11d0476e4f9b691fa211a36c337576037e52f40c34826768f579df2ad309"
+        "ea77345b3df160d42a9646a86ce6a8414854e3c996e78e7b28dd7b0f0385f841"
     );
     assert_eq!(
         digest(&semantic.to_canonical_json().unwrap()),
-        "5539edd0851a6c769a9b1a4c1373329598667fd8d46d49d68adffd27472861d9"
+        "4c3aa7c9488baf16bdfb654525997f5fbe8533041eb4c74dcc083545e364f644"
     );
     assert_eq!(
         digest(&lowered.definition().to_canonical_json().unwrap()),
-        "f34e904b2a92088319865a8562d4c44be3d6aad458d79bfa3830c8506e3e0a8d"
+        "b6a9959ff9aaac775a8fce846e9602e38fe486249fb0482c9c239b33e21fc54d"
     );
     assert_eq!(
         digest(&lowered.symbol_map().to_canonical_json().unwrap()),

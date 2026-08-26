@@ -27,7 +27,7 @@ class SourceLedgerTests(unittest.TestCase):
         self.assertIn("crates/krs-macros/tests/fixtures/negative/Cargo.lock", paths)
         self.assertIn("tests/m4/rust-definition/tools/lsp_probe.py", paths)
         self.assertIn("tests/m4/goldens/imp.identities.txt", paths)
-        self.assertIn("../inspirations/midnightntwrk/k-rust/Cargo.toml", paths)
+        self.assertIn("../inspirations/midnightntwrk/k-rust-krs/Cargo.toml", paths)
 
     def test_only_python_cache_is_ignored_in_external_source_tree(self) -> None:
         self.assertEqual(

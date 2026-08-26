@@ -94,7 +94,7 @@ The canonical KRS port is `semantics/kmir`, the corpus is `tests/kmir/corpus.tom
 The complete fixture gate passes with native builtin-list program storage and lookup:
 
 ```text
-PASS readable KMIR operational slice: 94 descriptors; 11 executions; 1 native proof; protocol 19; K 7.1.337
+PASS readable KMIR operational slice: 94 descriptors; 11 executions; 1 native proof; protocol 20; K 7.1.337
 ```
 
 The behavior matrix covers direct top-level return, constant assignment, ordered copied-local assignment, integer addition, sequential and nonadjacent indexed `Goto`, both Boolean `SwitchInt` outcomes, read-before-overwrite staging, third-block lookup in a three-element list, and both outcomes of the combined four-block specimen.
@@ -110,5 +110,7 @@ Six focused definition and hover probes pass with zero rust-analyzer diagnostics
 
 Descriptor protocol 19 and Definition IR schema 12 add K's selected `INT.mod` identity for the source-faithful KEVM arithmetic tranche.
 KMIR behavior, emitted K, and native proof evidence remain unchanged because this baseline does not consume that shared operation.
-The KEVM and unchanged KWasm gates pass at protocol 19 and Definition IR schema 12 with 25 and 32 executions respectively; KEVM closes two native proofs and KWasm closes one.
+Descriptor protocol 20 and Definition IR schema 13 add the selected integer exponentiation, logarithm, shift, and bitwise identities required by the KEVM Shanghai pure-word tranche.
+KMIR again does not consume these operations in its current qualified slice, so its behavior, emitted K, KORE, and proof evidence remain unchanged.
+The KEVM and unchanged KWasm gates pass at protocol 20 and Definition IR schema 13 with 81 and 32 executions respectively; KEVM closes three native proofs and KWasm closes one.
 The complete IMP M4 gate passes at the same versions with 124 descriptors, 98 parsed and 244 compiled sentences, native KORE parity at 1,206/1,206 sentences, unchanged behavior evidence `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, all 21 proof specifications, and unchanged compatibility evidence `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6`.

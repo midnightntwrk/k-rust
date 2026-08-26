@@ -6,7 +6,7 @@ rust-version = "1.88"
 publish = false
 
 [dependencies]
-k-rust = { path = "../../../../inspirations/midnightntwrk/k-rust/crates/k-rust", default-features = false }
+k-rust = { path = "../../../../inspirations/midnightntwrk/k-rust-krs/crates/k-rust", default-features = false }
 
 [workspace]
 resolver = "3"

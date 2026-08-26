@@ -4290,6 +4290,13 @@ mod protocol_v6_tests {
     struct Op15;
     struct Op16;
     struct Op17;
+    struct Op18;
+    struct Op19;
+    struct Op20;
+    struct Op21;
+    struct Op22;
+    struct Op23;
+    struct Op24;
     struct MapUpdateOp;
     struct ListOp0;
     struct ListOp1;
@@ -4331,6 +4338,13 @@ mod protocol_v6_tests {
             HostTypeKey(marker_key::<Op15>),
             HostTypeKey(marker_key::<Op16>),
             HostTypeKey(marker_key::<Op17>),
+            HostTypeKey(marker_key::<Op18>),
+            HostTypeKey(marker_key::<Op19>),
+            HostTypeKey(marker_key::<Op20>),
+            HostTypeKey(marker_key::<Op21>),
+            HostTypeKey(marker_key::<Op22>),
+            HostTypeKey(marker_key::<Op23>),
+            HostTypeKey(marker_key::<Op24>),
         ];
         HostBuiltinRegistry {
             sorts: BuiltinSort::ALL

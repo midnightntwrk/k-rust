@@ -170,6 +170,8 @@ use serde::{Deserialize, Serialize};
 /// Protocol v18 adds K's builtin associative `List` sort and selected unit,
 /// item, concatenation, lookup, update, and size operations.
 /// Protocol v19 adds K's builtin Euclidean integer-modulus operation.
+/// Protocol v20 adds K's native modular-power, logarithm, shift, and bitwise
+/// integer operations.
 /// Semantic and Definition IR schema versioning remains independent.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -177,8 +179,8 @@ pub struct ProtocolVersion(pub u32);
 
 impl ProtocolVersion {
     /// The protocol emitted by this release.
-    /// Protocol v19 adds the selected builtin `INT.mod` operation.
-    pub const CURRENT: Self = Self(19);
+    /// Protocol v20 adds the selected native integer word-operation boundary.
+    pub const CURRENT: Self = Self(20);
 }
 
 impl Default for ProtocolVersion {

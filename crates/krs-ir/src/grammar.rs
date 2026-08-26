@@ -29,6 +29,20 @@ pub enum BuiltinOperation {
     IntTDiv,
     /// `_modInt_`, Euclidean modulus (`INT.mod`).
     IntMod,
+    /// `_^%Int__`, modular exponentiation (`INT.powmod`).
+    IntPowMod,
+    /// `log2Int`, integer base-two logarithm (`INT.log2`).
+    IntLog2,
+    /// `_>>Int_`, arithmetic right shift (`INT.shr`).
+    IntShiftRight,
+    /// `_<<Int_`, left shift (`INT.shl`).
+    IntShiftLeft,
+    /// `_&Int_`, two's-complement bitwise conjunction (`INT.and`).
+    IntBitAnd,
+    /// `_xorInt_`, two's-complement bitwise exclusive disjunction (`INT.xor`).
+    IntBitXor,
+    /// `_|Int_`, two's-complement bitwise inclusive disjunction (`INT.or`).
+    IntBitOr,
     /// `_>=Int_`.
     IntGreaterEqual,
     /// `_>Int_`.
@@ -59,12 +73,19 @@ pub enum BuiltinOperation {
 
 impl BuiltinOperation {
     /// Complete protocol catalog in stable semantic order.
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 25] = [
         Self::IntAdd,
         Self::IntSub,
         Self::IntMul,
         Self::IntTDiv,
         Self::IntMod,
+        Self::IntPowMod,
+        Self::IntLog2,
+        Self::IntShiftRight,
+        Self::IntShiftLeft,
+        Self::IntBitAnd,
+        Self::IntBitXor,
+        Self::IntBitOr,
         Self::IntGreaterEqual,
         Self::IntGreater,
         Self::IntLessEqual,
@@ -89,6 +110,13 @@ impl BuiltinOperation {
             | Self::IntMul
             | Self::IntTDiv
             | Self::IntMod
+            | Self::IntPowMod
+            | Self::IntLog2
+            | Self::IntShiftRight
+            | Self::IntShiftLeft
+            | Self::IntBitAnd
+            | Self::IntBitXor
+            | Self::IntBitOr
             | Self::BytesLength
             | Self::BytesGet => BuiltinSort::Int,
             Self::IntGreaterEqual
@@ -118,6 +146,13 @@ impl BuiltinOperation {
             | Self::IntMul
             | Self::IntTDiv
             | Self::IntMod
+            | Self::IntPowMod
+            | Self::IntLog2
+            | Self::IntShiftRight
+            | Self::IntShiftLeft
+            | Self::IntBitAnd
+            | Self::IntBitXor
+            | Self::IntBitOr
             | Self::IntGreaterEqual
             | Self::IntGreater
             | Self::IntLessEqual
@@ -138,6 +173,8 @@ impl BuiltinOperation {
     #[must_use]
     pub const fn argument_sorts(self) -> &'static [BuiltinSort] {
         const INT_INT: &[BuiltinSort] = &[BuiltinSort::Int, BuiltinSort::Int];
+        const INT: &[BuiltinSort] = &[BuiltinSort::Int];
+        const INT_INT_INT: &[BuiltinSort] = &[BuiltinSort::Int, BuiltinSort::Int, BuiltinSort::Int];
         const BOOL: &[BuiltinSort] = &[BuiltinSort::Bool];
         const BOOL_BOOL: &[BuiltinSort] = &[BuiltinSort::Bool, BuiltinSort::Bool];
         const BYTES: &[BuiltinSort] = &[BuiltinSort::Bytes];
@@ -148,12 +185,19 @@ impl BuiltinOperation {
             | Self::IntMul
             | Self::IntTDiv
             | Self::IntMod
+            | Self::IntShiftRight
+            | Self::IntShiftLeft
+            | Self::IntBitAnd
+            | Self::IntBitXor
+            | Self::IntBitOr
             | Self::IntGreaterEqual
             | Self::IntGreater
             | Self::IntLessEqual
             | Self::IntLess
             | Self::IntEqual
             | Self::IntNotEqual => INT_INT,
+            Self::IntPowMod => INT_INT_INT,
+            Self::IntLog2 => INT,
             Self::BoolNot => BOOL,
             Self::BoolEqual | Self::BoolNotEqual | Self::BoolAnd | Self::BoolOr => BOOL_BOOL,
             Self::BytesLength => BYTES,

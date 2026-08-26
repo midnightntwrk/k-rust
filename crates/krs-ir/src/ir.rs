@@ -28,15 +28,16 @@ use crate::OriginStack;
 /// Definition IR for canonical K source emission. Schema v10 adds K's builtin
 /// `Bytes` sort and its selected operation identities. Schema v11 adds K's
 /// builtin associative `List` sort and selected operations. Schema v12 adds
-/// K's builtin Euclidean integer-modulus operation.
+/// K's builtin Euclidean integer-modulus operation. Schema v13 adds K's native
+/// modular-power, logarithm, shift, and bitwise integer operations.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct IrSchemaVersion(pub u32);
 
 impl IrSchemaVersion {
     /// Schema written by this release.
-    /// Schema v12 adds the selected builtin `INT.mod` operation.
-    pub const CURRENT: Self = Self(12);
+    /// Schema v13 adds the selected native integer word-operation boundary.
+    pub const CURRENT: Self = Self(13);
 }
 
 impl Default for IrSchemaVersion {

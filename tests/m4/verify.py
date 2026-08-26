@@ -517,10 +517,10 @@ def expected_source_ledger_paths() -> set[str]:
 
     paths.update(
         {
-            "../inspirations/midnightntwrk/k-rust/Cargo.lock",
-            "../inspirations/midnightntwrk/k-rust/Cargo.toml",
-            "../inspirations/midnightntwrk/k-rust/crates/k-rust/Cargo.toml",
-            "../inspirations/midnightntwrk/k-rust/crates/k-rust/src/kompile/compile.rs",
+            "../inspirations/midnightntwrk/k-rust-krs/Cargo.lock",
+            "../inspirations/midnightntwrk/k-rust-krs/Cargo.toml",
+            "../inspirations/midnightntwrk/k-rust-krs/crates/k-rust/Cargo.toml",
+            "../inspirations/midnightntwrk/k-rust-krs/crates/k-rust/src/kompile/compile.rs",
             "../inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/calc.k",
             "../inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k",
             "../inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/imp-verification.k",
@@ -644,7 +644,7 @@ def phase_preflight(context: Context) -> str:
     revisions = require_mapping(pins.get("revisions"), "pins.revisions")
     imp = ROOT.parent / "inspirations/runtimeverification/imp-semantics"
     k_checkout = ROOT.parent / "inspirations/runtimeverification/k"
-    native = ROOT.parent / "inspirations/midnightntwrk/k-rust"
+    native = ROOT.parent / "inspirations/midnightntwrk/k-rust-krs"
     observed = {
         "k": git_revision(k_checkout),
         "imp": git_revision(imp),
@@ -683,8 +683,8 @@ def phase_preflight(context: Context) -> str:
         "backends": ["haskell", "llvm"],
         "msrv": "1.88.0",
         "builtin_sorts": ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "List"],
-        "descriptor_protocol": 19,
-        "definition_ir_schema": 12,
+        "descriptor_protocol": 20,
+        "definition_ir_schema": 13,
         "k_commit": expected["k"],
         "k_rust_commit": expected["k_rust"],
         "llvm_existential_policy": "typed-backend-capability-error",
@@ -695,7 +695,7 @@ def phase_preflight(context: Context) -> str:
     lock_path = ROOT / "Krs.lock"
     expected_lock = {
         "schema": 1,
-        "schemas": {"descriptor_protocol": 19, "definition_ir": 12, "kast_json": 4},
+        "schemas": {"descriptor_protocol": 20, "definition_ir": 13, "kast_json": 4},
         "cargo": {"lock_sha256": sha256(ROOT / "Cargo.lock"), "msrv": "1.88.0"},
         "k": {
             "version": "7.1.337",
@@ -708,9 +708,13 @@ def phase_preflight(context: Context) -> str:
             ),
         },
         "k_rust": {
-            "version": "0.3.0",
+            "version": "0.4.0",
             "commit": expected["k_rust"],
             "tracked_crate_sha256": tracked_tree_digest(native, "crates/k-rust"),
+            "backend_version": "0.3.0",
+            "tracked_backend_sha256": tracked_tree_digest(native, "crates/k-rust-backend"),
+            "kore_version": "0.3.0",
+            "tracked_kore_sha256": tracked_tree_digest(native, "crates/k-rust-kore"),
         },
         "builtin_registry": {
             "source_sha256": sha256(ROOT / "crates/krs/src/lib.rs"),
@@ -725,12 +729,12 @@ def phase_preflight(context: Context) -> str:
     expected_lock_text = '''schema = 1
 
 [schemas]
-descriptor_protocol = 19
-definition_ir = 12
+descriptor_protocol = 20
+definition_ir = 13
 kast_json = 4
 
 [cargo]
-lock_sha256 = "dd7385849355c0f71f6578e2b9df1e5c78b184cbee40fb654772edb193dd98a2"
+lock_sha256 = "95bb513588c314f07e3b4298036037537c46a371a9e2515a619d97bcae12d7c6"
 msrv = "1.88.0"
 
 [k]
@@ -742,12 +746,16 @@ llvm_backend_version = "0.1.140"
 pyk_source_sha256 = "2b6ebc05e7c110927d2cab7d1bd08e0a1f80c9090a621ee541e82665147d88d4"
 
 [k_rust]
-version = "0.3.0"
-commit = "58f33885b736148dae189623d1aac989ce9be475"
-tracked_crate_sha256 = "0365ddf085bef244a00c04aaabd72a0ebd8cadbaaf8190605a31c5e387658d64"
+version = "0.4.0"
+commit = "3cce7a47941c4dc0664e6e870d4e0529d74753c6"
+tracked_crate_sha256 = "90585786b420471f1876f6a6d22fb9c13bab89e0420b579c94d690f1834b5535"
+backend_version = "0.3.0"
+tracked_backend_sha256 = "539816715fdca02419b9d8632075c0e324e900706ca2cd7f321e9c04ba505fef"
+kore_version = "0.3.0"
+tracked_kore_sha256 = "64e8e0088d13f76b266cff9237378fba100347a13c30e700cd85bf38130b7be7"
 
 [builtin_registry]
-source_sha256 = "c8010aac9b11b180939f8b1e9912fa96876e90f04d8043daba84c353428e5b98"
+source_sha256 = "39569777f5766d94f1881124b1a1176eba3baad0c4d369c065c160ff15b71674"
 sorts = ["KSequence", "Int", "Bool", "Map", "Id", "Bytes"]
 
 [solver]
@@ -788,7 +796,7 @@ llvm_existential_claims = "typed-backend-capability-error"
     msrv = run(["rustc", "+1.88.0", "--version"], timeout=30).stdout.strip()
     if not msrv.startswith("rustc 1.88.0 "):
         raise GateError(f"MSRV toolchain differs from Krs.lock: {msrv}")
-    return "exact sources, ledgers, tools, revisions, protocol 19, and IR schema 12"
+    return "exact sources, ledgers, tools, revisions, protocol 20, and IR schema 13"
 
 
 def phase_rust(context: Context) -> str:

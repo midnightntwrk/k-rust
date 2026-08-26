@@ -69,8 +69,8 @@ pub struct FrontendPin {
 
 /// The native frontend compatibility unit verified by this adapter.
 pub const FRONTEND_PIN: FrontendPin = FrontendPin {
-    crate_version: "0.3.0",
-    source_revision: "58f33885b736148dae189623d1aac989ce9be475",
+    crate_version: "0.4.0",
+    source_revision: "3cce7a47941c4dc0664e6e870d4e0529d74753c6",
     k_version: "7.1.337",
     k_source_revision: "4a46d1231473b599c699160132fd6e76a5c46406",
 };
@@ -81,7 +81,7 @@ pub enum Backend {
     /// Emit KORE for the LLVM backend.
     #[default]
     Llvm,
-    /// Emit KORE for the Haskell backend.
+    /// Emit symbolic KORE for the Rust backend through the historical Haskell compatibility name.
     Haskell,
 }
 
@@ -570,8 +570,7 @@ pub fn adapt_definition(ir: &DefinitionIr) -> Result<AdaptedDefinition, AdapterE
 
 /// Prepare one structurally adapted definition through public pinned APIs.
 ///
-/// The exact source pin predates `k-rust`'s later structured-definition
-/// convenience function. This compatibility layer first lets the public
+/// This compatibility layer first lets the public
 /// loader establish the bundled prelude, backend filtering, source-file set,
 /// and graph invariants from a fixed empty bootstrap module. It then replaces
 /// that module with the already-structured KRS modules, expands structured
@@ -594,7 +593,7 @@ pub fn prepare_definition(
     };
     let excluded = match backend {
         Backend::Llvm => kompile::CompilationBackend::Llvm.excluded_module_attribute(),
-        Backend::Haskell => kompile::CompilationBackend::Haskell.excluded_module_attribute(),
+        Backend::Haskell => kompile::CompilationBackend::Rust.excluded_module_attribute(),
     };
     let mut loaded = load_with_options(
         ResolvedSource::new(
@@ -998,13 +997,14 @@ pub fn compile_loaded_definition(
 ) -> Result<CompiledArtifacts, CompileError> {
     let backend = match options.backend {
         Backend::Llvm => kompile::CompilationBackend::Llvm,
-        Backend::Haskell => kompile::CompilationBackend::Haskell,
+        Backend::Haskell => kompile::CompilationBackend::Rust,
     };
     let artifacts = kompile::compile_loaded_definition(
         loaded,
         kompile::CompileOptions {
             backend,
             kore_width: options.kore_width,
+            default_claims_to_all_path: false,
         },
     )
     .map_err(CompileError::from)?;
@@ -2587,6 +2587,13 @@ const fn builtin_label(operation: BuiltinOperation) -> &'static str {
         BuiltinOperation::IntMul => "_*Int_",
         BuiltinOperation::IntTDiv => "_/Int_",
         BuiltinOperation::IntMod => "_modInt_",
+        BuiltinOperation::IntPowMod => "_^%Int__",
+        BuiltinOperation::IntLog2 => "log2Int",
+        BuiltinOperation::IntShiftRight => "_>>Int_",
+        BuiltinOperation::IntShiftLeft => "_<<Int_",
+        BuiltinOperation::IntBitAnd => "_&Int_",
+        BuiltinOperation::IntBitXor => "_xorInt_",
+        BuiltinOperation::IntBitOr => "_|Int_",
         BuiltinOperation::IntGreaterEqual => "_>=Int_",
         BuiltinOperation::IntGreater => "_>Int_",
         BuiltinOperation::IntLessEqual => "_<=Int_",

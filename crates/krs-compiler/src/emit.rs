@@ -1652,12 +1652,62 @@ fn render_builtin_application(
         output.push(" ]");
         return Ok(());
     }
+    if operation == BuiltinOperation::IntPowMod {
+        if arguments.len() != 3 {
+            return Err(EmitError::InvalidReference(format!(
+                "builtin operation {operation:?} has invalid arity {}",
+                arguments.len()
+            )));
+        }
+        output.append(render_builtin_argument(
+            &arguments[0],
+            context,
+            existentials,
+        )?);
+        output.push(" ^%Int ");
+        output.append(render_builtin_argument(
+            &arguments[1],
+            context,
+            existentials,
+        )?);
+        output.push(" ");
+        output.append(render_builtin_argument(
+            &arguments[2],
+            context,
+            existentials,
+        )?);
+        return Ok(());
+    }
+    if operation == BuiltinOperation::IntLog2 {
+        if arguments.len() != 1 {
+            return Err(EmitError::InvalidReference(format!(
+                "builtin operation {operation:?} has invalid arity {}",
+                arguments.len()
+            )));
+        }
+        output.push("log2Int(");
+        output.append(render_term_with_binders(
+            &arguments[0],
+            context,
+            false,
+            existentials,
+        )?);
+        output.push(")");
+        return Ok(());
+    }
     let (prefix, infix, expected) = match operation {
         BuiltinOperation::IntAdd => (None, Some("+Int"), 2),
         BuiltinOperation::IntSub => (None, Some("-Int"), 2),
         BuiltinOperation::IntMul => (None, Some("*Int"), 2),
         BuiltinOperation::IntTDiv => (None, Some("/Int"), 2),
         BuiltinOperation::IntMod => (None, Some("modInt"), 2),
+        BuiltinOperation::IntPowMod => unreachable!("modular power is rendered above"),
+        BuiltinOperation::IntLog2 => unreachable!("integer logarithm is rendered above"),
+        BuiltinOperation::IntShiftRight => (None, Some(">>Int"), 2),
+        BuiltinOperation::IntShiftLeft => (None, Some("<<Int"), 2),
+        BuiltinOperation::IntBitAnd => (None, Some("&Int"), 2),
+        BuiltinOperation::IntBitXor => (None, Some("xorInt"), 2),
+        BuiltinOperation::IntBitOr => (None, Some("|Int"), 2),
         BuiltinOperation::IntGreaterEqual => (None, Some(">=Int"), 2),
         BuiltinOperation::IntGreater => (None, Some(">Int"), 2),
         BuiltinOperation::IntLessEqual => (None, Some("<=Int"), 2),

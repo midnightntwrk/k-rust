@@ -30,7 +30,7 @@ PACKAGE = "krs-kevm-semantics"
 DEFINITION = "main"
 MODULE = "KRS-KEVM"
 SPEC_MODULE = f"{MODULE}-SPEC"
-DESCRIPTOR_COUNT = 250
+DESCRIPTOR_COUNT = 354
 ARTIFACTS = (
     ".krs-artifacts",
     "definition-ir.json",
@@ -201,8 +201,8 @@ def split_claims(source: str) -> tuple[str, list[str]]:
             index += 1
         claims.extend(lines[start:index])
     value = "".join(semantics)
-    if sum(line.startswith("  claim [") for line in claims) != 2:
-        raise GateError("expected exactly two emitted KEVM claims")
+    if sum(line.startswith("  claim [") for line in claims) != 3:
+        raise GateError("expected exactly three emitted KEVM claims")
     if "  claim [" in value or not value.endswith("endmodule\n"):
         raise GateError("claim stripping did not preserve a claim-free module")
     return value, claims
