@@ -20,8 +20,8 @@ The readable-IMP milestone is signed, and the first representative readable KWas
 Continue in this order:
 
 1. preserve the green readable IMP and KWasm gates as the authoring baseline;
-2. qualify a representative KMIR slice for current-K multi-cell and rule-shape stress;
-3. use only gaps exposed by that slice to extend the authoring contract, with KEVM available as the subsequent scale corpus and Kontrol reserved for product-facing proving workflows.
+2. qualify the user-requested representative KEVM slice for current-K production-semantic scale;
+3. qualify KMIR next for current-K multi-cell and rule-shape stress, extending the authoring contract only for evidence-backed gaps; keep Kontrol reserved for product-facing proving workflows.
 
 ## Authorities and path translation
 
@@ -750,9 +750,42 @@ The final M4 run proves:
 
 Phase 6 is complete from the signed milestone containing this record.
 
-### Phase 7 — future scale qualification beyond the current goal
+### Phase 7 — readable KEVM operational milestone — complete
 
-If the user starts a subsequent scale-qualification goal, use KMIR next because its K 7.1.337 pin matches KRS and it provides current-K multi-cell and rule-shape stress without immediately taking on KEVM scale.
+The user explicitly selected KEVM before KMIR. The first KEVM milestone is
+checked in under `tests/kevm/` and documented in
+`draft/readability/kevm/README.md`. It pins the clean KEVM checkout at
+`d818397e9b7ffa213d687e64418dc8f5293e1ce2`, whose K 7.1.337 release exactly
+matches KRS.
+
+The selected slice is based on KEVM's real opcode pipeline and checked-in
+opcode summaries. A structured program adapter replaces only Bytes decoding;
+the fixture retains PUSH widths, a recursive word stack, modulo-`2^256` ADD,
+PC observation and movement, gas deduction, successful halt, stack underflow,
+out-of-gas, and invalid-instruction status across five ordinary state cells.
+It therefore adds a resource-sensitive, status-bearing operational dimension
+beyond KWasm rather than cloning its arithmetic surface.
+
+No production KRS change was required. Existing protocol-16 fixed-leaf
+rewrites express the five simultaneous cell transitions, and existing guarded
+equations express KEVM's sufficient/insufficient gas partition. Bytes, maps,
+sets, bags, multiplicity cells, accounts, storage, calls, fork schedules,
+cryptographic hooks, priorities, `owise`, and full symbolic claims remain
+explicitly deferred.
+
+The fail-closed gate passes with 69 descriptors, deterministic readable and
+expanded compilation, emitted-K parity, K 7.1.337 native compilation, 14
+normal/exceptional executions, six zero-diagnostic rust-analyzer probes, and
+one native all-path claim closing with `#Top`. The behavior hash is
+`3cd26827055518f97e39af8eb30979712bb55ea132aff21009b683e531da35aa`; the
+normalized KORE hash is
+`672953aa73dbcce4aa15aae8e663e1a42e86d12816e6a16a21d4966edb7e5a04`.
+
+### Phase 8 — KMIR scale qualification — next
+
+With the user-requested KEVM milestone green, use KMIR next because its K
+7.1.337 pin matches KRS and it provides current-K control-flow, nested-state,
+and rule-shape stress distinct from both KWasm and the selected KEVM slice.
 Proceed in this order:
 
 1. read KMIR's repository instructions and inventory its syntax, configuration, module, rule, builtin, and claim shapes;
@@ -760,12 +793,12 @@ Proceed in this order:
 3. record the source-to-readable mapping and concrete unsupported shapes before changing KRS;
 4. implement only gaps required by the selected evidence;
 5. rerun the complete IMP, KWasm, and KMIR gates after each authoring extension;
-6. move to KEVM for scale only after the KMIR slice is green;
+6. preserve the signed KEVM milestone while qualifying KMIR;
 7. use Kontrol only when shaping product-facing proving and CLI workflows.
 
 Each corpus is an acceptance oracle, not a source of silent KRS syntax changes.
 Record every new construct as a spec decision before implementing it.
-KMIR, KEVM, and Kontrol are not prerequisites for the current readability/IMP/KWasm goal and must not silently expand it.
+Kontrol is not part of the active KEVM/KMIR scale goal and must not silently expand it.
 
 The normative formatter target remains:
 
@@ -807,9 +840,9 @@ The selected slices cross functional and operational modules, exercise simultane
 
 ## Immediate next action
 
-The signed milestone containing this record completes the current readability/IMP/KWasm goal; no recovery action remains.
-Await a subsequent user-authorized goal before beginning KMIR or another scale corpus.
-Do not reopen recovery forensics unless genuinely new evidence or media appears.
+Rerun the complete IMP and KWasm regressions, sign the coherent KEVM
+milestone, then inventory and qualify the user-requested KMIR corpus. Do not
+reopen recovery forensics unless genuinely new evidence or media appears.
 
 ## Audit hygiene
 
