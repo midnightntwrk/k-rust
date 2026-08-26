@@ -28,7 +28,7 @@ PACKAGE = "krs-kmir-semantics"
 DEFINITION = "main"
 MODULE = "KRS-KMIR"
 SPEC_MODULE = f"{MODULE}-SPEC"
-DESCRIPTORS = 103
+DESCRIPTORS = 94
 ARTIFACTS = (
     ".krs-artifacts",
     "definition-ir.json",
@@ -41,15 +41,20 @@ ARTIFACTS = (
 SOURCE_LEDGER_PATHS = (
     "crates/krs-compiler/src/collect.rs",
     "crates/krs-compiler/src/emit.rs",
+    "crates/krs-compiler/src/lowering.rs",
+    "crates/krs-compiler/src/overlap.rs",
     "crates/krs-compiler/src/reference.rs",
     "crates/krs-compiler/src/semantic.rs",
+    "crates/krs-compiler/src/sidecar.rs",
     "crates/krs-ir/src/definition.rs",
     "crates/krs-ir/src/grammar.rs",
     "crates/krs-ir/src/head_rule.rs",
     "crates/krs-ir/src/ir.rs",
     "crates/krs-ir/src/lib.rs",
+    "crates/krs-ir/src/protocol_v6.rs",
     "crates/krs-ir/src/protocol_v7_rule.rs",
     "crates/krs-ir/src/semantic.rs",
+    "crates/krs-ir/src/state.rs",
     "crates/krs-k-rust/src/lib.rs",
     "crates/krs-macros/src/expand.rs",
     "crates/krs-macros/src/lib.rs",
@@ -289,6 +294,12 @@ def artifact_gate(
         raise GateError("independent expansion changed syntax or configuration")
     if sentence.findall(readable) != sentence.findall(expanded_k):
         raise GateError("independent expansion changed rule or claim identities")
+    if "  imports LIST\n" not in readable:
+        raise GateError("emitted KMIR definition does not import pinned LIST")
+    if "BlockProgram" in readable or "<blocks>" in readable:
+        raise GateError("emitted KMIR definition retained the recursive block adapter")
+    if re.search(r"\{V[0-9A-F]+:List \[ V[0-9A-F]+:Int \]\}:>BasicBlock", readable) is None:
+        raise GateError("emitted KMIR definition omits typed builtin-list lookup")
     return outputs[0]
 
 
@@ -353,7 +364,6 @@ def native_gate(
                 definition,
                 "-cPGM=run",
                 f"-cPROGRAM={case['program']}",
-                "-cBLOCKS=.Map",
                 f"-cLOCALS={case['locals']}",
                 "-cRETVAL=noReturn",
                 "--output",
@@ -363,13 +373,11 @@ def native_gate(
         ).stdout
         if observed_cell(result, "k") != ".K":
             raise GateError(f"{case['id']} did not halt: {result}")
-        if observed_cell(result, "program") != ".BlockProgram":
-            raise GateError(f"{case['id']} did not consume its body: {result}")
-        blocks = observed_cell(result, "blocks")
-        block_count = len(re.findall(r"\|->\s*basicBlock", blocks))
+        program = observed_cell(result, "program")
+        block_count = len(re.findall(r"ListItem\(basicBlock", program))
         observed = {
             "id": str(case["id"]),
-            "blocks": blocks,
+            "program": program,
             "block_count": block_count,
             "locals": observed_cell(result, "locals"),
             "return": observed_cell(result, "retVal"),

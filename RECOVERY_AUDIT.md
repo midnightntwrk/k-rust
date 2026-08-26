@@ -874,6 +874,31 @@ The unchanged KWasm and KMIR baselines pass at protocol 17 and Definition IR sch
 The complete IMP M4 gate also passes every phase at protocol 17 and schema 10.
 Its emitted K, native KORE parity, behavior/search digest, proof outcomes, and compatibility digest remain unchanged; only the descriptor, Semantic IR, Definition IR, and source-sidecar identities moved with the shared protocol/schema unit.
 
+### Phase 11 — replace the KMIR block-program adapter with builtin List — complete
+
+The shared KRS authoring surface now includes K's associative builtin `List` in descriptor protocol 18 and Definition IR schema 11.
+The closed operation catalog covers `.List`, `ListItem`, associative concatenation, indexed lookup, persistent indexed update, and `size`.
+Semantic and Definition IR retain the dynamic result sort of indexed lookup, and canonical K emission uses an explicit projection such as `{PROGRAM:List [ INDEX:Int ]}:>BasicBlock`.
+The native `k-rust` adapter maps the same operations to `.List`, `ListItem`, `_List_`, `List:get`, `List:set`, and `sizeList`, with the required semantic cast on lookup.
+
+Focused tests qualify exact registry identities, alias safety, descriptor arity, Semantic and Definition IR validation, exact source emission, reference expansion, and native frontend adaptation.
+The three semantic source ledgers now include the shared lowering, overlap, sidecar, descriptor-protocol, and state files that participate in this surface.
+
+The KMIR package now stores `<program>` as `List<BasicBlock>` and begins execution directly at block index zero.
+The KRS-owned `BlockProgram` constructors, installer command, installed-block `Map`, and `<blocks>` cell are removed.
+The program list is preserved across execution, and `#execBlockIdx` performs direct typed list lookup.
+The all-path claim constructs and preserves the four-block program through `list::empty`, `list::item`, and `list::concat`.
+
+The fail-closed KMIR gate passes with 94 descriptors, 11 native executions, and one native all-path proof under K 7.1.337.
+Its structured behavior SHA-256 is `dd173192fa881b744030cef7b57aca8f646e2788b21397d00c826db0d41b4abf`.
+Its normalized KORE SHA-256 is `d71738e52d51bba416ee52391bf71a7ba9bf9a017b839c3493547f0b1f3c8d34`.
+
+The KEVM and KWasm gates pass unchanged at protocol 18 and Definition IR schema 11 with 85 and 60 descriptors, 14 and 32 executions, and one native proof each.
+The complete IMP M4.1–M4.8 gate passes at the same versions with byte-identical emitted K, 1,206/1,206 native KORE parity, unchanged behavior evidence `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, all 21 proof specifications, and unchanged compatibility evidence `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6`.
+
+This phase removes KMIR's block-program adapter.
+It does not complete the KMIR port: locals remain an untyped `Map`, and the source inventory still contains deferred type, projection, memory, call, unwind, intrinsic, arithmetic, priority, and symbolic-workflow surfaces.
+
 The normative formatter target remains:
 
 - `draft/readability/spec/imp.rs` first;
@@ -888,10 +913,10 @@ implementation authority.
 | Requirement | Authoritative evidence | Status |
 |---|---|---|
 | Finish `draft/readability/spec` | Normative `imp.rs`, deterministic `imp.expanded.rs`, implemented `decisions.md`, deliberately unresolved `open-questions.md`, and M4.2–M4.4 | complete; the trailing-comment policy, `{ .. }`, and no-k-head spelling remain explicitly open rather than silently resolved |
-| Make KRS work on IMP | Complete M4.1–M4.8 gate at protocol 17 and IR schema 10, including exact source projection, 1,206/1,206 native KORE parity, behavior hash `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, all proofs, and compatibility hash `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6` | complete |
-| Complete the KRS KWasm port | `semantics/coverage.toml`, canonical `semantics/kwasm`, and the fail-closed KWasm gate | incomplete: 8 equations and 8 machine rules qualify the arithmetic baseline against an 884-rule source inventory; the recursive List adapter and deferred semantic surfaces remain |
+| Make KRS work on IMP | Complete M4.1–M4.8 gate at protocol 18 and IR schema 11, including exact source projection, 1,206/1,206 native KORE parity, behavior hash `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, all proofs, and compatibility hash `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6` | complete |
+| Complete the KRS KWasm port | `semantics/coverage.toml`, canonical `semantics/kwasm`, and the fail-closed KWasm gate | incomplete: 8 equations and 8 machine rules qualify the arithmetic baseline against an 884-rule source inventory; recursive instruction and value-stack boundaries and deferred semantic surfaces remain |
 | Complete the KRS KEVM port | `semantics/coverage.toml`, canonical `semantics/kevm`, and the fail-closed KEVM gate | incomplete: 20 equations and 14 machine rules qualify the Bytes-backed opcode baseline against a 3,440-rule source inventory; the program adapter is removed, while the remaining opcode and stateful semantic surfaces remain |
-| Complete the KRS KMIR port | `semantics/coverage.toml`, canonical `semantics/kmir`, and the fail-closed KMIR gate | incomplete: 22 machine rules qualify the block-execution baseline against a 787-rule source inventory; the recursive List and untyped-local adapters and deferred semantic surfaces remain |
+| Complete the KRS KMIR port | `semantics/coverage.toml`, canonical `semantics/kmir`, and the fail-closed KMIR gate | incomplete: 22 machine rules qualify the block-execution baseline against a 787-rule source inventory; the block-program adapter is removed, while untyped locals and deferred semantic surfaces remain |
 | Preserve recovery boundaries | `krs.RECOVERY_PROVENANCE.md` and `../recovery/` remain unchanged; all reconstructed work is committed only in the live KRS repository | complete |
 
 Representative acceptance slices are evidence-backed baselines, not substitutes for the explicit full-port completion contract.
@@ -916,8 +941,10 @@ A port may be marked complete only when its pinned syntax, configuration, execut
 
 ## Immediate next action
 
-Complete KEVM next against the pinned `evm-semantics` inventory, then complete KMIR against the pinned `mir-semantics` inventory.
-Prefer shared KRS authoring features when the same source construct is required by multiple ports, but qualify every feature through the currently active port before broadening it.
+Resume full KEVM coverage next against the pinned `evm-semantics` inventory and its upstream behavior and proof suites.
+Select each next implementation tranche from an uncovered upstream syntax, configuration, executable-rule, behavior, or proof requirement; do not optimize further for already removed adapters or recovered intermediate state.
+After KEVM satisfies the completion contract, complete KMIR against the pinned `mir-semantics` inventory, beginning with its remaining typed-local and projection boundary only insofar as the selected upstream corpus requires it.
+Prefer shared KRS authoring features when the same source construct is required by multiple ports, but qualify every feature through the active port before broadening it.
 Preserve all three semantic gates and the complete IMP M4 gate at each coherent signed milestone.
 Return to any remaining KWasm inventory after KEVM and KMIR so the active three-port goal closes without deferred adapters or unrecorded source coverage.
 Do not reopen recovery forensics unless genuinely new evidence or media appears.

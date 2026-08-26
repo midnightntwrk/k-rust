@@ -77,17 +77,17 @@ def main() -> None:
 
         probes = [
             (
-                "block constructor",
-                "Execution::Install(Program::ProgramCons { index, block, tail })",
-                "ProgramCons",
-                "    ProgramCons {",
+                "block lookup command",
+                "Execution::ExecBlock(list::get(program, index))",
+                "ExecBlock",
+                "    ExecBlock { block: BasicBlock },",
                 0,
             ),
             (
-                "installer command",
-                "k: [Execution::Install(tail), ..]",
-                "Install",
-                "    Install { program: BlockProgram },",
+                "entry block command",
+                "Execution::ExecBlockIdx(0)",
+                "ExecBlockIdx",
+                "    ExecBlockIdx { index: Int },",
                 0,
             ),
             (

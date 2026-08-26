@@ -9,9 +9,9 @@ use krs_ir::{
     DefinitionSortRef, DefinitionTerm, DefinitionTermKind, FixedCell, FixedCellContent,
     FixedCellPattern, FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell,
     FixedInitializerContent, FormatFragment, GrammarProductionItemKind, GroupAssociativity,
-    LabelIdentity, MapOperation, ProductionAttribute, ProductionGroupId, ProductionSentence,
-    RuleSentence, SemanticId, SentenceKind, SourceMapKey, StrictnessKind, SymbolId, SymbolIdentity,
-    SymbolKind,
+    LabelIdentity, ListOperation, MapOperation, ProductionAttribute, ProductionGroupId,
+    ProductionSentence, RuleSentence, SemanticId, SentenceKind, SourceMapKey, StrictnessKind,
+    SymbolId, SymbolIdentity, SymbolKind,
 };
 
 use crate::sidecar::SidecarError;
@@ -203,6 +203,7 @@ impl<'a> EmitContext<'a> {
             DefinitionSortRef::Builtin(BuiltinSort::Id) => Ok("Id"),
             DefinitionSortRef::Builtin(BuiltinSort::Map) => Ok("Map"),
             DefinitionSortRef::Builtin(BuiltinSort::Bytes) => Ok("Bytes"),
+            DefinitionSortRef::Builtin(BuiltinSort::List) => Ok("List"),
         }
     }
 
@@ -361,6 +362,12 @@ impl BuiltinRequirements {
                     self.term(argument);
                 }
             }
+            DefinitionTermKind::List { arguments, .. } => {
+                self.sorts.insert(BuiltinSort::List);
+                for argument in arguments {
+                    self.term(argument);
+                }
+            }
             DefinitionTermKind::Rewrite { from, to } => {
                 self.term(from);
                 self.term(to);
@@ -460,36 +467,35 @@ fn builtin_imports(module: &DefinitionModule) -> Vec<String> {
             }
         }
     }
-    let mut imports = BTreeSet::new();
-    for sort in requirements.sorts {
-        match sort {
-            BuiltinSort::KSequence => {}
-            BuiltinSort::Int => {
-                imports.insert(if requirements.operations.contains(&BuiltinSort::Int) {
-                    "INT"
-                } else {
-                    "INT-SYNTAX"
-                });
-            }
-            BuiltinSort::Bool => {
-                imports.insert(if requirements.operations.contains(&BuiltinSort::Bool) {
-                    "BOOL"
-                } else {
-                    "BOOL-SYNTAX"
-                });
-            }
-            BuiltinSort::Id => {
-                imports.insert("ID-SYNTAX");
-            }
-            BuiltinSort::Map => {
-                imports.insert("MAP");
-            }
-            BuiltinSort::Bytes => {
-                imports.insert("BYTES");
-            }
-        }
-    }
+    let imports = requirements
+        .sorts
+        .into_iter()
+        .filter_map(|sort| builtin_import(sort, &requirements.operations))
+        .collect::<BTreeSet<_>>();
     imports.into_iter().map(str::to_owned).collect()
+}
+
+fn builtin_import(
+    sort: BuiltinSort,
+    operation_sorts: &BTreeSet<BuiltinSort>,
+) -> Option<&'static str> {
+    match sort {
+        BuiltinSort::KSequence => None,
+        BuiltinSort::Int => Some(if operation_sorts.contains(&BuiltinSort::Int) {
+            "INT"
+        } else {
+            "INT-SYNTAX"
+        }),
+        BuiltinSort::Bool => Some(if operation_sorts.contains(&BuiltinSort::Bool) {
+            "BOOL"
+        } else {
+            "BOOL-SYNTAX"
+        }),
+        BuiltinSort::Map => Some("MAP"),
+        BuiltinSort::Id => Some("ID-SYNTAX"),
+        BuiltinSort::Bytes => Some("BYTES"),
+        BuiltinSort::List => Some("LIST"),
+    }
 }
 
 fn emit_sentence(
@@ -1530,6 +1536,17 @@ fn render_term_with_binders(
             operation,
             arguments,
         } => render_map(*operation, arguments, context, existentials, &mut output)?,
+        DefinitionTermKind::List {
+            operation,
+            arguments,
+        } => render_list(
+            term.sort(),
+            *operation,
+            arguments,
+            context,
+            existentials,
+            &mut output,
+        )?,
         DefinitionTermKind::Rewrite { from, to } => {
             if !root_rewrite {
                 output.push("(");
@@ -1776,6 +1793,60 @@ fn render_map(
     Ok(())
 }
 
+fn render_list(
+    result_sort: &DefinitionSortRef,
+    operation: ListOperation,
+    arguments: &[DefinitionTerm],
+    context: &EmitContext<'_>,
+    existentials: &[DefinitionClaimBinder],
+    output: &mut Rendered,
+) -> Result<(), EmitError> {
+    let render = |argument: &DefinitionTerm| {
+        render_term_with_binders(argument, context, false, existentials)
+    };
+    match operation {
+        ListOperation::Empty if arguments.is_empty() => output.push(".List"),
+        ListOperation::Item if arguments.len() == 1 => {
+            output.push("ListItem(");
+            output.append(render(&arguments[0])?);
+            output.push(")");
+        }
+        ListOperation::Concat if arguments.len() == 2 => {
+            output.append(render(&arguments[0])?);
+            output.push(" ");
+            output.append(render(&arguments[1])?);
+        }
+        ListOperation::Get if arguments.len() == 2 => {
+            output.push("{");
+            output.append(render(&arguments[0])?);
+            output.push(" [ ");
+            output.append(render(&arguments[1])?);
+            output.push(" ]}:>");
+            output.push(context.sort_name_ref(result_sort)?);
+        }
+        ListOperation::Update if arguments.len() == 3 => {
+            output.append(render(&arguments[0])?);
+            output.push(" [ ");
+            output.append(render(&arguments[1])?);
+            output.push(" <- ");
+            output.append(render(&arguments[2])?);
+            output.push(" ]");
+        }
+        ListOperation::Size if arguments.len() == 1 => {
+            output.push("size(");
+            output.append(render(&arguments[0])?);
+            output.push(")");
+        }
+        _ => {
+            return Err(EmitError::InvalidReference(format!(
+                "List operation {operation:?} has invalid arity {}",
+                arguments.len()
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn sentence_group(sentence: &DefinitionSentence) -> u8 {
     match sentence {
         DefinitionSentence::SyntaxSort(_) => 0,
@@ -1845,4 +1916,122 @@ fn quoted(value: &str) -> String {
     }
     result.push('"');
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use krs_ir::{
+        DefinitionSortRef, DefinitionTerm, ListOperation, NodeOrigin, OriginStack, PackageId,
+        Sha256Digest, SourceFileId, SourceMapKey, SourceRange,
+    };
+
+    use super::{EmitContext, render_term};
+
+    fn node(key: &str) -> NodeOrigin {
+        let package = PackageId::new("KRS-EMIT-TEST", "emit-test", "0.1.0", "workspace").unwrap();
+        let file = SourceFileId::new(
+            package,
+            "src/lib.rs",
+            Sha256Digest::new("0123456789abcdef".repeat(4)).unwrap(),
+        )
+        .unwrap();
+        NodeOrigin::new(
+            SourceMapKey::new(key).unwrap(),
+            OriginStack::authored(SourceRange::new(file, 0, 1).unwrap()),
+        )
+    }
+
+    fn context() -> EmitContext<'static> {
+        EmitContext {
+            sorts: BTreeMap::new(),
+            productions: BTreeMap::new(),
+            groups: BTreeMap::new(),
+            non_associative_groups: BTreeSet::new(),
+            cells: BTreeMap::new(),
+            context_aliases: BTreeMap::new(),
+        }
+    }
+
+    fn empty(key: &str) -> DefinitionTerm {
+        DefinitionTerm::list(
+            node(key),
+            DefinitionSortRef::list(),
+            ListOperation::Empty,
+            vec![],
+        )
+    }
+
+    fn int(key: &str, value: &str) -> DefinitionTerm {
+        DefinitionTerm::token(node(key), DefinitionSortRef::int(), value).unwrap()
+    }
+
+    #[test]
+    fn builtin_list_operations_have_exact_canonical_k_source() {
+        let terms = [
+            (empty("list.empty"), ".List"),
+            (
+                DefinitionTerm::list(
+                    node("list.item"),
+                    DefinitionSortRef::list(),
+                    ListOperation::Item,
+                    vec![int("list.item.value", "1")],
+                ),
+                "ListItem(1)",
+            ),
+            (
+                DefinitionTerm::list(
+                    node("list.concat"),
+                    DefinitionSortRef::list(),
+                    ListOperation::Concat,
+                    vec![
+                        empty("list.concat.left"),
+                        DefinitionTerm::list(
+                            node("list.concat.right"),
+                            DefinitionSortRef::list(),
+                            ListOperation::Item,
+                            vec![int("list.concat.value", "1")],
+                        ),
+                    ],
+                ),
+                ".List ListItem(1)",
+            ),
+            (
+                DefinitionTerm::list(
+                    node("list.get"),
+                    DefinitionSortRef::int(),
+                    ListOperation::Get,
+                    vec![empty("list.get.base"), int("list.get.index", "0")],
+                ),
+                "{.List [ 0 ]}:>Int",
+            ),
+            (
+                DefinitionTerm::list(
+                    node("list.update"),
+                    DefinitionSortRef::list(),
+                    ListOperation::Update,
+                    vec![
+                        empty("list.update.base"),
+                        int("list.update.index", "0"),
+                        int("list.update.value", "1"),
+                    ],
+                ),
+                ".List [ 0 <- 1 ]",
+            ),
+            (
+                DefinitionTerm::list(
+                    node("list.size"),
+                    DefinitionSortRef::int(),
+                    ListOperation::Size,
+                    vec![empty("list.size.base")],
+                ),
+                "size(.List)",
+            ),
+        ];
+        let context = context();
+        for (term, expected) in terms {
+            assert_eq!(render_term(&term, &context, false).unwrap().text, expected);
+        }
+    }
 }

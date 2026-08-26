@@ -75,7 +75,7 @@ The program bytes remain unchanged across execution, matching KEVM's program-cel
 
 ## Selected KRS extension
 
-Descriptor protocol 17 and Definition IR schema 10 add the pinned `Bytes` sort, `BYTES.length`, `BYTES.get`, and claim-only byte tokens.
+Descriptor protocol 17 and Definition IR schema 10 introduced the pinned `Bytes` sort, `BYTES.length`, `BYTES.get`, and claim-only byte tokens.
 The compiler emits the native K surface exactly as `Bytes`, `lengthBytes(B)`, `B [ I ]`, and `b"\xhh..."`.
 The token transport is canonical lower hexadecimal and rejects malformed or noncanonical descriptor payloads.
 Reference expansion reconstructs `k::bytes!(b"...")` without retaining target-specific token text in authored Rust.
@@ -102,11 +102,10 @@ The canonical KRS port is `semantics/kevm`, the corpus is
 
 ## Qualification result
 
-The complete gate passes without a KRS syntax, protocol, IR, compiler, or
-runtime change:
+The complete gate passes at descriptor protocol 18 and Definition IR schema 11 without a change to emitted KEVM K, native behavior, or proof:
 
 ```text
-PASS readable KEVM operational slice: 85 descriptors; 14 executions; 1 native proof; protocol 17; K 7.1.337
+PASS readable KEVM operational slice: 85 descriptors; 14 executions; 1 native proof; protocol 18; K 7.1.337
 ```
 
 The behavior matrix covers empty-program success, one- and 32-byte PUSH

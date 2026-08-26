@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    BuiltinSort, FixedConfigurationRewrite, MapOperation, SemanticApplicationRef, SemanticId,
-    SemanticModule, SemanticRule, SemanticRuleBody, SemanticSortRef, SemanticTerm,
+    BuiltinSort, FixedConfigurationRewrite, ListOperation, MapOperation, SemanticApplicationRef,
+    SemanticId, SemanticModule, SemanticRule, SemanticRuleBody, SemanticSortRef, SemanticTerm,
     SemanticTermKind, StableItemId,
 };
 
@@ -38,6 +38,11 @@ enum Pattern {
         operation: MapOperation,
         arguments: Vec<Self>,
     },
+    List {
+        sort: SemanticSortRef,
+        operation: ListOperation,
+        arguments: Vec<Self>,
+    },
 }
 
 impl Pattern {
@@ -47,7 +52,8 @@ impl Pattern {
             | Self::Application { sort, .. }
             | Self::Token { sort, .. }
             | Self::KSequence { sort, .. }
-            | Self::Map { sort, .. } => sort,
+            | Self::Map { sort, .. }
+            | Self::List { sort, .. } => sort,
         }
     }
 }
@@ -227,6 +233,22 @@ impl<'graph> Unifier<'graph> {
                     _ => false,
                 }
             }
+            (
+                Pattern::List {
+                    sort: left_sort,
+                    operation: left_operation,
+                    arguments: left_arguments,
+                },
+                Pattern::List {
+                    sort: right_sort,
+                    operation: right_operation,
+                    arguments: right_arguments,
+                },
+            ) => {
+                self.graph.compatible(&left_sort, &right_sort)
+                    && left_operation == right_operation
+                    && self.unify_arguments(left_arguments, right_arguments)
+            }
             _ => false,
         }
     }
@@ -333,7 +355,8 @@ impl<'graph> Unifier<'graph> {
             | Pattern::KSequence {
                 items: arguments, ..
             }
-            | Pattern::Map { arguments, .. } => arguments
+            | Pattern::Map { arguments, .. }
+            | Pattern::List { arguments, .. } => arguments
                 .iter()
                 .any(|term| self.occurs(needle, term, visited)),
             Pattern::Token { .. } => false,
@@ -381,6 +404,17 @@ fn pattern(term: &SemanticTerm, rule: usize, catalog: &mut VariableCatalog) -> P
             operation,
             arguments,
         } => Pattern::Map {
+            sort: term.sort().clone(),
+            operation: *operation,
+            arguments: arguments
+                .iter()
+                .map(|argument| pattern(argument, rule, catalog))
+                .collect(),
+        },
+        SemanticTermKind::List {
+            operation,
+            arguments,
+        } => Pattern::List {
             sort: term.sort().clone(),
             operation: *operation,
             arguments: arguments

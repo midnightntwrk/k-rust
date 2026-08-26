@@ -1393,6 +1393,18 @@ fn lower_term(
                 .map(|argument| lower_term(argument, names, origins))
                 .collect::<Result<Vec<_>, _>>()?,
         )),
+        SemanticTermKind::List {
+            operation,
+            arguments,
+        } => Ok(DefinitionTerm::list(
+            origin,
+            lower_sort_ref(term.sort(), names)?,
+            *operation,
+            arguments
+                .iter()
+                .map(|argument| lower_term(argument, names, origins))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
     }
 }
 
@@ -1583,6 +1595,8 @@ fn _term_kind_is_exhaustive(kind: &DefinitionTermKind) -> bool {
             | DefinitionTermKind::Application { .. }
             | DefinitionTermKind::Token { .. }
             | DefinitionTermKind::KSequence { .. }
+            | DefinitionTermKind::Map { .. }
+            | DefinitionTermKind::List { .. }
             | DefinitionTermKind::Rewrite { .. }
     )
 }

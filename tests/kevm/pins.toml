@@ -5,8 +5,8 @@ behavior_sha256 = "8c0359e611d760916bdbca2966998b02a9ef38ee1e4a8467861b38bb793e8
 definition_kore_sha256 = "957aa5e19a3a49a832ad92753f785e797d1aa2f731c280030fc903791ed5f7a0"
 
 [schemas]
-descriptor_protocol = 17
-definition_ir = 10
+descriptor_protocol = 18
+definition_ir = 11
 
 [k]
 version = "7.1.337"
@@ -17,35 +17,40 @@ version = "7.1.337"
 commit = "d818397e9b7ffa213d687e64418dc8f5293e1ce2"
 
 [source_sha256]
-"crates/krs-compiler/src/collect.rs" = "20c5edd019a6d20fc7c7b7fcb1706c0cad4768d8a14f1d73aba45705c1f02850"
-"crates/krs-compiler/src/emit.rs" = "09fed3a19781d174fecf51e3420a384771da90b6c02dc558435fd0f7b25022b3"
-"crates/krs-compiler/src/reference.rs" = "232da788c8841c7ce5f1922ef6f56a9a5d411586b4f8743cfba11d682cb9e87b"
-"crates/krs-ir/src/definition.rs" = "9e78a72264bf33fa0c9c8b67025d529d46abdad514fc94d190b6a8341e0804e2"
+"crates/krs-compiler/src/collect.rs" = "f6a84d430d935366284df06f4405ac988438b29e80d0dc5402ca907811c72f16"
+"crates/krs-compiler/src/emit.rs" = "f47d38e8b4fa19f0b60fc5bc87e28b69edac51672089ad02bded0d8976f2b925"
+"crates/krs-compiler/src/lowering.rs" = "2725e4ff54b081ab23b90c3097e77ec452959fa4dd3901c251f4990ec1bcffa6"
+"crates/krs-compiler/src/overlap.rs" = "1c52e7964c414fcb55db7873a69709de9d615a7cb3df44460d407af37890c841"
+"crates/krs-compiler/src/reference.rs" = "1a0ce991f5ec670d37ab22de7b67a90e6e714d4b882a48830de5dff1082f8ecb"
+"crates/krs-compiler/src/semantic.rs" = "23d7ecd879304ab6395c7731b48ce7b5b7dbb76048a7cf04aae9058803ee3462"
+"crates/krs-compiler/src/sidecar.rs" = "632a37cf3d9c1748824ef217fd52406d8ae2e2d021217f5bd8a96f65dc6f2656"
+"crates/krs-ir/src/definition.rs" = "b4f370a0351ca0d27d40ceddfbfa145f578c40114fb68fc26871a1b5245c1b59"
 "crates/krs-ir/src/grammar.rs" = "2494f9ac21922cd0a094fd70dc73a92967c83f8841d1c3f9b38dce08199eb155"
-"crates/krs-compiler/src/semantic.rs" = "cfc63708b1116e61ac71a8a2372bd8f33ea0cf5b7c6e646f66bd1c245f28e76a"
 "crates/krs-ir/src/head_rule.rs" = "5a1938acd498bc2072830b4c1596e247492b9e4506208c869a40f2f038a6aef9"
-"crates/krs-ir/src/ir.rs" = "a5805023089fb0675794d485c158e2c4db13c226bb693495be351fb04174799e"
-"crates/krs-ir/src/lib.rs" = "92a4a4cef032c187ef0466d1d5e835948bcf8e22829ec7bce929a6443679ec45"
+"crates/krs-ir/src/ir.rs" = "dcb1fc2b3a8b13de621b9afcf2b5ef8e2e528aa1d63a4dba3fc47c91e0aaff74"
+"crates/krs-ir/src/lib.rs" = "ca9908decb404f82bab030cb64cbf0e4b6c1b4dc74cf89207f13b0e2dc213d08"
+"crates/krs-ir/src/protocol_v6.rs" = "a9779b03baf1ee1f31b5c34218a41127b0264b7531c0c88684566be7b1fe8a99"
 "crates/krs-ir/src/protocol_v7_rule.rs" = "cd24e775144e12982fe18a3c88a716295c34e3b8c0efe7ea8eadea80ed7befcc"
-"crates/krs-ir/src/semantic.rs" = "9afa53feac2cd2ba0895f74b73ac45a734a5041f12557a1e04790709484006f5"
-"crates/krs-k-rust/src/lib.rs" = "75bc3ebaef475284191effd7910520ca61009517efa2a1170e8d7487d548841c"
+"crates/krs-ir/src/semantic.rs" = "87554106e73e45e220384fac9e253f65387a861f5b06b15f9118103d7769c4b1"
+"crates/krs-ir/src/state.rs" = "262de8584a1d168957841304a2fcab2ab174f965dc778283351ccc991441819d"
+"crates/krs-k-rust/src/lib.rs" = "5325a00a3c7b283b5143c49b37546c069b99789491e7ad4194974d2456b10fae"
 "crates/krs-macros/src/expand.rs" = "5d13f657a55554fd2d8cdcd3837479a1d560d6446ced3ab5988b8effa1c17d50"
 "crates/krs-macros/src/lib.rs" = "f23bd66775da6c1b6b61e8fc41a28357d89a168019aa4715f902c2bf4b1aa6bd"
 "crates/krs-syntax/src/provenance.rs" = "eef64a0fe2b189c58e2a6fd654aae7fb18345bc475ffde4a403c2d99fa8480c9"
 "crates/krs-syntax/src/rule.rs" = "3fedb4f77c980f59bfba79e8bd559bd6dd4ec09f0740439a63173c9e722ca453"
 "crates/krs-syntax/src/state_rule.rs" = "0e074c70cf6851baf5e930c1bcecf7b0ccd3f1a6365616d1a3d060e8058438f4"
 "crates/krs-syntax/src/term.rs" = "41561bed131b412209dc5c7553a181acd463994c38717df402ebcdbaceaeb395"
-"crates/krs/src/lib.rs" = "9aef5b42fc697cab762b723e41ed7e60a5fafa6fcadd303c614ab67c1f8b2097"
-"draft/readability/kevm/README.md" = "9e07ebc8724bfdada016e1ddebb808254e95d8142a044b82685172d7fd076c51"
+"crates/krs/src/lib.rs" = "5cbaf8cd28d16a44cb948726fc0e054a63d79cf66a07771bf5278a4d0571f379"
+"draft/readability/kevm/README.md" = "0cc6159250ae66381fe158f2ef0f5d4d595706b87309e042e35118ef7fbc590e"
 "semantics/Cargo.lock" = "d30009a93da8a4896634964b6c51499aa5c52e6ffafeff173f2c10b60f7949f7"
 "semantics/Cargo.toml" = "8cdab663dc5f4a4380f16169849f55dd370e3b874de09a6756173488e039e962"
 "semantics/README.md" = "32b984af65cca4f577787df074567d8098fb5a70fa5012646562f40cdcd6925a"
-"semantics/coverage.toml" = "1c3b3b96e8e89074b47e00f946da0a9b4ba9f6c0aae2925adaeb7dff4ae3a6eb"
+"semantics/coverage.toml" = "cb9998657d07257592ea7fe0bc7f727e5237f91ff9b68ed93543eae648e402fe"
 "semantics/kevm/Cargo.toml" = "b6acc8b06246b2a7a5361f7e86fd46f5f68310bcb960bbd821c6a92ae1bb7037"
 "semantics/kevm/src/lib.rs" = "3aae267de15645713ce170c38287426adcc1949b76519568a525369b7affa576"
 "tests/kevm/corpus.toml" = "58659a333fb73aadca5f6ca7c238d3f587566e7352f93577ce89d280f79dce6c"
 "tests/kevm/lsp_probe.py" = "335724b5ab8115f4be9aa056d826bcf1a1659bdc81d216d18bcbdd22e16b8584"
-"tests/kevm/verify.py" = "820a7fc9b8d74d283906c44bc2b6aca2d4d6aec72472c283810de0e1b011f28d"
+"tests/kevm/verify.py" = "d0ef158f8269d231cd756924940f94c1d933d1547170aac5fd116394c3f2c814"
 
 [external_sha256]
 "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/evm.md" = "53b83cb23201f782da5f06cc0c907716a775330c0a37c0b31e8236b891ec2c0b"
@@ -60,9 +65,9 @@ commit = "d818397e9b7ffa213d687e64418dc8f5293e1ce2"
 
 [artifact_sha256]
 ".krs-artifacts" = "4992e03ec15408f887a401455c9f719384c6d5bb69e661487f91abe576ceb1b5"
-"definition-ir.json" = "d52016d4ac6925f08292a32ad7db1825f385b2f8fa8caec1623566a799d58b20"
+"definition-ir.json" = "9450b6644cfd5b86f39f15962728e89125f79ac1e827ff27e21a9b0c2518cb1b"
 "definition.k" = "ed7e9f2c22347812a4c0c43ea607bed2814d03334d7f9fa3e0ecb15bef702219"
-"descriptor-bundle.json" = "3e1dbad19730fa829afe5519694aaf5749ff99b368f067bdf7dca755d20408c7"
-"semantic-ir.json" = "60f407f4ac7ec6bc1e6b5be90e8a466a00084394b0d5a5cfb60837404ef5daaa"
-"sources.json" = "4d2ba38c59d1825c46a2a0aa137b4738a8b958a460dea4f515b203feffb9700b"
+"descriptor-bundle.json" = "c050032a437c223ff6462a31900b721d4b76fc3c8e34a83676428227a36e02f3"
+"semantic-ir.json" = "89d43d04b3ccb8768168c36846efe805960f8d443822ae6b1f1c73c6eb9dfd17"
+"sources.json" = "12eee2e1470fed65933fec24685db02a1229be445c432dd11baabd7babee2858"
 "symbols.json" = "80b73d40aae1060614dbe37382018bb27b6828d9f3f31fbeb2a32c4cf13eb60e"

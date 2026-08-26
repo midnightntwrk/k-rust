@@ -817,6 +817,7 @@ fn insert_term(
     match term.kind() {
         DefinitionTermKind::Application { arguments, .. }
         | DefinitionTermKind::Map { arguments, .. }
+        | DefinitionTermKind::List { arguments, .. }
         | DefinitionTermKind::KSequence {
             items: arguments, ..
         } => {

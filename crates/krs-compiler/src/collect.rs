@@ -1869,6 +1869,10 @@ fn resolve_application_reference(
             builtins.and_then(|registry| registry.resolve_map_operation(type_id))
         {
             DescriptorApplicationRef::Map(operation)
+        } else if let Some(operation) =
+            builtins.and_then(|registry| registry.resolve_list_operation(type_id))
+        {
+            DescriptorApplicationRef::List(operation)
         } else {
             return Err(CollectionError::new(
                 CollectionErrorKind::UnresolvedTypeReference,
@@ -4254,7 +4258,8 @@ mod protocol_v6_tests {
     use krs_ir::{
         BuiltinSort, HostApplicationReference, HostApplicationTarget,
         HostBuiltinOperationRegistration, HostBuiltinSortRegistration, HostEnumVariantReference,
-        HostMapOperationRegistration, HostTypeKey, MapOperation,
+        HostListOperationRegistration, HostMapOperationRegistration, HostTypeKey, ListOperation,
+        MapOperation,
     };
 
     struct Boolean;
@@ -4266,6 +4271,7 @@ mod protocol_v6_tests {
     struct SortMap;
     struct SortId;
     struct SortBytes;
+    struct SortList;
     struct Op0;
     struct Op1;
     struct Op2;
@@ -4284,6 +4290,12 @@ mod protocol_v6_tests {
     struct Op15;
     struct Op16;
     struct MapUpdateOp;
+    struct ListOp0;
+    struct ListOp1;
+    struct ListOp2;
+    struct ListOp3;
+    struct ListOp4;
+    struct ListOp5;
 
     fn marker_key<T: 'static>() -> TypeId {
         TypeId::of::<T>()
@@ -4297,6 +4309,7 @@ mod protocol_v6_tests {
             HostTypeKey(marker_key::<SortMap>),
             HostTypeKey(marker_key::<SortId>),
             HostTypeKey(marker_key::<SortBytes>),
+            HostTypeKey(marker_key::<SortList>),
         ];
         let operation_keys = [
             HostTypeKey(marker_key::<Op0>),
@@ -4332,6 +4345,18 @@ mod protocol_v6_tests {
                 operation: MapOperation::Update,
                 target: HostTypeKey(marker_key::<MapUpdateOp>),
             }],
+            list_operations: ListOperation::TERM_APPLICATIONS
+                .into_iter()
+                .zip([
+                    HostTypeKey(marker_key::<ListOp0>),
+                    HostTypeKey(marker_key::<ListOp1>),
+                    HostTypeKey(marker_key::<ListOp2>),
+                    HostTypeKey(marker_key::<ListOp3>),
+                    HostTypeKey(marker_key::<ListOp4>),
+                    HostTypeKey(marker_key::<ListOp5>),
+                ])
+                .map(|(operation, target)| HostListOperationRegistration { operation, target })
+                .collect(),
         }
     }
 
@@ -4481,6 +4506,24 @@ mod protocol_v6_tests {
         assert_eq!(
             map_update.application,
             DescriptorApplicationRef::Map(MapOperation::Update)
+        );
+
+        let list_get = resolve_application_reference(
+            &HostApplicationReference {
+                key: ProvenanceKey::new("rule_right_application_head", 1).unwrap(),
+                target: HostApplicationTarget::Nominal(HostTypeReference {
+                    key: HostTypeKey(marker_key::<ListOp3>),
+                    authored_path: "indexed_lookup".into(),
+                }),
+            },
+            &HashMap::new(),
+            Some(&registry),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            list_get.application,
+            DescriptorApplicationRef::List(ListOperation::Get)
         );
 
         let lookalike = resolve_application_reference(

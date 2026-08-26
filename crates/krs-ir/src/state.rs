@@ -822,6 +822,39 @@ impl MapOperation {
     pub const TERM_APPLICATIONS: [Self; 1] = [Self::Update];
 }
 
+/// Exact builtin-list operations selected from pinned module `LIST`.
+///
+/// List elements deliberately retain their authored sorts. The K frontend
+/// injects them into `KItem` at `ListItem`, lookup, and update boundaries.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ListOperation {
+    /// Empty list unit (`.List`).
+    Empty,
+    /// Singleton list element (`ListItem(K)`).
+    Item,
+    /// Associative list concatenation (`L1 L2`).
+    Concat,
+    /// Indexed element lookup (`L[I]`).
+    Get,
+    /// Persistent indexed update (`L[I <- K]`).
+    Update,
+    /// List length (`size(L)`).
+    Size,
+}
+
+impl ListOperation {
+    /// Complete ordinary application catalog in stable semantic order.
+    pub const TERM_APPLICATIONS: [Self; 6] = [
+        Self::Empty,
+        Self::Item,
+        Self::Concat,
+        Self::Get,
+        Self::Update,
+        Self::Size,
+    ];
+}
+
 /// Locally invalid fixed-state structure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StateShapeError {

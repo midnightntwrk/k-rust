@@ -4,7 +4,7 @@
 //! `../../draft/readability/kmir/README.md`.
 
 use k::KResult;
-use k::builtin::{Bool, Int, KSequence, Map, int, map};
+use k::builtin::{Bool, Int, KSequence, List, Map, int, list, map};
 #[allow(unused_imports)]
 use k::map;
 
@@ -16,7 +16,6 @@ k::sorts! {
     Statements: k::KItem;
     Terminator: k::KItem;
     BasicBlock: k::KItem;
-    BlockProgram: k::KItem;
     RetVal: k::KItem;
     Continuation: k::KItem;
     Command: k::KItem;
@@ -90,20 +89,6 @@ pub enum BlockSyntax {
     },
 }
 
-/// Checked recursive adapter for KMIR's serialized `BasicBlocks` list.
-#[k::constructors(sort = BlockProgram, result = KResult)]
-#[k::precedence((ProgramEmpty, ProgramCons))]
-pub enum Program {
-    #[k::syntax(".BlockProgram")]
-    ProgramEmpty(),
-    #[k::syntax("blockEntry({index}, {block}, {tail})")]
-    ProgramCons {
-        index: Int,
-        block: BasicBlock,
-        tail: BlockProgram,
-    },
-}
-
 #[k::constructors(sort = RetVal, result = KResult)]
 #[k::precedence((NoReturn, Returned))]
 pub enum ReturnValue {
@@ -129,7 +114,6 @@ pub enum EvaluationContinuation {
 #[k::constructors(sort = Command, result = KResult)]
 #[k::precedence((
     Run,
-    Install,
     ExecBlockIdx,
     ExecBlock,
     ExecStmts,
@@ -144,8 +128,6 @@ pub enum EvaluationContinuation {
 pub enum Execution {
     #[k::syntax("run")]
     Run(),
-    #[k::syntax("#installBlocks({program})")]
-    Install { program: BlockProgram },
     #[k::syntax("#execBlockIdx({index})")]
     ExecBlockIdx { index: Int },
     #[k::syntax("#execBlock({block})")]
@@ -180,9 +162,7 @@ pub struct Machine {
     #[k::cell(name = "k")]
     pub k: KSequence,
     #[k::cell(name = "program")]
-    pub program: BlockProgram,
-    #[k::cell(name = "blocks")]
-    pub blocks: Map<Int, BasicBlock>,
+    pub program: List<BasicBlock>,
     #[k::cell(name = "locals")]
     pub locals: Map<Int, MirValue>,
     #[k::cell(name = "retVal")]
@@ -193,15 +173,13 @@ impl Machine {
     #[k::init]
     pub fn init(
         #[k::config_var(name = "PGM", main)] command: KSequence,
-        #[k::config_var(name = "PROGRAM")] program: BlockProgram,
-        #[k::config_var(name = "BLOCKS")] blocks: Map<Int, BasicBlock>,
+        #[k::config_var(name = "PROGRAM")] program: List<BasicBlock>,
         #[k::config_var(name = "LOCALS")] locals: Map<Int, MirValue>,
         #[k::config_var(name = "RETVAL")] ret_val: RetVal,
     ) -> Self {
         Self {
             k: k::k![command],
             program,
-            blocks,
             locals,
             ret_val,
         }
@@ -215,33 +193,19 @@ k::rules! {
         k: [Execution::Run(), ..],
         program: program,
     } => {
-        k: [Execution::Install(program), ..],
-        program: Program::ProgramEmpty(),
-    }
-    where program: BlockProgram;
-
-    install_block: {
-        k: [Execution::Install(Program::ProgramCons { index, block, tail }), ..],
-        blocks: blocks,
-    } => {
-        k: [Execution::Install(tail), ..],
-        blocks: map::update(blocks, index, block),
-    }
-    where index: Int, block: BasicBlock, tail: BlockProgram;
-
-    install_done: {
-        k: [Execution::Install(Program::ProgramEmpty()), ..],
-    } => {
         k: [Execution::ExecBlockIdx(0), ..],
-    };
+        program: program,
+    }
+    where program: List;
 
     lookup_block: {
         k: [Execution::ExecBlockIdx(index), ..],
-        blocks: { index -> block, .. },
+        program: program,
     } => {
-        k: [Execution::ExecBlock(block), ..],
+        k: [Execution::ExecBlock(list::get(program, index)), ..],
+        program: program,
     }
-    where index: Int;
+    where index: Int, program: List;
 
     exec_block: {
         k: [Execution::ExecBlock(BlockSyntax::Block { statements, terminator }), ..],
@@ -381,14 +345,13 @@ k::rules! {
     };
 }
 
-/// All-path claim spanning body installation, local dataflow, graph control, and return.
-#[k::claim(all_paths, label = "install-add-switch-return")]
-fn install_add_switch_return(
+/// All-path claim spanning builtin-list block lookup, local dataflow, graph control, and return.
+#[k::claim(all_paths, label = "list-add-switch-return")]
+fn list_add_switch_return(
     k::cells! {
         k: k::configuration::KCell(Execution::Run()),
-        program: k::configuration::Cell(Program::ProgramCons(
-            0,
-            BlockSyntax::Block(
+        program: k::configuration::Cell(list::concat(
+            list::item(BlockSyntax::Block(
                 StatementList::StatementsCons(
                     MirStatement::Assign(1, MirRvalue::Use(MirOperand::Constant(Value::Integer(20)))),
                     StatementList::StatementsCons(
@@ -403,46 +366,41 @@ fn install_add_switch_return(
                     ),
                 ),
                 MirTerminator::Goto(1),
-            ),
-            Program::ProgramCons(
-                1,
-                BlockSyntax::Block(
+            )),
+            list::concat(
+                list::item(BlockSyntax::Block(
                     StatementList::StatementsEmpty(),
                     MirTerminator::SwitchInt(MirOperand::Copy(4), 2, 3),
-                ),
-                Program::ProgramCons(
-                    2,
-                    BlockSyntax::Block(
+                )),
+                list::concat(
+                    list::item(BlockSyntax::Block(
                         StatementList::StatementsCons(
                             MirStatement::Assign(0, MirRvalue::Use(MirOperand::Copy(3))),
                             StatementList::StatementsEmpty(),
                         ),
                         MirTerminator::Return(),
-                    ),
-                    Program::ProgramCons(
-                        3,
-                        BlockSyntax::Block(
+                    )),
+                    list::concat(
+                        list::item(BlockSyntax::Block(
                             StatementList::StatementsCons(
                                 MirStatement::Assign(0, MirRvalue::Use(MirOperand::Constant(Value::Integer(0)))),
                                 StatementList::StatementsEmpty(),
                             ),
                             MirTerminator::Return(),
-                        ),
-                        Program::ProgramEmpty(),
+                        )),
+                        list::empty(),
                     ),
                 ),
             ),
         )),
-        blocks: k::configuration::Cell(map![.Map]),
         locals: k::configuration::Cell(map![.Map]),
         ret_val: k::configuration::Cell(ReturnValue::NoReturn()),
     }: Machine,
 ) -> Machine {
     k::cells! {
         k: k::configuration::KCell(.K),
-        program: k::configuration::Cell(Program::ProgramEmpty()),
-        blocks: k::configuration::Cell(map![
-            0 -> BlockSyntax::Block(
+        program: k::configuration::Cell(list::concat(
+            list::item(BlockSyntax::Block(
                 StatementList::StatementsCons(
                     MirStatement::Assign(1, MirRvalue::Use(MirOperand::Constant(Value::Integer(20)))),
                     StatementList::StatementsCons(
@@ -457,26 +415,33 @@ fn install_add_switch_return(
                     ),
                 ),
                 MirTerminator::Goto(1),
-            ),
-            1 -> BlockSyntax::Block(
-                StatementList::StatementsEmpty(),
-                MirTerminator::SwitchInt(MirOperand::Copy(4), 2, 3),
-            ),
-            2 -> BlockSyntax::Block(
-                StatementList::StatementsCons(
-                    MirStatement::Assign(0, MirRvalue::Use(MirOperand::Copy(3))),
+            )),
+            list::concat(
+                list::item(BlockSyntax::Block(
                     StatementList::StatementsEmpty(),
+                    MirTerminator::SwitchInt(MirOperand::Copy(4), 2, 3),
+                )),
+                list::concat(
+                    list::item(BlockSyntax::Block(
+                        StatementList::StatementsCons(
+                            MirStatement::Assign(0, MirRvalue::Use(MirOperand::Copy(3))),
+                            StatementList::StatementsEmpty(),
+                        ),
+                        MirTerminator::Return(),
+                    )),
+                    list::concat(
+                        list::item(BlockSyntax::Block(
+                            StatementList::StatementsCons(
+                                MirStatement::Assign(0, MirRvalue::Use(MirOperand::Constant(Value::Integer(0)))),
+                                StatementList::StatementsEmpty(),
+                            ),
+                            MirTerminator::Return(),
+                        )),
+                        list::empty(),
+                    ),
                 ),
-                MirTerminator::Return(),
             ),
-            3 -> BlockSyntax::Block(
-                StatementList::StatementsCons(
-                    MirStatement::Assign(0, MirRvalue::Use(MirOperand::Constant(Value::Integer(0)))),
-                    StatementList::StatementsEmpty(),
-                ),
-                MirTerminator::Return(),
-            ),
-        ]),
+        )),
         locals: k::configuration::Cell(map![
             0 -> Value::Integer(42),
             1 -> Value::Integer(20),
@@ -496,6 +461,7 @@ mod tests {
         PackageContext, collect_host_descriptors_with_builtins, emit_k, lower_descriptor_bundle,
         lower_semantic_theory,
     };
+    use krs_ir::{DefinitionIr, SemanticTheory};
 
     fn package_context() -> PackageContext {
         PackageContext::new(
@@ -507,6 +473,27 @@ mod tests {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"),
         )
         .expect("valid package context")
+    }
+
+    fn remove_first_list_get_argument(value: &mut serde_json::Value) -> bool {
+        match value {
+            serde_json::Value::Object(object) => {
+                if object.get("term_kind").and_then(serde_json::Value::as_str) == Some("list")
+                    && object.get("operation").and_then(serde_json::Value::as_str) == Some("get")
+                    && let Some(arguments) = object
+                        .get_mut("arguments")
+                        .and_then(serde_json::Value::as_array_mut)
+                {
+                    arguments.pop();
+                    return true;
+                }
+                object.values_mut().any(remove_first_list_get_argument)
+            }
+            serde_json::Value::Array(values) => {
+                values.iter_mut().any(remove_first_list_get_argument)
+            }
+            _ => false,
+        }
     }
 
     #[test]
@@ -531,10 +518,32 @@ mod tests {
         let semantic = lower_descriptor_bundle(&first).expect("KMIR descriptors lower");
         let definition = lower_semantic_theory(&semantic).expect("KMIR theory lowers");
         let source = emit_k(&definition).expect("KMIR definition emits");
-        assert!(source.source().contains("<blocks>"));
+        let semantic_json = semantic.to_canonical_json().unwrap();
+        let definition_json = definition.definition().to_canonical_json().unwrap();
+        assert!(semantic_json.contains(r#""term_kind": "list""#));
+        assert!(semantic_json.contains(r#""operation": "get""#));
+        assert!(definition_json.contains(r#""term_kind": "list""#));
+        assert!(definition_json.contains(r#""operation": "get""#));
+        assert!(source.source().contains("imports LIST"));
+        assert!(!source.source().contains("<blocks>"));
         assert!(source.source().contains("<locals>"));
         assert!(source.source().contains("#execBlockIdx"));
+        assert!(source.source().contains("ListItem("));
+        assert!(source.source().contains(".List"));
+        assert!(
+            source
+                .source()
+                .contains("{V70726F6772616D:List [ V696E646578:Int ]}:>BasicBlock")
+        );
         assert!(source.source().contains("switchInt"));
         assert!(source.source().contains("#EndProgram"));
+
+        let mut invalid_semantic: serde_json::Value = serde_json::from_str(&semantic_json).unwrap();
+        assert!(remove_first_list_get_argument(&mut invalid_semantic));
+        assert!(serde_json::from_value::<SemanticTheory>(invalid_semantic).is_err());
+        let mut invalid_definition: serde_json::Value =
+            serde_json::from_str(&definition_json).unwrap();
+        assert!(remove_first_list_get_argument(&mut invalid_definition));
+        assert!(serde_json::from_value::<DefinitionIr>(invalid_definition).is_err());
     }
 }

@@ -45,9 +45,9 @@ use krs_ir::{
     DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind, FixedCell,
     FixedCellContent, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, FormatFragment,
-    GrammarProductionItemKind, GroupAssociativity, MapOperation, NodeOrigin, OriginFrame,
-    ProductionGroupId, ProductionSentence, RuleSentence, SemanticId, SentenceKind, SourceMapKey,
-    StableItemId, StrictnessKind, SymbolId,
+    GrammarProductionItemKind, GroupAssociativity, ListOperation, MapOperation, NodeOrigin,
+    OriginFrame, ProductionGroupId, ProductionSentence, RuleSentence, SemanticId, SentenceKind,
+    SourceMapKey, StableItemId, StrictnessKind, SymbolId,
 };
 use serde_json::json;
 
@@ -2032,6 +2032,32 @@ impl Adapter {
                     .collect::<Result<Vec<_>, _>>()?;
                 Self::map_term(*operation, arguments, term.origin())
             }
+            DefinitionTermKind::List {
+                operation,
+                arguments,
+            } => {
+                let arguments = arguments
+                    .iter()
+                    .enumerate()
+                    .map(|(index, argument)| {
+                        let mut child_path = path.clone();
+                        child_path.push(u32::try_from(index).unwrap_or(u32::MAX));
+                        self.term(argument, module, sentence_index, child_path, context, rule)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let native = Self::list_term(*operation, arguments, term.origin())?;
+                if *operation == ListOperation::Get {
+                    Ok(NativeTerm::apply(
+                        format!(
+                            "#SemanticCastTo{}",
+                            self.sort(term.sort(), term.origin())?.name
+                        ),
+                        vec![native],
+                    ))
+                } else {
+                    Ok(native)
+                }
+            }
             DefinitionTermKind::Rewrite { from, to } => {
                 let mut left_path = path.clone();
                 left_path.push(0);
@@ -2089,6 +2115,29 @@ impl Adapter {
         }
     }
 
+    fn list_term(
+        operation: ListOperation,
+        arguments: Vec<NativeTerm>,
+        origin: &NodeOrigin,
+    ) -> Result<NativeTerm, AdapterError> {
+        let label = match (operation, arguments.len()) {
+            (ListOperation::Empty, 0) => ".List",
+            (ListOperation::Item, 1) => "ListItem",
+            (ListOperation::Concat, 2) => "_List_",
+            (ListOperation::Get, 2) => "List:get",
+            (ListOperation::Update, 3) => "List:set",
+            (ListOperation::Size, 1) => "sizeList",
+            _ => {
+                return Err(AdapterError::MissingReference {
+                    key: origin.key().clone(),
+                    kind: "List operation arity",
+                    target: format!("{operation:?}/{}", arguments.len()),
+                });
+            }
+        };
+        Ok(NativeTerm::apply(label, arguments))
+    }
+
     fn sort(
         &self,
         sort: &DefinitionSortRef,
@@ -2102,6 +2151,7 @@ impl Adapter {
             DefinitionSortRef::Builtin(BuiltinSort::Map) => "Map",
             DefinitionSortRef::Builtin(BuiltinSort::Id) => "Id",
             DefinitionSortRef::Builtin(BuiltinSort::Bytes) => "Bytes",
+            DefinitionSortRef::Builtin(BuiltinSort::List) => "List",
         }))
     }
 
@@ -2273,6 +2323,7 @@ fn module_builtin_imports(module: &krs_ir::DefinitionModule) -> BTreeSet<String>
             BuiltinSort::Map => Some("MAP".to_owned()),
             BuiltinSort::Id => Some("ID-SYNTAX".to_owned()),
             BuiltinSort::Bytes => Some("BYTES".to_owned()),
+            BuiltinSort::List => Some("LIST".to_owned()),
         })
         .collect()
 }
@@ -2307,6 +2358,12 @@ fn collect_term_builtins(term: &DefinitionTerm, output: &mut BTreeSet<BuiltinSor
         }
         DefinitionTermKind::Map { arguments, .. } => {
             output.insert(BuiltinSort::Map);
+            for argument in arguments {
+                collect_term_builtins(argument, output);
+            }
+        }
+        DefinitionTermKind::List { arguments, .. } => {
+            output.insert(BuiltinSort::List);
             for argument in arguments {
                 collect_term_builtins(argument, output);
             }
@@ -2467,7 +2524,8 @@ fn term_contains_variable(term: &DefinitionTerm, variable: &SemanticId) -> bool 
         | DefinitionTermKind::KSequence {
             items: arguments, ..
         }
-        | DefinitionTermKind::Map { arguments, .. } => arguments
+        | DefinitionTermKind::Map { arguments, .. }
+        | DefinitionTermKind::List { arguments, .. } => arguments
             .iter()
             .any(|argument| term_contains_variable(argument, variable)),
         DefinitionTermKind::Rewrite { from, to } => {

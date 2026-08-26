@@ -158,10 +158,10 @@ The fail-closed qualification entry point is `python3 tests/kwasm/verify.py`.
 
 ## Qualification result
 
-The complete gate passes with KRS descriptor protocol 16, Definition IR schema 9, K 7.1.337, and the qualified rust-analyzer 1.97.1:
+The complete gate passes with KRS descriptor protocol 18, Definition IR schema 11, K 7.1.337, and the qualified rust-analyzer 1.97.1:
 
 ```text
-PASS readable KWasm integer slice: 60 descriptors; 32 executions; 1 native proof; protocol 16; K 7.1.337
+PASS readable KWasm integer slice: 60 descriptors; 32 executions; 1 native proof; protocol 18; K 7.1.337
 ```
 
 The 32 native executions cover both integer widths, zero, maxima, negative constants, operand order, nesting, every selected add/sub/mul wraparound form, exact and truncated unsigned division, high-bit unsigned values, and divide-by-zero traps.
@@ -169,12 +169,12 @@ The checked-in all-path simple-addition claim closes with `#Top` through `kprove
 Six focused definition/hover probes pass with zero rust-analyzer diagnostics, including the new trap constructor.
 
 The native `definition.kore` pin normalizes only the temporary absolute `semantics.k` path and K-generated alpha names in the standard `isSort` membership axioms.
-Repeated compilations converge to normalized SHA-256 `53e07c223f166b3ba60f2226dc57a17d1fb0256532f6fea4c0ad6770151c600d`.
+Repeated compilations converge to normalized SHA-256 `d85e22389012617a27323d2cdece0340c8e5bc45364a1d499118a50f2972f4bb`.
 The structured value-versus-trap behavior SHA-256 is `4a3b6107cb23fa451a392d0a0ef1d42203d5eb64cda8cbcda025e75d2458afd5`.
 
 The acceptance contract is emitted K compilation, execution, and proof.
 An optional direct structured `k-rust` compilation experiment reaches an unrelated no-map embedded-prelude `Map:lookup` failure and is deliberately outside this slice's gate.
 
-The complete IMP M4 gate also passes after the fixture-only division/trap extension at descriptor protocol 16.
-Its semantic, behavior, proof, native KORE, and compatibility evidence is unchanged; only the descriptor bundle records the new protocol number.
+The complete IMP M4 gate also passes at descriptor protocol 18 and Definition IR schema 11.
+Its emitted K, behavior, proofs, native KORE, and compatibility evidence remain unchanged across the shared Bytes and List additions.
 The unchanged IMP behavior evidence remains `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, and the unchanged compatibility report remains `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6`.

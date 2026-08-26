@@ -26,15 +26,16 @@ use crate::OriginStack;
 /// explicit stable-symbol identity on semantic sorts and productions. Schema
 /// v9 carries constructor-production documentation through Semantic and
 /// Definition IR for canonical K source emission. Schema v10 adds K's builtin
-/// `Bytes` sort and its selected operation identities.
+/// `Bytes` sort and its selected operation identities. Schema v11 adds K's
+/// builtin associative `List` sort and selected operations.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct IrSchemaVersion(pub u32);
 
 impl IrSchemaVersion {
     /// Schema written by this release.
-    /// Schema v10 adds the selected builtin `Bytes` surface.
-    pub const CURRENT: Self = Self(10);
+    /// Schema v11 adds the selected builtin associative `List` surface.
+    pub const CURRENT: Self = Self(11);
 }
 
 impl Default for IrSchemaVersion {
@@ -60,17 +61,20 @@ pub enum BuiltinSort {
     Id,
     /// Byte-string domain from pinned module `BYTES`.
     Bytes,
+    /// Associative finite sequence domain from pinned module `LIST`.
+    List,
 }
 
 impl BuiltinSort {
     /// Complete IR catalog in stable semantic order.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::KSequence,
         Self::Int,
         Self::Bool,
         Self::Map,
         Self::Id,
         Self::Bytes,
+        Self::List,
     ];
 
     /// Sort catalog frozen into descriptor protocol v6.
@@ -80,7 +84,7 @@ impl BuiltinSort {
     pub const PROTOCOL_V6: [Self; 3] = [Self::KSequence, Self::Int, Self::Bool];
 
     /// Complete sort catalog required by descriptor protocol v7.
-    pub(crate) const PROTOCOL_V7: [Self; 6] = Self::ALL;
+    pub(crate) const PROTOCOL_V7: [Self; 7] = Self::ALL;
 }
 
 /// Stable, path-free key used by source-map sidecars.

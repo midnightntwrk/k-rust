@@ -86,14 +86,13 @@ krs_claims = 1
 pinned_executions = 11
 complete = false
 implemented = [
-  "basic-block installation and lookup",
+  "builtin List basic-block storage and direct indexed lookup",
   "ordered assignment execution",
   "constant and copied-local operands",
   "integer addition",
   "Goto, Boolean SwitchInt, and top-level Return",
 ]
 adapters = [
-  "recursive block program in place of builtin Lists",
   "untyped local Map in place of typed local Lists and projections",
 ]
 deferred = [
@@ -109,7 +108,8 @@ deferred = [
 priority = 1
 name = "builtin associative List surface"
 consumers = ["kwasm", "kmir"]
-rationale = "removes both recursive body/list adapters and unlocks source-faithful indexing and typed locals"
+status = "in_progress"
+rationale = "implemented in shared KRS and KMIR; the remaining KWasm migration removes its recursive instruction and value-stack boundaries"
 
 [[tranche]]
 priority = 2

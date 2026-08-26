@@ -6,8 +6,9 @@ use std::fmt;
 
 use krs_ir::{
     BuiltinOperation, BuiltinSort, DescriptorApplicationRef, DescriptorHeadRule, DescriptorPayload,
-    DescriptorTerm, DescriptorTermArgument, MapOperation, PackageId, ProtocolHeadRuleExtra,
-    ProtocolHeadRuleResult, SemanticRule, SemanticSortRef, SemanticTheory, StableItemId,
+    DescriptorTerm, DescriptorTermArgument, ListOperation, MapOperation, PackageId,
+    ProtocolHeadRuleExtra, ProtocolHeadRuleResult, SemanticRule, SemanticSortRef, SemanticTheory,
+    StableItemId,
 };
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
@@ -1012,6 +1013,7 @@ fn render_term(
                     render_builtin_operation(*operation)
                 }
                 DescriptorApplicationRef::Map(operation) => render_map_operation(*operation)?,
+                DescriptorApplicationRef::List(operation) => render_list_operation(*operation),
             };
             if arguments.is_empty()
                 && matches!(
@@ -1206,6 +1208,7 @@ fn render_builtin_sort(sort: BuiltinSort) -> TokenStream {
         BuiltinSort::Map => format_ident!("Map"),
         BuiltinSort::Id => format_ident!("Id"),
         BuiltinSort::Bytes => format_ident!("Bytes"),
+        BuiltinSort::List => format_ident!("List"),
     };
     quote!(k::builtin::#name)
 }
@@ -1240,6 +1243,18 @@ fn render_map_operation(operation: MapOperation) -> Result<TokenStream, Referenc
             Err(ReferenceExpansionError::NamedBuiltinApplication)
         }
     }
+}
+
+fn render_list_operation(operation: ListOperation) -> TokenStream {
+    let name = match operation {
+        ListOperation::Empty => format_ident!("empty"),
+        ListOperation::Item => format_ident!("item"),
+        ListOperation::Concat => format_ident!("concat"),
+        ListOperation::Get => format_ident!("get"),
+        ListOperation::Update => format_ident!("update"),
+        ListOperation::Size => format_ident!("size"),
+    };
+    quote!(k::builtin::list::#name)
 }
 
 fn fresh_ident(base: &str, reserved: &mut BTreeSet<String>) -> Ident {
@@ -1490,7 +1505,11 @@ impl Error for ReferenceExpansionError {
 #[cfg(test)]
 mod tests {
     use super::{contains_use_tree, render_term};
-    use krs_ir::{BuiltinSort, DescriptorBundle, DescriptorTerm, PackageId, ProvenanceKey};
+    use krs_ir::{
+        BuiltinSort, DescriptorApplicationHeadClass, DescriptorApplicationRef,
+        DescriptorApplicationReference, DescriptorBundle, DescriptorTerm, DescriptorTermArgument,
+        ListOperation, PackageId, ProvenanceKey,
+    };
     use quote::ToTokens;
 
     #[test]
@@ -1524,5 +1543,35 @@ mod tests {
             .unwrap()
             .to_string();
         assert_eq!(rendered, r#"k :: bytes ! (b"\0A\xFF")"#);
+    }
+
+    #[test]
+    fn list_lookup_expands_back_to_the_typed_builtin_marker() {
+        let package = PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap();
+        let variable = |name: &str, ordinal| DescriptorTerm::Variable {
+            key: ProvenanceKey::new("claim_reference", ordinal).unwrap(),
+            path_key: ProvenanceKey::new("claim_path", ordinal).unwrap(),
+            name: name.to_owned(),
+        };
+        let lookup = DescriptorTerm::Application {
+            head_class: DescriptorApplicationHeadClass::Applied,
+            reference: DescriptorApplicationReference {
+                key: ProvenanceKey::new("claim_application_head", 0).unwrap(),
+                application: DescriptorApplicationRef::List(ListOperation::Get),
+            },
+            path_key: ProvenanceKey::new("claim_path", 2).unwrap(),
+            arguments: vec![
+                DescriptorTermArgument::Positional {
+                    value: Box::new(variable("program", 0)),
+                },
+                DescriptorTermArgument::Positional {
+                    value: Box::new(variable("index", 1)),
+                },
+            ],
+        };
+        let rendered = render_term(&lookup, false, &package, &DescriptorBundle::new(Vec::new()))
+            .unwrap()
+            .to_string();
+        assert_eq!(rendered, "k :: builtin :: list :: get (program , index)");
     }
 }

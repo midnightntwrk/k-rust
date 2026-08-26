@@ -84,10 +84,10 @@ pub use protocol_v6::{
     HostBuiltinOperationRegistration, HostBuiltinRegistry, HostBuiltinRegistryError,
     HostBuiltinSortRegistration, HostContextAliasReference, HostDeclarationIdentity,
     HostEnumVariantKey, HostEnumVariantReference, HostEnumVariantReferenceError,
-    HostGrammarDescriptor, HostMapOperationRegistration, HostProduction, HostProductionAttribute,
-    HostProductionItem, HostProductionOwner, HostRuleCondition, HostSortReference,
-    HostStructuredRuleDescriptor, HostTerm, HostTermArgument, ProtocolV6ShapeError,
-    StructuredRuleDescriptor, enum_variant_disambiguator,
+    HostGrammarDescriptor, HostListOperationRegistration, HostMapOperationRegistration,
+    HostProduction, HostProductionAttribute, HostProductionItem, HostProductionOwner,
+    HostRuleCondition, HostSortReference, HostStructuredRuleDescriptor, HostTerm, HostTermArgument,
+    ProtocolV6ShapeError, StructuredRuleDescriptor, enum_variant_disambiguator,
 };
 pub use protocol_v7::{
     CellWrapper, ClaimModality, DescriptorCellColor, DescriptorCellDeclaration,
@@ -128,7 +128,7 @@ pub use state::{
     CellAttribute, CellColor, CellContentFrame, CellPost, ConfigurationRoot, FixedCell,
     FixedCellClause, FixedCellContent, FixedCellPattern, FixedConfiguration,
     FixedConfigurationPattern, FixedConfigurationRewrite, FixedConfigurationVariable,
-    FixedInitializerCell, FixedInitializerContent, MapOperation, StateShapeError,
+    FixedInitializerCell, FixedInitializerContent, ListOperation, MapOperation, StateShapeError,
 };
 
 use serde::{Deserialize, Serialize};
@@ -167,6 +167,8 @@ use serde::{Deserialize, Serialize};
 /// Protocol v16 adds exact ordinary fixed-cell patterns and replacements to
 /// readable head-rule transport. Protocol v17 adds K's builtin `Bytes` sort,
 /// selected length and lookup operations, and exact byte-token transport.
+/// Protocol v18 adds K's builtin associative `List` sort and selected unit,
+/// item, concatenation, lookup, update, and size operations.
 /// Semantic and Definition IR schema versioning remains independent.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -174,8 +176,8 @@ pub struct ProtocolVersion(pub u32);
 
 impl ProtocolVersion {
     /// The protocol emitted by this release.
-    /// Protocol v17 adds the selected builtin `Bytes` surface.
-    pub const CURRENT: Self = Self(17);
+    /// Protocol v18 adds the selected builtin associative `List` surface.
+    pub const CURRENT: Self = Self(18);
 }
 
 impl Default for ProtocolVersion {

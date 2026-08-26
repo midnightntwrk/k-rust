@@ -682,9 +682,9 @@ def phase_preflight(context: Context) -> str:
         "schema": 1,
         "backends": ["haskell", "llvm"],
         "msrv": "1.88.0",
-        "builtin_sorts": ["KSequence", "Int", "Bool", "Map", "Id", "Bytes"],
-        "descriptor_protocol": 17,
-        "definition_ir_schema": 10,
+        "builtin_sorts": ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "List"],
+        "descriptor_protocol": 18,
+        "definition_ir_schema": 11,
         "k_commit": expected["k"],
         "k_rust_commit": expected["k_rust"],
         "llvm_existential_policy": "typed-backend-capability-error",
@@ -695,7 +695,7 @@ def phase_preflight(context: Context) -> str:
     lock_path = ROOT / "Krs.lock"
     expected_lock = {
         "schema": 1,
-        "schemas": {"descriptor_protocol": 17, "definition_ir": 10, "kast_json": 4},
+        "schemas": {"descriptor_protocol": 18, "definition_ir": 11, "kast_json": 4},
         "cargo": {"lock_sha256": sha256(ROOT / "Cargo.lock"), "msrv": "1.88.0"},
         "k": {
             "version": "7.1.337",
@@ -725,8 +725,8 @@ def phase_preflight(context: Context) -> str:
     expected_lock_text = '''schema = 1
 
 [schemas]
-descriptor_protocol = 17
-definition_ir = 10
+descriptor_protocol = 18
+definition_ir = 11
 kast_json = 4
 
 [cargo]
@@ -788,7 +788,7 @@ llvm_existential_claims = "typed-backend-capability-error"
     msrv = run(["rustc", "+1.88.0", "--version"], timeout=30).stdout.strip()
     if not msrv.startswith("rustc 1.88.0 "):
         raise GateError(f"MSRV toolchain differs from Krs.lock: {msrv}")
-    return "exact sources, ledgers, tools, revisions, protocol 17, and IR schema 10"
+    return "exact sources, ledgers, tools, revisions, protocol 18, and IR schema 11"
 
 
 def phase_rust(context: Context) -> str:

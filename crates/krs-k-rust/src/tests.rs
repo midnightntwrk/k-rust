@@ -26,12 +26,12 @@ use krs_ir::{
     DefinitionRuleCondition, DefinitionSentence, DefinitionSortRef, DefinitionTerm, FixedCell,
     FixedCellPattern, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationVariable,
     FixedInitializerCell, FormatFragment, GroupAssociativity, GroupAssociativitySentence,
-    InitializerDeclaration, ItemKind, LabelId, LabelIdentity, MapOperation, ModuleId, NodeOrigin,
-    OriginStack, PackageId, PrecedenceRelation, ProductionFieldId, ProductionFieldReference,
-    ProductionGroupId, ProductionItem as IrProductionItem, ProductionResultSort,
-    ProductionSentence, RuleSentence, SemanticId, SentenceKind, Sha256Digest, SourceFileId,
-    SourceMapKey, SourceRange, StableItemId, StrictnessKind, SubsortSentence, SymbolId,
-    SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    InitializerDeclaration, ItemKind, LabelId, LabelIdentity, ListOperation, MapOperation,
+    ModuleId, NodeOrigin, OriginStack, PackageId, PrecedenceRelation, ProductionFieldId,
+    ProductionFieldReference, ProductionGroupId, ProductionItem as IrProductionItem,
+    ProductionResultSort, ProductionSentence, RuleSentence, SemanticId, SentenceKind, Sha256Digest,
+    SourceFileId, SourceMapKey, SourceRange, StableItemId, StrictnessKind, SubsortSentence,
+    SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 
 use super::{
@@ -361,7 +361,7 @@ fn pin_and_portable_capabilities_are_explicit() {
 }
 
 #[test]
-fn builtin_and_map_terms_map_structurally_and_infer_imports() {
+fn builtin_map_and_list_terms_map_structurally_and_infer_imports() {
     let definition = m2_definition();
     let mut adapter = Adapter::new(&definition);
     let int =
@@ -412,6 +412,75 @@ fn builtin_and_map_terms_map_structurally_and_infer_imports() {
         if label.name == "Map:update"
             && matches!(arguments.first(), Some(Term::Apply { label, arguments })
                 if label.name == ".Map" && arguments.is_empty())));
+
+    let list_empty = DefinitionTerm::list(
+        node("schema11.term.empty-list"),
+        DefinitionSortRef::list(),
+        ListOperation::Empty,
+        vec![],
+    );
+    let list_item = DefinitionTerm::list(
+        node("schema11.term.list-item"),
+        DefinitionSortRef::list(),
+        ListOperation::Item,
+        vec![int("schema11.term.list-value", "7")],
+    );
+    let list_concat = DefinitionTerm::list(
+        node("schema11.term.list-concat"),
+        DefinitionSortRef::list(),
+        ListOperation::Concat,
+        vec![list_item.clone(), list_empty.clone()],
+    );
+    let list_get = DefinitionTerm::list(
+        node("schema11.term.list-get"),
+        DefinitionSortRef::int(),
+        ListOperation::Get,
+        vec![list_concat.clone(), int("schema11.term.list-index", "0")],
+    );
+    let list_update = DefinitionTerm::list(
+        node("schema11.term.list-update"),
+        DefinitionSortRef::list(),
+        ListOperation::Update,
+        vec![
+            list_concat.clone(),
+            int("schema11.term.list-update-index", "0"),
+            int("schema11.term.list-update-value", "8"),
+        ],
+    );
+    let list_size = DefinitionTerm::list(
+        node("schema11.term.list-size"),
+        DefinitionSortRef::int(),
+        ListOperation::Size,
+        vec![list_concat],
+    );
+    let native_list_get = adapter
+        .term(&list_get, MODULE, 0, Vec::new(), TermContext::Normal, None)
+        .unwrap();
+    assert!(matches!(native_list_get, Term::Apply { label, arguments }
+        if label.name == "#SemanticCastToInt"
+            && matches!(arguments.as_slice(), [Term::Apply { label, arguments }]
+                if label.name == "List:get"
+                    && matches!(arguments.first(), Some(Term::Apply { label, .. })
+                        if label.name == "_List_"))));
+    let native_list_update = adapter
+        .term(
+            &list_update,
+            MODULE,
+            0,
+            Vec::new(),
+            TermContext::Normal,
+            None,
+        )
+        .unwrap();
+    assert!(
+        matches!(native_list_update, Term::Apply { label, arguments }
+        if label.name == "List:set" && arguments.len() == 3)
+    );
+    let native_list_size = adapter
+        .term(&list_size, MODULE, 0, Vec::new(), TermContext::Normal, None)
+        .unwrap();
+    assert!(matches!(native_list_size, Term::Apply { label, arguments }
+        if label.name == "sizeList" && arguments.len() == 1));
 
     let rewrite = DefinitionTerm::rewrite(
         node("schema9.term.map-rewrite"),

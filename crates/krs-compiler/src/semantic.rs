@@ -12,8 +12,8 @@ use krs_ir::{
     DescriptorSortRef, DescriptorTerm, DescriptorTermArgument, FixedCell, FixedCellClause,
     FixedCellPattern, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, GeneratedProductionKind, GrammarDescriptor,
-    GroupAssociativitySentence, IrIdentityError, ItemKind, MapOperation, ModuleId, NodeOrigin,
-    OriginFrame, PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
+    GroupAssociativitySentence, IrIdentityError, ItemKind, ListOperation, MapOperation, ModuleId,
+    NodeOrigin, OriginFrame, PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
     ProtocolCellContent, ProtocolContextAliasBindingKind, ProtocolInitializerCellContent,
     ProtocolInitializerStateTerm, ProtocolMapBody, ProtocolRuleBindingKind, ProtocolRuleFrame,
     ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SemanticCell, SemanticConfiguration,
@@ -4096,6 +4096,10 @@ impl StructuredTermBuilder<'_> {
                         self.infer(value, None, subject)?;
                         return Ok(());
                     }
+                    DescriptorApplicationRef::List(operation) => {
+                        self.infer_list_operation(*operation, arguments, expected_sort, subject)?;
+                        return Ok(());
+                    }
                 };
                 if let Some(expected) = expected_sort
                     && !semantic_is_subsort(&signature.result_sort, expected, self.sort_parents)
@@ -4188,6 +4192,95 @@ impl StructuredTermBuilder<'_> {
         self.infer(base, Some(&SemanticSortRef::map()), false)?;
         self.infer(key, key_sort, false)?;
         self.infer(value, value_sort, false)
+    }
+
+    fn infer_list_operation(
+        &mut self,
+        operation: ListOperation,
+        arguments: &[DescriptorTermArgument],
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        let arguments = ordinary_list_arguments(operation, arguments)
+            .map_err(|detail| self.invalid_term(detail))?;
+        let list_sort = SemanticSortRef::Builtin(BuiltinSort::List);
+        let int_sort = SemanticSortRef::Builtin(BuiltinSort::Int);
+        let result_sort = match operation {
+            ListOperation::Get => expected_sort
+                .cloned()
+                .ok_or_else(|| self.invalid_term("list::get requires an expected result sort"))?,
+            ListOperation::Size => int_sort.clone(),
+            ListOperation::Empty
+            | ListOperation::Item
+            | ListOperation::Concat
+            | ListOperation::Update => list_sort.clone(),
+        };
+        if let Some(expected) = expected_sort
+            && !semantic_is_subsort(&result_sort, expected, self.sort_parents)
+        {
+            return Err(self.invalid_term(format!(
+                "List operation result sort {result_sort:?} is not admissible at sort {expected:?}"
+            )));
+        }
+        let operand_sorts: Vec<Option<&SemanticSortRef>> = match operation {
+            ListOperation::Empty => vec![],
+            ListOperation::Item => vec![None],
+            ListOperation::Concat => vec![Some(&list_sort), Some(&list_sort)],
+            ListOperation::Get => vec![Some(&list_sort), Some(&int_sort)],
+            ListOperation::Update => vec![Some(&list_sort), Some(&int_sort), None],
+            ListOperation::Size => vec![Some(&list_sort)],
+        };
+        for (argument, expected) in arguments.into_iter().zip(operand_sorts) {
+            self.infer(argument, expected, subject)?;
+        }
+        Ok(())
+    }
+
+    fn lower_list_operation(
+        &mut self,
+        reference: &krs_ir::DescriptorApplicationReference,
+        operation: ListOperation,
+        arguments: &[DescriptorTermArgument],
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let arguments = ordinary_list_arguments(operation, arguments)
+            .map_err(|detail| self.invalid_term(detail))?;
+        let list_sort = SemanticSortRef::Builtin(BuiltinSort::List);
+        let int_sort = SemanticSortRef::Builtin(BuiltinSort::Int);
+        let result_sort = match operation {
+            ListOperation::Get => expected_sort
+                .cloned()
+                .ok_or_else(|| self.invalid_term("list::get requires an expected result sort"))?,
+            ListOperation::Size => int_sort.clone(),
+            ListOperation::Empty
+            | ListOperation::Item
+            | ListOperation::Concat
+            | ListOperation::Update => list_sort.clone(),
+        };
+        let operand_sorts: Vec<Option<&SemanticSortRef>> = match operation {
+            ListOperation::Empty => vec![],
+            ListOperation::Item => vec![None],
+            ListOperation::Concat => vec![Some(&list_sort), Some(&list_sort)],
+            ListOperation::Get => vec![Some(&list_sort), Some(&int_sort)],
+            ListOperation::Update => vec![Some(&list_sort), Some(&int_sort), None],
+            ListOperation::Size => vec![Some(&list_sort)],
+        };
+        let lowered = arguments
+            .into_iter()
+            .zip(operand_sorts)
+            .map(|(argument, expected)| self.lower(argument, expected, subject))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(SemanticTerm::list(
+            semantic_origin(
+                self.descriptor,
+                reference.key.clone(),
+                "term-list-operation",
+            )?,
+            result_sort,
+            operation,
+            lowered,
+        ))
     }
 
     fn resolve_binding_sorts(&mut self) -> Result<(), DescriptorLoweringError> {
@@ -4312,6 +4405,15 @@ impl StructuredTermBuilder<'_> {
                             *operation,
                             lowered,
                         ));
+                    }
+                    DescriptorApplicationRef::List(operation) => {
+                        return self.lower_list_operation(
+                            reference,
+                            *operation,
+                            arguments,
+                            expected_sort,
+                            subject,
+                        );
                     }
                 };
                 let ordered = order_structured_arguments(arguments, &signature.fields, subject)
@@ -4502,6 +4604,28 @@ fn ordinary_map_positional_argument(
             Err("map::update accepts positional arguments only".to_owned())
         }
     }
+}
+
+fn ordinary_list_arguments(
+    operation: ListOperation,
+    arguments: &[DescriptorTermArgument],
+) -> Result<Vec<&DescriptorTerm>, String> {
+    let expected = match operation {
+        ListOperation::Empty => 0,
+        ListOperation::Item | ListOperation::Size => 1,
+        ListOperation::Concat | ListOperation::Get => 2,
+        ListOperation::Update => 3,
+    };
+    if arguments.len() != expected {
+        return Err(format!(
+            "List operation {operation:?} expects {expected} positional arguments but received {}",
+            arguments.len()
+        ));
+    }
+    arguments
+        .iter()
+        .map(ordinary_map_positional_argument)
+        .collect()
 }
 
 fn order_structured_arguments<'a>(

@@ -32,10 +32,11 @@ pub use krs_ir::{
     HostConfigurationDescriptor, HostConfigurationInitializerDescriptor,
     HostConfigurationVariableDescriptor, HostConstructorDescriptor, HostConstructorFieldDescriptor,
     HostDeclarationIdentity, HostDescriptor, HostDescriptorPayload, HostDescriptorReference,
-    HostIdentityError, HostItemId, HostMapOperationRegistration, HostPackageKey, HostProvenance,
-    HostProvenanceError, HostRuleDescriptor, HostRuleParameterDescriptor, HostSortDescriptor,
-    HostSourceAnchor, HostSourcePosition, HostTypeKey, HostTypeReference, ItemKind, MapOperation,
-    ProtocolVersion, ProvenanceKey, RuleBindingError, SentenceKind,
+    HostIdentityError, HostItemId, HostListOperationRegistration, HostMapOperationRegistration,
+    HostPackageKey, HostProvenance, HostProvenanceError, HostRuleDescriptor,
+    HostRuleParameterDescriptor, HostSortDescriptor, HostSourceAnchor, HostSourcePosition,
+    HostTypeKey, HostTypeReference, ItemKind, ListOperation, MapOperation, ProtocolVersion,
+    ProvenanceKey, RuleBindingError, SentenceKind,
 };
 pub use krs_ir::{
     DescriptorApplicationHeadClass, DescriptorAssociativitySentence, DescriptorFieldReference,
@@ -242,6 +243,62 @@ pub mod builtin {
         }
     }
 
+    /// Type-shaped marker for K's associative builtin-list sort.
+    ///
+    /// `T` retains useful Rust authoring information while KRS resolves the
+    /// outer marker to K's unparameterized semantic `List` sort.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct List<T = ()> {
+        marker: std::marker::PhantomData<fn() -> T>,
+    }
+
+    impl<T> List<T> {
+        /// Constructs the zero-sized authoring shell.
+        #[doc(hidden)]
+        #[must_use]
+        pub const fn __new() -> Self {
+            Self {
+                marker: std::marker::PhantomData,
+            }
+        }
+    }
+
+    /// Ordinary operations from K's pinned `LIST` module.
+    pub mod list {
+        use super::{List, int::Int};
+
+        /// Marker for `.List`.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Empty;
+
+        /// Marker for `ListItem(K)`.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Item<T = ()>(pub T);
+
+        /// Marker for associative list concatenation.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Concat<T = ()>(pub List<T>, pub List<T>);
+
+        /// Marker for indexed lookup.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Get<T = ()>(pub List<T>, pub Int);
+
+        /// Marker for persistent indexed update.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Update<T = ()>(pub List<T>, pub Int, pub T);
+
+        /// Marker for `size(List)`.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Size<T = ()>(pub List<T>);
+
+        pub use Concat as concat;
+        pub use Empty as empty;
+        pub use Get as get;
+        pub use Item as item;
+        pub use Size as size;
+        pub use Update as update;
+    }
+
     /// Builtin operations and sort marker from K's pinned `INT` domain.
     pub mod int {
         /// Host marker for K's arbitrary-precision `Int` sort.
@@ -409,6 +466,10 @@ fn bytes_builtin_key() -> TypeId {
     TypeId::of::<builtin::Bytes>()
 }
 
+fn list_builtin_key() -> TypeId {
+    TypeId::of::<builtin::List>()
+}
+
 macro_rules! builtin_operation_keys {
     ($(($function:ident, $marker:path)),+ $(,)?) => {
         $(
@@ -443,6 +504,25 @@ fn map_update_builtin_key() -> TypeId {
     TypeId::of::<builtin::map::update>()
 }
 
+macro_rules! list_operation_keys {
+    ($(($function:ident, $marker:path)),+ $(,)?) => {
+        $(
+            fn $function() -> TypeId {
+                TypeId::of::<$marker>()
+            }
+        )+
+    };
+}
+
+list_operation_keys! {
+    (list_empty_builtin_key, builtin::list::empty),
+    (list_item_builtin_key, builtin::list::item),
+    (list_concat_builtin_key, builtin::list::concat),
+    (list_get_builtin_key, builtin::list::get),
+    (list_update_builtin_key, builtin::list::update),
+    (list_size_builtin_key, builtin::list::size),
+}
+
 /// Constructs the complete process-local registry of builtin Rust markers.
 ///
 /// The registry joins rustc-resolved [`TypeId`] values to closed semantic
@@ -464,6 +544,7 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
         (BuiltinSort::Map, map_builtin_key as fn() -> TypeId),
         (BuiltinSort::Id, id_builtin_key as fn() -> TypeId),
         (BuiltinSort::Bytes, bytes_builtin_key as fn() -> TypeId),
+        (BuiltinSort::List, list_builtin_key as fn() -> TypeId),
     ]
     .into_iter()
     .map(|(sort, key)| HostBuiltinSortRegistration {
@@ -506,10 +587,29 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
         target: HostTypeKey(map_update_builtin_key),
     }];
 
+    let list_operations = [
+        (
+            ListOperation::Empty,
+            list_empty_builtin_key as fn() -> TypeId,
+        ),
+        (ListOperation::Item, list_item_builtin_key),
+        (ListOperation::Concat, list_concat_builtin_key),
+        (ListOperation::Get, list_get_builtin_key),
+        (ListOperation::Update, list_update_builtin_key),
+        (ListOperation::Size, list_size_builtin_key),
+    ]
+    .into_iter()
+    .map(|(operation, key)| HostListOperationRegistration {
+        operation,
+        target: HostTypeKey(key),
+    })
+    .collect();
+
     HostBuiltinRegistry {
         sorts,
         operations,
         map_operations,
+        list_operations,
     }
 }
 
@@ -783,6 +883,7 @@ mod tests {
         assert_eq!(mem::size_of::<builtin::KSequence>(), 0);
         assert_eq!(mem::size_of::<builtin::Id>(), 0);
         assert_eq!(mem::size_of::<builtin::Map>(), 0);
+        assert_eq!(mem::size_of::<builtin::List>(), 0);
         assert_eq!(mem::size_of::<configuration::Cell<builtin::Map>>(), 0);
         assert_eq!(
             mem::size_of::<configuration::KCell<builtin::KSequence>>(),
@@ -855,6 +956,10 @@ mod tests {
             MapOperation::TERM_APPLICATIONS.len()
         );
         assert_eq!(
+            registry.list_operations.len(),
+            ListOperation::TERM_APPLICATIONS.len()
+        );
+        assert_eq!(
             registry
                 .sorts
                 .iter()
@@ -877,6 +982,8 @@ mod tests {
             (TypeId::of::<builtin::bool::Bool>(), BuiltinSort::Bool),
             (TypeId::of::<builtin::Map>(), BuiltinSort::Map),
             (TypeId::of::<builtin::Id>(), BuiltinSort::Id),
+            (TypeId::of::<builtin::Bytes>(), BuiltinSort::Bytes),
+            (TypeId::of::<builtin::List>(), BuiltinSort::List),
         ];
         for (marker, expected) in exact_sorts {
             assert_eq!(registry.resolve_sort(marker), Some(expected));
@@ -936,6 +1043,20 @@ mod tests {
             registry.resolve_operation(TypeId::of::<builtin::map::update>()),
             None
         );
+        let exact_list_operations = [
+            (TypeId::of::<builtin::list::empty>(), ListOperation::Empty),
+            (TypeId::of::<builtin::list::item>(), ListOperation::Item),
+            (TypeId::of::<builtin::list::concat>(), ListOperation::Concat),
+            (TypeId::of::<builtin::list::get>(), ListOperation::Get),
+            (TypeId::of::<builtin::list::update>(), ListOperation::Update),
+            (TypeId::of::<builtin::list::size>(), ListOperation::Size),
+        ];
+        for (marker, expected) in exact_list_operations {
+            assert_eq!(registry.resolve_list_operation(marker), Some(expected));
+            assert_eq!(registry.resolve_sort(marker), None);
+            assert_eq!(registry.resolve_operation(marker), None);
+            assert_eq!(registry.resolve_map_operation(marker), None);
+        }
     }
 
     #[test]
@@ -965,6 +1086,7 @@ mod tests {
     fn module_import_and_facade_aliases_preserve_callable_identity() {
         use crate as dialect;
         use dialect::builtin::int as integer;
+        use dialect::builtin::list::get as indexed_lookup;
         use dialect::builtin::map::update as persistent_update;
         use integer::add as plus;
 
@@ -988,6 +1110,12 @@ mod tests {
         assert_eq!(
             dialect::builtin_registry().resolve_map_operation(TypeId::of::<persistent_update>()),
             Some(MapOperation::Update)
+        );
+        let lookup: indexed_lookup = indexed_lookup(dialect::builtin::List::__new(), integer::Int);
+        let _: dialect::builtin::list::Get = lookup;
+        assert_eq!(
+            dialect::builtin_registry().resolve_list_operation(TypeId::of::<indexed_lookup>()),
+            Some(ListOperation::Get)
         );
     }
 

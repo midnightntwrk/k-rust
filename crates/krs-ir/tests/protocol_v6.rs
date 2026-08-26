@@ -15,10 +15,11 @@ use krs_ir::{
     HostApplicationIdentity, HostApplicationTarget, HostBuiltinOperationRegistration,
     HostBuiltinRegistry, HostBuiltinRegistryError, HostBuiltinSortRegistration,
     HostDeclarationIdentity, HostEnumVariantKey, HostEnumVariantReference,
-    HostEnumVariantReferenceError, HostMapOperationRegistration, HostTypeKey, HostTypeReference,
-    ItemKind, MapOperation, OriginStack, PackageId, ProductionFieldId, ProductionGroupId,
-    ProtocolV6ShapeError, ProvenanceKey, SentenceKind, Sha256Digest, SourceFileId, SourceRange,
-    StableItemId, StrictnessKind, StructuredRuleDescriptor, enum_variant_disambiguator,
+    HostEnumVariantReferenceError, HostListOperationRegistration, HostMapOperationRegistration,
+    HostTypeKey, HostTypeReference, ItemKind, ListOperation, MapOperation, OriginStack, PackageId,
+    ProductionFieldId, ProductionGroupId, ProtocolV6ShapeError, ProvenanceKey, SentenceKind,
+    Sha256Digest, SourceFileId, SourceRange, StableItemId, StrictnessKind,
+    StructuredRuleDescriptor, enum_variant_disambiguator,
 };
 
 type IntAlias = u16;
@@ -326,7 +327,7 @@ fn expression_grammar_and_rule_round_trip_deterministically() {
         .to_canonical_json()
         .unwrap();
     assert_eq!(forward, reverse);
-    assert!(forward.contains("\"protocol_version\": 17"));
+    assert!(forward.contains("\"protocol_version\": 18"));
     assert!(forward.contains("\"attribute_kind\": \"documentation\""));
     assert!(forward.contains("Adds two values."));
     assert!(forward.contains("\"structured_rule\""));
@@ -334,7 +335,7 @@ fn expression_grammar_and_rule_round_trip_deterministically() {
     assert!(!forward.contains("TypeId"));
     assert!(!forward.contains("_+Int_"));
     let decoded: DescriptorBundle = serde_json::from_str(&forward).unwrap();
-    assert_eq!(decoded.protocol_version().0, 17);
+    assert_eq!(decoded.protocol_version().0, 18);
 }
 
 #[test]
@@ -690,6 +691,66 @@ fn ordinary_map_update_reference_has_a_closed_wire_shape() {
     ));
 }
 
+#[test]
+fn ordinary_list_references_have_closed_wire_shapes_and_exact_arities() {
+    let variable = |name: &str| DescriptorTerm::Variable {
+        key: key("rule_right_reference", 0),
+        path_key: key("rule_right_path", 0),
+        name: name.to_owned(),
+    };
+    let bindings = ["list", "index", "value"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+    let cases = [
+        (ListOperation::Empty, Vec::<&str>::new()),
+        (ListOperation::Item, vec!["value"]),
+        (ListOperation::Concat, vec!["list", "list"]),
+        (ListOperation::Get, vec!["list", "index"]),
+        (ListOperation::Update, vec!["list", "index", "value"]),
+        (ListOperation::Size, vec!["list"]),
+    ];
+    for (operation, arguments) in cases {
+        let reference = DescriptorApplicationReference {
+            key: key("rule_right_application_head", 0),
+            application: DescriptorApplicationRef::List(operation),
+        };
+        let json = serde_json::to_string(&reference).unwrap();
+        assert!(json.contains(r#""application_source":"list""#));
+        let term = DescriptorTerm::Application {
+            head_class: DescriptorApplicationHeadClass::Applied,
+            reference,
+            path_key: key("rule_right_path", 0),
+            arguments: arguments
+                .into_iter()
+                .map(|name| DescriptorTermArgument::Positional {
+                    value: Box::new(variable(name)),
+                })
+                .collect(),
+        };
+        term.validate(|_| true, &bindings, &mut BTreeSet::new(), false)
+            .unwrap();
+    }
+
+    let wrong_arity = DescriptorTerm::Application {
+        head_class: DescriptorApplicationHeadClass::Applied,
+        reference: DescriptorApplicationReference {
+            key: key("rule_right_application_head", 0),
+            application: DescriptorApplicationRef::List(ListOperation::Get),
+        },
+        path_key: key("rule_right_path", 0),
+        arguments: vec![DescriptorTermArgument::Positional {
+            value: Box::new(variable("list")),
+        }],
+    };
+    assert!(matches!(
+        wrong_arity.validate(|_| true, &bindings, &mut BTreeSet::new(), false),
+        Err(ProtocolV6ShapeError::InvalidApplication(
+            "List operation has invalid arity"
+        ))
+    ));
+}
+
 fn grammar_descriptor(
     id: StableItemId,
     primary: ProvenanceKey,
@@ -994,6 +1055,7 @@ type_keys! {
     map_key => i8,
     id_key => i16,
     bytes_key => i32,
+    list_key => i64,
     int_add_key => (u8, u8),
     int_sub_key => (u8, u16),
     int_mul_key => (u8, u32),
@@ -1012,6 +1074,12 @@ type_keys! {
     bytes_length_key => (i64, u8),
     bytes_get_key => (i64, u16),
     map_update_key => (u64, u64),
+    list_empty_key => (i8, u8),
+    list_item_key => (i8, u16),
+    list_concat_key => (i8, u32),
+    list_get_key => (i8, u64),
+    list_update_key => (i16, u8),
+    list_size_key => (i16, u16),
 }
 
 fn registry() -> HostBuiltinRegistry {
@@ -1022,6 +1090,7 @@ fn registry() -> HostBuiltinRegistry {
         (BuiltinSort::Map, map_key),
         (BuiltinSort::Id, id_key),
         (BuiltinSort::Bytes, bytes_key),
+        (BuiltinSort::List, list_key),
     ]
     .into_iter()
     .map(|(sort, key)| HostBuiltinSortRegistration {
@@ -1058,10 +1127,25 @@ fn registry() -> HostBuiltinRegistry {
         operation: MapOperation::Update,
         target: HostTypeKey(map_update_key),
     }];
+    let list_operations = [
+        (ListOperation::Empty, list_empty_key as fn() -> TypeId),
+        (ListOperation::Item, list_item_key),
+        (ListOperation::Concat, list_concat_key),
+        (ListOperation::Get, list_get_key),
+        (ListOperation::Update, list_update_key),
+        (ListOperation::Size, list_size_key),
+    ]
+    .into_iter()
+    .map(|(operation, key)| HostListOperationRegistration {
+        operation,
+        target: HostTypeKey(key),
+    })
+    .collect();
     HostBuiltinRegistry {
         sorts,
         operations,
         map_operations,
+        list_operations,
     }
 }
 
@@ -1084,6 +1168,10 @@ fn builtin_registry_is_complete_exact_and_alias_safe() {
     assert_eq!(
         registry.resolve_map_operation(map_update_key()),
         Some(MapOperation::Update)
+    );
+    assert_eq!(
+        registry.resolve_list_operation(list_get_key()),
+        Some(ListOperation::Get)
     );
 
     let mut incomplete = registry.clone();
@@ -1124,10 +1212,35 @@ fn builtin_registry_is_complete_exact_and_alias_safe() {
         collision.validate(),
         Err(HostBuiltinRegistryError::ReusedRustType)
     );
-    let mut map_collision = registry;
+    let mut map_collision = registry.clone();
     map_collision.map_operations[0].target = HostTypeKey(int_key);
     assert_eq!(
         map_collision.validate(),
+        Err(HostBuiltinRegistryError::ReusedRustType)
+    );
+
+    let mut missing_list = registry.clone();
+    missing_list.list_operations.pop();
+    assert_eq!(
+        missing_list.validate(),
+        Err(HostBuiltinRegistryError::MissingListOperation(
+            ListOperation::Size
+        ))
+    );
+    let mut duplicate_list = registry.clone();
+    duplicate_list
+        .list_operations
+        .push(duplicate_list.list_operations[0]);
+    assert_eq!(
+        duplicate_list.validate(),
+        Err(HostBuiltinRegistryError::DuplicateListOperation(
+            ListOperation::Empty
+        ))
+    );
+    let mut list_collision = registry;
+    list_collision.list_operations[0].target = HostTypeKey(int_key);
+    assert_eq!(
+        list_collision.validate(),
         Err(HostBuiltinRegistryError::ReusedRustType)
     );
 }
@@ -1335,7 +1448,7 @@ fn protocol_five_is_rejected_without_compatibility_guessing() {
         r#"{"protocol_version":5,"descriptors":[],"declarations":[]}"#,
     )
     .unwrap_err();
-    assert!(error.to_string().contains("expected 17"));
+    assert!(error.to_string().contains("expected 18"));
 }
 
 fn first_object_with_key_mut<'a>(

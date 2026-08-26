@@ -677,7 +677,8 @@ fn variable_sorts(term: &SemanticTerm, output: &mut Vec<SemanticSortRef>) {
             output.push(term.sort().clone());
         }
         SemanticTermKind::Application { arguments, .. }
-        | SemanticTermKind::Map { arguments, .. } => {
+        | SemanticTermKind::Map { arguments, .. }
+        | SemanticTermKind::List { arguments, .. } => {
             for argument in arguments {
                 variable_sorts(argument, output);
             }

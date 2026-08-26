@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::host::{HostItemId, HostTypeKey, HostTypeReference};
 use crate::{
-    BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity, ItemKind, MapOperation,
-    ProductionFieldId, ProductionGroupId, ProvenanceKey, SentenceKind, StableItemId,
+    BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity, ItemKind, ListOperation,
+    MapOperation, ProductionFieldId, ProductionGroupId, ProvenanceKey, SentenceKind, StableItemId,
     StrictnessKind,
 };
 
@@ -88,6 +88,8 @@ pub enum DescriptorApplicationRef {
     Builtin(BuiltinOperation),
     /// A compiler-provided Map-theory term operation.
     Map(MapOperation),
+    /// A compiler-provided List-theory term operation.
+    List(ListOperation),
 }
 
 /// One stable application reference and its exact authored head location.
@@ -355,6 +357,15 @@ pub struct HostMapOperationRegistration {
     pub target: HostTypeKey,
 }
 
+/// One ordinary List operation marker registered by the author-facing facade.
+#[derive(Clone, Copy, Debug)]
+pub struct HostListOperationRegistration {
+    /// Target-neutral List operation identity.
+    pub operation: ListOperation,
+    /// Function producing the marker type's build-local identity.
+    pub target: HostTypeKey,
+}
+
 /// Complete host-only builtin catalog used for exact `TypeId` joins.
 ///
 /// It is intentionally not serializable. A collector turns references into
@@ -367,6 +378,8 @@ pub struct HostBuiltinRegistry {
     pub operations: Vec<HostBuiltinOperationRegistration>,
     /// Registered ordinary Map operation markers.
     pub map_operations: Vec<HostMapOperationRegistration>,
+    /// Registered ordinary List operation markers.
+    pub list_operations: Vec<HostListOperationRegistration>,
 }
 
 impl HostBuiltinRegistry {
@@ -381,6 +394,7 @@ impl HostBuiltinRegistry {
         let mut sort_ids = BTreeSet::new();
         let mut operation_ids = BTreeSet::new();
         let mut map_operation_ids = BTreeSet::new();
+        let mut list_operation_ids = BTreeSet::new();
         let mut rust_ids = BTreeSet::new();
         for registration in &self.sorts {
             if !sort_ids.insert(registration.sort) {
@@ -415,6 +429,21 @@ impl HostBuiltinRegistry {
                 return Err(HostBuiltinRegistryError::ReusedRustType);
             }
         }
+        for registration in &self.list_operations {
+            if !ListOperation::TERM_APPLICATIONS.contains(&registration.operation) {
+                return Err(HostBuiltinRegistryError::UnsupportedListOperation(
+                    registration.operation,
+                ));
+            }
+            if !list_operation_ids.insert(registration.operation) {
+                return Err(HostBuiltinRegistryError::DuplicateListOperation(
+                    registration.operation,
+                ));
+            }
+            if !rust_ids.insert(registration.target.resolve()) {
+                return Err(HostBuiltinRegistryError::ReusedRustType);
+            }
+        }
         for sort in BuiltinSort::PROTOCOL_V7 {
             if !sort_ids.contains(&sort) {
                 return Err(HostBuiltinRegistryError::MissingSort(sort));
@@ -428,6 +457,11 @@ impl HostBuiltinRegistry {
         for operation in MapOperation::TERM_APPLICATIONS {
             if !map_operation_ids.contains(&operation) {
                 return Err(HostBuiltinRegistryError::MissingMapOperation(operation));
+            }
+        }
+        for operation in ListOperation::TERM_APPLICATIONS {
+            if !list_operation_ids.contains(&operation) {
+                return Err(HostBuiltinRegistryError::MissingListOperation(operation));
             }
         }
         Ok(())
@@ -459,6 +493,15 @@ impl HostBuiltinRegistry {
             .find(|registration| registration.target.resolve() == target)
             .map(|registration| registration.operation)
     }
+
+    /// Resolves one build-local type as an ordinary List operation.
+    #[must_use]
+    pub fn resolve_list_operation(&self, target: TypeId) -> Option<ListOperation> {
+        self.list_operations
+            .iter()
+            .find(|registration| registration.target.resolve() == target)
+            .map(|registration| registration.operation)
+    }
 }
 
 /// Invalid host builtin catalog.
@@ -478,6 +521,12 @@ pub enum HostBuiltinRegistryError {
     MissingMapOperation(MapOperation),
     /// A structural-only Map operation was registered as an ordinary term head.
     UnsupportedMapOperation(MapOperation),
+    /// A List operation identity occurred more than once.
+    DuplicateListOperation(ListOperation),
+    /// A required ordinary List operation was absent.
+    MissingListOperation(ListOperation),
+    /// A structural-only List operation was registered as an ordinary term head.
+    UnsupportedListOperation(ListOperation),
     /// One Rust marker type was assigned two meanings.
     ReusedRustType,
 }
@@ -503,6 +552,18 @@ impl fmt::Display for HostBuiltinRegistryError {
                 write!(
                     formatter,
                     "Map operation {operation:?} is not an ordinary term application"
+                )
+            }
+            Self::DuplicateListOperation(operation) => {
+                write!(formatter, "duplicate List operation {operation:?}")
+            }
+            Self::MissingListOperation(operation) => {
+                write!(formatter, "missing List operation {operation:?}")
+            }
+            Self::UnsupportedListOperation(operation) => {
+                write!(
+                    formatter,
+                    "List operation {operation:?} is not an ordinary term application"
                 )
             }
             Self::ReusedRustType => {
@@ -1434,6 +1495,13 @@ impl DescriptorApplicationRef {
                 "structural-only Map operation used as an application head",
             ));
         }
+        if let Self::List(operation) = self
+            && !ListOperation::TERM_APPLICATIONS.contains(operation)
+        {
+            return Err(ProtocolV6ShapeError::InvalidApplication(
+                "structural-only List operation used as an application head",
+            ));
+        }
         Ok(())
     }
 }
@@ -1476,6 +1544,41 @@ fn validate_map_application_shape(
     {
         return Err(ProtocolV6ShapeError::InvalidApplication(
             "map::update accepts positional arguments only",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_list_application_shape(
+    head_class: DescriptorApplicationHeadClass,
+    application: &DescriptorApplicationRef,
+    arguments: &[DescriptorTermArgument],
+) -> Result<(), ProtocolV6ShapeError> {
+    let DescriptorApplicationRef::List(operation) = application else {
+        return Ok(());
+    };
+    if head_class != DescriptorApplicationHeadClass::Applied {
+        return Err(ProtocolV6ShapeError::InvalidApplication(
+            "a List operation must be an applied term head",
+        ));
+    }
+    let expected = match operation {
+        ListOperation::Empty => 0,
+        ListOperation::Item | ListOperation::Size => 1,
+        ListOperation::Concat | ListOperation::Get => 2,
+        ListOperation::Update => 3,
+    };
+    if arguments.len() != expected {
+        return Err(ProtocolV6ShapeError::InvalidApplication(
+            "List operation has invalid arity",
+        ));
+    }
+    if arguments
+        .iter()
+        .any(|argument| !matches!(argument, DescriptorTermArgument::Positional { .. }))
+    {
+        return Err(ProtocolV6ShapeError::InvalidApplication(
+            "List operations accept positional arguments only",
         ));
     }
     Ok(())
@@ -1525,6 +1628,7 @@ impl DescriptorTerm {
                     ));
                 }
                 validate_map_application_shape(*head_class, &reference.application, arguments)?;
+                validate_list_application_shape(*head_class, &reference.application, arguments)?;
                 let named = arguments.first().is_some_and(|argument| {
                     matches!(argument, DescriptorTermArgument::Named { .. })
                 });

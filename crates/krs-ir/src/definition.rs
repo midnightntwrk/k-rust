@@ -14,8 +14,9 @@ use crate::ir::validated_id;
 use crate::{
     ApplicationRef, BuiltinOperation, BuiltinSort, FormatFragment, GrammarProductionItem,
     GrammarProductionItemKind, GroupAssociativitySentence, IrIdentityError, IrSchemaVersion,
-    ItemKind, MapOperation, ModuleId, NodeOrigin, PrecedenceRelation, ProductionAttribute,
-    ProductionFieldId, ProductionGroupId, SemanticId, SentenceKind, SourceMapKey, StableItemId,
+    ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin, PrecedenceRelation,
+    ProductionAttribute, ProductionFieldId, ProductionGroupId, SemanticId, SentenceKind,
+    SourceMapKey, StableItemId,
 };
 use crate::{
     CellContentFrame, CellPost, FixedCell, FixedCellClause, FixedCellContent, FixedConfiguration,
@@ -107,6 +108,12 @@ impl DefinitionSortRef {
     #[must_use]
     pub const fn map() -> Self {
         Self::Builtin(BuiltinSort::Map)
+    }
+
+    /// Stable associative-list sort from `LIST`.
+    #[must_use]
+    pub const fn list() -> Self {
+        Self::Builtin(BuiltinSort::List)
     }
 }
 
@@ -1671,6 +1678,23 @@ impl DefinitionTerm {
             },
         }
     }
+    /// Creates one structured builtin-List operation.
+    #[must_use]
+    pub const fn list(
+        origin: NodeOrigin,
+        sort: DefinitionSortRef,
+        operation: ListOperation,
+        arguments: Vec<Self>,
+    ) -> Self {
+        Self {
+            origin,
+            sort,
+            kind: DefinitionTermKind::List {
+                operation,
+                arguments,
+            },
+        }
+    }
     /// Returns mandatory provenance.
     #[must_use]
     pub const fn origin(&self) -> &NodeOrigin {
@@ -1722,6 +1746,13 @@ pub enum DefinitionTermKind {
         /// Exact target-neutral map operation.
         operation: MapOperation,
         /// Ordered operands; key/value terms retain their own sorts.
+        arguments: Vec<DefinitionTerm>,
+    },
+    /// Structured builtin-List operation.
+    List {
+        /// Exact target-neutral List operation.
+        operation: ListOperation,
+        /// Ordered operands; item values retain their own sorts.
         arguments: Vec<DefinitionTerm>,
     },
     /// Relational rewrite.
@@ -1847,6 +1878,8 @@ pub enum DefinitionValidationError {
     MapSortMismatch,
     /// A Map operation had the wrong arity or Map operand.
     MapOperationSignature(MapOperation),
+    /// A List operation had the wrong result sort, arity, or operand sorts.
+    ListOperationSignature(ListOperation),
     /// A configuration rule exists without a general fixed configuration.
     ConfigurationRuleWithoutFixedConfiguration(LabelId),
     /// A configuration rule names a different fixed configuration.
@@ -2041,6 +2074,12 @@ impl fmt::Display for DefinitionValidationError {
                     "Map operation has invalid signature {operation:?}"
                 )
             }
+            Self::ListOperationSignature(operation) => {
+                write!(
+                    formatter,
+                    "List operation has invalid signature {operation:?}"
+                )
+            }
             Self::ConfigurationRuleWithoutFixedConfiguration(id) => write!(
                 formatter,
                 "configuration rule {:?} requires a general fixed configuration",
@@ -2224,7 +2263,8 @@ fn require_definition_sort(
             | BuiltinSort::Bool
             | BuiltinSort::Map
             | BuiltinSort::Id
-            | BuiltinSort::Bytes,
+            | BuiltinSort::Bytes
+            | BuiltinSort::List,
         ) => Ok(()),
     }
 }
@@ -2898,7 +2938,8 @@ fn collect_term_variables(term: &DefinitionTerm, used: &mut BTreeSet<SemanticId>
             used.insert(variable.clone());
         }
         DefinitionTermKind::Application { arguments, .. }
-        | DefinitionTermKind::Map { arguments, .. } => {
+        | DefinitionTermKind::Map { arguments, .. }
+        | DefinitionTermKind::List { arguments, .. } => {
             for argument in arguments {
                 collect_term_variables(argument, used);
             }
@@ -3012,6 +3053,44 @@ fn validate_term(
             };
             if !valid_arity {
                 return Err(DefinitionValidationError::MapOperationSignature(*operation));
+            }
+            for argument in arguments {
+                validate_term(argument, scope, symbols, signatures, subsort_parents, nodes)?;
+            }
+        }
+        DefinitionTermKind::List {
+            operation,
+            arguments,
+        } => {
+            let list_sort = DefinitionSortRef::Builtin(BuiltinSort::List);
+            let int_sort = DefinitionSortRef::Builtin(BuiltinSort::Int);
+            let valid = match operation {
+                ListOperation::Empty => term.sort == list_sort && arguments.is_empty(),
+                ListOperation::Item => term.sort == list_sort && arguments.len() == 1,
+                ListOperation::Concat => {
+                    term.sort == list_sort
+                        && arguments.len() == 2
+                        && arguments.iter().all(|argument| argument.sort == list_sort)
+                }
+                ListOperation::Get => {
+                    arguments.len() == 2
+                        && arguments[0].sort == list_sort
+                        && arguments[1].sort == int_sort
+                }
+                ListOperation::Update => {
+                    term.sort == list_sort
+                        && arguments.len() == 3
+                        && arguments[0].sort == list_sort
+                        && arguments[1].sort == int_sort
+                }
+                ListOperation::Size => {
+                    term.sort == int_sort && arguments.len() == 1 && arguments[0].sort == list_sort
+                }
+            };
+            if !valid {
+                return Err(DefinitionValidationError::ListOperationSignature(
+                    *operation,
+                ));
             }
             for argument in arguments {
                 validate_term(argument, scope, symbols, signatures, subsort_parents, nodes)?;

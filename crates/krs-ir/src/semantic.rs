@@ -16,8 +16,9 @@ use crate::{
     FixedCellClause, FixedCellContent, FixedConfiguration, FixedConfigurationPattern,
     FixedConfigurationRewrite, FixedInitializerCell, FixedInitializerContent, FormatFragment,
     GrammarProductionItem, GrammarProductionItemKind, GroupAssociativitySentence, IrSchemaVersion,
-    ItemKind, MapOperation, ModuleId, NodeOrigin, PrecedenceRelation, ProductionAttribute,
-    ProductionFieldId, ProductionGroupId, SemanticId, SentenceKind, SourceMapKey, StableItemId,
+    ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin, PrecedenceRelation,
+    ProductionAttribute, ProductionFieldId, ProductionGroupId, SemanticId, SentenceKind,
+    SourceMapKey, StableItemId,
 };
 
 /// Authored or compiler-provided semantic application reference.
@@ -74,6 +75,12 @@ impl SemanticSortRef {
     #[must_use]
     pub const fn map() -> Self {
         Self::Builtin(BuiltinSort::Map)
+    }
+
+    /// Stable associative-list sort from `LIST`.
+    #[must_use]
+    pub const fn list() -> Self {
+        Self::Builtin(BuiltinSort::List)
     }
 }
 
@@ -1663,6 +1670,23 @@ impl SemanticTerm {
             },
         }
     }
+    /// Creates one typed builtin-List operation.
+    #[must_use]
+    pub const fn list(
+        origin: NodeOrigin,
+        sort: SemanticSortRef,
+        operation: ListOperation,
+        arguments: Vec<Self>,
+    ) -> Self {
+        Self {
+            origin,
+            sort,
+            kind: SemanticTermKind::List {
+                operation,
+                arguments,
+            },
+        }
+    }
     /// Returns node provenance.
     #[must_use]
     pub const fn origin(&self) -> &NodeOrigin {
@@ -1712,6 +1736,13 @@ pub enum SemanticTermKind {
     Map {
         /// Exact compiler-known Map operation.
         operation: MapOperation,
+        /// Ordered structured operands.
+        arguments: Vec<SemanticTerm>,
+    },
+    /// Structured builtin-List operation with KItem-like operands.
+    List {
+        /// Exact compiler-known List operation.
+        operation: ListOperation,
         /// Ordered structured operands.
         arguments: Vec<SemanticTerm>,
     },
@@ -1839,6 +1870,8 @@ pub enum SemanticValidationError {
     MapSortMismatch,
     /// A Map operation had the wrong arity or Map operand.
     MapOperationSignature(MapOperation),
+    /// A List operation had the wrong result sort, arity, or operand sorts.
+    ListOperationSignature(ListOperation),
     /// A configuration rule exists without a general fixed configuration.
     ConfigurationRuleWithoutFixedConfiguration(Box<StableItemId>),
     /// A configuration rule names a different fixed configuration.
@@ -2026,6 +2059,12 @@ impl fmt::Display for SemanticValidationError {
                     "Map operation has invalid signature {operation:?}"
                 )
             }
+            Self::ListOperationSignature(operation) => {
+                write!(
+                    formatter,
+                    "List operation has invalid signature {operation:?}"
+                )
+            }
             Self::ConfigurationRuleWithoutFixedConfiguration(id) => write!(
                 formatter,
                 "configuration rule {id:?} requires a general fixed configuration"
@@ -2149,7 +2188,8 @@ fn require_semantic_sort(
             | BuiltinSort::Bool
             | BuiltinSort::Map
             | BuiltinSort::Id
-            | BuiltinSort::Bytes,
+            | BuiltinSort::Bytes
+            | BuiltinSort::List,
         ) => Ok(()),
     }
 }
@@ -2767,7 +2807,8 @@ fn collect_term_variables(term: &SemanticTerm, used: &mut BTreeSet<SemanticId>) 
             used.insert(variable.clone());
         }
         SemanticTermKind::Application { arguments, .. }
-        | SemanticTermKind::Map { arguments, .. } => {
+        | SemanticTermKind::Map { arguments, .. }
+        | SemanticTermKind::List { arguments, .. } => {
             for argument in arguments {
                 collect_term_variables(argument, used);
             }
@@ -2892,6 +2933,49 @@ fn validate_term(
             };
             if !valid_arity {
                 return Err(SemanticValidationError::MapOperationSignature(*operation));
+            }
+            for argument in arguments {
+                validate_term(
+                    argument,
+                    scope,
+                    declarations,
+                    signatures,
+                    sort_parents,
+                    nodes,
+                )?;
+            }
+        }
+        SemanticTermKind::List {
+            operation,
+            arguments,
+        } => {
+            let list_sort = SemanticSortRef::Builtin(BuiltinSort::List);
+            let int_sort = SemanticSortRef::Builtin(BuiltinSort::Int);
+            let valid = match operation {
+                ListOperation::Empty => term.sort == list_sort && arguments.is_empty(),
+                ListOperation::Item => term.sort == list_sort && arguments.len() == 1,
+                ListOperation::Concat => {
+                    term.sort == list_sort
+                        && arguments.len() == 2
+                        && arguments.iter().all(|argument| argument.sort == list_sort)
+                }
+                ListOperation::Get => {
+                    arguments.len() == 2
+                        && arguments[0].sort == list_sort
+                        && arguments[1].sort == int_sort
+                }
+                ListOperation::Update => {
+                    term.sort == list_sort
+                        && arguments.len() == 3
+                        && arguments[0].sort == list_sort
+                        && arguments[1].sort == int_sort
+                }
+                ListOperation::Size => {
+                    term.sort == int_sort && arguments.len() == 1 && arguments[0].sort == list_sort
+                }
+            };
+            if !valid {
+                return Err(SemanticValidationError::ListOperationSignature(*operation));
             }
             for argument in arguments {
                 validate_term(

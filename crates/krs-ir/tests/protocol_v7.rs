@@ -15,15 +15,16 @@ use krs_ir::{
     DescriptorRuleCells, DescriptorRuleCondition, DescriptorSortRef, DescriptorSortReference,
     DescriptorTerm, DescriptorTermArgument, HostBuiltinOperationRegistration, HostBuiltinRegistry,
     HostBuiltinRegistryError, HostBuiltinSortRegistration, HostCellIdentity, HostCellReference,
-    HostConfigurationReference, HostConfigurationRule, HostMapOperationRegistration, HostRuleCells,
-    HostSortReference, HostTerm, HostTypeKey, HostTypeReference, ItemKind, MapOperation,
-    OriginStack, PackageId, ProtocolCellContent, ProtocolContextAliasBinding,
-    ProtocolContextAliasBindingKind, ProtocolInitializerCellContent, ProtocolInitializerStateTerm,
-    ProtocolInitializerTerm, ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap,
-    ProtocolMapBody, ProtocolRuleBinding, ProtocolRuleBindingKind, ProtocolRuleCell,
-    ProtocolRuleFrame, ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleMap,
-    ProtocolRuleMapBody, ProtocolRuleMapItem, ProtocolRuleStateTerm, ProtocolV7ShapeError,
-    ProvenanceKey, SentenceKind, Sha256Digest, SourceFileId, SourceRange, StableItemId,
+    HostConfigurationReference, HostConfigurationRule, HostListOperationRegistration,
+    HostMapOperationRegistration, HostRuleCells, HostSortReference, HostTerm, HostTypeKey,
+    HostTypeReference, ItemKind, ListOperation, MapOperation, OriginStack, PackageId,
+    ProtocolCellContent, ProtocolContextAliasBinding, ProtocolContextAliasBindingKind,
+    ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolInitializerTerm,
+    ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolRuleBinding,
+    ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleFrame, ProtocolRuleKSequence,
+    ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem,
+    ProtocolRuleStateTerm, ProtocolV7ShapeError, ProvenanceKey, SentenceKind, Sha256Digest,
+    SourceFileId, SourceRange, StableItemId,
 };
 
 fn package() -> PackageId {
@@ -265,7 +266,8 @@ fn v7_builtin_registry_requires_map_and_id() {
                 2 => HostTypeKey(marker::<2>),
                 3 => HostTypeKey(marker::<3>),
                 4 => HostTypeKey(marker::<4>),
-                _ => HostTypeKey(marker::<5>),
+                5 => HostTypeKey(marker::<5>),
+                _ => HostTypeKey(marker::<6>),
             },
         })
         .collect();
@@ -275,34 +277,50 @@ fn v7_builtin_registry_requires_map_and_id() {
         .map(|(index, operation)| HostBuiltinOperationRegistration {
             operation,
             target: match index {
-                0 => HostTypeKey(marker::<6>),
-                1 => HostTypeKey(marker::<7>),
-                2 => HostTypeKey(marker::<8>),
-                3 => HostTypeKey(marker::<9>),
-                4 => HostTypeKey(marker::<10>),
-                5 => HostTypeKey(marker::<11>),
-                6 => HostTypeKey(marker::<12>),
-                7 => HostTypeKey(marker::<13>),
-                8 => HostTypeKey(marker::<14>),
-                9 => HostTypeKey(marker::<15>),
-                10 => HostTypeKey(marker::<16>),
-                11 => HostTypeKey(marker::<17>),
-                12 => HostTypeKey(marker::<18>),
-                13 => HostTypeKey(marker::<19>),
-                14 => HostTypeKey(marker::<20>),
-                15 => HostTypeKey(marker::<21>),
-                _ => HostTypeKey(marker::<22>),
+                0 => HostTypeKey(marker::<7>),
+                1 => HostTypeKey(marker::<8>),
+                2 => HostTypeKey(marker::<9>),
+                3 => HostTypeKey(marker::<10>),
+                4 => HostTypeKey(marker::<11>),
+                5 => HostTypeKey(marker::<12>),
+                6 => HostTypeKey(marker::<13>),
+                7 => HostTypeKey(marker::<14>),
+                8 => HostTypeKey(marker::<15>),
+                9 => HostTypeKey(marker::<16>),
+                10 => HostTypeKey(marker::<17>),
+                11 => HostTypeKey(marker::<18>),
+                12 => HostTypeKey(marker::<19>),
+                13 => HostTypeKey(marker::<20>),
+                14 => HostTypeKey(marker::<21>),
+                15 => HostTypeKey(marker::<22>),
+                _ => HostTypeKey(marker::<23>),
             },
         })
         .collect();
     let map_operations = vec![HostMapOperationRegistration {
         operation: MapOperation::Update,
-        target: HostTypeKey(marker::<23>),
+        target: HostTypeKey(marker::<24>),
     }];
+    let list_operations = ListOperation::TERM_APPLICATIONS
+        .into_iter()
+        .enumerate()
+        .map(|(index, operation)| HostListOperationRegistration {
+            operation,
+            target: match index {
+                0 => HostTypeKey(marker::<25>),
+                1 => HostTypeKey(marker::<26>),
+                2 => HostTypeKey(marker::<27>),
+                3 => HostTypeKey(marker::<28>),
+                4 => HostTypeKey(marker::<29>),
+                _ => HostTypeKey(marker::<30>),
+            },
+        })
+        .collect();
     let registry = HostBuiltinRegistry {
         sorts,
         operations,
         map_operations,
+        list_operations,
     };
     registry.validate_v7().unwrap();
 
@@ -637,7 +655,7 @@ fn configuration_rule_round_trips_with_exact_side_specific_provenance() {
         payload: DescriptorPayload::ConfigurationRule(Box::new(rule)),
     }]);
     let json = bundle.to_canonical_json().unwrap();
-    assert!(json.contains("\"protocol_version\": 17"));
+    assert!(json.contains("\"protocol_version\": 18"));
     assert!(json.contains("\"configuration_rule\""));
     let decoded: DescriptorBundle = serde_json::from_str(&json).unwrap();
     assert_eq!(decoded, bundle);
@@ -1099,5 +1117,5 @@ fn protocol_seven_is_rejected_after_v9_cutover() {
         r#"{"protocol_version":7,"descriptors":[],"declarations":[]}"#,
     )
     .unwrap_err();
-    assert!(error.to_string().contains("expected 17"));
+    assert!(error.to_string().contains("expected 18"));
 }
