@@ -1,14 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/mutation-execution-policy.schema.json",
-  "title": "Portable mutation isolation and cache identity policy v1",
+  "title": "Portable mutation isolation policy v1",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schemaVersion",
     "policyId",
-    "isolation",
-    "cacheKey"
+    "isolationPolicy"
   ],
   "properties": {
     "schemaVersion": {
@@ -17,16 +16,24 @@
     "policyId": {
       "$ref": "common.schema.json#/$defs/digest"
     },
-    "isolation": {
+    "isolationPolicy": {
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "schemaVersion",
+        "isolationPolicyDigest",
         "baselineState",
         "mutantState",
         "sharedWritableState",
         "observerState"
       ],
       "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "isolationPolicyDigest": {
+          "$ref": "common.schema.json#/$defs/digest"
+        },
         "baselineState": {
           "const": "immutable"
         },
@@ -38,99 +45,6 @@
         },
         "observerState": {
           "const": "fresh-per-test-path"
-        }
-      }
-    },
-    "cacheKey": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "domain",
-        "baselineDefinitionDigest",
-        "compatibilityProfileDigest",
-        "operatorId",
-        "operatorVersion",
-        "patchId",
-        "executionProfileDigest",
-        "solverProfileDigest",
-        "optionsDigest",
-        "patternQueries",
-        "testManifestDigest",
-        "oracleDeclarations",
-        "oracleManifestDigest",
-        "keyDigest"
-      ],
-      "properties": {
-        "domain": {
-          "const": "k-in-k/mutation-cache-key/v1"
-        },
-        "baselineDefinitionDigest": {
-          "$ref": "common.schema.json#/$defs/digest"
-        },
-        "compatibilityProfileDigest": {
-          "$ref": "common.schema.json#/$defs/digest"
-        },
-        "operatorId": {
-          "type": "string",
-          "minLength": 1
-        },
-        "operatorVersion": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "patchId": {
-          "$ref": "common.schema.json#/$defs/digest"
-        },
-        "executionProfileDigest": {
-          "$ref": "common.schema.json#/$defs/digest"
-        },
-        "solverProfileDigest": {
-          "oneOf": [
-            {
-              "$ref": "common.schema.json#/$defs/digest"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "optionsDigest": {
-          "$ref": "common.schema.json#/$defs/digest"
-        },
-        "testManifestDigest": {
-          "$ref": "common.schema.json#/$defs/digest"
-        },
-        "oracleManifestDigest": {
-          "$ref": "common.schema.json#/$defs/digest"
-        },
-        "keyDigest": {
-          "$ref": "common.schema.json#/$defs/digest"
-        },
-        "patternQueries": {
-          "type": "array",
-          "items": {
-            "$ref": "common.schema.json#/$defs/patternQueryRoot"
-          }
-        },
-        "oracleDeclarations": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "role",
-              "digest"
-            ],
-            "properties": {
-              "role": {
-                "const": "oracle-declaration"
-              },
-              "digest": {
-                "$ref": "common.schema.json#/$defs/digest"
-              }
-            }
-          },
-          "minItems": 1
         }
       }
     }

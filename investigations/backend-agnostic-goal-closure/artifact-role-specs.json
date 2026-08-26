@@ -13,6 +13,50 @@
       "selfIdField": "gateResultId"
     },
     {
+      "role": "cache-campaign-invocation",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "cache-semantics.schema.json#/$defs/campaignInvocation",
+      "digestDomain": "k-in-k/campaign-invocation/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "campaignInvocationId"
+    },
+    {
+      "role": "cache-campaign-manifest",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "cache-semantics.schema.json#/$defs/campaignManifest",
+      "digestDomain": "k-in-k/cache-campaign-manifest/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "manifestId"
+    },
+    {
+      "role": "cache-mutation-report",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "cache-semantics.schema.json#/$defs/mutationReport",
+      "digestDomain": "k-in-k/mutation-report/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "reportId"
+    },
+    {
+      "role": "cache-record",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "cache-semantics.schema.json#/$defs/cacheRecord",
+      "digestDomain": "k-in-k/cache-record/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "recordId"
+    },
+    {
       "role": "compatibility-profile",
       "contentModel": "canonical-json",
       "mediaType": "application/json",

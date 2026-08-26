@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "manifestId": "bdec62d0194109119d3e3452d90554352c81fbe7b79962a7934d663843af01df",
+  "baselineDefinition": {
+    "role": "definition",
+    "digest": "fbd2e2ca60637e9e7e8d4ad568e55416281063533408b6db04f94b9fd4098d63"
+  },
+  "candidate": {
+    "candidateId": "41faa18eb7ef290d21788c21d61c062050e4dc21b19432a9bb5f78c849e8fd28",
+    "patch": {
+      "role": "patch",
+      "digest": "f5f6778187b8932860e873c47c4e11686b2e0c16dec9b344da5cd6a9405aa382"
+    },
+    "mutantId": "3a4e98dc17b96ea554a7213d591d467cc6a4ff0a3f98e3a5159ebb1b7454138f",
+    "mutantDefinition": {
+      "role": "mutant-definition",
+      "digest": "9e8dbb1183eafb016e9de893693987678359044ad0be2b4d2e132fe2f550da59"
+    }
+  },
+  "compatibilityProfile": {
+    "role": "compatibility-profile",
+    "digest": "19e25029f0de1d31329a6b81340277e66518b44c686975df6919dd8c0f5042d1"
+  },
+  "loweringProfile": {
+    "role": "lowering-profile",
+    "digest": "6d07d5437a05b5bda922083438b7d4c5ee448bbbea5955ee4a49e97582eafefd"
+  },
+  "executionProfile": {
+    "role": "execution-profile",
+    "digest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9"
+  },
+  "solverProfile": {
+    "role": "solver-profile",
+    "digest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161"
+  },
+  "isolationPolicy": {
+    "schemaVersion": 1,
+    "isolationPolicyDigest": "e0894a9041cfe54ce8c59fe2091e82a11f7c2f73e24d842f51fa1f2baffe9189",
+    "baselineState": "immutable",
+    "mutantState": "fresh-per-mutant",
+    "sharedWritableState": false,
+    "observerState": "fresh-per-test-path"
+  },
+  "tests": [
+    {
+      "testId": "cache-prefix",
+      "program": {
+        "role": "program",
+        "digest": "3e4f2ed853c944bb35727934bff9389a3adf8594fec826d4a59eeaf94cfa34d0"
+      },
+      "parser": {
+        "role": "parser",
+        "digest": "e2221c543e1c974746daee9fc9a309a1e62047902ede87768f4ffc0379e9e628"
+      },
+      "startSymbol": "Pgm",
+      "options": {
+        "role": "options",
+        "digest": "d25cc447c8c42cfa54be8f9c86231a68a0121e5b9813f60c8bcf92d4cae1a3f0"
+      },
+      "bounds": {
+        "depth": 20,
+        "timeMs": 1000,
+        "branches": 8,
+        "results": 8
+      },
+      "testInvocationDigest": "97375057783478502876ee20a5158048244331d428cee7d55f4575bb98e6c0f7",
+      "attemptKind": {
+        "kind": "ordinary"
+      },
+      "oracleDeclarations": [
+        {
+          "role": "oracle-declaration",
+          "digest": "4467c92638c8f930823fcaeab65e912ce71e4b9239306105ec7bad6238ca55e8"
+        },
+        {
+          "role": "oracle-declaration",
+          "digest": "c9e23ed51033bb5200342905158eb6cf67fbe20a311549cce2a1d1d41526601e"
+        }
+      ]
+    },
+    {
+      "testId": "cache-suffix",
+      "program": {
+        "role": "program",
+        "digest": "c7366579ba423b42124abfb860ede43054e8ebab186951d0a0228c3965912b87"
+      },
+      "parser": {
+        "role": "parser",
+        "digest": "e2221c543e1c974746daee9fc9a309a1e62047902ede87768f4ffc0379e9e628"
+      },
+      "startSymbol": "Pgm",
+      "options": {
+        "role": "options",
+        "digest": "537df92119f4cd64d786770fcea476b226048ccd01dde1cf71faec9433380e2c"
+      },
+      "bounds": {
+        "depth": 20,
+        "timeMs": 1000,
+        "branches": 8,
+        "results": 8
+      },
+      "testInvocationDigest": "e124f7e4369622269a40bc2f2298861074542481aff59030297a98b0158ac445",
+      "attemptKind": {
+        "kind": "ordinary"
+      },
+      "oracleDeclarations": [
+        {
+          "role": "oracle-declaration",
+          "digest": "092636bc585d7d90e78f90594f4a7e112e6b3250eb84fefb8dc8de5f1883da71"
+        }
+      ]
+    }
+  ]
+}

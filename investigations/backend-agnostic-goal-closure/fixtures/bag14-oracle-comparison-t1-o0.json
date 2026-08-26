@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "comparisonId": "8513be050ebf24fc46cb3d6e1a6f7cb18d71636229ac3ccca7bfdbbac269add0",
+  "declaration": {
+    "role": "oracle-declaration",
+    "digest": "4467c92638c8f930823fcaeab65e912ce71e4b9239306105ec7bad6238ca55e8"
+  },
+  "sides": [
+    {
+      "side": "baseline",
+      "normalOperand": {
+        "role": "oracle-operand",
+        "digest": "69209b2dd8ccb71c27d10336c3912c6ddcf6e5aa0d63ae61a601ff9670c56f2d"
+      },
+      "semanticCrash": null
+    },
+    {
+      "side": "mutant",
+      "normalOperand": {
+        "role": "oracle-operand",
+        "digest": "9c26e7375a0067cf58dc093372610960b9932d1f1f2329590d31b0c11704938d"
+      },
+      "semanticCrash": null
+    }
+  ],
+  "projectionId": "terminal-class-and-declared-exit-v1",
+  "comparatorId": "exact-terminal-class-and-exit-v1",
+  "normalizedValueDigests": [
+    "a00830ebf90a115c2fba044edcc1d34e700ce45bd96809d9ad6ab2a234c8c67f",
+    "e9dfc568bdd19bf2203ce3b690763d10cb41ee7087bcc32d958c1d0b71570258"
+  ],
+  "outcome": "distinguish"
+}

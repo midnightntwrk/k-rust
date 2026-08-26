@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "reportId": "50b09228055262199de8db78e6a68dfc420b380af6410fb4b687ee611ef25e87",
+  "campaignInvocation": {
+    "role": "cache-campaign-invocation",
+    "digest": "d91c9a21a69eeb72c312b276b2c81f82fc843e5f46d9c942a0e55d4645dc2289"
+  },
+  "scheduleMode": "full",
+  "selectedRecords": [
+    {
+      "slotId": "baseline-execution-t1",
+      "recordId": "b20cd6744f39666b2e95eb0cd0460ad0b6cff25143ced9a06065f7ddebf041f8"
+    },
+    {
+      "slotId": "baseline-gate-t1-o0",
+      "recordId": "59bac8d4df058c319361d359367ec775462a94dc09d453894709a8faaf7eba03"
+    },
+    {
+      "slotId": "baseline-gate-t1-o1",
+      "recordId": "51fc16c7373cef65853a8289d4ead5842f2e568c0db0b37559df653306b63c35"
+    },
+    {
+      "slotId": "baseline-execution-t2",
+      "recordId": "c2d3fe566e13442711609e0f36de6c952f98ef5a1cd21f2166bb5e34a7ffe4bd"
+    },
+    {
+      "slotId": "baseline-gate-t2-o0",
+      "recordId": "3c043d492bbe91e05087f36691ceb893bc826141030b39b70b1b597d0a0ef9ab"
+    },
+    {
+      "slotId": "mutant-execution-t1",
+      "recordId": "3bf9681f820854b5b153a408d48991a94f7900b14cbe3274bd950e2a0cce7c4d"
+    },
+    {
+      "slotId": "mutant-comparison-t1-o0",
+      "recordId": "c96237c839da4d98e38f9665c86dbe7671ac4964a7801e83dca7f09c86631d70"
+    },
+    {
+      "slotId": "mutant-comparison-t1-o1",
+      "recordId": "33e2e1ae92fb14142d3ceaf08eda6b1214b0373db55b9ca148867188627c1e2e"
+    },
+    {
+      "slotId": "mutant-execution-t2",
+      "recordId": "a4a717f787be8bf61a94d69b348ecd592f4606e1520c1012ac79a46de62c6bbd"
+    },
+    {
+      "slotId": "mutant-comparison-t2-o0",
+      "recordId": "4b941c424649b5c3856b551b8a0d5c2d0d6a6fbf27680c60d9761d11d5f2ddef"
+    }
+  ],
+  "testStatuses": [
+    {
+      "slotId": "baseline-execution-t1",
+      "status": "executed"
+    },
+    {
+      "slotId": "baseline-gate-t1-o0",
+      "status": "accepted"
+    },
+    {
+      "slotId": "baseline-gate-t1-o1",
+      "status": "accepted"
+    },
+    {
+      "slotId": "baseline-execution-t2",
+      "status": "executed"
+    },
+    {
+      "slotId": "baseline-gate-t2-o0",
+      "status": "accepted"
+    },
+    {
+      "slotId": "mutant-execution-t1",
+      "status": "executed"
+    },
+    {
+      "slotId": "mutant-comparison-t1-o0",
+      "status": "kill"
+    },
+    {
+      "slotId": "mutant-comparison-t1-o1",
+      "status": "kill"
+    },
+    {
+      "slotId": "mutant-execution-t2",
+      "status": "executed"
+    },
+    {
+      "slotId": "mutant-comparison-t2-o0",
+      "status": "agree"
+    }
+  ],
+  "scheduledButUnexecuted": [],
+  "exclusions": {
+    "timeout": 0,
+    "unknown": 0,
+    "error": 0
+  },
+  "score": {
+    "killed": 1,
+    "survived": 0,
+    "denominator": 1,
+    "ratio": {
+      "numerator": 1,
+      "denominator": 1
+    }
+  },
+  "campaignStatus": "complete"
+}

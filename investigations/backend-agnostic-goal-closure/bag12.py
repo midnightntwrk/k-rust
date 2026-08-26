@@ -506,6 +506,11 @@ def patch_campaign_schema(path: Path) -> None:
 
 def patch_policy_schema(path: Path) -> None:
     document = read_json(path)
+    # BAG-14 retired the suite-level cacheKey.  Oracle identity is now carried
+    # by each exact oracle-evaluation key, so BAG-12 has no policy field to
+    # patch after that migration.
+    if "cacheKey" not in document.get("properties", {}):
+        return
     cache = document["properties"]["cacheKey"]
     if "oracleDeclarations" not in cache["required"]:
         cache["required"].insert(cache["required"].index("oracleManifestDigest"), "oracleDeclarations")
@@ -1101,12 +1106,13 @@ def _finalize_refresh_legacy(root: Path) -> None:
 
     flattened_keys = [deepcopy(item) for test in manifest["tests"] for item in test["oracleDeclarations"]]
     policy = read_json(fixtures / "mutation-execution-policy.json")
-    policy["cacheKey"]["oracleDeclarations"] = flattened_keys
-    policy["cacheKey"]["testManifestDigest"] = digest("k-in-k/mutation-test-manifest/v1", manifest["tests"])
-    policy["cacheKey"]["oracleManifestDigest"] = digest("k-in-k/mutation-oracle-manifest/v1", flattened_keys)
-    policy["cacheKey"]["keyDigest"] = digest("k-in-k/mutation-cache-key/v1", without(policy["cacheKey"], "domain", "keyDigest"))
-    policy["policyId"] = digest("k-in-k/mutation-execution-policy/v1", without(policy, "policyId"))
-    write_json(fixtures / "mutation-execution-policy.json", policy)
+    if "cacheKey" in policy:
+        policy["cacheKey"]["oracleDeclarations"] = flattened_keys
+        policy["cacheKey"]["testManifestDigest"] = digest("k-in-k/mutation-test-manifest/v1", manifest["tests"])
+        policy["cacheKey"]["oracleManifestDigest"] = digest("k-in-k/mutation-oracle-manifest/v1", flattened_keys)
+        policy["cacheKey"]["keyDigest"] = digest("k-in-k/mutation-cache-key/v1", without(policy["cacheKey"], "domain", "keyDigest"))
+        policy["policyId"] = digest("k-in-k/mutation-execution-policy/v1", without(policy, "policyId"))
+        write_json(fixtures / "mutation-execution-policy.json", policy)
 
     declaration_by_oracle = {(item["testInvocationDigest"], item["oracleId"]): item for item in declarations}
     for report_test in campaign["baseline"]["tests"]:
@@ -1631,13 +1637,14 @@ def finalize_refresh(root: Path) -> None:
 
     flattened = [item for test in manifest["tests"] for item in test["oracleDeclarations"]]
     policy = read_json(fixtures / "mutation-execution-policy.json")
-    policy["cacheKey"].update({"oracleDeclarations": deepcopy(flattened),
-                               "patternQueries": [deepcopy(root_value) for test in manifest["tests"] for root_value in test["patternQueries"]],
-                               "testManifestDigest": digest("k-in-k/mutation-test-manifest/v1", manifest["tests"]),
-                               "oracleManifestDigest": digest("k-in-k/mutation-oracle-manifest/v1", flattened)})
-    policy["cacheKey"]["keyDigest"] = digest("k-in-k/mutation-cache-key/v1", without(policy["cacheKey"], "domain", "keyDigest"))
-    policy["policyId"] = digest("k-in-k/mutation-execution-policy/v1", without(policy, "policyId"))
-    write_json(fixtures / "mutation-execution-policy.json", policy)
+    if "cacheKey" in policy:
+        policy["cacheKey"].update({"oracleDeclarations": deepcopy(flattened),
+                                   "patternQueries": [deepcopy(root_value) for test in manifest["tests"] for root_value in test["patternQueries"]],
+                                   "testManifestDigest": digest("k-in-k/mutation-test-manifest/v1", manifest["tests"]),
+                                   "oracleManifestDigest": digest("k-in-k/mutation-oracle-manifest/v1", flattened)})
+        policy["cacheKey"]["keyDigest"] = digest("k-in-k/mutation-cache-key/v1", without(policy["cacheKey"], "domain", "keyDigest"))
+        policy["policyId"] = digest("k-in-k/mutation-execution-policy/v1", without(policy, "policyId"))
+        write_json(fixtures / "mutation-execution-policy.json", policy)
 
     campaign["manifestDigest"] = manifest["manifestId"]
     campaign["selectedTestIds"] = [test["testId"] for test in manifest["tests"]]
@@ -1664,7 +1671,7 @@ def finalize_refresh(root: Path) -> None:
         "output-other-subject", "gate-mutant-as-baseline", "gate-abort-retains-scoring", "failure-source-context",
         "failure-resource-disposition", "incomparable-missing-comparison", "incomparable-missing-side",
         "arbitrary-k-role", "missing-production-authority", "nonconformant-authority", "receipt-as-conformance",
-        "expected-side-kind", "expected-side-value-integrity", "comparison-outcome-assertion", "manifest-slot-order", "cache-test-root",
+        "expected-side-kind", "expected-side-value-integrity", "comparison-outcome-assertion", "manifest-slot-order", "execution-policy-isolation-root",
         "campaign-report-test-root", "global-oracle-join", "reachability-incomplete-absence", "utf8-byte-text-drift",
     ]
     inline_expectation_cases = []
@@ -2687,17 +2694,16 @@ class OracleVerifier:
 
     def validate_cache(self, policy: dict[str, Any] | None = None) -> None:
         policy = read_json(self.fixtures / "mutation-execution-policy.json") if policy is None else policy
-        flattened = [item for test in self.manifest["tests"] for item in test["oracleDeclarations"]]
-        self.ok(policy["cacheKey"]["oracleDeclarations"] == flattened, "cache oracle declarations do not flatten test then slot order with duplicates")
-        self.ok(policy["cacheKey"]["oracleManifestDigest"] == digest("k-in-k/mutation-oracle-manifest/v1", flattened), "cache oracle manifest digest still uses global definitions")
-        self.ok(policy["cacheKey"]["testManifestDigest"] == digest("k-in-k/mutation-test-manifest/v1", self.manifest["tests"]), "cache test manifest omitted declaration expectations")
-        cache = policy["cacheKey"]
-        self.ok(cache["baselineDefinitionDigest"] == self.manifest["definitionDigest"], "cache baseline definition differs from selected manifest")
-        self.ok(cache["compatibilityProfileDigest"] == self.corpus["compatibilityProfileDigest"] and cache["executionProfileDigest"] == self.corpus["executionProfileDigest"] and cache["solverProfileDigest"] == self.corpus["solverProfileDigest"], "cache execution/profile roots differ from selected corpus")
-        self.ok(cache["patternQueries"] == [deepcopy(root) for test in self.manifest["tests"] for root in test["patternQueries"]], "cache pattern roots do not flatten exact manifest tests")
-        expected_options = digest("k-in-k/mutation-options/v1", [{"testId": test["testId"], "optionsDigest": test["optionsDigest"]} for test in self.manifest["tests"]])
-        self.ok(cache["optionsDigest"] == expected_options, "cache options root does not aggregate the exact selected test IDs/options")
-        self.ok(policy["cacheKey"]["keyDigest"] == digest("k-in-k/mutation-cache-key/v1", without(policy["cacheKey"], "domain", "keyDigest")) and policy["policyId"] == digest("k-in-k/mutation-execution-policy/v1", without(policy, "policyId")), "cache/policy identity derivation drift")
+        isolation = policy["isolationPolicy"]
+        self.ok(isolation == {
+            "schemaVersion": 1,
+            "isolationPolicyDigest": digest("k-in-k/isolation-policy/v1", without(isolation, "isolationPolicyDigest")),
+            "baselineState": "immutable",
+            "mutantState": "fresh-per-mutant",
+            "sharedWritableState": False,
+            "observerState": "fresh-per-test-path",
+        }, "mutation execution policy does not embed the exact BAG-14 isolation policy")
+        self.ok(policy["policyId"] == digest("k-in-k/mutation-execution-policy/v1", without(policy, "policyId")), "mutation execution policy ID derivation drift")
 
     def validate_vectors(self) -> None:
         vectors = read_json(self.root / "vectors" / "oracle-semantics-vectors.json")
@@ -3074,12 +3080,12 @@ class OracleVerifier:
             bad["manifestId"] = digest("k-in-k/mutation-manifest/v1", without(bad, "manifestId"))
             self.expect_rejection(self.validate_manifest, bad, "manifest slot order drift survived")
 
-        def cache_root() -> None:
+        def execution_policy_isolation_root() -> None:
             policy = read_json(self.fixtures / "mutation-execution-policy.json")
-            policy["cacheKey"]["testManifestDigest"] = "f" * 64
-            policy["cacheKey"]["keyDigest"] = digest("k-in-k/mutation-cache-key/v1", without(policy["cacheKey"], "domain", "keyDigest"))
+            policy["isolationPolicy"]["observerState"] = "fresh-per-mutant"
+            policy["isolationPolicy"]["isolationPolicyDigest"] = digest("k-in-k/isolation-policy/v1", without(policy["isolationPolicy"], "isolationPolicyDigest"))
             policy["policyId"] = digest("k-in-k/mutation-execution-policy/v1", without(policy, "policyId"))
-            self.expect_rejection(self.validate_cache, policy, "cache test root drift survived")
+            self.expect_rejection(self.validate_cache, policy, "execution policy isolation drift survived")
 
         def campaign_test_root() -> None:
             bad = deepcopy(self.campaign)
@@ -3159,7 +3165,7 @@ class OracleVerifier:
             "expected-side-value-integrity": expected_value_integrity,
             "comparison-outcome-assertion": comparison_assertion,
             "manifest-slot-order": manifest_slot_order,
-            "cache-test-root": cache_root,
+            "execution-policy-isolation-root": execution_policy_isolation_root,
             "campaign-report-test-root": campaign_test_root,
             "global-oracle-join": global_join,
             "reachability-incomplete-absence": incomplete_absence,

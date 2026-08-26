@@ -1,9 +1,8 @@
 # Backend-agnostic investigation completion audit
 
-Status: refreshed BAG-11 witness-order and complete-denotation coverage and
-BAG-12 typed-oracle and inline-expectation integrity are independently
-accepted. BAG-13 rejection findings remain repaired, and BAG-14 awaits its own
-independent preflight, 26 August 2026.
+Status: refreshed BAG-11 witness-order and complete-denotation coverage and BAG-12 typed-oracle and inline-expectation integrity are independently accepted.
+BAG-13 rejection findings remain repaired.
+BAG-14 per-attempt cache implementation and portable evidence were independently accepted after two finding-driven repair rounds, 26 August 2026.
 
 This audit closes only work whose result can remain valid across execution
 backends. It does not treat a Python fixture oracle as implementation evidence
@@ -33,7 +32,7 @@ semantics.
 - Artifact identity/resolution now has separate semantic and byte roots, a
   closed role registry, strict locator/resolver rules, bundled canonical and
   opaque positives, derived replay closure, and permanent boundary
-  adversaries. The integrated resource-capped zero-backend run passes 397,474
+  adversaries. The integrated resource-capped zero-backend run passes 417,480
   serial checks, and the separate official-only Draft 2020-12 schema and
   fixture validation passes. Independent claim review remains pending.
 - BAG-10 closes the entry-centric failure taxonomy, exact failure-site
@@ -100,10 +99,22 @@ semantics.
   authority. Native K-authored evaluation still requires both a matching
   conformant evaluator record and BAG-15 production evidence; BAG-16 still
   owns native exhaustive branch collections.
+- BAG-14 closes the portable cache key, record, completeness, reuse, conflict, and schedule-fold contracts without claiming a storage implementation.
+  Execution and oracle requests have separate closed cycle-free keys; raw keys exclude outputs, schedules, cache lookup provenance, and locations.
+  Immutable records bind complete ordered outputs, positive completion evidence, intrinsic reuse class, and exact finite producer rows whose input digests exclude claimed results.
+  The bundled derivative graph independently recomputes definition/operator/selector/edit/patch/mutant identities, selector-to-patch authorization, terminal/trace/declaration/operand/gate/comparison identities and semantics, exact requested plans, and derived report statuses.
+  Every oracle operand has one finite input-to-output producer row.
+  First-kill and full reports share the exact validated prefix; the first-kill suffix has no child record; uncached, partial-hit, and full-hit materializations fold to byte-identical schedule-specific reports.
+  Same-key differences cover terminal, outputs, completion, and production provenance and require quarantine.
+  `fixtures/bag14-cache-artifact-catalog.json`, bound by the vector's `artifactCatalogDigest`, is an evidence-local derivative resolver snapshot rather than a relabelling of BAG-12's historical `external-required` graph.
+  Rust still owns real store atomicity, locking, resolver availability, conflict remediation, resource isolation, and native BAG-15 production receipts.
 - Evidence inventory, checklist, contracts, and Rust handoff are updated for
   this repair. D1 and roadmap are intentionally outside this packet. Fresh
-  independent BAG-11 and BAG-12 acceptance found no remaining blocker; this
-  does not substitute for BAG-14's own preflight or later packet gates.
+  independent BAG-11 and BAG-12 acceptance found no remaining blocker.
+  Two independent final BAG-14 audits reproduced the prior query, crash,
+  result-coupling, catalog-identity, and finite-execution-row attacks and
+  accepted the repaired subject with no remaining blocker; this does not
+  substitute for later packet gates.
 
 The final revision will replace the remaining pending entries with
 finding-by-finding results and list the residual Rust-only questions.

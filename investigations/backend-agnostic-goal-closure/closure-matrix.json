@@ -232,6 +232,26 @@
       "rustOpen": "actual IR/lowering/backend validation"
     },
     {
+      "id": "cache-granularity-completeness-and-scheduling",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/contracts.md",
+        "investigations/backend-agnostic-goal-closure/schemas/cache-semantics.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/mutation-execution-policy.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag14-cache-artifact-catalog.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag14-cache-campaign-manifest.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag14-cache-record-mutant-execution-t1.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag14-campaign-invocation-first-kill.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag14-campaign-invocation-full.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag14-mutation-report-first-kill.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag14-mutation-report-full.json",
+        "investigations/backend-agnostic-goal-closure/vectors/cache-semantics-vectors.json",
+        "investigations/backend-agnostic-goal-closure/bag14.py",
+        "investigations/backend-agnostic-goal-closure/verify.py"
+      ],
+      "rustOpen": "native BAG-15 production receipts, atomic cache storage and locking, resolver availability, same-key conflict remediation, and native first-kill/full materialization"
+    },
+    {
       "id": "mutation-edit-origin-and-template-provenance",
       "state": "resolved-portable-contract",
       "artifacts": [

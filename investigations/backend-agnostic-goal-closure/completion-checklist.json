@@ -289,10 +289,21 @@
         "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json",
         "investigations/backend-agnostic-goal-closure/schemas/replay-manifest.schema.json",
         "investigations/backend-agnostic-goal-closure/schemas/mutation-execution-policy.schema.json",
-        "investigations/backend-agnostic-goal-closure/fixtures/mutation-execution-policy.json"
+        "investigations/backend-agnostic-goal-closure/fixtures/mutation-execution-policy.json",
+        "investigations/backend-agnostic-goal-closure/schemas/cache-semantics.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag14-cache-artifact-catalog.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag14-cache-campaign-manifest.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag14-cache-record-mutant-execution-t1.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag14-campaign-invocation-first-kill.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag14-campaign-invocation-full.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag14-mutation-report-first-kill.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag14-mutation-report-full.json",
+        "investigations/backend-agnostic-goal-closure/vectors/cache-semantics-vectors.json",
+        "investigations/backend-agnostic-goal-closure/bag14.py",
+        "investigations/backend-agnostic-goal-closure/verify.py"
       ],
       "historicalEvidence": [],
-      "rustProof": "native enforcement of the frozen isolation/cache contract, resource isolation, and first-kill/full runs"
+      "rustProof": "native BAG-15 production receipts, real cache storage atomicity and locking, resolver-relative eligibility, same-key conflict policy, resource isolation, and first-kill/full runs"
     },
     {
       "id": "MU-09-report-diff-and-replay",

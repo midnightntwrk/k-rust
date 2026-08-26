@@ -1,9 +1,7 @@
 # Backend-agnostic goal closure
 
-Status: active portable investigation package; the refreshed BAG-11 witness-
-order and complete-denotation repairs and BAG-12 typed-oracle and inline-
-expectation repairs are independently accepted. BAG-14 awaits its own
-independent preflight, 26 August 2026.
+Status: active portable investigation package; the refreshed BAG-11 witness-order and complete-denotation repairs and BAG-12 typed-oracle and inline-expectation repairs are independently accepted.
+BAG-14 per-attempt cache implementation and evidence were independently accepted after two finding-driven repair rounds, 26 August 2026.
 
 This package records the semantic work that can be completed before K-in-K
 moves to its Rust-based execution stack. It deliberately does not preserve,
@@ -58,22 +56,25 @@ Passing this package means the portable inputs and expectations are internally
 consistent. It is not evidence that a backend has implemented them. The
 Rust-stack differential gates in the handoff are the future execution proof.
 
-The BAG-12 repair resolves its corpus, observation vocabulary, typed oracle
-graph, terminal/crash provenance, and finite authorities only through the
-active catalog. It publishes end-to-end agree/distinguish evidence for every
-built-in pair, positive inline expectations for all nine built-in
-projection/comparator pairs, both incomparable orientations, incomplete cases,
-and 36 one-to-one executable adversaries. These are repair-gate results, not
-an acceptance claim.
+The BAG-12 repair resolves its corpus, observation vocabulary, typed oracle graph, terminal/crash provenance, and finite authorities only through the active catalog.
+It publishes end-to-end agree/distinguish evidence for every built-in pair, positive inline expectations for all nine built-in projection/comparator pairs, both incomparable orientations, incomplete cases, and 36 one-to-one executable adversaries.
+These are repair-gate results, not an acceptance claim.
+
+The BAG-14 implementation replaces suite-level cache identity with cycle-free execution-attempt and oracle-evaluation request keys, immutable per-attempt records, schedule-specific campaign invocations, and schedule-specific mutation reports.
+Its wholly bundled counter derivative proves exact first-kill/full prefix reuse, an absent first-kill suffix, later full suffix completion, exact bounded and diagnostic-only classifications, full same-key conflict quarantine, and byte-identical uncached, partial-hit, and full-hit folds.
+The finite-vector rows hash only reviewed inputs and independently derive terminal/result outputs; every oracle operand has one explicit finite producer row.
+This remains portable conformance evidence, not native production or cache-store evidence.
 
 ## Artifact availability and current replay recipes
 
-`artifact-role-specs.json` freezes the shared role, media, schema, domain, and
-executable semantic-projection registry. `fixtures/artifact-catalog.json` supplies exact
-byte hashes and explicit resolver/availability metadata. The bundled material
-is deliberately small synthetic conformance input. `artifact://` entries are
-known, reviewed external pins for the future Rust artifact resolver; their
-locator spelling is not treated as local storage.
+`artifact-role-specs.json` freezes the shared role, media, schema, domain, and executable semantic-projection registry.
+`fixtures/artifact-catalog.json` supplies exact byte hashes and explicit resolver/availability metadata.
+The bundled material is deliberately small synthetic conformance input.
+`artifact://` entries are known, reviewed external pins for the future Rust artifact resolver; their locator spelling is not treated as local storage.
+
+`fixtures/bag14-cache-artifact-catalog.json` is the authoritative resolver snapshot for BAG-14 evidence and is bound by `vectors/cache-semantics-vectors.json.artifactCatalogDigest`.
+It is deliberately separate from BAG-12's active mutation catalog so a finite cache positive does not relabel historical `external-required` material as bundled.
+Cache location, lookup provenance, hit/miss state, and current resolver availability are supplemental and absent from semantic cache-record, request-key, invocation, and report identities.
 
 None of the four current replay recipes is materially self-contained:
 `replay-manifest.json`, `write-only-replay-manifest.json`,
@@ -83,16 +84,13 @@ structured input. Their exact derived status is in
 `fixtures/replay-closure.json`. They are frozen recipes, not locally executable
 bundles, and all explicitly report execution conformance as `not-proven`.
 
-Execution-pattern roots are deliberately split into opaque `pattern-source`,
-structured normalized `pattern-plan`, and structured named `pattern-query`
-keys. Replay match steps and every result/corpus/mutation/cache consumer bind
-the exact catalog-resolved triple. Corpus and mutation selections preserve
-oracle order and repeated query roots; mutation caches flatten only the exact
-mutation-test selections. Plan variable declaration order is retained in
-witnesses, and side-condition table keys hash only the declared input subset
-(including the valid empty constant interface). `pattern-plan.schema.json` is
-a finite conformance format, not K source or a Rust compiler IR; native K
-compiler and solver correctness remain future Rust-stack proof.
+Execution-pattern roots are deliberately split into opaque `pattern-source`, structured normalized `pattern-plan`, and structured named `pattern-query` keys.
+Replay match steps and every result/corpus/mutation consumer bind the exact catalog-resolved triple.
+Corpus and mutation selections preserve oracle order and repeated query roots.
+Query-coupled execution-attempt keys bind the exact selected triple and search policy; oracle-evaluation keys bind the exact declaration and ordered semantic inputs.
+There is no suite-level flattened cache root.
+Plan variable declaration order is retained in witnesses, and side-condition table keys hash only the declared input subset, including the valid empty constant interface.
+`pattern-plan.schema.json` is a finite conformance format, not K source or a Rust compiler IR; native K compiler and solver correctness remain future Rust-stack proof.
 
 ## Closure criteria
 

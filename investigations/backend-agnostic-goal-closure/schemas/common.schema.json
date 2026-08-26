@@ -468,6 +468,10 @@
       "type": "string",
       "enum": [
         "baseline-oracle-gate-result",
+        "cache-campaign-invocation",
+        "cache-campaign-manifest",
+        "cache-mutation-report",
+        "cache-record",
         "compatibility-profile",
         "corpus-manifest",
         "definition",

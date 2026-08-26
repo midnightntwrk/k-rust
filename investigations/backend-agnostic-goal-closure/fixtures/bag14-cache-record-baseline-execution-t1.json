@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "recordId": "b20cd6744f39666b2e95eb0cd0460ad0b6cff25143ced9a06065f7ddebf041f8",
+  "kind": "execution-attempt",
+  "keyDigest": "021480075328009942e43460338c2f51b882882676786ca9dbd1a8a96255ba5b",
+  "key": {
+    "schemaVersion": 1,
+    "keyDigest": "021480075328009942e43460338c2f51b882882676786ca9dbd1a8a96255ba5b",
+    "operation": {
+      "operationId": "portable-finite-execution",
+      "operationVersion": 1,
+      "adapterId": "bag14-vector-adapter",
+      "adapterVersion": 1
+    },
+    "subject": {
+      "kind": "baseline",
+      "definition": {
+        "role": "definition",
+        "digest": "fbd2e2ca60637e9e7e8d4ad568e55416281063533408b6db04f94b9fd4098d63"
+      }
+    },
+    "testInvocationDigest": "97375057783478502876ee20a5158048244331d428cee7d55f4575bb98e6c0f7",
+    "compatibilityProfileDigest": "19e25029f0de1d31329a6b81340277e66518b44c686975df6919dd8c0f5042d1",
+    "loweringProfileDigest": "6d07d5437a05b5bda922083438b7d4c5ee448bbbea5955ee4a49e97582eafefd",
+    "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+    "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+    "isolationPolicy": {
+      "schemaVersion": 1,
+      "isolationPolicyDigest": "e0894a9041cfe54ce8c59fe2091e82a11f7c2f73e24d842f51fa1f2baffe9189",
+      "baselineState": "immutable",
+      "mutantState": "fresh-per-mutant",
+      "sharedWritableState": false,
+      "observerState": "fresh-per-test-path"
+    },
+    "attemptKind": {
+      "kind": "ordinary"
+    }
+  },
+  "terminalRecord": {
+    "kind": "normal",
+    "terminal": {
+      "role": "terminal-state",
+      "digest": "182c79c265ab5f542a7d417341fa55eec589976ede6587afbc716e017ce3cb1e"
+    }
+  },
+  "producedArtifacts": [
+    {
+      "role": "terminal-state",
+      "digest": "182c79c265ab5f542a7d417341fa55eec589976ede6587afbc716e017ce3cb1e"
+    },
+    {
+      "role": "event-trace",
+      "digest": "dc9260afff00fc36dc6b73aadfac59676e704b4ca893d1987f438ced4bc23911"
+    }
+  ],
+  "completion": {
+    "producerStatus": "complete",
+    "evidenceClass": "semantic-result",
+    "materialClosure": "repo-complete",
+    "executionConformance": "finite-vector-proven"
+  },
+  "reuseClass": "semantic-result",
+  "productionEvidence": {
+    "mode": "finite-vector",
+    "vectorId": "bag14.execution-terminal.v1",
+    "inputDigest": "629cf4df9bc05fc5847d5d4cd38cfe3cda37a0a5c59cfd9d4a7c5647ab8831f5",
+    "outputKeys": [
+      {
+        "role": "terminal-state",
+        "digest": "182c79c265ab5f542a7d417341fa55eec589976ede6587afbc716e017ce3cb1e"
+      },
+      {
+        "role": "event-trace",
+        "digest": "dc9260afff00fc36dc6b73aadfac59676e704b4ca893d1987f438ced4bc23911"
+      }
+    ]
+  }
+}

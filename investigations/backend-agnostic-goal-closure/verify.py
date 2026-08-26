@@ -17,6 +17,8 @@ from typing import Any
 
 from bag12 import new_official_fixtures as bag12_official_fixtures
 from bag12 import verify_package as verify_bag12_package
+from bag14 import new_official_fixtures as bag14_official_fixtures
+from bag14 import verify_package as verify_bag14_package
 
 
 PACKAGE = Path(__file__).resolve().parent
@@ -347,6 +349,14 @@ def verify_generic_failure_schema_inventory() -> None:
         ("mutation-campaign.schema.json", "/$defs/mutantFailure/oneOf/0"): "common.schema.json#/$defs/mutantValidationFailure",
         ("mutation-campaign.schema.json", "/$defs/mutantFailure/oneOf/1"): "common.schema.json#/$defs/mutantExecutionFailure",
         ("oracle-semantics.schema.json", "/$defs/baselineGateResult/properties/failure/oneOf/0"): "common.schema.json#/$defs/baselineOracleGateFailure",
+        ("cache-semantics.schema.json", "/$defs/cacheRecord/oneOf/0/properties/terminalRecord/oneOf/2/properties/failure/oneOf/0"): "common.schema.json#/$defs/baselineExecutionFailure",
+        ("cache-semantics.schema.json", "/$defs/cacheRecord/oneOf/0/properties/terminalRecord/oneOf/2/properties/failure/oneOf/1"): "common.schema.json#/$defs/mutantExecutionFailure",
+        ("cache-semantics.schema.json", "/$defs/cacheRecord/oneOf/0/properties/terminalRecord/oneOf/3/properties/failure/oneOf/0"): "common.schema.json#/$defs/baselineExecutionFailure",
+        ("cache-semantics.schema.json", "/$defs/cacheRecord/oneOf/0/properties/terminalRecord/oneOf/3/properties/failure/oneOf/1"): "common.schema.json#/$defs/mutantExecutionFailure",
+        ("cache-semantics.schema.json", "/$defs/cacheRecord/oneOf/1/properties/terminalRecord/oneOf/2/properties/failure/oneOf/0"): "common.schema.json#/$defs/oracleOperandProductionFailure",
+        ("cache-semantics.schema.json", "/$defs/cacheRecord/oneOf/1/properties/terminalRecord/oneOf/2/properties/failure/oneOf/1"): "common.schema.json#/$defs/oracleComparisonFailure",
+        ("cache-semantics.schema.json", "/$defs/cacheRecord/oneOf/1/properties/terminalRecord/oneOf/3/properties/failure/oneOf/0"): "common.schema.json#/$defs/oracleOperandProductionFailure",
+        ("cache-semantics.schema.json", "/$defs/cacheRecord/oneOf/1/properties/terminalRecord/oneOf/3/properties/failure/oneOf/1"): "common.schema.json#/$defs/oracleComparisonFailure",
     }
     actual = failure_schema_placements()
     ok(all(reference != "common.schema.json#/$defs/failure" for reference in actual.values()), "broad raw failure schema placement remains")
@@ -1362,13 +1372,6 @@ def validate_mutation_query_roots(manifest: dict[str, Any], catalog: dict[str, A
         for root in selected:
             resolve_pattern_query_root(root, catalog, vocabularies, expected_vocabulary)
     ok(len(selected_declaration_ids) == len(set(selected_declaration_ids)) and set(selected_declaration_ids) == set(available), "typed mutation declarations do not exactly cover the active catalog registry")
-
-
-def validate_mutation_cache_query_roots(policy: dict[str, Any], manifest: dict[str, Any]) -> None:
-    ok(policy["cacheKey"]["patternQueries"] == flatten_mutation_pattern_queries(manifest), "mutation cache query roots do not exactly flatten mutation test order then oracleIds selection order")
-    if "oracles" not in manifest:
-        flattened = [item for test in manifest["tests"] for item in test["oracleDeclarations"]]
-        ok(policy["cacheKey"]["oracleDeclarations"] == flattened, "mutation cache declaration roots do not flatten test/slot order")
 
 
 def validate_corpus_result_semantics(manifest: dict[str, Any], result: dict[str, Any], pattern_registry: dict[str, dict[str, Any]] | None = None, taxonomy: dict[str, Any] | None = None) -> None:
@@ -2867,7 +2870,7 @@ def official_fixture_schemas() -> dict[str, str]:
         "semantic-definition-counter.json": "semantic-definition.schema.json",
         "semantic-definition-generated.json": "semantic-definition.schema.json",
         "semantic-definition-identity-output.json": "semantic-definition.schema.json",
-    } | bag12_official_fixtures(PACKAGE)
+    } | bag12_official_fixtures(PACKAGE) | bag14_official_fixtures(PACKAGE)
 
 
 def official_package_schemas() -> dict[str, str]:
@@ -2890,37 +2893,15 @@ def verify_interchange_artifacts() -> None:
 
     execution_policy = load(FIXTURES / "mutation-execution-policy.json")
     mutation_manifest = load(FIXTURES / "mutation-manifest.json")
-    operator = load(FIXTURES / "mutation-operator.json")
-    patch = load(FIXTURES / "patch.json")
-    corpus = load(FIXTURES / "corpus-manifest.json")
-    definition = load(FIXTURES / "semantic-definition-memory.json")
-    cache_key = execution_policy["cacheKey"]
     validate_mutation_query_roots(mutation_manifest, artifact_catalog)
-    validate_mutation_cache_query_roots(execution_policy, mutation_manifest)
-    expected_cache_fields = {
-        "baselineDefinitionDigest": mutation_manifest["definitionDigest"],
-        "compatibilityProfileDigest": digest("k-in-k/compatibility-profile/v1", {"profile": definition["family"]["compatibilityProfile"]}),
-        "operatorId": operator["operatorId"],
-        "operatorVersion": operator["operatorVersion"],
-        "patchId": patch["patchId"],
-        "executionProfileDigest": corpus["executionProfileDigest"],
-        "solverProfileDigest": corpus["solverProfileDigest"],
-        "patternQueries": [deepcopy(root) for test in mutation_manifest["tests"] for root in test["patternQueries"]],
-        "oracleDeclarations": [deepcopy(item) for test in mutation_manifest["tests"] for item in test["oracleDeclarations"]],
-        "optionsDigest": digest("k-in-k/mutation-options/v1", [{"testId": test["testId"], "optionsDigest": test["optionsDigest"]} for test in mutation_manifest["tests"]]),
-        "testManifestDigest": digest("k-in-k/mutation-test-manifest/v1", mutation_manifest["tests"]),
-        "oracleManifestDigest": digest("k-in-k/mutation-oracle-manifest/v1", [item for test in mutation_manifest["tests"] for item in test["oracleDeclarations"]]),
-    }
-    ok(all(cache_key[name] == value for name, value in expected_cache_fields.items()), "mutation cache key omits or changes an identity input")
-    ok(cache_key["keyDigest"] == digest("k-in-k/mutation-cache-key/v1", value_without(cache_key, "domain", "keyDigest")), "mutation cache key digest derivation")
     ok(execution_policy["policyId"] == digest("k-in-k/mutation-execution-policy/v1", value_without(execution_policy, "policyId")), "mutation execution policy ID derivation")
     drift_policy = deepcopy(execution_policy)
-    drift_policy["cacheKey"]["executionProfileDigest"] = "f" * 64
-    drift_policy["cacheKey"]["keyDigest"] = digest("k-in-k/mutation-cache-key/v1", value_without(drift_policy["cacheKey"], "domain", "keyDigest"))
+    drift_policy["isolationPolicy"]["observerState"] = "fresh-per-mutant"
+    drift_policy["isolationPolicy"]["isolationPolicyDigest"] = digest("k-in-k/isolation-policy/v1", value_without(drift_policy["isolationPolicy"], "isolationPolicyDigest"))
     drift_policy["policyId"] = digest("k-in-k/mutation-execution-policy/v1", value_without(drift_policy, "policyId"))
-    expect_semantic_rejection(lambda value: ok(value["cacheKey"]["executionProfileDigest"] == corpus["executionProfileDigest"], "mutation cache execution profile differs from corpus"), drift_policy, "mutation cache execution-profile drift was accepted after local identity refresh")
-    isolation = execution_policy["isolation"]
-    ok(isolation == {"baselineState": "immutable", "mutantState": "fresh-per-mutant", "sharedWritableState": False, "observerState": "fresh-per-test-path"}, "mutation isolation boundary drift")
+    expect_semantic_rejection(lambda value: ok(value["isolationPolicy"]["observerState"] == "fresh-per-test-path", "mutation isolation observer state drift"), drift_policy, "mutation isolation drift was accepted after local identity refresh")
+    isolation = execution_policy["isolationPolicy"]
+    ok(isolation == {"schemaVersion": 1, "isolationPolicyDigest": digest("k-in-k/isolation-policy/v1", value_without(isolation, "isolationPolicyDigest")), "baselineState": "immutable", "mutantState": "fresh-per-mutant", "sharedWritableState": False, "observerState": "fresh-per-test-path"}, "mutation isolation boundary drift")
 
     observation = load(FIXTURES / "observation-manifest.json")
     memory_definition = load(FIXTURES / "semantic-definition-memory.json")
@@ -3827,7 +3808,6 @@ def verify_bag11_adversaries() -> None:
 
     corpus = load(FIXTURES / "corpus-manifest.json")
     replay = load(FIXTURES / "replay-manifest.json")
-    policy = load(FIXTURES / "mutation-execution-policy.json")
 
     def root_for(value: dict[str, Any]) -> dict[str, Any]:
         return {"patternSource": deepcopy(value["patternSource"]), "patternPlan": deepcopy(value["patternPlan"]), "patternQuery": {"role": "pattern-query", "digest": value["queryId"]}}
@@ -3849,19 +3829,10 @@ def verify_bag11_adversaries() -> None:
         refresh_replay_ids(changed)
         return changed
 
-    def policy_with(value: dict[str, Any]) -> dict[str, Any]:
-        changed = deepcopy(policy)
-        changed["cacheKey"]["patternQueries"][0] = root_for(value)
-        changed["cacheKey"]["keyDigest"] = digest("k-in-k/mutation-cache-key/v1", value_without(changed["cacheKey"], "domain", "keyDigest"))
-        changed["policyId"] = digest("k-in-k/mutation-execution-policy/v1", value_without(changed, "policyId"))
-        return changed
-
     for changed_query in (name_only_query, plan_drift_query):
         ok(corpus_with(changed_query)["manifestId"] != corpus["manifestId"], "query change did not reach corpus identity")
         changed_replay = replay_with(changed_query)
         ok(changed_replay["invocationDigest"] != replay["invocationDigest"] and changed_replay["replayId"] != replay["replayId"], "query change did not reach replay identities")
-        changed_policy = policy_with(changed_query)
-        ok(changed_policy["cacheKey"]["keyDigest"] != policy["cacheKey"]["keyDigest"] and changed_policy["policyId"] != policy["policyId"], "query change did not reach cache/policy identity")
 
     validate_corpus_manifest_semantics(corpus, catalog)
     ok(len(corpus["tests"][0]["patternQueries"]) == 3 and corpus["tests"][0]["patternQueries"][0] == corpus["tests"][0]["patternQueries"][2], "corpus positive does not preserve repeated per-test oracle query selections")
@@ -3886,11 +3857,9 @@ def verify_bag11_adversaries() -> None:
     for fixture, schema_name, field in (
         (corpus, "corpus-manifest.schema.json", "patternQueries"),
         (replay, "replay-manifest.schema.json", "patternSource"),
-        (policy, "mutation-execution-policy.schema.json", "patternQueries"),
     ):
         bad = deepcopy(fixture)
-        target = bad["cacheKey"] if fixture is policy else bad
-        target.pop(field)
+        bad.pop(field)
         expect_schema_rejection(bad, schema_name, f"{schema_name} omitted required per-query identity")
     bad = deepcopy(corpus)
     bad["tests"][0].pop("patternQueries")
@@ -3903,7 +3872,6 @@ def verify_bag11_adversaries() -> None:
     mutation = load(FIXTURES / "mutation-manifest.json")
     mutation_catalog = load(FIXTURES / "artifact-catalog.json")
     validate_mutation_query_roots(mutation, mutation_catalog)
-    validate_mutation_cache_query_roots(policy, mutation)
     missing_test_roots = deepcopy(mutation)
     missing_test_roots["tests"][0].pop("patternQueries")
     expect_schema_rejection(missing_test_roots, "mutation-manifest.schema.json", "mutation test invocation omitted ordered query selections")
@@ -3916,13 +3884,6 @@ def verify_bag11_adversaries() -> None:
         spliced_mutation = deepcopy(mutation)
         spliced_mutation["tests"][0]["patternQueries"][0][field] = deepcopy(drifted_query_root[field])
         expect_semantic_rejection(lambda value: validate_mutation_query_roots(value, mutation_catalog), spliced_mutation, f"typed mutation manifest accepted declaration/{field} drift")
-    ok(policy["cacheKey"]["patternQueries"] != corpus["patternQueries"], "mutation cache retained the overinclusive corpus query list")
-    bad_policy = deepcopy(policy)
-    bad_policy["cacheKey"]["oracleDeclarations"].reverse()
-    bad_policy["cacheKey"]["keyDigest"] = digest("k-in-k/mutation-cache-key/v1", value_without(bad_policy["cacheKey"], "domain", "keyDigest"))
-    bad_policy["policyId"] = digest("k-in-k/mutation-execution-policy/v1", value_without(bad_policy, "policyId"))
-    expect_semantic_rejection(lambda value: validate_mutation_cache_query_roots(value, mutation), bad_policy, "mutation cache reordered typed declaration slots")
-
     result = load(FIXTURES / "pattern-result.json")
     trace = load(FIXTURES / "event-trace.json")
     trace_digest = digest("k-in-k/event-trace/v1", trace)
@@ -6620,6 +6581,10 @@ def main() -> int:
         "ok": ok,
         "expect_schema_rejection": expect_schema_rejection,
         "validate_pattern_result_semantics": validate_pattern_result_semantics,
+    })
+    verify_bag14_package(PACKAGE, {
+        "ok": ok,
+        "expect_schema_rejection": expect_schema_rejection,
     })
     verify_semantic_termination_and_crash_oracle()
     verify_policy_generation_fixtures()

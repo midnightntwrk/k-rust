@@ -31,6 +31,7 @@
     "investigations/backend-agnostic-goal-closure/schemas/corpus-result.schema.json",
     "investigations/backend-agnostic-goal-closure/schemas/mutation-campaign.schema.json",
     "investigations/backend-agnostic-goal-closure/schemas/mutation-execution-policy.schema.json",
+    "investigations/backend-agnostic-goal-closure/schemas/cache-semantics.schema.json",
     "investigations/backend-agnostic-goal-closure/schemas/oracle-semantics.schema.json",
     "investigations/backend-agnostic-goal-closure/schemas/reachability-semantics.schema.json",
     "investigations/backend-agnostic-goal-closure/schemas/predicate-semantics.schema.json",
@@ -73,6 +74,13 @@
     "investigations/backend-agnostic-goal-closure/fixtures/mutation-replay-manifest.json",
     "investigations/backend-agnostic-goal-closure/fixtures/artifact-catalog.json",
     "investigations/backend-agnostic-goal-closure/fixtures/execution-artifact-catalog.json",
+    "investigations/backend-agnostic-goal-closure/fixtures/bag14-cache-artifact-catalog.json",
+    "investigations/backend-agnostic-goal-closure/fixtures/bag14-cache-campaign-manifest.json",
+    "investigations/backend-agnostic-goal-closure/fixtures/bag14-cache-record-mutant-execution-t1.json",
+    "investigations/backend-agnostic-goal-closure/fixtures/bag14-campaign-invocation-first-kill.json",
+    "investigations/backend-agnostic-goal-closure/fixtures/bag14-campaign-invocation-full.json",
+    "investigations/backend-agnostic-goal-closure/fixtures/bag14-mutation-report-first-kill.json",
+    "investigations/backend-agnostic-goal-closure/fixtures/bag14-mutation-report-full.json",
     "investigations/backend-agnostic-goal-closure/fixtures/oracle-declaration-exit-stop-terminal-class-and-declared-exit-agree.json",
     "investigations/backend-agnostic-goal-closure/fixtures/oracle-declaration-concrete-output-ordered-output-bytes-distinguish.json",
     "investigations/backend-agnostic-goal-closure/fixtures/oracle-declaration-execution-pattern-pattern-outcome-bindings-distinguish.json",
@@ -117,6 +125,8 @@
     "investigations/backend-agnostic-goal-closure/vectors/mutation-status-vectors.json",
     "investigations/backend-agnostic-goal-closure/vectors/cross-feature-vectors.json",
     "investigations/backend-agnostic-goal-closure/vectors/oracle-semantics-vectors.json",
+    "investigations/backend-agnostic-goal-closure/vectors/cache-semantics-vectors.json",
+    "investigations/backend-agnostic-goal-closure/bag14.py",
     "investigations/backend-agnostic-goal-closure/verify.py"
   ]
 }

@@ -1738,8 +1738,8 @@
       "probe": "manifest-slot-order"
     },
     {
-      "id": "cache-test-root",
-      "probe": "cache-test-root"
+      "id": "execution-policy-isolation-root",
+      "probe": "execution-policy-isolation-root"
     },
     {
       "id": "campaign-report-test-root",

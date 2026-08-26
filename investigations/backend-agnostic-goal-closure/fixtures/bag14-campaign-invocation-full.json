@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "campaignInvocationId": "d91c9a21a69eeb72c312b276b2c81f82fc843e5f46d9c942a0e55d4645dc2289",
+  "manifest": {
+    "role": "cache-campaign-manifest",
+    "digest": "bdec62d0194109119d3e3452d90554352c81fbe7b79962a7934d663843af01df"
+  },
+  "operator": {
+    "role": "mutation-operator",
+    "digest": "9c24e4ace339b27a5f748c3bab1dc72a82b7e2ae79eb309da9bda1367485906b"
+  },
+  "scheduleMode": "full",
+  "requestedPlan": [
+    {
+      "slotId": "baseline-execution-t1",
+      "testId": "cache-prefix",
+      "phase": "baseline",
+      "recordKind": "execution-attempt",
+      "keyDigest": "021480075328009942e43460338c2f51b882882676786ca9dbd1a8a96255ba5b"
+    },
+    {
+      "slotId": "baseline-gate-t1-o0",
+      "testId": "cache-prefix",
+      "phase": "baseline",
+      "recordKind": "oracle-evaluation",
+      "keyDigest": "856984fd2080694f29495d041dd41a9c14eeb99435c8fc408c528d5c9c78c308"
+    },
+    {
+      "slotId": "baseline-gate-t1-o1",
+      "testId": "cache-prefix",
+      "phase": "baseline",
+      "recordKind": "oracle-evaluation",
+      "keyDigest": "2a9d03143347b2ccdffe6a9d6c9cd4917a2f48c45597e007ad82da04cae112a7"
+    },
+    {
+      "slotId": "baseline-execution-t2",
+      "testId": "cache-suffix",
+      "phase": "baseline",
+      "recordKind": "execution-attempt",
+      "keyDigest": "2b17b35950dfa060c25028ea709b8f27fc8122e14f8a65f5065ad9c64128cfc2"
+    },
+    {
+      "slotId": "baseline-gate-t2-o0",
+      "testId": "cache-suffix",
+      "phase": "baseline",
+      "recordKind": "oracle-evaluation",
+      "keyDigest": "63d6cee6a4937078438678bb6155c7842aafa8c1ad98e1ce78cb77c0a2c342ad"
+    },
+    {
+      "slotId": "mutant-execution-t1",
+      "testId": "cache-prefix",
+      "phase": "mutant",
+      "recordKind": "execution-attempt",
+      "keyDigest": "aa846a3fda646d1d23a8adabd6c37c61f271746b8648d8de1fb02b4196f7a955"
+    },
+    {
+      "slotId": "mutant-comparison-t1-o0",
+      "testId": "cache-prefix",
+      "phase": "mutant",
+      "recordKind": "oracle-evaluation",
+      "keyDigest": "7cd5ee8d9c0a510312b093368be727ad8e389ffd07a1f3d46e54a4641e2c633b"
+    },
+    {
+      "slotId": "mutant-comparison-t1-o1",
+      "testId": "cache-prefix",
+      "phase": "mutant",
+      "recordKind": "oracle-evaluation",
+      "keyDigest": "a89783a8c1d7aa26c492c531f414c5bb63e9d5411eb68f2d69cf3f46441c3ade"
+    },
+    {
+      "slotId": "mutant-execution-t2",
+      "testId": "cache-suffix",
+      "phase": "mutant",
+      "recordKind": "execution-attempt",
+      "keyDigest": "be6a462619252cbec00d0d20d37b725ec88860a3f9e89ea486a9de34c2b181fb"
+    },
+    {
+      "slotId": "mutant-comparison-t2-o0",
+      "testId": "cache-suffix",
+      "phase": "mutant",
+      "recordKind": "oracle-evaluation",
+      "keyDigest": "17c552b9a498b43a45cc6d63f6876acdd3db21e67c0f43ed2469db6c96a85221"
+    }
+  ]
+}

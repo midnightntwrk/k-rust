@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "recordId": "4b941c424649b5c3856b551b8a0d5c2d0d6a6fbf27680c60d9761d11d5f2ddef",
+  "kind": "oracle-evaluation",
+  "keyDigest": "17c552b9a498b43a45cc6d63f6876acdd3db21e67c0f43ed2469db6c96a85221",
+  "key": {
+    "schemaVersion": 1,
+    "keyDigest": "17c552b9a498b43a45cc6d63f6876acdd3db21e67c0f43ed2469db6c96a85221",
+    "operation": {
+      "operationId": "portable-oracle-evaluation",
+      "operationVersion": 1,
+      "adapterId": "bag14-vector-adapter",
+      "adapterVersion": 1
+    },
+    "evaluationKind": "baseline-mutant-comparison",
+    "declaration": {
+      "role": "oracle-declaration",
+      "digest": "092636bc585d7d90e78f90594f4a7e112e6b3250eb84fefb8dc8de5f1883da71"
+    },
+    "semanticInputs": [
+      {
+        "side": "baseline",
+        "value": {
+          "role": "oracle-operand",
+          "digest": "27be6ee8ed2da4dcd9b525af9bcf05ecd4cccff214c03a93be7d04a7cf28645c"
+        }
+      },
+      {
+        "side": "mutant",
+        "value": {
+          "role": "oracle-operand",
+          "digest": "c9c212bc6a0b55b0da7101bded2bb9f1c182b1e041f4d49c1649c2c841c500f2"
+        }
+      }
+    ],
+    "evaluator": {
+      "evaluatorId": "bag12-portable-exit-stop",
+      "evaluatorVersion": 1,
+      "mode": "built-in"
+    }
+  },
+  "terminalRecord": {
+    "kind": "comparison",
+    "result": {
+      "role": "oracle-comparison-result",
+      "digest": "ab0985b24d3158fbe27e571d6dedd7fefde3f2aef26451348a2148bfdaa82db8"
+    }
+  },
+  "producedArtifacts": [
+    {
+      "role": "oracle-comparison-result",
+      "digest": "ab0985b24d3158fbe27e571d6dedd7fefde3f2aef26451348a2148bfdaa82db8"
+    }
+  ],
+  "completion": {
+    "producerStatus": "complete",
+    "evidenceClass": "semantic-result",
+    "materialClosure": "repo-complete",
+    "executionConformance": "finite-vector-proven"
+  },
+  "reuseClass": "semantic-result",
+  "productionEvidence": {
+    "mode": "finite-vector",
+    "vectorId": "bag14.oracle-comparison.v1",
+    "inputDigest": "d71e856b850985e1b67ae56738a3c408647a50195914340a96deffb12e90cec5",
+    "outputKeys": [
+      {
+        "role": "oracle-comparison-result",
+        "digest": "ab0985b24d3158fbe27e571d6dedd7fefde3f2aef26451348a2148bfdaa82db8"
+      }
+    ]
+  }
+}

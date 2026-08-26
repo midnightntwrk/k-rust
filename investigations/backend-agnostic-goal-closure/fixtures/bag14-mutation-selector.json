@@ -1,0 +1,25 @@
+{
+  "selectorDigest": "4651d216891df52797542432f55c1e23ae410ae6f1d55a7486983900f24a69f0",
+  "clauses": [
+    {
+      "role": "bag14-branch-result",
+      "sentenceKinds": [
+        "rule"
+      ],
+      "label": "branch",
+      "termPath": [
+        {
+          "kind": "field",
+          "name": "body"
+        },
+        {
+          "kind": "field",
+          "name": "rhs"
+        }
+      ],
+      "termSort": "Control",
+      "termHeadLabel": "selected",
+      "bindingName": "RESULT"
+    }
+  ]
+}

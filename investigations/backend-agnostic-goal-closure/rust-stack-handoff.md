@@ -206,6 +206,10 @@ capability:
 
 - baseline gate, isolated mutant validation/compilation/execution, and resource
   limits;
+- exact cycle-free execution-attempt and oracle-evaluation request keys, immutable per-attempt records, and derived intrinsic reuse classes;
+- schedule-specific campaign invocation/report identities whose selected-record closure implements first-kill/full without creating records for skipped work;
+- atomic cache publication only after terminal/result, complete ordered outputs, native production evidence, and resolver-relative material eligibility validate;
+- same-key conflict quarantine across terminal, outputs, completion, and production provenance, with no implicit newest/fastest selection;
 - killed/survived/invalid/timeout/unknown/error separation;
 - bounded complete agreement reported only as `survived`, with no equivalence
   claim unless a future version supplies a typed, scoped, checkable proof
@@ -254,7 +258,8 @@ Differential gates:
   true/false/missing-row predicate cases; and
 - rejection of every mandatory BAG-12 drift adversary after all enclosing
   self-IDs are refreshed, including declaration/result/query/profile drift and
-  production receipts misused as evaluator conformance.
+  production receipts misused as evaluator conformance; and
+- every BAG-14 cache vector, including exact shared-prefix reuse, absent first-kill suffix records, later full suffix completion, bounded/diagnostic classifications, same-key conflicts, and byte-identical uncached/partial/full folds.
 
 ### RS-08 — streaming monitor optimization (held)
 
@@ -281,6 +286,7 @@ and streaming monitor. Performance evidence must justify activation.
 | all six typed oracle-kind comparators | yes, BAG-12 registry and vectors | none | native operand production and differential results |
 | finite reachability/predicate authority | yes, exact fixture rows | none | BAG-16 collection and K evaluation |
 | evaluator conformance versus production provenance | yes, distinct typed records | none | conformant native issuer and BAG-15 receipts |
+| per-attempt cache identity, completeness, and scheduling | yes, BAG-14 schema and finite vectors | none | native production receipts, atomic storage/locking, resolver eligibility, and conflict policy |
 
 ## Questions intentionally left to stack evidence
 
@@ -300,9 +306,7 @@ These cannot be answered credibly by more prose or a Python fixture model:
   bindings, side-condition calls over only the declared ordered subset
   (including the empty constant interface), and catalog resolution of every
   consumer source/plan/query triple;
-- preservation of corpus test/query repetitions and mutation
-  test-then-`oracleDeclarations` slot flattening through native invocation and
-  cache keys;
+- preservation of corpus test/query repetitions and mutation test-then-`oracleDeclarations` slot ordering through native invocation, manifest-derived requested plans, query-coupled attempt keys, and oracle-evaluation keys;
 - exact sort-preserving reachability matching, side-condition evaluation over
   the declared binding interface, and complete witness-set ordering;
 - exact predicate input/schema/projection provenance and finite-row lookup;
@@ -310,7 +314,7 @@ These cannot be answered credibly by more prose or a Python fixture model:
   conformant evaluator record in addition to its operation-production receipt;
 - actual stop reasons, resource enforcement, process isolation, and replay;
 - real erasure equivalence for termination, topology, and constraints;
-- compilation/runtime/cache inputs and performance; and
+- real cache storage layout, eviction, atomic publication, locking, lookup/resolver availability, same-key conflict remediation, and compilation/runtime/cache performance; and
 - whether/when streaming is materially better than the trace reference.
 
 Optional debugger/backend-log adapters, cross-backend operational-step parity,
@@ -328,14 +332,36 @@ canonical-byte equality, schema/embedded-ID validation, and role-specific
 semantic recomputation. Opaque bytes recompute the role/media/content-hash
 envelope. A failure publishes no accepted artifact.
 
-The future store resolver is named `rust-artifact-store-v1`, but this handoff
-does not choose its API, cache, transport, directory layout, or process
-topology. It must enforce the same normalized-tail rules and preserve complete
-locator uniqueness. `external-required` and unbound requirements stay distinct:
+The future store resolver is named `rust-artifact-store-v1`, but this handoff does not choose its API, transport, directory layout, or process topology.
+It must enforce the same normalized-tail rules and preserve complete locator uniqueness.
+Resolver availability and cache location remain lookup-time supplemental state and must not enter a request key, record ID, campaign invocation ID, or report ID.
+`external-required` and unbound requirements stay distinct:
 the former has a reviewed identity pin, while the latter has no artifact
 identity. Rust execution evidence may change `executionConformance` only by
 publishing backend consumption and result evidence; catalog membership alone
 cannot do so.
+
+## BAG-14 native cache handoff
+
+Rust must implement the closed `cache-semantics.schema.json` request, record, invocation, and report shapes directly.
+It must not reconstruct the retired suite-level `cacheKey` or treat schedule mode, hit/miss state, timestamps, lookup source, latency, or storage location as raw attempt identity.
+
+Before publication, Rust must validate the exact operation/adapter request, terminal or typed oracle result, complete ordered output keys, raw and semantic artifact identities, material eligibility under the active resolver, completion classification, and intrinsic reuse class.
+The store must make that publication atomic and must coordinate concurrent writers with explicit locking or an equivalently strong protocol so no reader observes a partial record.
+An interrupted write, missing/corrupt output, worker/backend/infrastructure failure, or native execution without the BAG-15 production receipt is not reusable.
+
+The same validated raw record may be selected by first-kill and full reports because schedule mode is absent from the raw key and present in both campaign identities.
+First-kill must stop at the first derived kill, omit child references for the suffix, and still include all baseline admissions.
+Full must resolve every requested slot.
+Cache lookup provenance remains supplemental, so uncached, partial-hit, and full-hit folds over the same selected record IDs must serialize to the same semantic report.
+
+For one key with conflicting validated terminal, output, completion, or production-provenance values, automatic reuse must stop and quarantine the key.
+Rust must publish a versioned rerun/consistency policy before selecting one record; newest, fastest, and arbitrary store order are not portable policies.
+BAG-14 does not choose that remediation policy.
+
+The BAG-14 finite rows are conformance evidence only.
+BAG-15 must supply the native production-receipt schema and DAG branch before Rust can claim `native-proven`; membership in the derivative BAG-14 catalog or a matching finite row cannot be promoted into native evidence.
+
 ## BAG-10 native lowering proof handoff
 
 Rust owns extraction of the real lowering relation, proof generation, native

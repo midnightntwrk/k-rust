@@ -1,0 +1,1 @@
+{"clauses":[{"bindingName":"RESULT","label":"branch","role":"bag14-branch-result","sentenceKinds":["rule"],"termHeadLabel":"selected","termPath":[{"kind":"field","name":"body"},{"kind":"field","name":"rhs"}],"termSort":"Control"}],"selectorDigest":"4651d216891df52797542432f55c1e23ae410ae6f1d55a7486983900f24a69f0"}

@@ -205,9 +205,9 @@
       "paths": ["draft/goal/semantic-mutation-testing.md"],
       "classification": ["portable-contract", "rust-stack-dependent-open"],
       "disposition": "contract-frozen-evidence-open",
-      "portableClaims": ["operator/site/instance/mutant model", "exact/each/tuple selection", "canonical atomic patches", "honest validation and run statuses", "deterministic scoring/replay", "execution-pattern oracle"],
+      "portableClaims": ["operator/site/instance/mutant model", "exact/each/tuple selection", "canonical atomic patches", "honest validation and run statuses", "per-attempt cache identity, completeness, reuse, and schedule folds", "deterministic scoring/replay", "execution-pattern oracle"],
       "proofScope": "proposed contract plus bounded R2 patch evidence",
-      "notProven": ["general operator discovery", "same-sentence and synthetic edits", "isolated Rust compilation/execution", "campaign scoring"]
+      "notProven": ["general operator discovery", "same-sentence and synthetic edits", "isolated Rust compilation/execution", "native BAG-15 production receipts", "cache storage atomicity, locking, resolver availability, and conflict remediation", "campaign scoring"]
     }
   ]
 }

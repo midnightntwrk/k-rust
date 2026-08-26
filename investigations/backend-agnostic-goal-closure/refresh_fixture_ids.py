@@ -18,6 +18,7 @@ from typing import Any
 
 from bag12 import finalize_refresh as finalize_bag12_refresh
 from bag12 import prepare_refresh as prepare_bag12_refresh
+from bag14 import finalize_refresh as finalize_bag14_refresh
 
 
 ROOT = Path(__file__).resolve().parent
@@ -580,10 +581,11 @@ def write_bag11_schemas_and_roles() -> None:
 
     policy_path = schema_dir / "mutation-execution-policy.schema.json"
     policy = json.loads(policy_path.read_text(encoding="utf-8"))
-    cache = policy["properties"]["cacheKey"]
-    if "patternQueries" not in cache["required"]:
-        cache["required"].insert(cache["required"].index("testManifestDigest"), "patternQueries")
-    cache["properties"]["patternQueries"] = {"type": "array", "items": {"$ref": "common.schema.json#/$defs/patternQueryRoot"}}
+    cache = policy["properties"].get("cacheKey")
+    if cache is not None:
+        if "patternQueries" not in cache["required"]:
+            cache["required"].insert(cache["required"].index("testManifestDigest"), "patternQueries")
+        cache["properties"]["patternQueries"] = {"type": "array", "items": {"$ref": "common.schema.json#/$defs/patternQueryRoot"}}
     policy_path.write_text(json.dumps(policy, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     registry_path = ROOT / "artifact-role-specs.json"
@@ -2243,26 +2245,16 @@ def main() -> None:
     execution_policy = load("mutation-execution-policy.json")
     operator = load("mutation-operator.json")
     patch = load("patch.json")
-    execution_policy["cacheKey"].update({
-        "baselineDefinitionDigest": mutation_manifest["definitionDigest"],
-        "compatibilityProfileDigest": compatibility_digest,
-        "operatorId": operator["operatorId"],
-        "operatorVersion": operator["operatorVersion"],
-        "patchId": patch["patchId"],
-        "executionProfileDigest": corpus["executionProfileDigest"],
-        "solverProfileDigest": corpus["solverProfileDigest"],
-        "patternQueries": flatten_test_pattern_queries(mutation_manifest["tests"]),
-        "optionsDigest": digest(
-            "k-in-k/mutation-options/v1",
-            [{"testId": test["testId"], "optionsDigest": test["optionsDigest"]} for test in mutation_manifest["tests"]],
-        ),
-        "testManifestDigest": digest("k-in-k/mutation-test-manifest/v1", mutation_manifest["tests"]),
-        "oracleManifestDigest": digest("k-in-k/mutation-oracle-manifest/v1", mutation_manifest["oracles"]),
-    })
-    execution_policy["cacheKey"]["keyDigest"] = digest(
-        "k-in-k/mutation-cache-key/v1",
-        without(execution_policy["cacheKey"], "domain", "keyDigest"),
+    old_isolation = execution_policy.pop("isolation", None)
+    isolation = execution_policy.get("isolationPolicy")
+    if isolation is None:
+        isolation = {"schemaVersion": 1, **old_isolation}
+        execution_policy["isolationPolicy"] = isolation
+    isolation["isolationPolicyDigest"] = digest(
+        "k-in-k/isolation-policy/v1",
+        without(isolation, "isolationPolicyDigest"),
     )
+    execution_policy.pop("cacheKey", None)
     execution_policy["policyId"] = digest(
         "k-in-k/mutation-execution-policy/v1",
         without(execution_policy, "policyId"),
@@ -2341,6 +2333,7 @@ def main() -> None:
     save("mutation-policy-cases.json", build_policy_cases(definition["definitionDigest"], campaign, operator))
     refresh_bag13_patch_vector_outputs()
     finalize_bag12_refresh(ROOT)
+    finalize_bag14_refresh(ROOT)
 
 
 if __name__ == "__main__":

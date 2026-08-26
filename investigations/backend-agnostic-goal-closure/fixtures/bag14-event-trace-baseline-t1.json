@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "testId": "cache-prefix",
+  "pathOrdinal": 0,
+  "pathKey": "root/baseline/1",
+  "complete": true,
+  "stopReason": "terminal",
+  "pathPredicate": {
+    "encoding": "portable-term-v1",
+    "sort": "Bool",
+    "node": {
+      "kind": "token",
+      "text": "true"
+    }
+  },
+  "events": [],
+  "pathIdentityDigest": "77fc835a08b1f7879f24cd7ebc1e33da578a531b48e1ac5918d9eb647bc14de6",
+  "executionTerminal": {
+    "kind": "normal",
+    "artifact": {
+      "role": "terminal-state",
+      "digest": "182c79c265ab5f542a7d417341fa55eec589976ede6587afbc716e017ce3cb1e"
+    }
+  },
+  "definitionDigest": "fbd2e2ca60637e9e7e8d4ad568e55416281063533408b6db04f94b9fd4098d63"
+}

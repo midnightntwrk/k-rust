@@ -1,0 +1,1281 @@
+{
+  "schemaVersion": 1,
+  "artifactCatalogDigest": "99c4e4d0d1f4dbc17aece5f11a488cfef52ae5918107a5f4e3f1e2cd63d288d7",
+  "queryCoupledRegression": {
+    "activeCatalogDigest": "0f1a3647a21da391f5b3c032c24b00f94c9916c3f0d3c9eaa1da78d8065a7d0d",
+    "activeManifestId": "66a5c2e826533dc3933a1ba16929f69a5b9ed69448c1ae9b1a009438131bcd5c",
+    "testId": "write-load",
+    "slotOrdinal": 12,
+    "selectedDeclaration": {
+      "role": "oracle-declaration",
+      "digest": "65ae3e3c775dc834554e9d681c442a6ecf8351948a0028402951464e27a1e173"
+    },
+    "executionKey": {
+      "schemaVersion": 1,
+      "keyDigest": "89cb191ec1933f82bfe400a2bbf87338f8594fdeca716b05b3d8ce9c9b40f4d0",
+      "operation": {
+        "operationId": "portable-finite-execution",
+        "operationVersion": 1,
+        "adapterId": "bag14-vector-adapter",
+        "adapterVersion": 1
+      },
+      "subject": {
+        "kind": "baseline",
+        "definition": {
+          "role": "definition",
+          "digest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4"
+        }
+      },
+      "testInvocationDigest": "043447ba5bd136575c0d4952ca2d36508d4856c1a28f4efb5001ab611d5367ca",
+      "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
+      "loweringProfileDigest": "6d07d5437a05b5bda922083438b7d4c5ee448bbbea5955ee4a49e97582eafefd",
+      "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+      "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+      "isolationPolicy": {
+        "schemaVersion": 1,
+        "isolationPolicyDigest": "e0894a9041cfe54ce8c59fe2091e82a11f7c2f73e24d842f51fa1f2baffe9189",
+        "baselineState": "immutable",
+        "mutantState": "fresh-per-mutant",
+        "sharedWritableState": false,
+        "observerState": "fresh-per-test-path"
+      },
+      "attemptKind": {
+        "kind": "query-coupled",
+        "observationInputs": [
+          {
+            "role": "observation-manifest",
+            "digest": "3e292b87312eb962c5b3eec598774c9d419c9bdc1a5c9a6f7166bd4be7aec404"
+          }
+        ],
+        "patternSource": {
+          "role": "pattern-source",
+          "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+        },
+        "patternPlan": {
+          "role": "pattern-plan",
+          "digest": "8a2359f706a8434cc3eaaf274850134e6095a79721b442c29e0765ef1ce080d0"
+        },
+        "patternQuery": {
+          "role": "pattern-query",
+          "digest": "117f9df30cc586da7c800df5d28522d1b74403aae300071e92242515d6b761cc"
+        },
+        "searchPolicy": "exhaustive"
+      }
+    }
+  },
+  "crashOracleEvidence": [
+    {
+      "key": {
+        "schemaVersion": 1,
+        "keyDigest": "0173ece1c974050ebda69e25a262c9520501ff30f1d7e823de853f645734c0e5",
+        "operation": {
+          "operationId": "portable-oracle-evaluation",
+          "operationVersion": 1,
+          "adapterId": "bag14-vector-adapter",
+          "adapterVersion": 1
+        },
+        "evaluationKind": "baseline-admission",
+        "declaration": {
+          "role": "oracle-declaration",
+          "digest": "092636bc585d7d90e78f90594f4a7e112e6b3250eb84fefb8dc8de5f1883da71"
+        },
+        "semanticInputs": [
+          {
+            "side": "baseline",
+            "value": {
+              "role": "semantic-crash",
+              "digest": "f7fd163fc620b5a81754cf43fba0c61d056e66f5dc2ea69db88ba6a70a5bcfbc"
+            }
+          }
+        ],
+        "evaluator": {
+          "evaluatorId": "bag12-portable-exit-stop",
+          "evaluatorVersion": 1,
+          "mode": "built-in"
+        }
+      },
+      "result": {
+        "role": "baseline-oracle-gate-result",
+        "digest": "04e757d6a4dc93ffa0f26c0505e5240a2e323b50ed4fe7ce4b04a66c835a1ec1"
+      }
+    },
+    {
+      "key": {
+        "schemaVersion": 1,
+        "keyDigest": "ed8eadfc78996691ed4b4850203283b943570a15178e9de4efa436de56a12d85",
+        "operation": {
+          "operationId": "portable-oracle-evaluation",
+          "operationVersion": 1,
+          "adapterId": "bag14-vector-adapter",
+          "adapterVersion": 1
+        },
+        "evaluationKind": "baseline-mutant-comparison",
+        "declaration": {
+          "role": "oracle-declaration",
+          "digest": "092636bc585d7d90e78f90594f4a7e112e6b3250eb84fefb8dc8de5f1883da71"
+        },
+        "semanticInputs": [
+          {
+            "side": "baseline",
+            "value": {
+              "role": "semantic-crash",
+              "digest": "f7fd163fc620b5a81754cf43fba0c61d056e66f5dc2ea69db88ba6a70a5bcfbc"
+            }
+          },
+          {
+            "side": "mutant",
+            "value": {
+              "role": "semantic-crash",
+              "digest": "73ef6763a5fa91a03b764b566b678753ef2dcc661f960ba24bb4cf57d0342d6a"
+            }
+          }
+        ],
+        "evaluator": {
+          "evaluatorId": "bag12-portable-exit-stop",
+          "evaluatorVersion": 1,
+          "mode": "built-in"
+        }
+      },
+      "result": {
+        "role": "oracle-comparison-result",
+        "digest": "8a3a41ffbccfdb76a03621c463c1a9f2ba7f5020b85b82a4405b8d5ffd20612b"
+      }
+    }
+  ],
+  "finiteVectorRegistry": {
+    "bag14.execution-terminal.v1": {
+      "kind": "cache-record",
+      "outputRoles": [
+        "terminal-state",
+        "event-trace"
+      ],
+      "rows": [
+        {
+          "inputs": {
+            "keyDigest": "021480075328009942e43460338c2f51b882882676786ca9dbd1a8a96255ba5b"
+          },
+          "inputDigest": "629cf4df9bc05fc5847d5d4cd38cfe3cda37a0a5c59cfd9d4a7c5647ab8831f5",
+          "terminalRecord": {
+            "kind": "normal",
+            "terminal": {
+              "role": "terminal-state",
+              "digest": "182c79c265ab5f542a7d417341fa55eec589976ede6587afbc716e017ce3cb1e"
+            }
+          },
+          "outputKeys": [
+            {
+              "role": "terminal-state",
+              "digest": "182c79c265ab5f542a7d417341fa55eec589976ede6587afbc716e017ce3cb1e"
+            },
+            {
+              "role": "event-trace",
+              "digest": "dc9260afff00fc36dc6b73aadfac59676e704b4ca893d1987f438ced4bc23911"
+            }
+          ]
+        },
+        {
+          "inputs": {
+            "keyDigest": "aa846a3fda646d1d23a8adabd6c37c61f271746b8648d8de1fb02b4196f7a955"
+          },
+          "inputDigest": "001c2a6c1d74374c2e986b41804909df06b7586c734dad93d1ab1f04e77b448b",
+          "terminalRecord": {
+            "kind": "stuck",
+            "terminal": {
+              "role": "terminal-state",
+              "digest": "dc84293be73ec3105770f563bf4acd39b65ed1e9b3263a800e6b50277792d586"
+            }
+          },
+          "outputKeys": [
+            {
+              "role": "terminal-state",
+              "digest": "dc84293be73ec3105770f563bf4acd39b65ed1e9b3263a800e6b50277792d586"
+            },
+            {
+              "role": "event-trace",
+              "digest": "f314bd6a3ac77380e7d807e83e43e13b08708634080af643c5631a4da8c1a3b7"
+            }
+          ]
+        },
+        {
+          "inputs": {
+            "keyDigest": "2b17b35950dfa060c25028ea709b8f27fc8122e14f8a65f5065ad9c64128cfc2"
+          },
+          "inputDigest": "ef7613ea49e95d59b88c5fa97ece4afff9f44bb7eff2adf93086d47cca5e04af",
+          "terminalRecord": {
+            "kind": "normal",
+            "terminal": {
+              "role": "terminal-state",
+              "digest": "182c79c265ab5f542a7d417341fa55eec589976ede6587afbc716e017ce3cb1e"
+            }
+          },
+          "outputKeys": [
+            {
+              "role": "terminal-state",
+              "digest": "182c79c265ab5f542a7d417341fa55eec589976ede6587afbc716e017ce3cb1e"
+            },
+            {
+              "role": "event-trace",
+              "digest": "937d24ae7a7d43894a0987d83a4ed2da26b98f6092b7f6da86057ad4dc3d9e64"
+            }
+          ]
+        },
+        {
+          "inputs": {
+            "keyDigest": "be6a462619252cbec00d0d20d37b725ec88860a3f9e89ea486a9de34c2b181fb"
+          },
+          "inputDigest": "bd3730b6e21f3824d4b94cfbfc0bdcd687f972624340112f5bb28eff64041136",
+          "terminalRecord": {
+            "kind": "normal",
+            "terminal": {
+              "role": "terminal-state",
+              "digest": "15718bdffdfc2caffd43b17b81776086322e6f1ff64a8034cb7c32deac58c30c"
+            }
+          },
+          "outputKeys": [
+            {
+              "role": "terminal-state",
+              "digest": "15718bdffdfc2caffd43b17b81776086322e6f1ff64a8034cb7c32deac58c30c"
+            },
+            {
+              "role": "event-trace",
+              "digest": "c862c62fbfc5076c8c75ecf641dda1525d1eacf07cf6ec7a9ec7956361dbe73f"
+            }
+          ]
+        }
+      ]
+    },
+    "bag14.baseline-gate.v1": {
+      "kind": "cache-record",
+      "outputRoles": [
+        "baseline-oracle-gate-result"
+      ],
+      "rows": [
+        {
+          "inputs": {
+            "keyDigest": "856984fd2080694f29495d041dd41a9c14eeb99435c8fc408c528d5c9c78c308"
+          },
+          "inputDigest": "4e315c7d905de9a9c5dcf7bf9d06a2c8427c71636ac0d8cea01e82ec0c3ec60a",
+          "terminalRecord": {
+            "kind": "baseline-gate",
+            "result": {
+              "role": "baseline-oracle-gate-result",
+              "digest": "e7264e25fd9905df4782096b9b90fd31afa580180fc6091526b7503e1cf2e793"
+            }
+          },
+          "outputKeys": [
+            {
+              "role": "baseline-oracle-gate-result",
+              "digest": "e7264e25fd9905df4782096b9b90fd31afa580180fc6091526b7503e1cf2e793"
+            }
+          ]
+        },
+        {
+          "inputs": {
+            "keyDigest": "2a9d03143347b2ccdffe6a9d6c9cd4917a2f48c45597e007ad82da04cae112a7"
+          },
+          "inputDigest": "eb3c0e55bb8707d72a6752a382f3fd54fa693b5ae5fbf2617cab522202e9dc47",
+          "terminalRecord": {
+            "kind": "baseline-gate",
+            "result": {
+              "role": "baseline-oracle-gate-result",
+              "digest": "56a200b3afa7c47f6078733cd7aed6a22b05721eb6dc3a72cf3c3b3e25dd248b"
+            }
+          },
+          "outputKeys": [
+            {
+              "role": "baseline-oracle-gate-result",
+              "digest": "56a200b3afa7c47f6078733cd7aed6a22b05721eb6dc3a72cf3c3b3e25dd248b"
+            }
+          ]
+        },
+        {
+          "inputs": {
+            "keyDigest": "63d6cee6a4937078438678bb6155c7842aafa8c1ad98e1ce78cb77c0a2c342ad"
+          },
+          "inputDigest": "27ac26ee119267a82335544fd8861b63d07ad63d3e0b4c5ceb25c477b5ce4c77",
+          "terminalRecord": {
+            "kind": "baseline-gate",
+            "result": {
+              "role": "baseline-oracle-gate-result",
+              "digest": "01242a46588c865eec5aa47317fa19e17517e0ad3fab001726b452c4b7ad89a4"
+            }
+          },
+          "outputKeys": [
+            {
+              "role": "baseline-oracle-gate-result",
+              "digest": "01242a46588c865eec5aa47317fa19e17517e0ad3fab001726b452c4b7ad89a4"
+            }
+          ]
+        }
+      ]
+    },
+    "bag14.oracle-comparison.v1": {
+      "kind": "cache-record",
+      "outputRoles": [
+        "oracle-comparison-result"
+      ],
+      "rows": [
+        {
+          "inputs": {
+            "keyDigest": "7cd5ee8d9c0a510312b093368be727ad8e389ffd07a1f3d46e54a4641e2c633b"
+          },
+          "inputDigest": "41c881530aae41210be65e9fb840ea82c9f1a9c2a6b1b28d39b5253ed6668f36",
+          "terminalRecord": {
+            "kind": "comparison",
+            "result": {
+              "role": "oracle-comparison-result",
+              "digest": "8513be050ebf24fc46cb3d6e1a6f7cb18d71636229ac3ccca7bfdbbac269add0"
+            }
+          },
+          "outputKeys": [
+            {
+              "role": "oracle-comparison-result",
+              "digest": "8513be050ebf24fc46cb3d6e1a6f7cb18d71636229ac3ccca7bfdbbac269add0"
+            }
+          ]
+        },
+        {
+          "inputs": {
+            "keyDigest": "a89783a8c1d7aa26c492c531f414c5bb63e9d5411eb68f2d69cf3f46441c3ade"
+          },
+          "inputDigest": "2e216ed70da5eb7709569109efd763723ce9ed421a7a105596add3a804cb66ab",
+          "terminalRecord": {
+            "kind": "comparison",
+            "result": {
+              "role": "oracle-comparison-result",
+              "digest": "9c3b0007ebd911855e66e6ef8dee789194b6c30b902614f8f8ac7561b6aa9351"
+            }
+          },
+          "outputKeys": [
+            {
+              "role": "oracle-comparison-result",
+              "digest": "9c3b0007ebd911855e66e6ef8dee789194b6c30b902614f8f8ac7561b6aa9351"
+            }
+          ]
+        },
+        {
+          "inputs": {
+            "keyDigest": "17c552b9a498b43a45cc6d63f6876acdd3db21e67c0f43ed2469db6c96a85221"
+          },
+          "inputDigest": "d71e856b850985e1b67ae56738a3c408647a50195914340a96deffb12e90cec5",
+          "terminalRecord": {
+            "kind": "comparison",
+            "result": {
+              "role": "oracle-comparison-result",
+              "digest": "ab0985b24d3158fbe27e571d6dedd7fefde3f2aef26451348a2148bfdaa82db8"
+            }
+          },
+          "outputKeys": [
+            {
+              "role": "oracle-comparison-result",
+              "digest": "ab0985b24d3158fbe27e571d6dedd7fefde3f2aef26451348a2148bfdaa82db8"
+            }
+          ]
+        }
+      ]
+    },
+    "bag14.exact-bounded-stop.v1": {
+      "kind": "cache-record",
+      "outputRoles": [],
+      "rows": [
+        {
+          "inputs": {
+            "keyDigest": "5563eab45f113ac2b2ee974acdaba9afca9a1a8a40a4cefcdab3cc5669261940"
+          },
+          "inputDigest": "6341316e43b17a2c45ccd720c1cd7d3f372c7311b6e51983913a1e98d399a55e",
+          "terminalRecord": {
+            "kind": "bounded-stop",
+            "classification": "time-limit",
+            "boundsDigest": "766922e13db2bd777258d21d827479da148520b4590a07863b780e1a9ef46451",
+            "failure": {
+              "stage": "execution",
+              "classification": "time-limit",
+              "context": "mutant-execution",
+              "scope": "mutant",
+              "retryability": "same-input-after-resource-change",
+              "semanticEvidence": [],
+              "details": {}
+            }
+          },
+          "outputKeys": []
+        }
+      ]
+    },
+    "bag14.diagnostic-failure.v1": {
+      "kind": "cache-record",
+      "outputRoles": [],
+      "rows": [
+        {
+          "inputs": {
+            "keyDigest": "1f1c949014c65ccfb25c80d61deb5539029aaa0f70638f00ff34e62636e6c8d4"
+          },
+          "inputDigest": "d8d63c6b0dff3b88052e1f1dace7050acfd620638cd8c785345b81f259b35641",
+          "terminalRecord": {
+            "kind": "diagnostic-only",
+            "failure": {
+              "stage": "infrastructure",
+              "classification": "worker-lost",
+              "context": "mutant-execution",
+              "scope": "mutant",
+              "retryability": "after-external-repair",
+              "semanticEvidence": [],
+              "details": {}
+            }
+          },
+          "outputKeys": []
+        }
+      ]
+    },
+    "bag14.oracle-operand-production.v1": {
+      "kind": "oracle-operand-production",
+      "outputRoles": [
+        "oracle-operand"
+      ],
+      "rows": [
+        {
+          "inputs": {
+            "declaration": {
+              "role": "oracle-declaration",
+              "digest": "4467c92638c8f930823fcaeab65e912ce71e4b9239306105ec7bad6238ca55e8"
+            },
+            "subject": {
+              "side": "baseline",
+              "definitionDigest": "fbd2e2ca60637e9e7e8d4ad568e55416281063533408b6db04f94b9fd4098d63"
+            },
+            "terminal": {
+              "role": "terminal-state",
+              "digest": "182c79c265ab5f542a7d417341fa55eec589976ede6587afbc716e017ce3cb1e"
+            },
+            "producerTrace": {
+              "role": "event-trace",
+              "digest": "dc9260afff00fc36dc6b73aadfac59676e704b4ca893d1987f438ced4bc23911"
+            }
+          },
+          "inputDigest": "ddf409734a723d3d3317dfa1d0150a6ca25474de1b3dcebdeed4895715b9c53d",
+          "outputKeys": [
+            {
+              "role": "oracle-operand",
+              "digest": "69209b2dd8ccb71c27d10336c3912c6ddcf6e5aa0d63ae61a601ff9670c56f2d"
+            }
+          ]
+        },
+        {
+          "inputs": {
+            "declaration": {
+              "role": "oracle-declaration",
+              "digest": "4467c92638c8f930823fcaeab65e912ce71e4b9239306105ec7bad6238ca55e8"
+            },
+            "subject": {
+              "side": "mutant",
+              "baselineDefinitionDigest": "fbd2e2ca60637e9e7e8d4ad568e55416281063533408b6db04f94b9fd4098d63",
+              "mutantId": "3a4e98dc17b96ea554a7213d591d467cc6a4ff0a3f98e3a5159ebb1b7454138f",
+              "mutantDefinitionDigest": "9e8dbb1183eafb016e9de893693987678359044ad0be2b4d2e132fe2f550da59"
+            },
+            "terminal": {
+              "role": "terminal-state",
+              "digest": "dc84293be73ec3105770f563bf4acd39b65ed1e9b3263a800e6b50277792d586"
+            },
+            "producerTrace": {
+              "role": "event-trace",
+              "digest": "f314bd6a3ac77380e7d807e83e43e13b08708634080af643c5631a4da8c1a3b7"
+            }
+          },
+          "inputDigest": "39ca4ff398608df788d5a37404027290d5c42c3afb7037907539152e5c469710",
+          "outputKeys": [
+            {
+              "role": "oracle-operand",
+              "digest": "9c26e7375a0067cf58dc093372610960b9932d1f1f2329590d31b0c11704938d"
+            }
+          ]
+        },
+        {
+          "inputs": {
+            "declaration": {
+              "role": "oracle-declaration",
+              "digest": "c9e23ed51033bb5200342905158eb6cf67fbe20a311549cce2a1d1d41526601e"
+            },
+            "subject": {
+              "side": "baseline",
+              "definitionDigest": "fbd2e2ca60637e9e7e8d4ad568e55416281063533408b6db04f94b9fd4098d63"
+            },
+            "terminal": {
+              "role": "terminal-state",
+              "digest": "182c79c265ab5f542a7d417341fa55eec589976ede6587afbc716e017ce3cb1e"
+            },
+            "producerTrace": {
+              "role": "event-trace",
+              "digest": "dc9260afff00fc36dc6b73aadfac59676e704b4ca893d1987f438ced4bc23911"
+            }
+          },
+          "inputDigest": "bf24c7549206933414e935d21a8d3a318a64dcbd4f27ec53641518a83f189117",
+          "outputKeys": [
+            {
+              "role": "oracle-operand",
+              "digest": "edddb08d4abd1ec7c5c77d5a35ff4a740d22169ca9377a454bcbe5bb0997f8c2"
+            }
+          ]
+        },
+        {
+          "inputs": {
+            "declaration": {
+              "role": "oracle-declaration",
+              "digest": "c9e23ed51033bb5200342905158eb6cf67fbe20a311549cce2a1d1d41526601e"
+            },
+            "subject": {
+              "side": "mutant",
+              "baselineDefinitionDigest": "fbd2e2ca60637e9e7e8d4ad568e55416281063533408b6db04f94b9fd4098d63",
+              "mutantId": "3a4e98dc17b96ea554a7213d591d467cc6a4ff0a3f98e3a5159ebb1b7454138f",
+              "mutantDefinitionDigest": "9e8dbb1183eafb016e9de893693987678359044ad0be2b4d2e132fe2f550da59"
+            },
+            "terminal": {
+              "role": "terminal-state",
+              "digest": "dc84293be73ec3105770f563bf4acd39b65ed1e9b3263a800e6b50277792d586"
+            },
+            "producerTrace": {
+              "role": "event-trace",
+              "digest": "f314bd6a3ac77380e7d807e83e43e13b08708634080af643c5631a4da8c1a3b7"
+            }
+          },
+          "inputDigest": "f11305fb58a1596264563944917296fd070c60eb8e376c24dc6c9864aeab967d",
+          "outputKeys": [
+            {
+              "role": "oracle-operand",
+              "digest": "733839250ace664429b8754e0251ad579409948c173555b15cd307f302cbd1c9"
+            }
+          ]
+        },
+        {
+          "inputs": {
+            "declaration": {
+              "role": "oracle-declaration",
+              "digest": "092636bc585d7d90e78f90594f4a7e112e6b3250eb84fefb8dc8de5f1883da71"
+            },
+            "subject": {
+              "side": "baseline",
+              "definitionDigest": "fbd2e2ca60637e9e7e8d4ad568e55416281063533408b6db04f94b9fd4098d63"
+            },
+            "terminal": {
+              "role": "terminal-state",
+              "digest": "182c79c265ab5f542a7d417341fa55eec589976ede6587afbc716e017ce3cb1e"
+            },
+            "producerTrace": {
+              "role": "event-trace",
+              "digest": "937d24ae7a7d43894a0987d83a4ed2da26b98f6092b7f6da86057ad4dc3d9e64"
+            }
+          },
+          "inputDigest": "ec0544e866ab180a0be1a515cc328c1f760c243838c37861bc312e2187e0e138",
+          "outputKeys": [
+            {
+              "role": "oracle-operand",
+              "digest": "27be6ee8ed2da4dcd9b525af9bcf05ecd4cccff214c03a93be7d04a7cf28645c"
+            }
+          ]
+        },
+        {
+          "inputs": {
+            "declaration": {
+              "role": "oracle-declaration",
+              "digest": "092636bc585d7d90e78f90594f4a7e112e6b3250eb84fefb8dc8de5f1883da71"
+            },
+            "subject": {
+              "side": "mutant",
+              "baselineDefinitionDigest": "fbd2e2ca60637e9e7e8d4ad568e55416281063533408b6db04f94b9fd4098d63",
+              "mutantId": "3a4e98dc17b96ea554a7213d591d467cc6a4ff0a3f98e3a5159ebb1b7454138f",
+              "mutantDefinitionDigest": "9e8dbb1183eafb016e9de893693987678359044ad0be2b4d2e132fe2f550da59"
+            },
+            "terminal": {
+              "role": "terminal-state",
+              "digest": "15718bdffdfc2caffd43b17b81776086322e6f1ff64a8034cb7c32deac58c30c"
+            },
+            "producerTrace": {
+              "role": "event-trace",
+              "digest": "c862c62fbfc5076c8c75ecf641dda1525d1eacf07cf6ec7a9ec7956361dbe73f"
+            }
+          },
+          "inputDigest": "ecfc7cce78763a4f84633fc06abb4780a174d9fa6d22cf4ccce34e7b8491dd00",
+          "outputKeys": [
+            {
+              "role": "oracle-operand",
+              "digest": "c9c212bc6a0b55b0da7101bded2bb9f1c182b1e041f4d49c1649c2c841c500f2"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "scheduleFolds": [
+    {
+      "scheduleMode": "first-kill",
+      "materializations": [
+        {
+          "cacheState": "uncached",
+          "recordSources": [
+            {
+              "slotId": "baseline-execution-t1",
+              "recordId": "b20cd6744f39666b2e95eb0cd0460ad0b6cff25143ced9a06065f7ddebf041f8",
+              "source": "executed"
+            },
+            {
+              "slotId": "baseline-gate-t1-o0",
+              "recordId": "59bac8d4df058c319361d359367ec775462a94dc09d453894709a8faaf7eba03",
+              "source": "executed"
+            },
+            {
+              "slotId": "baseline-gate-t1-o1",
+              "recordId": "51fc16c7373cef65853a8289d4ead5842f2e568c0db0b37559df653306b63c35",
+              "source": "executed"
+            },
+            {
+              "slotId": "baseline-execution-t2",
+              "recordId": "c2d3fe566e13442711609e0f36de6c952f98ef5a1cd21f2166bb5e34a7ffe4bd",
+              "source": "executed"
+            },
+            {
+              "slotId": "baseline-gate-t2-o0",
+              "recordId": "3c043d492bbe91e05087f36691ceb893bc826141030b39b70b1b597d0a0ef9ab",
+              "source": "executed"
+            },
+            {
+              "slotId": "mutant-execution-t1",
+              "recordId": "3bf9681f820854b5b153a408d48991a94f7900b14cbe3274bd950e2a0cce7c4d",
+              "source": "executed"
+            },
+            {
+              "slotId": "mutant-comparison-t1-o0",
+              "recordId": "c96237c839da4d98e38f9665c86dbe7671ac4964a7801e83dca7f09c86631d70",
+              "source": "executed"
+            }
+          ]
+        },
+        {
+          "cacheState": "partial-hit",
+          "recordSources": [
+            {
+              "slotId": "baseline-execution-t1",
+              "recordId": "b20cd6744f39666b2e95eb0cd0460ad0b6cff25143ced9a06065f7ddebf041f8",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "baseline-gate-t1-o0",
+              "recordId": "59bac8d4df058c319361d359367ec775462a94dc09d453894709a8faaf7eba03",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "baseline-gate-t1-o1",
+              "recordId": "51fc16c7373cef65853a8289d4ead5842f2e568c0db0b37559df653306b63c35",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "baseline-execution-t2",
+              "recordId": "c2d3fe566e13442711609e0f36de6c952f98ef5a1cd21f2166bb5e34a7ffe4bd",
+              "source": "executed"
+            },
+            {
+              "slotId": "baseline-gate-t2-o0",
+              "recordId": "3c043d492bbe91e05087f36691ceb893bc826141030b39b70b1b597d0a0ef9ab",
+              "source": "executed"
+            },
+            {
+              "slotId": "mutant-execution-t1",
+              "recordId": "3bf9681f820854b5b153a408d48991a94f7900b14cbe3274bd950e2a0cce7c4d",
+              "source": "executed"
+            },
+            {
+              "slotId": "mutant-comparison-t1-o0",
+              "recordId": "c96237c839da4d98e38f9665c86dbe7671ac4964a7801e83dca7f09c86631d70",
+              "source": "executed"
+            }
+          ]
+        },
+        {
+          "cacheState": "full-hit",
+          "recordSources": [
+            {
+              "slotId": "baseline-execution-t1",
+              "recordId": "b20cd6744f39666b2e95eb0cd0460ad0b6cff25143ced9a06065f7ddebf041f8",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "baseline-gate-t1-o0",
+              "recordId": "59bac8d4df058c319361d359367ec775462a94dc09d453894709a8faaf7eba03",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "baseline-gate-t1-o1",
+              "recordId": "51fc16c7373cef65853a8289d4ead5842f2e568c0db0b37559df653306b63c35",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "baseline-execution-t2",
+              "recordId": "c2d3fe566e13442711609e0f36de6c952f98ef5a1cd21f2166bb5e34a7ffe4bd",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "baseline-gate-t2-o0",
+              "recordId": "3c043d492bbe91e05087f36691ceb893bc826141030b39b70b1b597d0a0ef9ab",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "mutant-execution-t1",
+              "recordId": "3bf9681f820854b5b153a408d48991a94f7900b14cbe3274bd950e2a0cce7c4d",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "mutant-comparison-t1-o0",
+              "recordId": "c96237c839da4d98e38f9665c86dbe7671ac4964a7801e83dca7f09c86631d70",
+              "source": "cache-hit"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scheduleMode": "full",
+      "materializations": [
+        {
+          "cacheState": "uncached",
+          "recordSources": [
+            {
+              "slotId": "baseline-execution-t1",
+              "recordId": "b20cd6744f39666b2e95eb0cd0460ad0b6cff25143ced9a06065f7ddebf041f8",
+              "source": "executed"
+            },
+            {
+              "slotId": "baseline-gate-t1-o0",
+              "recordId": "59bac8d4df058c319361d359367ec775462a94dc09d453894709a8faaf7eba03",
+              "source": "executed"
+            },
+            {
+              "slotId": "baseline-gate-t1-o1",
+              "recordId": "51fc16c7373cef65853a8289d4ead5842f2e568c0db0b37559df653306b63c35",
+              "source": "executed"
+            },
+            {
+              "slotId": "baseline-execution-t2",
+              "recordId": "c2d3fe566e13442711609e0f36de6c952f98ef5a1cd21f2166bb5e34a7ffe4bd",
+              "source": "executed"
+            },
+            {
+              "slotId": "baseline-gate-t2-o0",
+              "recordId": "3c043d492bbe91e05087f36691ceb893bc826141030b39b70b1b597d0a0ef9ab",
+              "source": "executed"
+            },
+            {
+              "slotId": "mutant-execution-t1",
+              "recordId": "3bf9681f820854b5b153a408d48991a94f7900b14cbe3274bd950e2a0cce7c4d",
+              "source": "executed"
+            },
+            {
+              "slotId": "mutant-comparison-t1-o0",
+              "recordId": "c96237c839da4d98e38f9665c86dbe7671ac4964a7801e83dca7f09c86631d70",
+              "source": "executed"
+            },
+            {
+              "slotId": "mutant-comparison-t1-o1",
+              "recordId": "33e2e1ae92fb14142d3ceaf08eda6b1214b0373db55b9ca148867188627c1e2e",
+              "source": "executed"
+            },
+            {
+              "slotId": "mutant-execution-t2",
+              "recordId": "a4a717f787be8bf61a94d69b348ecd592f4606e1520c1012ac79a46de62c6bbd",
+              "source": "executed"
+            },
+            {
+              "slotId": "mutant-comparison-t2-o0",
+              "recordId": "4b941c424649b5c3856b551b8a0d5c2d0d6a6fbf27680c60d9761d11d5f2ddef",
+              "source": "executed"
+            }
+          ]
+        },
+        {
+          "cacheState": "partial-hit",
+          "recordSources": [
+            {
+              "slotId": "baseline-execution-t1",
+              "recordId": "b20cd6744f39666b2e95eb0cd0460ad0b6cff25143ced9a06065f7ddebf041f8",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "baseline-gate-t1-o0",
+              "recordId": "59bac8d4df058c319361d359367ec775462a94dc09d453894709a8faaf7eba03",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "baseline-gate-t1-o1",
+              "recordId": "51fc16c7373cef65853a8289d4ead5842f2e568c0db0b37559df653306b63c35",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "baseline-execution-t2",
+              "recordId": "c2d3fe566e13442711609e0f36de6c952f98ef5a1cd21f2166bb5e34a7ffe4bd",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "baseline-gate-t2-o0",
+              "recordId": "3c043d492bbe91e05087f36691ceb893bc826141030b39b70b1b597d0a0ef9ab",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "mutant-execution-t1",
+              "recordId": "3bf9681f820854b5b153a408d48991a94f7900b14cbe3274bd950e2a0cce7c4d",
+              "source": "executed"
+            },
+            {
+              "slotId": "mutant-comparison-t1-o0",
+              "recordId": "c96237c839da4d98e38f9665c86dbe7671ac4964a7801e83dca7f09c86631d70",
+              "source": "executed"
+            },
+            {
+              "slotId": "mutant-comparison-t1-o1",
+              "recordId": "33e2e1ae92fb14142d3ceaf08eda6b1214b0373db55b9ca148867188627c1e2e",
+              "source": "executed"
+            },
+            {
+              "slotId": "mutant-execution-t2",
+              "recordId": "a4a717f787be8bf61a94d69b348ecd592f4606e1520c1012ac79a46de62c6bbd",
+              "source": "executed"
+            },
+            {
+              "slotId": "mutant-comparison-t2-o0",
+              "recordId": "4b941c424649b5c3856b551b8a0d5c2d0d6a6fbf27680c60d9761d11d5f2ddef",
+              "source": "executed"
+            }
+          ]
+        },
+        {
+          "cacheState": "full-hit",
+          "recordSources": [
+            {
+              "slotId": "baseline-execution-t1",
+              "recordId": "b20cd6744f39666b2e95eb0cd0460ad0b6cff25143ced9a06065f7ddebf041f8",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "baseline-gate-t1-o0",
+              "recordId": "59bac8d4df058c319361d359367ec775462a94dc09d453894709a8faaf7eba03",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "baseline-gate-t1-o1",
+              "recordId": "51fc16c7373cef65853a8289d4ead5842f2e568c0db0b37559df653306b63c35",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "baseline-execution-t2",
+              "recordId": "c2d3fe566e13442711609e0f36de6c952f98ef5a1cd21f2166bb5e34a7ffe4bd",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "baseline-gate-t2-o0",
+              "recordId": "3c043d492bbe91e05087f36691ceb893bc826141030b39b70b1b597d0a0ef9ab",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "mutant-execution-t1",
+              "recordId": "3bf9681f820854b5b153a408d48991a94f7900b14cbe3274bd950e2a0cce7c4d",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "mutant-comparison-t1-o0",
+              "recordId": "c96237c839da4d98e38f9665c86dbe7671ac4964a7801e83dca7f09c86631d70",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "mutant-comparison-t1-o1",
+              "recordId": "33e2e1ae92fb14142d3ceaf08eda6b1214b0373db55b9ca148867188627c1e2e",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "mutant-execution-t2",
+              "recordId": "a4a717f787be8bf61a94d69b348ecd592f4606e1520c1012ac79a46de62c6bbd",
+              "source": "cache-hit"
+            },
+            {
+              "slotId": "mutant-comparison-t2-o0",
+              "recordId": "4b941c424649b5c3856b551b8a0d5c2d0d6a6fbf27680c60d9761d11d5f2ddef",
+              "source": "cache-hit"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "sharedPrefixRecords": [
+    {
+      "slotId": "baseline-execution-t1",
+      "recordId": "b20cd6744f39666b2e95eb0cd0460ad0b6cff25143ced9a06065f7ddebf041f8"
+    },
+    {
+      "slotId": "baseline-gate-t1-o0",
+      "recordId": "59bac8d4df058c319361d359367ec775462a94dc09d453894709a8faaf7eba03"
+    },
+    {
+      "slotId": "baseline-gate-t1-o1",
+      "recordId": "51fc16c7373cef65853a8289d4ead5842f2e568c0db0b37559df653306b63c35"
+    },
+    {
+      "slotId": "baseline-execution-t2",
+      "recordId": "c2d3fe566e13442711609e0f36de6c952f98ef5a1cd21f2166bb5e34a7ffe4bd"
+    },
+    {
+      "slotId": "baseline-gate-t2-o0",
+      "recordId": "3c043d492bbe91e05087f36691ceb893bc826141030b39b70b1b597d0a0ef9ab"
+    },
+    {
+      "slotId": "mutant-execution-t1",
+      "recordId": "3bf9681f820854b5b153a408d48991a94f7900b14cbe3274bd950e2a0cce7c4d"
+    },
+    {
+      "slotId": "mutant-comparison-t1-o0",
+      "recordId": "c96237c839da4d98e38f9665c86dbe7671ac4964a7801e83dca7f09c86631d70"
+    }
+  ],
+  "fullSuffixRecords": [
+    {
+      "slotId": "mutant-comparison-t1-o1",
+      "recordId": "33e2e1ae92fb14142d3ceaf08eda6b1214b0373db55b9ca148867188627c1e2e"
+    },
+    {
+      "slotId": "mutant-execution-t2",
+      "recordId": "a4a717f787be8bf61a94d69b348ecd592f4606e1520c1012ac79a46de62c6bbd"
+    },
+    {
+      "slotId": "mutant-comparison-t2-o0",
+      "recordId": "4b941c424649b5c3856b551b8a0d5c2d0d6a6fbf27680c60d9761d11d5f2ddef"
+    }
+  ],
+  "adversaries": [
+    {
+      "probe": "schedule-record-as-attempt",
+      "expected": "reject"
+    },
+    {
+      "probe": "first-kill-as-full",
+      "expected": "reject"
+    },
+    {
+      "probe": "fabricated-skipped-record",
+      "expected": "reject"
+    },
+    {
+      "probe": "subject-reversal",
+      "expected": "reject"
+    },
+    {
+      "probe": "candidate-id-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "patch-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "mutant-definition-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "test-invocation-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "profile-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "bounds-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "declaration-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "missing-produced-artifact",
+      "expected": "reject"
+    },
+    {
+      "probe": "partial-output-complete",
+      "expected": "reject"
+    },
+    {
+      "probe": "diagnostic-reused-as-agreement",
+      "expected": "reject"
+    },
+    {
+      "probe": "bounded-under-different-bounds",
+      "expected": "reject"
+    },
+    {
+      "probe": "conflicting-same-key",
+      "expected": "reject"
+    },
+    {
+      "probe": "refreshed-id-concealment",
+      "expected": "reject"
+    },
+    {
+      "probe": "output-in-attempt-key",
+      "expected": "reject"
+    },
+    {
+      "probe": "status-in-attempt-key",
+      "expected": "reject"
+    },
+    {
+      "probe": "schedule-in-raw-key",
+      "expected": "reject"
+    },
+    {
+      "probe": "hit-in-raw-key",
+      "expected": "reject"
+    },
+    {
+      "probe": "schedule-omitted-invocation",
+      "expected": "reject"
+    },
+    {
+      "probe": "schedule-omitted-report",
+      "expected": "reject"
+    },
+    {
+      "probe": "parser-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "start-symbol-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "options-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "lowering-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "solver-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "isolation-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "observer-order-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "attempt-kind-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "query-coupling-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "search-policy-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "operation-version-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "oracle-operand-order",
+      "expected": "reject"
+    },
+    {
+      "probe": "baseline-policy-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "evaluator-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "wrong-resolver-material",
+      "expected": "reject"
+    },
+    {
+      "probe": "boolean-completion",
+      "expected": "reject"
+    },
+    {
+      "probe": "missing-baseline-gate",
+      "expected": "reject"
+    },
+    {
+      "probe": "cached-fold-difference",
+      "expected": "reject"
+    },
+    {
+      "probe": "query-kind-reuse",
+      "expected": "reject"
+    },
+    {
+      "probe": "suite-level-boolean-hit",
+      "expected": "reject"
+    },
+    {
+      "probe": "duplicate-json-key",
+      "expected": "reject"
+    },
+    {
+      "probe": "nonportable-json-value",
+      "expected": "reject"
+    },
+    {
+      "probe": "terminal-output-substitution",
+      "expected": "reject"
+    },
+    {
+      "probe": "oracle-output-substitution",
+      "expected": "reject"
+    },
+    {
+      "probe": "requested-plan-reorder",
+      "expected": "reject"
+    },
+    {
+      "probe": "status-self-assertion",
+      "expected": "reject"
+    },
+    {
+      "probe": "operator-template-operation-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "operator-selected-site-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "operation-id-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "adapter-version-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "evaluator-id-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "same-key-output-conflict",
+      "expected": "reject"
+    },
+    {
+      "probe": "same-key-provenance-conflict",
+      "expected": "reject"
+    },
+    {
+      "probe": "definition-semantic-id-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "selector-semantic-id-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "operator-semantic-id-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "edit-semantic-id-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "patch-semantic-id-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "mutant-materialization-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "terminal-semantic-id-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "trace-semantic-id-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "declaration-semantic-id-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "operand-semantic-id-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "gate-outcome-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "comparison-outcome-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "incoherent-query-triple",
+      "expected": "reject"
+    },
+    {
+      "probe": "declaration-slot-reorder",
+      "expected": "reject"
+    },
+    {
+      "probe": "declaration-slot-removal",
+      "expected": "reject"
+    },
+    {
+      "probe": "crash-profile-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "crash-terminal-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "crash-side-role-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "crash-producer-trace-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "same-key-normal-crash-result-substitution",
+      "expected": "reject"
+    },
+    {
+      "probe": "fabricated-query-test-slot",
+      "expected": "reject"
+    },
+    {
+      "probe": "swapped-crash-comparison",
+      "expected": "reject"
+    },
+    {
+      "probe": "mutant-crash-baseline-gate",
+      "expected": "reject"
+    },
+    {
+      "probe": "normal-only-crash-policy-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "crash-policy-drift",
+      "expected": "reject"
+    },
+    {
+      "probe": "catalog-key-self-id-mismatch",
+      "expected": "reject"
+    },
+    {
+      "probe": "same-key-altered-execution-terminal-trace-row",
+      "expected": "reject"
+    }
+  ]
+}

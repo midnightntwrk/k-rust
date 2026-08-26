@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "declarationId": "092636bc585d7d90e78f90594f4a7e112e6b3250eb84fefb8dc8de5f1883da71",
+  "testInvocationDigest": "e124f7e4369622269a40bc2f2298861074542481aff59030297a98b0158ac445",
+  "slotOrdinal": 0,
+  "slotId": "cache-suffix-exit-stop",
+  "oracleId": "cache-suffix-exit-stop",
+  "oracleVersion": 1,
+  "kind": "exit-stop",
+  "compatibilityProfileDigest": "19e25029f0de1d31329a6b81340277e66518b44c686975df6919dd8c0f5042d1",
+  "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+  "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+  "boundsDigest": "766922e13db2bd777258d21d827479da148520b4590a07863b780e1a9ef46451",
+  "baselineTerminalPolicy": "normal-or-crash",
+  "crashPolicy": "semantic-crash-distinguishes",
+  "baselineGate": {
+    "mode": "reference-only"
+  },
+  "projectionSpec": {
+    "mode": "portable-built-in",
+    "projectionId": "terminal-class-and-declared-exit-v1"
+  },
+  "comparisonSpec": {
+    "mode": "portable-built-in",
+    "comparatorId": "exact-terminal-class-and-exit-v1"
+  },
+  "kindConfig": {
+    "kind": "exit-stop",
+    "exitCodeMode": "none"
+  }
+}

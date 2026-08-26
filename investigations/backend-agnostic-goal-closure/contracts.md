@@ -105,19 +105,15 @@ hashing the remaining normalized object. The domains are
 campaign ID uses `k-in-k/mutation-campaign/v1` over its manifest digest,
 operator identity, and scheduling mode.
 
-The mutation execution policy uses `k-in-k/mutation-execution-policy/v1`
-over the policy without `policyId`. Its suite-level cache key uses
-`k-in-k/mutation-cache-key/v1` over the `cacheKey` object without `domain`
-or `keyDigest`. The ordered test/options and oracle declarations use
-`k-in-k/mutation-test-manifest/v1`, `k-in-k/mutation-options/v1`, and
-`k-in-k/mutation-oracle-manifest/v1`. The field and catalog role for executor
-configuration are uniformly `executionProfileDigest` and
-`execution-profile`. This digest identifies the complete canonical execution
-engine configuration that may change observable behavior; it is distinct from
-semantic-family compatibility, solver configuration, per-test options, and
-explicit bounds. A backend may construct the profile artifact, but corpus,
-pattern, replay, invocation, and mutation-cache identities all bind the same
-portable root without v1 aliases.
+The mutation execution policy uses `k-in-k/mutation-execution-policy/v1` over the policy without `policyId` and embeds the complete `k-in-k/isolation-policy/v1` record.
+V1 has no suite-level cache key.
+`keyDigest` uses `k-in-k/execution-attempt-key/v1` for one exact execution request or `k-in-k/oracle-evaluation-key/v1` for one exact typed oracle request.
+`recordId` uses `k-in-k/cache-record/v1` over one immutable completed record without its self-ID.
+`campaignInvocationId` uses `k-in-k/campaign-invocation/v1` over the schedule-specific request without its self-ID, and the cache mutation report uses `k-in-k/mutation-report/v1` over the selected-record closure and derived schedule result without its self-ID.
+The ordered test/options and oracle declarations use `k-in-k/mutation-test-manifest/v1`, `k-in-k/mutation-options/v1`, and `k-in-k/mutation-oracle-manifest/v1` where those historical campaign artifacts remain active.
+The field and catalog role for executor configuration are uniformly `executionProfileDigest` and `execution-profile`.
+This digest identifies the complete canonical execution-engine configuration that may change observable behavior; it is distinct from semantic-family compatibility, solver configuration, per-test options, and explicit bounds.
+A backend may construct the profile artifact, but corpus, pattern, replay, and per-attempt identities bind the same portable root without v1 aliases.
 
 Pattern identity has three noninterchangeable BAG-08 keys. `pattern-source`
 is the opaque K-authored byte artifact. `patternPlanDigest` uses
@@ -136,14 +132,30 @@ origin mode are covered. Every plan binds that exact digest and resolves it
 through one observation manifest. The compiler profile is provenance, not an
 input to semantic `queryId`.
 
-A cache hit is valid only when every field agrees: baseline definition,
-compatibility profile, operator identity, patch, execution and solver
-profiles, ordered per-test options, the complete
-test manifest, the ordered source/plan/query roots selected by its
-execution-pattern oracles, and the complete oracle manifest. Baseline state is immutable;
-each mutant gets fresh writable state; no writable state is shared between
-mutants; and observer state is fresh for every test path. Rust must prove
-native enforcement, but may not weaken this portable boundary.
+An execution-attempt key is a closed cycle-free request containing the exact operation and adapter versions, baseline or mutant subject, test invocation, compatibility/lowering/execution/solver profiles, isolation policy, and discriminated ordinary, observed-exhaustive, or query-coupled attempt kind.
+A query-coupled attempt additionally binds the exact source/plan/query triple and BAG-11 search policy.
+An oracle-evaluation key is a closed cycle-free request containing the exact operation and adapter versions, admission or comparison kind, test-scoped declaration, ordered typed operands or semantic crashes, and built-in evaluator identity or K-authored evaluator plus conformant authority.
+Raw keys contain no output, terminal, result, status, schedule, timestamp, location, hit/miss, or receipt field.
+
+A cache record repeats and recomputes its key digest, binds one kind-compatible terminal or typed oracle result, lists the complete ordered produced artifacts, carries positive completion evidence, and derives its intrinsic reuse class.
+Only `semantic-result` and exact same-bounds `exact-bounded-attempt` evidence may be intrinsically reusable.
+Diagnostic-only, incomplete, infrastructure/backend/worker failure, producer/output disagreement, and `not-proven` native execution are `not-reusable`.
+Resolver capability is a separate lookup-time gate: `external-required` material may become available without changing any semantic ID, while it remains ineligible under the package's repo-only resolver.
+Cache publication is all-or-none at the portable boundary; Rust must prove real storage atomicity and locking.
+
+The BAG-14 finite seam is a registered deterministic input-to-output row whose input digest excludes terminal and output expectations.
+It proves only the bundled vector result.
+BAG-15 must add the native production-receipt branch deliberately; BAG-14 does not fabricate native production authority.
+
+`first-kill` and `full` are report-construction policies, not raw attempt identity.
+Both schedule-specific campaign invocation and report identities bind `scheduleMode`.
+A first-kill report selects the exact prefix through the first derived kill and gives its skipped suffix no child record.
+A full report may reuse that prefix only after every remaining selected slot has a valid record.
+Uncached, partially cached, and fully cached folds over the same selected record IDs must produce byte-identical semantic reports because lookup provenance is supplemental.
+One key with conflicting validated terminal, output, completion, or producer-provenance values is quarantined; no implicit newest/fastest choice is portable.
+
+Baseline state is immutable; each mutant gets fresh writable state; no writable state is shared between mutants; and observer state is fresh for every test path.
+Rust must prove native enforcement, but may not weaken this portable boundary.
 
 Replay avoids an output/input digest cycle by separating its invocation from
 its completed record. `invocationDigest` uses
@@ -547,19 +559,14 @@ projection, or comparison. The normalized matcher always searches occurrences
 within the finite trace; equality with the whole trace is not an operator.
 
 Each execution-pattern declaration owns its own source/plan/query triple.
-Every triple resolves its exact query artifact through the catalog, and its
-source and plan keys must equal that artifact's nested roots; every plan side
-condition likewise resolves through the catalog. Corpus manifests flatten
-test declaration order followed by each test's query-selection order,
-preserving repetitions. Mutation test invocations reproduce triples in exact
-per-test `oracleDeclarations` slot order. Mutation cache roots flatten
-mutation-test declaration order followed by those per-test slots, preserving
-duplicates and excluding corpus queries not selected by the mutation tests. Replay match
-steps consume event trace plus source, plan, and query keys. Results, replay
-invocation/replay IDs, corpus IDs, mutation test/manifest IDs, cache/policy
-IDs, and transitive campaign/report IDs cover those roots. Two named queries
-may share one source but must not share a query ID or be replaced by a global
-test query.
+Every triple resolves its exact query artifact through the catalog, and its source and plan keys must equal that artifact's nested roots; every plan side condition likewise resolves through the catalog.
+Corpus manifests flatten test declaration order followed by each test's query-selection order, preserving repetitions.
+Mutation test invocations reproduce triples in exact per-test `oracleDeclarations` slot order.
+Campaign requested plans retain mutation-test declaration order followed by each test's declaration-slot order.
+Each query-coupled execution-attempt key binds only its exact selected source/plan/query roots, and each oracle-evaluation key binds its exact declaration and ordered semantic inputs; no suite-level flattened cache root exists.
+Replay match steps consume event trace plus source, plan, and query keys.
+Results, replay invocation/replay IDs, corpus IDs, mutation test/manifest IDs, per-attempt key/record IDs, policy IDs, and schedule-specific campaign/report IDs cover their respective roots.
+Two named queries may share one source but must not share a query ID or be replaced by a global test query.
 
 Search policy is an explicit replay input. `exhaustive` is the default and
 continues through the declared finite search space. `existential-first` may
@@ -836,6 +843,12 @@ absent from the live mutation catalog and cannot authorize a declaration,
 operand, comparison, gate, or campaign decision. Replay step edges are paired `inputArtifacts` and
 `expectedArtifacts`, never parallel role and digest arrays. BAG-07 edit
 receipts remain embedded identity inputs and do not become artifact roles.
+
+The BAG-14 cache vector names `fixtures/bag14-cache-artifact-catalog.json` by exact `artifactCatalogDigest` as its authoritative derivative resolver snapshot.
+That snapshot is separate from the live BAG-12 mutation catalog because BAG-14's wholly bundled finite positive must not relabel an existing `external-required` artifact.
+The snapshot boundary is evidence-local, not a second general mutation-decision authority.
+Its cache manifest, invocation, record, and report roles resolve only the BAG-14 graph.
+Resolver availability, lookup source, cache location, hit/miss state, latency, timestamps, and eviction metadata are supplemental and absent from semantic identities.
 
 The v1 resolver registry is closed. `repo-v1` accepts only `repo://`, requires
 `bundled`, resolves from the real repository root, requires a regular file,

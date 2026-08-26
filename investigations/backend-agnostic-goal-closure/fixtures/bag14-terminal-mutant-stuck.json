@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "terminalStateDigest": "dc84293be73ec3105770f563bf4acd39b65ed1e9b3263a800e6b50277792d586",
+  "value": {
+    "encoding": "portable-term-v1",
+    "sort": "GeneratedTopCell",
+    "node": {
+      "kind": "token",
+      "text": "bag14-stuck"
+    }
+  },
+  "definitionDigest": "9e8dbb1183eafb016e9de893693987678359044ad0be2b4d2e132fe2f550da59"
+}
