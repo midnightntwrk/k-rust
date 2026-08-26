@@ -80,6 +80,8 @@ ADVERSARIES = (
     "empty-marker-on-nonempty",
     "exhaustive-match-found",
     "existential-without-final-query-satisfied",
+    "path-stop-global-stop-drift",
+    "visit-after-stopping-disposition",
     "match-found-claimed-complete",
     "path-collection-drift",
     "execution-output-reordered",
@@ -3307,6 +3309,24 @@ class Bag16Verifier:
         visits = collection["visited"]
         stop = collection["stopReason"]
         pending = collection["pendingWork"]["discoveredCount"]
+        stopping_dispositions = {
+            "depth-limit", "time-limit", "branch-limit", "result-limit",
+            "resource-limit", "solver-unknown", "backend-failure",
+        }
+        stopping_visits = [
+            index for index, visit in enumerate(visits)
+            if visit["disposition"]["kind"] in stopping_dispositions
+        ]
+        self.ok(
+            not stopping_visits or stopping_visits == [len(visits) - 1],
+            "BAG-16 visit appears after a stopping path disposition",
+        )
+        if stopping_visits:
+            path_stop = visits[-1]["disposition"]["kind"]
+            self.ok(
+                stop["kind"] == "backend-failure" or stop["kind"] == path_stop,
+                "BAG-16 stopping path disposition differs from the global stop",
+            )
         if stop["kind"] == "search-exhausted":
             self.ok(pending == 0, "BAG-16 search exhaustion retained pending work")
         if stop["kind"] == "match-found":
@@ -5213,6 +5233,49 @@ class Bag16Verifier:
                 "disposition", {"kind": "normal", "terminal": normal_terminal},
             ),
             rebuild=(0,),
+        )
+
+        def path_stop_global_stop_drift(value: dict[str, Any]) -> None:
+            value["visited"][-1]["disposition"] = {
+                "kind": "depth-limit",
+                "failure": bag10_failure("depth-limit", scope="path"),
+            }
+            value["stopReason"] = {
+                "kind": "time-limit",
+                "failure": bag10_failure("time-limit", scope="test"),
+            }
+
+        def stopping_relation_probe(
+            change: Callable[[dict[str, Any]], None], refresh: bool,
+        ) -> None:
+            bad = deepcopy(collection)
+            change(bad)
+            if refresh:
+                for index, visit in enumerate(bad["visited"]):
+                    bad["visited"][index] = visit_record(
+                        bad["collectionScopeId"], bad["invocationDigest"],
+                        visit["visitOrdinal"], visit["trace"],
+                        visit["disposition"],
+                    )
+                identify(bad, "collectionId", DOMAINS["collection"])
+            self.validate_collection_stop_relation(bad, main_attempt)
+
+        probes["path-stop-global-stop-drift"] = lambda refresh: stopping_relation_probe(
+            path_stop_global_stop_drift, refresh,
+        )
+
+        def visit_after_stopping_disposition(value: dict[str, Any]) -> None:
+            value["visited"][0]["disposition"] = {
+                "kind": "time-limit",
+                "failure": bag10_failure("time-limit", scope="path"),
+            }
+            value["stopReason"] = {
+                "kind": "backend-failure",
+                "failure": bag10_failure("backend-error", scope="test"),
+            }
+
+        probes["visit-after-stopping-disposition"] = lambda refresh: stopping_relation_probe(
+            visit_after_stopping_disposition, refresh,
         )
 
         def existential_collection_semantics(

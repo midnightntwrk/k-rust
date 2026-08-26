@@ -227,6 +227,22 @@
       ]
     },
     {
+      "probe": "path-stop-global-stop-drift",
+      "expected": "reject",
+      "refreshModes": [
+        "unchanged",
+        "fully-refreshed"
+      ]
+    },
+    {
+      "probe": "visit-after-stopping-disposition",
+      "expected": "reject",
+      "refreshModes": [
+        "unchanged",
+        "fully-refreshed"
+      ]
+    },
+    {
       "probe": "match-found-claimed-complete",
       "expected": "reject",
       "refreshModes": [
