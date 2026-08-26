@@ -261,19 +261,23 @@ def cache_record_schema() -> dict[str, Any]:
             "executionConformance": {"enum": ["finite-vector-proven", "native-proven", "not-proven"]},
         },
     )
-    production = obj(
+    finite_production_schema = obj(
         ["mode", "vectorId", "inputDigest", "outputKeys"],
         {"mode": {"const": "finite-vector"}, "vectorId": {"type": "string", "minLength": 1}, "inputDigest": DIGEST_REF, "outputKeys": array(ARTIFACT_REF, unique=True)},
+    )
+    receipt_production_schema = obj(
+        ["mode", "receipt", "result"],
+        {"mode": {"const": "operation-receipt"}, "receipt": typed_key("operation-receipt"), "result": typed_key("execution-attempt-result")},
     )
     common = {
         "schemaVersion": {"const": 1}, "recordId": DIGEST_REF, "keyDigest": DIGEST_REF,
         "producedArtifacts": array(ARTIFACT_REF, unique=True), "completion": completion,
         "reuseClass": {"enum": ["semantic-result", "exact-bounded-attempt", "not-reusable"]},
-        "productionEvidence": production,
+        "productionEvidence": finite_production_schema,
     }
     execution = obj(
         ["schemaVersion", "recordId", "kind", "keyDigest", "key", "terminalRecord", "producedArtifacts", "completion", "reuseClass", "productionEvidence"],
-        {**common, "kind": {"const": "execution-attempt"}, "key": execution_key_schema(), "terminalRecord": terminals["execution"]},
+        {**common, "kind": {"const": "execution-attempt"}, "key": execution_key_schema(), "terminalRecord": terminals["execution"], "productionEvidence": {"oneOf": [finite_production_schema, receipt_production_schema]}},
     )
     oracle = obj(
         ["schemaVersion", "recordId", "kind", "keyDigest", "key", "terminalRecord", "producedArtifacts", "completion", "reuseClass", "productionEvidence"],
@@ -1823,6 +1827,12 @@ class CacheVerifier:
         else:
             self.validate_oracle_key(record["key"])
         production = record["productionEvidence"]
+        if production["mode"] == "operation-receipt":
+            validator = self.api.get("validate_operation_receipt_production")
+            self.ok(record["kind"] == "execution-attempt" and validator is not None, "BAG-14 operation-receipt production lacks BAG-15 authority")
+            validator(record, production)
+            self.ok(record["producedArtifacts"] == self.derived_outputs(record), "BAG-14 receipt-produced execution outputs differ from independently derived key result")
+            return
         self.ok(production["mode"] == "finite-vector" and production["vectorId"] in self.vector["finiteVectorRegistry"], "BAG-14 unregistered/fabricated production evidence")
         specification = self.vector["finiteVectorRegistry"][production["vectorId"]]
         self.ok(specification["kind"] == "cache-record", "BAG-14 cache record cites a non-cache finite producer")

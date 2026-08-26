@@ -1,8 +1,8 @@
 # BAG-15: mutation execution replay and result provenance
 
 Status: active portable implementation after independent BAG-12 and BAG-14
-acceptance and independent repaired-contract preflight acceptance on 26 August
-2026. BAG-16 remains gated.
+acceptance and two independent repaired-contract preflight acceptances on 26
+August 2026. BAG-16 remains gated.
 
 ## Objective
 
@@ -25,7 +25,9 @@ Separate these closed replay operations:
 
 1. **Mutation materialization**: baseline definition plus exact operator,
    candidate, patch, and adapter/profile identities produce the mutant
-   definition and structural diff, followed by the declared validation stage.
+   definition and structural diff, followed by the declared validation stage,
+   through one cycle-free `mutation-materialization-result` success/failure
+   wrapper.
    Rename or explicitly scope the current `mutation-instance` kind so it does
    not claim to reproduce tests or classification.
 2. **Execution attempt**: exact baseline or mutant definition plus one test
@@ -37,22 +39,29 @@ Separate these closed replay operations:
 3. **Oracle operand production**: one exact declaration-scoped projection of
    a completed baseline or mutant execution, including its terminal/trace,
    subject, profiles, evaluator authority, and execution receipt, produces one
-   BAG-12 oracle operand. Execution keys remain declaration-independent.
+   cycle-free `oracle-operand-production-result` whose success arm names the
+   BAG-12 oracle operand and whose failure arm names the exact typed semantic
+   failure. Execution keys remain declaration-independent.
 4. **Baseline admission**: one exact baseline attempt/operand plus the
    test-scoped BAG-12 declaration and BAG-09 baseline policy produce the
-   one-sided gate result. It is not a degenerate two-sided comparison.
+   one-sided gate result through a cycle-free `baseline-admission-result`
+   wrapper. It is not a degenerate two-sided comparison.
 5. **Baseline-mutant oracle comparison**: exact ordered baseline and mutant
    operands/attempt records plus one test-scoped BAG-12 declaration and its
-   artifacts produce a typed comparison receipt/outcome.
+   artifacts produce a cycle-free `oracle-comparison-production-result`
+   wrapper. This wrapper role is distinct from BAG-12's semantic
+   `oracle-comparison-result` artifact.
 6. **Campaign derivation**: exact manifest/operator/materialization roots,
    ordered attempt and oracle receipts, failure taxonomy, and scheduling mode
    produce one cycle-free campaign-derivation result containing candidate
    statuses, campaign status, exclusions, and score. It does not contain the
    derivation receipt or final report.
 7. **Report publication**: the derivation result and receipt plus the exact
-   recursive version registry produce the normalized report. The report may
-   point backward to the derivation receipt; it never points to its own
-   publication receipt.
+   recursive version registry produce one cycle-free
+   `report-publication-result` wrapper. Its success arm names the normalized
+   report; its failure arm names the exact typed publication failure. The
+   report may point backward to the derivation receipt; it never points to its
+   own publication receipt.
 
 The campaign's declared schema/operation versions are semantic provenance,
 not an unchecked decorative object. They exactly cover every schema and
@@ -121,9 +130,9 @@ the requested portable-to-native adapter contract, not a process or command.
 BAG-08 key. `childReceipts` is an ordered array of `{edgeRole, receipt}` with
 an already-resolved `operation-receipt` key. `outputRoles` is the exact
 nonempty operation-specific requested artifact-role sequence. Every completed
-execution attempt requests exactly one `execution-attempt-result`, independent
-of whether the eventual terminal is normal, crash, bounded, diagnostic, or
-another closed result. Edge roles are closed per
+operation requests exactly one operation-specific cycle-free result wrapper,
+independent of whether its eventual semantic arm is success, bounded,
+diagnostic, or failure. Edge roles are closed per
 operation, unique where the operation is one-to-one, and may repeat only where
 that operation's declared cardinality permits repetition. There is no generic
 unchecked `artifacts` array.
@@ -133,8 +142,9 @@ unchecked `artifacts` array.
 - `mutation-materialization` contains the BAG-07/BAG-13 baseline, operator,
   candidate, patch, compatibility/lowering profiles, and
   validation policy roots. It has no test, query, execution, or oracle fields.
-  The mutation-instance/mutant-definition/diff are outputs and therefore may
-  not appear in this invocation arm.
+  The mutation instance, mutant definition, and diff are result payloads and
+  therefore may not appear in this invocation arm. Its sole output role is
+  `mutation-materialization-result`.
 - `execution-attempt` contains exactly the complete BAG-14
   `execution-attempt-key` and key digest. The generic input edges must equal
   the deterministic typed artifact traversal of that key; they are DAG edges,
@@ -144,11 +154,14 @@ unchecked `artifacts` array.
   mutant subject, execution invocation/key and completed execution receipt,
   terminal/trace inputs, profiles, and evaluator/conformance authority needed
   to derive one declaration-bound operand. Its execution child cannot depend
-  on the declaration or operand output.
+  on the declaration or operand output. Its sole output role is
+  `oracle-operand-production-result`.
 - `baseline-admission` contains exactly the BAG-14
-  `oracle-evaluation-key` whose kind is `baseline-admission`.
+  `oracle-evaluation-key` whose kind is `baseline-admission`; its sole output
+  role is `baseline-admission-result`.
 - `oracle-comparison` contains exactly the BAG-14 oracle-evaluation key whose
-  kind is `baseline-mutant-comparison`.
+  kind is `baseline-mutant-comparison`; its sole output role is
+  `oracle-comparison-production-result`.
 - `campaign-derivation` contains the pre-execution campaign invocation key,
   schedule mode, exact ordered materialized plan entries, and selected cache-
   record/child-receipt keys. Its inputs and children equal that selection in
@@ -158,7 +171,7 @@ unchecked `artifacts` array.
   exact recursive version registry, and requested report role/version. It does
   not contain expected report bytes, a report digest, or a normalized report
   body; the portable verifier derives the report independently, and the
-  completed receipt binds the resulting report key.
+  completed receipt binds its sole `report-publication-result` output.
 
 An operation-specific schema freezes each arm's field set, input edge roles,
 child roles, output roles, and cardinalities. A digest with a plausible role
@@ -198,11 +211,11 @@ resolver. For `producerStatus: failed`, `outputs` is empty,
 `semanticTerminal` is null, and `failure` is one exact BAG-10 producer/
 infrastructure failure; intended output roles remain only in the invocation
 and no downstream edge may consume them. `semanticTerminal` for a complete
-producer is a closed operation-compatible union of the BAG-15
-execution-attempt result, BAG-09 terminal/crash/failure, BAG-12
-operand/gate/comparison/failure,
-materialization validation result, campaign-derivation result, or report
-result keys. `failure` is null exactly
+producer is the closed operation-compatible semantic terminal nested in its
+one BAG-15 result wrapper: a BAG-09 terminal/crash/failure, BAG-12
+operand/gate/comparison/failure, materialization validation result,
+campaign-derivation result, or report result. It is never the wrapper key or
+wrapper object itself. `failure` is null exactly
 when the selected complete-terminal relation permits it and otherwise one
 BAG-10 failure with the exact operation context. The receipt never copies
 cache-hit state, host exit, timestamps, paths, diagnostics, argv, or worker
@@ -246,10 +259,35 @@ is required.
 `execution-attempt-result` contains exactly the BAG-14 key digest, generic
 invocation digest, closed terminal record, and ordered produced-artifact keys.
 Its semantic ID covers those fields and it never contains a receipt ID. The
-completed receipt outputs that one result artifact. BAG-14's
+completed receipt outputs that one result artifact.
+`receipt.semanticTerminal` must equal `result.terminalRecord` exactly.
+`receipt.failure` must equal the failure selected from that terminal by the
+closed terminal/failure relation, and must otherwise be null.
+BAG-14's
 `operation-receipt` production-evidence arm resolves the result and requires
 its key, terminal, and produced-artifact sequence to equal the cache record;
 the cache record never becomes a receipt output and no cycle is introduced.
+
+Every other operation-specific result wrapper follows the same direction. It
+contains its generic invocation digest and exactly one closed semantic outcome
+arm. The success arm contains the operation-specific independently derived
+payload: artifact keys for materialization, operand, admission, comparison,
+and publication, or the closed statuses/exclusions/score payload for campaign
+derivation. A completed semantic-failure arm names the exact BAG-10 failure
+and no fabricated success artifact. Its semantic ID covers the complete wrapper except that ID,
+and it never contains its completed receipt. The wrapper's semantic outcome
+and failure must equal the completed receipt's `semanticTerminal` and
+`failure`; refreshed wrapper and receipt IDs cannot conceal disagreement.
+A `complete` receipt always
+outputs its one requested wrapper, including for a completed semantic-failure
+arm. Only `producerStatus: failed` publishes no wrapper or other output.
+
+BAG-14's receipt production-evidence branch applies the same equality rule to
+oracle cache records: the resolved `baseline-admission-result` or
+`oracle-comparison-production-result` must carry the exact evaluation key, terminal
+record, and produced-artifact sequence stored by the cache record. Editing a
+wrapper, receipt, finite row, or cache record cannot authorize a different
+semantic result under the same key.
 
 Parallel digest/role arrays must have equal arity, and every transformation
 digest has a corresponding role or its own ordered transform step. If v1
@@ -278,7 +316,9 @@ BAG-12 operand semantics, BAG-14 attempt/cache identity, and BAG-08 artifact
 closure apply without alternate roots.
 
 Execution-produced traces and result values bind their producing attempt
-invocation; the completed attempt receipt binds them as outputs. A
+invocation and appear as ordered keys inside the
+`execution-attempt-result`. The completed attempt receipt outputs only that
+wrapper and thereby binds the nested keys indirectly. A
 content-identical event trace may be deduplicated as a semantic
 artifact, but attaching it to another definition/program/profile/bounds root
 requires another exact producing receipt; the trace's bare `testId` and path
@@ -301,9 +341,10 @@ receipt over derived statuses, exclusions, and score. The DAG is globally
 acyclic, all inputs are available before their consumers, declared output
 role/arity agrees exactly, and no dangling or surplus intermediate edge exists.
 
-The campaign report links its cycle-free derivation result and derivation
-receipt, and each child result links
-its own receipt. Replaying materialization alone may prove the output mutant
+The campaign report consumes its cycle-free derivation-result key and pairs it
+with the producing derivation receipt. Every downstream edge likewise consumes
+the wrapper key plus its producing receipt; no wrapper, trace, operand, or
+report contains the ID of the receipt that covers it. Replaying materialization alone may prove the output mutant
 and diff; it cannot substantiate `killed`, `survived`, or any test/oracle
 outcome.
 
