@@ -15,13 +15,18 @@ tool revision changes.
 The implementation seams are reconstructed through the macro fixtures, compiler, CLI, native adapter, independent M3D oracle, and recovered M4 definition/proof packages.
 Recovery archaeology is closed.
 
-The active development objective is the known project end state, not reconstruction of intermediate worktree state.
-The readable-IMP milestone is signed, and the first representative readable KWasm slice is qualified.
+The active development objective is the known project end state, not reconstruction of intermediate worktree state and not qualification of representative slices.
+Readable IMP and the initial KWasm, KEVM, and KMIR slices are signed authoring baselines.
+They do not constitute complete ports.
 Continue in this order:
 
-1. preserve the green readable IMP and KWasm gates as the authoring baseline;
-2. qualify the user-requested representative KEVM slice for current-K production-semantic scale;
-3. qualify KMIR next for current-K multi-cell and rule-shape stress, extending the authoring contract only for evidence-backed gaps; keep Kontrol reserved for product-facing proving workflows.
+1. preserve the complete IMP gate and the three fail-closed semantic gates as regression authorities;
+2. complete the KRS KEVM port against the pinned `evm-semantics` source inventory and selected upstream behavior and proof suites;
+3. complete the KRS KMIR port against the pinned `mir-semantics` source inventory and selected upstream behavior and proof suites;
+4. close any remaining KWasm coverage after the KEVM and KMIR work, so all three ports satisfy the same explicit completion contract.
+
+The canonical product definitions live in the standalone `semantics/` Cargo workspace.
+`tests/kwasm`, `tests/kevm`, and `tests/kmir` own only external evidence, probes, revision pins, and fail-closed qualification gates.
 
 ## Authorities and path translation
 
@@ -128,6 +133,10 @@ remote and deliberately contains no reconstructed original objects:
 - `95fc96d` — signed green post-F7 M4 recovery baseline.
 - `5ff228f` — signed collector integration of the F7 source/trivia contract.
 - `35b4ef6` — signed complete readable-IMP authoring milestone.
+- `39022c8` — signed readable KWasm integer milestone.
+- `04599da` — signed readable KWasm division/trap milestone.
+- `70f0f13` — signed readable KEVM operational milestone.
+- `44b1d74` — signed readable KMIR operational milestone.
 
 Every new commit and the import tag verify against the configured ED25519 Git
 signing key. Valid signed original commit objects survive in the evidence
@@ -430,17 +439,13 @@ justify changing a recovered KRS behavior or pin without KRS-local evidence.
 
 ### Post-baseline design and corpus ladder
 
-Once the recovered post-F7 baseline is green, use the Tier 1 projects in this
-order:
+The recovered post-F7 baseline is green.
+Use the Tier 1 projects in this order:
 
-1. `wasm-semantics/` (KWasm, K 7.1.329) for the smallest readable
-   real-language corpus and the first authoring/formatter portability check;
-2. `mir-semantics/` (KMIR, K 7.1.337) for the freshest K conventions and
-   larger multi-cell/rule-shape stress cases;
-3. `evm-semantics/` (KEVM, K 7.1.337) for scale and production-semantic
-   complexity;
-4. `kontrol/` (K 7.1.337) for prover-as-a-product, Pyk orchestration, and CLI
-   workflow design rather than KRS core reconstruction.
+1. `wasm-semantics/` (KWasm, K 7.1.329) supplies the first qualified real-language authoring baseline;
+2. `evm-semantics/` (KEVM, K 7.1.337) is the next full-port authority for scale and production-semantic complexity;
+3. `mir-semantics/` (KMIR, K 7.1.337) follows as the full-port authority for fresh K conventions and larger multi-cell and rule-shape stress;
+4. `kontrol/` (K 7.1.337) remains reserved for prover-as-a-product, Pyk orchestration, and CLI workflow design rather than KRS core semantic coverage.
 
 Check each repository's `deps/k_release` before borrowing a construct. Copy
 modern semantics and testing patterns from Tier 1/2 projects; do not copy
@@ -691,7 +696,7 @@ The final source-ledger, Rust formatting, diff-hygiene, and three-specimen forma
 
 Phase 5 is complete: the normative authoring specimen, its byte-exact expansion, and the complete IMP oracle are green from the signed milestone containing this record.
 
-### Phase 6 — qualify the authoring layer against KWasm — complete
+### Phase 6 — qualify the initial authoring layer against KWasm — milestone complete; port incomplete
 
 Two representative KWasm integer slices are checked in under `tests/kwasm/` and documented in `draft/readability/kwasm/README.md`.
 They port the real abstract integer-arithmetic path from the pinned KWasm checkout at commit `212271bd434bd402e27c42f6416854342733386d`:
@@ -748,9 +753,10 @@ The final M4 run proves:
 - M4.7 21 reference-source proofs, 21 readable-source proofs, 21 dry-run specifications, 21 native Haskell results, and 20 unique native claims;
 - M4.8 seven live compatibility probes with unchanged report SHA-256 `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6`.
 
-Phase 6 is complete from the signed milestone containing this record.
+The Phase 6 qualification milestone is complete from the signed milestone containing this record.
+It is an acceptance baseline for subsequent porting, not completion of the KWasm port.
 
-### Phase 7 — readable KEVM operational milestone — complete
+### Phase 7 — readable KEVM operational milestone — milestone complete; port incomplete
 
 The user explicitly selected KEVM before KMIR. The first KEVM milestone is
 checked in under `tests/kevm/` and documented in
@@ -781,7 +787,10 @@ one native all-path claim closing with `#Top`. The behavior hash is
 normalized KORE hash is
 `672953aa73dbcce4aa15aae8e663e1a42e86d12816e6a16a21d4966edb7e5a04`.
 
-### Phase 8 — readable KMIR operational milestone — complete
+This result qualifies the initial operational baseline only.
+The full KEVM port remains incomplete.
+
+### Phase 8 — readable KMIR operational milestone — milestone complete; port incomplete
 
 The first KMIR milestone is checked in under `tests/kmir/` and documented in `draft/readability/kmir/README.md`.
 It pins the clean KMIR checkout at `4d793252bcd77091ee759ca6cd1629db41ed5496`, whose K 7.1.337 release exactly matches KRS.
@@ -803,7 +812,42 @@ The all-path claim spans installation, graph lookup, ordered statements, copied 
 The unchanged KEVM and KWasm gates pass, and the complete IMP M4 gate retains its 1,206/1,206 native KORE parity, behavior evidence `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, all proofs, and compatibility evidence `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6`.
 
 Each corpus remains an acceptance oracle, not a source of silent KRS syntax changes.
-Kontrol is not part of the completed KEVM/KMIR scale goal and must not silently expand it.
+Kontrol is not part of the active KEVM/KMIR semantic-coverage goal and must not silently expand it.
+
+This result qualifies the initial operational baseline only.
+The full KMIR port remains incomplete.
+
+### Phase 9 — promote reusable semantic product packages — complete
+
+The three KRS definitions now live in the canonical standalone `semantics/` Cargo workspace:
+
+- `krs-kwasm-semantics` in `semantics/kwasm` with K namespace `KRS-KWASM`;
+- `krs-kevm-semantics` in `semantics/kevm` with K namespace `KRS-KEVM`;
+- `krs-kmir-semantics` in `semantics/kmir` with K namespace `KRS-KMIR`.
+
+The old `tests/*/rust-definition` copies are removed.
+The three test directories retain the independent external corpora, source and revision pins, editor probes, artifact ledgers, behavior ledgers, and native proof gates.
+All product crates share `semantics/Cargo.lock`.
+
+`semantics/coverage.toml` defines the machine-readable completion contract and records the pinned upstream inventories, current coverage, adapter boundaries, and deferred surfaces.
+At this milestone the source inventories and KRS rule counts are:
+
+| Port | Source files | Syntax declarations | Source rules | KRS equations | KRS machine rules | Complete |
+|---|---:|---:|---:|---:|---:|---|
+| KWasm | 13 | 386 | 884 | 8 | 8 | no |
+| KEVM | 98 | 478 | 3,440 | 8 | 13 | no |
+| KMIR | 19 | 525 | 787 | 0 | 22 | no |
+
+The standalone workspace passes formatting, locked offline all-target checking, all workspace tests, and warnings-denied Clippy.
+The direct rust-analyzer probes report zero diagnostics and resolve every pinned definition and hover.
+The fail-closed semantic gates pass from the canonical packages with unchanged structured behavior evidence:
+
+- KWasm: 60 descriptors, 32 executions, one native proof, behavior SHA-256 `4a3b6107cb23fa451a392d0a0ef1d42203d5eb64cda8cbcda025e75d2458afd5`, normalized KORE SHA-256 `d85e22389012617a27323d2cdece0340c8e5bc45364a1d499118a50f2972f4bb`;
+- KEVM: 69 descriptors, 14 executions, one native proof, behavior SHA-256 `3cd26827055518f97e39af8eb30979712bb55ea132aff21009b683e531da35aa`, normalized KORE SHA-256 `378f29dcfa3536c2dccf978f67579f58109300c007e8ad3cdbbd36e916626d3f`;
+- KMIR: 103 descriptors, 11 executions, one native proof, behavior SHA-256 `e150e7a86c513ec5966185fe079d8f58c34c57a66e73991ff8ac9b1f9aaee5c5`, normalized KORE SHA-256 `f4790c58f86f1acb1c484ed2fc84cbcda2b28c988e084cfa2cb7948ebe06db6e`.
+
+The changed expansion, artifact, and KORE identities are explained by canonical package paths, package names, and K namespaces rather than semantic behavior changes.
+All new identities are fail-closed in the three source and artifact ledgers.
 
 The normative formatter target remains:
 
@@ -820,11 +864,13 @@ implementation authority.
 |---|---|---|
 | Finish `draft/readability/spec` | Normative `imp.rs`, deterministic `imp.expanded.rs`, implemented `decisions.md`, deliberately unresolved `open-questions.md`, and M4.2–M4.4 | complete; the trailing-comment policy, `{ .. }`, and no-k-head spelling remain explicitly open rather than silently resolved |
 | Make KRS work on IMP | Complete M4.1–M4.8 gate at protocol 16 and IR schema 9, including exact source projection, 1,206/1,206 native KORE parity, behavior hash `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, all proofs, and compatibility hash `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6` | complete |
-| Extend readable KRS to Wasm semantics | Pinned KWasm source mapping; readable wraparound arithmetic and guarded unsigned-division/trap slices; deterministic expansion/emission; 32 native executions; one closed native claim | complete for the representative language extension required by this goal; full KWasm coverage is not claimed |
+| Complete the KRS KWasm port | `semantics/coverage.toml`, canonical `semantics/kwasm`, and the fail-closed KWasm gate | incomplete: 8 equations and 8 machine rules qualify the arithmetic baseline against an 884-rule source inventory; the recursive List adapter and deferred semantic surfaces remain |
+| Complete the KRS KEVM port | `semantics/coverage.toml`, canonical `semantics/kevm`, and the fail-closed KEVM gate | incomplete: 8 equations and 13 machine rules qualify the opcode baseline against a 3,440-rule source inventory; the Bytes adapter and deferred semantic surfaces remain |
+| Complete the KRS KMIR port | `semantics/coverage.toml`, canonical `semantics/kmir`, and the fail-closed KMIR gate | incomplete: 22 machine rules qualify the block-execution baseline against a 787-rule source inventory; the recursive List and untyped-local adapters and deferred semantic surfaces remain |
 | Preserve recovery boundaries | `krs.RECOVERY_PROVENANCE.md` and `../recovery/` remain unchanged; all reconstructed work is committed only in the live KRS repository | complete |
 
-This audit does not redefine “extend to Wasm semantics” as a full port of all 183 operational rules, 94 numeric rules, text translation, or every store cell.
-The selected slices cross functional and operational modules, exercise simultaneous real-cell rewrites, bounded arithmetic, guarded partitions, and trap outcomes, and therefore constitute a meaningful language extension rather than a synthetic smoke test.
+Representative acceptance slices are evidence-backed baselines, not substitutes for the explicit full-port completion contract.
+A port may be marked complete only when its pinned syntax, configuration, executable-rule, behavior, proof, and adapter-boundary requirements are all discharged in `semantics/coverage.toml`.
 
 ## Guardrails
 
@@ -845,7 +891,10 @@ The selected slices cross functional and operational modules, exercise simultane
 
 ## Immediate next action
 
-Choose the next product-facing semantics or proving workflow from the known project objective now that the coherent KMIR milestone is signed.
+Complete KEVM next against the pinned `evm-semantics` inventory, then complete KMIR against the pinned `mir-semantics` inventory.
+Prefer shared KRS authoring features when the same source construct is required by multiple ports, but qualify every feature through the currently active port before broadening it.
+Preserve all three semantic gates and the complete IMP M4 gate at each coherent signed milestone.
+Return to any remaining KWasm inventory after KEVM and KMIR so the active three-port goal closes without deferred adapters or unrecorded source coverage.
 Do not reopen recovery forensics unless genuinely new evidence or media appears.
 
 ## Audit hygiene

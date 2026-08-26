@@ -82,7 +82,7 @@ A later slice may extend KRS only when one of these shapes is selected as accept
 The checked-in gate must establish deterministic collection and expansion, formatting, warnings-denied Clippy, focused rust-analyzer probes, emitted-K compilation under K 7.1.337, native behavior for the selected graph and local-state paths, a closed native all-path proof, and unchanged complete IMP, KWasm, and KEVM regressions.
 Pins may be updated only after reviewing emitted K and structured behavior.
 
-The specimen is `tests/kmir/rust-definition`, the corpus is `tests/kmir/corpus.toml`, and the fail-closed entry point is `python3 tests/kmir/verify.py`.
+The canonical KRS port is `semantics/kmir`, the corpus is `tests/kmir/corpus.toml`, and the fail-closed entry point is `python3 tests/kmir/verify.py`.
 
 ## Qualification result
 

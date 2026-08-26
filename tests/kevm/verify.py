@@ -19,15 +19,15 @@ from typing import Any, Mapping
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-MANIFEST = HERE / "rust-definition/Cargo.toml"
-SOURCE = HERE / "rust-definition/src/lib.rs"
-LOCK = HERE / "rust-definition/Cargo.lock"
+MANIFEST = ROOT / "semantics/kevm/Cargo.toml"
+SOURCE = ROOT / "semantics/kevm/src/lib.rs"
+LOCK = ROOT / "semantics/Cargo.lock"
 CORPUS_PATH = HERE / "corpus.toml"
 PINS_PATH = HERE / "pins.toml"
 KEVM = ROOT.parent / "inspirations/runtimeverification/evm-semantics"
-PACKAGE = "krs-kevm-operational-slice"
+PACKAGE = "krs-kevm-semantics"
 DEFINITION = "main"
-MODULE = "KRS-KEVM-OPERATIONAL-SLICE"
+MODULE = "KRS-KEVM"
 SPEC_MODULE = f"{MODULE}-SPEC"
 ARTIFACTS = (
     ".krs-artifacts",
@@ -49,9 +49,12 @@ SOURCE_LEDGER_PATHS = (
     "draft/readability/kevm/README.md",
     "tests/kevm/corpus.toml",
     "tests/kevm/lsp_probe.py",
-    "tests/kevm/rust-definition/Cargo.lock",
-    "tests/kevm/rust-definition/Cargo.toml",
-    "tests/kevm/rust-definition/src/lib.rs",
+    "semantics/Cargo.lock",
+    "semantics/Cargo.toml",
+    "semantics/README.md",
+    "semantics/coverage.toml",
+    "semantics/kevm/Cargo.toml",
+    "semantics/kevm/src/lib.rs",
     "tests/kevm/verify.py",
 )
 
@@ -176,9 +179,9 @@ def artifact_gate(workspace: Path, krs: Path, pins: Mapping[str, Any], environme
     expanded.joinpath("src").mkdir(parents=True)
     manifest = MANIFEST.read_text(encoding="utf-8")
     for relative, absolute in {
-        "../../../crates/krs": ROOT / "crates/krs",
-        "../../../crates/krs-compiler": ROOT / "crates/krs-compiler",
-        "../../../crates/krs-ir": ROOT / "crates/krs-ir",
+        "../../crates/krs": ROOT / "crates/krs",
+        "../../crates/krs-compiler": ROOT / "crates/krs-compiler",
+        "../../crates/krs-ir": ROOT / "crates/krs-ir",
     }.items():
         manifest = manifest.replace(relative, os.fspath(absolute))
     expanded.joinpath("Cargo.toml").write_text(manifest, encoding="utf-8")

@@ -100,7 +100,7 @@ exceptional paths, a closed native proof, and unchanged complete IMP and
 KWasm regressions. Pins may be updated only after reviewing emitted K and
 structured behavior.
 
-The specimen is `tests/kevm/rust-definition`, the corpus is
+The canonical KRS port is `semantics/kevm`, the corpus is
 `tests/kevm/corpus.toml`, and the fail-closed entry point is
 `python3 tests/kevm/verify.py`.
 

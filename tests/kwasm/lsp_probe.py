@@ -12,7 +12,7 @@ import time
 from typing import Any
 
 
-ROOT = Path(__file__).resolve().parent / "rust-definition"
+ROOT = Path(__file__).resolve().parents[2] / "semantics/kwasm"
 SOURCE = ROOT / "src/lib.rs"
 TEXT = SOURCE.read_text(encoding="utf-8")
 LINES = TEXT.splitlines()

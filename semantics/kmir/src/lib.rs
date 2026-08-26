@@ -1,7 +1,7 @@
 //! Readable qualification slice for KMIR basic-block execution.
 //!
 //! The source mapping and adapter boundary are pinned in
-//! `../../../draft/readability/kmir/README.md`.
+//! `../../draft/readability/kmir/README.md`.
 
 use k::KResult;
 use k::builtin::{Bool, Int, KSequence, Map, int, map};
@@ -499,11 +499,11 @@ mod tests {
 
     fn package_context() -> PackageContext {
         PackageContext::new(
-            "KRS-KMIR-OPERATIONAL-SLICE",
+            "KRS-KMIR",
             env!("CARGO_PKG_NAME"),
             env!("CARGO_PKG_VERSION"),
             "workspace",
-            "krs_kmir_operational_slice",
+            "krs_kmir_semantics",
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"),
         )
         .expect("valid package context")

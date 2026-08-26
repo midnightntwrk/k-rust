@@ -1,0 +1,123 @@
+schema = 1
+qualification_k_version = "7.1.337"
+
+[completion_contract]
+required = [
+  "syntax inventory parity",
+  "configuration inventory parity",
+  "executable-rule inventory parity",
+  "pinned upstream behavior coverage",
+  "native proof coverage for symbolic paths",
+  "no unrecorded adapter boundary",
+]
+
+[[port]]
+id = "kwasm"
+package = "krs-kwasm-semantics"
+authority_commit = "212271bd434bd402e27c42f6416854342733386d"
+authority_k_version = "7.1.329"
+source_files = 13
+source_syntax_declarations = 386
+source_rules = 884
+krs_equations = 8
+krs_machine_rules = 8
+krs_claims = 1
+pinned_executions = 32
+complete = false
+implemented = [
+  "i32 and i64 integer values",
+  "const, add, sub, mul, and div_u",
+  "modulo word normalization",
+  "operand stack transitions",
+  "division traps",
+]
+adapters = ["recursive instruction and value-stack boundaries in place of builtin Lists"]
+deferred = [
+  "module instantiation and validation",
+  "control instructions and labels",
+  "locals, globals, tables, memory, and calls",
+  "floating-point and conversion operators",
+  "binary and text decoding",
+  "host, WRC20, ABI, and test modules",
+]
+
+[[port]]
+id = "kevm"
+package = "krs-kevm-semantics"
+authority_commit = "d818397e9b7ffa213d687e64418dc8f5293e1ce2"
+authority_k_version = "7.1.337"
+source_files = 98
+source_syntax_declarations = 478
+source_rules = 3440
+krs_equations = 8
+krs_machine_rules = 13
+krs_claims = 1
+pinned_executions = 14
+complete = false
+implemented = [
+  "PUSH, ADD, PC, STOP, and INVALID",
+  "word-stack and program-counter transitions",
+  "modulo-2^256 addition",
+  "Shanghai gas charging",
+  "success and selected exceptional statuses",
+]
+adapters = ["structured opcode program in place of Bytes decoding"]
+deferred = [
+  "remaining opcode families",
+  "memory, storage, accounts, and transactions",
+  "calls, creation, and returndata",
+  "fork schedules and access lists",
+  "cryptographic hooks and symbolic summaries",
+  "full Bytes, Map, Set, and multiplicity-cell configuration",
+]
+
+[[port]]
+id = "kmir"
+package = "krs-kmir-semantics"
+authority_commit = "4d793252bcd77091ee759ca6cd1629db41ed5496"
+authority_k_version = "7.1.337"
+source_files = 19
+source_syntax_declarations = 525
+source_rules = 787
+krs_equations = 0
+krs_machine_rules = 22
+krs_claims = 1
+pinned_executions = 11
+complete = false
+implemented = [
+  "basic-block installation and lookup",
+  "ordered assignment execution",
+  "constant and copied-local operands",
+  "integer addition",
+  "Goto, Boolean SwitchInt, and top-level Return",
+]
+adapters = [
+  "recursive block program in place of builtin Lists",
+  "untyped local Map in place of typed local Lists and projections",
+]
+deferred = [
+  "full Stable MIR syntax and type metadata",
+  "moves, projections, references, and allocations",
+  "function calls and stack frames",
+  "unwind, panic, and intrinsics",
+  "integer truncation and checked arithmetic",
+  "generated symbolic lookup and proof workflows",
+]
+
+[[tranche]]
+priority = 1
+name = "builtin associative List surface"
+consumers = ["kwasm", "kmir"]
+rationale = "removes both recursive body/list adapters and unlocks source-faithful indexing and typed locals"
+
+[[tranche]]
+priority = 2
+name = "Bytes surface"
+consumers = ["kwasm", "kevm"]
+rationale = "unlocks real Wasm binary programs and KEVM opcode decoding"
+
+[[tranche]]
+priority = 3
+name = "nested and collection configuration"
+consumers = ["kwasm", "kevm", "kmir"]
+rationale = "required for stores, frames, accounts, calls, and the source configurations"

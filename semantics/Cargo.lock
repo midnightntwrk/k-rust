@@ -126,8 +126,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "krs-kwasm-integer-slice"
-version = "0.0.0"
+name = "krs-kevm-semantics"
+version = "0.1.0"
+dependencies = [
+ "krs",
+ "krs-compiler",
+ "krs-ir",
+ "serde_json",
+]
+
+[[package]]
+name = "krs-kmir-semantics"
+version = "0.1.0"
+dependencies = [
+ "krs",
+ "krs-compiler",
+ "krs-ir",
+ "serde_json",
+]
+
+[[package]]
+name = "krs-kwasm-semantics"
+version = "0.1.0"
 dependencies = [
  "krs",
  "krs-compiler",

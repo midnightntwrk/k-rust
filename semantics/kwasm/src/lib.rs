@@ -1,6 +1,6 @@
 //! Readable qualification slice for `KWasm` integer arithmetic.
 //!
-//! The source mapping is pinned in `../../../draft/readability/kwasm/README.md`.
+//! The source mapping is pinned in `../../draft/readability/kwasm/README.md`.
 //! This definition preserves `KWasm`'s constant normalization, value transfer,
 //! operand loading, functional arithmetic, and division traps.
 
@@ -287,11 +287,11 @@ mod tests {
 
     fn package_context() -> PackageContext {
         PackageContext::new(
-            "KRS-KWASM-INTEGER-SLICE",
+            "KRS-KWASM",
             env!("CARGO_PKG_NAME"),
             env!("CARGO_PKG_VERSION"),
             "workspace",
-            "krs_kwasm_integer_slice",
+            "krs_kwasm_semantics",
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"),
         )
         .expect("fixture package context is valid")

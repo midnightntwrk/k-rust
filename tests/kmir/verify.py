@@ -18,15 +18,15 @@ from typing import Any, Mapping
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-MANIFEST = HERE / "rust-definition/Cargo.toml"
-SOURCE = HERE / "rust-definition/src/lib.rs"
-LOCK = HERE / "rust-definition/Cargo.lock"
+MANIFEST = ROOT / "semantics/kmir/Cargo.toml"
+SOURCE = ROOT / "semantics/kmir/src/lib.rs"
+LOCK = ROOT / "semantics/Cargo.lock"
 CORPUS_PATH = HERE / "corpus.toml"
 PINS_PATH = HERE / "pins.toml"
 KMIR = ROOT.parent / "inspirations/runtimeverification/mir-semantics"
-PACKAGE = "krs-kmir-operational-slice"
+PACKAGE = "krs-kmir-semantics"
 DEFINITION = "main"
-MODULE = "KRS-KMIR-OPERATIONAL-SLICE"
+MODULE = "KRS-KMIR"
 SPEC_MODULE = f"{MODULE}-SPEC"
 DESCRIPTORS = 103
 ARTIFACTS = (
@@ -49,9 +49,12 @@ SOURCE_LEDGER_PATHS = (
     "draft/readability/kmir/README.md",
     "tests/kmir/corpus.toml",
     "tests/kmir/lsp_probe.py",
-    "tests/kmir/rust-definition/Cargo.lock",
-    "tests/kmir/rust-definition/Cargo.toml",
-    "tests/kmir/rust-definition/src/lib.rs",
+    "semantics/Cargo.lock",
+    "semantics/Cargo.toml",
+    "semantics/README.md",
+    "semantics/coverage.toml",
+    "semantics/kmir/Cargo.toml",
+    "semantics/kmir/src/lib.rs",
     "tests/kmir/verify.py",
 )
 
@@ -221,9 +224,9 @@ def artifact_gate(
     expanded.joinpath("src").mkdir(parents=True)
     manifest = MANIFEST.read_text(encoding="utf-8")
     for relative, absolute in {
-        "../../../crates/krs": ROOT / "crates/krs",
-        "../../../crates/krs-compiler": ROOT / "crates/krs-compiler",
-        "../../../crates/krs-ir": ROOT / "crates/krs-ir",
+        "../../crates/krs": ROOT / "crates/krs",
+        "../../crates/krs-compiler": ROOT / "crates/krs-compiler",
+        "../../crates/krs-ir": ROOT / "crates/krs-ir",
     }.items():
         manifest = manifest.replace(relative, os.fspath(absolute))
     expanded.joinpath("Cargo.toml").write_text(manifest, encoding="utf-8")

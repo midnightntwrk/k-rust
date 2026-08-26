@@ -1,34 +1,32 @@
 [package]
-name = "krs-kwasm-integer-slice"
-description = "Readable KRS qualification slice for KWasm integer arithmetic"
-version = "0.0.0"
+name = "krs-kwasm-semantics"
+description = "Incremental KRS port of KWasm"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
+license = "Apache-2.0"
 publish = false
 
 [lib]
-name = "krs_kwasm_integer_slice"
+name = "krs_kwasm_semantics"
 path = "src/lib.rs"
 
 [dependencies]
-k = { package = "krs", path = "../../../crates/krs" }
+k = { package = "krs", path = "../../crates/krs" }
 
 [dev-dependencies]
-krs-compiler = { path = "../../../crates/krs-compiler" }
-krs-ir = { path = "../../../crates/krs-ir" }
+krs-compiler = { path = "../../crates/krs-compiler" }
+krs-ir = { path = "../../crates/krs-ir" }
 serde_json = "1.0.145"
 sha2 = "0.10.9"
 syn = { version = "2.0.119", features = ["full"] }
 
 [package.metadata.krs]
-k-namespace = "KRS-KWASM-INTEGER-SLICE"
+k-namespace = "KRS-KWASM"
 
 [package.metadata.krs.definitions.main]
 root = "crate"
 syntax-root = "crate"
-
-[workspace]
-resolver = "3"
 
 [lints.rust]
 warnings = "deny"

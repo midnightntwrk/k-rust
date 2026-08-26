@@ -152,7 +152,7 @@ contract. Later slices should proceed to locals, structured control flow,
 memory, and module/store multiplicity in that order unless an earlier gate
 reveals a stronger dependency.
 
-The checked-in specimen is `tests/kwasm/rust-definition`.
+The canonical KRS port is `semantics/kwasm`.
 The behavior and source corpus is `tests/kwasm/corpus.toml`.
 The fail-closed qualification entry point is `python3 tests/kwasm/verify.py`.
 

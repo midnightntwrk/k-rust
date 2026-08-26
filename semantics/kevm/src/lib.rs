@@ -1,6 +1,6 @@
 //! Readable qualification slice for KEVM opcode execution.
 //!
-//! The source mapping is pinned in `../../../draft/readability/kevm/README.md`.
+//! The source mapping is pinned in `../../draft/readability/kevm/README.md`.
 //! A structured program adapter replaces byte decoding while preserving the
 //! selected KEVM summary transitions over stack, PC, gas, and status.
 
@@ -416,11 +416,11 @@ mod tests {
 
     fn package_context() -> PackageContext {
         PackageContext::new(
-            "KRS-KEVM-OPERATIONAL-SLICE",
+            "KRS-KEVM",
             env!("CARGO_PKG_NAME"),
             env!("CARGO_PKG_VERSION"),
             "workspace",
-            "krs_kevm_operational_slice",
+            "krs_kevm_semantics",
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"),
         )
         .expect("valid package context")
