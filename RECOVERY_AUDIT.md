@@ -945,6 +945,26 @@ The complete IMP M4.1–M4.8 gate passes at the same versions with byte-identica
 This tranche advances the explicit KEVM inventory but does not complete the port.
 Exponentiation, comparison, bitwise, environmental, memory, storage, control-flow, call, creation, log, and termination families remain uncovered.
 
+### Phase 14 — KEVM comparison tranche — complete; port incomplete
+
+The next KEVM tranche selects the pinned `LT`, `GT`, `SLT`, `SGT`, `EQ`, and `ISZERO` family from `evm.md`, `evm-types.md`, `schedule.md`, and the checked-in opcode summaries.
+The canonical package now carries KEVM's Boolean-to-word boundary and four-part signed-less definition over two's-complement sign and magnitude.
+It preserves top-first comparison operands, unary zero testing, `Gverylow = 3` charging, binary and unary underflow, and insufficient-gas behavior.
+
+No shared KRS protocol or IR extension was required.
+The tranche composes the pinned integer comparison and Boolean operations with the already-qualified KEVM word-sign helpers.
+
+The fail-closed KEVM gate passes with 250 descriptors, 57 native executions, and two native all-path proofs under K 7.1.337.
+The behavior matrix distinguishes unsigned ordering from every signed sign partition, both-negative magnitude reversal, equality, zero testing, `Gverylow` out-of-gas, unary and binary underflow, and a combined arithmetic/comparison path.
+Its structured behavior SHA-256 is `7e8d7c9dd848a5b2994fd3dbbfd2d7bed71e1d3b6f6ff59a1d5ac73d0a553cb4`.
+Its normalized KORE SHA-256 is `557e778d1bf392b8b144628eea443553f0929008a82e671f268716e8f2a876c1`.
+
+The unchanged KWasm and KMIR gates pass at protocol 19 and Definition IR schema 12 with byte-identical emitted K, unchanged behavior and KORE hashes, 32 and 11 executions, and one native proof each.
+The complete IMP M4.1–M4.8 gate passes at the same versions with byte-identical emitted K, 1,206/1,206 native KORE parity, unchanged behavior evidence `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, all 21 proof specifications, and unchanged compatibility evidence `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6`.
+
+This tranche advances the explicit KEVM inventory but does not complete the port.
+Exponentiation, bitwise, environmental, memory, storage, control-flow, call, creation, log, and termination families remain uncovered.
+
 The normative formatter target remains:
 
 - `draft/readability/spec/imp.rs` first;
@@ -961,7 +981,7 @@ implementation authority.
 | Finish `draft/readability/spec` | Normative `imp.rs`, deterministic `imp.expanded.rs`, implemented `decisions.md`, deliberately unresolved `open-questions.md`, and M4.2–M4.4 | complete; the trailing-comment policy, `{ .. }`, and no-k-head spelling remain explicitly open rather than silently resolved |
 | Make KRS work on IMP | Complete M4.1–M4.8 gate at protocol 19 and IR schema 12, including exact source projection, 1,206/1,206 native KORE parity, behavior hash `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, all proofs, and compatibility hash `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6` | complete |
 | Complete the KRS KWasm port | `semantics/coverage.toml`, canonical `semantics/kwasm`, and the fail-closed KWasm gate | incomplete: 8 equations and 8 machine rules qualify the arithmetic baseline against an 884-rule source inventory; recursive instruction and value-stack boundaries and deferred semantic surfaces remain |
-| Complete the KRS KEVM port | `semantics/coverage.toml`, canonical `semantics/kevm`, and the fail-closed KEVM gate | incomplete: 59 equations and 48 machine rules qualify the Bytes-backed signed and modular arithmetic baseline against a 3,440-rule source inventory; the program adapter is removed, while exponentiation, bitwise, comparison, environmental, and stateful semantic surfaces remain |
+| Complete the KRS KEVM port | `semantics/coverage.toml`, canonical `semantics/kevm`, and the fail-closed KEVM gate | incomplete: 83 equations and 71 machine rules qualify the Bytes-backed arithmetic and comparison baseline against a 3,440-rule source inventory; the program adapter is removed, while exponentiation, bitwise, environmental, and stateful semantic surfaces remain |
 | Complete the KRS KMIR port | `semantics/coverage.toml`, canonical `semantics/kmir`, and the fail-closed KMIR gate | incomplete: 22 machine rules qualify the block-execution baseline against a 787-rule source inventory; the block-program adapter is removed, while untyped locals and deferred semantic surfaces remain |
 | Preserve recovery boundaries | `krs.RECOVERY_PROVENANCE.md` and `../recovery/` remain unchanged; all reconstructed work is committed only in the live KRS repository | complete |
 
@@ -989,7 +1009,7 @@ A port may be marked complete only when its pinned syntax, configuration, execut
 
 Resume full KEVM coverage next against the pinned `evm-semantics` inventory and its upstream behavior and proof suites.
 Select each next implementation tranche from an uncovered upstream syntax, configuration, executable-rule, behavior, or proof requirement; do not optimize further for already removed adapters or recovered intermediate state.
-After the signed and ternary arithmetic milestone, select the next coherent opcode family from explicit upstream syntax, rule, behavior, and proof evidence; do not widen by byte adjacency alone.
+After the comparison milestone, select the next coherent opcode family from explicit upstream syntax, rule, behavior, and proof evidence; do not widen by byte adjacency alone.
 After KEVM satisfies the completion contract, complete KMIR against the pinned `mir-semantics` inventory, beginning with its remaining typed-local and projection boundary only insofar as the selected upstream corpus requires it.
 Prefer shared KRS authoring features when the same source construct is required by multiple ports, but qualify every feature through the active port before broadening it.
 Preserve all three semantic gates and the complete IMP M4 gate at each coherent signed milestone.

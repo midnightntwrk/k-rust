@@ -1,6 +1,6 @@
 # Readable KEVM qualification
 
-Status: Bytes-backed signed and modular arithmetic slice qualified, 2026-08-26 JST
+Status: Bytes-backed arithmetic and comparison slice qualified, 2026-08-26 JST
 
 ## Pinned authority
 
@@ -42,18 +42,19 @@ hooks, and symbolic summaries. This milestone does not claim those features.
 The current slice follows KEVM's `#next`/`#exec`/`#gas`/`#pc` pipeline, its core word operations, and the checked-in arithmetic, `push`, `pc`, `gas`, `stop`, and `invalid` summaries:
 
 1. a recursive word stack and K's builtin `Bytes` program domain;
-2. `PUSH`, `ADD`, `MUL`, `SUB`, `DIV`, `SDIV`, `MOD`, `SMOD`, `ADDMOD`, `MULMOD`, `PC`, `STOP`, and `INVALID` opcodes;
+2. `PUSH`, `ADD`, `MUL`, `SUB`, `DIV`, `SDIV`, `MOD`, `SMOD`, `ADDMOD`, `MULMOD`, `LT`, `GT`, `SLT`, `SGT`, `EQ`, `ISZERO`, `PC`, `STOP`, and `INVALID` opcodes;
 3. simultaneous program, stack, program-counter, gas, and status transitions;
 4. `PUSH` widths and their effect on the program counter;
 5. modulo-`2^256` word normalization for addition, multiplication, and subtraction;
 6. KEVM's two's-complement word sign and magnitude, signed division including minimum-word overflow, and dividend-signed modulus;
 7. zero-totalized unsigned and signed division and modulus;
 8. unbounded addition and multiplication intermediates before the `ADDMOD` and `MULMOD` modulus;
-9. Shanghai-compatible `Gmid = 8`, `Glow = 5`, `Gverylow = 3`, `Gbase = 2`, and `Gzero = 0` costs;
-10. the guarded sufficient-gas/out-of-gas partition from `#deductGas`;
-11. structural zero/one-element binary-op and zero/one/two-element ternary-op stack-underflow branches;
-12. successful stop/end-of-program and invalid-instruction outcomes;
-13. two all-path native claims spanning push, all three selected gas classes, arithmetic, PC observation, and successful halt.
+9. unsigned and two's-complement signed comparison, word equality, Boolean-to-word conversion, and unary zero testing;
+10. Shanghai-compatible `Gmid = 8`, `Glow = 5`, `Gverylow = 3`, `Gbase = 2`, and `Gzero = 0` costs;
+11. the guarded sufficient-gas/out-of-gas partition from `#deductGas`;
+12. structural unary, binary, and ternary stack-underflow branches;
+13. successful stop/end-of-program and invalid-instruction outcomes;
+14. two all-path native claims spanning push, all three selected gas classes, arithmetic, comparisons, PC observation, and successful halt.
 
 KEVM stores executable code as `Bytes` and decodes it with `#lookupOpCode`.
 The KRS definition now uses the pinned `BYTES` implementation directly: `lengthBytes(PROGRAM)` bounds lookup, `PROGRAM [ PC ]` reads the opcode byte, and a recursive big-endian decoder reads `PUSH1` through `PUSH32` immediates.
@@ -66,12 +67,12 @@ The program bytes remain unchanged across execution, matching KEVM's program-cel
   `<statusCode>` cells;
 - `evm.md` single-step and exceptional checks: `#next`, `#exec`, stack
   underflow, `#pc`, and end status;
-- `evm.md` opcode rules: `#push`, `PUSH`, core unsigned, signed, and ternary modular arithmetic, `PC`, `STOP`, and `INVALID`;
+- `evm.md` opcode rules: `#push`, `PUSH`, core unsigned, signed, and ternary modular arithmetic, comparison and zero-test operations, `PC`, `STOP`, and `INVALID`;
 - `evm.md` gas rules: `#gas`, `#deductGas`, and the out-of-gas status;
 - `word.md`: `Word`, `WordStack`, and `chop` modulo `2^256`;
-- `evm-types.md`: unsigned word arithmetic, two's-complement sign and magnitude, signed division and modulus, and zero-totalized word division and modulus;
+- `evm-types.md`: unsigned word arithmetic, two's-complement sign and magnitude, signed division and modulus, zero-totalized word division and modulus, Boolean-to-word conversion, and word comparisons;
 - `schedule.md`: the selected Shanghai gas constants;
-- `summaries/push-summary.k`, the selected unsigned, signed, and ternary arithmetic summaries, `pc-summary.k`, `gas-summary.k`, `stop-summary.k`, and `invalid-summary.k`: direct multi-cell transition oracles.
+- `summaries/push-summary.k`, the selected arithmetic and comparison summaries, `pc-summary.k`, `gas-summary.k`, `stop-summary.k`, and `invalid-summary.k`: direct multi-cell transition oracles.
 
 ## Selected KRS extension
 
@@ -109,13 +110,13 @@ The canonical KRS port is `semantics/kevm`, the corpus is
 The refreshed complete gate passes at descriptor protocol 19 and Definition IR schema 12:
 
 ```text
-PASS readable KEVM operational slice: 186 descriptors; 41 executions; 2 native proofs; protocol 19; K 7.1.337
+PASS readable KEVM operational slice: 250 descriptors; 57 executions; 2 native proofs; protocol 19; K 7.1.337
 ```
 
-The behavior matrix adds signed quotient sign combinations, zero division, minimum-word overflow, signed remainder behavior, full-precision ternary intermediates, `Gmid` out-of-gas, ternary underflow, and a combined arithmetic path to the prior baseline.
-The structured behavior SHA-256 is `e17f37450188a0211d0171b3a13f3a1981cac74e62aaa5f68a4a5a812c715a13`.
+The behavior matrix adds unsigned ordering, every signed-less sign partition, signed greater-than, equality, zero testing, `Gverylow` out-of-gas, unary and binary underflow, and a combined arithmetic/comparison path to the prior baseline.
+The structured behavior SHA-256 is `7e8d7c9dd848a5b2994fd3dbbfd2d7bed71e1d3b6f6ff59a1d5ac73d0a553cb4`.
 Both all-path claims close with `#Top` through native `kprove`.
-The normalized native `definition.kore` SHA-256 is `5eb5a0f6c2596a9cfacdc1815995fe9f67214989ddcaac48fc8a111920c3fc12`.
+The normalized native `definition.kore` SHA-256 is `557e778d1bf392b8b144628eea443553f0929008a82e671f268716e8f2a876c1`.
 Normalization is limited to the temporary semantics path and K-generated
 sort-membership binder names, using the already-qualified KWasm policy.
 Six focused definition/hover probes pass with zero rust-analyzer diagnostics.

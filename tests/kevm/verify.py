@@ -30,7 +30,7 @@ PACKAGE = "krs-kevm-semantics"
 DEFINITION = "main"
 MODULE = "KRS-KEVM"
 SPEC_MODULE = f"{MODULE}-SPEC"
-DESCRIPTOR_COUNT = 186
+DESCRIPTOR_COUNT = 250
 ARTIFACTS = (
     ".krs-artifacts",
     "definition-ir.json",

@@ -4,7 +4,7 @@
 //! The program cell uses K's builtin `Bytes` domain and decodes the selected
 //! opcodes from their canonical byte values.
 
-use k::builtin::{Bytes, Int, KSequence, bool, bytes, int};
+use k::builtin::{Bool, Bytes, Int, KSequence, bool, bytes, int};
 
 k::sorts! {
     OpCode: k::KItem;
@@ -15,7 +15,7 @@ k::sorts! {
 }
 
 #[k::constructors(sort = OpCode, result = k::KResult)]
-#[k::precedence((Push, Add, Mul, Sub, Div, SignedDiv, Mod, SignedMod, AddMod, MulMod, ProgramCounter, Stop, Invalid, End))]
+#[k::precedence((Push, Add, Mul, Sub, Div, SignedDiv, Mod, SignedMod, AddMod, MulMod, LessThan, GreaterThan, SignedLessThan, SignedGreaterThan, Equal, IsZero, ProgramCounter, Stop, Invalid, End))]
 pub enum Operation {
     #[k::syntax("PUSH({width}, {value})")]
     Push { width: Int, value: Int },
@@ -37,6 +37,18 @@ pub enum Operation {
     AddMod,
     #[k::syntax("MULMOD")]
     MulMod,
+    #[k::syntax("LT")]
+    LessThan,
+    #[k::syntax("GT")]
+    GreaterThan,
+    #[k::syntax("SLT")]
+    SignedLessThan,
+    #[k::syntax("SGT")]
+    SignedGreaterThan,
+    #[k::syntax("EQ")]
+    Equal,
+    #[k::syntax("ISZERO")]
+    IsZero,
     #[k::syntax("PC")]
     ProgramCounter,
     #[k::syntax("STOP")]
@@ -132,6 +144,21 @@ pub struct SignedWordDiv {
 pub struct SignedWordMod {
     pub dividend: k::Term<Int>,
     pub divisor: k::Term<Int>,
+}
+
+#[k::function(total, sort = Int, syntax = "#kevmBoolToWord({value})")]
+pub struct BoolToWord {
+    pub value: k::Term<Bool>,
+}
+
+#[k::function(
+    total,
+    sort = Int,
+    syntax = "#kevmSignedLess({left}, {right})"
+)]
+pub struct SignedLess {
+    pub left: k::Term<Int>,
+    pub right: k::Term<Int>,
 }
 
 #[k::function(total, sort = GasStep, syntax = "#kevmCharge({op}, {gas})")]
@@ -294,6 +321,72 @@ fn decode_mul_mod(
 }
 
 #[k::equation]
+fn decode_less_than(
+    k::term![Decode {
+        opcode: 16,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::LessThan]
+}
+
+#[k::equation]
+fn decode_greater_than(
+    k::term![Decode {
+        opcode: 17,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::GreaterThan]
+}
+
+#[k::equation]
+fn decode_signed_less_than(
+    k::term![Decode {
+        opcode: 18,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::SignedLessThan]
+}
+
+#[k::equation]
+fn decode_signed_greater_than(
+    k::term![Decode {
+        opcode: 19,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::SignedGreaterThan]
+}
+
+#[k::equation]
+fn decode_equal(
+    k::term![Decode {
+        opcode: 20,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Equal]
+}
+
+#[k::equation]
+fn decode_is_zero(
+    k::term![Decode {
+        opcode: 21,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::IsZero]
+}
+
+#[k::equation]
 fn decode_pc(
     k::term![Decode {
         opcode: 88,
@@ -324,9 +417,21 @@ fn decode_push(
     }]
 }
 
-#[k::requires(bool::and(int::ge(opcode, 10), int::le(opcode, 87)))]
+#[k::requires(bool::and(int::ge(opcode, 10), int::le(opcode, 15)))]
 #[k::equation]
 fn decode_invalid_low(
+    k::term![Decode {
+        opcode,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Invalid]
+}
+
+#[k::requires(bool::and(int::ge(opcode, 22), int::le(opcode, 87)))]
+#[k::equation]
+fn decode_invalid_after_comparison(
     k::term![Decode {
         opcode,
         program,
@@ -553,6 +658,47 @@ fn signed_word_mod_negative(
     ))]
 }
 
+#[k::equation]
+fn bool_to_word_true(k::term![BoolToWord(true)]: k::Term<Int>) -> k::Term<Int> {
+    k::term![1]
+}
+
+#[k::equation]
+fn bool_to_word_false(k::term![BoolToWord(false)]: k::Term<Int>) -> k::Term<Int> {
+    k::term![0]
+}
+
+#[k::requires(bool::and(int::eq(Sign(left), 1), int::eq(Sign(right), 1),))]
+#[k::equation]
+fn signed_less_nonnegative(k::term![SignedLess { left, right }]: k::Term<Int>) -> k::Term<Int> {
+    k::term![BoolToWord(int::lt(left, right))]
+}
+
+#[k::requires(bool::and(int::eq(Sign(left), 1), int::eq(Sign(right), int::sub(0, 1)),))]
+#[k::equation]
+fn signed_less_positive_negative(
+    k::term![SignedLess { left, right }]: k::Term<Int>,
+) -> k::Term<Int> {
+    k::term![BoolToWord(false)]
+}
+
+#[k::requires(bool::and(int::eq(Sign(left), int::sub(0, 1)), int::eq(Sign(right), 1),))]
+#[k::equation]
+fn signed_less_negative_positive(
+    k::term![SignedLess { left, right }]: k::Term<Int>,
+) -> k::Term<Int> {
+    k::term![BoolToWord(true)]
+}
+
+#[k::requires(bool::and(
+    int::eq(Sign(left), int::sub(0, 1)),
+    int::eq(Sign(right), int::sub(0, 1)),
+))]
+#[k::equation]
+fn signed_less_negative(k::term![SignedLess { left, right }]: k::Term<Int>) -> k::Term<Int> {
+    k::term![BoolToWord(int::lt(Magnitude(right), Magnitude(left)))]
+}
+
 #[k::requires(int::ge(gas, 3))]
 #[k::equation]
 fn charge_push(
@@ -715,6 +861,116 @@ fn charge_mul_mod(k::term![Charge(Operation::MulMod, gas)]: k::Term<GasStep>) ->
 #[k::equation]
 fn charge_mul_mod_fails(
     k::term![Charge(Operation::MulMod, gas)]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![GasResult::InsufficientGas()]
+}
+
+#[k::requires(int::ge(gas, 3))]
+#[k::equation]
+fn charge_less_than(
+    k::term![Charge(Operation::LessThan, gas)]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![GasResult::EnoughGas {
+        op: Operation::LessThan,
+        remaining: int::sub(gas, 3)
+    }]
+}
+
+#[k::requires(int::lt(gas, 3))]
+#[k::equation]
+fn charge_less_than_fails(
+    k::term![Charge(Operation::LessThan, gas)]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![GasResult::InsufficientGas()]
+}
+
+#[k::requires(int::ge(gas, 3))]
+#[k::equation]
+fn charge_greater_than(
+    k::term![Charge(Operation::GreaterThan, gas)]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![GasResult::EnoughGas {
+        op: Operation::GreaterThan,
+        remaining: int::sub(gas, 3)
+    }]
+}
+
+#[k::requires(int::lt(gas, 3))]
+#[k::equation]
+fn charge_greater_than_fails(
+    k::term![Charge(Operation::GreaterThan, gas)]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![GasResult::InsufficientGas()]
+}
+
+#[k::requires(int::ge(gas, 3))]
+#[k::equation]
+fn charge_signed_less_than(
+    k::term![Charge(Operation::SignedLessThan, gas)]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![GasResult::EnoughGas {
+        op: Operation::SignedLessThan,
+        remaining: int::sub(gas, 3)
+    }]
+}
+
+#[k::requires(int::lt(gas, 3))]
+#[k::equation]
+fn charge_signed_less_than_fails(
+    k::term![Charge(Operation::SignedLessThan, gas)]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![GasResult::InsufficientGas()]
+}
+
+#[k::requires(int::ge(gas, 3))]
+#[k::equation]
+fn charge_signed_greater_than(
+    k::term![Charge(Operation::SignedGreaterThan, gas)]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![GasResult::EnoughGas {
+        op: Operation::SignedGreaterThan,
+        remaining: int::sub(gas, 3)
+    }]
+}
+
+#[k::requires(int::lt(gas, 3))]
+#[k::equation]
+fn charge_signed_greater_than_fails(
+    k::term![Charge(Operation::SignedGreaterThan, gas)]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![GasResult::InsufficientGas()]
+}
+
+#[k::requires(int::ge(gas, 3))]
+#[k::equation]
+fn charge_equal(k::term![Charge(Operation::Equal, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
+    k::term![GasResult::EnoughGas {
+        op: Operation::Equal,
+        remaining: int::sub(gas, 3)
+    }]
+}
+
+#[k::requires(int::lt(gas, 3))]
+#[k::equation]
+fn charge_equal_fails(
+    k::term![Charge(Operation::Equal, gas)]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![GasResult::InsufficientGas()]
+}
+
+#[k::requires(int::ge(gas, 3))]
+#[k::equation]
+fn charge_is_zero(k::term![Charge(Operation::IsZero, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
+    k::term![GasResult::EnoughGas {
+        op: Operation::IsZero,
+        remaining: int::sub(gas, 3)
+    }]
+}
+
+#[k::requires(int::lt(gas, 3))]
+#[k::equation]
+fn charge_is_zero_fails(
+    k::term![Charge(Operation::IsZero, gas)]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
     k::term![GasResult::InsufficientGas()]
 }
@@ -904,6 +1160,72 @@ k::rules! {
     }
     where w0: Int, w1: Int, w2: Int, rest: WordStack, gas: Int;
 
+    begin_less_than: {
+        k: [Operation::LessThan, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::Charge(Operation::LessThan, gas), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
+    begin_greater_than: {
+        k: [Operation::GreaterThan, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::Charge(Operation::GreaterThan, gas), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
+    begin_signed_less_than: {
+        k: [Operation::SignedLessThan, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::Charge(Operation::SignedLessThan, gas), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
+    begin_signed_greater_than: {
+        k: [Operation::SignedGreaterThan, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::Charge(Operation::SignedGreaterThan, gas), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
+    begin_equal: {
+        k: [Operation::Equal, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    } => {
+        k: [crate::Charge(Operation::Equal, gas), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        gas: gas,
+    }
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
+
+    begin_is_zero: {
+        k: [Operation::IsZero, ..],
+        word_stack: Stack::StackCons(w0, rest),
+        gas: gas,
+    } => {
+        k: [crate::Charge(Operation::IsZero, gas), ..],
+        word_stack: Stack::StackCons(w0, rest),
+        gas: gas,
+    }
+    where w0: Int, rest: WordStack, gas: Int;
+
     begin_pc: {
         k: [Operation::ProgramCounter, ..],
         gas: gas,
@@ -1054,6 +1376,84 @@ k::rules! {
         gas: remaining,
     }
     where remaining: Int, w0: Int, w1: Int, w2: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_less_than: {
+        k: [GasResult::EnoughGas(Operation::LessThan, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::BoolToWord(int::lt(w0, w1)), rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_greater_than: {
+        k: [GasResult::EnoughGas(Operation::GreaterThan, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::BoolToWord(int::gt(w0, w1)), rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_signed_less_than: {
+        k: [GasResult::EnoughGas(Operation::SignedLessThan, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::SignedLess { left: w0, right: w1 }, rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_signed_greater_than: {
+        k: [GasResult::EnoughGas(Operation::SignedGreaterThan, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::SignedLess { left: w1, right: w0 }, rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_equal: {
+        k: [GasResult::EnoughGas(Operation::Equal, remaining), ..],
+        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::BoolToWord(int::eq(w0, w1)), rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+
+    exec_is_zero: {
+        k: [GasResult::EnoughGas(Operation::IsZero, remaining), ..],
+        word_stack: Stack::StackCons(w0, rest),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::BoolToWord(int::eq(w0, 0)), rest),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, w0: Int, rest: WordStack, pc: Int, gas: Int;
 
     exec_pc: {
         k: [GasResult::EnoughGas(Operation::ProgramCounter, remaining), ..],
@@ -1302,6 +1702,127 @@ k::rules! {
     }
     where w0: Int, w1: Int, status: StatusCode;
 
+    less_than_underflow_empty: {
+        k: [Operation::LessThan, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    less_than_underflow_one: {
+        k: [Operation::LessThan, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    greater_than_underflow_empty: {
+        k: [Operation::GreaterThan, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    greater_than_underflow_one: {
+        k: [Operation::GreaterThan, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    signed_less_than_underflow_empty: {
+        k: [Operation::SignedLessThan, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    signed_less_than_underflow_one: {
+        k: [Operation::SignedLessThan, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    signed_greater_than_underflow_empty: {
+        k: [Operation::SignedGreaterThan, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    signed_greater_than_underflow_one: {
+        k: [Operation::SignedGreaterThan, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    equal_underflow_empty: {
+        k: [Operation::Equal, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    equal_underflow_one: {
+        k: [Operation::Equal, ..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
+        status_code: Status::StackUnderflow(),
+    }
+    where w0: Int, status: StatusCode;
+
+    is_zero_underflow: {
+        k: [Operation::IsZero, ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        word_stack: Stack::StackEmpty(),
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
     out_of_gas: {
         k: [GasResult::InsufficientGas(), ..],
         status_code: status,
@@ -1352,23 +1873,50 @@ fn push_add_pc_stop(
     }
 }
 
-/// All-path claim spanning both selected arithmetic tranches and all three gas classes.
-#[k::claim(all_paths, label = "arithmetic-tranches-stop")]
-fn arithmetic_tranches_stop(
+/// All-path claim spanning the selected arithmetic and comparison tranches.
+#[k::claim(all_paths, label = "arithmetic-comparison-tranches-stop")]
+fn arithmetic_comparison_tranches_stop(
     k::cells! {
         k: k::configuration::KCell(ExecutionCommand::Run()),
-        program: k::configuration::Cell(k::bytes!(b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60\x04\x08\x60\x05\x60\x06\x60\x04\x09\x00")),
+        program: k::configuration::Cell(k::bytes!(b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60\x04\x08\x60\x05\x60\x06\x60\x04\x09\x60\x07\x60\x02\x10\x60\x02\x60\x07\x11\x60\x07\x60\x02\x12\x60\x02\x60\x07\x13\x60\x05\x60\x05\x14\x60\x00\x15\x00")),
         word_stack: k::configuration::Cell(Stack::StackEmpty()),
         pc: k::configuration::Cell(0),
-        gas: k::configuration::Cell(56),
+        gas: k::configuration::Cell(107),
         status_code: k::configuration::Cell(Status::Running()),
     }: Machine,
 ) -> Machine {
     k::cells! {
         k: k::configuration::KCell(.K),
-        program: k::configuration::Cell(k::bytes!(b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60\x04\x08\x60\x05\x60\x06\x60\x04\x09\x00")),
-        word_stack: k::configuration::Cell(Stack::StackCons(4, Stack::StackCons(0, Stack::StackCons(1, Stack::StackCons(3, Stack::StackEmpty()))))),
-        pc: k::configuration::Cell(24),
+        program: k::configuration::Cell(k::bytes!(b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60\x04\x08\x60\x05\x60\x06\x60\x04\x09\x60\x07\x60\x02\x10\x60\x02\x60\x07\x11\x60\x07\x60\x02\x12\x60\x02\x60\x07\x13\x60\x05\x60\x05\x14\x60\x00\x15\x00")),
+        word_stack: k::configuration::Cell(Stack::StackCons(
+            1,
+            Stack::StackCons(
+                1,
+                Stack::StackCons(
+                    1,
+                    Stack::StackCons(
+                        1,
+                        Stack::StackCons(
+                            1,
+                            Stack::StackCons(
+                                1,
+                                Stack::StackCons(
+                                    4,
+                                    Stack::StackCons(
+                                        0,
+                                        Stack::StackCons(
+                                            1,
+                                            Stack::StackCons(3, Stack::StackEmpty()),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )),
+        pc: k::configuration::Cell(52),
         gas: k::configuration::Cell(0),
         status_code: k::configuration::Cell(Status::Success()),
     }
