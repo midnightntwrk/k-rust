@@ -1,0 +1,153 @@
+schema = 1
+
+[[source_evidence]]
+path = "pykwasm/src/pykwasm/kdist/wasm-semantics/wasm-data.md"
+contract = "IValType, IVal, ValStack, integer bounds, and chop"
+
+[[source_evidence]]
+path = "pykwasm/src/pykwasm/kdist/wasm-semantics/numeric.md"
+contract = "IBinOp and add, sub, and mul equations"
+
+[[source_evidence]]
+path = "pykwasm/src/pykwasm/kdist/wasm-semantics/wasm.md"
+contract = "Instrs, integer instructions, configuration cells, value transfer, and operand loading"
+
+[[source_evidence]]
+path = "tests/simple/arithmetic.wast"
+contract = "direct and nested arithmetic programs"
+
+[[source_evidence]]
+path = "tests/proofs/simple-arithmetic-spec.k"
+contract = "constant and addition claim shapes"
+
+[[behavior]]
+id = "i32-zero"
+program = "i32.const 0 ; .Instrs"
+expected_type = "i32"
+expected_value = "0"
+
+[[behavior]]
+id = "i64-zero"
+program = "i64.const 0 ; .Instrs"
+expected_type = "i64"
+expected_value = "0"
+
+[[behavior]]
+id = "i32-add"
+program = "i32.const 20 ; i32.const 22 ; i32.add ; .Instrs"
+expected_type = "i32"
+expected_value = "42"
+
+[[behavior]]
+id = "i64-add"
+program = "i64.const 20 ; i64.const 22 ; i64.add ; .Instrs"
+expected_type = "i64"
+expected_value = "42"
+
+[[behavior]]
+id = "i32-sub"
+program = "i32.const 9 ; i32.const 4 ; i32.sub ; .Instrs"
+expected_type = "i32"
+expected_value = "5"
+
+[[behavior]]
+id = "i64-sub"
+program = "i64.const 9 ; i64.const 4 ; i64.sub ; .Instrs"
+expected_type = "i64"
+expected_value = "5"
+
+[[behavior]]
+id = "i32-mul"
+program = "i32.const 7 ; i32.const 9 ; i32.mul ; .Instrs"
+expected_type = "i32"
+expected_value = "63"
+
+[[behavior]]
+id = "i64-mul"
+program = "i64.const 7 ; i64.const 9 ; i64.mul ; .Instrs"
+expected_type = "i64"
+expected_value = "63"
+
+[[behavior]]
+id = "i32-operand-order"
+program = "i32.const 3 ; i32.const 5 ; i32.sub ; .Instrs"
+expected_type = "i32"
+expected_value = "4294967294"
+
+[[behavior]]
+id = "i64-operand-order"
+program = "i64.const 3 ; i64.const 5 ; i64.sub ; .Instrs"
+expected_type = "i64"
+expected_value = "18446744073709551614"
+
+[[behavior]]
+id = "i32-nesting"
+program = "i32.const 1 ; i32.const 2 ; i32.add ; i32.const 3 ; i32.mul ; .Instrs"
+expected_type = "i32"
+expected_value = "9"
+
+[[behavior]]
+id = "i64-nesting"
+program = "i64.const 2 ; i64.const 3 ; i64.mul ; i64.const 4 ; i64.add ; .Instrs"
+expected_type = "i64"
+expected_value = "10"
+
+[[behavior]]
+id = "i32-maximum"
+program = "i32.const 4294967295 ; .Instrs"
+expected_type = "i32"
+expected_value = "4294967295"
+
+[[behavior]]
+id = "i64-maximum"
+program = "i64.const 18446744073709551615 ; .Instrs"
+expected_type = "i64"
+expected_value = "18446744073709551615"
+
+[[behavior]]
+id = "i32-negative-constant"
+program = "i32.const -1 ; .Instrs"
+expected_type = "i32"
+expected_value = "4294967295"
+
+[[behavior]]
+id = "i64-negative-constant"
+program = "i64.const -1 ; .Instrs"
+expected_type = "i64"
+expected_value = "18446744073709551615"
+
+[[behavior]]
+id = "i32-add-wrap"
+program = "i32.const 4294967295 ; i32.const 1 ; i32.add ; .Instrs"
+expected_type = "i32"
+expected_value = "0"
+
+[[behavior]]
+id = "i64-add-wrap"
+program = "i64.const 18446744073709551615 ; i64.const 1 ; i64.add ; .Instrs"
+expected_type = "i64"
+expected_value = "0"
+
+[[behavior]]
+id = "i32-sub-wrap"
+program = "i32.const 0 ; i32.const 1 ; i32.sub ; .Instrs"
+expected_type = "i32"
+expected_value = "4294967295"
+
+[[behavior]]
+id = "i64-sub-wrap"
+program = "i64.const 0 ; i64.const 1 ; i64.sub ; .Instrs"
+expected_type = "i64"
+expected_value = "18446744073709551615"
+
+[[behavior]]
+id = "i32-mul-wrap"
+program = "i32.const 4294967295 ; i32.const 4294967295 ; i32.mul ; .Instrs"
+expected_type = "i32"
+expected_value = "1"
+
+[[behavior]]
+id = "i64-mul-wrap"
+program = "i64.const 18446744073709551615 ; i64.const 18446744073709551615 ; i64.mul ; .Instrs"
+expected_type = "i64"
+expected_value = "1"

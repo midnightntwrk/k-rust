@@ -77,6 +77,17 @@ pub enum ProtocolHeadRuleExtra<I, T> {
         /// Complete registered `map::update(base, key, value)` application.
         update: T,
     },
+    /// Simultaneous exact rewrite of one ordinary fixed leaf cell.
+    RewriteCell {
+        /// Selected cell, anchored at the authored subject field.
+        cell: I,
+        /// Authored result-field provenance for the same cell.
+        result_key: ProvenanceKey,
+        /// Complete exact cell-content pattern.
+        before: T,
+        /// Complete replacement cell content.
+        after: T,
+    },
 }
 
 /// Host gradual extra-cell clause.
@@ -166,6 +177,7 @@ fn validate_bindings<S, I, T>(
         let introduced = match extra {
             ProtocolHeadRuleExtra::HaveMap { value_binding, .. } => value_binding,
             ProtocolHeadRuleExtra::UpdateMap { base_binding, .. } => base_binding,
+            ProtocolHeadRuleExtra::RewriteCell { .. } => continue,
         };
         if !names.contains(introduced.as_str()) {
             return Err(ProtocolV7ShapeError::InvalidTerm(
@@ -238,6 +250,18 @@ impl HostHeadRule {
                     }
                     cell
                 }
+                ProtocolHeadRuleExtra::RewriteCell {
+                    cell, result_key, ..
+                } => {
+                    if cell.key.role() != "rule_left_cells_field"
+                        || result_key.role() != "rule_right_cells_field"
+                    {
+                        return Err(ProtocolV7ShapeError::InvalidTerm(
+                            "ordinary cell rewrite provenance key",
+                        ));
+                    }
+                    cell
+                }
             };
             if cell.name.is_empty() || !cells.insert(cell.name.as_str()) {
                 return Err(ProtocolV7ShapeError::DuplicateValue(
@@ -281,7 +305,8 @@ impl DescriptorHeadRule {
         for extra in &self.extras {
             let cell = match extra {
                 ProtocolHeadRuleExtra::HaveMap { cell, .. }
-                | ProtocolHeadRuleExtra::UpdateMap { cell, .. } => cell,
+                | ProtocolHeadRuleExtra::UpdateMap { cell, .. }
+                | ProtocolHeadRuleExtra::RewriteCell { cell, .. } => cell,
             };
             if cell.cell.owner != self.configuration {
                 return Err(ProtocolV7ShapeError::CellOwnerMismatch);

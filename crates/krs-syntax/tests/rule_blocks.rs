@@ -277,6 +277,54 @@ fn final_machine_records_preserve_cells_bindings_and_configuration_ownership() {
 }
 
 #[test]
+fn machine_records_support_ordinary_fixed_cell_term_rewrites() {
+    let block = parse_rule_block_source(
+        r"
+        for Machine;
+        use Instr::Binary;
+
+        binary: {
+            instrs: [Binary(op), ..],
+            valstack: Stack::Cons(rhs, Stack::Cons(lhs, rest)),
+        } => {
+            instrs: [Eval(op, lhs, rhs), ..],
+            valstack: rest,
+        }
+        where op: BinOp, lhs: Value, rhs: Value, rest: ValStack;
+        ",
+    )
+    .unwrap();
+
+    let clause = &block.clauses()[0];
+    assert_eq!(clause.computation_cell().unwrap(), "instrs");
+    assert_eq!(
+        clause
+            .bindings()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["op", "rhs", "lhs", "rest"]
+    );
+    assert!(matches!(
+        clause.extras(),
+        [RuleExtra::RewriteCell { cell, before, after, .. }]
+            if cell == "valstack"
+                && before.spelling() == "Stack :: Cons (rhs , Stack :: Cons (lhs , rest))"
+                && after.spelling() == "rest"
+    ));
+    let roles = clause
+        .provenance()
+        .unwrap()
+        .into_iter()
+        .map(|anchor| anchor.role())
+        .collect::<Vec<_>>();
+    assert!(roles.contains(&ProvenanceRole::RuleLeftCellsField));
+    assert!(roles.contains(&ProvenanceRole::RuleRightCellsField));
+    assert!(roles.contains(&ProvenanceRole::RuleLeftApplicationHead));
+    assert!(roles.contains(&ProvenanceRole::RuleRightReference));
+}
+
+#[test]
 fn malformed_blocks_fail_at_the_local_construct() {
     for (source, expected) in [
         ("for Expr;", "requires at least one clause"),
@@ -308,6 +356,10 @@ fn malformed_blocks_fail_at_the_local_construct() {
         (
             "for Machine; x: { computation: [a, ..], env: { a => v, .. } } => { computation: [a, ..] };",
             "`=>` is reserved for rewrites; map entries use `->`",
+        ),
+        (
+            "for Machine; x: { computation: [a, ..], stack: Cons(v, rest) } => { computation: [a, ..] };",
+            "ordinary fixed-cell pattern requires a corresponding result",
         ),
         (
             "for Expr; x: Wrap(a) => a where update env = map::lookup(env, a);",

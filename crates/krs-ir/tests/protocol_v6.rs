@@ -326,7 +326,7 @@ fn expression_grammar_and_rule_round_trip_deterministically() {
         .to_canonical_json()
         .unwrap();
     assert_eq!(forward, reverse);
-    assert!(forward.contains("\"protocol_version\": 15"));
+    assert!(forward.contains("\"protocol_version\": 16"));
     assert!(forward.contains("\"attribute_kind\": \"documentation\""));
     assert!(forward.contains("Adds two values."));
     assert!(forward.contains("\"structured_rule\""));
@@ -334,7 +334,7 @@ fn expression_grammar_and_rule_round_trip_deterministically() {
     assert!(!forward.contains("TypeId"));
     assert!(!forward.contains("_+Int_"));
     let decoded: DescriptorBundle = serde_json::from_str(&forward).unwrap();
-    assert_eq!(decoded.protocol_version().0, 15);
+    assert_eq!(decoded.protocol_version().0, 16);
 }
 
 #[test]
@@ -1329,7 +1329,7 @@ fn protocol_five_is_rejected_without_compatibility_guessing() {
         r#"{"protocol_version":5,"descriptors":[],"declarations":[]}"#,
     )
     .unwrap_err();
-    assert!(error.to_string().contains("expected 15"));
+    assert!(error.to_string().contains("expected 16"));
 }
 
 fn first_object_with_key_mut<'a>(

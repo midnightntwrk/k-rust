@@ -399,6 +399,17 @@ pub enum RuleExtra {
         /// Complete ordinary three-argument update term.
         update: Box<TermExpression>,
     },
+    /// Simultaneous exact rewrite of one ordinary fixed leaf cell.
+    RewriteCell {
+        /// Named fixed cell.
+        cell: Ident,
+        /// Complete constructor or binding pattern before the rewrite.
+        before: Box<RulePattern>,
+        /// Parser-owned subject tree for descriptor expansion and provenance.
+        before_tree: Box<TermTree>,
+        /// Complete replacement term after the rewrite.
+        after: Box<TermExpression>,
+    },
 }
 
 impl RuleExtra {
@@ -406,7 +417,9 @@ impl RuleExtra {
     #[must_use]
     pub const fn cell(&self) -> &Ident {
         match self {
-            Self::HaveMap { cell, .. } | Self::UpdateMap { cell, .. } => cell,
+            Self::HaveMap { cell, .. }
+            | Self::UpdateMap { cell, .. }
+            | Self::RewriteCell { cell, .. } => cell,
         }
     }
 }
@@ -615,6 +628,38 @@ impl RuleClause {
                         &mut right,
                     )?;
                 }
+                RuleExtra::RewriteCell {
+                    cell,
+                    before,
+                    before_tree,
+                    after,
+                } => {
+                    let left_ordinal = checked_ordinal(
+                        have_cell,
+                        ProvenanceRole::RuleLeftCellsField,
+                        cell.span(),
+                    )?;
+                    have_cell += 1;
+                    anchors.push(ProvenanceAnchor::new(
+                        ProvenanceRole::RuleLeftCellsField,
+                        left_ordinal,
+                        TokenRange::for_tokens(cell)?,
+                    ));
+                    append_rule_pattern_anchors(&mut anchors, before, before_tree, &mut left)?;
+
+                    let right_ordinal = checked_ordinal(
+                        update_cell,
+                        ProvenanceRole::RuleRightCellsField,
+                        cell.span(),
+                    )?;
+                    update_cell += 1;
+                    anchors.push(ProvenanceAnchor::new(
+                        ProvenanceRole::RuleRightCellsField,
+                        right_ordinal,
+                        TokenRange::for_tokens(cell)?,
+                    ));
+                    append_rule_term_anchors(&mut anchors, after, RuleTermSide::Right, &mut right)?;
+                }
             }
         }
         for (ordinal, narrowing) in self.narrowings.iter().enumerate() {
@@ -630,6 +675,64 @@ impl RuleClause {
         }
         Ok(anchors)
     }
+}
+
+fn append_rule_pattern_anchors(
+    anchors: &mut Vec<ProvenanceAnchor>,
+    pattern: &RulePattern,
+    tree: &TermTree,
+    counters: &mut RuleTermCounters,
+) -> Result<(), SyntaxError> {
+    for range in pattern.path_ranges()? {
+        anchors.push(ProvenanceAnchor::new(
+            ProvenanceRole::RuleLeftPath,
+            checked_ordinal(counters.path, ProvenanceRole::RuleLeftPath, range.first())?,
+            range,
+        ));
+        counters.path += 1;
+    }
+    for node in pattern.nodes() {
+        let (role, counter) = match node {
+            TermNode::ApplicationHead(_) => (
+                ProvenanceRole::RuleLeftApplicationHead,
+                &mut counters.application,
+            ),
+            TermNode::Reference(_) => (ProvenanceRole::RuleLeftReference, &mut counters.reference),
+            TermNode::Literal(_) => (ProvenanceRole::RuleLeftLiteral, &mut counters.literal),
+            TermNode::IdToken(_) | TermNode::Anonymous { .. } | TermNode::OrBool(_) => continue,
+        };
+        let range = match node {
+            TermNode::ApplicationHead(path) | TermNode::Reference(path) => {
+                TokenRange::for_tokens(path)?
+            }
+            TermNode::Literal(TermLiteral::Integer(value)) => TokenRange::for_tokens(value)?,
+            TermNode::Literal(TermLiteral::Boolean(value)) => TokenRange::for_tokens(value)?,
+            TermNode::IdToken(_) | TermNode::Anonymous { .. } | TermNode::OrBool(_) => {
+                unreachable!("special nodes were skipped above")
+            }
+        };
+        anchors.push(ProvenanceAnchor::new(
+            role,
+            checked_ordinal(*counter, role, range.first())?,
+            range,
+        ));
+        *counter += 1;
+    }
+    let mut fields = Vec::new();
+    tree.record_field_names_preorder(&mut fields);
+    for field in fields {
+        anchors.push(ProvenanceAnchor::new(
+            ProvenanceRole::RuleLeftRecordFieldName,
+            checked_ordinal(
+                counters.field,
+                ProvenanceRole::RuleLeftRecordFieldName,
+                field.span(),
+            )?,
+            TokenRange::for_tokens(&field)?,
+        ));
+        counters.field += 1;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -926,6 +1029,9 @@ impl RuleBlock {
                 let introduced = match extra {
                     RuleExtra::HaveMap { value, .. } => value,
                     RuleExtra::UpdateMap { cell, .. } => cell,
+                    RuleExtra::RewriteCell { .. } => {
+                        unreachable!("term-table extras cannot rewrite ordinary cells")
+                    }
                 };
                 if bindings
                     .iter()
@@ -1000,8 +1106,14 @@ impl RuleBlock {
 #[derive(Clone)]
 enum MachinePatternCell {
     KHead(Pat),
-    MapItem { key: Expr, value: Ident },
-    Whole(Ident),
+    MapItem {
+        key: Expr,
+        value: Ident,
+    },
+    Term {
+        pattern: Box<RulePattern>,
+        tree: Box<TermTree>,
+    },
 }
 
 #[derive(Clone)]
@@ -1062,7 +1174,13 @@ fn parse_machine_pattern_record(
             }
             MachinePatternCell::MapItem { key, value }
         } else {
-            MachinePatternCell::Whole(content.call(Ident::parse_any)?)
+            let pattern = content.call(Pat::parse_single)?;
+            let (pattern, tree) =
+                parse_rule_pattern(pattern, true, true).map_err(SyntaxError::into_syn_error)?;
+            MachinePatternCell::Term {
+                pattern: Box::new(pattern),
+                tree: Box::new(tree),
+            }
         };
         cells.push((cell, value));
         if content.peek(Token![,]) {
@@ -1216,18 +1334,43 @@ fn parse_machine_clause(
                 });
                 extra_bindings.push(value.clone());
             }
-            MachinePatternCell::Whole(base) => {
+            MachinePatternCell::Term {
+                pattern,
+                tree: before_tree,
+            } => {
                 let Some((_, MachineResultCell::Term(result))) = result_cells
                     .iter()
                     .find(|(result_cell, _)| result_cell.unraw() == cell.unraw())
                 else {
                     return Err(syn::Error::new(
                         cell.span(),
-                        "a whole-cell machine pattern requires a corresponding result",
+                        "an ordinary fixed-cell pattern requires a corresponding result",
                     ));
                 };
-                extras.push(parse_machine_update(cell, base, result)?);
-                extra_bindings.push(base.clone());
+                let map_update = match pattern.native_pattern() {
+                    Some(Pat::Ident(PatIdent { ident: base, .. })) => {
+                        parse_machine_update(cell, base, result).ok()
+                    }
+                    _ => None,
+                };
+                if let Some(update) = map_update {
+                    let RuleExtra::UpdateMap { base, .. } = &update else {
+                        unreachable!("machine map-update parsing returns an update extra")
+                    };
+                    extra_bindings.push(base.clone());
+                    extras.push(update);
+                } else {
+                    extra_bindings.extend(pattern.bindings().iter().cloned());
+                    extras.push(RuleExtra::RewriteCell {
+                        cell: cell.clone(),
+                        before: pattern.clone(),
+                        before_tree: before_tree.clone(),
+                        after: Box::new(
+                            TermExpression::from_expression((**result).clone())
+                                .map_err(SyntaxError::into_syn_error)?,
+                        ),
+                    });
+                }
             }
         }
     }

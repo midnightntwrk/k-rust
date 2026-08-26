@@ -15,11 +15,13 @@ tool revision changes.
 The implementation seams are reconstructed through the macro fixtures, compiler, CLI, native adapter, independent M3D oracle, and recovered M4 definition/proof packages.
 Recovery archaeology is closed.
 
-The active development objective is the known project end state, not reconstruction of intermediate worktree state:
+The active development objective is the known project end state, not reconstruction of intermediate worktree state.
+The readable-IMP milestone is signed, and the first representative readable KWasm slice is qualified.
+Continue in this order:
 
-1. finish and sign the readable-IMP milestone, including `krs fmt`, overlap rejection, synchronized normative specimens, and the complete M4 gate;
-2. qualify a representative readable KRS port against KWasm;
-3. use only gaps exposed by that port to extend the authoring contract, with KMIR and KEVM available as later stress corpora.
+1. preserve the green readable IMP and KWasm gates as the authoring baseline;
+2. qualify a representative KMIR slice for current-K multi-cell and rule-shape stress;
+3. use only gaps exposed by that slice to extend the authoring contract, with KEVM available as the subsequent scale corpus and Kontrol reserved for product-facing proving workflows.
 
 ## Authorities and path translation
 
@@ -125,6 +127,7 @@ remote and deliberately contains no reconstructed original objects:
 - `1546c2b` — independently reconstructed and qualified M3D oracle package.
 - `95fc96d` — signed green post-F7 M4 recovery baseline.
 - `5ff228f` — signed collector integration of the F7 source/trivia contract.
+- `35b4ef6` — signed complete readable-IMP authoring milestone.
 
 Every new commit and the import tag verify against the configured ED25519 Git
 signing key. Valid signed original commit objects survive in the evidence
@@ -688,17 +691,75 @@ The final source-ledger, Rust formatting, diff-hygiene, and three-specimen forma
 
 Phase 5 is complete: the normative authoring specimen, its byte-exact expansion, and the complete IMP oracle are green from the signed milestone containing this record.
 
-### Phase 6 — extend the qualified authoring layer to WASM and larger corpora
+### Phase 6 — qualify the authoring layer against KWasm — complete
 
-1. Read KWasm's repository instructions and inventory its syntax, configuration, rule, builtin, module, and claim shapes before selecting the port slice.
-2. Select the smallest representative slice that exercises real KWasm configuration and operational rules, not a synthetic formatter-only sample.
-3. Express that slice in readable KRS, preserve an explicit mapping to the source KWasm modules, and qualify Rust visibility, collection/provenance, stable identity, deterministic expansion, emitted K, and observable behavior.
-4. Record any unsupported shape as a concrete spec gap, implement only what the selected KWasm evidence requires, and rerun both IMP and KWasm gates after each extension.
-5. Move next to KMIR for current-K multi-cell and rule-shape stress, then KEVM for scale.
-6. Use Kontrol only when shaping product-facing proving and CLI workflows.
+The first representative KWasm slice is checked in under `tests/kwasm/` and documented in `draft/readability/kwasm/README.md`.
+It ports the real abstract integer-arithmetic path from the pinned KWasm checkout at commit `212271bd434bd402e27c42f6416854342733386d`:
 
-Each corpus is an acceptance oracle, not a source of silent KRS syntax changes;
-record any new construct as a spec decision before implementing it.
+- `i32` and `i64` value types;
+- typed integer values, recursive instruction lists, and a recursive value stack;
+- integer constants and `add`, `sub`, and `mul` instructions;
+- real simultaneous `<instrs>` and `<valstack>` transitions with WebAssembly operand order;
+- modulo-`2^32` and modulo-`2^64` wraparound, including signed literal normalization and `-1`;
+- one concrete all-path simple-addition claim.
+
+The slice exposed one authoring gap, W1: a readable machine rule could not rewrite an ordinary fixed leaf cell alongside its computation-cell head.
+Protocol 16 adds that exact structured shape across parsing, provenance, host IR, macro expansion, descriptor collection, semantic lowering, and reference expansion.
+No modulo builtin was added: the selected nonnegative invariant implements exact reduction through the existing integer division, multiplication, and subtraction operations.
+Readable patterns still do not claim repeated symbolic equality, so same-width operand matching remains split into explicit i32 and i64 rules.
+
+The fail-closed KWasm gate passes under KRS K 7.1.337 with:
+
+- 51 descriptors;
+- deterministic readable and independently expanded compilation;
+- Rustfmt, `krs fmt --check`, warnings-denied Clippy, and five focused rust-analyzer definition/hover probes with zero diagnostics;
+- emitted K compilation through the Haskell backend;
+- 22 pinned native executions spanning both widths, zero, maxima, negative constants, operand order, nesting, and all add/sub/mul wraparound forms;
+- one native `kprove` result equal to `#Top`;
+- behavior SHA-256 `b187d3e4d2326083b44f8d915542e22ccfa1de4b88a4b30e8f9def891e646d8f`;
+- normalized native `definition.kore` SHA-256 `dc093e74aa1fc2b3b5d5eea6a4e09b9e5f342439d119ad89d9440585827fa2a1`.
+
+The KORE pin normalizes only the temporary absolute `semantics.k` source path and alpha-renaming of K-generated binders in `isSort` membership axioms.
+Three independent compilations converge to the same normalized hash.
+The gate fails if either expected normalization shape is absent or changes.
+
+The optional direct structured `k-rust` compilation route is not an acceptance requirement for this slice.
+It currently reaches an unrelated no-map embedded-prelude `Map:lookup` failure, while emitted K compilation, native execution, and native proof all pass.
+Treat that route as a future adapter/prelude investigation only when a selected corpus requires it; do not misclassify it as a failure of the readable KWasm semantics.
+
+After the W1 extension, the complete IMP M4 gate passes at descriptor protocol 16 and Definition IR schema 9.
+All semantic IR, Definition IR, emitted K, source-map, symbol-map, behavior, proof, native KORE, and compatibility evidence remains unchanged.
+Only the descriptor bundle changed, and replacing its sole `"protocol_version": 16` field with `15` reproduces the prior pinned descriptor-bundle hash byte-for-byte.
+The protocol-16 descriptor-bundle SHA-256 is `0db28e2913cbb04d310243c62ebdccee29e035ae0d7f4680645a06845bfe498b`.
+
+The final M4 run proves:
+
+- M4.1 exact source/tool/revision preflight at protocol 16 and IR schema 9;
+- M4.2 workspace/package format, check, Clippy, tests, docs, diagnostics, MSRV coverage, and readable IMP LSP;
+- M4.3 124 deterministic descriptors, exact reviewed expansion, 83-descriptor replacement parity, and six repeated CLI/API artifact reproductions;
+- M4.4 98 parsed and 244 compiled source sentences;
+- M4.5 native KORE parity at `reference=1206 native=1206`;
+- M4.6 23 parses, 31 executions, 246 bounded-depth states, 16 searches, 8 rejections, one expected failure, and unchanged evidence SHA-256 `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`;
+- M4.7 21 reference-source proofs, 21 readable-source proofs, 21 dry-run specifications, 21 native Haskell results, and 20 unique native claims;
+- M4.8 seven live compatibility probes with unchanged report SHA-256 `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6`.
+
+Phase 6 is complete from the signed milestone containing this record.
+
+### Phase 7 — qualify the next larger corpus
+
+Use KMIR next because its K 7.1.337 pin matches KRS and it provides current-K multi-cell and rule-shape stress without immediately taking on KEVM scale.
+Proceed in this order:
+
+1. read KMIR's repository instructions and inventory its syntax, configuration, module, rule, builtin, and claim shapes;
+2. select the smallest operational slice that materially exceeds the KWasm W1 coverage;
+3. record the source-to-readable mapping and concrete unsupported shapes before changing KRS;
+4. implement only gaps required by the selected evidence;
+5. rerun the complete IMP, KWasm, and KMIR gates after each authoring extension;
+6. move to KEVM for scale only after the KMIR slice is green;
+7. use Kontrol only when shaping product-facing proving and CLI workflows.
+
+Each corpus is an acceptance oracle, not a source of silent KRS syntax changes.
+Record every new construct as a spec decision before implementing it.
 
 The normative formatter target remains:
 
@@ -728,7 +789,7 @@ implementation authority.
 
 ## Immediate next action
 
-Begin the KWasm inventory and representative readable port from the signed readable-IMP milestone.
+Begin the KMIR inventory and select one representative operational slice from the signed readable-IMP and KWasm baseline.
 Do not reopen recovery forensics unless genuinely new evidence or media appears.
 
 ## Audit hygiene

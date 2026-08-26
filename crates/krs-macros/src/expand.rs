@@ -2229,25 +2229,39 @@ fn expand_head_rule(
     let mut have_ordinal = 0_u32;
     let mut update_ordinal = 0_u32;
     let mut have_extras = Vec::new();
+    let mut rewrite_befores = Vec::new();
     for extra in clause.extras() {
-        if let krs_syntax::RuleExtra::HaveMap { cell, key, value } = extra {
-            let cell_name = cell.unraw().to_string();
-            let value_binding = value.unraw().to_string();
-            let key = builder.expand(key.tree(), TermSide::Left)?;
-            let ordinal = have_ordinal;
-            have_ordinal = have_ordinal
-                .checked_add(1)
-                .ok_or_else(|| syn::Error::new(cell.span(), "too many readable cell reads"))?;
-            have_extras.push(quote! {
-                #facade::ProtocolHeadRuleExtra::HaveMap {
-                    cell: #facade::HostHeadRuleCellReference {
-                        key: #facade::ProvenanceKey::new("rule_left_cells_field", #ordinal).unwrap(),
-                        name: #cell_name.to_owned(),
-                    },
-                    key: #key,
-                    value_binding: #value_binding.to_owned(),
-                }
-            });
+        match extra {
+            krs_syntax::RuleExtra::HaveMap { cell, key, value } => {
+                let cell_name = cell.unraw().to_string();
+                let value_binding = value.unraw().to_string();
+                let key = builder.expand(key.tree(), TermSide::Left)?;
+                let ordinal = have_ordinal;
+                have_ordinal = have_ordinal
+                    .checked_add(1)
+                    .ok_or_else(|| syn::Error::new(cell.span(), "too many readable cell reads"))?;
+                have_extras.push(quote! {
+                    #facade::ProtocolHeadRuleExtra::HaveMap {
+                        cell: #facade::HostHeadRuleCellReference {
+                            key: #facade::ProvenanceKey::new("rule_left_cells_field", #ordinal).unwrap(),
+                            name: #cell_name.to_owned(),
+                        },
+                        key: #key,
+                        value_binding: #value_binding.to_owned(),
+                    }
+                });
+            }
+            krs_syntax::RuleExtra::RewriteCell {
+                cell, before_tree, ..
+            } => {
+                let before = builder.expand(before_tree, TermSide::Left)?;
+                let ordinal = have_ordinal;
+                have_ordinal = have_ordinal
+                    .checked_add(1)
+                    .ok_or_else(|| syn::Error::new(cell.span(), "too many readable cell reads"))?;
+                rewrite_befores.push((cell.unraw().to_string(), ordinal, before));
+            }
+            krs_syntax::RuleExtra::UpdateMap { .. } => {}
         }
     }
 
@@ -2269,25 +2283,50 @@ fn expand_head_rule(
         }
     };
     let mut update_extras = Vec::new();
+    let mut rewrite_index = 0_usize;
     for extra in clause.extras() {
-        if let krs_syntax::RuleExtra::UpdateMap { cell, base, update } = extra {
-            let cell_name = cell.unraw().to_string();
-            let base_binding = base.unraw().to_string();
-            let update = builder.expand(update.tree(), TermSide::Right)?;
-            let ordinal = update_ordinal;
-            update_ordinal = update_ordinal
-                .checked_add(1)
-                .ok_or_else(|| syn::Error::new(cell.span(), "too many readable cell updates"))?;
-            update_extras.push(quote! {
-                #facade::ProtocolHeadRuleExtra::UpdateMap {
-                    cell: #facade::HostHeadRuleCellReference {
-                        key: #facade::ProvenanceKey::new("rule_right_cells_field", #ordinal).unwrap(),
-                        name: #cell_name.to_owned(),
-                    },
-                    base_binding: #base_binding.to_owned(),
-                    update: #update,
-                }
-            });
+        match extra {
+            krs_syntax::RuleExtra::UpdateMap { cell, base, update } => {
+                let cell_name = cell.unraw().to_string();
+                let base_binding = base.unraw().to_string();
+                let update = builder.expand(update.tree(), TermSide::Right)?;
+                let ordinal = update_ordinal;
+                update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
+                    syn::Error::new(cell.span(), "too many readable cell updates")
+                })?;
+                update_extras.push(quote! {
+                    #facade::ProtocolHeadRuleExtra::UpdateMap {
+                        cell: #facade::HostHeadRuleCellReference {
+                            key: #facade::ProvenanceKey::new("rule_right_cells_field", #ordinal).unwrap(),
+                            name: #cell_name.to_owned(),
+                        },
+                        base_binding: #base_binding.to_owned(),
+                        update: #update,
+                    }
+                });
+            }
+            krs_syntax::RuleExtra::RewriteCell { cell, after, .. } => {
+                let (cell_name, left_ordinal, before) = &rewrite_befores[rewrite_index];
+                rewrite_index += 1;
+                debug_assert_eq!(cell_name, &cell.unraw().to_string());
+                let after = builder.expand(after.tree(), TermSide::Right)?;
+                let right_ordinal = update_ordinal;
+                update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
+                    syn::Error::new(cell.span(), "too many readable cell updates")
+                })?;
+                update_extras.push(quote! {
+                    #facade::ProtocolHeadRuleExtra::RewriteCell {
+                        cell: #facade::HostHeadRuleCellReference {
+                            key: #facade::ProvenanceKey::new("rule_left_cells_field", #left_ordinal).unwrap(),
+                            name: #cell_name.to_owned(),
+                        },
+                        result_key: #facade::ProvenanceKey::new("rule_right_cells_field", #right_ordinal).unwrap(),
+                        before: #before,
+                        after: #after,
+                    }
+                });
+            }
+            krs_syntax::RuleExtra::HaveMap { .. } => {}
         }
     }
     let mut extras = have_extras;

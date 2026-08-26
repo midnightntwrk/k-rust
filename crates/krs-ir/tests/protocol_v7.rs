@@ -634,7 +634,7 @@ fn configuration_rule_round_trips_with_exact_side_specific_provenance() {
         payload: DescriptorPayload::ConfigurationRule(Box::new(rule)),
     }]);
     let json = bundle.to_canonical_json().unwrap();
-    assert!(json.contains("\"protocol_version\": 15"));
+    assert!(json.contains("\"protocol_version\": 16"));
     assert!(json.contains("\"configuration_rule\""));
     let decoded: DescriptorBundle = serde_json::from_str(&json).unwrap();
     assert_eq!(decoded, bundle);
@@ -1096,5 +1096,5 @@ fn protocol_seven_is_rejected_after_v9_cutover() {
         r#"{"protocol_version":7,"descriptors":[],"declarations":[]}"#,
     )
     .unwrap_err();
-    assert!(error.to_string().contains("expected 15"));
+    assert!(error.to_string().contains("expected 16"));
 }

@@ -925,7 +925,7 @@ fn foo_to_bar(Foo: Term<dyn M2Obj>) -> Term<dyn M2Obj> { term!(Bar) }
     );
     assert_eq!(
         digest(&bundle.to_canonical_json().unwrap()),
-        "9bbfd5108894cf7d24c81cc6a467f32b16b1d49b67611d1eadc5a1f0794ccafa"
+        "053ebc89a5d757c9dfa726d3a993f8a7825749f64e242126d36abb8dda4d6d0a"
     );
     assert_eq!(
         digest(&semantic.to_canonical_json().unwrap()),

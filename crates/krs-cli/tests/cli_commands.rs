@@ -42,7 +42,7 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     let descriptor_bundle = fs::read_to_string(emitted.join("descriptor-bundle.json")).unwrap();
     assert_ne!(descriptor_bundle, expanded);
     let descriptor: serde_json::Value = serde_json::from_str(&descriptor_bundle).unwrap();
-    assert_eq!(descriptor["protocol_version"], 15);
+    assert_eq!(descriptor["protocol_version"], 16);
     assert!(descriptor_bundle.contains("\"item_name\": \"Machine\""));
     for name in ["semantic-ir.json", "definition-ir.json"] {
         let document: serde_json::Value =

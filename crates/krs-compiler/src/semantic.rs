@@ -1858,6 +1858,20 @@ fn referenced_packages(descriptors: &[&Descriptor]) -> BTreeSet<PackageId> {
                     }
                     krs_ir::ProtocolHeadRuleResult::Erase => {}
                 }
+                for extra in &rule.extras {
+                    match extra {
+                        krs_ir::ProtocolHeadRuleExtra::HaveMap { key, .. } => {
+                            collect_term_packages(key, &mut packages);
+                        }
+                        krs_ir::ProtocolHeadRuleExtra::UpdateMap { update, .. } => {
+                            collect_term_packages(update, &mut packages);
+                        }
+                        krs_ir::ProtocolHeadRuleExtra::RewriteCell { before, after, .. } => {
+                            collect_term_packages(before, &mut packages);
+                            collect_term_packages(after, &mut packages);
+                        }
+                    }
+                }
             }
             DescriptorPayload::ContextAlias(alias) => {
                 insert(&alias.configuration.configuration);
@@ -2510,10 +2524,12 @@ fn lower_head_rule_descriptor(
         }
     }
     let mut map_argument_sorts = BTreeMap::new();
+    let mut cell_sorts = BTreeMap::new();
     for extra in &rule.extras {
         let cell = match extra {
             krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, .. }
-            | krs_ir::ProtocolHeadRuleExtra::UpdateMap { cell, .. } => cell,
+            | krs_ir::ProtocolHeadRuleExtra::UpdateMap { cell, .. }
+            | krs_ir::ProtocolHeadRuleExtra::RewriteCell { cell, .. } => cell,
         };
         let declared = require_cell_field(&cell.cell, declarations)?;
         let ProtocolCellContent::Leaf {
@@ -2522,6 +2538,7 @@ fn lower_head_rule_descriptor(
         else {
             continue;
         };
+        cell_sorts.insert(cell.cell.clone(), semantic_sort_ref(&sort.sort));
         if sort.sort == DescriptorSortRef::Builtin(BuiltinSort::Map)
             && let [key, value] = arguments.as_slice()
         {
@@ -2603,6 +2620,21 @@ fn lower_head_rule_descriptor(
                     expected.map(|(_, value_sort)| value_sort),
                 )?;
             }
+            krs_ir::ProtocolHeadRuleExtra::RewriteCell {
+                cell,
+                before,
+                after,
+                ..
+            } => {
+                let expected = cell_sorts.get(&cell.cell).ok_or_else(|| {
+                    DescriptorLoweringError::UnsupportedShape {
+                        node: "head-anchored rule extra",
+                        detail: format!("ordinary cell {:?} is not a fixed leaf", cell.cell.field),
+                    }
+                })?;
+                builder.infer(before, Some(expected), true)?;
+                builder.infer(after, Some(expected), false)?;
+            }
         }
     }
     builder.resolve_binding_sorts()?;
@@ -2652,7 +2684,8 @@ fn lower_head_rule_descriptor(
     for extra in &rule.extras {
         let cell_reference = match extra {
             krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, .. }
-            | krs_ir::ProtocolHeadRuleExtra::UpdateMap { cell, .. } => cell,
+            | krs_ir::ProtocolHeadRuleExtra::UpdateMap { cell, .. }
+            | krs_ir::ProtocolHeadRuleExtra::RewriteCell { cell, .. } => cell,
         };
         if !selected.insert(cell_reference.cell.clone()) {
             return Err(DescriptorLoweringError::UnsupportedShape {
@@ -2670,23 +2703,23 @@ fn lower_head_rule_descriptor(
                 detail: "extra cell is not a fixed leaf".into(),
             });
         };
-        if *wrapper != krs_ir::CellWrapper::Cell
-            || sort.sort != DescriptorSortRef::Builtin(BuiltinSort::Map)
-        {
-            return Err(DescriptorLoweringError::UnsupportedShape {
-                node: "head-anchored rule extra",
-                detail: format!(
-                    "extra cell {:?} is not a Map cell",
-                    cell_reference.cell.field
-                ),
-            });
-        }
         match extra {
             krs_ir::ProtocolHeadRuleExtra::HaveMap {
                 cell,
                 key,
                 value_binding,
             } => {
+                if *wrapper != krs_ir::CellWrapper::Cell
+                    || sort.sort != DescriptorSortRef::Builtin(BuiltinSort::Map)
+                {
+                    return Err(DescriptorLoweringError::UnsupportedShape {
+                        node: "head-anchored rule extra",
+                        detail: format!(
+                            "extra cell {:?} is not a Map cell",
+                            cell_reference.cell.field
+                        ),
+                    });
+                }
                 let key = builder.lower(key, None, true)?;
                 let value_sort = builder
                     .binding_sorts
@@ -2725,6 +2758,17 @@ fn lower_head_rule_descriptor(
                 base_binding,
                 update,
             } => {
+                if *wrapper != krs_ir::CellWrapper::Cell
+                    || sort.sort != DescriptorSortRef::Builtin(BuiltinSort::Map)
+                {
+                    return Err(DescriptorLoweringError::UnsupportedShape {
+                        node: "head-anchored rule extra",
+                        detail: format!(
+                            "extra cell {:?} is not a Map cell",
+                            cell_reference.cell.field
+                        ),
+                    });
+                }
                 let before = SemanticTerm::variable(
                     semantic_origin(descriptor, cell.key.clone(), "map-update-before")?,
                     SemanticSortRef::map(),
@@ -2738,6 +2782,37 @@ fn lower_head_rule_descriptor(
                     CellPost::Replace { term: after },
                     CellContentFrame::Exact,
                 ));
+            }
+            krs_ir::ProtocolHeadRuleExtra::RewriteCell {
+                cell,
+                result_key,
+                before,
+                after,
+            } => {
+                if *wrapper != krs_ir::CellWrapper::Cell {
+                    return Err(DescriptorLoweringError::UnsupportedShape {
+                        node: "head-anchored rule extra",
+                        detail: format!(
+                            "ordinary cell {:?} does not use the Cell wrapper",
+                            cell_reference.cell.field
+                        ),
+                    });
+                }
+                let expected = semantic_sort_ref(&sort.sort);
+                let before = builder.lower(before, Some(&expected), true)?;
+                let after = builder.lower(after, Some(&expected), false)?;
+                clauses.push(FixedCellClause::new(
+                    semantic_origin(descriptor, cell.key.clone(), "completed-cell-rewrite")?,
+                    semantic_cell_id(&cell.cell)?,
+                    before,
+                    CellPost::Replace { term: after },
+                    CellContentFrame::Exact,
+                ));
+                let _ = semantic_origin(
+                    descriptor,
+                    result_key.clone(),
+                    "completed-cell-rewrite-result",
+                )?;
             }
         }
     }

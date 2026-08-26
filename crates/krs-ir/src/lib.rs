@@ -164,6 +164,8 @@ use serde::{Deserialize, Serialize};
 /// carries literal constructor-production rustdoc into target emission.
 /// Protocol v15 adds alias-safe ordinary Map-operation application heads and
 /// retains complete registered map-update terms in readable head rules.
+/// Protocol v16 adds exact ordinary fixed-cell patterns and replacements to
+/// readable head-rule transport.
 /// Semantic and Definition IR schema versioning remains independent.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -171,8 +173,8 @@ pub struct ProtocolVersion(pub u32);
 
 impl ProtocolVersion {
     /// The protocol emitted by this release.
-    /// Protocol v15 adds ordinary Map-operation application identities.
-    pub const CURRENT: Self = Self(15);
+    /// Protocol v16 adds readable ordinary fixed-cell rewrites.
+    pub const CURRENT: Self = Self(16);
 }
 
 impl Default for ProtocolVersion {

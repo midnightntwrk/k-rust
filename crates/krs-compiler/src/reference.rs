@@ -929,6 +929,22 @@ fn render_rule(
                     #cell: k::configuration::Cell(#update)
                 });
             }
+            ProtocolHeadRuleExtra::RewriteCell {
+                cell,
+                before,
+                after,
+                ..
+            } => {
+                let cell = rust_ident(&cell.cell.field);
+                let before = render_term(before, true, package, bundle)?;
+                let after = render_term(after, false, package, bundle)?;
+                left_cells.push(quote! {
+                    #cell: k::configuration::Cell(#before)
+                });
+                right_cells.push(quote! {
+                    #cell: k::configuration::Cell(#after)
+                });
+            }
         }
     }
     let configuration = render_declared_path(&rule.configuration, package)?;

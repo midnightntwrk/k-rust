@@ -958,6 +958,17 @@ fn resolve_head_rule(
                     base_binding: base_binding.clone(),
                     update: resolve_term(update, declarations, builtins)?,
                 },
+                krs_ir::ProtocolHeadRuleExtra::RewriteCell {
+                    cell,
+                    result_key,
+                    before,
+                    after,
+                } => krs_ir::ProtocolHeadRuleExtra::RewriteCell {
+                    cell: resolve_cell(cell)?,
+                    result_key: result_key.clone(),
+                    before: resolve_term(before, declarations, builtins)?,
+                    after: resolve_term(after, declarations, builtins)?,
+                },
             })
         })
         .collect::<Result<Vec<_>, CollectionError>>()?;
@@ -3503,6 +3514,9 @@ fn collect_invocations(
                             krs_syntax::RuleExtra::UpdateMap { cell, .. } => {
                                 ("update".to_owned(), cell.to_string())
                             }
+                            krs_syntax::RuleExtra::RewriteCell { cell, .. } => {
+                                ("rewrite".to_owned(), cell.to_string())
+                            }
                         })
                         .collect();
                     let mut anchors = clause.provenance().map_err(source_syntax)?;
@@ -3722,6 +3736,9 @@ fn validate_reparsed_payload(
                     }
                     krs_ir::ProtocolHeadRuleExtra::UpdateMap { cell, .. } => {
                         ("update".to_owned(), cell.name.clone())
+                    }
+                    krs_ir::ProtocolHeadRuleExtra::RewriteCell { cell, .. } => {
+                        ("rewrite".to_owned(), cell.name.clone())
                     }
                 })
                 .collect::<Vec<_>>();

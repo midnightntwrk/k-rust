@@ -1,7 +1,7 @@
 schema = 1
 
 [schemas]
-descriptor_protocol = 15
+descriptor_protocol = 16
 definition_ir = 9
 kast_json = 4
 

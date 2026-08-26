@@ -404,7 +404,7 @@ fn descriptor_provenance_rejects_unknown_wire_fields() {
     assert!(serde_json::from_value::<DescriptorProvenance>(value).is_err());
 
     let top_level =
-        r#"{"protocol_version":15,"descriptors":[],"declarations":[],"unexpected":true}"#;
+        r#"{"protocol_version":16,"descriptors":[],"declarations":[],"unexpected":true}"#;
     assert!(serde_json::from_str::<DescriptorBundle>(top_level).is_err());
 }
 
