@@ -37,6 +37,22 @@ path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/mod-summary.k"
 contract = "direct MOD transition with top-first operand order and Glow charging"
 
 [[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/sdiv-summary.k"
+contract = "direct SDIV transition with two's-complement word interpretation and Glow charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/smod-summary.k"
+contract = "direct SMOD transition with dividend-signed remainder and Glow charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/addmod-summary.k"
+contract = "direct ADDMOD transition with an unbounded addition intermediate and Gmid charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/mulmod-summary.k"
+contract = "direct MULMOD transition with an unbounded multiplication intermediate and Gmid charging"
+
+[[source_evidence]]
 path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/pc-summary.k"
 contract = "direct PC observation transition"
 
@@ -169,6 +185,174 @@ gas = "42"
 expected_program = 'b"\x60\x02\x60\x03\x02\x60\x04\x60\x09\x03\x60\x03\x60\x09\x04\x60\x04\x60\x0b\x06\x00"'
 expected_stack = "3 : 3 : 5 : 6 : .WordStack"
 expected_pc = "20"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-divide-negative-by-positive"
+program = 'b"\x05\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639927 : 4 : .WordStack"
+pc = "0"
+gas = "5"
+expected_program = 'b"\x05\x00"'
+expected_stack = "115792089237316195423570985008687907853269984665640564039457584007913129639934 : .WordStack"
+expected_pc = "1"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-divide-both-negative"
+program = 'b"\x05\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639927 : 115792089237316195423570985008687907853269984665640564039457584007913129639932 : .WordStack"
+pc = "0"
+gas = "5"
+expected_program = 'b"\x05\x00"'
+expected_stack = "2 : .WordStack"
+expected_pc = "1"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-divide-by-zero"
+program = 'b"\x05\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639927 : 0 : .WordStack"
+pc = "0"
+gas = "5"
+expected_program = 'b"\x05\x00"'
+expected_stack = "0 : .WordStack"
+expected_pc = "1"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-divide-minimum-overflow"
+program = 'b"\x05\x00"'
+stack = "57896044618658097711785492504343953926634992332820282019728792003956564819968 : 115792089237316195423570985008687907853269984665640564039457584007913129639935 : .WordStack"
+pc = "0"
+gas = "5"
+expected_program = 'b"\x05\x00"'
+expected_stack = "57896044618658097711785492504343953926634992332820282019728792003956564819968 : .WordStack"
+expected_pc = "1"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-modulus-negative-dividend"
+program = 'b"\x07\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639925 : 4 : .WordStack"
+pc = "0"
+gas = "5"
+expected_program = 'b"\x07\x00"'
+expected_stack = "115792089237316195423570985008687907853269984665640564039457584007913129639933 : .WordStack"
+expected_pc = "1"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-modulus-negative-divisor"
+program = 'b"\x07\x00"'
+stack = "11 : 115792089237316195423570985008687907853269984665640564039457584007913129639932 : .WordStack"
+pc = "0"
+gas = "5"
+expected_program = 'b"\x07\x00"'
+expected_stack = "3 : .WordStack"
+expected_pc = "1"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-modulus-by-zero"
+program = 'b"\x07\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639925 : 0 : .WordStack"
+pc = "0"
+gas = "5"
+expected_program = 'b"\x07\x00"'
+expected_stack = "0 : .WordStack"
+expected_pc = "1"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "add-modulus"
+program = 'b"\x08\x00"'
+stack = "7 : 6 : 5 : .WordStack"
+pc = "0"
+gas = "8"
+expected_program = 'b"\x08\x00"'
+expected_stack = "3 : .WordStack"
+expected_pc = "1"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "add-modulus-unbounded-intermediate"
+program = 'b"\x08\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639935 : 2 : 5 : .WordStack"
+pc = "0"
+gas = "8"
+expected_program = 'b"\x08\x00"'
+expected_stack = "2 : .WordStack"
+expected_pc = "1"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "add-modulus-by-zero"
+program = 'b"\x08\x00"'
+stack = "7 : 6 : 0 : .WordStack"
+pc = "0"
+gas = "8"
+expected_program = 'b"\x08\x00"'
+expected_stack = "0 : .WordStack"
+expected_pc = "1"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "multiply-modulus"
+program = 'b"\x09\x00"'
+stack = "7 : 6 : 5 : .WordStack"
+pc = "0"
+gas = "8"
+expected_program = 'b"\x09\x00"'
+expected_stack = "2 : .WordStack"
+expected_pc = "1"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "multiply-modulus-unbounded-intermediate"
+program = 'b"\x09\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639935 : 2 : 5 : .WordStack"
+pc = "0"
+gas = "8"
+expected_program = 'b"\x09\x00"'
+expected_stack = "0 : .WordStack"
+expected_pc = "1"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "multiply-modulus-by-zero"
+program = 'b"\x09\x00"'
+stack = "7 : 6 : 0 : .WordStack"
+pc = "0"
+gas = "8"
+expected_program = 'b"\x09\x00"'
+expected_stack = "0 : .WordStack"
+expected_pc = "1"
+expected_gas = "0"
+expected_status = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "arithmetic-tranches-stop"
+program = 'b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60\x04\x08\x60\x05\x60\x06\x60\x04\x09\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "56"
+expected_program = 'b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60\x04\x08\x60\x05\x60\x06\x60\x04\x09\x00"'
+expected_stack = "4 : 0 : 1 : 3 : .WordStack"
+expected_pc = "24"
 expected_gas = "0"
 expected_status = "EVMC_SUCCESS"
 
@@ -351,3 +535,27 @@ expected_stack = "11 : .WordStack"
 expected_pc = "0"
 expected_gas = "20"
 expected_status = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "add-modulus-underflow-two"
+program = 'b"\x08\x00"'
+stack = "7 : 6 : .WordStack"
+pc = "0"
+gas = "20"
+expected_program = 'b"\x08\x00"'
+expected_stack = "7 : 6 : .WordStack"
+expected_pc = "0"
+expected_gas = "20"
+expected_status = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "multiply-modulus-out-of-gas"
+program = 'b"\x09\x00"'
+stack = "7 : 6 : 5 : .WordStack"
+pc = "0"
+gas = "7"
+expected_program = 'b"\x09\x00"'
+expected_stack = "7 : 6 : 5 : .WordStack"
+expected_pc = "0"
+expected_gas = "7"
+expected_status = "EVMC_OUT_OF_GAS"

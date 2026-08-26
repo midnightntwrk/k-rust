@@ -1,6 +1,6 @@
 # Readable KEVM qualification
 
-Status: Bytes-backed core arithmetic slice qualified, 2026-08-26 JST
+Status: Bytes-backed signed and modular arithmetic slice qualified, 2026-08-26 JST
 
 ## Pinned authority
 
@@ -39,19 +39,21 @@ hooks, and symbolic summaries. This milestone does not claim those features.
 
 ## Representative operational slice
 
-The current slice follows KEVM's `#next`/`#exec`/`#gas`/`#pc` pipeline, its unsigned word operations, and the checked-in `push`, `add`, `sub`, `div`, `mod`, `pc`, `gas`, `stop`, and `invalid` summaries:
+The current slice follows KEVM's `#next`/`#exec`/`#gas`/`#pc` pipeline, its core word operations, and the checked-in arithmetic, `push`, `pc`, `gas`, `stop`, and `invalid` summaries:
 
 1. a recursive word stack and K's builtin `Bytes` program domain;
-2. `PUSH`, `ADD`, `MUL`, `SUB`, `DIV`, `MOD`, `PC`, `STOP`, and `INVALID` opcodes;
+2. `PUSH`, `ADD`, `MUL`, `SUB`, `DIV`, `SDIV`, `MOD`, `SMOD`, `ADDMOD`, `MULMOD`, `PC`, `STOP`, and `INVALID` opcodes;
 3. simultaneous program, stack, program-counter, gas, and status transitions;
 4. `PUSH` widths and their effect on the program counter;
 5. modulo-`2^256` word normalization for addition, multiplication, and subtraction;
-6. KEVM's zero-divisor result for unsigned division and modulus;
-7. Shanghai-compatible `Glow = 5`, `Gverylow = 3`, `Gbase = 2`, and `Gzero = 0` costs;
-8. the guarded sufficient-gas/out-of-gas partition from `#deductGas`;
-9. structural zero/one-element binary-op stack-underflow branches;
-10. successful stop/end-of-program and invalid-instruction outcomes;
-11. two all-path native claims spanning push, both gas classes, arithmetic, PC observation, and successful halt.
+6. KEVM's two's-complement word sign and magnitude, signed division including minimum-word overflow, and dividend-signed modulus;
+7. zero-totalized unsigned and signed division and modulus;
+8. unbounded addition and multiplication intermediates before the `ADDMOD` and `MULMOD` modulus;
+9. Shanghai-compatible `Gmid = 8`, `Glow = 5`, `Gverylow = 3`, `Gbase = 2`, and `Gzero = 0` costs;
+10. the guarded sufficient-gas/out-of-gas partition from `#deductGas`;
+11. structural zero/one-element binary-op and zero/one/two-element ternary-op stack-underflow branches;
+12. successful stop/end-of-program and invalid-instruction outcomes;
+13. two all-path native claims spanning push, all three selected gas classes, arithmetic, PC observation, and successful halt.
 
 KEVM stores executable code as `Bytes` and decodes it with `#lookupOpCode`.
 The KRS definition now uses the pinned `BYTES` implementation directly: `lengthBytes(PROGRAM)` bounds lookup, `PROGRAM [ PC ]` reads the opcode byte, and a recursive big-endian decoder reads `PUSH1` through `PUSH32` immediates.
@@ -64,12 +66,12 @@ The program bytes remain unchanged across execution, matching KEVM's program-cel
   `<statusCode>` cells;
 - `evm.md` single-step and exceptional checks: `#next`, `#exec`, stack
   underflow, `#pc`, and end status;
-- `evm.md` opcode rules: `#push`, `PUSH`, core unsigned binary arithmetic, `PC`, `STOP`, and `INVALID`;
+- `evm.md` opcode rules: `#push`, `PUSH`, core unsigned, signed, and ternary modular arithmetic, `PC`, `STOP`, and `INVALID`;
 - `evm.md` gas rules: `#gas`, `#deductGas`, and the out-of-gas status;
 - `word.md`: `Word`, `WordStack`, and `chop` modulo `2^256`;
-- `evm-types.md`: unsigned word arithmetic and zero-totalized division and modulus;
+- `evm-types.md`: unsigned word arithmetic, two's-complement sign and magnitude, signed division and modulus, and zero-totalized word division and modulus;
 - `schedule.md`: the selected Shanghai gas constants;
-- `summaries/push-summary.k`, `add-summary.k`, `sub-summary.k`, `div-summary.k`, `mod-summary.k`, `pc-summary.k`, `gas-summary.k`, `stop-summary.k`, and `invalid-summary.k`: direct multi-cell transition oracles.
+- `summaries/push-summary.k`, the selected unsigned, signed, and ternary arithmetic summaries, `pc-summary.k`, `gas-summary.k`, `stop-summary.k`, and `invalid-summary.k`: direct multi-cell transition oracles.
 
 ## Selected KRS extension
 
@@ -107,16 +109,16 @@ The canonical KRS port is `semantics/kevm`, the corpus is
 The refreshed complete gate passes at descriptor protocol 19 and Definition IR schema 12:
 
 ```text
-PASS readable KEVM operational slice: 131 descriptors; 25 executions; 2 native proofs; protocol 19; K 7.1.337
+PASS readable KEVM operational slice: 186 descriptors; 41 executions; 2 native proofs; protocol 19; K 7.1.337
 ```
 
-The behavior matrix adds normal and wraparound multiplication, top-first subtraction and negative wraparound, unsigned division and modulus including zero divisors, `Glow` out-of-gas, family underflow, and a combined arithmetic path to the prior baseline.
-The structured behavior SHA-256 is `94652cf0651fc95b2e4746f5945463ea7591d6eae50463f3dabe4d7cf83ca16a`.
+The behavior matrix adds signed quotient sign combinations, zero division, minimum-word overflow, signed remainder behavior, full-precision ternary intermediates, `Gmid` out-of-gas, ternary underflow, and a combined arithmetic path to the prior baseline.
+The structured behavior SHA-256 is `e17f37450188a0211d0171b3a13f3a1981cac74e62aaa5f68a4a5a812c715a13`.
 Both all-path claims close with `#Top` through native `kprove`.
-The normalized native `definition.kore` SHA-256 is `64846d863fb029bfd4a33626ef52c410ef6a89fe7b54853c1d7927e69a3935bd`.
+The normalized native `definition.kore` SHA-256 is `5eb5a0f6c2596a9cfacdc1815995fe9f67214989ddcaac48fc8a111920c3fc12`.
 Normalization is limited to the temporary semantics path and K-generated
 sort-membership binder names, using the already-qualified KWasm policy.
 Six focused definition/hover probes pass with zero rust-analyzer diagnostics.
 
-This result removes the structured-program adapter without widening the qualified opcode set.
+This result preserves the removed structured-program adapter while widening the qualified opcode set through the adjacent signed and ternary arithmetic boundary.
 The remaining opcode families and stateful EVM surfaces remain explicit future evidence, not implicit claims.
