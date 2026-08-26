@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "closureId": "1c187e3127f169b0dcfacbad9496267821d14bf807cd4dc22289495d8aaab396",
+  "closureId": "f23bf343bcac94a006789c79bbc7f92471c2e1e00fb192306cc0efb6189eee7f",
   "rootKind": "execution-attempt-result",
   "result": {
     "role": "execution-attempt-result",
@@ -18,7 +18,7 @@
   ],
   "artifactRoleSpecs": {
     "schemaVersion": 2,
-    "registryId": "c6ce464b0c532e83124eb79b5955dc64f337838ac7f5a0a0251d6b95867069cb",
+    "registryId": "fc8dd7a15af88e837cf726e606e17150990692ddcda0266f66ab22d5a99337ad",
     "specs": [
       {
         "role": "baseline-admission-result",
@@ -809,7 +809,7 @@
               "kind": "schema-version",
               "schemaVersion": 2
             },
-            "schemaDigest": "070d59425ba1ee580a2dfe6613da96716471b8f5f391814c263926626cc4c33e"
+            "schemaDigest": "388b3ccb1b1dab149c1bdbca79d40ce5284518fceefe346c14df14e9accbf2f7"
           }
         ]
       },
@@ -1211,7 +1211,7 @@
               "kind": "schema-version",
               "schemaVersion": 2
             },
-            "schemaDigest": "bf791f5134a2228978edd04033e610dbf252d46b5ffe6e409ab15f48076ac2ea"
+            "schemaDigest": "8958a76bdcbc05be410fa5aab799a2443bc6c1fa54af03c121ef0d5e4d1e8388"
           }
         ]
       },
@@ -1705,8 +1705,8 @@
   },
   "artifactCatalog": {
     "schemaVersion": 2,
-    "catalogId": "54990babc21fca76b3d5883aa6cf58f15bbbec3d7e501c55ee3f90ab14667c4b",
-    "roleSpecRegistryId": "c6ce464b0c532e83124eb79b5955dc64f337838ac7f5a0a0251d6b95867069cb",
+    "catalogId": "a111042738dbe700e6bd6015f2951148f22aaa55d5a2604ee36e7bc5b91abf10",
+    "roleSpecRegistryId": "fc8dd7a15af88e837cf726e606e17150990692ddcda0266f66ab22d5a99337ad",
     "entries": [
       {
         "role": "baseline-admission-result",
@@ -6290,42 +6290,22 @@
       },
       {
         "role": "replay-version-registry",
-        "digest": "0b23e15d022259a4d6582af08f5dce0dde7f0e02f59a39ed3f0c1f2b86e1a23d",
+        "digest": "09749439afaeabd453d1e4af0792b82cb6e037f7bc00185197543d39228dff5b",
         "contentModel": "canonical-json",
         "mediaType": "application/json",
-        "contentSha256": "d75dcdd0a2612a0ad8ec287d602caffe145fcbd7b2264af8e494f2001a0af13e",
+        "contentSha256": "95be3aa6402b486f3d5575a1cc6fbe6a8d8796a45897ea1bdc9d13d4fc912f46",
         "availability": "bundled",
-        "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-pattern-root.json",
+        "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-corpus-two-execution.json",
         "resolverId": "repo-v1"
       },
       {
         "role": "replay-version-registry",
-        "digest": "2942f4ba2118d4b3b58c7375ab4b7f2df2589c54c3da80a560945e4faf1fd3cd",
+        "digest": "31299bdb7bc4e10673c50b503008e15b06b29932671cc6394913a805bae8a62b",
         "contentModel": "canonical-json",
         "mediaType": "application/json",
-        "contentSha256": "4b02c761407eb52ef63666139f0efcfb732cba5718b983808463f74c450e3ae3",
+        "contentSha256": "ed8b7f04caa33df92713d8a945d786e1a90bbb2898ad59344280dbfe8038072f",
         "availability": "bundled",
         "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-oracle-predicate.json",
-        "resolverId": "repo-v1"
-      },
-      {
-        "role": "replay-version-registry",
-        "digest": "3eb3db522598b7c17962bf6336837f486bf6fe80c3f672bba952f6362f111249",
-        "contentModel": "canonical-json",
-        "mediaType": "application/json",
-        "contentSha256": "5849da91bf30250e47845b062175079f6fd9b54c586703170e83718b02340cf4",
-        "availability": "bundled",
-        "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-empty.json",
-        "resolverId": "repo-v1"
-      },
-      {
-        "role": "replay-version-registry",
-        "digest": "42e2e4feeb49247bc91f527478224985f9429c4340fcd53295bc56d3d51dc8cc",
-        "contentModel": "canonical-json",
-        "mediaType": "application/json",
-        "contentSha256": "4829cb3f8bc3b31d58cba34510bf4484a76db5d199143d1f4b44d72c3ca523f3",
-        "availability": "bundled",
-        "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-failed-execution-root.json",
         "resolverId": "repo-v1"
       },
       {
@@ -6340,62 +6320,82 @@
       },
       {
         "role": "replay-version-registry",
-        "digest": "59a999a1224f557e7e02344d677376933e65814a36ae8cce046e5f0cc1b456ba",
+        "digest": "66e0e59e6488ea8091dbf732c3fe98871515ccacd43266f71d20b038da9cd8ad",
         "contentModel": "canonical-json",
         "mediaType": "application/json",
-        "contentSha256": "12c57f844ffcbea93c3773a944567a1ab6d6f4814b826bb64a4bce2c3ec006eb",
-        "availability": "bundled",
-        "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-bounded.json",
-        "resolverId": "repo-v1"
-      },
-      {
-        "role": "replay-version-registry",
-        "digest": "6d9686c3a2e5ae1011f72f4d9892ae0885a6f32f72870454e8ab5fdc7ed376e0",
-        "contentModel": "canonical-json",
-        "mediaType": "application/json",
-        "contentSha256": "6f65a6d4c60941d7578d784b226c777780c5d07191138c99c6f545c693993fd2",
-        "availability": "bundled",
-        "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-existential.json",
-        "resolverId": "repo-v1"
-      },
-      {
-        "role": "replay-version-registry",
-        "digest": "86db00619c1c7dce7a57bfd31b0541240668e7c42eca281338482ee4282409e9",
-        "contentModel": "canonical-json",
-        "mediaType": "application/json",
-        "contentSha256": "6630bc9edf654a020d6122c1bc9c6548ad722f496c0c7e1fcdaf678540b5ccf6",
-        "availability": "bundled",
-        "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-corpus-failures.json",
-        "resolverId": "repo-v1"
-      },
-      {
-        "role": "replay-version-registry",
-        "digest": "939171cfab277c489a4eea0e91da24a4abdc4f61786383d4633753bef5640e71",
-        "contentModel": "canonical-json",
-        "mediaType": "application/json",
-        "contentSha256": "dfc6aab29738765cfa8bc330a465d448c1a8114a7133d2bfc1f24288a4e9a647",
+        "contentSha256": "2926e826032ad71c99c211c9aac82739291eb34ae07d65b95b9a2f7789a66267",
         "availability": "bundled",
         "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-oracle-pattern-false-coverage.json",
         "resolverId": "repo-v1"
       },
       {
         "role": "replay-version-registry",
-        "digest": "d6a6100d9cc40cda1d0da3cdad631d84a68c7f45a6bcc8e7f1a16eb4729577eb",
+        "digest": "68032a3f1a747c233c758588ea3fea0536a51911ba6163d00da3c203e44b2672",
         "contentModel": "canonical-json",
         "mediaType": "application/json",
-        "contentSha256": "9f55ba20c8cccc655373b8d09f4119ccd01ca8191e0c2dd5f2a5af5add13fd7a",
+        "contentSha256": "2ed4983cff2f9b3c1b985c0fd809405977ad9db4fe52ed59f06f1840b5eec358",
         "availability": "bundled",
-        "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-corpus-two-execution.json",
+        "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-empty.json",
         "resolverId": "repo-v1"
       },
       {
         "role": "replay-version-registry",
-        "digest": "e687f4618b1ad06c1efb3ca9435e0f2229d0142369275cdee62860bea6ee9a02",
+        "digest": "6cb3bd63dd16892f0eee64edcabc3fd1e5b4a88f3038b14ea2d580d95c8af917",
         "contentModel": "canonical-json",
         "mediaType": "application/json",
-        "contentSha256": "21128256dfe73e8d8d1d7a68abc5d4407053644260583831ec919a753662db56",
+        "contentSha256": "aeaa78e31817271f6c70b9712e2f4e223789d2f6d8e471c86c3f6be612462b98",
+        "availability": "bundled",
+        "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-existential.json",
+        "resolverId": "repo-v1"
+      },
+      {
+        "role": "replay-version-registry",
+        "digest": "8934f8bab05c73fff183633f864a0ca6b37686d330d1b6c458f2fa8566a8a7b4",
+        "contentModel": "canonical-json",
+        "mediaType": "application/json",
+        "contentSha256": "f1049c46af9f9904c56fdaef53075500b7ef579ce5313432f0cbbdd3044c43f6",
+        "availability": "bundled",
+        "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-corpus-failures.json",
+        "resolverId": "repo-v1"
+      },
+      {
+        "role": "replay-version-registry",
+        "digest": "8ef014f08941dcbda2541a4fee2b8ed95058ba5300cb5931490a5e8985c578da",
+        "contentModel": "canonical-json",
+        "mediaType": "application/json",
+        "contentSha256": "88324a5f7a3747f8bf6513bfb25d3f4d680c7b727b05c73511e5aeb17e937845",
         "availability": "bundled",
         "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-corpus-stop.json",
+        "resolverId": "repo-v1"
+      },
+      {
+        "role": "replay-version-registry",
+        "digest": "969158945f7eaedf9cbd6e47b98ffc5a7e735010437d112513c886a282984dde",
+        "contentModel": "canonical-json",
+        "mediaType": "application/json",
+        "contentSha256": "273a88d08b4059eaa1f8d11f86e0b63c4b6611ec522590cfe415cd2807578318",
+        "availability": "bundled",
+        "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-pattern-root.json",
+        "resolverId": "repo-v1"
+      },
+      {
+        "role": "replay-version-registry",
+        "digest": "b07c27ef027c56ff49b6666f5378d4edaa4f7a1b21eb7e86f2abcf15789a65c1",
+        "contentModel": "canonical-json",
+        "mediaType": "application/json",
+        "contentSha256": "a862c87ab2f3545e3f931059e188e87c7e34a735621d5c9fda5b8871c9fa2863",
+        "availability": "bundled",
+        "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-failed-execution-root.json",
+        "resolverId": "repo-v1"
+      },
+      {
+        "role": "replay-version-registry",
+        "digest": "bfe8d0430ba9c3702225e63154006f866973b181512b2e922d8087b6ef4aa5ac",
+        "contentModel": "canonical-json",
+        "mediaType": "application/json",
+        "contentSha256": "af0f50fe9ef978489b3be3cb0708223195dd60ef7df779a63de588438e7f2bdc",
+        "availability": "bundled",
+        "logicalPath": "repo://investigations/backend-agnostic-goal-closure/material/bag16-replay-version-registry-bounded.json",
         "resolverId": "repo-v1"
       },
       {
@@ -6643,7 +6643,7 @@
   },
   "registry": {
     "schemaVersion": 2,
-    "registryId": "3eb3db522598b7c17962bf6336837f486bf6fe80c3f672bba952f6362f111249",
+    "registryId": "68032a3f1a747c233c758588ea3fea0536a51911ba6163d00da3c203e44b2672",
     "schemas": [
       {
         "schemaId": "artifact-catalog-v2.schema.json",
@@ -6658,7 +6658,7 @@
       {
         "schemaId": "bag16-common.schema.json",
         "schemaVersion": 2,
-        "schemaDigest": "507ab10f9a90321b341c6d9abcf82dada7a2d0aa3d5581bd57e93e38dd25f8ee"
+        "schemaDigest": "0bf4f4dcbfff067fdf23bd5a9b907755849438fab2376130c6c96e7a4864204d"
       },
       {
         "schemaId": "branch-trace-collection.schema.json",
@@ -6723,7 +6723,7 @@
       {
         "schemaId": "operation-receipt-v2.schema.json",
         "schemaVersion": 2,
-        "schemaDigest": "070d59425ba1ee580a2dfe6613da96716471b8f5f391814c263926626cc4c33e"
+        "schemaDigest": "388b3ccb1b1dab149c1bdbca79d40ce5284518fceefe346c14df14e9accbf2f7"
       },
       {
         "schemaId": "oracle-operand-production-result.schema.json",
@@ -6738,7 +6738,7 @@
       {
         "schemaId": "pattern-result-v2.schema.json",
         "schemaVersion": 2,
-        "schemaDigest": "bf791f5134a2228978edd04033e610dbf252d46b5ffe6e409ab15f48076ac2ea"
+        "schemaDigest": "8958a76bdcbc05be410fa5aab799a2443bc6c1fa54af03c121ef0d5e4d1e8388"
       },
       {
         "schemaId": "portable-closure-root.schema.json",

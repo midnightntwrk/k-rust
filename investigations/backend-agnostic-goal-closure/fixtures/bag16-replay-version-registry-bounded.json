@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "registryId": "59a999a1224f557e7e02344d677376933e65814a36ae8cce046e5f0cc1b456ba",
+  "registryId": "bfe8d0430ba9c3702225e63154006f866973b181512b2e922d8087b6ef4aa5ac",
   "schemas": [
     {
       "schemaId": "artifact-catalog-v2.schema.json",
@@ -15,7 +15,7 @@
     {
       "schemaId": "bag16-common.schema.json",
       "schemaVersion": 2,
-      "schemaDigest": "507ab10f9a90321b341c6d9abcf82dada7a2d0aa3d5581bd57e93e38dd25f8ee"
+      "schemaDigest": "0bf4f4dcbfff067fdf23bd5a9b907755849438fab2376130c6c96e7a4864204d"
     },
     {
       "schemaId": "branch-trace-collection.schema.json",
@@ -80,7 +80,7 @@
     {
       "schemaId": "operation-receipt-v2.schema.json",
       "schemaVersion": 2,
-      "schemaDigest": "070d59425ba1ee580a2dfe6613da96716471b8f5f391814c263926626cc4c33e"
+      "schemaDigest": "388b3ccb1b1dab149c1bdbca79d40ce5284518fceefe346c14df14e9accbf2f7"
     },
     {
       "schemaId": "oracle-operand-production-result.schema.json",
@@ -95,7 +95,7 @@
     {
       "schemaId": "pattern-result-v2.schema.json",
       "schemaVersion": 2,
-      "schemaDigest": "bf791f5134a2228978edd04033e610dbf252d46b5ffe6e409ab15f48076ac2ea"
+      "schemaDigest": "8958a76bdcbc05be410fa5aab799a2443bc6c1fa54af03c121ef0d5e4d1e8388"
     },
     {
       "schemaId": "portable-closure-root.schema.json",

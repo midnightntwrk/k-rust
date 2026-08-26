@@ -46,6 +46,8 @@ reachable only at oracle comparison and can never derive a kill. Bounded
 lowering time/resource stops remain timeout/unknown, never presumed
 nontermination.
 
-This placement audit is provisional. BAG-15 and BAG-16 must trigger the full
-pointer inventory and bidirectional reachability rerun before the overall
-backend-agnostic goal can claim permanent closure.
+The mandatory post-BAG-16 pointer inventory and bidirectional reachability
+rerun is complete. The successor surface adds exactly five infrastructure
+`pattern-test`/`test` placements with `error` consequence, and the complete 94
+schema-reachable placements equal the active taxonomy placements across all 15
+contexts. Historical v1 taxonomy and schema bytes remain unchanged.

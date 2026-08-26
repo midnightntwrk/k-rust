@@ -63,32 +63,30 @@
       }
     },
     "patternProducerFailure": {
-      "allOf": [
-        {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/failure"},
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "classification", "context", "scope", "retryability", "semanticEvidence", "details"],
+      "properties": {
+        "stage": {"const": "infrastructure"},
+        "classification": {"enum": ["process-launch", "io", "artifact-corruption", "worker-lost", "internal"]},
+        "context": {"const": "pattern-test"},
+        "scope": {"const": "test"},
+        "retryability": {"enum": ["never", "after-external-repair"]},
+        "semanticEvidence": {"type": "array", "maxItems": 0},
+        "details": {"type": "object"}
+      },
+      "oneOf": [
         {
-          "type": "object",
-          "required": ["stage", "classification", "context", "scope", "retryability"],
           "properties": {
-            "stage": {"const": "infrastructure"},
-            "context": {"const": "pattern-test"},
-            "scope": {"const": "test"}
-          },
-          "oneOf": [
-            {
-              "required": ["classification", "retryability"],
-              "properties": {
-                "classification": {"enum": ["process-launch", "io", "worker-lost"]},
-                "retryability": {"const": "after-external-repair"}
-              }
-            },
-            {
-              "required": ["classification", "retryability"],
-              "properties": {
-                "classification": {"enum": ["artifact-corruption", "internal"]},
-                "retryability": {"const": "never"}
-              }
-            }
-          ]
+            "classification": {"enum": ["process-launch", "io", "worker-lost"]},
+            "retryability": {"const": "after-external-repair"}
+          }
+        },
+        {
+          "properties": {
+            "classification": {"enum": ["artifact-corruption", "internal"]},
+            "retryability": {"const": "never"}
+          }
         }
       ]
     },
@@ -122,9 +120,27 @@
         }
       ]
     },
+    "patternExecutionFailure": {
+      "oneOf": [
+        {"$ref": "#/$defs/patternPathExecutionFailure"},
+        {"$ref": "#/$defs/patternTestExecutionFailure"}
+      ]
+    },
+    "patternFailure": {
+      "oneOf": [
+        {"$ref": "#/$defs/patternExecutionFailure"},
+        {"$ref": "#/$defs/patternProducerFailure"}
+      ]
+    },
+    "operationFailure": {
+      "oneOf": [
+        {"$ref": "#/$defs/patternFailure"},
+        {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/oracleOperandProductionFailure"}
+      ]
+    },
     "cause": {
       "oneOf": [
-        {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/failure"},
+        {"$ref": "#/$defs/patternFailure"},
         {
           "type": "object",
           "additionalProperties": false,

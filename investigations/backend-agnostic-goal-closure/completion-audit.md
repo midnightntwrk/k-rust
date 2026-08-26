@@ -46,9 +46,14 @@ semantics.
   details boundary, and the checked lowering-cycle receipt protocol. Its toy
   checker proves only protocol conformance; real lowering proof remains with
   Rust. BAG-12 adds the exact `oracle-operand-production` context and four
-  outer-failure placements; schema-to-taxonomy and taxonomy-to-schema
-  reachability are exact for this packet. BAG-15/BAG-16 must rerun that proof
-  when adding production or branch-collection placements.
+  outer-failure placements. The mandatory post-BAG-16 rerun is independently
+  accepted after repairing broad absolute failure references in the successor
+  pattern, corpus, and receipt schema surface. All 94 active taxonomy
+  placements equal all 94 schema-reachable placements across 15 contexts;
+  the successor delta is exactly five infrastructure `pattern-test`/`test`
+  placements with `error` consequence. The focused proof passes 33,481 checks,
+  official Draft 2020-12 validation passes, and the full verifier passes
+  1,044,240 zero-backend checks.
 - BAG-13 closes `portable-mutation-semantic-slice-v1` and every locally
   decidable term, signature, variable-scope, condition, attribute, and
   generated-provenance invariant. Patch output is atomically subjected to the

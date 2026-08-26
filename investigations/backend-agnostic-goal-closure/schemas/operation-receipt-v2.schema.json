@@ -24,7 +24,7 @@
         "producerStatus": {"enum": ["complete", "failed"]},
         "outputs": {"type": "array"},
         "semanticTerminal": {},
-        "failure": {"oneOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/failure"}, {"type": "null"}]}
+        "failure": {"oneOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/operationFailure"}, {"type": "null"}]}
       }
     },
     "outputEdge": {

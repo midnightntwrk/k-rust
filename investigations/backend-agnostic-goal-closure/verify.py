@@ -315,7 +315,7 @@ def failure_schema_placements() -> dict[tuple[str, str], str]:
     def visit(value: Any, schema_name: str, location: str) -> None:
         if isinstance(value, dict):
             reference = value.get("$ref")
-            if isinstance(reference, str) and (reference.endswith("Failure") or reference == "common.schema.json#/$defs/failure"):
+            if isinstance(reference, str) and (reference.endswith("Failure") or reference.endswith("common.schema.json#/$defs/failure")):
                 placements[(schema_name, location or "/")] = reference
             for key, child in value.items():
                 escaped = key.replace("~", "~0").replace("/", "~1")
@@ -384,7 +384,12 @@ def verify_generic_failure_schema_inventory() -> None:
         if placement[0] == "cache-semantics.schema.json"
         and placement[1].startswith(("/$defs/executionTerminalRecord/", "/$defs/oracleTerminalRecord/"))
     })
-    ok(all(reference != "common.schema.json#/$defs/failure" for reference in actual.values()), "broad raw failure schema placement remains")
+    broad_spellings = (
+        "common.schema.json#/$defs/failure",
+        "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/failure",
+    )
+    ok(all(reference.endswith("common.schema.json#/$defs/failure") for reference in broad_spellings), "broad failure reference spelling adversary is incomplete")
+    ok(all(not reference.endswith("common.schema.json#/$defs/failure") for reference in actual.values()), "broad raw failure schema placement remains")
     ok(actual == expected, "context-specific failure schema placement inventory drift")
 
 

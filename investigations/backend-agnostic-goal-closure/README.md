@@ -9,6 +9,10 @@ contract and implementation repair rounds, 26 August 2026. The accepted
 `bag16.py` SHA-256 is
 `ee0915a13836ec29acfd5118425c3089029c48e3ad50d5a0f88abc15bfd238b0`.
 They make no native branch-discovery or execution claim.
+The mandatory post-BAG-16 BAG-10 taxonomy/schema placement rerun was
+independently accepted after closing the successor schema's broad failure
+references. Its active 94-placement surface is exact in both directions while
+the historical v1 taxonomy and schemas remain byte-frozen.
 
 This package records the semantic work that can be completed before K-in-K
 moves to its Rust-based execution stack. It deliberately does not preserve,

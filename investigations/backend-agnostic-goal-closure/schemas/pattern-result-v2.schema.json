@@ -140,7 +140,7 @@
             "reason": {
               "oneOf": [
                 {"type": "object", "additionalProperties": false, "required": ["kind", "firstIndeterminate"], "properties": {"kind": {"const": "indeterminate-denotation"}, "firstIndeterminate": {"$ref": "#/$defs/firstIndeterminate"}}},
-                {"type": "object", "additionalProperties": false, "required": ["kind", "failure"], "properties": {"kind": {"const": "execution-stop"}, "failure": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/failure"}}}
+                {"type": "object", "additionalProperties": false, "required": ["kind", "failure"], "properties": {"kind": {"const": "execution-stop"}, "failure": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternExecutionFailure"}}}
               ]
             }
           }
@@ -148,7 +148,7 @@
         {
           "type": "object", "additionalProperties": false,
           "required": ["kind", "completeCoverage", "failure"],
-          "properties": {"kind": {"const": "error"}, "completeCoverage": {"const": false}, "failure": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/failure"}}
+          "properties": {"kind": {"const": "error"}, "completeCoverage": {"const": false}, "failure": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternExecutionFailure"}}
         }
       ]
     }

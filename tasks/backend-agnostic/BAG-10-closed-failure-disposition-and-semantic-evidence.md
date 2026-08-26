@@ -1,8 +1,9 @@
 # BAG-10: closed failure disposition and semantic-evidence boundary
 
-Status: integrated and independently audited, 22 August 2026 (493,112
-zero-backend checks, including official Draft 2020-12 validation). Placement
-closure remains provisional until the mandatory BAG-15/BAG-16 rerun.
+Status: final placement closure independently accepted on 26 August 2026 after
+the mandatory post-BAG-16 rerun and one finding-driven repair. The focused
+taxonomy closure passes 33,481 checks, the full verifier passes 1,044,240
+zero-backend checks, and official Draft 2020-12 validation passes.
 
 ## Objective
 
@@ -232,9 +233,11 @@ proof generation, and adapter mapping.
 - checks are tiny and serial; and
 - `git diff --check` passes.
 
-This packet's initial placement closure is explicitly provisional: rerun the
-complete failure-site inventory and bidirectional taxonomy reachability audit
-after BAG-15 and BAG-16 land before declaring the backend-agnostic goal closed.
+The mandatory post-BAG-16 failure-site inventory and bidirectional taxonomy
+reachability audit is complete. It proves equality of 94 taxonomy and schema
+placements across all 15 contexts, including exactly five successor
+`pattern-test`/`test` infrastructure placements with `error` consequence.
+Historical v1 taxonomy and schema bytes remain unchanged.
 
 ## Stop rule
 
