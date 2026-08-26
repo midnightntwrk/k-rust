@@ -19,6 +19,7 @@ from typing import Any
 from bag12 import finalize_refresh as finalize_bag12_refresh
 from bag12 import prepare_refresh as prepare_bag12_refresh
 from bag14 import finalize_refresh as finalize_bag14_refresh
+from bag15 import finalize_refresh as finalize_bag15_refresh
 
 
 ROOT = Path(__file__).resolve().parent
@@ -1374,7 +1375,7 @@ def replay_closure_record(replay: dict[str, Any], catalog: dict[str, Any]) -> di
     for field in ("patternSource", "patternPlan", "patternQuery"):
         if replay[field] is not None:
             requirements.add((replay[field]["role"], replay[field]["digest"]))
-    if replay["kind"] == "mutation-instance":
+    if replay["kind"] == "mutation-materialization":
         requirements.update({("mutation-operator", replay["mutation"]["operatorDigest"]), ("patch", replay["mutation"]["patchId"]), *( (item["role"], item["digest"]) for item in replay["artifacts"] )})
     produced: set[tuple[str, str]] = set()
     for step in replay["steps"]:
@@ -2334,6 +2335,7 @@ def main() -> None:
     refresh_bag13_patch_vector_outputs()
     finalize_bag12_refresh(ROOT)
     finalize_bag14_refresh(ROOT)
+    finalize_bag15_refresh(ROOT)
 
 
 if __name__ == "__main__":

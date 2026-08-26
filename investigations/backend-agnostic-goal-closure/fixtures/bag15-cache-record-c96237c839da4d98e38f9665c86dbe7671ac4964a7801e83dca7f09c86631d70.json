@@ -1,0 +1,73 @@
+{
+  "completion": {
+    "evidenceClass": "semantic-result",
+    "executionConformance": "finite-vector-proven",
+    "materialClosure": "repo-complete",
+    "producerStatus": "complete"
+  },
+  "key": {
+    "declaration": {
+      "digest": "4467c92638c8f930823fcaeab65e912ce71e4b9239306105ec7bad6238ca55e8",
+      "role": "oracle-declaration"
+    },
+    "evaluationKind": "baseline-mutant-comparison",
+    "evaluator": {
+      "evaluatorId": "bag12-portable-exit-stop",
+      "evaluatorVersion": 1,
+      "mode": "built-in"
+    },
+    "keyDigest": "7cd5ee8d9c0a510312b093368be727ad8e389ffd07a1f3d46e54a4641e2c633b",
+    "operation": {
+      "adapterId": "bag14-vector-adapter",
+      "adapterVersion": 1,
+      "operationId": "portable-oracle-evaluation",
+      "operationVersion": 1
+    },
+    "schemaVersion": 1,
+    "semanticInputs": [
+      {
+        "side": "baseline",
+        "value": {
+          "digest": "69209b2dd8ccb71c27d10336c3912c6ddcf6e5aa0d63ae61a601ff9670c56f2d",
+          "role": "oracle-operand"
+        }
+      },
+      {
+        "side": "mutant",
+        "value": {
+          "digest": "9c26e7375a0067cf58dc093372610960b9932d1f1f2329590d31b0c11704938d",
+          "role": "oracle-operand"
+        }
+      }
+    ]
+  },
+  "keyDigest": "7cd5ee8d9c0a510312b093368be727ad8e389ffd07a1f3d46e54a4641e2c633b",
+  "kind": "oracle-evaluation",
+  "producedArtifacts": [
+    {
+      "digest": "8513be050ebf24fc46cb3d6e1a6f7cb18d71636229ac3ccca7bfdbbac269add0",
+      "role": "oracle-comparison-result"
+    }
+  ],
+  "productionEvidence": {
+    "mode": "operation-receipt",
+    "receipt": {
+      "role": "operation-receipt",
+      "digest": "a92970403fc8725887d09127bf4549a84d56bdc0e7f32d87f4de0815d9c3dddc"
+    },
+    "result": {
+      "role": "oracle-comparison-production-result",
+      "digest": "4857154d4006c4091c2f1b4285e31fd5e553c3ac0f42200e466949a8bde5cfa6"
+    }
+  },
+  "recordId": "b013379178a2cb1e6273258cfa7277db86091ede5f1115a6d50078b2f660ef50",
+  "reuseClass": "semantic-result",
+  "schemaVersion": 1,
+  "terminalRecord": {
+    "kind": "comparison",
+    "result": {
+      "digest": "8513be050ebf24fc46cb3d6e1a6f7cb18d71636229ac3ccca7bfdbbac269add0",
+      "role": "oracle-comparison-result"
+    }
+  }
+}

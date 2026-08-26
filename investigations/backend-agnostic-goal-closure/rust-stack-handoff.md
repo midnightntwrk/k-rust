@@ -362,6 +362,20 @@ BAG-14 does not choose that remediation policy.
 The BAG-14 finite rows are conformance evidence only.
 BAG-15 must supply the native production-receipt schema and DAG branch before Rust can claim `native-proven`; membership in the derivative BAG-14 catalog or a matching finite row cannot be promoted into native evidence.
 
+## BAG-15 native receipt handoff
+
+Rust must implement the seven portable operation kinds through the single `operation-receipt.schema.json` family and must preserve the exact operation-specific wrapper roles.
+It must not output traces, terminals, operands, or reports directly from a generic receipt; the receipt outputs one wrapper whose nested keys establish that dataflow without a self-cycle.
+The BAG-14 execution key digest and BAG-15 invocation digest are distinct identities and neither may substitute for the other.
+
+A native producer may claim `native-proven` only after independently deriving the exact wrapper payload and semantic terminal, atomically publishing the complete output sequence, and validating any selected BAG-10 failure against the active taxonomy.
+Producer completion does not imply normal execution, baseline acceptance, oracle agreement, or cache reusability.
+A failed producer publishes no wrapper or semantic terminal and cannot be consumed downstream.
+
+Campaign derivation must consume exactly the schedule-selected cache records and their receipt closure in manifest/test/oracle order.
+Report publication consumes the cycle-free derivation result and receipt plus the exact schema/operation registry; its invocation must not contain expected report bytes, body, or digest.
+Rust may attach supplemental diagnostics, process information, paths, and timing outside these semantic identities, but it must not place them in the portable receipt contract.
+
 ## BAG-10 native lowering proof handoff
 
 Rust owns extraction of the real lowering relation, proof generation, native

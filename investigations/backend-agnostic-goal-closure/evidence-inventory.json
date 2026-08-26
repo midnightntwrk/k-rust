@@ -192,6 +192,15 @@
       "notProven": ["any R3-G-05 or R4 leaf"]
     },
     {
+      "id": "bag15-portable-operation-receipts",
+      "paths": ["investigations/backend-agnostic-goal-closure/vectors/replay-provenance-vectors.json"],
+      "classification": ["portable-contract"],
+      "disposition": "accepted-portable-finite-conformance",
+      "portableClaims": ["cycle-free operation invocation and receipt identity", "one operation-specific wrapper per complete producer", "receipt-backed execution and oracle result provenance", "exact campaign receipt closure", "recursive schema and operation version provenance"],
+      "proofScope": "deterministic bundled Python finite-vector derivation only",
+      "notProven": ["native adapter execution", "native replay success", "atomic native publication", "native-proven receipt authority"]
+    },
+    {
       "id": "execution-pattern-rust-open",
       "paths": ["draft/goal/execution-pattern-matching.md"],
       "classification": ["portable-contract", "rust-stack-dependent-open"],

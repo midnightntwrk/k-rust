@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "resultId": "961c664bbf61b28a6afd925fb60d39deb5acb1f0e0db11620cd06e74faed5d39",
+  "invocationDigest": "dfdc6363463636714aee8c0c7b01183f25c5228cc1ff6326ab56525c6fdee865",
+  "outcome": {
+    "kind": "published",
+    "report": {
+      "role": "provenance-mutation-report",
+      "digest": "7283d34a9f5370d96e2d4757762a0d4f9c0c6fc3418f72a2954b9db9f538703d"
+    }
+  },
+  "failure": null
+}

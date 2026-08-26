@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "resultId": "0b2fef4c85b0bdbbda7bf56c91cccd845259bf129ed11947532e960ccc373fb1",
+  "invocationDigest": "f1b82fa764346b6b8e5fc4a0b1379f9a345aa91840b3e5d159a2d0ccc0b74275",
+  "evaluationKey": {
+    "schemaVersion": 1,
+    "keyDigest": "4cbb32bb7c6ed259d6b71243dbcf1d1e8cd7a6665ff0e9139369eca1a563b650",
+    "operation": {
+      "operationId": "portable-oracle-evaluation",
+      "operationVersion": 1,
+      "adapterId": "bag15-portable-finite",
+      "adapterVersion": 1
+    },
+    "evaluationKind": "baseline-mutant-comparison",
+    "declaration": {
+      "role": "oracle-declaration",
+      "digest": "65ae3e3c775dc834554e9d681c442a6ecf8351948a0028402951464e27a1e173"
+    },
+    "semanticInputs": [
+      {
+        "side": "baseline",
+        "value": {
+          "role": "oracle-operand",
+          "digest": "39c3187f627e23e70256268c2e788129fa4c34150a4750d7377b1702dffd6b4c"
+        }
+      },
+      {
+        "side": "mutant",
+        "value": {
+          "role": "oracle-operand",
+          "digest": "ea03fc2b72e29a1d1be4f4fe34a12401373a5b28d3b3146e4508979b7eb1db65"
+        }
+      }
+    ],
+    "evaluator": {
+      "evaluatorId": "bag12-portable-execution-pattern",
+      "evaluatorVersion": 1,
+      "mode": "built-in"
+    }
+  },
+  "terminalRecord": {
+    "kind": "comparison",
+    "result": {
+      "role": "oracle-comparison-result",
+      "digest": "4303bd87552fc687811a19ff1d8932a0910390e2dc1a848af11e58053aacdc7e"
+    }
+  },
+  "producedArtifacts": [
+    {
+      "role": "oracle-comparison-result",
+      "digest": "4303bd87552fc687811a19ff1d8932a0910390e2dc1a848af11e58053aacdc7e"
+    }
+  ],
+  "failure": null
+}

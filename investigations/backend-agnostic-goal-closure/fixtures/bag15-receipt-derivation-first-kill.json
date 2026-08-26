@@ -1,0 +1,364 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "45571321ef049ae47fa6a1c07ff5c51c4bd974ae1ee8b2ea815b71ff3f09e026",
+  "invocationDigest": "1360b18ce346ca9e0495d027940088fba45f658a674f5e4b4419e9e8bf6136fd",
+  "invocation": {
+    "schemaVersion": 1,
+    "invocationDigest": "1360b18ce346ca9e0495d027940088fba45f658a674f5e4b4419e9e8bf6136fd",
+    "operationKind": "campaign-derivation",
+    "operationVersion": 1,
+    "adapterContract": {
+      "adapterId": "bag15-portable-finite",
+      "adapterVersion": 1
+    },
+    "parameters": {
+      "campaignInvocation": {
+        "digest": "b4383b935391259bb9f36554f0dfb57b230a8afeaebd398589a0916a1318b090",
+        "role": "cache-campaign-invocation"
+      },
+      "scheduleMode": "first-kill",
+      "selectedPlan": [
+        {
+          "slotId": "baseline-execution-t1",
+          "record": {
+            "role": "cache-record",
+            "digest": "9632e3e25c05a5c0086a72c4cfbe2700a0b29d12a13802fa7c4b5074dd417b2a"
+          }
+        },
+        {
+          "slotId": "baseline-gate-t1-o0",
+          "record": {
+            "role": "cache-record",
+            "digest": "e60a0dba69099caecd366c636e4d41d4577b8193ec218c3b416b442e659663de"
+          }
+        },
+        {
+          "slotId": "baseline-gate-t1-o1",
+          "record": {
+            "role": "cache-record",
+            "digest": "f9db32022c551efb5e012eda37a9823c83408cf87d7094179f684069c460958f"
+          }
+        },
+        {
+          "slotId": "baseline-execution-t2",
+          "record": {
+            "role": "cache-record",
+            "digest": "5cd77fb0469de61e8c70b18457fb177e667ec582f15f1bf707b3654ff6d61c3c"
+          }
+        },
+        {
+          "slotId": "baseline-gate-t2-o0",
+          "record": {
+            "role": "cache-record",
+            "digest": "41b14168ef67439be758fc6ee67eb974bbb6f53664e1680899c499e038633c25"
+          }
+        },
+        {
+          "slotId": "mutant-execution-t1",
+          "record": {
+            "role": "cache-record",
+            "digest": "e06f2c540c45824d0bde3bc1655dfbd59124a969e90f70b2a24df43a27295521"
+          }
+        },
+        {
+          "slotId": "mutant-comparison-t1-o0",
+          "record": {
+            "role": "cache-record",
+            "digest": "b013379178a2cb1e6273258cfa7277db86091ede5f1115a6d50078b2f660ef50"
+          }
+        }
+      ]
+    },
+    "inputs": [
+      {
+        "edgeRole": "campaign-invocation",
+        "artifact": {
+          "digest": "b4383b935391259bb9f36554f0dfb57b230a8afeaebd398589a0916a1318b090",
+          "role": "cache-campaign-invocation"
+        }
+      },
+      {
+        "edgeRole": "materialization-result",
+        "artifact": {
+          "role": "mutation-materialization-result",
+          "digest": "d1878a05716ffaa9d8a8d574468fbbce46d48ce8c40443eb8571db6222b6e9db"
+        }
+      },
+      {
+        "edgeRole": "selected-cache-record",
+        "artifact": {
+          "role": "cache-record",
+          "digest": "9632e3e25c05a5c0086a72c4cfbe2700a0b29d12a13802fa7c4b5074dd417b2a"
+        }
+      },
+      {
+        "edgeRole": "selected-result",
+        "artifact": {
+          "role": "execution-attempt-result",
+          "digest": "e3d2e90a74bcf0ac4633b913ca454e1b6a5e0f006e5425c975cb49c6b24986b2"
+        }
+      },
+      {
+        "edgeRole": "selected-cache-record",
+        "artifact": {
+          "role": "cache-record",
+          "digest": "e60a0dba69099caecd366c636e4d41d4577b8193ec218c3b416b442e659663de"
+        }
+      },
+      {
+        "edgeRole": "selected-result",
+        "artifact": {
+          "role": "baseline-admission-result",
+          "digest": "aaf46685595c384089f2150ed928889bd723b315986c250d07e4e602357ecd88"
+        }
+      },
+      {
+        "edgeRole": "selected-cache-record",
+        "artifact": {
+          "role": "cache-record",
+          "digest": "f9db32022c551efb5e012eda37a9823c83408cf87d7094179f684069c460958f"
+        }
+      },
+      {
+        "edgeRole": "selected-result",
+        "artifact": {
+          "role": "baseline-admission-result",
+          "digest": "ff55a7933fd12e42927e236e5cf10f7be85ed0ecb5e3a1c68a5a7d2e093aec35"
+        }
+      },
+      {
+        "edgeRole": "selected-cache-record",
+        "artifact": {
+          "role": "cache-record",
+          "digest": "5cd77fb0469de61e8c70b18457fb177e667ec582f15f1bf707b3654ff6d61c3c"
+        }
+      },
+      {
+        "edgeRole": "selected-result",
+        "artifact": {
+          "role": "execution-attempt-result",
+          "digest": "d1172b217483375d3f76a1087d9b010299dffc8dcf655e72c4d6c0c4575fc786"
+        }
+      },
+      {
+        "edgeRole": "selected-cache-record",
+        "artifact": {
+          "role": "cache-record",
+          "digest": "41b14168ef67439be758fc6ee67eb974bbb6f53664e1680899c499e038633c25"
+        }
+      },
+      {
+        "edgeRole": "selected-result",
+        "artifact": {
+          "role": "baseline-admission-result",
+          "digest": "a9725f51f41e20d709a25f7efb308b9c550bcd73af718f36741b80e1ec28c332"
+        }
+      },
+      {
+        "edgeRole": "selected-cache-record",
+        "artifact": {
+          "role": "cache-record",
+          "digest": "e06f2c540c45824d0bde3bc1655dfbd59124a969e90f70b2a24df43a27295521"
+        }
+      },
+      {
+        "edgeRole": "selected-result",
+        "artifact": {
+          "role": "execution-attempt-result",
+          "digest": "66fbc9c90f7a0eee2a47ec015951d230ab38b201d8178c79af514159f299414f"
+        }
+      },
+      {
+        "edgeRole": "selected-cache-record",
+        "artifact": {
+          "role": "cache-record",
+          "digest": "b013379178a2cb1e6273258cfa7277db86091ede5f1115a6d50078b2f660ef50"
+        }
+      },
+      {
+        "edgeRole": "selected-result",
+        "artifact": {
+          "role": "oracle-comparison-production-result",
+          "digest": "4857154d4006c4091c2f1b4285e31fd5e553c3ac0f42200e466949a8bde5cfa6"
+        }
+      }
+    ],
+    "childReceipts": [
+      {
+        "edgeRole": "materialization-production",
+        "receipt": {
+          "role": "operation-receipt",
+          "digest": "7218a61774c49f6895d835db579379e2ef73b40c112cf9c82fa339b6c5eada50"
+        }
+      },
+      {
+        "edgeRole": "selected-record-production",
+        "receipt": {
+          "role": "operation-receipt",
+          "digest": "a40c6f33392d85ffe60690ef24bb32676edf1589a34c62cf51cd76c0c4c17b4d"
+        }
+      },
+      {
+        "edgeRole": "selected-record-production",
+        "receipt": {
+          "role": "operation-receipt",
+          "digest": "d35629386231fb8abd08336730cb7f31edfdd7975bd505d37c7a56b9060c014f"
+        }
+      },
+      {
+        "edgeRole": "selected-record-production",
+        "receipt": {
+          "role": "operation-receipt",
+          "digest": "7b902bdf4e1c5d5d324ba0eb0ba6c5f0ce6825d253f3db55e79a110e2b72ba83"
+        }
+      },
+      {
+        "edgeRole": "selected-record-production",
+        "receipt": {
+          "role": "operation-receipt",
+          "digest": "4973c4afded001fd53e850f21804d8a353858e8af9e751e26b322032a6251b9a"
+        }
+      },
+      {
+        "edgeRole": "selected-record-production",
+        "receipt": {
+          "role": "operation-receipt",
+          "digest": "cdc06b66db2f2490079f0934540dd7e04b44cf4a990a05e078222d68d6fca404"
+        }
+      },
+      {
+        "edgeRole": "selected-record-production",
+        "receipt": {
+          "role": "operation-receipt",
+          "digest": "972e83349a21a131f1c29b1ed49df92e15e59839e3fab1d708bb54df423e8b1a"
+        }
+      },
+      {
+        "edgeRole": "selected-record-production",
+        "receipt": {
+          "role": "operation-receipt",
+          "digest": "a92970403fc8725887d09127bf4549a84d56bdc0e7f32d87f4de0815d9c3dddc"
+        }
+      }
+    ],
+    "outputRoles": [
+      "campaign-derivation-result"
+    ]
+  },
+  "producer": {
+    "producerId": "bag15-deterministic-python",
+    "producerVersion": 1,
+    "executionConformance": "finite-vector-proven"
+  },
+  "producerStatus": "complete",
+  "outputs": [
+    {
+      "edgeRole": "campaign-derivation-result",
+      "artifact": {
+        "role": "campaign-derivation-result",
+        "digest": "4a6d0a535abf6da5cfe01468bf270145a87aaacad3103fa83f4ecf96622f0a01"
+      }
+    }
+  ],
+  "semanticTerminal": {
+    "kind": "derived",
+    "campaignInvocation": {
+      "digest": "b4383b935391259bb9f36554f0dfb57b230a8afeaebd398589a0916a1318b090",
+      "role": "cache-campaign-invocation"
+    },
+    "scheduleMode": "first-kill",
+    "selectedRecords": [
+      {
+        "slotId": "baseline-execution-t1",
+        "recordId": "9632e3e25c05a5c0086a72c4cfbe2700a0b29d12a13802fa7c4b5074dd417b2a"
+      },
+      {
+        "slotId": "baseline-gate-t1-o0",
+        "recordId": "e60a0dba69099caecd366c636e4d41d4577b8193ec218c3b416b442e659663de"
+      },
+      {
+        "slotId": "baseline-gate-t1-o1",
+        "recordId": "f9db32022c551efb5e012eda37a9823c83408cf87d7094179f684069c460958f"
+      },
+      {
+        "slotId": "baseline-execution-t2",
+        "recordId": "5cd77fb0469de61e8c70b18457fb177e667ec582f15f1bf707b3654ff6d61c3c"
+      },
+      {
+        "slotId": "baseline-gate-t2-o0",
+        "recordId": "41b14168ef67439be758fc6ee67eb974bbb6f53664e1680899c499e038633c25"
+      },
+      {
+        "slotId": "mutant-execution-t1",
+        "recordId": "e06f2c540c45824d0bde3bc1655dfbd59124a969e90f70b2a24df43a27295521"
+      },
+      {
+        "slotId": "mutant-comparison-t1-o0",
+        "recordId": "b013379178a2cb1e6273258cfa7277db86091ede5f1115a6d50078b2f660ef50"
+      }
+    ],
+    "testStatuses": [
+      {
+        "slotId": "baseline-execution-t1",
+        "status": "executed"
+      },
+      {
+        "slotId": "baseline-gate-t1-o0",
+        "status": "accepted"
+      },
+      {
+        "slotId": "baseline-gate-t1-o1",
+        "status": "accepted"
+      },
+      {
+        "slotId": "baseline-execution-t2",
+        "status": "executed"
+      },
+      {
+        "slotId": "baseline-gate-t2-o0",
+        "status": "accepted"
+      },
+      {
+        "slotId": "mutant-execution-t1",
+        "status": "executed"
+      },
+      {
+        "slotId": "mutant-comparison-t1-o0",
+        "status": "kill"
+      },
+      {
+        "slotId": "mutant-comparison-t1-o1",
+        "status": "skipped"
+      },
+      {
+        "slotId": "mutant-execution-t2",
+        "status": "skipped"
+      },
+      {
+        "slotId": "mutant-comparison-t2-o0",
+        "status": "skipped"
+      }
+    ],
+    "scheduledButUnexecuted": [
+      "mutant-comparison-t1-o1",
+      "mutant-execution-t2",
+      "mutant-comparison-t2-o0"
+    ],
+    "exclusions": {
+      "error": 0,
+      "timeout": 0,
+      "unknown": 0
+    },
+    "score": {
+      "denominator": 1,
+      "killed": 1,
+      "ratio": {
+        "denominator": 1,
+        "numerator": 1
+      },
+      "survived": 0
+    },
+    "campaignStatus": "complete"
+  },
+  "failure": null
+}

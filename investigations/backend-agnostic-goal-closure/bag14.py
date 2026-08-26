@@ -269,6 +269,14 @@ def cache_record_schema() -> dict[str, Any]:
         ["mode", "receipt", "result"],
         {"mode": {"const": "operation-receipt"}, "receipt": typed_key("operation-receipt"), "result": typed_key("execution-attempt-result")},
     )
+    admission_receipt_production_schema = obj(
+        ["mode", "receipt", "result"],
+        {"mode": {"const": "operation-receipt"}, "receipt": typed_key("operation-receipt"), "result": typed_key("baseline-admission-result")},
+    )
+    comparison_receipt_production_schema = obj(
+        ["mode", "receipt", "result"],
+        {"mode": {"const": "operation-receipt"}, "receipt": typed_key("operation-receipt"), "result": typed_key("oracle-comparison-production-result")},
+    )
     common = {
         "schemaVersion": {"const": 1}, "recordId": DIGEST_REF, "keyDigest": DIGEST_REF,
         "producedArtifacts": array(ARTIFACT_REF, unique=True), "completion": completion,
@@ -281,7 +289,10 @@ def cache_record_schema() -> dict[str, Any]:
     )
     oracle = obj(
         ["schemaVersion", "recordId", "kind", "keyDigest", "key", "terminalRecord", "producedArtifacts", "completion", "reuseClass", "productionEvidence"],
-        {**common, "kind": {"const": "oracle-evaluation"}, "key": oracle_key_schema(), "terminalRecord": terminals["oracle"]},
+        {
+            **common, "kind": {"const": "oracle-evaluation"}, "key": oracle_key_schema(), "terminalRecord": terminals["oracle"],
+            "productionEvidence": {"oneOf": [finite_production_schema, admission_receipt_production_schema, comparison_receipt_production_schema]},
+        },
     )
     return {"oneOf": [execution, oracle]}
 
@@ -346,6 +357,7 @@ def report_schema() -> dict[str, Any]:
 
 
 def cache_schema() -> dict[str, Any]:
+    terminals = terminal_record_schema()
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/cache-semantics.schema.json",
@@ -354,6 +366,7 @@ def cache_schema() -> dict[str, Any]:
         "$defs": {
             "isolationPolicy": isolation_schema(), "executionAttemptKey": execution_key_schema(),
             "oracleEvaluationKey": oracle_key_schema(), "cacheRecord": cache_record_schema(),
+            "executionTerminalRecord": terminals["execution"], "oracleTerminalRecord": terminals["oracle"],
             "campaignManifest": manifest_schema(), "campaignInvocation": campaign_invocation_schema(),
             "mutationReport": report_schema(),
         },
@@ -1805,7 +1818,15 @@ class CacheVerifier:
     def derived_outputs(self, record: dict[str, Any]) -> list[dict[str, str]]:
         terminal = record["terminalRecord"]
         if record["kind"] == "execution-attempt":
-            expected_terminal, expected_outputs = self.derive_execution_result(record["key"], record["productionEvidence"]["vectorId"])
+            vector_id = record["productionEvidence"].get("vectorId")
+            if vector_id is None:
+                vector_id = {
+                    1: "bag14.execution-terminal.v1",
+                    2: "bag14.exact-bounded-stop.v1",
+                    3: "bag14.diagnostic-failure.v1",
+                }.get(record["key"]["operation"]["operationVersion"])
+            self.ok(vector_id is not None, "BAG-14 execution operation version has no reviewed semantic derivation")
+            expected_terminal, expected_outputs = self.derive_execution_result(record["key"], vector_id)
             self.ok(terminal == expected_terminal, "BAG-14 execution terminal is not independently derived from its cycle-free request key")
             return expected_outputs
         if terminal["kind"] in {"bounded-stop", "bounded-unknown", "diagnostic-only"}:
@@ -1829,9 +1850,22 @@ class CacheVerifier:
         production = record["productionEvidence"]
         if production["mode"] == "operation-receipt":
             validator = self.api.get("validate_operation_receipt_production")
-            self.ok(record["kind"] == "execution-attempt" and validator is not None, "BAG-14 operation-receipt production lacks BAG-15 authority")
+            self.ok(validator is not None, "BAG-14 operation-receipt production lacks BAG-15 authority")
             validator(record, production)
-            self.ok(record["producedArtifacts"] == self.derived_outputs(record), "BAG-14 receipt-produced execution outputs differ from independently derived key result")
+            self.ok(record["producedArtifacts"] == self.derived_outputs(record), "BAG-14 receipt-produced outputs differ from independently derived key result")
+            for artifact in record["producedArtifacts"]:
+                self.resolve(artifact)
+            self.ok(record["completion"]["producerStatus"] == "complete" and record["completion"]["materialClosure"] == "repo-complete", "BAG-14 receipt publication lacks positive producer/material completion")
+            expected_class, expected_reuse = self.derived_reuse(record)
+            self.ok(record["completion"]["evidenceClass"] == expected_class and record["reuseClass"] == expected_reuse, "BAG-14 receipt completion/reuse class was trusted rather than derived")
+            self.ok(record["completion"]["executionConformance"] == "finite-vector-proven", "BAG-14 receipt evidence is not finite-vector-proven")
+            terminal = record["terminalRecord"]
+            if terminal["kind"] == "bounded-stop":
+                test = self.test_by_digest(record["key"]["testInvocationDigest"])
+                self.ok(terminal["boundsDigest"] == digest("k-in-k/bounds/v1", test["bounds"]), "BAG-14 receipt bounded result was reused under different bounds")
+            if record["kind"] == "oracle-evaluation" and terminal["kind"] in {"baseline-gate", "comparison"}:
+                result = self.resolve(terminal["result"])
+                self.ok(result["declaration"] == record["key"]["declaration"], "BAG-14 receipt oracle output belongs to another declaration")
             return
         self.ok(production["mode"] == "finite-vector" and production["vectorId"] in self.vector["finiteVectorRegistry"], "BAG-14 unregistered/fabricated production evidence")
         specification = self.vector["finiteVectorRegistry"][production["vectorId"]]

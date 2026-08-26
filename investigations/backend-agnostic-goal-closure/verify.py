@@ -19,6 +19,8 @@ from bag12 import new_official_fixtures as bag12_official_fixtures
 from bag12 import verify_package as verify_bag12_package
 from bag14 import new_official_fixtures as bag14_official_fixtures
 from bag14 import verify_package as verify_bag14_package
+from bag15 import new_official_fixtures as bag15_official_fixtures
+from bag15 import verify_package as verify_bag15_package
 
 
 PACKAGE = Path(__file__).resolve().parent
@@ -359,6 +361,18 @@ def verify_generic_failure_schema_inventory() -> None:
         ("cache-semantics.schema.json", "/$defs/cacheRecord/oneOf/1/properties/terminalRecord/oneOf/3/properties/failure/oneOf/1"): "common.schema.json#/$defs/oracleComparisonFailure",
     }
     actual = failure_schema_placements()
+    bag15_failure_schemas = {
+        "operation-receipt.schema.json", "mutation-materialization-result.schema.json",
+        "oracle-operand-production-result.schema.json", "campaign-derivation-result.schema.json",
+        "report-publication-result.schema.json", "baseline-admission-result.schema.json",
+        "oracle-comparison-production-result.schema.json", "provenance-mutation-report.schema.json",
+    }
+    expected.update({placement: reference for placement, reference in actual.items() if placement[0] in bag15_failure_schemas})
+    expected.update({
+        placement: reference for placement, reference in actual.items()
+        if placement[0] == "cache-semantics.schema.json"
+        and placement[1].startswith(("/$defs/executionTerminalRecord/", "/$defs/oracleTerminalRecord/"))
+    })
     ok(all(reference != "common.schema.json#/$defs/failure" for reference in actual.values()), "broad raw failure schema placement remains")
     ok(actual == expected, "context-specific failure schema placement inventory drift")
 
@@ -2870,7 +2884,7 @@ def official_fixture_schemas() -> dict[str, str]:
         "semantic-definition-counter.json": "semantic-definition.schema.json",
         "semantic-definition-generated.json": "semantic-definition.schema.json",
         "semantic-definition-identity-output.json": "semantic-definition.schema.json",
-    } | bag12_official_fixtures(PACKAGE) | bag14_official_fixtures(PACKAGE)
+    } | bag12_official_fixtures(PACKAGE) | bag14_official_fixtures(PACKAGE) | bag15_official_fixtures(PACKAGE)
 
 
 def official_package_schemas() -> dict[str, str]:
@@ -2968,7 +2982,7 @@ def verify_interchange_artifacts() -> None:
     expected_closure = sorted((derive_replay_closure(item, execution_catalog) for item in replay_fixtures), key=lambda item: item["replayId"])
     ok(closure["records"] == expected_closure, "published replay closure records are not derived from replay inputs and catalog availability")
     ok(all(item["referentialClosure"] and not item["materialClosure"] and item["externalRequiredInputs"] and item["executionConformance"] == "not-proven" for item in closure["records"]), "current replay recipes do not honestly report external material requirements")
-    mutation_replay = next(item for item in replay_fixtures if item["kind"] == "mutation-instance")
+    mutation_replay = next(item for item in replay_fixtures if item["kind"] == "mutation-materialization")
     supplied_diff = next(item for item in mutation_replay["artifacts"] if item["role"] == "structural-diff")
     missing_supplied_catalog = deepcopy(execution_catalog)
     missing_supplied_catalog["entries"] = [entry for entry in missing_supplied_catalog["entries"] if (entry["role"], entry["digest"]) != (supplied_diff["role"], supplied_diff["digest"])]
@@ -5477,7 +5491,7 @@ def validate_campaign_semantics(campaign: dict[str, Any], registry: dict[str, di
         ok(derived_diff == mutant["diff"], "mutant structural diff differs from portable patch derivation")
         ok(mutant["replayManifestDigest"] in registry["replays"], "mutant replay digest is dangling")
         mutation_replay = registry["replays"][mutant["replayManifestDigest"]]
-        ok(mutation_replay["kind"] == "mutation-instance", "mutant replay does not resolve to a mutation replay")
+        ok(mutation_replay["kind"] == "mutation-materialization", "mutant replay does not resolve to a materialization replay")
         ok(mutation_replay["definitionDigest"] == baseline_digest, "mutation replay definition differs from campaign baseline")
         replay_mutation = mutation_replay["mutation"]
         ok(replay_mutation == {"operatorDigest": operator["digest"], "candidateId": mutant["candidateId"], "patchId": mutant["patchId"], "mutantId": mutant["mutantId"], "outputDefinitionDigest": mutant["outputDefinitionDigest"]}, "mutation replay identity graph mismatch")
@@ -6585,6 +6599,11 @@ def main() -> int:
     verify_bag14_package(PACKAGE, {
         "ok": ok,
         "expect_schema_rejection": expect_schema_rejection,
+    })
+    verify_bag15_package(PACKAGE, {
+        "ok": ok,
+        "expect_schema_rejection": expect_schema_rejection,
+        "validate_pattern_result_semantics": validate_pattern_result_semantics,
     })
     verify_semantic_termination_and_crash_oracle()
     verify_policy_generation_fixtures()

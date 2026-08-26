@@ -2,6 +2,17 @@
   "schemaVersion": 1,
   "specs": [
     {
+      "role": "baseline-admission-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "baseline-admission-result.schema.json",
+      "digestDomain": "k-in-k/baseline-admission-result/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "resultId"
+    },
+    {
       "role": "baseline-oracle-gate-result",
       "contentModel": "canonical-json",
       "mediaType": "application/json",
@@ -57,6 +68,17 @@
       "selfIdField": "recordId"
     },
     {
+      "role": "campaign-derivation-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "campaign-derivation-result.schema.json",
+      "digestDomain": "k-in-k/campaign-derivation-result/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "resultId"
+    },
+    {
       "role": "compatibility-profile",
       "contentModel": "canonical-json",
       "mediaType": "application/json",
@@ -99,6 +121,17 @@
         "kind": "complete"
       },
       "selfIdField": null
+    },
+    {
+      "role": "execution-attempt-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "execution-attempt-result.schema.json",
+      "digestDomain": "k-in-k/execution-attempt-result/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "resultId"
     },
     {
       "role": "execution-profile",
@@ -189,6 +222,17 @@
       "selfIdField": "joinDigest"
     },
     {
+      "role": "mutation-materialization-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "mutation-materialization-result.schema.json",
+      "digestDomain": "k-in-k/mutation-materialization-result/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "resultId"
+    },
+    {
       "role": "mutation-module",
       "contentModel": "opaque-bytes",
       "mediaType": "application/octet-stream",
@@ -256,6 +300,17 @@
       "selfIdField": null
     },
     {
+      "role": "operation-receipt",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "operation-receipt.schema.json",
+      "digestDomain": "k-in-k/operation-receipt/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "receiptId"
+    },
+    {
       "role": "options",
       "contentModel": "opaque-bytes",
       "mediaType": "application/octet-stream",
@@ -276,6 +331,17 @@
         "kind": "opaque-envelope"
       },
       "selfIdField": null
+    },
+    {
+      "role": "oracle-comparison-production-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "oracle-comparison-production-result.schema.json",
+      "digestDomain": "k-in-k/oracle-comparison-production-result/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "resultId"
     },
     {
       "role": "oracle-comparison-result",
@@ -342,6 +408,17 @@
         "kind": "without-field"
       },
       "selfIdField": "operandId"
+    },
+    {
+      "role": "oracle-operand-production-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "oracle-operand-production-result.schema.json",
+      "digestDomain": "k-in-k/oracle-operand-production-result/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "resultId"
     },
     {
       "role": "oracle-projection",
@@ -579,6 +656,17 @@
       "selfIdField": null
     },
     {
+      "role": "provenance-mutation-report",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "provenance-mutation-report.schema.json",
+      "digestDomain": "k-in-k/provenance-mutation-report/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "reportId"
+    },
+    {
       "role": "reachability-conformance-table",
       "contentModel": "canonical-json",
       "mediaType": "application/json",
@@ -643,6 +731,28 @@
         "kind": "without-field"
       },
       "selfIdField": "replayId"
+    },
+    {
+      "role": "replay-version-registry",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "replay-version-registry.schema.json",
+      "digestDomain": "k-in-k/replay-version-registry/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "registryId"
+    },
+    {
+      "role": "report-publication-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "schema": "report-publication-result.schema.json",
+      "digestDomain": "k-in-k/report-publication-result/v1",
+      "projection": {
+        "kind": "without-field"
+      },
+      "selfIdField": "resultId"
     },
     {
       "role": "semantic-crash",

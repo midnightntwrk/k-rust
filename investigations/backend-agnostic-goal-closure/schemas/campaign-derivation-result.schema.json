@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/campaign-derivation-result.schema.json",
+  "title": "Portable campaign-derivation-result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "resultId",
+    "invocationDigest",
+    "outcome",
+    "failure"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "resultId": {
+      "$ref": "common.schema.json#/$defs/digest"
+    },
+    "invocationDigest": {
+      "$ref": "common.schema.json#/$defs/digest"
+    },
+    "outcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "campaignInvocation",
+            "scheduleMode",
+            "selectedRecords",
+            "testStatuses",
+            "scheduledButUnexecuted",
+            "exclusions",
+            "score",
+            "campaignStatus"
+          ],
+          "properties": {
+            "kind": {
+              "const": "derived"
+            },
+            "campaignInvocation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "digest"
+              ],
+              "properties": {
+                "role": {
+                  "const": "cache-campaign-invocation"
+                },
+                "digest": {
+                  "$ref": "common.schema.json#/$defs/digest"
+                }
+              }
+            },
+            "scheduleMode": {
+              "enum": [
+                "first-kill",
+                "full"
+              ]
+            },
+            "selectedRecords": {
+              "$ref": "cache-semantics.schema.json#/$defs/mutationReport/properties/selectedRecords"
+            },
+            "testStatuses": {
+              "$ref": "cache-semantics.schema.json#/$defs/mutationReport/properties/testStatuses"
+            },
+            "scheduledButUnexecuted": {
+              "$ref": "cache-semantics.schema.json#/$defs/mutationReport/properties/scheduledButUnexecuted"
+            },
+            "exclusions": {
+              "$ref": "cache-semantics.schema.json#/$defs/mutationReport/properties/exclusions"
+            },
+            "score": {
+              "$ref": "cache-semantics.schema.json#/$defs/mutationReport/properties/score"
+            },
+            "campaignStatus": {
+              "const": "complete"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "failure"
+          ],
+          "properties": {
+            "kind": {
+              "const": "failure"
+            },
+            "failure": {
+              "$ref": "common.schema.json#/$defs/campaignFailure"
+            }
+          }
+        }
+      ]
+    },
+    "failure": {
+      "oneOf": [
+        {
+          "$ref": "common.schema.json#/$defs/campaignFailure"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}

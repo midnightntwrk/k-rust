@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "890a85ffee305b08a8ad2a52c33aa2fe85249dd79f847ddb3051294105caca0e",
+  "invocationDigest": "dfdc6363463636714aee8c0c7b01183f25c5228cc1ff6326ab56525c6fdee865",
+  "invocation": {
+    "schemaVersion": 1,
+    "invocationDigest": "dfdc6363463636714aee8c0c7b01183f25c5228cc1ff6326ab56525c6fdee865",
+    "operationKind": "report-publication",
+    "operationVersion": 1,
+    "adapterContract": {
+      "adapterId": "bag15-portable-finite",
+      "adapterVersion": 1
+    },
+    "parameters": {
+      "derivationResult": {
+        "role": "campaign-derivation-result",
+        "digest": "c74a39a9e5cf0b9a70a028a462480dd3bab40d1755343493813e7ed68b3d104b"
+      },
+      "derivationReceipt": {
+        "role": "operation-receipt",
+        "digest": "6c226f967c176223f0ad3043c1e7c4b7a5e44f30b5050a1041a17250a716c4c3"
+      },
+      "versionRegistry": {
+        "role": "replay-version-registry",
+        "digest": "4445cd71e7e61d755a67cfa7cca13f2c1ec00504f76dcf32eb64e6e88a26cbf7"
+      },
+      "reportRole": "provenance-mutation-report",
+      "reportVersion": 1
+    },
+    "inputs": [
+      {
+        "edgeRole": "derivation-result",
+        "artifact": {
+          "role": "campaign-derivation-result",
+          "digest": "c74a39a9e5cf0b9a70a028a462480dd3bab40d1755343493813e7ed68b3d104b"
+        }
+      },
+      {
+        "edgeRole": "version-registry",
+        "artifact": {
+          "role": "replay-version-registry",
+          "digest": "4445cd71e7e61d755a67cfa7cca13f2c1ec00504f76dcf32eb64e6e88a26cbf7"
+        }
+      }
+    ],
+    "childReceipts": [
+      {
+        "edgeRole": "derivation-production",
+        "receipt": {
+          "role": "operation-receipt",
+          "digest": "6c226f967c176223f0ad3043c1e7c4b7a5e44f30b5050a1041a17250a716c4c3"
+        }
+      }
+    ],
+    "outputRoles": [
+      "report-publication-result"
+    ]
+  },
+  "producer": {
+    "producerId": "bag15-deterministic-python",
+    "producerVersion": 1,
+    "executionConformance": "finite-vector-proven"
+  },
+  "producerStatus": "complete",
+  "outputs": [
+    {
+      "edgeRole": "report-publication-result",
+      "artifact": {
+        "role": "report-publication-result",
+        "digest": "961c664bbf61b28a6afd925fb60d39deb5acb1f0e0db11620cd06e74faed5d39"
+      }
+    }
+  ],
+  "semanticTerminal": {
+    "kind": "published",
+    "report": {
+      "role": "provenance-mutation-report",
+      "digest": "7283d34a9f5370d96e2d4757762a0d4f9c0c6fc3418f72a2954b9db9f538703d"
+    }
+  },
+  "failure": null
+}

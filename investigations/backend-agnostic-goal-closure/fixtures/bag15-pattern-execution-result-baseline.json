@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "resultId": "33644e18f2804a531c3f88f9942a44eb9b2b765a3f1c745c549dab87834931c5",
+  "invocationDigest": "b7c0eb2972737812184f4f369b4708cbe0d5194a28995b8869e9ebef9086253e",
+  "keyDigest": "89cb191ec1933f82bfe400a2bbf87338f8594fdeca716b05b3d8ce9c9b40f4d0",
+  "terminalRecord": {
+    "kind": "normal",
+    "terminal": {
+      "role": "terminal-state",
+      "digest": "00958626001fc0db84da9145e7d654b51eba797f406aeab94ceb4d30237dc3fb"
+    }
+  },
+  "producedArtifacts": [
+    {
+      "role": "terminal-state",
+      "digest": "00958626001fc0db84da9145e7d654b51eba797f406aeab94ceb4d30237dc3fb"
+    },
+    {
+      "role": "event-trace",
+      "digest": "07ba18a0af4485328f2bed376b32d673c73e7b7e86cf312ce4829fa4eb9b836e"
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "70f6908a4f5ae323ec660ee81c22e8f6e647467969e416459db8d554c8c57d69",
+  "invocationDigest": "7acc43466711216af4363ce4bc5df16acd3b63aa6ec97e2cbd953c99523015bf",
+  "invocation": {
+    "schemaVersion": 1,
+    "invocationDigest": "7acc43466711216af4363ce4bc5df16acd3b63aa6ec97e2cbd953c99523015bf",
+    "operationKind": "oracle-operand-production",
+    "operationVersion": 1,
+    "adapterContract": {
+      "adapterId": "bag15-portable-finite",
+      "adapterVersion": 1
+    },
+    "parameters": {
+      "declaration": {
+        "role": "oracle-declaration",
+        "digest": "65ae3e3c775dc834554e9d681c442a6ecf8351948a0028402951464e27a1e173"
+      },
+      "side": "baseline",
+      "subject": {
+        "side": "baseline",
+        "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4"
+      },
+      "executionKeyDigest": "89cb191ec1933f82bfe400a2bbf87338f8594fdeca716b05b3d8ce9c9b40f4d0",
+      "executionInvocationDigest": "b7c0eb2972737812184f4f369b4708cbe0d5194a28995b8869e9ebef9086253e",
+      "projectionId": "pattern-outcome-v1",
+      "evaluator": {
+        "evaluatorId": "bag12-portable-execution-pattern",
+        "evaluatorVersion": 1
+      }
+    },
+    "inputs": [
+      {
+        "edgeRole": "declaration",
+        "artifact": {
+          "role": "oracle-declaration",
+          "digest": "65ae3e3c775dc834554e9d681c442a6ecf8351948a0028402951464e27a1e173"
+        }
+      },
+      {
+        "edgeRole": "execution-result",
+        "artifact": {
+          "role": "execution-attempt-result",
+          "digest": "33644e18f2804a531c3f88f9942a44eb9b2b765a3f1c745c549dab87834931c5"
+        }
+      },
+      {
+        "edgeRole": "execution-terminal",
+        "artifact": {
+          "role": "terminal-state",
+          "digest": "00958626001fc0db84da9145e7d654b51eba797f406aeab94ceb4d30237dc3fb"
+        }
+      },
+      {
+        "edgeRole": "producer-trace",
+        "artifact": {
+          "role": "event-trace",
+          "digest": "07ba18a0af4485328f2bed376b32d673c73e7b7e86cf312ce4829fa4eb9b836e"
+        }
+      },
+      {
+        "edgeRole": "pattern-replay",
+        "artifact": {
+          "role": "replay-manifest",
+          "digest": "8770297c3413d1018588be2842d3ee94682335baf5f354b4863bdbb17cd74a88"
+        }
+      },
+      {
+        "edgeRole": "pattern-result",
+        "artifact": {
+          "role": "pattern-result",
+          "digest": "aac87910a5a197d239b2023126587b68745a040a5ae6e798cc120e6870653adc"
+        }
+      }
+    ],
+    "childReceipts": [
+      {
+        "edgeRole": "execution-production",
+        "receipt": {
+          "role": "operation-receipt",
+          "digest": "69d6df1e09ebf44f7584ebb3d0f70124447277f5f9ed716491d288f244144abe"
+        }
+      }
+    ],
+    "outputRoles": [
+      "oracle-operand-production-result"
+    ]
+  },
+  "producer": {
+    "producerId": "bag15-deterministic-python",
+    "producerVersion": 1,
+    "executionConformance": "finite-vector-proven"
+  },
+  "producerStatus": "complete",
+  "outputs": [
+    {
+      "edgeRole": "oracle-operand-production-result",
+      "artifact": {
+        "role": "oracle-operand-production-result",
+        "digest": "c4a5650907b7d6d18a060d59e4936c0e992c95f1e78b4d6bf28093d60198695e"
+      }
+    }
+  ],
+  "semanticTerminal": {
+    "kind": "operand",
+    "operand": {
+      "role": "oracle-operand",
+      "digest": "39c3187f627e23e70256268c2e788129fa4c34150a4750d7377b1702dffd6b4c"
+    }
+  },
+  "failure": null
+}

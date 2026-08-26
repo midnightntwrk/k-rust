@@ -902,33 +902,83 @@
               ]
             },
             "productionEvidence": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "mode",
-                "vectorId",
-                "inputDigest",
-                "outputKeys"
-              ],
-              "properties": {
-                "mode": {
-                  "const": "finite-vector"
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "mode",
+                    "vectorId",
+                    "inputDigest",
+                    "outputKeys"
+                  ],
+                  "properties": {
+                    "mode": {
+                      "const": "finite-vector"
+                    },
+                    "vectorId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "inputDigest": {
+                      "$ref": "common.schema.json#/$defs/digest"
+                    },
+                    "outputKeys": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "common.schema.json#/$defs/artifactKey"
+                      },
+                      "uniqueItems": true
+                    }
+                  }
                 },
-                "vectorId": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "inputDigest": {
-                  "$ref": "common.schema.json#/$defs/digest"
-                },
-                "outputKeys": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "common.schema.json#/$defs/artifactKey"
-                  },
-                  "uniqueItems": true
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "mode",
+                    "receipt",
+                    "result"
+                  ],
+                  "properties": {
+                    "mode": {
+                      "const": "operation-receipt"
+                    },
+                    "receipt": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "role",
+                        "digest"
+                      ],
+                      "properties": {
+                        "role": {
+                          "const": "operation-receipt"
+                        },
+                        "digest": {
+                          "$ref": "common.schema.json#/$defs/digest"
+                        }
+                      }
+                    },
+                    "result": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "role",
+                        "digest"
+                      ],
+                      "properties": {
+                        "role": {
+                          "const": "execution-attempt-result"
+                        },
+                        "digest": {
+                          "$ref": "common.schema.json#/$defs/digest"
+                        }
+                      }
+                    }
+                  }
                 }
-              }
+              ]
             },
             "kind": {
               "const": "execution-attempt"
@@ -1473,33 +1523,129 @@
               ]
             },
             "productionEvidence": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "mode",
-                "vectorId",
-                "inputDigest",
-                "outputKeys"
-              ],
-              "properties": {
-                "mode": {
-                  "const": "finite-vector"
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "mode",
+                    "vectorId",
+                    "inputDigest",
+                    "outputKeys"
+                  ],
+                  "properties": {
+                    "mode": {
+                      "const": "finite-vector"
+                    },
+                    "vectorId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "inputDigest": {
+                      "$ref": "common.schema.json#/$defs/digest"
+                    },
+                    "outputKeys": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "common.schema.json#/$defs/artifactKey"
+                      },
+                      "uniqueItems": true
+                    }
+                  }
                 },
-                "vectorId": {
-                  "type": "string",
-                  "minLength": 1
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "mode",
+                    "receipt",
+                    "result"
+                  ],
+                  "properties": {
+                    "mode": {
+                      "const": "operation-receipt"
+                    },
+                    "receipt": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "role",
+                        "digest"
+                      ],
+                      "properties": {
+                        "role": {
+                          "const": "operation-receipt"
+                        },
+                        "digest": {
+                          "$ref": "common.schema.json#/$defs/digest"
+                        }
+                      }
+                    },
+                    "result": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "role",
+                        "digest"
+                      ],
+                      "properties": {
+                        "role": {
+                          "const": "baseline-admission-result"
+                        },
+                        "digest": {
+                          "$ref": "common.schema.json#/$defs/digest"
+                        }
+                      }
+                    }
+                  }
                 },
-                "inputDigest": {
-                  "$ref": "common.schema.json#/$defs/digest"
-                },
-                "outputKeys": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "common.schema.json#/$defs/artifactKey"
-                  },
-                  "uniqueItems": true
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "mode",
+                    "receipt",
+                    "result"
+                  ],
+                  "properties": {
+                    "mode": {
+                      "const": "operation-receipt"
+                    },
+                    "receipt": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "role",
+                        "digest"
+                      ],
+                      "properties": {
+                        "role": {
+                          "const": "operation-receipt"
+                        },
+                        "digest": {
+                          "$ref": "common.schema.json#/$defs/digest"
+                        }
+                      }
+                    },
+                    "result": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "role",
+                        "digest"
+                      ],
+                      "properties": {
+                        "role": {
+                          "const": "oracle-comparison-production-result"
+                        },
+                        "digest": {
+                          "$ref": "common.schema.json#/$defs/digest"
+                        }
+                      }
+                    }
+                  }
                 }
-              }
+              ]
             },
             "kind": {
               "const": "oracle-evaluation"
@@ -2054,6 +2200,252 @@
                       ]
                     }
                   }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "executionTerminalRecord": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "terminal"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "normal",
+                "stuck"
+              ]
+            },
+            "terminal": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "digest"
+              ],
+              "properties": {
+                "role": {
+                  "const": "terminal-state"
+                },
+                "digest": {
+                  "$ref": "common.schema.json#/$defs/digest"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "crash"
+          ],
+          "properties": {
+            "kind": {
+              "const": "semantic-crash"
+            },
+            "crash": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "digest"
+              ],
+              "properties": {
+                "role": {
+                  "const": "semantic-crash"
+                },
+                "digest": {
+                  "$ref": "common.schema.json#/$defs/digest"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "classification",
+            "boundsDigest",
+            "failure"
+          ],
+          "properties": {
+            "kind": {
+              "const": "bounded-stop"
+            },
+            "classification": {
+              "enum": [
+                "depth-limit",
+                "time-limit",
+                "branch-limit",
+                "result-limit",
+                "resource-limit",
+                "solver-unknown"
+              ]
+            },
+            "boundsDigest": {
+              "$ref": "common.schema.json#/$defs/digest"
+            },
+            "failure": {
+              "oneOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/baselineExecutionFailure"
+                },
+                {
+                  "$ref": "common.schema.json#/$defs/mutantExecutionFailure"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "failure"
+          ],
+          "properties": {
+            "kind": {
+              "const": "diagnostic-only"
+            },
+            "failure": {
+              "oneOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/baselineExecutionFailure"
+                },
+                {
+                  "$ref": "common.schema.json#/$defs/mutantExecutionFailure"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "oracleTerminalRecord": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "result"
+          ],
+          "properties": {
+            "kind": {
+              "const": "baseline-gate"
+            },
+            "result": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "digest"
+              ],
+              "properties": {
+                "role": {
+                  "const": "baseline-oracle-gate-result"
+                },
+                "digest": {
+                  "$ref": "common.schema.json#/$defs/digest"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "result"
+          ],
+          "properties": {
+            "kind": {
+              "const": "comparison"
+            },
+            "result": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "digest"
+              ],
+              "properties": {
+                "role": {
+                  "const": "oracle-comparison-result"
+                },
+                "digest": {
+                  "$ref": "common.schema.json#/$defs/digest"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "classification",
+            "failure"
+          ],
+          "properties": {
+            "kind": {
+              "const": "bounded-unknown"
+            },
+            "classification": {
+              "enum": [
+                "time-limit",
+                "depth-limit",
+                "branch-limit",
+                "result-limit",
+                "resource-limit",
+                "solver-unknown",
+                "evaluator-unavailable"
+              ]
+            },
+            "failure": {
+              "oneOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/oracleOperandProductionFailure"
+                },
+                {
+                  "$ref": "common.schema.json#/$defs/oracleComparisonFailure"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "failure"
+          ],
+          "properties": {
+            "kind": {
+              "const": "diagnostic-only"
+            },
+            "failure": {
+              "oneOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/oracleOperandProductionFailure"
+                },
+                {
+                  "$ref": "common.schema.json#/$defs/oracleComparisonFailure"
                 }
               ]
             }

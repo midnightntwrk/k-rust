@@ -3,6 +3,7 @@
 Status: refreshed BAG-11 witness-order and complete-denotation coverage and BAG-12 typed-oracle and inline-expectation integrity are independently accepted.
 BAG-13 rejection findings remain repaired.
 BAG-14 per-attempt cache implementation and portable evidence were independently accepted after two finding-driven repair rounds, 26 August 2026.
+BAG-15 operation receipts, fixed result wrappers, exact replay DAGs, and recursive version provenance were independently accepted after two finding-driven implementation repair rounds, 26 August 2026.
 
 This audit closes only work whose result can remain valid across execution
 backends. It does not treat a Python fixture oracle as implementation evidence
@@ -108,6 +109,11 @@ semantics.
   Same-key differences cover terminal, outputs, completion, and production provenance and require quarantine.
   `fixtures/bag14-cache-artifact-catalog.json`, bound by the vector's `artifactCatalogDigest`, is an evidence-local derivative resolver snapshot rather than a relabelling of BAG-12's historical `external-required` graph.
   Rust still owns real store atomicity, locking, resolver availability, conflict remediation, resource isolation, and native BAG-15 production receipts.
+- BAG-15 closes portable invocation/receipt identity, operation-specific result wrapping, receipt-backed BAG-14 execution and oracle cache evidence, result/receipt dataflow, report-publication direction, and exact recursive version provenance.
+  Complete semantic success, completed semantic failure, bounded completion, diagnostic completion, and failed producer are distinct matrix states; only the failed producer has no wrapper.
+  The full publication root contains every selected plan receipt, while the first-kill root has no suffix receipt; invalid materialization has no execution or oracle descendants.
+  BAG-12's active-catalog declaration dispatcher and comparison validator are rerun before BAG-15 execution-pattern evidence, and every receipt failure resolves one exact active BAG-10 taxonomy placement.
+  The evidence remains deterministic finite-vector production conformance and makes no native replay or publication claim.
 - Evidence inventory, checklist, contracts, and Rust handoff are updated for
   this repair. D1 and roadmap are intentionally outside this packet. Fresh
   independent BAG-11 and BAG-12 acceptance found no remaining blocker.

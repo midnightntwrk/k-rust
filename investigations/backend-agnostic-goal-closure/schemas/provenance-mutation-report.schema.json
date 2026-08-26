@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/provenance-mutation-report.schema.json",
+  "title": "Receipt-provenance mutation report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reportId",
+    "derivationResult",
+    "derivationReceipt",
+    "versionRegistry",
+    "outcome"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "reportId": {
+      "$ref": "common.schema.json#/$defs/digest"
+    },
+    "derivationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "digest"
+      ],
+      "properties": {
+        "role": {
+          "const": "campaign-derivation-result"
+        },
+        "digest": {
+          "$ref": "common.schema.json#/$defs/digest"
+        }
+      }
+    },
+    "derivationReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "digest"
+      ],
+      "properties": {
+        "role": {
+          "const": "operation-receipt"
+        },
+        "digest": {
+          "$ref": "common.schema.json#/$defs/digest"
+        }
+      }
+    },
+    "versionRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "digest"
+      ],
+      "properties": {
+        "role": {
+          "const": "replay-version-registry"
+        },
+        "digest": {
+          "$ref": "common.schema.json#/$defs/digest"
+        }
+      }
+    },
+    "outcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "campaignInvocation",
+            "scheduleMode",
+            "selectedRecords",
+            "testStatuses",
+            "scheduledButUnexecuted",
+            "exclusions",
+            "score",
+            "campaignStatus"
+          ],
+          "properties": {
+            "kind": {
+              "const": "derived"
+            },
+            "campaignInvocation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "digest"
+              ],
+              "properties": {
+                "role": {
+                  "const": "cache-campaign-invocation"
+                },
+                "digest": {
+                  "$ref": "common.schema.json#/$defs/digest"
+                }
+              }
+            },
+            "scheduleMode": {
+              "enum": [
+                "first-kill",
+                "full"
+              ]
+            },
+            "selectedRecords": {
+              "$ref": "cache-semantics.schema.json#/$defs/mutationReport/properties/selectedRecords"
+            },
+            "testStatuses": {
+              "$ref": "cache-semantics.schema.json#/$defs/mutationReport/properties/testStatuses"
+            },
+            "scheduledButUnexecuted": {
+              "$ref": "cache-semantics.schema.json#/$defs/mutationReport/properties/scheduledButUnexecuted"
+            },
+            "exclusions": {
+              "$ref": "cache-semantics.schema.json#/$defs/mutationReport/properties/exclusions"
+            },
+            "score": {
+              "$ref": "cache-semantics.schema.json#/$defs/mutationReport/properties/score"
+            },
+            "campaignStatus": {
+              "const": "complete"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "failure"
+          ],
+          "properties": {
+            "kind": {
+              "const": "failure"
+            },
+            "failure": {
+              "$ref": "common.schema.json#/$defs/campaignFailure"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

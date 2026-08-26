@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "resultId": "f70ff3eb8a1758b40dbf6ffda1ed7858c899eaef5bda7527007c800830ca61be",
+  "invocationDigest": "fde96e1cd3af183b791d8da6c27c299c0a2b256f7fdbe718dfd845085704404c",
+  "outcome": {
+    "kind": "invalid",
+    "failure": {
+      "stage": "ir-validation",
+      "classification": "invalid-module",
+      "context": "mutant-validation",
+      "scope": "mutant",
+      "retryability": "never",
+      "semanticEvidence": [],
+      "details": {}
+    }
+  },
+  "failure": {
+    "stage": "ir-validation",
+    "classification": "invalid-module",
+    "context": "mutant-validation",
+    "scope": "mutant",
+    "retryability": "never",
+    "semanticEvidence": [],
+    "details": {}
+  }
+}

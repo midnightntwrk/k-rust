@@ -2,6 +2,7 @@
 
 Status: active portable investigation package; the refreshed BAG-11 witness-order and complete-denotation repairs and BAG-12 typed-oracle and inline-expectation repairs are independently accepted.
 BAG-14 per-attempt cache implementation and evidence were independently accepted after two finding-driven repair rounds, 26 August 2026.
+BAG-15 operation receipts, result wrappers, recursive version provenance, and campaign receipt DAG evidence were independently accepted after two finding-driven implementation repair rounds, 26 August 2026.
 
 This package records the semantic work that can be completed before K-in-K
 moves to its Rust-based execution stack. It deliberately does not preserve,
@@ -65,6 +66,14 @@ Its wholly bundled counter derivative proves exact first-kill/full prefix reuse,
 The finite-vector rows hash only reviewed inputs and independently derive terminal/result outputs; every oracle operand has one explicit finite producer row.
 This remains portable conformance evidence, not native production or cache-store evidence.
 
+The BAG-15 implementation adds one generic `operation-receipt` family over seven closed operations and one cycle-free result-wrapper role per operation.
+Every complete receipt publishes exactly one wrapper, including bounded and semantic-failure completions; only a failed producer publishes no wrapper or semantic terminal.
+Execution wrappers preserve the exact BAG-14 key digest separately from the generic invocation digest and contain the exact terminal plus ordered produced artifacts.
+Operand, admission, comparison, derivation, and publication edges consume both the preceding wrapper and its receipt, and the full and first-kill report closures are checked as globally acyclic DAGs.
+The publication invocation contains no expected report bytes or digest, and a report may name its derivation receipt but never its own publication receipt.
+The exact recursive schema/operation registry uses raw schema-byte SHA-256 values and rejects missing, surplus, duplicate, or altered entries.
+The wholly bundled derivative proves portable finite production only; native adapter execution remains Rust-stack work.
+
 ## Artifact availability and current replay recipes
 
 `artifact-role-specs.json` freezes the shared role, media, schema, domain, and executable semantic-projection registry.
@@ -75,6 +84,9 @@ The bundled material is deliberately small synthetic conformance input.
 `fixtures/bag14-cache-artifact-catalog.json` is the authoritative resolver snapshot for BAG-14 evidence and is bound by `vectors/cache-semantics-vectors.json.artifactCatalogDigest`.
 It is deliberately separate from BAG-12's active mutation catalog so a finite cache positive does not relabel historical `external-required` material as bundled.
 Cache location, lookup provenance, hit/miss state, and current resolver availability are supplemental and absent from semantic cache-record, request-key, invocation, and report identities.
+
+`fixtures/bag15-replay-artifact-catalog.json` is the separate wholly bundled BAG-15 resolver snapshot and is bound by `vectors/replay-provenance-vectors.json.artifactCatalogDigest`.
+It contains derivative cache records whose accepted BAG-14 request keys, terminals, and produced artifacts are unchanged while their production-evidence arm names the exact BAG-15 receipt and operation-specific result wrapper.
 
 None of the four current replay recipes is materially self-contained:
 `replay-manifest.json`, `write-only-replay-manifest.json`,

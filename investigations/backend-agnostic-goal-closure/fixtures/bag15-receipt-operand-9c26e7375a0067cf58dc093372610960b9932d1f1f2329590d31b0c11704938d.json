@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "cf2e53899a72def492960c01feaae8ea0017a4136553d9cc17ba8ae23f7164a8",
+  "invocationDigest": "6faf1bd0a3e2bed91b59c4e232f1cf1696904981b2082a408ce45e4b37521a1a",
+  "invocation": {
+    "schemaVersion": 1,
+    "invocationDigest": "6faf1bd0a3e2bed91b59c4e232f1cf1696904981b2082a408ce45e4b37521a1a",
+    "operationKind": "oracle-operand-production",
+    "operationVersion": 1,
+    "adapterContract": {
+      "adapterId": "bag15-portable-finite",
+      "adapterVersion": 1
+    },
+    "parameters": {
+      "declaration": {
+        "digest": "4467c92638c8f930823fcaeab65e912ce71e4b9239306105ec7bad6238ca55e8",
+        "role": "oracle-declaration"
+      },
+      "side": "mutant",
+      "subject": {
+        "baselineDefinitionDigest": "fbd2e2ca60637e9e7e8d4ad568e55416281063533408b6db04f94b9fd4098d63",
+        "mutantDefinitionDigest": "9e8dbb1183eafb016e9de893693987678359044ad0be2b4d2e132fe2f550da59",
+        "mutantId": "3a4e98dc17b96ea554a7213d591d467cc6a4ff0a3f98e3a5159ebb1b7454138f",
+        "side": "mutant"
+      },
+      "executionKeyDigest": "aa846a3fda646d1d23a8adabd6c37c61f271746b8648d8de1fb02b4196f7a955",
+      "executionInvocationDigest": "13af46889b2460f8bb1d9346f9f5c994704913e01ea7c0d71ceee6331d37ae0b",
+      "projectionId": "terminal-class-and-declared-exit-v1",
+      "evaluator": {
+        "evaluatorId": "bag12-portable-exit-stop",
+        "evaluatorVersion": 1
+      }
+    },
+    "inputs": [
+      {
+        "edgeRole": "declaration",
+        "artifact": {
+          "digest": "4467c92638c8f930823fcaeab65e912ce71e4b9239306105ec7bad6238ca55e8",
+          "role": "oracle-declaration"
+        }
+      },
+      {
+        "edgeRole": "execution-result",
+        "artifact": {
+          "role": "execution-attempt-result",
+          "digest": "66fbc9c90f7a0eee2a47ec015951d230ab38b201d8178c79af514159f299414f"
+        }
+      },
+      {
+        "edgeRole": "execution-terminal",
+        "artifact": {
+          "digest": "dc84293be73ec3105770f563bf4acd39b65ed1e9b3263a800e6b50277792d586",
+          "role": "terminal-state"
+        }
+      },
+      {
+        "edgeRole": "producer-trace",
+        "artifact": {
+          "digest": "f314bd6a3ac77380e7d807e83e43e13b08708634080af643c5631a4da8c1a3b7",
+          "role": "event-trace"
+        }
+      }
+    ],
+    "childReceipts": [
+      {
+        "edgeRole": "execution-production",
+        "receipt": {
+          "role": "operation-receipt",
+          "digest": "972e83349a21a131f1c29b1ed49df92e15e59839e3fab1d708bb54df423e8b1a"
+        }
+      }
+    ],
+    "outputRoles": [
+      "oracle-operand-production-result"
+    ]
+  },
+  "producer": {
+    "producerId": "bag15-deterministic-python",
+    "producerVersion": 1,
+    "executionConformance": "finite-vector-proven"
+  },
+  "producerStatus": "complete",
+  "outputs": [
+    {
+      "edgeRole": "oracle-operand-production-result",
+      "artifact": {
+        "role": "oracle-operand-production-result",
+        "digest": "289d13c6010ec40e5fe84d595ea1f57913f427774c0e83dea756cbe94160d0fe"
+      }
+    }
+  ],
+  "semanticTerminal": {
+    "kind": "operand",
+    "operand": {
+      "role": "oracle-operand",
+      "digest": "9c26e7375a0067cf58dc093372610960b9932d1f1f2329590d31b0c11704938d"
+    }
+  },
+  "failure": null
+}

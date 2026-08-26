@@ -1,14 +1,13 @@
 # BAG-15: mutation execution replay and result provenance
 
-Status: active portable implementation after independent BAG-12 and BAG-14
-acceptance and two independent repaired-contract preflight acceptances on 26
-August 2026. BAG-16 remains gated.
+Status: integrated and independently accepted after two finding-driven
+implementation repair rounds on 26 August 2026. BAG-16 may now activate.
 
 ## Objective
 
 Make mutation classifications replay-addressable rather than calling patch
-materialization a replay of the mutant campaign. The current
-`mutation-instance` replay is deliberately patch-only: it ingests the baseline,
+materialization a replay of the mutant campaign. The former
+`mutation-instance` replay was deliberately patch-only: it ingested the baseline,
 applies the patch, validates the output definition/diff, and forbids program,
 test, query, observer, solver, or execution identity. Yet a campaign links only
 that replay from each mutant while reporting test and oracle results. An

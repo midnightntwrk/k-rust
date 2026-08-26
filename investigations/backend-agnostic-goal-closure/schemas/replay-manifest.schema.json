@@ -48,7 +48,7 @@
       "type": "string",
       "enum": [
         "pattern-query",
-        "mutation-instance"
+        "mutation-materialization"
       ]
     },
     "packageVersion": {
@@ -329,7 +329,7 @@
       "if": {
         "properties": {
           "kind": {
-            "const": "mutation-instance"
+            "const": "mutation-materialization"
           }
         }
       },

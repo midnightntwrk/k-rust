@@ -772,7 +772,7 @@ candidate cap, pre/postconditions, generated-sentence policy, patch template,
 category, and rationale. `structural-diff.schema.json` and
 `replay-manifest.schema.json` freeze the report and replay boundaries. A
 campaign must resolve its operator digest and repeat the declaration's policy,
-tuple arity/count, and cap. A `mutation-instance` replay records the operator,
+tuple arity/count, and cap. A `mutation-materialization` replay records the operator,
 candidate, patch, mutant, baseline, output definition, bounds, and structural
 diff identities; a pattern replay cannot carry mutation identity. Structural
 diff operations, paths, and affected provenance must agree with the referenced
@@ -941,3 +941,24 @@ Operand-production failures use BAG-10 context
 closed in both taxonomy and context-specific schemas. They occupy the exact
 failed outer side, never create an operand or comparison, and never kill a
 mutant.
+
+## 12. Operation receipts and result provenance
+
+One generic `operation-receipt` contract covers mutation materialization, execution attempt, oracle operand production, baseline admission, oracle comparison, campaign derivation, and report publication.
+Each invocation hashes its closed operation/version, adapter contract, parameters, ordered typed inputs, ordered child receipts, and one requested operation-specific wrapper role without hashing output keys or expected output bytes.
+Each complete receipt publishes exactly that one wrapper and carries the wrapper's nested semantic terminal and exact BAG-10 failure or null.
+Only `producerStatus: failed` publishes no wrapper and no semantic terminal.
+
+An `execution-attempt-result` repeats the exact BAG-14 key digest, carries a distinct generic invocation digest, and contains the exact terminal record and ordered produced-artifact keys.
+The execution receipt outputs only this wrapper; terminal, trace, and value artifacts are nested keys and bind the cycle-free invocation indirectly.
+Admission and comparison wrappers likewise repeat the complete BAG-14 oracle-evaluation key, terminal, and produced-artifact sequence.
+Every receipt-backed derivative cache record is accepted only when all of those fields equal an independently derived BAG-14 result.
+
+Downstream operations consume a result wrapper together with its producing receipt.
+The campaign derivation consumes exactly the selected materialization and cache-record receipt sequence in plan order; first-kill has no receipt for the skipped suffix.
+Report publication consumes the derivation wrapper and receipt plus one exact recursive replay-version registry.
+The publication invocation contains no expected report body, bytes, or digest, and the normalized report points backward only to its derivation receipt.
+The registry is sorted and duplicate-free, covers exactly the portable schemas and seven operations used by the recursive report closure, and hashes exact bundled schema bytes.
+
+The bundled BAG-15 graph is finite-vector production conformance.
+It does not prove a native adapter, executor, cache store, compiler, backend, solver, or report publisher.

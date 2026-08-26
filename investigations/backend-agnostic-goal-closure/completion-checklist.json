@@ -410,6 +410,21 @@
       "rustProof": "native discovery and application across both structural families"
     },
     {
+      "id": "MU-17-replay-result-provenance",
+      "goal": "semantic-mutation",
+      "source": "BAG-15 acceptance",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/operation-receipt.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/replay-version-registry.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag15-replay-artifact-catalog.json",
+        "investigations/backend-agnostic-goal-closure/vectors/replay-provenance-vectors.json",
+        "investigations/backend-agnostic-goal-closure/bag15.py"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "native adapter mapping, atomic publication, and native-proven receipts"
+    },
+    {
       "id": "SC-01-retired-backend-stop",
       "goal": "scope",
       "source": "D1 and terminal checkpoint",

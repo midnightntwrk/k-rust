@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "reportId": "7283d34a9f5370d96e2d4757762a0d4f9c0c6fc3418f72a2954b9db9f538703d",
+  "derivationResult": {
+    "role": "campaign-derivation-result",
+    "digest": "c74a39a9e5cf0b9a70a028a462480dd3bab40d1755343493813e7ed68b3d104b"
+  },
+  "derivationReceipt": {
+    "role": "operation-receipt",
+    "digest": "6c226f967c176223f0ad3043c1e7c4b7a5e44f30b5050a1041a17250a716c4c3"
+  },
+  "versionRegistry": {
+    "role": "replay-version-registry",
+    "digest": "4445cd71e7e61d755a67cfa7cca13f2c1ec00504f76dcf32eb64e6e88a26cbf7"
+  },
+  "outcome": {
+    "kind": "derived",
+    "campaignInvocation": {
+      "digest": "d91c9a21a69eeb72c312b276b2c81f82fc843e5f46d9c942a0e55d4645dc2289",
+      "role": "cache-campaign-invocation"
+    },
+    "scheduleMode": "full",
+    "selectedRecords": [
+      {
+        "slotId": "baseline-execution-t1",
+        "recordId": "9632e3e25c05a5c0086a72c4cfbe2700a0b29d12a13802fa7c4b5074dd417b2a"
+      },
+      {
+        "slotId": "baseline-gate-t1-o0",
+        "recordId": "e60a0dba69099caecd366c636e4d41d4577b8193ec218c3b416b442e659663de"
+      },
+      {
+        "slotId": "baseline-gate-t1-o1",
+        "recordId": "f9db32022c551efb5e012eda37a9823c83408cf87d7094179f684069c460958f"
+      },
+      {
+        "slotId": "baseline-execution-t2",
+        "recordId": "5cd77fb0469de61e8c70b18457fb177e667ec582f15f1bf707b3654ff6d61c3c"
+      },
+      {
+        "slotId": "baseline-gate-t2-o0",
+        "recordId": "41b14168ef67439be758fc6ee67eb974bbb6f53664e1680899c499e038633c25"
+      },
+      {
+        "slotId": "mutant-execution-t1",
+        "recordId": "e06f2c540c45824d0bde3bc1655dfbd59124a969e90f70b2a24df43a27295521"
+      },
+      {
+        "slotId": "mutant-comparison-t1-o0",
+        "recordId": "b013379178a2cb1e6273258cfa7277db86091ede5f1115a6d50078b2f660ef50"
+      },
+      {
+        "slotId": "mutant-comparison-t1-o1",
+        "recordId": "e0e9e91d9e064e340a388462867c8c69aaedb6beaa0df487848c71c74aca61e4"
+      },
+      {
+        "slotId": "mutant-execution-t2",
+        "recordId": "2bef8e351398b0e3624100d5382a9d60e3ddde078675e89324d0690e6ccbd9e0"
+      },
+      {
+        "slotId": "mutant-comparison-t2-o0",
+        "recordId": "635bae524acf64f750df4166cf8a0952ca86078c34e92a7fa85e3a6622b62cb5"
+      }
+    ],
+    "testStatuses": [
+      {
+        "slotId": "baseline-execution-t1",
+        "status": "executed"
+      },
+      {
+        "slotId": "baseline-gate-t1-o0",
+        "status": "accepted"
+      },
+      {
+        "slotId": "baseline-gate-t1-o1",
+        "status": "accepted"
+      },
+      {
+        "slotId": "baseline-execution-t2",
+        "status": "executed"
+      },
+      {
+        "slotId": "baseline-gate-t2-o0",
+        "status": "accepted"
+      },
+      {
+        "slotId": "mutant-execution-t1",
+        "status": "executed"
+      },
+      {
+        "slotId": "mutant-comparison-t1-o0",
+        "status": "kill"
+      },
+      {
+        "slotId": "mutant-comparison-t1-o1",
+        "status": "kill"
+      },
+      {
+        "slotId": "mutant-execution-t2",
+        "status": "executed"
+      },
+      {
+        "slotId": "mutant-comparison-t2-o0",
+        "status": "agree"
+      }
+    ],
+    "scheduledButUnexecuted": [],
+    "exclusions": {
+      "error": 0,
+      "timeout": 0,
+      "unknown": 0
+    },
+    "score": {
+      "denominator": 1,
+      "killed": 1,
+      "ratio": {
+        "denominator": 1,
+        "numerator": 1
+      },
+      "survived": 0
+    },
+    "campaignStatus": "complete"
+  }
+}

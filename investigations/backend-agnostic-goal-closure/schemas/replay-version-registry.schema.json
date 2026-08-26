@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/replay-version-registry.schema.json",
+  "title": "Exact recursive portable replay version registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "registryId",
+    "schemas",
+    "operations"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "registryId": {
+      "$ref": "common.schema.json#/$defs/digest"
+    },
+    "schemas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaId",
+          "schemaVersion",
+          "schemaDigest"
+        ],
+        "properties": {
+          "schemaId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "schemaVersion": {
+            "const": 1
+          },
+          "schemaDigest": {
+            "$ref": "common.schema.json#/$defs/digest"
+          }
+        }
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationKind",
+          "operationVersion"
+        ],
+        "properties": {
+          "operationKind": {
+            "enum": [
+              "mutation-materialization",
+              "execution-attempt",
+              "oracle-operand-production",
+              "baseline-admission",
+              "oracle-comparison",
+              "campaign-derivation",
+              "report-publication"
+            ]
+          },
+          "operationVersion": {
+            "const": 1
+          }
+        }
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    }
+  }
+}

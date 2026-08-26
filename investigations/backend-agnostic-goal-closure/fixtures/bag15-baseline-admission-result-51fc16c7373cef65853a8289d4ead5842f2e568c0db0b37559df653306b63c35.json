@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "resultId": "ff55a7933fd12e42927e236e5cf10f7be85ed0ecb5e3a1c68a5a7d2e093aec35",
+  "invocationDigest": "d461e76dc99af9992ec773eba4ac602e38036d56a84a561dc13eeb6f1f1c2df7",
+  "evaluationKey": {
+    "declaration": {
+      "digest": "c9e23ed51033bb5200342905158eb6cf67fbe20a311549cce2a1d1d41526601e",
+      "role": "oracle-declaration"
+    },
+    "evaluationKind": "baseline-admission",
+    "evaluator": {
+      "evaluatorId": "bag12-portable-exit-stop",
+      "evaluatorVersion": 1,
+      "mode": "built-in"
+    },
+    "keyDigest": "2a9d03143347b2ccdffe6a9d6c9cd4917a2f48c45597e007ad82da04cae112a7",
+    "operation": {
+      "adapterId": "bag14-vector-adapter",
+      "adapterVersion": 1,
+      "operationId": "portable-oracle-evaluation",
+      "operationVersion": 1
+    },
+    "schemaVersion": 1,
+    "semanticInputs": [
+      {
+        "side": "baseline",
+        "value": {
+          "digest": "edddb08d4abd1ec7c5c77d5a35ff4a740d22169ca9377a454bcbe5bb0997f8c2",
+          "role": "oracle-operand"
+        }
+      }
+    ]
+  },
+  "terminalRecord": {
+    "kind": "baseline-gate",
+    "result": {
+      "digest": "56a200b3afa7c47f6078733cd7aed6a22b05721eb6dc3a72cf3c3b3e25dd248b",
+      "role": "baseline-oracle-gate-result"
+    }
+  },
+  "producedArtifacts": [
+    {
+      "digest": "56a200b3afa7c47f6078733cd7aed6a22b05721eb6dc3a72cf3c3b3e25dd248b",
+      "role": "baseline-oracle-gate-result"
+    }
+  ],
+  "failure": null
+}

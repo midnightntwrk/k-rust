@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "replayId": "edae5028402fabd228fc66c21801194fcd20948e28f3cb2cc0df1a749e546787",
-  "invocationDigest": "94bc7d138aa87fff4752d8e2cd71f1c24146cb87c0ecf64eb93127706edd58ee",
-  "kind": "mutation-instance",
+  "replayId": "0f1c03532d813ff2459e7f1ec41192167438527c420308b567cdc7c62d45d33f",
+  "invocationDigest": "9dfc9d03bf12923fa2bcecd09d34efc7c7381da9ed24383aec2bee34d1aa5d73",
+  "kind": "mutation-materialization",
   "packageVersion": "backend-agnostic-k-in-k-v1",
   "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
   "transformationDigests": [],

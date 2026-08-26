@@ -369,6 +369,18 @@
       "rustOpen": "native differential proof across both families"
     },
     {
+      "id": "mutation-replay-result-provenance",
+      "state": "resolved-portable-contract",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/operation-receipt.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/replay-version-registry.schema.json",
+        "investigations/backend-agnostic-goal-closure/fixtures/bag15-replay-artifact-catalog.json",
+        "investigations/backend-agnostic-goal-closure/vectors/replay-provenance-vectors.json",
+        "investigations/backend-agnostic-goal-closure/bag15.py"
+      ],
+      "rustOpen": "native adapter mapping, atomic publication, and native-proven receipt evidence"
+    },
+    {
       "id": "dependency-ordered-rust-handoff",
       "state": "resolved-portable-contract",
       "artifacts": [
