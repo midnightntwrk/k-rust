@@ -2148,7 +2148,8 @@ fn require_semantic_sort(
             | BuiltinSort::Int
             | BuiltinSort::Bool
             | BuiltinSort::Map
-            | BuiltinSort::Id,
+            | BuiltinSort::Id
+            | BuiltinSort::Bytes,
         ) => Ok(()),
     }
 }

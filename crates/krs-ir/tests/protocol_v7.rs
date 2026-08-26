@@ -264,7 +264,8 @@ fn v7_builtin_registry_requires_map_and_id() {
                 1 => HostTypeKey(marker::<1>),
                 2 => HostTypeKey(marker::<2>),
                 3 => HostTypeKey(marker::<3>),
-                _ => HostTypeKey(marker::<4>),
+                4 => HostTypeKey(marker::<4>),
+                _ => HostTypeKey(marker::<5>),
             },
         })
         .collect();
@@ -274,27 +275,29 @@ fn v7_builtin_registry_requires_map_and_id() {
         .map(|(index, operation)| HostBuiltinOperationRegistration {
             operation,
             target: match index {
-                0 => HostTypeKey(marker::<5>),
-                1 => HostTypeKey(marker::<6>),
-                2 => HostTypeKey(marker::<7>),
-                3 => HostTypeKey(marker::<8>),
-                4 => HostTypeKey(marker::<9>),
-                5 => HostTypeKey(marker::<10>),
-                6 => HostTypeKey(marker::<11>),
-                7 => HostTypeKey(marker::<12>),
-                8 => HostTypeKey(marker::<13>),
-                9 => HostTypeKey(marker::<14>),
-                10 => HostTypeKey(marker::<15>),
-                11 => HostTypeKey(marker::<16>),
-                12 => HostTypeKey(marker::<17>),
-                13 => HostTypeKey(marker::<18>),
-                _ => HostTypeKey(marker::<19>),
+                0 => HostTypeKey(marker::<6>),
+                1 => HostTypeKey(marker::<7>),
+                2 => HostTypeKey(marker::<8>),
+                3 => HostTypeKey(marker::<9>),
+                4 => HostTypeKey(marker::<10>),
+                5 => HostTypeKey(marker::<11>),
+                6 => HostTypeKey(marker::<12>),
+                7 => HostTypeKey(marker::<13>),
+                8 => HostTypeKey(marker::<14>),
+                9 => HostTypeKey(marker::<15>),
+                10 => HostTypeKey(marker::<16>),
+                11 => HostTypeKey(marker::<17>),
+                12 => HostTypeKey(marker::<18>),
+                13 => HostTypeKey(marker::<19>),
+                14 => HostTypeKey(marker::<20>),
+                15 => HostTypeKey(marker::<21>),
+                _ => HostTypeKey(marker::<22>),
             },
         })
         .collect();
     let map_operations = vec![HostMapOperationRegistration {
         operation: MapOperation::Update,
-        target: HostTypeKey(marker::<20>),
+        target: HostTypeKey(marker::<23>),
     }];
     let registry = HostBuiltinRegistry {
         sorts,
@@ -634,7 +637,7 @@ fn configuration_rule_round_trips_with_exact_side_specific_provenance() {
         payload: DescriptorPayload::ConfigurationRule(Box::new(rule)),
     }]);
     let json = bundle.to_canonical_json().unwrap();
-    assert!(json.contains("\"protocol_version\": 16"));
+    assert!(json.contains("\"protocol_version\": 17"));
     assert!(json.contains("\"configuration_rule\""));
     let decoded: DescriptorBundle = serde_json::from_str(&json).unwrap();
     assert_eq!(decoded, bundle);
@@ -1096,5 +1099,5 @@ fn protocol_seven_is_rejected_after_v9_cutover() {
         r#"{"protocol_version":7,"descriptors":[],"declarations":[]}"#,
     )
     .unwrap_err();
-    assert!(error.to_string().contains("expected 16"));
+    assert!(error.to_string().contains("expected 17"));
 }

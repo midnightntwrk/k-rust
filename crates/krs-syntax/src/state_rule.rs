@@ -1235,7 +1235,10 @@ fn append_term_provenance(
             TermNode::ApplicationHead(_) => application_role,
             TermNode::Reference(_) => reference_role,
             TermNode::Literal(_) => literal_role,
-            TermNode::IdToken(_) | TermNode::Anonymous { .. } | TermNode::OrBool(_) => continue,
+            TermNode::IdToken(_)
+            | TermNode::BytesToken(_)
+            | TermNode::Anonymous { .. }
+            | TermNode::OrBool(_) => continue,
         };
         output.push(ProvenanceAnchor::new(
             role,
@@ -1407,6 +1410,7 @@ fn append_term_candidates(
             }
             TermNode::Literal(_)
             | TermNode::IdToken(_)
+            | TermNode::BytesToken(_)
             | TermNode::Anonymous { .. }
             | TermNode::OrBool(_) => {}
         }
@@ -1450,6 +1454,7 @@ fn node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         TermNode::Literal(TermLiteral::Integer(value)) => TokenRange::for_tokens(value),
         TermNode::Literal(TermLiteral::Boolean(value)) => TokenRange::for_tokens(value),
         TermNode::IdToken(value) => TokenRange::for_tokens(value),
+        TermNode::BytesToken(value) => TokenRange::for_tokens(value),
         TermNode::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
         TermNode::OrBool(range) => Ok(*range),
     }
@@ -1461,6 +1466,7 @@ fn node_span(node: &TermNode) -> proc_macro2::Span {
         TermNode::Literal(TermLiteral::Integer(value)) => value.span(),
         TermNode::Literal(TermLiteral::Boolean(value)) => value.span(),
         TermNode::IdToken(value) => value.span(),
+        TermNode::BytesToken(value) => value.span(),
         TermNode::Anonymous { spelling, .. } => spelling.span(),
         TermNode::OrBool(range) => range.first(),
     }
@@ -1572,6 +1578,7 @@ fn append_claim_special_anchors(
     output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
     let mut id_ordinal = 0_u32;
+    let mut bytes_ordinal = 0_u32;
     let mut anonymous_ordinal = 0_u32;
     let mut or_ordinal = 0_u32;
     for term in claim_terms(rule, ensures) {
@@ -1586,6 +1593,16 @@ fn append_claim_special_anchors(
                     id_ordinal = id_ordinal
                         .checked_add(1)
                         .ok_or_else(|| signature_error("too many Id tokens", literal.span()))?;
+                }
+                TermNode::BytesToken(literal) => {
+                    output.push(ProvenanceAnchor::new(
+                        ProvenanceRole::ClaimBytesToken,
+                        bytes_ordinal,
+                        TokenRange::for_tokens(literal)?,
+                    ));
+                    bytes_ordinal = bytes_ordinal
+                        .checked_add(1)
+                        .ok_or_else(|| signature_error("too many Bytes tokens", literal.span()))?;
                 }
                 TermNode::Anonymous { sort, spelling } => {
                     output.push(ProvenanceAnchor::new(

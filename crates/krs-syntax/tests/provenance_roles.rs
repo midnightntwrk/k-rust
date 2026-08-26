@@ -29,5 +29,5 @@ fn frozen_catalog(source: &str) -> String {
 fn provenance_role_protocol_catalog_is_frozen() {
     let actual = frozen_catalog(SOURCE);
     assert_eq!(actual, GOLDEN);
-    assert_eq!(actual.lines().count(), 151);
+    assert_eq!(actual.lines().count(), 152);
 }

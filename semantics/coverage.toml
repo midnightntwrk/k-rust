@@ -49,8 +49,8 @@ authority_k_version = "7.1.337"
 source_files = 98
 source_syntax_declarations = 478
 source_rules = 3440
-krs_equations = 8
-krs_machine_rules = 13
+krs_equations = 20
+krs_machine_rules = 14
 krs_claims = 1
 pinned_executions = 14
 complete = false
@@ -60,15 +60,16 @@ implemented = [
   "modulo-2^256 addition",
   "Shanghai gas charging",
   "success and selected exceptional statuses",
+  "builtin Bytes program storage, opcode lookup, and PUSH immediate decoding",
 ]
-adapters = ["structured opcode program in place of Bytes decoding"]
+adapters = []
 deferred = [
   "remaining opcode families",
   "memory, storage, accounts, and transactions",
   "calls, creation, and returndata",
   "fork schedules and access lists",
   "cryptographic hooks and symbolic summaries",
-  "full Bytes, Map, Set, and multiplicity-cell configuration",
+  "full Map, Set, and multiplicity-cell configuration",
 ]
 
 [[port]]

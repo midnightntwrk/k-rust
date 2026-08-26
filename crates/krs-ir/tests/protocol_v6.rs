@@ -326,7 +326,7 @@ fn expression_grammar_and_rule_round_trip_deterministically() {
         .to_canonical_json()
         .unwrap();
     assert_eq!(forward, reverse);
-    assert!(forward.contains("\"protocol_version\": 16"));
+    assert!(forward.contains("\"protocol_version\": 17"));
     assert!(forward.contains("\"attribute_kind\": \"documentation\""));
     assert!(forward.contains("Adds two values."));
     assert!(forward.contains("\"structured_rule\""));
@@ -334,7 +334,7 @@ fn expression_grammar_and_rule_round_trip_deterministically() {
     assert!(!forward.contains("TypeId"));
     assert!(!forward.contains("_+Int_"));
     let decoded: DescriptorBundle = serde_json::from_str(&forward).unwrap();
-    assert_eq!(decoded.protocol_version().0, 16);
+    assert_eq!(decoded.protocol_version().0, 17);
 }
 
 #[test]
@@ -993,6 +993,7 @@ type_keys! {
     bool_key => u32,
     map_key => i8,
     id_key => i16,
+    bytes_key => i32,
     int_add_key => (u8, u8),
     int_sub_key => (u8, u16),
     int_mul_key => (u8, u32),
@@ -1008,6 +1009,8 @@ type_keys! {
     bool_ne_key => (u64, u8),
     bool_and_key => (u64, u16),
     bool_or_key => (u64, u32),
+    bytes_length_key => (i64, u8),
+    bytes_get_key => (i64, u16),
     map_update_key => (u64, u64),
 }
 
@@ -1018,6 +1021,7 @@ fn registry() -> HostBuiltinRegistry {
         (BuiltinSort::Bool, bool_key),
         (BuiltinSort::Map, map_key),
         (BuiltinSort::Id, id_key),
+        (BuiltinSort::Bytes, bytes_key),
     ]
     .into_iter()
     .map(|(sort, key)| HostBuiltinSortRegistration {
@@ -1041,6 +1045,8 @@ fn registry() -> HostBuiltinRegistry {
         (BuiltinOperation::BoolNotEqual, bool_ne_key),
         (BuiltinOperation::BoolAnd, bool_and_key),
         (BuiltinOperation::BoolOr, bool_or_key),
+        (BuiltinOperation::BytesLength, bytes_length_key),
+        (BuiltinOperation::BytesGet, bytes_get_key),
     ]
     .into_iter()
     .map(|(operation, key)| HostBuiltinOperationRegistration {
@@ -1085,7 +1091,7 @@ fn builtin_registry_is_complete_exact_and_alias_safe() {
     assert_eq!(
         incomplete.validate(),
         Err(HostBuiltinRegistryError::MissingOperation(
-            BuiltinOperation::BoolOr
+            BuiltinOperation::BytesGet
         ))
     );
     let mut missing_map = registry.clone();
@@ -1329,7 +1335,7 @@ fn protocol_five_is_rejected_without_compatibility_guessing() {
         r#"{"protocol_version":5,"descriptors":[],"declarations":[]}"#,
     )
     .unwrap_err();
-    assert!(error.to_string().contains("expected 16"));
+    assert!(error.to_string().contains("expected 17"));
 }
 
 fn first_object_with_key_mut<'a>(

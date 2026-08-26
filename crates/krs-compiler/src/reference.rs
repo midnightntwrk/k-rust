@@ -1093,6 +1093,12 @@ fn render_term(
                 let value = syn::LitStr::new(value, Span::call_site());
                 Ok(quote!(k::id!(#value)))
             }
+            BuiltinSort::Bytes => {
+                let value = decode_bytes_token(value)
+                    .ok_or_else(|| ReferenceExpansionError::InvalidLiteral(value.clone()))?;
+                let value = syn::LitByteStr::new(&value, Span::call_site());
+                Ok(quote!(k::bytes!(#value)))
+            }
             _ => Err(ReferenceExpansionError::UnsupportedBuiltinToken(*sort)),
         },
         DescriptorTerm::Anonymous { sort, spelling, .. } => {
@@ -1108,6 +1114,21 @@ fn render_term(
             Ok(quote!(k::or_bool!(#(#arguments),*)))
         }
     }
+}
+
+fn decode_bytes_token(value: &str) -> Option<Vec<u8>> {
+    let body = value.strip_prefix("b\"")?.strip_suffix('"')?;
+    if body.len() % 4 != 0 {
+        return None;
+    }
+    body.as_bytes()
+        .chunks(4)
+        .map(|chunk| {
+            (chunk[0] == b'\\' && chunk[1] == b'x')
+                .then(|| u8::from_str_radix(std::str::from_utf8(&chunk[2..]).ok()?, 16).ok())
+                .flatten()
+        })
+        .collect()
 }
 
 fn render_sort_type(
@@ -1184,6 +1205,7 @@ fn render_builtin_sort(sort: BuiltinSort) -> TokenStream {
         BuiltinSort::Bool => format_ident!("Bool"),
         BuiltinSort::Map => format_ident!("Map"),
         BuiltinSort::Id => format_ident!("Id"),
+        BuiltinSort::Bytes => format_ident!("Bytes"),
     };
     quote!(k::builtin::#name)
 }
@@ -1205,6 +1227,8 @@ fn render_builtin_operation(operation: BuiltinOperation) -> TokenStream {
         BuiltinOperation::BoolNotEqual => (format_ident!("bool"), format_ident!("ne")),
         BuiltinOperation::BoolAnd => (format_ident!("bool"), format_ident!("and")),
         BuiltinOperation::BoolOr => (format_ident!("bool"), format_ident!("or")),
+        BuiltinOperation::BytesLength => (format_ident!("bytes"), format_ident!("length")),
+        BuiltinOperation::BytesGet => (format_ident!("bytes"), format_ident!("get")),
     };
     quote!(k::builtin::#module::#name)
 }
@@ -1465,7 +1489,8 @@ impl Error for ReferenceExpansionError {
 
 #[cfg(test)]
 mod tests {
-    use super::contains_use_tree;
+    use super::{contains_use_tree, render_term};
+    use krs_ir::{BuiltinSort, DescriptorBundle, DescriptorTerm, PackageId, ProvenanceKey};
     use quote::ToTokens;
 
     #[test]
@@ -1485,5 +1510,19 @@ mod tests {
             .to_token_stream()
             .to_string();
         assert!(!contains_use_tree(&file.items, &other));
+    }
+
+    #[test]
+    fn canonical_bytes_token_expands_back_to_a_byte_string_macro() {
+        let package = PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap();
+        let token = DescriptorTerm::BuiltinToken {
+            key: ProvenanceKey::new("claim_bytes_token", 0).unwrap(),
+            sort: BuiltinSort::Bytes,
+            value: r#"b"\x00\x41\xff""#.to_owned(),
+        };
+        let rendered = render_term(&token, false, &package, &DescriptorBundle::new(Vec::new()))
+            .unwrap()
+            .to_string();
+        assert_eq!(rendered, r#"k :: bytes ! (b"\0A\xFF")"#);
     }
 }

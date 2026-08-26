@@ -1804,12 +1804,13 @@ impl<'a> InitializerBuilder<'a> {
                 Span::call_site(),
                 "initializer terms cannot contain wildcards",
             )),
-            TermTree::IdToken { .. } | TermTree::Anonymous { .. } | TermTree::OrBool { .. } => {
-                Err(syn::Error::new(
-                    Span::call_site(),
-                    "claim-only terms cannot occur in initializers",
-                ))
-            }
+            TermTree::IdToken { .. }
+            | TermTree::BytesToken { .. }
+            | TermTree::Anonymous { .. }
+            | TermTree::OrBool { .. } => Err(syn::Error::new(
+                Span::call_site(),
+                "claim-only terms cannot occur in initializers",
+            )),
         }
     }
 }
@@ -1851,6 +1852,17 @@ fn literal_tokens(facade: &Path, literal: &TermLiteral) -> TokenStream {
             quote!(#facade::DescriptorLiteral::Bool(#value))
         }
     }
+}
+
+fn bytes_token_value(literal: &syn::LitByteStr) -> String {
+    use std::fmt::Write as _;
+
+    let mut value = String::from("b\"");
+    for byte in literal.value() {
+        write!(&mut value, "\\x{byte:02x}").expect("writing to a String cannot fail");
+    }
+    value.push('"');
+    value
 }
 
 fn rule_label_tokens(facade: &Path, attribute: &krs_syntax::RuleAttribute) -> TokenStream {
@@ -3077,6 +3089,7 @@ fn configuration_claim(
     )
     .for_claim();
     right.counters.id_token = left.counters.id_token;
+    right.counters.bytes_token = left.counters.bytes_token;
     right.counters.anonymous = left.counters.anonymous;
     right.counters.or_bool = left.counters.or_bool;
     let result = right.expand_cells(rule.result(), &result_type)?;
@@ -3088,6 +3101,7 @@ fn configuration_claim(
     )
     .for_claim();
     condition_builder.id_token_ordinal = right.counters.id_token;
+    condition_builder.bytes_token_ordinal = right.counters.bytes_token;
     condition_builder.or_bool_ordinal = right.counters.or_bool;
     let requires = if let Some(condition) = rule.requires() {
         let term = condition_builder.expand(condition.term().tree(), TermSide::Requires)?;
@@ -3098,6 +3112,7 @@ fn configuration_claim(
     let mut ensures_builder =
         TermBuilder::new(&facade, nonce ^ 0x2000_0000_0000_0000, &cfg, &all_idents).for_claim();
     ensures_builder.id_token_ordinal = condition_builder.id_token_ordinal;
+    ensures_builder.bytes_token_ordinal = condition_builder.bytes_token_ordinal;
     ensures_builder.or_bool_ordinal = condition_builder.or_bool_ordinal;
     let ensures = if let Some(condition) = claim.ensures() {
         let term = ensures_builder.expand(condition.term().tree(), TermSide::Ensures)?;
@@ -3220,6 +3235,7 @@ struct StateRuleCounters {
     record_field: u32,
     wildcard: u32,
     id_token: u32,
+    bytes_token: u32,
     anonymous: u32,
     or_bool: u32,
 }
@@ -3538,6 +3554,20 @@ impl<'a> StateRuleBuilder<'a> {
                     quote!(#facade::HostTerm::BuiltinToken { key: #key, sort: #facade::BuiltinSort::Id, value: #value.to_owned() }),
                 )
             }
+            TermTree::BytesToken { literal } => {
+                if !self.claim {
+                    return Err(syn::Error::new(
+                        literal.span(),
+                        "bytes! is currently claim-only",
+                    ));
+                }
+                let ordinal = take_counter(&mut self.counters.bytes_token)?;
+                let key = provenance_key(facade, "claim_bytes_token", ordinal);
+                let value = bytes_token_value(literal);
+                Ok(
+                    quote!(#facade::HostTerm::BuiltinToken { key: #key, sort: #facade::BuiltinSort::Bytes, value: #value.to_owned() }),
+                )
+            }
             TermTree::Anonymous {
                 sort,
                 spelling: display_literal,
@@ -3727,6 +3757,7 @@ struct TermBuilder<'a> {
     associated_keys: bool,
     claim: bool,
     id_token_ordinal: u32,
+    bytes_token_ordinal: u32,
     or_bool_ordinal: u32,
     enum_glob: Option<&'a Path>,
     enum_variant: Option<&'a Ident>,
@@ -3747,6 +3778,7 @@ impl<'a> TermBuilder<'a> {
             associated_keys: false,
             claim: false,
             id_token_ordinal: 0,
+            bytes_token_ordinal: 0,
             or_bool_ordinal: 0,
             enum_glob: None,
             enum_variant: None,
@@ -3919,6 +3951,21 @@ impl<'a> TermBuilder<'a> {
                 let value = literal.value();
                 Ok(
                     quote!(#facade::HostTerm::BuiltinToken { key: #key, sort: #facade::BuiltinSort::Id, value: #value.to_owned() }),
+                )
+            }
+            TermTree::BytesToken { literal } => {
+                if !self.claim {
+                    return Err(syn::Error::new(
+                        literal.span(),
+                        "bytes! is currently claim-only",
+                    ));
+                }
+                let ordinal = self.bytes_token_ordinal;
+                self.bytes_token_ordinal += 1;
+                let key = provenance_key(facade, "claim_bytes_token", ordinal);
+                let value = bytes_token_value(literal);
+                Ok(
+                    quote!(#facade::HostTerm::BuiltinToken { key: #key, sort: #facade::BuiltinSort::Bytes, value: #value.to_owned() }),
                 )
             }
             TermTree::Anonymous { spelling, .. } => Err(syn::Error::new(
@@ -6319,7 +6366,7 @@ impl Hasher for StableHasher {
 
 #[cfg(test)]
 mod tests {
-    use super::ReadableMembershipIdentity;
+    use super::{ReadableMembershipIdentity, bytes_token_value};
 
     fn membership_identity_bytes(source: &str) -> Vec<Vec<u8>> {
         let declaration = krs_syntax::parse_sorts_declaration_source(source).unwrap();
@@ -6400,5 +6447,11 @@ mod tests {
                 .iter()
                 .all(|key| key.bytes().all(|byte| byte.is_ascii_hexdigit()))
         );
+    }
+
+    #[test]
+    fn byte_string_transport_is_canonical_lower_hex() {
+        let literal = syn::parse_str::<syn::LitByteStr>(r#"b"\x00A\xff""#).unwrap();
+        assert_eq!(bytes_token_value(&literal), r#"b"\x00\x41\xff""#);
     }
 }

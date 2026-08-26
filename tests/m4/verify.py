@@ -682,9 +682,9 @@ def phase_preflight(context: Context) -> str:
         "schema": 1,
         "backends": ["haskell", "llvm"],
         "msrv": "1.88.0",
-        "builtin_sorts": ["KSequence", "Int", "Bool", "Map", "Id"],
-        "descriptor_protocol": 16,
-        "definition_ir_schema": 9,
+        "builtin_sorts": ["KSequence", "Int", "Bool", "Map", "Id", "Bytes"],
+        "descriptor_protocol": 17,
+        "definition_ir_schema": 10,
         "k_commit": expected["k"],
         "k_rust_commit": expected["k_rust"],
         "llvm_existential_policy": "typed-backend-capability-error",
@@ -695,7 +695,7 @@ def phase_preflight(context: Context) -> str:
     lock_path = ROOT / "Krs.lock"
     expected_lock = {
         "schema": 1,
-        "schemas": {"descriptor_protocol": 16, "definition_ir": 9, "kast_json": 4},
+        "schemas": {"descriptor_protocol": 17, "definition_ir": 10, "kast_json": 4},
         "cargo": {"lock_sha256": sha256(ROOT / "Cargo.lock"), "msrv": "1.88.0"},
         "k": {
             "version": "7.1.337",
@@ -714,7 +714,7 @@ def phase_preflight(context: Context) -> str:
         },
         "builtin_registry": {
             "source_sha256": sha256(ROOT / "crates/krs/src/lib.rs"),
-            "sorts": ["KSequence", "Int", "Bool", "Map", "Id"],
+            "sorts": ["KSequence", "Int", "Bool", "Map", "Id", "Bytes"],
         },
         "solver": {"profile": "z3-inference", "version": "4.12.5"},
         "backend_policy": {
@@ -725,8 +725,8 @@ def phase_preflight(context: Context) -> str:
     expected_lock_text = '''schema = 1
 
 [schemas]
-descriptor_protocol = 16
-definition_ir = 9
+descriptor_protocol = 17
+definition_ir = 10
 kast_json = 4
 
 [cargo]
@@ -747,8 +747,8 @@ commit = "58f33885b736148dae189623d1aac989ce9be475"
 tracked_crate_sha256 = "0365ddf085bef244a00c04aaabd72a0ebd8cadbaaf8190605a31c5e387658d64"
 
 [builtin_registry]
-source_sha256 = "2d895476c748fbd79b9b944bfb6c00ba9b7c8efe6a0721079df6f271e7fdc07a"
-sorts = ["KSequence", "Int", "Bool", "Map", "Id"]
+source_sha256 = "9aef5b42fc697cab762b723e41ed7e60a5fafa6fcadd303c614ab67c1f8b2097"
+sorts = ["KSequence", "Int", "Bool", "Map", "Id", "Bytes"]
 
 [solver]
 profile = "z3-inference"
@@ -788,7 +788,7 @@ llvm_existential_claims = "typed-backend-capability-error"
     msrv = run(["rustc", "+1.88.0", "--version"], timeout=30).stdout.strip()
     if not msrv.startswith("rustc 1.88.0 "):
         raise GateError(f"MSRV toolchain differs from Krs.lock: {msrv}")
-    return "exact sources, ledgers, tools, revisions, protocol 16, and IR schema 9"
+    return "exact sources, ledgers, tools, revisions, protocol 17, and IR schema 10"
 
 
 def phase_rust(context: Context) -> str:

@@ -12,7 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::{BuiltinSort, IrIdentityError, NodeOrigin, StableItemId, ir::validated_id};
 
 /// Exact compiler-provided operation identities for the pinned K 7.1.337
-/// `INT` and `BOOL` builtins used by the IMP expression theory.
+/// `INT`, `BOOL`, and selected `BYTES` builtins used by qualified semantics.
 ///
 /// The textual K labels and hooks are deliberately absent. A pin-specific
 /// compiler catalog maps these identities to frontend representations.
@@ -49,11 +49,15 @@ pub enum BuiltinOperation {
     BoolAnd,
     /// `_orBool_`.
     BoolOr,
+    /// `lengthBytes` (`BYTES.length`).
+    BytesLength,
+    /// Byte lookup (`BYTES.get`).
+    BytesGet,
 }
 
 impl BuiltinOperation {
     /// Complete protocol catalog in stable semantic order.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 17] = [
         Self::IntAdd,
         Self::IntSub,
         Self::IntMul,
@@ -69,13 +73,20 @@ impl BuiltinOperation {
         Self::BoolNotEqual,
         Self::BoolAnd,
         Self::BoolOr,
+        Self::BytesLength,
+        Self::BytesGet,
     ];
 
     /// Returns the exact result sort from the pinned builtin signature.
     #[must_use]
     pub const fn result_sort(self) -> BuiltinSort {
         match self {
-            Self::IntAdd | Self::IntSub | Self::IntMul | Self::IntTDiv => BuiltinSort::Int,
+            Self::IntAdd
+            | Self::IntSub
+            | Self::IntMul
+            | Self::IntTDiv
+            | Self::BytesLength
+            | Self::BytesGet => BuiltinSort::Int,
             Self::IntGreaterEqual
             | Self::IntGreater
             | Self::IntLessEqual
@@ -112,7 +123,9 @@ impl BuiltinOperation {
             | Self::BoolEqual
             | Self::BoolNotEqual
             | Self::BoolAnd
-            | Self::BoolOr => true,
+            | Self::BoolOr
+            | Self::BytesLength
+            | Self::BytesGet => true,
         }
     }
 
@@ -122,6 +135,8 @@ impl BuiltinOperation {
         const INT_INT: &[BuiltinSort] = &[BuiltinSort::Int, BuiltinSort::Int];
         const BOOL: &[BuiltinSort] = &[BuiltinSort::Bool];
         const BOOL_BOOL: &[BuiltinSort] = &[BuiltinSort::Bool, BuiltinSort::Bool];
+        const BYTES: &[BuiltinSort] = &[BuiltinSort::Bytes];
+        const BYTES_INT: &[BuiltinSort] = &[BuiltinSort::Bytes, BuiltinSort::Int];
         match self {
             Self::IntAdd
             | Self::IntSub
@@ -135,6 +150,8 @@ impl BuiltinOperation {
             | Self::IntNotEqual => INT_INT,
             Self::BoolNot => BOOL,
             Self::BoolEqual | Self::BoolNotEqual | Self::BoolAnd | Self::BoolOr => BOOL_BOOL,
+            Self::BytesLength => BYTES,
+            Self::BytesGet => BYTES_INT,
         }
     }
 }

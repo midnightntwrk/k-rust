@@ -75,10 +75,10 @@ pub use krs_ir::{
     ProtocolHeadRuleResult,
 };
 pub use krs_macros::{
-    alias, anonymous, associativity, bracket, cell, cells, claim, configuration, constructor,
-    constructors, context_alias, ensures, equation, exists, function, id, init, k, map, or_bool,
-    precedence, priority, requires, rule, rules, seqstrict, simplification, sort, sorts, strict,
-    subsort, symbol, term, token,
+    alias, anonymous, associativity, bracket, bytes, cell, cells, claim, configuration,
+    constructor, constructors, context_alias, ensures, equation, exists, function, id, init, k,
+    map, or_bool, precedence, priority, requires, rule, rules, seqstrict, simplification, sort,
+    sorts, strict, subsort, symbol, term, token,
 };
 
 /// Rust-resolved metadata for an unqualified constructor application in a
@@ -346,8 +346,30 @@ pub mod builtin {
         pub use Or as or;
     }
 
+    /// Builtin operations and sort marker from K's pinned `BYTES` domain.
+    pub mod bytes {
+        use super::int::Int;
+
+        /// Host marker for K's `Bytes` sort.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Bytes;
+
+        /// Marker for `lengthBytes`.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Length(pub Bytes);
+
+        /// Marker for byte lookup.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Get(pub Bytes, pub Int);
+
+        pub use Get as get;
+        pub use Length as length;
+    }
+
     /// Convenient root spelling of the builtin Boolean sort marker.
     pub use bool::Bool;
+    /// Convenient root spelling of the builtin byte-string sort marker.
+    pub use bytes::Bytes;
     /// Convenient root spelling of the builtin integer sort marker.
     pub use int::Int;
 }
@@ -360,6 +382,8 @@ impl KItemSort for builtin::Int {}
 impl KResultSort for builtin::Int {}
 impl KItemSort for builtin::Bool {}
 impl KResultSort for builtin::Bool {}
+impl KItemSort for builtin::Bytes {}
+impl KResultSort for builtin::Bytes {}
 
 fn k_sequence_builtin_key() -> TypeId {
     TypeId::of::<builtin::KSequence>()
@@ -379,6 +403,10 @@ fn id_builtin_key() -> TypeId {
 
 fn map_builtin_key() -> TypeId {
     TypeId::of::<builtin::Map>()
+}
+
+fn bytes_builtin_key() -> TypeId {
+    TypeId::of::<builtin::Bytes>()
 }
 
 macro_rules! builtin_operation_keys {
@@ -407,6 +435,8 @@ builtin_operation_keys! {
     (bool_ne_builtin_key, builtin::bool::ne),
     (bool_and_builtin_key, builtin::bool::and),
     (bool_or_builtin_key, builtin::bool::or),
+    (bytes_length_builtin_key, builtin::bytes::length),
+    (bytes_get_builtin_key, builtin::bytes::get),
 }
 
 fn map_update_builtin_key() -> TypeId {
@@ -433,6 +463,7 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
         (BuiltinSort::Bool, bool_builtin_key as fn() -> TypeId),
         (BuiltinSort::Map, map_builtin_key as fn() -> TypeId),
         (BuiltinSort::Id, id_builtin_key as fn() -> TypeId),
+        (BuiltinSort::Bytes, bytes_builtin_key as fn() -> TypeId),
     ]
     .into_iter()
     .map(|(sort, key)| HostBuiltinSortRegistration {
@@ -460,6 +491,8 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
         (BuiltinOperation::BoolNotEqual, bool_ne_builtin_key),
         (BuiltinOperation::BoolAnd, bool_and_builtin_key),
         (BuiltinOperation::BoolOr, bool_or_builtin_key),
+        (BuiltinOperation::BytesLength, bytes_length_builtin_key),
+        (BuiltinOperation::BytesGet, bytes_get_builtin_key),
     ]
     .into_iter()
     .map(|(operation, key)| HostBuiltinOperationRegistration {

@@ -4,7 +4,7 @@ use syn::parse::Parser;
 use syn::spanned::Spanned;
 use syn::{
     Expr, ExprCall, ExprGroup, ExprLit, ExprMacro, ExprParen, ExprPath, ExprStruct, Lit, LitBool,
-    LitInt, LitStr, Member, Path, Token,
+    LitByteStr, LitInt, LitStr, Member, Path, Token,
 };
 
 use crate::attribute::{is_plain_path, path_spelling};
@@ -64,6 +64,8 @@ pub enum TermNode {
     Literal(TermLiteral),
     /// Compiler-owned concrete token of builtin sort `Id`.
     IdToken(LitStr),
+    /// Compiler-owned concrete token of builtin sort `Bytes`.
+    BytesToken(LitByteStr),
     /// One fresh typed anonymous-variable occurrence.
     Anonymous {
         /// Explicit object-language sort.
@@ -81,7 +83,11 @@ impl TermNode {
     pub const fn path(&self) -> Option<&Path> {
         match self {
             Self::ApplicationHead(path) | Self::Reference(path) => Some(path),
-            Self::Literal(_) | Self::IdToken(_) | Self::Anonymous { .. } | Self::OrBool(_) => None,
+            Self::Literal(_)
+            | Self::IdToken(_)
+            | Self::BytesToken(_)
+            | Self::Anonymous { .. }
+            | Self::OrBool(_) => None,
         }
     }
 
@@ -93,6 +99,7 @@ impl TermNode {
             Self::ApplicationHead(_)
             | Self::Reference(_)
             | Self::IdToken(_)
+            | Self::BytesToken(_)
             | Self::Anonymous { .. }
             | Self::OrBool(_) => None,
         }
@@ -103,6 +110,7 @@ impl TermNode {
             Self::ApplicationHead(path) | Self::Reference(path) => TokenRange::for_tokens(path),
             Self::Literal(literal) => literal.range(),
             Self::IdToken(literal) => TokenRange::for_tokens(literal),
+            Self::BytesToken(literal) => TokenRange::for_tokens(literal),
             Self::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
             Self::OrBool(range) => Ok(*range),
         }
@@ -200,6 +208,11 @@ pub enum TermTree {
         /// Exact validated token literal.
         literal: LitStr,
     },
+    /// `k::bytes!(b"...")` concrete builtin token.
+    BytesToken {
+        /// Exact validated byte-string literal.
+        literal: LitByteStr,
+    },
     /// `k::anonymous!(Sort, "_Name")` fresh anonymous occurrence.
     Anonymous {
         /// Explicit object-language sort path.
@@ -226,6 +239,7 @@ impl TermTree {
             | Self::Literal(_)
             | Self::Wildcard(_)
             | Self::IdToken { .. }
+            | Self::BytesToken { .. }
             | Self::Anonymous { .. }
             | Self::OrBool { .. } => None,
         }
@@ -240,6 +254,7 @@ impl TermTree {
             | Self::Literal(_)
             | Self::Wildcard(_)
             | Self::IdToken { .. }
+            | Self::BytesToken { .. }
             | Self::Anonymous { .. }
             | Self::OrBool { .. } => None,
         }
@@ -254,6 +269,7 @@ impl TermTree {
             | Self::Reference(_)
             | Self::Wildcard(_)
             | Self::IdToken { .. }
+            | Self::BytesToken { .. }
             | Self::Anonymous { .. }
             | Self::OrBool { .. } => None,
         }
@@ -268,6 +284,7 @@ impl TermTree {
             | Self::Reference(_)
             | Self::Literal(_)
             | Self::IdToken { .. }
+            | Self::BytesToken { .. }
             | Self::Anonymous { .. }
             | Self::OrBool { .. } => None,
         }
@@ -315,6 +332,7 @@ impl TermTree {
             Self::Reference(_)
             | Self::Literal(_)
             | Self::IdToken { .. }
+            | Self::BytesToken { .. }
             | Self::Anonymous { .. } => {}
         }
     }
@@ -394,7 +412,7 @@ impl TermExpression {
             Expr::Macro(value) if special_macro_name(&value.mac.path).is_some() => {
                 match special_macro_name(&value.mac.path) {
                     Some("or_bool") => TermRootKind::Call,
-                    Some("id" | "anonymous") => TermRootKind::Literal,
+                    Some("id" | "bytes" | "anonymous") => TermRootKind::Literal,
                     _ => unreachable!(),
                 }
             }
@@ -521,7 +539,10 @@ impl TermExpression {
                     literal_ordinal += 1;
                     (literal_role, ordinal)
                 }
-                TermNode::IdToken(_) | TermNode::Anonymous { .. } | TermNode::OrBool(_) => {
+                TermNode::IdToken(_)
+                | TermNode::BytesToken(_)
+                | TermNode::Anonymous { .. }
+                | TermNode::OrBool(_) => {
                     continue;
                 }
             };
@@ -633,6 +654,7 @@ fn special_macro_name(path: &Path) -> Option<&'static str> {
     let name = path.segments.last()?.ident.to_string();
     match name.as_str() {
         "id" => Some("id"),
+        "bytes" => Some("bytes"),
         "anonymous" => Some("anonymous"),
         "or_bool" => Some("or_bool"),
         _ => None,
@@ -660,6 +682,11 @@ fn validate_special_macro(
             }
             nodes.push(TermNode::IdToken(literal.clone()));
             Ok(TermTree::IdToken { literal })
+        }
+        Some("bytes") => {
+            let literal: LitByteStr = syn::parse2(value.mac.tokens.clone())?;
+            nodes.push(TermNode::BytesToken(literal.clone()));
+            Ok(TermTree::BytesToken { literal })
         }
         Some("anonymous") => {
             let parser = |input: syn::parse::ParseStream<'_>| -> syn::Result<(Path, LitStr)> {
@@ -954,4 +981,25 @@ pub(crate) fn unexpected_macro(path: &Path) -> SyntaxError {
         },
         path.span(),
     )
+}
+
+#[cfg(test)]
+mod bytes_token_tests {
+    use super::{TermNode, TermTree, parse_term_expression_source};
+
+    #[test]
+    fn byte_string_macro_parses_as_one_intrinsic_token() {
+        let expression = parse_term_expression_source(r#"k::bytes!(b"\x00A\xff")"#).unwrap();
+        let TermTree::BytesToken { literal } = expression.tree() else {
+            panic!("bytes! must retain its intrinsic token node");
+        };
+        assert_eq!(literal.value(), b"\x00A\xff");
+        assert!(matches!(expression.nodes(), [TermNode::BytesToken(_)]));
+        assert_eq!(expression.spelling(), r#"k :: bytes ! (b"\x00A\xff")"#);
+    }
+
+    #[test]
+    fn byte_string_macro_rejects_non_byte_literals() {
+        assert!(parse_term_expression_source(r#"k::bytes!("not bytes")"#).is_err());
+    }
 }

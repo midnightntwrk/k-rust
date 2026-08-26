@@ -38,11 +38,11 @@ contract = "invalid-instruction exceptional status"
 
 [[behavior]]
 id = "empty-program"
-program = ".EvmProgram"
+program = 'b""'
 stack = ".WordStack"
 pc = "0"
 gas = "0"
-expected_program = ".EvmProgram"
+expected_program = 'b""'
 expected_stack = ".WordStack"
 expected_pc = "0"
 expected_gas = "0"
@@ -50,11 +50,11 @@ expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
 id = "push-width-one"
-program = "PUSH(1, 42) ; STOP ; .EvmProgram"
+program = 'b"\x60\x2a\x00"'
 stack = ".WordStack"
 pc = "0"
 gas = "3"
-expected_program = ".EvmProgram"
+expected_program = 'b"\x60\x2a\x00"'
 expected_stack = "42 : .WordStack"
 expected_pc = "2"
 expected_gas = "0"
@@ -62,11 +62,11 @@ expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
 id = "push-width-thirty-two"
-program = "PUSH(32, 255) ; STOP ; .EvmProgram"
+program = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x7f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\x00"'
 stack = ".WordStack"
 pc = "9"
 gas = "3"
-expected_program = ".EvmProgram"
+expected_program = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x7f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\x00"'
 expected_stack = "255 : .WordStack"
 expected_pc = "42"
 expected_gas = "0"
@@ -74,11 +74,11 @@ expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
 id = "add"
-program = "ADD ; STOP ; .EvmProgram"
+program = 'b"\x01\x00"'
 stack = "2 : 3 : .WordStack"
 pc = "0"
 gas = "3"
-expected_program = ".EvmProgram"
+expected_program = 'b"\x01\x00"'
 expected_stack = "5 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
@@ -86,11 +86,11 @@ expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
 id = "add-word-wrap"
-program = "ADD ; STOP ; .EvmProgram"
+program = 'b"\x01\x00"'
 stack = "115792089237316195423570985008687907853269984665640564039457584007913129639935 : 1 : .WordStack"
 pc = "0"
 gas = "3"
-expected_program = ".EvmProgram"
+expected_program = 'b"\x01\x00"'
 expected_stack = "0 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
@@ -98,11 +98,11 @@ expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
 id = "program-counter"
-program = "PC ; STOP ; .EvmProgram"
+program = 'b"\x00\x00\x00\x00\x00\x00\x00\x58\x00"'
 stack = ".WordStack"
 pc = "7"
 gas = "2"
-expected_program = ".EvmProgram"
+expected_program = 'b"\x00\x00\x00\x00\x00\x00\x00\x58\x00"'
 expected_stack = "7 : .WordStack"
 expected_pc = "8"
 expected_gas = "0"
@@ -110,11 +110,11 @@ expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
 id = "push-add-pc-stop"
-program = "PUSH(1, 2) ; PUSH(1, 3) ; ADD ; PC ; STOP ; .EvmProgram"
+program = 'b"\x60\x02\x60\x03\x01\x58\x00"'
 stack = ".WordStack"
 pc = "0"
 gas = "11"
-expected_program = ".EvmProgram"
+expected_program = 'b"\x60\x02\x60\x03\x01\x58\x00"'
 expected_stack = "5 : 5 : .WordStack"
 expected_pc = "6"
 expected_gas = "0"
@@ -122,11 +122,11 @@ expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
 id = "add-underflow-empty"
-program = "ADD ; STOP ; .EvmProgram"
+program = 'b"\x00\x00\x00\x00\x01\x00"'
 stack = ".WordStack"
 pc = "4"
 gas = "20"
-expected_program = "ADD ; STOP ; .EvmProgram"
+expected_program = 'b"\x00\x00\x00\x00\x01\x00"'
 expected_stack = ".WordStack"
 expected_pc = "4"
 expected_gas = "20"
@@ -134,11 +134,11 @@ expected_status = "EVMC_STACK_UNDERFLOW"
 
 [[behavior]]
 id = "add-underflow-one"
-program = "ADD ; STOP ; .EvmProgram"
+program = 'b"\x00\x00\x00\x00\x01\x00"'
 stack = "9 : .WordStack"
 pc = "4"
 gas = "20"
-expected_program = "ADD ; STOP ; .EvmProgram"
+expected_program = 'b"\x00\x00\x00\x00\x01\x00"'
 expected_stack = "9 : .WordStack"
 expected_pc = "4"
 expected_gas = "20"
@@ -146,11 +146,11 @@ expected_status = "EVMC_STACK_UNDERFLOW"
 
 [[behavior]]
 id = "push-out-of-gas"
-program = "PUSH(1, 42) ; STOP ; .EvmProgram"
+program = 'b"\x60\x2a\x00"'
 stack = ".WordStack"
 pc = "0"
 gas = "2"
-expected_program = "PUSH(1, 42) ; STOP ; .EvmProgram"
+expected_program = 'b"\x60\x2a\x00"'
 expected_stack = ".WordStack"
 expected_pc = "0"
 expected_gas = "2"
@@ -158,11 +158,11 @@ expected_status = "EVMC_OUT_OF_GAS"
 
 [[behavior]]
 id = "add-out-of-gas"
-program = "ADD ; STOP ; .EvmProgram"
+program = 'b"\x01\x00"'
 stack = "2 : 3 : .WordStack"
 pc = "0"
 gas = "2"
-expected_program = "ADD ; STOP ; .EvmProgram"
+expected_program = 'b"\x01\x00"'
 expected_stack = "2 : 3 : .WordStack"
 expected_pc = "0"
 expected_gas = "2"
@@ -170,11 +170,11 @@ expected_status = "EVMC_OUT_OF_GAS"
 
 [[behavior]]
 id = "pc-out-of-gas"
-program = "PC ; STOP ; .EvmProgram"
+program = 'b"\x00\x00\x00\x00\x00\x00\x00\x58\x00"'
 stack = ".WordStack"
 pc = "7"
 gas = "1"
-expected_program = "PC ; STOP ; .EvmProgram"
+expected_program = 'b"\x00\x00\x00\x00\x00\x00\x00\x58\x00"'
 expected_stack = ".WordStack"
 expected_pc = "7"
 expected_gas = "1"
@@ -182,11 +182,11 @@ expected_status = "EVMC_OUT_OF_GAS"
 
 [[behavior]]
 id = "invalid-instruction"
-program = "INVALID ; STOP ; .EvmProgram"
+program = 'b"\x00\x00\x00\xfe\x00"'
 stack = "9 : .WordStack"
 pc = "3"
 gas = "20"
-expected_program = "INVALID ; STOP ; .EvmProgram"
+expected_program = 'b"\x00\x00\x00\xfe\x00"'
 expected_stack = "9 : .WordStack"
 expected_pc = "3"
 expected_gas = "20"
@@ -194,11 +194,11 @@ expected_status = "EVMC_INVALID_INSTRUCTION"
 
 [[behavior]]
 id = "stop-zero-gas"
-program = "STOP ; .EvmProgram"
+program = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 stack = ".WordStack"
 pc = "12"
 gas = "0"
-expected_program = ".EvmProgram"
+expected_program = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_stack = ".WordStack"
 expected_pc = "12"
 expected_gas = "0"

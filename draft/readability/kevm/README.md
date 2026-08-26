@@ -1,6 +1,6 @@
 # Readable KEVM qualification
 
-Status: first operational slice qualified; IMP and KWasm regressions green, 2026-08-26 JST
+Status: Bytes-backed operational slice qualified, 2026-08-26 JST
 
 ## Pinned authority
 
@@ -13,8 +13,7 @@ The external acceptance corpus is the clean checkout at
 - derived opcode summaries in that directory's `summaries/` package.
 
 The KEVM checkout and the recovery evidence remain read-only. KRS owns this
-fixture, its structured-program adapter, and every generated acceptance
-artifact.
+fixture and every generated acceptance artifact.
 
 ## Corpus inventory
 
@@ -43,7 +42,7 @@ hooks, and symbolic summaries. This milestone does not claim those features.
 The first slice follows KEVM's `#next`/`#exec`/`#gas`/`#pc` pipeline and the
 checked-in `push`, `add`, `pc`, `gas`, `stop`, and `invalid` summaries:
 
-1. a recursive word stack and structured program adapter;
+1. a recursive word stack and K's builtin `Bytes` program domain;
 2. `PUSH`, `ADD`, `PC`, `STOP`, and `INVALID` opcodes;
 3. simultaneous program, stack, program-counter, gas, and status transitions;
 4. `PUSH` widths and their effect on the program counter;
@@ -56,12 +55,9 @@ checked-in `push`, `add`, `pc`, `gas`, `stop`, and `invalid` summaries:
     and successful halt.
 
 KEVM stores executable code as `Bytes` and decodes it with `#lookupOpCode`.
-The fixture deliberately replaces only that front-end boundary with a
-right-recursive `EvmProgram`: immediate push data is already decoded into a
-`PUSH(width, value)` node. The operational effects after decoding are mapped
-to the checked-in summary rules, not invented arithmetic semantics. This keeps
-the first gate independent of an as-yet-unjustified KRS Bytes protocol while
-retaining byte widths, PC movement, gas, stack order, and exceptional status.
+The KRS definition now uses the pinned `BYTES` implementation directly: `lengthBytes(PROGRAM)` bounds lookup, `PROGRAM [ PC ]` reads the opcode byte, and a recursive big-endian decoder reads `PUSH1` through `PUSH32` immediates.
+The operational effects after decoding remain mapped to the checked-in summary rules.
+The program bytes remain unchanged across execution, matching KEVM's program-cell boundary.
 
 ## Source mapping
 
@@ -77,14 +73,14 @@ retaining byte widths, PC movement, gas, stack order, and exceptional status.
   `gas-summary.k`, `stop-summary.k`, and `invalid-summary.k`: direct
   multi-cell transition oracle.
 
-## Unsupported shapes recorded before implementation
+## Selected KRS extension
 
-No production KRS extension is assumed by this slice. Existing protocol-16
-fixed-leaf rewrites can express five simultaneous ordinary-cell changes, and
-existing guarded equations can express gas sufficiency. The selected adapter
-avoids unsupported Bytes operations rather than pretending they are covered.
+Descriptor protocol 17 and Definition IR schema 10 add the pinned `Bytes` sort, `BYTES.length`, `BYTES.get`, and claim-only byte tokens.
+The compiler emits the native K surface exactly as `Bytes`, `lengthBytes(B)`, `B [ I ]`, and `b"\xhh..."`.
+The token transport is canonical lower hexadecimal and rejects malformed or noncanonical descriptor payloads.
+Reference expansion reconstructs `k::bytes!(b"...")` without retaining target-specific token text in authored Rust.
 
-Deferred corpus shapes include Bytes hooks and indexing, `%Int`, `owise`,
+Deferred corpus shapes include the remaining Bytes operations, `%Int`, `owise`,
 rule-table guards, nested/multiplicity configurations, bags and sets, map
 lookup/update beyond the existing finite-map surface, cell collections,
 heating/cooling attributes beyond the current contract, priorities used for
@@ -110,24 +106,21 @@ The complete gate passes without a KRS syntax, protocol, IR, compiler, or
 runtime change:
 
 ```text
-PASS readable KEVM operational slice: 69 descriptors; 14 executions; 1 native proof; protocol 16; K 7.1.337
+PASS readable KEVM operational slice: 85 descriptors; 14 executions; 1 native proof; protocol 17; K 7.1.337
 ```
 
 The behavior matrix covers empty-program success, one- and 32-byte PUSH
 widths, ADD, modulo-`2^256` wraparound, PC observation, the combined
 PUSH/ADD/PC/STOP path, both structural ADD-underflow shapes, out-of-gas for
 PUSH/ADD/PC, invalid instruction, and zero-gas STOP. The structured behavior
-SHA-256 is `3cd26827055518f97e39af8eb30979712bb55ea132aff21009b683e531da35aa`.
+SHA-256 is `8c0359e611d760916bdbca2966998b02a9ef38ee1e4a8467861b38bb793e86d7`.
 The all-path combined claim closes with `#Top` through native `kprove`.
 
 The normalized native `definition.kore` SHA-256 is
-`672953aa73dbcce4aa15aae8e663e1a42e86d12816e6a16a21d4966edb7e5a04`.
+`957aa5e19a3a49a832ad92753f785e797d1aa2f731c280030fc903791ed5f7a0`.
 Normalization is limited to the temporary semantics path and K-generated
 sort-membership binder names, using the already-qualified KWasm policy.
 Six focused definition/hover probes pass with zero rust-analyzer diagnostics.
 
-This result is useful precisely because it does not force a production
-extension: protocol 16's ordinary fixed-leaf rewrites already scale from two
-KWasm cells to KEVM's selected five state cells, while guarded equations
-already encode gas sufficiency. Bytes decoding and the other deferred shapes
-remain explicit future evidence, not implicit claims.
+This result removes the structured-program adapter without widening the qualified opcode set.
+The remaining opcode families and stateful EVM surfaces remain explicit future evidence, not implicit claims.

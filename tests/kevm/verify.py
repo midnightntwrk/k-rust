@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib.util
 import json
@@ -29,6 +30,7 @@ PACKAGE = "krs-kevm-semantics"
 DEFINITION = "main"
 MODULE = "KRS-KEVM"
 SPEC_MODULE = f"{MODULE}-SPEC"
+DESCRIPTOR_COUNT = 85
 ARTIFACTS = (
     ".krs-artifacts",
     "definition-ir.json",
@@ -40,12 +42,24 @@ ARTIFACTS = (
 )
 SOURCE_LEDGER_PATHS = (
     "crates/krs-compiler/src/collect.rs",
+    "crates/krs-compiler/src/emit.rs",
     "crates/krs-compiler/src/reference.rs",
     "crates/krs-compiler/src/semantic.rs",
+    "crates/krs-ir/src/definition.rs",
+    "crates/krs-ir/src/grammar.rs",
     "crates/krs-ir/src/head_rule.rs",
+    "crates/krs-ir/src/ir.rs",
     "crates/krs-ir/src/lib.rs",
+    "crates/krs-ir/src/protocol_v7_rule.rs",
+    "crates/krs-ir/src/semantic.rs",
+    "crates/krs-k-rust/src/lib.rs",
     "crates/krs-macros/src/expand.rs",
+    "crates/krs-macros/src/lib.rs",
+    "crates/krs-syntax/src/provenance.rs",
     "crates/krs-syntax/src/rule.rs",
+    "crates/krs-syntax/src/state_rule.rs",
+    "crates/krs-syntax/src/term.rs",
+    "crates/krs/src/lib.rs",
     "draft/readability/kevm/README.md",
     "tests/kevm/corpus.toml",
     "tests/kevm/lsp_probe.py",
@@ -166,7 +180,7 @@ def exact_directory(first: Path, second: Path) -> dict[str, str]:
 def artifact_gate(workspace: Path, krs: Path, pins: Mapping[str, Any], environment: Mapping[str, str]) -> Path:
     base = ["--manifest-path", MANIFEST, "--package", PACKAGE, "--definition", DEFINITION]
     check = run([krs, "check", *base], environment=environment)
-    if "69 descriptors" not in check.stdout:
+    if f"{DESCRIPTOR_COUNT} descriptors" not in check.stdout:
         raise GateError(f"unexpected descriptor count: {check.stdout.strip()}")
     expansions = [run([krs, "expand", *base], environment=environment).stdout for _ in range(2)]
     if expansions[0] != expansions[1]:
@@ -205,6 +219,14 @@ def artifact_gate(workspace: Path, krs: Path, pins: Mapping[str, Any], environme
     )
     readable = (outputs[0] / "definition.k").read_text(encoding="utf-8")
     expanded_k = (expanded_output / "definition.k").read_text(encoding="utf-8")
+    if "  imports BYTES\n" not in readable:
+        raise GateError("emitted KEVM definition does not import pinned BYTES")
+    if "lengthBytes(" not in readable:
+        raise GateError("emitted KEVM definition omits functional lengthBytes syntax")
+    if re.search(r"V[0-9A-F]+:Bytes \[ V[0-9A-F]+:Int \]", readable) is None:
+        raise GateError("emitted KEVM definition omits builtin byte lookup syntax")
+    if "EvmProgram" in readable:
+        raise GateError("emitted KEVM definition retained the structured program adapter")
     sentence = re.compile(r"^  (rule|claim)(?: \[([^]]+)\])?", re.MULTILINE)
     if readable.split("\n  rule ", 1)[0] != expanded_k.split("\n  rule ", 1)[0]:
         raise GateError("independent expansion changed syntax or configuration")
@@ -214,6 +236,13 @@ def artifact_gate(workspace: Path, krs: Path, pins: Mapping[str, Any], environme
 
 
 def normalize_term(value: str) -> str:
+    def normalize_bytes(match: re.Match[str]) -> str:
+        decoded = ast.literal_eval(match.group(0))
+        if not isinstance(decoded, bytes):
+            raise GateError(f"invalid Bytes token: {match.group(0)}")
+        return 'b"' + "".join(f"\\x{byte:02x}" for byte in decoded) + '"'
+
+    value = re.sub(r'b"(?:\\.|[^"\\])*"', normalize_bytes, value)
     value = re.sub(r"\s+", " ", value.strip())
     value = re.sub(r"\s*([(),;:])\s*", r"\1", value)
     value = re.sub(r"\.\s+", ".", value)
@@ -303,7 +332,7 @@ def main() -> int:
             artifacts = artifact_gate(workspace, krs, pins, environment)
             executions, proofs = native_gate(workspace, artifacts, k_bin, pins, corpus)
         print(
-            f"PASS readable KEVM operational slice: 69 descriptors; {executions} executions; "
+            f"PASS readable KEVM operational slice: {DESCRIPTOR_COUNT} descriptors; {executions} executions; "
             f"{proofs} native proof; protocol {pins['schemas']['descriptor_protocol']}; K {pins['k']['version']}"
         )
         return 0

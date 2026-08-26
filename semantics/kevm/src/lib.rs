@@ -1,14 +1,13 @@
 //! Readable qualification slice for KEVM opcode execution.
 //!
 //! The source mapping is pinned in `../../draft/readability/kevm/README.md`.
-//! A structured program adapter replaces byte decoding while preserving the
-//! selected KEVM summary transitions over stack, PC, gas, and status.
+//! The program cell uses K's builtin `Bytes` domain and decodes the selected
+//! opcodes from their canonical byte values.
 
-use k::builtin::{Int, KSequence, int};
+use k::builtin::{Bytes, Int, KSequence, bool, bytes, int};
 
 k::sorts! {
     OpCode: k::KItem;
-    EvmProgram;
     WordStack;
     StatusCode;
     GasStep: k::KItem;
@@ -16,7 +15,7 @@ k::sorts! {
 }
 
 #[k::constructors(sort = OpCode, result = k::KResult)]
-#[k::precedence((Push, Add, ProgramCounter, Stop, Invalid))]
+#[k::precedence((Push, Add, ProgramCounter, Stop, Invalid, End))]
 pub enum Operation {
     #[k::syntax("PUSH({width}, {value})")]
     Push { width: Int, value: Int },
@@ -28,15 +27,8 @@ pub enum Operation {
     Stop,
     #[k::syntax("INVALID")]
     Invalid,
-}
-
-#[k::constructors(sort = EvmProgram, result = k::KResult)]
-#[k::precedence((ProgramEmpty, ProgramCons))]
-pub enum Program {
-    #[k::syntax(".EvmProgram")]
-    ProgramEmpty(),
-    #[k::syntax("{head} ; {tail}")]
-    ProgramCons { head: OpCode, tail: EvmProgram },
+    #[k::syntax("#endOfProgram")]
+    End,
 }
 
 #[k::constructors(sort = WordStack, result = k::KResult)]
@@ -66,8 +58,8 @@ pub enum Status {
 #[k::constructors(sort = GasStep, result = k::KResult)]
 #[k::precedence((EnoughGas, InsufficientGas))]
 pub enum GasResult {
-    #[k::syntax("#enoughGas({remaining})")]
-    EnoughGas { remaining: Int },
+    #[k::syntax("#enoughGas({op}, {remaining})")]
+    EnoughGas { op: OpCode, remaining: Int },
     #[k::syntax("#insufficientGas")]
     InsufficientGas(),
 }
@@ -88,6 +80,169 @@ pub struct Chop {
 pub struct Charge {
     pub op: k::Term<OpCode>,
     pub gas: k::Term<Int>,
+}
+
+#[k::function(total, sort = OpCode, syntax = "#kevmLookup({program}, {pc})")]
+pub struct Lookup {
+    pub program: k::Term<Bytes>,
+    pub pc: k::Term<Int>,
+}
+
+#[k::function(total, sort = OpCode, syntax = "#kevmDecode({opcode}, {program}, {pc})")]
+pub struct Decode {
+    pub opcode: k::Term<Int>,
+    pub program: k::Term<Bytes>,
+    pub pc: k::Term<Int>,
+}
+
+#[k::function(total, sort = Int, syntax = "#kevmReadImmediate({program}, {at}, {remaining}, {value})")]
+pub struct ReadImmediate {
+    pub program: k::Term<Bytes>,
+    pub at: k::Term<Int>,
+    pub remaining: k::Term<Int>,
+    pub value: k::Term<Int>,
+}
+
+#[k::requires(bool::and(int::ge(pc, 0), int::lt(pc, bytes::length(program))))]
+#[k::equation]
+fn lookup_opcode(k::term![Lookup { program, pc }]: k::Term<OpCode>) -> k::Term<OpCode> {
+    k::term![Decode {
+        opcode: bytes::get(program, pc),
+        program,
+        pc
+    }]
+}
+
+#[k::requires(int::lt(pc, 0))]
+#[k::equation]
+fn lookup_before_program(k::term![Lookup { program, pc }]: k::Term<OpCode>) -> k::Term<OpCode> {
+    k::term![Operation::End]
+}
+
+#[k::requires(int::ge(pc, bytes::length(program)))]
+#[k::equation]
+fn lookup_after_program(k::term![Lookup { program, pc }]: k::Term<OpCode>) -> k::Term<OpCode> {
+    k::term![Operation::End]
+}
+
+#[k::equation]
+fn decode_stop(
+    k::term![Decode {
+        opcode: 0,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Stop]
+}
+
+#[k::equation]
+fn decode_add(
+    k::term![Decode {
+        opcode: 1,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Add]
+}
+
+#[k::equation]
+fn decode_pc(
+    k::term![Decode {
+        opcode: 88,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::ProgramCounter]
+}
+
+#[k::requires(bool::and(int::ge(opcode, 96), int::le(opcode, 127)))]
+#[k::equation]
+fn decode_push(
+    k::term![Decode {
+        opcode,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Push {
+        width: int::sub(opcode, 95),
+        value: ReadImmediate {
+            program,
+            at: int::add(pc, 1),
+            remaining: int::sub(opcode, 95),
+            value: 0
+        }
+    }]
+}
+
+#[k::requires(bool::and(int::ge(opcode, 2), int::le(opcode, 87)))]
+#[k::equation]
+fn decode_invalid_low(
+    k::term![Decode {
+        opcode,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Invalid]
+}
+
+#[k::requires(bool::and(int::ge(opcode, 89), int::le(opcode, 95)))]
+#[k::equation]
+fn decode_invalid_middle(
+    k::term![Decode {
+        opcode,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Invalid]
+}
+
+#[k::requires(int::ge(opcode, 128))]
+#[k::equation]
+fn decode_invalid_high(
+    k::term![Decode {
+        opcode,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Invalid]
+}
+
+#[k::requires(int::le(remaining, 0))]
+#[k::equation]
+fn read_immediate_done(
+    k::term![ReadImmediate {
+        program,
+        at,
+        remaining,
+        value
+    }]: k::Term<Int>,
+) -> k::Term<Int> {
+    k::term![value]
+}
+
+#[k::requires(int::gt(remaining, 0))]
+#[k::equation]
+fn read_immediate_byte(
+    k::term![ReadImmediate {
+        program,
+        at,
+        remaining,
+        value
+    }]: k::Term<Int>,
+) -> k::Term<Int> {
+    k::term![ReadImmediate {
+        program,
+        at: int::add(at, 1),
+        remaining: int::sub(remaining, 1),
+        value: int::add(int::mul(value, 256), bytes::get(program, at))
+    }]
 }
 
 // 2^256 is written as (2^64 * 2^64)^2 so every authored Rust literal fits
@@ -118,6 +273,7 @@ fn charge_push(
     k::term![Charge(Operation::Push { width, value }, gas)]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
     k::term![GasResult::EnoughGas {
+        op: Operation::Push { width, value },
         remaining: int::sub(gas, 3)
     }]
 }
@@ -134,6 +290,7 @@ fn charge_push_fails(
 #[k::equation]
 fn charge_add(k::term![Charge(Operation::Add, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
     k::term![GasResult::EnoughGas {
+        op: Operation::Add,
         remaining: int::sub(gas, 3)
     }]
 }
@@ -150,6 +307,7 @@ fn charge_pc(
     k::term![Charge(Operation::ProgramCounter, gas)]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
     k::term![GasResult::EnoughGas {
+        op: Operation::ProgramCounter,
         remaining: int::sub(gas, 2)
     }]
 }
@@ -164,7 +322,10 @@ fn charge_pc_fails(
 
 #[k::equation]
 fn charge_stop(k::term![Charge(Operation::Stop, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas { remaining: gas }]
+    k::term![GasResult::EnoughGas {
+        op: Operation::Stop,
+        remaining: gas
+    }]
 }
 
 #[k::configuration]
@@ -172,7 +333,7 @@ pub struct Machine {
     #[k::cell(name = "k")]
     pub k: KSequence,
     #[k::cell(name = "program")]
-    pub program: EvmProgram,
+    pub program: Bytes,
     #[k::cell(name = "wordStack")]
     pub word_stack: WordStack,
     #[k::cell(name = "pc")]
@@ -187,7 +348,7 @@ impl Machine {
     #[k::init]
     pub fn init(
         #[k::config_var(name = "PGM", main)] command: KSequence,
-        #[k::config_var(name = "PROGRAM")] program: EvmProgram,
+        #[k::config_var(name = "PROGRAM")] program: Bytes,
         #[k::config_var(name = "STACK")] word_stack: WordStack,
         #[k::config_var(name = "PC")] pc: Int,
         #[k::config_var(name = "GAS")] gas: Int,
@@ -206,141 +367,132 @@ impl Machine {
 
 k::rules! {
     for Machine;
-    begin_push: {
+    lookup: {
         k: [ExecutionCommand::Run(), ..],
-        program: Program::ProgramCons(Operation::Push { width, value }, tail),
+        program: program,
+        pc: pc,
+    } => {
+        k: [crate::Lookup { program, pc }, ..],
+        program: program,
+        pc: pc,
+    }
+    where program: Bytes, pc: Int;
+
+    begin_push: {
+        k: [Operation::Push { width, value }, ..],
         gas: gas,
     } => {
         k: [crate::Charge(Operation::Push { width, value }, gas), ..],
-        program: Program::ProgramCons(Operation::Push { width, value }, tail),
         gas: gas,
     }
-    where width: Int, value: Int, tail: EvmProgram, gas: Int;
+    where width: Int, value: Int, gas: Int;
 
     begin_add: {
-        k: [ExecutionCommand::Run(), ..],
-        program: Program::ProgramCons(Operation::Add, tail),
+        k: [Operation::Add, ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         gas: gas,
     } => {
         k: [crate::Charge(Operation::Add, gas), ..],
-        program: Program::ProgramCons(Operation::Add, tail),
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         gas: gas,
     }
-    where tail: EvmProgram, w0: Int, w1: Int, rest: WordStack, gas: Int;
+    where w0: Int, w1: Int, rest: WordStack, gas: Int;
 
     begin_pc: {
-        k: [ExecutionCommand::Run(), ..],
-        program: Program::ProgramCons(Operation::ProgramCounter, tail),
+        k: [Operation::ProgramCounter, ..],
         gas: gas,
     } => {
         k: [crate::Charge(Operation::ProgramCounter, gas), ..],
-        program: Program::ProgramCons(Operation::ProgramCounter, tail),
         gas: gas,
     }
-    where tail: EvmProgram, gas: Int;
+    where gas: Int;
 
     begin_stop: {
-        k: [ExecutionCommand::Run(), ..],
-        program: Program::ProgramCons(Operation::Stop, tail),
+        k: [Operation::Stop, ..],
         gas: gas,
     } => {
         k: [crate::Charge(Operation::Stop, gas), ..],
-        program: Program::ProgramCons(Operation::Stop, tail),
         gas: gas,
     }
-    where tail: EvmProgram, gas: Int;
+    where gas: Int;
 }
 
 k::rules! {
     for Machine;
     exec_push: {
-        k: [GasResult::EnoughGas(remaining), ..],
-        program: Program::ProgramCons(Operation::Push { width, value }, tail),
+        k: [GasResult::EnoughGas(Operation::Push { width, value }, remaining), ..],
         word_stack: stack,
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        program: tail,
         word_stack: Stack::StackCons(crate::Chop(value), stack),
         pc: int::add(pc, int::add(width, 1)),
         gas: remaining,
     }
-    where remaining: Int, width: Int, value: Int, tail: EvmProgram, stack: WordStack, pc: Int, gas: Int;
+    where remaining: Int, width: Int, value: Int, stack: WordStack, pc: Int, gas: Int;
 
     exec_add: {
-        k: [GasResult::EnoughGas(remaining), ..],
-        program: Program::ProgramCons(Operation::Add, tail),
+        k: [GasResult::EnoughGas(Operation::Add, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        program: tail,
         word_stack: Stack::StackCons(crate::Chop(int::add(w0, w1)), rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, tail: EvmProgram, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
+    where remaining: Int, w0: Int, w1: Int, rest: WordStack, pc: Int, gas: Int;
 
     exec_pc: {
-        k: [GasResult::EnoughGas(remaining), ..],
-        program: Program::ProgramCons(Operation::ProgramCounter, tail),
+        k: [GasResult::EnoughGas(Operation::ProgramCounter, remaining), ..],
         word_stack: stack,
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        program: tail,
         word_stack: Stack::StackCons(pc, stack),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, tail: EvmProgram, stack: WordStack, pc: Int, gas: Int;
+    where remaining: Int, stack: WordStack, pc: Int, gas: Int;
 
     exec_stop: {
-        k: [GasResult::EnoughGas(remaining), ..],
-        program: Program::ProgramCons(Operation::Stop, tail),
+        k: [GasResult::EnoughGas(Operation::Stop, remaining), ..],
         gas: gas,
         status_code: status,
     } => {
         k: [..],
-        program: tail,
         gas: remaining,
         status_code: Status::Success(),
     }
-    where remaining: Int, tail: EvmProgram, gas: Int, status: StatusCode;
+    where remaining: Int, gas: Int, status: StatusCode;
 }
 
 k::rules! {
     for Machine;
     add_underflow_empty: {
-        k: [ExecutionCommand::Run(), ..],
-        program: Program::ProgramCons(Operation::Add, tail),
+        k: [Operation::Add, ..],
         word_stack: Stack::StackEmpty(),
         status_code: status,
     } => {
         k: [..],
-        program: Program::ProgramCons(Operation::Add, tail),
         word_stack: Stack::StackEmpty(),
         status_code: Status::StackUnderflow(),
     }
-    where tail: EvmProgram, status: StatusCode;
+    where status: StatusCode;
 
     add_underflow_one: {
-        k: [ExecutionCommand::Run(), ..],
-        program: Program::ProgramCons(Operation::Add, tail),
+        k: [Operation::Add, ..],
         word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
         status_code: status,
     } => {
         k: [..],
-        program: Program::ProgramCons(Operation::Add, tail),
         word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
         status_code: Status::StackUnderflow(),
     }
-    where tail: EvmProgram, w0: Int, status: StatusCode;
+    where w0: Int, status: StatusCode;
 
     out_of_gas: {
         k: [GasResult::InsufficientGas(), ..],
@@ -352,23 +504,19 @@ k::rules! {
     where status: StatusCode;
 
     invalid_instruction: {
-        k: [ExecutionCommand::Run(), ..],
-        program: Program::ProgramCons(Operation::Invalid, tail),
+        k: [Operation::Invalid, ..],
         status_code: status,
     } => {
         k: [..],
-        program: Program::ProgramCons(Operation::Invalid, tail),
         status_code: Status::InvalidInstruction(),
     }
-    where tail: EvmProgram, status: StatusCode;
+    where status: StatusCode;
 
     end_of_program: {
-        k: [ExecutionCommand::Run(), ..],
-        program: Program::ProgramEmpty(),
+        k: [Operation::End, ..],
         status_code: status,
     } => {
         k: [..],
-        program: Program::ProgramEmpty(),
         status_code: Status::Success(),
     }
     where status: StatusCode;
@@ -379,16 +527,7 @@ k::rules! {
 fn push_add_pc_stop(
     k::cells! {
         k: k::configuration::KCell(ExecutionCommand::Run()),
-        program: k::configuration::Cell(Program::ProgramCons(
-            Operation::Push { width: 1, value: 2 },
-            Program::ProgramCons(
-                Operation::Push { width: 1, value: 3 },
-                Program::ProgramCons(
-                    Operation::Add,
-                    Program::ProgramCons(Operation::ProgramCounter, Program::ProgramCons(Operation::Stop, Program::ProgramEmpty())),
-                ),
-            ),
-        )),
+        program: k::configuration::Cell(k::bytes!(b"\x60\x02\x60\x03\x01\x58\x00")),
         word_stack: k::configuration::Cell(Stack::StackEmpty()),
         pc: k::configuration::Cell(0),
         gas: k::configuration::Cell(11),
@@ -397,7 +536,7 @@ fn push_add_pc_stop(
 ) -> Machine {
     k::cells! {
         k: k::configuration::KCell(.K),
-        program: k::configuration::Cell(Program::ProgramEmpty()),
+        program: k::configuration::Cell(k::bytes!(b"\x60\x02\x60\x03\x01\x58\x00")),
         word_stack: k::configuration::Cell(Stack::StackCons(5, Stack::StackCons(5, Stack::StackEmpty()))),
         pc: k::configuration::Cell(6),
         gas: k::configuration::Cell(0),

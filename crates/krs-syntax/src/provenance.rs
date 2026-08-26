@@ -246,6 +246,8 @@ pub enum ProvenanceRole {
     ClaimEnsuresRecordFieldName,
     /// Concrete compiler-owned builtin Id literal.
     ClaimIdToken,
+    /// Concrete compiler-owned builtin Bytes literal.
+    ClaimBytesToken,
     /// Complete fresh anonymous occurrence.
     ClaimAnonymous,
     /// Sort path in an anonymous occurrence.
@@ -438,6 +440,7 @@ impl ProvenanceRole {
             Self::ClaimEnsuresLiteral => "claim_ensures_literal",
             Self::ClaimEnsuresRecordFieldName => "claim_ensures_record_field_name",
             Self::ClaimIdToken => "claim_id_token",
+            Self::ClaimBytesToken => "claim_bytes_token",
             Self::ClaimAnonymous => "claim_anonymous",
             Self::ClaimAnonymousSort => "claim_anonymous_sort",
             Self::ClaimAnonymousSpelling => "claim_anonymous_spelling",

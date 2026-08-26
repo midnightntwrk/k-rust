@@ -77,10 +77,10 @@ def main() -> None:
 
         probes = [
             (
-                "program constructor",
-                "program: Program::ProgramCons(Operation::Push { width, value }, tail)",
-                "ProgramCons",
-                "    ProgramCons { head: OpCode, tail: EvmProgram },",
+                "program lookup",
+                "k: [crate::Lookup { program, pc }, ..]",
+                "Lookup",
+                "pub struct Lookup {",
                 0,
             ),
             (
@@ -108,8 +108,8 @@ def main() -> None:
                 "width binding",
                 "pc: int::add(pc, int::add(width, 1))",
                 "width",
-                "program: Program::ProgramCons(Operation::Push { width, value }, tail)",
-                2,
+                "k: [GasResult::EnoughGas(Operation::Push { width, value }, remaining), ..]",
+                0,
             ),
             (
                 "exception constructor",

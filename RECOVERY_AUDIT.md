@@ -849,6 +849,31 @@ The fail-closed semantic gates pass from the canonical packages with unchanged s
 The changed expansion, artifact, and KORE identities are explained by canonical package paths, package names, and K namespaces rather than semantic behavior changes.
 All new identities are fail-closed in the three source and artifact ledgers.
 
+### Phase 10 — replace the KEVM program adapter with builtin Bytes — complete
+
+The KEVM package now stores the program in K's pinned builtin `Bytes` domain instead of a KRS-owned recursive opcode list.
+Descriptor protocol 17 and Definition IR schema 10 add the selected shared authoring surface:
+
+- builtin sort `Bytes` backed by `BYTES`;
+- `bytes::length` emitted as `lengthBytes(B)`;
+- `bytes::get` emitted as `B [ I ]`;
+- claim-only `k::bytes!(b"...")` tokens transported canonically as lower-hex `b"\xhh..."` payloads.
+
+The protocol rejects malformed and noncanonical byte-token payloads.
+Focused tests cover alias-safe registry completeness, parser retention, canonical macro transport, reference expansion, and exact K emission.
+
+The KEVM opcode pipeline now bounds lookup with `lengthBytes`, reads the opcode at the program counter, recognizes `STOP`, `ADD`, `PC`, and `PUSH1` through `PUSH32`, and decodes PUSH immediates recursively in big-endian order.
+Execution preserves the original program bytes while retaining the prior stack, PC, gas, and exceptional-status behavior.
+
+The fail-closed KEVM gate passes with 85 descriptors, 14 native executions, and one native proof under K 7.1.337.
+The structured behavior SHA-256 is `8c0359e611d760916bdbca2966998b02a9ef38ee1e4a8467861b38bb793e86d7`.
+The normalized KORE SHA-256 is `957aa5e19a3a49a832ad92753f785e797d1aa2f731c280030fc903791ed5f7a0`.
+This phase removes the KEVM structured-program adapter but does not claim the remaining opcode, state, call, transaction, schedule, or cryptographic surfaces.
+
+The unchanged KWasm and KMIR baselines pass at protocol 17 and Definition IR schema 10 with their prior emitted K, behavior hashes, KORE hashes, and native proofs.
+The complete IMP M4 gate also passes every phase at protocol 17 and schema 10.
+Its emitted K, native KORE parity, behavior/search digest, proof outcomes, and compatibility digest remain unchanged; only the descriptor, Semantic IR, Definition IR, and source-sidecar identities moved with the shared protocol/schema unit.
+
 The normative formatter target remains:
 
 - `draft/readability/spec/imp.rs` first;
@@ -863,9 +888,9 @@ implementation authority.
 | Requirement | Authoritative evidence | Status |
 |---|---|---|
 | Finish `draft/readability/spec` | Normative `imp.rs`, deterministic `imp.expanded.rs`, implemented `decisions.md`, deliberately unresolved `open-questions.md`, and M4.2–M4.4 | complete; the trailing-comment policy, `{ .. }`, and no-k-head spelling remain explicitly open rather than silently resolved |
-| Make KRS work on IMP | Complete M4.1–M4.8 gate at protocol 16 and IR schema 9, including exact source projection, 1,206/1,206 native KORE parity, behavior hash `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, all proofs, and compatibility hash `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6` | complete |
+| Make KRS work on IMP | Complete M4.1–M4.8 gate at protocol 17 and IR schema 10, including exact source projection, 1,206/1,206 native KORE parity, behavior hash `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, all proofs, and compatibility hash `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6` | complete |
 | Complete the KRS KWasm port | `semantics/coverage.toml`, canonical `semantics/kwasm`, and the fail-closed KWasm gate | incomplete: 8 equations and 8 machine rules qualify the arithmetic baseline against an 884-rule source inventory; the recursive List adapter and deferred semantic surfaces remain |
-| Complete the KRS KEVM port | `semantics/coverage.toml`, canonical `semantics/kevm`, and the fail-closed KEVM gate | incomplete: 8 equations and 13 machine rules qualify the opcode baseline against a 3,440-rule source inventory; the Bytes adapter and deferred semantic surfaces remain |
+| Complete the KRS KEVM port | `semantics/coverage.toml`, canonical `semantics/kevm`, and the fail-closed KEVM gate | incomplete: 20 equations and 14 machine rules qualify the Bytes-backed opcode baseline against a 3,440-rule source inventory; the program adapter is removed, while the remaining opcode and stateful semantic surfaces remain |
 | Complete the KRS KMIR port | `semantics/coverage.toml`, canonical `semantics/kmir`, and the fail-closed KMIR gate | incomplete: 22 machine rules qualify the block-execution baseline against a 787-rule source inventory; the recursive List and untyped-local adapters and deferred semantic surfaces remain |
 | Preserve recovery boundaries | `krs.RECOVERY_PROVENANCE.md` and `../recovery/` remain unchanged; all reconstructed work is committed only in the live KRS repository | complete |
 

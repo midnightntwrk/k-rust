@@ -920,7 +920,50 @@ struct RuleCounters {
     record_field: u32,
     wildcard: u32,
     id_token: u32,
+    bytes_token: u32,
     anonymous: u32,
+}
+
+fn builtin_token_role<'a>(
+    sort: crate::BuiltinSort,
+    value: &str,
+    counters: &'a mut RuleCounters,
+) -> Result<(&'static str, &'a mut u32), ProtocolV7ShapeError> {
+    match sort {
+        crate::BuiltinSort::Id
+            if value.strip_prefix('$').is_some_and(|tail| {
+                !tail.is_empty()
+                    && tail
+                        .chars()
+                        .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+            }) =>
+        {
+            Ok(("claim_id_token", &mut counters.id_token))
+        }
+        crate::BuiltinSort::Bytes if valid_bytes_token(value) => {
+            Ok(("claim_bytes_token", &mut counters.bytes_token))
+        }
+        _ => Err(ProtocolV7ShapeError::InvalidTerm(
+            "invalid compiler-owned builtin token",
+        )),
+    }
+}
+
+fn valid_bytes_token(value: &str) -> bool {
+    let Some(body) = value
+        .strip_prefix("b\"")
+        .and_then(|value| value.strip_suffix('"'))
+    else {
+        return false;
+    };
+    let (chunks, remainder) = body.as_bytes().as_chunks::<4>();
+    remainder.is_empty()
+        && chunks.iter().all(|chunk| {
+            chunk[0] == b'\\'
+                && chunk[1] == b'x'
+                && (chunk[2].is_ascii_digit() || (b'a'..=b'f').contains(&chunk[2]))
+                && (chunk[3].is_ascii_digit() || (b'a'..=b'f').contains(&chunk[3]))
+        })
 }
 
 impl DescriptorConfigurationReference {
@@ -1046,6 +1089,7 @@ impl DescriptorConfigurationRule {
         let mut ignored = Vec::new();
         let mut right_counters = RuleCounters {
             id_token: left_counters.id_token,
+            bytes_token: left_counters.bytes_token,
             anonymous: left_counters.anonymous,
             ..RuleCounters::default()
         };
@@ -1071,6 +1115,7 @@ impl DescriptorConfigurationRule {
         )?;
         let mut claim_counters = RuleCounters {
             id_token: right_counters.id_token,
+            bytes_token: right_counters.bytes_token,
             anonymous: right_counters.anonymous,
             ..RuleCounters::default()
         };
@@ -1169,6 +1214,7 @@ impl HostConfigurationRule {
         let mut ignored = Vec::new();
         let mut right_counters = RuleCounters {
             id_token: left_counters.id_token,
+            bytes_token: left_counters.bytes_token,
             anonymous: left_counters.anonymous,
             ..RuleCounters::default()
         };
@@ -1194,6 +1240,7 @@ impl HostConfigurationRule {
         )?;
         let mut claim_counters = RuleCounters {
             id_token: right_counters.id_token,
+            bytes_token: right_counters.bytes_token,
             anonymous: right_counters.anonymous,
             ..RuleCounters::default()
         };
@@ -1259,6 +1306,7 @@ fn validate_descriptor_claim(
         insert_rule_exact(keys, &ensures.key, "claim_ensures", 0)?;
         let mut counters = RuleCounters {
             id_token: inherited.id_token,
+            bytes_token: inherited.bytes_token,
             anonymous: inherited.anonymous,
             ..RuleCounters::default()
         };
@@ -1345,6 +1393,7 @@ fn validate_host_claim(
         insert_rule_exact(keys, &ensures.key, "claim_ensures", 0)?;
         let mut counters = RuleCounters {
             id_token: inherited.id_token,
+            bytes_token: inherited.bytes_token,
             anonymous: inherited.anonymous,
             ..RuleCounters::default()
         };
@@ -1877,20 +1926,9 @@ fn validate_descriptor_term(
             Ok(())
         }
         DescriptorTerm::BuiltinToken { key, sort, value } => {
-            if *sort != crate::BuiltinSort::Id
-                || !value.strip_prefix('$').is_some_and(|tail| {
-                    !tail.is_empty()
-                        && tail
-                            .chars()
-                            .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-                })
-            {
-                return Err(ProtocolV7ShapeError::InvalidTerm(
-                    "invalid builtin Id token",
-                ));
-            }
-            insert_rule_exact(keys, key, "claim_id_token", counters.id_token)?;
-            counters.id_token = rule_increment(counters.id_token)?;
+            let (role, counter) = builtin_token_role(*sort, value, counters)?;
+            insert_rule_exact(keys, key, role, *counter)?;
+            *counter = rule_increment(*counter)?;
             Ok(())
         }
         DescriptorTerm::Anonymous {
@@ -2061,20 +2099,9 @@ fn validate_host_term(
             Ok(())
         }
         HostTerm::BuiltinToken { key, sort, value } => {
-            if *sort != crate::BuiltinSort::Id
-                || !value.strip_prefix('$').is_some_and(|tail| {
-                    !tail.is_empty()
-                        && tail
-                            .chars()
-                            .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-                })
-            {
-                return Err(ProtocolV7ShapeError::InvalidTerm(
-                    "invalid builtin Id token",
-                ));
-            }
-            insert_rule_exact(keys, key, "claim_id_token", counters.id_token)?;
-            counters.id_token = rule_increment(counters.id_token)?;
+            let (role, counter) = builtin_token_role(*sort, value, counters)?;
+            insert_rule_exact(keys, key, role, *counter)?;
+            *counter = rule_increment(*counter)?;
             Ok(())
         }
         HostTerm::Anonymous {
@@ -2408,4 +2435,35 @@ fn rule_increment(value: u32) -> Result<u32, ProtocolV7ShapeError> {
         .ok_or(ProtocolV7ShapeError::InvalidTerm(
             "rule provenance ordinal exceeds u32",
         ))
+}
+
+#[cfg(test)]
+mod bytes_token_tests {
+    use super::{RuleCounters, builtin_token_role};
+    use crate::{BuiltinSort, ProtocolV7ShapeError};
+
+    #[test]
+    fn bytes_tokens_accept_only_canonical_lower_hex_transport() {
+        let mut counters = RuleCounters::default();
+        let (role, ordinal) =
+            builtin_token_role(BuiltinSort::Bytes, r#"b"\x00\x7f\xff""#, &mut counters).unwrap();
+        assert_eq!(role, "claim_bytes_token");
+        assert_eq!(*ordinal, 0);
+
+        for malformed in [
+            r#""\x00""#,
+            r#"b"00""#,
+            r#"b"\x0""#,
+            r#"b"\xGG""#,
+            r#"b"\xAF""#,
+            r#"b"\u{00}""#,
+        ] {
+            assert!(matches!(
+                builtin_token_role(BuiltinSort::Bytes, malformed, &mut counters),
+                Err(ProtocolV7ShapeError::InvalidTerm(
+                    "invalid compiler-owned builtin token"
+                ))
+            ));
+        }
+    }
 }

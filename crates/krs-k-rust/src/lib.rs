@@ -2101,6 +2101,7 @@ impl Adapter {
             DefinitionSortRef::Builtin(BuiltinSort::Bool) => "Bool",
             DefinitionSortRef::Builtin(BuiltinSort::Map) => "Map",
             DefinitionSortRef::Builtin(BuiltinSort::Id) => "Id",
+            DefinitionSortRef::Builtin(BuiltinSort::Bytes) => "Bytes",
         }))
     }
 
@@ -2271,6 +2272,7 @@ fn module_builtin_imports(module: &krs_ir::DefinitionModule) -> BTreeSet<String>
             BuiltinSort::Bool => Some("BOOL".to_owned()),
             BuiltinSort::Map => Some("MAP".to_owned()),
             BuiltinSort::Id => Some("ID-SYNTAX".to_owned()),
+            BuiltinSort::Bytes => Some("BYTES".to_owned()),
         })
         .collect()
 }
@@ -2537,6 +2539,8 @@ const fn builtin_label(operation: BuiltinOperation) -> &'static str {
         BuiltinOperation::BoolNotEqual => "_=/=Bool_",
         BuiltinOperation::BoolAnd => "_andBool_",
         BuiltinOperation::BoolOr => "_orBool_",
+        BuiltinOperation::BytesLength => "lengthBytes",
+        BuiltinOperation::BytesGet => "_[_]",
     }
 }
 

@@ -165,7 +165,8 @@ use serde::{Deserialize, Serialize};
 /// Protocol v15 adds alias-safe ordinary Map-operation application heads and
 /// retains complete registered map-update terms in readable head rules.
 /// Protocol v16 adds exact ordinary fixed-cell patterns and replacements to
-/// readable head-rule transport.
+/// readable head-rule transport. Protocol v17 adds K's builtin `Bytes` sort,
+/// selected length and lookup operations, and exact byte-token transport.
 /// Semantic and Definition IR schema versioning remains independent.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -173,8 +174,8 @@ pub struct ProtocolVersion(pub u32);
 
 impl ProtocolVersion {
     /// The protocol emitted by this release.
-    /// Protocol v16 adds readable ordinary fixed-cell rewrites.
-    pub const CURRENT: Self = Self(16);
+    /// Protocol v17 adds the selected builtin `Bytes` surface.
+    pub const CURRENT: Self = Self(17);
 }
 
 impl Default for ProtocolVersion {

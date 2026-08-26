@@ -249,6 +249,13 @@ pub fn id(input: TokenStream) -> TokenStream {
     quote::quote!(::core::panic!("id! has no runtime value")).into()
 }
 
+/// Compiler-owned concrete builtin Bytes token island.
+#[proc_macro]
+pub fn bytes(input: TokenStream) -> TokenStream {
+    let _literal = syn::parse_macro_input!(input as syn::LitByteStr);
+    quote::quote!(::core::panic!("bytes! has no runtime value")).into()
+}
+
 /// Compiler-owned fresh anonymous object-language occurrence.
 #[proc_macro]
 pub fn anonymous(_input: TokenStream) -> TokenStream {

@@ -699,7 +699,10 @@ fn append_rule_pattern_anchors(
             ),
             TermNode::Reference(_) => (ProvenanceRole::RuleLeftReference, &mut counters.reference),
             TermNode::Literal(_) => (ProvenanceRole::RuleLeftLiteral, &mut counters.literal),
-            TermNode::IdToken(_) | TermNode::Anonymous { .. } | TermNode::OrBool(_) => continue,
+            TermNode::IdToken(_)
+            | TermNode::BytesToken(_)
+            | TermNode::Anonymous { .. }
+            | TermNode::OrBool(_) => continue,
         };
         let range = match node {
             TermNode::ApplicationHead(path) | TermNode::Reference(path) => {
@@ -707,7 +710,10 @@ fn append_rule_pattern_anchors(
             }
             TermNode::Literal(TermLiteral::Integer(value)) => TokenRange::for_tokens(value)?,
             TermNode::Literal(TermLiteral::Boolean(value)) => TokenRange::for_tokens(value)?,
-            TermNode::IdToken(_) | TermNode::Anonymous { .. } | TermNode::OrBool(_) => {
+            TermNode::IdToken(_)
+            | TermNode::BytesToken(_)
+            | TermNode::Anonymous { .. }
+            | TermNode::OrBool(_) => {
                 unreachable!("special nodes were skipped above")
             }
         };
@@ -761,7 +767,10 @@ impl RuleTermCounters {
                 TermNode::ApplicationHead(_) => counters.application += 1,
                 TermNode::Reference(_) => counters.reference += 1,
                 TermNode::Literal(_) => counters.literal += 1,
-                TermNode::IdToken(_) | TermNode::Anonymous { .. } | TermNode::OrBool(_) => {}
+                TermNode::IdToken(_)
+                | TermNode::BytesToken(_)
+                | TermNode::Anonymous { .. }
+                | TermNode::OrBool(_) => {}
             }
         }
         counters
@@ -803,7 +812,10 @@ fn append_rule_term_anchors(
             TermNode::ApplicationHead(_) => (application_role, &mut counters.application),
             TermNode::Reference(_) => (reference_role, &mut counters.reference),
             TermNode::Literal(_) => (literal_role, &mut counters.literal),
-            TermNode::IdToken(_) | TermNode::Anonymous { .. } | TermNode::OrBool(_) => continue,
+            TermNode::IdToken(_)
+            | TermNode::BytesToken(_)
+            | TermNode::Anonymous { .. }
+            | TermNode::OrBool(_) => continue,
         };
         let span = match node {
             TermNode::ApplicationHead(path) | TermNode::Reference(path) => {
@@ -811,7 +823,10 @@ fn append_rule_term_anchors(
             }
             TermNode::Literal(TermLiteral::Integer(value)) => TokenRange::for_tokens(value)?,
             TermNode::Literal(TermLiteral::Boolean(value)) => TokenRange::for_tokens(value)?,
-            TermNode::IdToken(_) | TermNode::Anonymous { .. } | TermNode::OrBool(_) => {
+            TermNode::IdToken(_)
+            | TermNode::BytesToken(_)
+            | TermNode::Anonymous { .. }
+            | TermNode::OrBool(_) => {
                 unreachable!("special nodes were skipped above")
             }
         };
@@ -1850,6 +1865,7 @@ impl RuleItem {
                         }
                         TermNode::Literal(_)
                         | TermNode::IdToken(_)
+                        | TermNode::BytesToken(_)
                         | TermNode::Anonymous { .. }
                         | TermNode::OrBool(_) => continue,
                     };
@@ -2567,7 +2583,10 @@ fn push_term_node_anchors(
                 literal_ordinal += 1;
                 (literal_role, ordinal)
             }
-            TermNode::IdToken(_) | TermNode::Anonymous { .. } | TermNode::OrBool(_) => continue,
+            TermNode::IdToken(_)
+            | TermNode::BytesToken(_)
+            | TermNode::Anonymous { .. }
+            | TermNode::OrBool(_) => continue,
         };
         let range = term_node_range(node)?;
         anchors.push(ProvenanceAnchor::new(
@@ -2626,6 +2645,7 @@ fn push_m3a_candidates(
             }
             TermNode::Literal(_)
             | TermNode::IdToken(_)
+            | TermNode::BytesToken(_)
             | TermNode::Anonymous { .. }
             | TermNode::OrBool(_) => continue,
         };
@@ -2645,6 +2665,7 @@ fn term_node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         TermNode::Literal(TermLiteral::Integer(literal)) => TokenRange::for_tokens(literal),
         TermNode::Literal(TermLiteral::Boolean(literal)) => TokenRange::for_tokens(literal),
         TermNode::IdToken(literal) => TokenRange::for_tokens(literal),
+        TermNode::BytesToken(literal) => TokenRange::for_tokens(literal),
         TermNode::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
         TermNode::OrBool(range) => Ok(*range),
     }

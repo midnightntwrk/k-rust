@@ -1,8 +1,8 @@
 schema = 1
 
 [schemas]
-descriptor_protocol = 16
-definition_ir = 9
+descriptor_protocol = 17
+definition_ir = 10
 kast_json = 4
 
 [cargo]
@@ -23,8 +23,8 @@ commit = "58f33885b736148dae189623d1aac989ce9be475"
 tracked_crate_sha256 = "0365ddf085bef244a00c04aaabd72a0ebd8cadbaaf8190605a31c5e387658d64"
 
 [builtin_registry]
-source_sha256 = "2d895476c748fbd79b9b944bfb6c00ba9b7c8efe6a0721079df6f271e7fdc07a"
-sorts = ["KSequence", "Int", "Bool", "Map", "Id"]
+source_sha256 = "9aef5b42fc697cab762b723e41ed7e60a5fafa6fcadd303c614ab67c1f8b2097"
+sorts = ["KSequence", "Int", "Bool", "Map", "Id", "Bytes"]
 
 [solver]
 profile = "z3-inference"

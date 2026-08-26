@@ -202,6 +202,7 @@ impl<'a> EmitContext<'a> {
             DefinitionSortRef::Builtin(BuiltinSort::Bool) => Ok("Bool"),
             DefinitionSortRef::Builtin(BuiltinSort::Id) => Ok("Id"),
             DefinitionSortRef::Builtin(BuiltinSort::Map) => Ok("Map"),
+            DefinitionSortRef::Builtin(BuiltinSort::Bytes) => Ok("Bytes"),
         }
     }
 
@@ -482,6 +483,9 @@ fn builtin_imports(module: &DefinitionModule) -> Vec<String> {
             }
             BuiltinSort::Map => {
                 imports.insert("MAP");
+            }
+            BuiltinSort::Bytes => {
+                imports.insert("BYTES");
             }
         }
     }
@@ -1593,6 +1597,44 @@ fn render_builtin_application(
     existentials: &[DefinitionClaimBinder],
     output: &mut Rendered,
 ) -> Result<(), EmitError> {
+    if operation == BuiltinOperation::BytesLength {
+        if arguments.len() != 1 {
+            return Err(EmitError::InvalidReference(format!(
+                "builtin operation {operation:?} has invalid arity {}",
+                arguments.len()
+            )));
+        }
+        output.push("lengthBytes(");
+        output.append(render_term_with_binders(
+            &arguments[0],
+            context,
+            false,
+            existentials,
+        )?);
+        output.push(")");
+        return Ok(());
+    }
+    if operation == BuiltinOperation::BytesGet {
+        if arguments.len() != 2 {
+            return Err(EmitError::InvalidReference(format!(
+                "builtin operation {operation:?} has invalid arity {}",
+                arguments.len()
+            )));
+        }
+        output.append(render_builtin_argument(
+            &arguments[0],
+            context,
+            existentials,
+        )?);
+        output.push(" [ ");
+        output.append(render_builtin_argument(
+            &arguments[1],
+            context,
+            existentials,
+        )?);
+        output.push(" ]");
+        return Ok(());
+    }
     let (prefix, infix, expected) = match operation {
         BuiltinOperation::IntAdd => (None, Some("+Int"), 2),
         BuiltinOperation::IntSub => (None, Some("-Int"), 2),
@@ -1609,6 +1651,8 @@ fn render_builtin_application(
         BuiltinOperation::BoolNotEqual => (None, Some("=/=Bool"), 2),
         BuiltinOperation::BoolAnd => (None, Some("andBool"), 2),
         BuiltinOperation::BoolOr => (None, Some("orBool"), 2),
+        BuiltinOperation::BytesLength => unreachable!("Bytes length is rendered above"),
+        BuiltinOperation::BytesGet => unreachable!("byte lookup is rendered above"),
     };
     if arguments.len() != expected {
         return Err(EmitError::InvalidReference(format!(

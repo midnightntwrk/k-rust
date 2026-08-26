@@ -4265,6 +4265,7 @@ mod protocol_v6_tests {
     struct SortBool;
     struct SortMap;
     struct SortId;
+    struct SortBytes;
     struct Op0;
     struct Op1;
     struct Op2;
@@ -4280,6 +4281,8 @@ mod protocol_v6_tests {
     struct Op12;
     struct Op13;
     struct Op14;
+    struct Op15;
+    struct Op16;
     struct MapUpdateOp;
 
     fn marker_key<T: 'static>() -> TypeId {
@@ -4293,6 +4296,7 @@ mod protocol_v6_tests {
             HostTypeKey(marker_key::<SortBool>),
             HostTypeKey(marker_key::<SortMap>),
             HostTypeKey(marker_key::<SortId>),
+            HostTypeKey(marker_key::<SortBytes>),
         ];
         let operation_keys = [
             HostTypeKey(marker_key::<Op0>),
@@ -4310,6 +4314,8 @@ mod protocol_v6_tests {
             HostTypeKey(marker_key::<Op12>),
             HostTypeKey(marker_key::<Op13>),
             HostTypeKey(marker_key::<Op14>),
+            HostTypeKey(marker_key::<Op15>),
+            HostTypeKey(marker_key::<Op16>),
         ];
         HostBuiltinRegistry {
             sorts: BuiltinSort::ALL
@@ -4423,6 +4429,23 @@ mod protocol_v6_tests {
         )
         .unwrap();
         assert_eq!(sort.sort, DescriptorSortRef::Builtin(BuiltinSort::Int));
+
+        let bytes_sort = resolve_sort_reference(
+            &HostSortReference {
+                key: ProvenanceKey::new("rule_type", 1).unwrap(),
+                target: HostTypeReference {
+                    key: HostTypeKey(marker_key::<SortBytes>),
+                    authored_path: "RenamedBytes".into(),
+                },
+            },
+            &HashMap::new(),
+            Some(&registry),
+        )
+        .unwrap();
+        assert_eq!(
+            bytes_sort.sort,
+            DescriptorSortRef::Builtin(BuiltinSort::Bytes)
+        );
 
         let application = resolve_application_reference(
             &HostApplicationReference {
