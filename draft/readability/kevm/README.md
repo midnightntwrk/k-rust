@@ -1,6 +1,6 @@
 # Readable KEVM qualification
 
-Status: Bytes-backed Shanghai pure-word expression slice qualified, 2026-08-26 JST
+Status: Bytes-backed Shanghai stack-manipulation slice qualified, 2026-08-27 JST
 
 ## Pinned authority
 
@@ -42,7 +42,7 @@ hooks, and symbolic summaries. This milestone does not claim those features.
 The current slice follows KEVM's `#next`/`#exec`/`#gas`/`#pc` pipeline, its core word operations, and the checked-in arithmetic, `push`, `pc`, `gas`, `stop`, and `invalid` summaries:
 
 1. a recursive word stack and K's builtin `Bytes` program domain;
-2. `PUSH`, `ADD`, `MUL`, `SUB`, `DIV`, `SDIV`, `MOD`, `SMOD`, `ADDMOD`, `MULMOD`, `EXP`, `SIGNEXTEND`, `LT`, `GT`, `SLT`, `SGT`, `EQ`, `ISZERO`, `AND`, `OR`, `XOR`, `NOT`, `BYTE`, `SHL`, `SHR`, `SAR`, `PC`, `STOP`, and `INVALID` opcodes;
+2. `PUSH`, `POP`, `DUP1` through `DUP16`, `SWAP1` through `SWAP16`, `ADD`, `MUL`, `SUB`, `DIV`, `SDIV`, `MOD`, `SMOD`, `ADDMOD`, `MULMOD`, `EXP`, `SIGNEXTEND`, `LT`, `GT`, `SLT`, `SGT`, `EQ`, `ISZERO`, `AND`, `OR`, `XOR`, `NOT`, `BYTE`, `SHL`, `SHR`, `SAR`, `PC`, `STOP`, and `INVALID` opcodes;
 3. simultaneous program, stack, program-counter, gas, and status transitions;
 4. `PUSH` widths and their effect on the program counter;
 5. modulo-`2^256` word normalization for addition, multiplication, and subtraction;
@@ -51,11 +51,13 @@ The current slice follows KEVM's `#next`/`#exec`/`#gas`/`#pc` pipeline, its core
 8. unbounded addition and multiplication intermediates before the `ADDMOD` and `MULMOD` modulus;
 9. unsigned and two's-complement signed comparison, word equality, Boolean-to-word conversion, and unary zero testing;
 10. modular exponentiation, Shanghai exponent-byte gas charging, byte-indexed sign extension, big-endian byte extraction, bitwise operations, and totalized logical and arithmetic shifts;
-11. Shanghai-compatible `Gexp = 10`, `Gexpbyte = 50`, `Gmid = 8`, `Glow = 5`, `Gverylow = 3`, `Gbase = 2`, and `Gzero = 0` costs;
-12. the guarded sufficient-gas/out-of-gas partition from `#deductGas`;
-13. structural unary, binary, and ternary stack-underflow branches;
-14. successful stop/end-of-program and invalid-instruction outcomes;
-15. three all-path native claims, including one spanning every selected Shanghai-active pure-word expression opcode and successful halt.
+11. recursive stack size, depth-indexed lookup, and depth-indexed replacement for `POP`, `DUP`, and `SWAP`;
+12. the 1,024-word `DUP` stack-overflow boundary and family-specific underflow partitions;
+13. Shanghai-compatible `Gexp = 10`, `Gexpbyte = 50`, `Gmid = 8`, `Glow = 5`, `Gverylow = 3`, `Gbase = 2`, and `Gzero = 0` costs;
+14. the guarded sufficient-gas/out-of-gas partition from `#deductGas`;
+15. structural unary, binary, ternary, and depth-indexed stack-underflow branches;
+16. successful stop/end-of-program and invalid-instruction outcomes;
+17. four all-path native claims, including claims spanning every selected Shanghai-active pure-word expression opcode and the selected stack-manipulation family through successful halt.
 
 KEVM stores executable code as `Bytes` and decodes it with `#lookupOpCode`.
 The KRS definition now uses the pinned `BYTES` implementation directly: `lengthBytes(PROGRAM)` bounds lookup, `PROGRAM [ PC ]` reads the opcode byte, and a recursive big-endian decoder reads `PUSH1` through `PUSH32` immediates.
@@ -66,14 +68,13 @@ The program bytes remain unchanged across execution, matching KEVM's program-cel
 
 - `evm.md` configuration: `<program>`, `<wordStack>`, `<pc>`, `<gas>`, and
   `<statusCode>` cells;
-- `evm.md` single-step and exceptional checks: `#next`, `#exec`, stack
-  underflow, `#pc`, and end status;
-- `evm.md` opcode rules: `#push`, `PUSH`, core unsigned, signed, and ternary modular arithmetic, exponentiation, sign extension, comparison, bitwise, byte, shift, `PC`, `STOP`, and `INVALID`;
+- `evm.md` single-step and exceptional checks: `#next`, `#exec`, stack underflow, stack overflow, `#pc`, and end status;
+- `evm.md` opcode rules: `#push`, `PUSH`, `POP`, `DUP`, `SWAP`, core unsigned, signed, and ternary modular arithmetic, exponentiation, sign extension, comparison, bitwise, byte, shift, `PC`, `STOP`, and `INVALID`;
 - `evm.md` gas rules: `#gas`, `#deductGas`, and the out-of-gas status;
 - `word.md`: `Word`, `WordStack`, and `chop` modulo `2^256`;
 - `evm-types.md`: unsigned word arithmetic, two's-complement sign and magnitude, signed division and modulus, zero-totalized word division and modulus, Boolean-to-word conversion, word comparisons, byte selection, sign extension, and signed shifting;
 - `schedule.md`: the selected Shanghai gas constants;
-- `summaries/push-summary.k`, the selected arithmetic and comparison summaries, `pc-summary.k`, `gas-summary.k`, `stop-summary.k`, and `invalid-summary.k`: direct multi-cell transition oracles.
+- `summaries/push-summary.k`, `pop-summary.k`, `dup-summary.k`, `swap-summary.k`, the selected arithmetic and comparison summaries, `pc-summary.k`, `gas-summary.k`, `stop-summary.k`, and `invalid-summary.k`: direct multi-cell transition oracles.
 
 ## Selected KRS extension
 
@@ -115,16 +116,16 @@ The canonical KRS port is `semantics/kevm`, the corpus is
 The refreshed complete gate passes at descriptor protocol 20 and Definition IR schema 13:
 
 ```text
-PASS readable KEVM operational slice: 354 descriptors; 81 executions; 3 native proofs; protocol 20; K 7.1.337
+PASS readable KEVM operational slice: 400 descriptors; 91 executions; 4 native proofs; protocol 20; K 7.1.337
 ```
 
-The behavior matrix adds zero-, one-, and two-byte exponent charging, exponent out-of-gas, positive, negative, and invalid sign extension, every selected bitwise operation, valid and invalid byte indices, wrapping and oversized shifts, positive and negative arithmetic shifts, family underflow, fixed-cost out-of-gas, and a combined pure-word execution to the prior baseline.
-The structured behavior SHA-256 is `5ce64ab234171a0f9f6e17235a5a96f6c2cfeba060b9f68997fd623996e049d5`.
-All three all-path claims close with `#Top` through native `kprove`.
-The normalized native `definition.kore` SHA-256 is `ba7b2eeadb4bd7a901423a1955d5ee83eb579287e8215b46cbb815d33a498f29`.
+The behavior matrix adds `POP`, first- and sixteenth-depth `DUP` and `SWAP`, dynamic-depth underflow, fixed-cost out-of-gas, and the 1,024-word `DUP` overflow boundary to the prior baseline.
+The structured behavior SHA-256 is `45f9d16df4836a1d5895d6c035112922e6f4338c89dc385e2e55fd46da45b596`.
+All four all-path claims close with `#Top` through native `kprove`.
+The normalized native `definition.kore` SHA-256 is `0c650f24525918a49de4747e55a9c261f3aa4af4427eaaf9f7b54053ca550c19`.
 Normalization is limited to the temporary semantics path and K-generated
 sort-membership binder names, using the already-qualified KWasm policy.
 Six focused definition/hover probes pass with zero rust-analyzer diagnostics.
 
-This result preserves the removed structured-program adapter while widening the qualified opcode set through the Shanghai-active pure-word expression boundary.
+This result preserves the removed structured-program adapter while widening the qualified opcode set through the Shanghai stack-manipulation boundary.
 The remaining opcode families and stateful EVM surfaces remain explicit future evidence, not implicit claims.

@@ -15,10 +15,16 @@ k::sorts! {
 }
 
 #[k::constructors(sort = OpCode, result = k::KResult)]
-#[k::precedence((Push, Add, Mul, Sub, Div, SignedDiv, Mod, SignedMod, AddMod, MulMod, Exponent, SignExtend, LessThan, GreaterThan, SignedLessThan, SignedGreaterThan, Equal, IsZero, BitAnd, BitOr, BitXor, BitNot, Byte, ShiftLeft, ShiftRight, SignedShiftRight, ProgramCounter, Stop, Invalid, End))]
+#[k::precedence((Push, Pop, Duplicate, Swap, Add, Mul, Sub, Div, SignedDiv, Mod, SignedMod, AddMod, MulMod, Exponent, SignExtend, LessThan, GreaterThan, SignedLessThan, SignedGreaterThan, Equal, IsZero, BitAnd, BitOr, BitXor, BitNot, Byte, ShiftLeft, ShiftRight, SignedShiftRight, ProgramCounter, Stop, Invalid, End))]
 pub enum Operation {
     #[k::syntax("PUSH({width}, {value})")]
     Push { width: Int, value: Int },
+    #[k::syntax("POP")]
+    Pop,
+    #[k::syntax("DUP({depth})")]
+    Duplicate { depth: Int },
+    #[k::syntax("SWAP({depth})")]
+    Swap { depth: Int },
     #[k::syntax("ADD")]
     Add,
     #[k::syntax("MUL")]
@@ -89,7 +95,7 @@ pub enum Stack {
 }
 
 #[k::constructors(sort = StatusCode, result = k::KResult)]
-#[k::precedence((Running, Success, StackUnderflow, OutOfGas, InvalidInstruction))]
+#[k::precedence((Running, Success, StackUnderflow, StackOverflow, OutOfGas, InvalidInstruction))]
 pub enum Status {
     #[k::syntax(".StatusCode")]
     Running(),
@@ -97,6 +103,8 @@ pub enum Status {
     Success(),
     #[k::syntax("EVMC_STACK_UNDERFLOW")]
     StackUnderflow(),
+    #[k::syntax("EVMC_STACK_OVERFLOW")]
+    StackOverflow(),
     #[k::syntax("EVMC_OUT_OF_GAS")]
     OutOfGas(),
     #[k::syntax("EVMC_INVALID_INSTRUCTION")]
@@ -104,12 +112,16 @@ pub enum Status {
 }
 
 #[k::constructors(sort = GasStep, result = k::KResult)]
-#[k::precedence((EnoughGas, InsufficientGas))]
+#[k::precedence((EnoughGas, InsufficientGas, StackUnderflowResult, StackOverflowResult))]
 pub enum GasResult {
     #[k::syntax("#enoughGas({op}, {remaining})")]
     EnoughGas { op: OpCode, remaining: Int },
     #[k::syntax("#insufficientGas")]
     InsufficientGas(),
+    #[k::syntax("#stackUnderflow")]
+    StackUnderflowResult(),
+    #[k::syntax("#stackOverflow")]
+    StackOverflowResult(),
 }
 
 #[k::constructors(sort = Command, result = k::KResult)]
@@ -220,6 +232,39 @@ pub struct WordSignExtend {
 pub struct SignExtendByte {
     pub index: k::Term<Int>,
     pub value: k::Term<Int>,
+}
+
+#[k::function(total, sort = Int, syntax = "#kevmStackSize({stack})")]
+pub struct StackSize {
+    pub stack: k::Term<WordStack>,
+}
+
+#[k::function(partial, sort = Int, syntax = "#kevmStackAt({stack}, {index})")]
+pub struct StackAt {
+    pub stack: k::Term<WordStack>,
+    pub index: k::Term<Int>,
+}
+
+#[k::function(
+    partial,
+    sort = WordStack,
+    syntax = "#kevmStackSet({stack}, {index}, {value})"
+)]
+pub struct StackSet {
+    pub stack: k::Term<WordStack>,
+    pub index: k::Term<Int>,
+    pub value: k::Term<Int>,
+}
+
+#[k::function(
+    partial,
+    sort = GasStep,
+    syntax = "#kevmPrepareStack({op}, {stack}, {gas})"
+)]
+pub struct PrepareStack {
+    pub op: k::Term<OpCode>,
+    pub stack: k::Term<WordStack>,
+    pub gas: k::Term<Int>,
 }
 
 #[k::function(total, sort = GasStep, syntax = "#kevmCharge({op}, {gas})")]
@@ -569,6 +614,17 @@ fn decode_signed_shift_right(
 }
 
 #[k::equation]
+fn decode_pop(
+    k::term![Decode {
+        opcode: 80,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Pop]
+}
+
+#[k::equation]
 fn decode_pc(
     k::term![Decode {
         opcode: 88,
@@ -599,6 +655,34 @@ fn decode_push(
     }]
 }
 
+#[k::requires(bool::and(int::ge(opcode, 128), int::le(opcode, 143)))]
+#[k::equation]
+fn decode_duplicate(
+    k::term![Decode {
+        opcode,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Duplicate {
+        depth: int::sub(opcode, 127)
+    }]
+}
+
+#[k::requires(bool::and(int::ge(opcode, 144), int::le(opcode, 159)))]
+#[k::equation]
+fn decode_swap(
+    k::term![Decode {
+        opcode,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Swap {
+        depth: int::sub(opcode, 143)
+    }]
+}
+
 #[k::requires(bool::and(int::ge(opcode, 12), int::le(opcode, 15)))]
 #[k::equation]
 fn decode_invalid_low(
@@ -611,9 +695,21 @@ fn decode_invalid_low(
     k::term![Operation::Invalid]
 }
 
-#[k::requires(bool::and(int::ge(opcode, 30), int::le(opcode, 87)))]
+#[k::requires(bool::and(int::ge(opcode, 30), int::le(opcode, 79)))]
 #[k::equation]
 fn decode_invalid_after_comparison(
+    k::term![Decode {
+        opcode,
+        program,
+        pc
+    }]: k::Term<OpCode>,
+) -> k::Term<OpCode> {
+    k::term![Operation::Invalid]
+}
+
+#[k::requires(bool::and(int::ge(opcode, 81), int::le(opcode, 87)))]
+#[k::equation]
+fn decode_invalid_before_pc(
     k::term![Decode {
         opcode,
         program,
@@ -635,7 +731,7 @@ fn decode_invalid_middle(
     k::term![Operation::Invalid]
 }
 
-#[k::requires(int::ge(opcode, 128))]
+#[k::requires(int::ge(opcode, 160))]
 #[k::equation]
 fn decode_invalid_high(
     k::term![Decode {
@@ -1031,6 +1127,170 @@ fn sign_extend_negative(k::term![WordSignExtend { index, value }]: k::Term<Int>)
     ))]
 }
 
+#[k::equation]
+fn stack_size_empty(k::term![StackSize(Stack::StackEmpty())]: k::Term<Int>) -> k::Term<Int> {
+    k::term![0]
+}
+
+#[k::equation]
+fn stack_size_cons(
+    k::term![StackSize(Stack::StackCons(head, tail))]: k::Term<Int>,
+) -> k::Term<Int> {
+    k::term![int::add(1, StackSize(tail))]
+}
+
+#[k::requires(int::le(index, 0))]
+#[k::equation]
+fn stack_at_here(
+    k::term![StackAt {
+        stack: Stack::StackCons(head, tail),
+        index
+    }]: k::Term<Int>,
+) -> k::Term<Int> {
+    k::term![head]
+}
+
+#[k::requires(int::gt(index, 0))]
+#[k::equation]
+fn stack_at_later(
+    k::term![StackAt {
+        stack: Stack::StackCons(head, tail),
+        index
+    }]: k::Term<Int>,
+) -> k::Term<Int> {
+    k::term![StackAt {
+        stack: tail,
+        index: int::sub(index, 1)
+    }]
+}
+
+#[k::requires(int::le(index, 0))]
+#[k::equation]
+fn stack_set_here(
+    k::term![StackSet {
+        stack: Stack::StackCons(head, tail),
+        index,
+        value
+    }]: k::Term<WordStack>,
+) -> k::Term<WordStack> {
+    k::term![Stack::StackCons(value, tail)]
+}
+
+#[k::requires(int::gt(index, 0))]
+#[k::equation]
+fn stack_set_later(
+    k::term![StackSet {
+        stack: Stack::StackCons(head, tail),
+        index,
+        value
+    }]: k::Term<WordStack>,
+) -> k::Term<WordStack> {
+    k::term![Stack::StackCons(
+        head,
+        StackSet {
+            stack: tail,
+            index: int::sub(index, 1),
+            value
+        }
+    )]
+}
+
+#[k::requires(int::eq(StackSize(stack), 0))]
+#[k::equation]
+fn prepare_pop_underflow(
+    k::term![PrepareStack {
+        op: Operation::Pop,
+        stack,
+        gas
+    }]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![GasResult::StackUnderflowResult()]
+}
+
+#[k::requires(int::gt(StackSize(stack), 0))]
+#[k::equation]
+fn prepare_pop(
+    k::term![PrepareStack {
+        op: Operation::Pop,
+        stack,
+        gas
+    }]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![ChargeFixed {
+        op: Operation::Pop,
+        gas,
+        cost: 2
+    }]
+}
+
+#[k::requires(int::lt(StackSize(stack), depth))]
+#[k::equation]
+fn prepare_duplicate_underflow(
+    k::term![PrepareStack {
+        op: Operation::Duplicate { depth },
+        stack,
+        gas
+    }]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![GasResult::StackUnderflowResult()]
+}
+
+#[k::requires(bool::and(int::ge(StackSize(stack), depth), int::lt(StackSize(stack), 1024),))]
+#[k::equation]
+fn prepare_duplicate(
+    k::term![PrepareStack {
+        op: Operation::Duplicate { depth },
+        stack,
+        gas
+    }]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![ChargeFixed {
+        op: Operation::Duplicate { depth },
+        gas,
+        cost: 3
+    }]
+}
+
+#[k::requires(bool::and(int::ge(StackSize(stack), depth), int::ge(StackSize(stack), 1024),))]
+#[k::equation]
+fn prepare_duplicate_overflow(
+    k::term![PrepareStack {
+        op: Operation::Duplicate { depth },
+        stack,
+        gas
+    }]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![GasResult::StackOverflowResult()]
+}
+
+#[k::requires(int::lt(StackSize(stack), int::add(depth, 1)))]
+#[k::equation]
+fn prepare_swap_underflow(
+    k::term![PrepareStack {
+        op: Operation::Swap { depth },
+        stack,
+        gas
+    }]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![GasResult::StackUnderflowResult()]
+}
+
+#[k::requires(int::ge(StackSize(stack), int::add(depth, 1)))]
+#[k::equation]
+fn prepare_swap(
+    k::term![PrepareStack {
+        op: Operation::Swap { depth },
+        stack,
+        gas
+    }]: k::Term<GasStep>,
+) -> k::Term<GasStep> {
+    k::term![ChargeFixed {
+        op: Operation::Swap { depth },
+        gas,
+        cost: 3
+    }]
+}
+
 #[k::requires(int::ge(gas, cost))]
 #[k::equation]
 fn charge_fixed(k::term![ChargeFixed { op, gas, cost }]: k::Term<GasStep>) -> k::Term<GasStep> {
@@ -1410,6 +1670,39 @@ k::rules! {
     }
     where width: Int, value: Int, gas: Int;
 
+    begin_pop: {
+        k: [Operation::Pop, ..],
+        word_stack: stack,
+        gas: gas,
+    } => {
+        k: [crate::PrepareStack { op: Operation::Pop, stack, gas }, ..],
+        word_stack: stack,
+        gas: gas,
+    }
+    where stack: WordStack, gas: Int;
+
+    begin_duplicate: {
+        k: [Operation::Duplicate { depth }, ..],
+        word_stack: stack,
+        gas: gas,
+    } => {
+        k: [crate::PrepareStack { op: Operation::Duplicate { depth }, stack, gas }, ..],
+        word_stack: stack,
+        gas: gas,
+    }
+    where depth: Int, stack: WordStack, gas: Int;
+
+    begin_swap: {
+        k: [Operation::Swap { depth }, ..],
+        word_stack: stack,
+        gas: gas,
+    } => {
+        k: [crate::PrepareStack { op: Operation::Swap { depth }, stack, gas }, ..],
+        word_stack: stack,
+        gas: gas,
+    }
+    where depth: Int, stack: WordStack, gas: Int;
+
     begin_add: {
         k: [Operation::Add, ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
@@ -1718,6 +2011,45 @@ k::rules! {
         gas: remaining,
     }
     where remaining: Int, width: Int, value: Int, stack: WordStack, pc: Int, gas: Int;
+
+    exec_pop: {
+        k: [GasResult::EnoughGas(Operation::Pop, remaining), ..],
+        word_stack: Stack::StackCons(head, tail),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: tail,
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, head: Int, tail: WordStack, pc: Int, gas: Int;
+
+    exec_duplicate: {
+        k: [GasResult::EnoughGas(Operation::Duplicate { depth }, remaining), ..],
+        word_stack: stack,
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::StackAt { stack, index: int::sub(depth, 1) }, stack),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, depth: Int, stack: WordStack, pc: Int, gas: Int;
+
+    exec_swap: {
+        k: [GasResult::EnoughGas(Operation::Swap { depth }, remaining), ..],
+        word_stack: Stack::StackCons(head, tail),
+        pc: pc,
+        gas: gas,
+    } => {
+        k: [ExecutionCommand::Run(), ..],
+        word_stack: Stack::StackCons(crate::StackAt { stack: tail, index: int::sub(depth, 1) }, crate::StackSet { stack: tail, index: int::sub(depth, 1), value: head },),
+        pc: int::add(pc, 1),
+        gas: remaining,
+    }
+    where remaining: Int, depth: Int, head: Int, tail: WordStack, pc: Int, gas: Int;
 
     exec_add: {
         k: [GasResult::EnoughGas(Operation::Add, remaining), ..],
@@ -2621,6 +2953,24 @@ k::rules! {
     }
     where w0: Int, status: StatusCode;
 
+    stack_operation_underflow: {
+        k: [GasResult::StackUnderflowResult(), ..],
+        status_code: status,
+    } => {
+        k: [..],
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    stack_operation_overflow: {
+        k: [GasResult::StackOverflowResult(), ..],
+        status_code: status,
+    } => {
+        k: [..],
+        status_code: Status::StackOverflow(),
+    }
+    where status: StatusCode;
+
     out_of_gas: {
         k: [GasResult::InsufficientGas(), ..],
         status_code: status,
@@ -2764,6 +3114,31 @@ fn pure_word_tranche_stop(
             ),
         )),
         pc: k::configuration::Cell(50),
+        gas: k::configuration::Cell(0),
+        status_code: k::configuration::Cell(Status::Success()),
+    }
+}
+
+/// All-path claim spanning POP and depth-indexed DUP/SWAP execution.
+#[k::claim(all_paths, label = "stack-manipulation-stop")]
+fn stack_manipulation_stop(
+    k::cells! {
+        k: k::configuration::KCell(ExecutionCommand::Run()),
+        program: k::configuration::Cell(k::bytes!(b"\x60\x01\x60\x02\x60\x03\x82\x91\x50\x00")),
+        word_stack: k::configuration::Cell(Stack::StackEmpty()),
+        pc: k::configuration::Cell(0),
+        gas: k::configuration::Cell(17),
+        status_code: k::configuration::Cell(Status::Running()),
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(.K),
+        program: k::configuration::Cell(k::bytes!(b"\x60\x01\x60\x02\x60\x03\x82\x91\x50\x00")),
+        word_stack: k::configuration::Cell(Stack::StackCons(
+            3,
+            Stack::StackCons(1, Stack::StackCons(1, Stack::StackEmpty())),
+        )),
+        pc: k::configuration::Cell(9),
         gas: k::configuration::Cell(0),
         status_code: k::configuration::Cell(Status::Success()),
     }
