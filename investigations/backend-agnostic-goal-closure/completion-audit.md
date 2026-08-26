@@ -4,6 +4,11 @@ Status: refreshed BAG-11 witness-order and complete-denotation coverage and BAG-
 BAG-13 rejection findings remain repaired.
 BAG-14 per-attempt cache implementation and portable evidence were independently accepted after two finding-driven repair rounds, 26 August 2026.
 BAG-15 operation receipts, fixed result wrappers, exact replay DAGs, and recursive version provenance were independently accepted after two finding-driven implementation repair rounds, 26 August 2026.
+BAG-16's repaired collection-aware portable contract was independently
+accepted after finding-driven preflight rounds. Independent contract and
+graph/version/cache/registry auditors accepted the repaired implementation on
+26 August 2026 at `bag16.py` SHA-256
+`ee0915a13836ec29acfd5118425c3089029c48e3ad50d5a0f88abc15bfd238b0`.
 
 This audit closes only work whose result can remain valid across execution
 backends. It does not treat a Python fixture oracle as implementation evidence
@@ -114,6 +119,21 @@ semantics.
   The full publication root contains every selected plan receipt, while the first-kill root has no suffix receipt; invalid materialization has no execution or oracle descendants.
   BAG-12's active-catalog declaration dispatcher and comparison validator are rerun before BAG-15 execution-pattern evidence, and every receipt failure resolves one exact active BAG-10 taxonomy placement.
   The evidence remains deterministic finite-vector production conformance and makes no native replay or publication claim.
+- BAG-16 closes portable branch-collection occurrence identity, explicit
+  search stops and pending work, empty-search authority, collection-aware
+  pattern denotation, deterministic corpus folding, execution-only cache v2,
+  successor shared-role dispatch, and recursive v2 closure roots. The verifier
+  derives output order, path/result/coverage arithmetic, finite-row eligibility,
+  inline expected-side semantics, cache precedence, receipt DAG direction, and
+  registry set equality. The evidence does not claim native branch discovery,
+  visit order, trace fidelity, solver completeness, or backend execution.
+  The frozen candidate passed 82,452 direct BAG-16 checks, the official Draft
+  2020-12 schema and fixture validation, and 1,034,971 full zero-backend checks.
+  Refresh was byte-idempotent; the previously recorded generated-package
+  SHA-256 remained
+  `1e7ff376e109d1814570af58c9f58185aecdce2d4d16afd0144d4131e18e25ff`.
+  Historical v1 schemas, fixtures, material, vectors, and taxonomy remained
+  byte-frozen against Git commit `209df2e`.
 - Evidence inventory, checklist, contracts, and Rust handoff are updated for
   this repair. D1 and roadmap are intentionally outside this packet. Fresh
   independent BAG-11 and BAG-12 acceptance found no remaining blocker.

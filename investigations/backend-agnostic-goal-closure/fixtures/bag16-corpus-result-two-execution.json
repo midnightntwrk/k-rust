@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 2,
+  "corpusResultId": "453c59ae390acaa2e14314330ebdbdb1b0d17572d799bc658237a0b39b618f6e",
+  "corpusManifest": {
+    "role": "corpus-manifest",
+    "digest": "242edd7252810d19221d30268d6ae348811dc5480ae0a3ea2a55ee41662c476b"
+  },
+  "schedulingPolicy": "full",
+  "components": [
+    {
+      "role": "corpus-component-result",
+      "digest": "d4d855fb0bac4a8e25d8c962379d1ded1f536e4dd4679e0becb49586a2aa5ec4"
+    },
+    {
+      "role": "corpus-component-result",
+      "digest": "a55eae9fbbba730a36b70d0c05f5426660721f1910260a633106b5afd18a3d1a"
+    }
+  ],
+  "testResults": [
+    {
+      "testOrdinal": 0,
+      "slots": [
+        {
+          "role": "corpus-component-result",
+          "digest": "d4d855fb0bac4a8e25d8c962379d1ded1f536e4dd4679e0becb49586a2aa5ec4"
+        }
+      ],
+      "decision": {
+        "kind": "match"
+      }
+    },
+    {
+      "testOrdinal": 1,
+      "slots": [
+        {
+          "role": "corpus-component-result",
+          "digest": "a55eae9fbbba730a36b70d0c05f5426660721f1910260a633106b5afd18a3d1a"
+        }
+      ],
+      "decision": {
+        "kind": "no-match"
+      }
+    }
+  ],
+  "decision": {
+    "kind": "match",
+    "completeCoverage": true
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "operandId": "435a3976c50c828f092b99b42ae0c7b3a0881bc37cfd5034771b37ead6045897",
+  "declaration": {
+    "role": "oracle-declaration",
+    "digest": "af03bf4f7690662854a887f3adf0fa1dc0d56b88a4123cc9e909dd937aa18cd1"
+  },
+  "subject": {
+    "side": "baseline",
+    "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4"
+  },
+  "testInvocationDigest": "167d544b1c35ba9a8a049fd3d1ae07e2346dfdd218b532df8f7833d8afd06103",
+  "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
+  "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+  "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+  "completionEvidence": {
+    "kind": "reachability-finite-row",
+    "table": {
+      "role": "reachability-conformance-table",
+      "digest": "35d3c1d5ae05484a602759413c6cd4619a10e1acc5e6b77835633747024e06fe"
+    },
+    "query": {
+      "role": "reachability-query",
+      "digest": "cfcf823994ebe8d33d8c82e6605d0244aa616f8eca888869c0e34d8dbaf371a1"
+    },
+    "inputVectorDigest": "954becf376e7b3942cc7145818ffdf00a683ad673937466836412a64e1125e16",
+    "producerTraces": [
+      {
+        "role": "event-trace",
+        "digest": "49977bb4fa2e6697148fd13a7329dba4182f76d8b1d25833509df410e6265f18"
+      },
+      {
+        "role": "event-trace",
+        "digest": "ad30fe5264e3de54a7e43bdae4eeab5f0463a4008d2ea1ffc1a586eec9b6f5c8"
+      }
+    ]
+  },
+  "normalizedValue": {
+    "status": "not-reached",
+    "witnesses": []
+  }
+}

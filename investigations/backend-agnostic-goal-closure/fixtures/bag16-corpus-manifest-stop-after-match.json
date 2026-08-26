@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 2,
+  "manifestId": "9617084af54532e585596d2506421a27507023f41857961fcebf8c2377410d21",
+  "definition": {
+    "role": "definition",
+    "digest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4"
+  },
+  "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
+  "observationManifestDigest": "3e292b87312eb962c5b3eec598774c9d419c9bdc1a5c9a6f7166bd4be7aec404",
+  "executionMode": "symbolic",
+  "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+  "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+  "bounds": {
+    "depth": 20,
+    "timeMs": 1000,
+    "branches": 8,
+    "results": 8
+  },
+  "aggregation": {
+    "question": "corpus-exists",
+    "schedulingPolicy": "stop-after-test-match",
+    "failurePolicy": "preserve-unknown-error"
+  },
+  "tests": [
+    {
+      "testOrdinal": 0,
+      "testInvocationDigest": "ba4b8ab78016b4c28a8748c3c7ec60591cffe1102654c4bee46e3f1e641b4b8e",
+      "slots": [
+        {
+          "testOrdinal": 0,
+          "slotOrdinal": 0,
+          "slotId": "5859e00cb054473534bd3ac8b6a7767d0d36028501babbb51a5b33aeb26104f2",
+          "testInvocationDigest": "ba4b8ab78016b4c28a8748c3c7ec60591cffe1102654c4bee46e3f1e641b4b8e",
+          "declaration": {
+            "role": "oracle-declaration",
+            "digest": "9e3e92df3bd28a8e3ff1418e1da8e65cc292779d18a9d0eacb4295ef56993ecb"
+          },
+          "patternSource": {
+            "role": "pattern-source",
+            "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+          },
+          "patternPlan": {
+            "role": "pattern-plan",
+            "digest": "8a2359f706a8434cc3eaaf274850134e6095a79721b442c29e0765ef1ce080d0"
+          },
+          "patternQuery": {
+            "role": "pattern-query",
+            "digest": "117f9df30cc586da7c800df5d28522d1b74403aae300071e92242515d6b761cc"
+          },
+          "sideConditionTable": {
+            "role": "side-condition-conformance-table",
+            "digest": "6016b7960b0103c9b60f2419798f8419394f965f861241f6fa947540d49988bd"
+          },
+          "searchPolicy": "exhaustive"
+        }
+      ]
+    },
+    {
+      "testOrdinal": 1,
+      "testInvocationDigest": "893e79faa16bc2369fa752e85ef13d302a0450d91f1e3e5a5eedcb2e3978d214",
+      "slots": [
+        {
+          "testOrdinal": 1,
+          "slotOrdinal": 0,
+          "slotId": "c761ca33a62e38f72be098a2715159d81d8a4d0e4c9a9c75da34183d36ae09a2",
+          "testInvocationDigest": "893e79faa16bc2369fa752e85ef13d302a0450d91f1e3e5a5eedcb2e3978d214",
+          "declaration": {
+            "role": "oracle-declaration",
+            "digest": "63a8745a131da8355310ce6d7b85acff22472a8cb3d0aff2fe8b5dc424ce5361"
+          },
+          "patternSource": {
+            "role": "pattern-source",
+            "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+          },
+          "patternPlan": {
+            "role": "pattern-plan",
+            "digest": "8a2359f706a8434cc3eaaf274850134e6095a79721b442c29e0765ef1ce080d0"
+          },
+          "patternQuery": {
+            "role": "pattern-query",
+            "digest": "117f9df30cc586da7c800df5d28522d1b74403aae300071e92242515d6b761cc"
+          },
+          "sideConditionTable": {
+            "role": "side-condition-conformance-table",
+            "digest": "6016b7960b0103c9b60f2419798f8419394f965f861241f6fa947540d49988bd"
+          },
+          "searchPolicy": "exhaustive"
+        }
+      ]
+    }
+  ]
+}

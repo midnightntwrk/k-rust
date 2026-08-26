@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/pattern-evaluation-result.schema.json",
+  "title": "Pure collection-aware pattern evaluation result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "resultId", "invocationDigest", "patternResult"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "resultId": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+    "invocationDigest": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+    "patternResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "digest"],
+      "properties": {
+        "role": {"const": "pattern-result"},
+        "digest": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"}
+      }
+    }
+  }
+}

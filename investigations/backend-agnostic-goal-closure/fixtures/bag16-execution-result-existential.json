@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 2,
+  "resultId": "bfdce6cb40612e2e270f01a91538ba5014f2f26da5882ac20dd0fd3237adfcdc",
+  "attemptKeyDigest": "380ca6077ca58f5ea43963e2a9ccc17d273ef27464a4878c509543fb1a68bcb0",
+  "invocationDigest": "4cc73064e2646ee263b1a545de47358c667496320b5b9b5777bd0b8eb2adab35",
+  "terminalRecord": {
+    "kind": "branch-collection",
+    "collection": {
+      "role": "branch-trace-collection",
+      "digest": "38ef53df3b7c0d30214e285db53d9d620f7064b0f5e9be6bebb71979a4cbe9ea"
+    },
+    "stopReason": {
+      "kind": "match-found"
+    }
+  },
+  "producedArtifacts": [
+    {
+      "role": "event-trace",
+      "digest": "49977bb4fa2e6697148fd13a7329dba4182f76d8b1d25833509df410e6265f18"
+    },
+    {
+      "role": "branch-trace-collection",
+      "digest": "38ef53df3b7c0d30214e285db53d9d620f7064b0f5e9be6bebb71979a4cbe9ea"
+    }
+  ],
+  "branchCollection": {
+    "role": "branch-trace-collection",
+    "digest": "38ef53df3b7c0d30214e285db53d9d620f7064b0f5e9be6bebb71979a4cbe9ea"
+  }
+}

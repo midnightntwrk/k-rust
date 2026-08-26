@@ -3,8 +3,8 @@
   "packageVersion": "backend-agnostic-k-in-k-v1",
   "completionStatus": "pending-independent-audit",
   "completionAudit": "investigations/backend-agnostic-goal-closure/completion-audit.md",
-  "requiredEvidenceIds": ["w1-a-egress-boundary", "w1-b-capability-audit", "w1-c-independent-replay", "w1-d-inprocess-definition-adapter", "r2-g-01-definition-transport", "r2-g-02-single-sentence-patch", "r2-g-03-atomic-two-sentence-patch", "r2-g-04-pre-cf-observation-seam", "r2-g-05-pre-cf-hook-prototype", "r2-g-06-configuration-augmentation", "r2-g-07-single-rule-observation", "r3-g-01-rule-applied-trace", "r3-g-02-trace-configuration", "r3-g-03-head-match", "r3-g-04-exact-adjacent-pair", "r3-g-05-final-stop", "execution-pattern-rust-open", "semantic-mutation-rust-open"],
-  "requiredChecklistIds": ["EX-01-observation-selection", "EX-02-conservative-instrumentation", "EX-03-domain-events-and-clocks", "EX-04-temporal-denotation", "EX-05-symbolic-constraints-and-branches", "EX-06-four-way-status", "EX-07-corpus-aggregation", "EX-08-witness-and-replay", "EX-09-trace-stream-equivalence", "EX-10-deterministic-reports", "MU-01-definition-and-identity", "MU-02-operator-contract", "MU-03-selection-and-enumeration", "MU-04-patch-operations-and-atomicity", "MU-05-layered-validation", "MU-06-baseline-gate", "MU-07-oracle-semantics", "MU-08-scheduling-and-isolation", "MU-09-report-diff-and-replay", "MU-10-exact-score", "MU-11-ordinary-result-kill", "MU-12-pattern-kill-same-result", "MU-13-invalid-not-killed", "MU-14-timeout-and-unknown", "MU-15-coupled-one-mutant", "MU-16-cross-family-generality", "MU-17-replay-result-provenance", "SC-01-retired-backend-stop", "SC-02-rust-handoff-boundary"],
+  "requiredEvidenceIds": ["w1-a-egress-boundary", "w1-b-capability-audit", "w1-c-independent-replay", "w1-d-inprocess-definition-adapter", "r2-g-01-definition-transport", "r2-g-02-single-sentence-patch", "r2-g-03-atomic-two-sentence-patch", "r2-g-04-pre-cf-observation-seam", "r2-g-05-pre-cf-hook-prototype", "r2-g-06-configuration-augmentation", "r2-g-07-single-rule-observation", "r3-g-01-rule-applied-trace", "r3-g-02-trace-configuration", "r3-g-03-head-match", "r3-g-04-exact-adjacent-pair", "r3-g-05-final-stop", "bag16-portable-collection-replay", "execution-pattern-rust-open", "semantic-mutation-rust-open"],
+  "requiredChecklistIds": ["EX-01-observation-selection", "EX-02-conservative-instrumentation", "EX-03-domain-events-and-clocks", "EX-04-temporal-denotation", "EX-05-symbolic-constraints-and-branches", "EX-06-four-way-status", "EX-07-corpus-aggregation", "EX-08-witness-and-replay", "EX-09-trace-stream-equivalence", "EX-10-deterministic-reports", "EX-11-collection-corpus-replay", "MU-01-definition-and-identity", "MU-02-operator-contract", "MU-03-selection-and-enumeration", "MU-04-patch-operations-and-atomicity", "MU-05-layered-validation", "MU-06-baseline-gate", "MU-07-oracle-semantics", "MU-08-scheduling-and-isolation", "MU-09-report-diff-and-replay", "MU-10-exact-score", "MU-11-ordinary-result-kill", "MU-12-pattern-kill-same-result", "MU-13-invalid-not-killed", "MU-14-timeout-and-unknown", "MU-15-coupled-one-mutant", "MU-16-cross-family-generality", "MU-17-replay-result-provenance", "SC-01-retired-backend-stop", "SC-02-rust-handoff-boundary"],
   "requiredArtifacts": [
     "investigations/backend-agnostic-goal-closure/contracts.md",
     "investigations/backend-agnostic-goal-closure/failure-taxonomy.json",
@@ -132,6 +132,19 @@
     "investigations/backend-agnostic-goal-closure/fixtures/bag15-replay-artifact-catalog.json",
     "investigations/backend-agnostic-goal-closure/vectors/replay-provenance-vectors.json",
     "investigations/backend-agnostic-goal-closure/bag15.py",
+    "investigations/backend-agnostic-goal-closure/schemas/artifact-role-specs-v2.schema.json",
+    "investigations/backend-agnostic-goal-closure/schemas/artifact-catalog-v2.schema.json",
+    "investigations/backend-agnostic-goal-closure/schemas/branch-trace-collection.schema.json",
+    "investigations/backend-agnostic-goal-closure/schemas/event-trace-v2.schema.json",
+    "investigations/backend-agnostic-goal-closure/schemas/execution-attempt-result-v2.schema.json",
+    "investigations/backend-agnostic-goal-closure/schemas/operation-invocation-v2.schema.json",
+    "investigations/backend-agnostic-goal-closure/schemas/operation-receipt-v2.schema.json",
+    "investigations/backend-agnostic-goal-closure/schemas/pattern-result-v2.schema.json",
+    "investigations/backend-agnostic-goal-closure/schemas/portable-closure-root.schema.json",
+    "investigations/backend-agnostic-goal-closure/schemas/replay-version-registry-v2.schema.json",
+    "investigations/backend-agnostic-goal-closure/fixtures/bag16-artifact-catalog.json",
+    "investigations/backend-agnostic-goal-closure/vectors/bag16-branch-collection-vectors.json",
+    "investigations/backend-agnostic-goal-closure/bag16.py",
     "investigations/backend-agnostic-goal-closure/verify.py"
   ]
 }

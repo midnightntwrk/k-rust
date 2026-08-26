@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 2,
+  "receiptId": "5f1b99e0e93322595e0a8754f1861764df3ebf597df9338c476cdd4a7869304e",
+  "invocationDigest": "536db2d545ebcda58c74f3d91220fe607bdbf92d1cd251d4d66789a7abd5b460",
+  "invocation": {
+    "schemaVersion": 2,
+    "invocationDigest": "536db2d545ebcda58c74f3d91220fe607bdbf92d1cd251d4d66789a7abd5b460",
+    "operationKind": "execution-attempt",
+    "operationVersion": 2,
+    "adapterContract": {
+      "adapterId": "bag16-portable-finite",
+      "adapterVersion": 1
+    },
+    "parameters": {
+      "executionKey": {
+        "schemaVersion": 2,
+        "keyDigest": "045e38cc63a34d4644ee12cf3fa91501f9d4152944350cc0f2bccc5f5ccc4436",
+        "operation": {
+          "operationId": "portable-finite-execution",
+          "operationVersion": 4,
+          "adapterId": "bag16-vector-adapter",
+          "adapterVersion": 1
+        },
+        "subject": {
+          "kind": "baseline",
+          "definition": {
+            "role": "definition",
+            "digest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4"
+          }
+        },
+        "testInvocationDigest": "30c9fd18532de5f66fb72f896a1d8ae8c36ab03d9b852781ce9fc991267609ba",
+        "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
+        "loweringProfileDigest": "6d07d5437a05b5bda922083438b7d4c5ee448bbbea5955ee4a49e97582eafefd",
+        "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+        "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+        "isolationPolicy": {
+          "schemaVersion": 1,
+          "isolationPolicyDigest": "e0894a9041cfe54ce8c59fe2091e82a11f7c2f73e24d842f51fa1f2baffe9189",
+          "baselineState": "immutable",
+          "mutantState": "fresh-per-mutant",
+          "sharedWritableState": false,
+          "observerState": "fresh-per-test-path"
+        },
+        "attemptKind": {
+          "kind": "query-coupled",
+          "observationInputs": [
+            {
+              "role": "observation-manifest",
+              "digest": "3e292b87312eb962c5b3eec598774c9d419c9bdc1a5c9a6f7166bd4be7aec404"
+            }
+          ],
+          "patternSource": {
+            "role": "pattern-source",
+            "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+          },
+          "patternPlan": {
+            "role": "pattern-plan",
+            "digest": "8a2359f706a8434cc3eaaf274850134e6095a79721b442c29e0765ef1ce080d0"
+          },
+          "patternQuery": {
+            "role": "pattern-query",
+            "digest": "117f9df30cc586da7c800df5d28522d1b74403aae300071e92242515d6b761cc"
+          },
+          "sideConditionTable": {
+            "role": "side-condition-conformance-table",
+            "digest": "6016b7960b0103c9b60f2419798f8419394f965f861241f6fa947540d49988bd"
+          },
+          "searchPolicy": "existential-first"
+        }
+      },
+      "keyDigest": "045e38cc63a34d4644ee12cf3fa91501f9d4152944350cc0f2bccc5f5ccc4436"
+    },
+    "inputs": [
+      {
+        "edgeRole": "key-artifact",
+        "artifact": {
+          "role": "observation-manifest",
+          "digest": "3e292b87312eb962c5b3eec598774c9d419c9bdc1a5c9a6f7166bd4be7aec404"
+        }
+      },
+      {
+        "edgeRole": "key-artifact",
+        "artifact": {
+          "role": "pattern-plan",
+          "digest": "8a2359f706a8434cc3eaaf274850134e6095a79721b442c29e0765ef1ce080d0"
+        }
+      },
+      {
+        "edgeRole": "key-artifact",
+        "artifact": {
+          "role": "pattern-query",
+          "digest": "117f9df30cc586da7c800df5d28522d1b74403aae300071e92242515d6b761cc"
+        }
+      },
+      {
+        "edgeRole": "key-artifact",
+        "artifact": {
+          "role": "pattern-source",
+          "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+        }
+      },
+      {
+        "edgeRole": "key-artifact",
+        "artifact": {
+          "role": "side-condition-conformance-table",
+          "digest": "6016b7960b0103c9b60f2419798f8419394f965f861241f6fa947540d49988bd"
+        }
+      },
+      {
+        "edgeRole": "key-artifact",
+        "artifact": {
+          "role": "definition",
+          "digest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4"
+        }
+      }
+    ],
+    "childReceipts": [],
+    "outputRoles": [
+      "execution-attempt-result"
+    ]
+  },
+  "producer": {
+    "producerId": "bag16-deterministic-python",
+    "producerVersion": 1,
+    "executionConformance": "finite-vector-proven"
+  },
+  "producerStatus": "complete",
+  "outputs": [
+    {
+      "edgeRole": "execution-attempt-result",
+      "artifact": {
+        "role": "execution-attempt-result",
+        "digest": "98892a54f35ceef91d73bba9de947a6d7fdc50802458adbca6b46e7073097f84"
+      }
+    }
+  ],
+  "semanticTerminal": {
+    "kind": "branch-collection",
+    "collection": {
+      "role": "branch-trace-collection",
+      "digest": "10dc4544f483fd98bb17ea725c5bd335045d9756f6609604b4afc81ae15e10db"
+    },
+    "stopReason": {
+      "kind": "match-found"
+    }
+  },
+  "failure": null
+}

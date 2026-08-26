@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/corpus-derivation-result.schema.json",
+  "title": "Pure corpus aggregate derivation result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "resultId", "invocationDigest", "corpusResult"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "resultId": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+    "invocationDigest": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+    "corpusResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "digest"],
+      "properties": {
+        "role": {"const": "corpus-result"},
+        "digest": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"}
+      }
+    }
+  }
+}

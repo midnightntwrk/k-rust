@@ -20,6 +20,7 @@ from bag12 import finalize_refresh as finalize_bag12_refresh
 from bag12 import prepare_refresh as prepare_bag12_refresh
 from bag14 import finalize_refresh as finalize_bag14_refresh
 from bag15 import finalize_refresh as finalize_bag15_refresh
+from bag16 import finalize_refresh as finalize_bag16_refresh
 
 
 ROOT = Path(__file__).resolve().parent
@@ -2336,6 +2337,7 @@ def main() -> None:
     finalize_bag12_refresh(ROOT)
     finalize_bag14_refresh(ROOT)
     finalize_bag15_refresh(ROOT)
+    finalize_bag16_refresh(ROOT)
 
 
 if __name__ == "__main__":

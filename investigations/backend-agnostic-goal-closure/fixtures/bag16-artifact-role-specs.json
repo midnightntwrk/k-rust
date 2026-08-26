@@ -1,0 +1,1687 @@
+{
+  "schemaVersion": 2,
+  "registryId": "c6ce464b0c532e83124eb79b5955dc64f337838ac7f5a0a0251d6b95867069cb",
+  "specs": [
+    {
+      "role": "baseline-admission-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "baseline-admission-result.schema.json",
+          "schemaDigest": "3848fac6c933fc71e1dcd25b7fd713546556f1bf3164ff4fd85e5afd05bc4e4d",
+          "digestDomain": "k-in-k/baseline-admission-result/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "resultId"
+          },
+          "selfIdField": "resultId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "baseline-oracle-gate-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "oracle-semantics.schema.json#/$defs/baselineGateResult",
+          "schemaDigest": "20198915f7a15cc3a785e9e03fb5eddade594c629d895f9db612ca2e58ec08f8",
+          "digestDomain": "k-in-k/baseline-oracle-gate-result/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "gateResultId"
+          },
+          "selfIdField": "gateResultId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "branch-trace-collection",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "branch-trace-collection.schema.json",
+          "digestDomain": "k-in-k/branch-trace-collection/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "collectionId"
+          },
+          "selfIdField": "collectionId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          },
+          "schemaDigest": "deb6cbf351d1beb4c2c7a1d44bccb06739dd589336e7c9487b42aa064a05244e"
+        }
+      ]
+    },
+    {
+      "role": "cache-campaign-invocation",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "cache-semantics.schema.json#/$defs/campaignInvocation",
+          "schemaDigest": "4aa7ee3274d6fcfb0d4cd0d0e53f7646a323b48e160d9f40c24f40f68266d0d3",
+          "digestDomain": "k-in-k/campaign-invocation/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "campaignInvocationId"
+          },
+          "selfIdField": "campaignInvocationId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "cache-campaign-manifest",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "cache-semantics.schema.json#/$defs/campaignManifest",
+          "schemaDigest": "4aa7ee3274d6fcfb0d4cd0d0e53f7646a323b48e160d9f40c24f40f68266d0d3",
+          "digestDomain": "k-in-k/cache-campaign-manifest/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "manifestId"
+          },
+          "selfIdField": "manifestId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "cache-mutation-report",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "cache-semantics.schema.json#/$defs/mutationReport",
+          "schemaDigest": "4aa7ee3274d6fcfb0d4cd0d0e53f7646a323b48e160d9f40c24f40f68266d0d3",
+          "digestDomain": "k-in-k/mutation-report/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "reportId"
+          },
+          "selfIdField": "reportId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "cache-record",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "cache-semantics.schema.json#/$defs/cacheRecord",
+          "schemaDigest": "4aa7ee3274d6fcfb0d4cd0d0e53f7646a323b48e160d9f40c24f40f68266d0d3",
+          "digestDomain": "k-in-k/cache-record/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "recordId"
+          },
+          "selfIdField": "recordId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        },
+        {
+          "schemaVersion": 2,
+          "schemaId": "cache-semantics-v2.schema.json#/$defs/cacheRecord",
+          "digestDomain": "k-in-k/cache-record/v2",
+          "projection": {
+            "kind": "without-field",
+            "field": "recordId"
+          },
+          "selfIdField": "recordId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 2
+          },
+          "schemaDigest": "64b87ebd67dc2f8a46e71d98f668cb048b2304c4f5d5ab35a1dc8298c8c6d21a"
+        }
+      ]
+    },
+    {
+      "role": "campaign-derivation-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "campaign-derivation-result.schema.json",
+          "schemaDigest": "c6bf2e0cd75c25b7e5e153d29f665e8d293afaa98a1e563db413438f42a505f0",
+          "digestDomain": "k-in-k/campaign-derivation-result/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "resultId"
+          },
+          "selfIdField": "resultId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "compatibility-profile",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "compatibility-profile.schema.json",
+          "schemaDigest": "a1e5f4b9f4efab643e215a014957330d1fcba1abf1abe84daa227cb7fdf35dfe",
+          "digestDomain": "k-in-k/compatibility-profile/v1",
+          "projection": {
+            "kind": "complete"
+          },
+          "selfIdField": null,
+          "dispatch": {
+            "kind": "legacy-no-schema-version"
+          }
+        }
+      ]
+    },
+    {
+      "role": "corpus-component-invocation",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "corpus-component-invocation.schema.json",
+          "digestDomain": "k-in-k/corpus-component-invocation/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "componentInvocationId"
+          },
+          "selfIdField": "componentInvocationId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          },
+          "schemaDigest": "7aecc2ae623697daf75e934bd14407dc99fc36357b915acf166f0547b91e4e22"
+        }
+      ]
+    },
+    {
+      "role": "corpus-component-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "corpus-component-result.schema.json",
+          "digestDomain": "k-in-k/corpus-component-result/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "componentResultId"
+          },
+          "selfIdField": "componentResultId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          },
+          "schemaDigest": "1bc26383f3ef8307b36d260da2d7721035f40268ee4f9a1aea00a816183ea52b"
+        }
+      ]
+    },
+    {
+      "role": "corpus-derivation-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "corpus-derivation-result.schema.json",
+          "digestDomain": "k-in-k/corpus-derivation-result/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "resultId"
+          },
+          "selfIdField": "resultId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          },
+          "schemaDigest": "fd08221a98700dbf9f37fc0b5435694a89e1a4478360dfe5e7739ae4ae03dea3"
+        }
+      ]
+    },
+    {
+      "role": "corpus-manifest",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "corpus-manifest.schema.json",
+          "schemaDigest": "59908fc6134779d20f8156a490be17d025594edd6d8cb903e2d561e0bd0c1e77",
+          "digestDomain": "k-in-k/corpus-manifest/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "manifestId"
+          },
+          "selfIdField": "manifestId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        },
+        {
+          "schemaVersion": 2,
+          "schemaId": "corpus-manifest-v2.schema.json",
+          "digestDomain": "k-in-k/corpus-manifest/v2",
+          "projection": {
+            "kind": "without-field",
+            "field": "manifestId"
+          },
+          "selfIdField": "manifestId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 2
+          },
+          "schemaDigest": "017a5d74c044c395b0f769b02a7a79632021ae7130c7e000a679f0421b24959f"
+        }
+      ]
+    },
+    {
+      "role": "corpus-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 2,
+          "schemaId": "corpus-result-v2.schema.json",
+          "digestDomain": "k-in-k/corpus-result/v2",
+          "projection": {
+            "kind": "without-field",
+            "field": "corpusResultId"
+          },
+          "selfIdField": "corpusResultId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 2
+          },
+          "schemaDigest": "bd68bc621d1daf1dd32b6de8e8e0ea846d3ad0c10b8036f67c7d34c93515d784"
+        }
+      ]
+    },
+    {
+      "role": "definition",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "semantic-definition.schema.json",
+          "schemaDigest": "ac45f71536f3d989020612bc90e68a03b1f140a6625c0ff021b8c086d0f0f711",
+          "digestDomain": "k-in-k/definition/v1",
+          "projection": {
+            "kind": "definition-summary"
+          },
+          "selfIdField": "definitionDigest",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "empty-search-decision",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "empty-search-decision.schema.json",
+          "digestDomain": "k-in-k/empty-search-decision/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "decisionId"
+          },
+          "selfIdField": "decisionId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          },
+          "schemaDigest": "6e799096c4e3fc810366946f5f9590722b6322a9cdab60bd6d7a3c9d8388974a"
+        }
+      ]
+    },
+    {
+      "role": "event-trace",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "event-trace.schema.json",
+          "schemaDigest": "e002109f6312224f653d516966dfed7f96fc09b52c22644a696a4f0a71e2cd15",
+          "digestDomain": "k-in-k/event-trace/v1",
+          "projection": {
+            "kind": "complete"
+          },
+          "selfIdField": null,
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        },
+        {
+          "schemaVersion": 2,
+          "schemaId": "event-trace-v2.schema.json",
+          "digestDomain": "k-in-k/event-trace/v2",
+          "projection": {
+            "kind": "without-field",
+            "field": "traceId"
+          },
+          "selfIdField": "traceId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 2
+          },
+          "schemaDigest": "5dbe62be1941b49e6ce5a8d52bd640432e54e07a2f57c77027517880296d4450"
+        }
+      ]
+    },
+    {
+      "role": "execution-attempt-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "execution-attempt-result.schema.json",
+          "schemaDigest": "c6d2c6ec7215d35f82408bc43a5c1302a6bd1d36e44ed727e3207cc13abcf047",
+          "digestDomain": "k-in-k/execution-attempt-result/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "resultId"
+          },
+          "selfIdField": "resultId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        },
+        {
+          "schemaVersion": 2,
+          "schemaId": "execution-attempt-result-v2.schema.json",
+          "digestDomain": "k-in-k/execution-attempt-result/v2",
+          "projection": {
+            "kind": "without-field",
+            "field": "resultId"
+          },
+          "selfIdField": "resultId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 2
+          },
+          "schemaDigest": "06ba0b713a9b12af39490e3322d91e38fe1f718f8c0eab6e1ef6417cf5ae5a20"
+        }
+      ]
+    },
+    {
+      "role": "execution-profile",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "execution-test-invocation",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 2,
+          "schemaId": "execution-test-invocation-v2.schema.json",
+          "digestDomain": "k-in-k/execution-test-invocation/v2",
+          "projection": {
+            "kind": "without-field",
+            "field": "testInvocationDigest"
+          },
+          "selfIdField": "testInvocationDigest",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 2
+          },
+          "schemaDigest": "17a490679d8198ef4c22d99842f3a603b78289c24bf3688ef3eba8d525536fb0"
+        }
+      ]
+    },
+    {
+      "role": "failure-taxonomy",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "failure-taxonomy.schema.json",
+          "schemaDigest": "8dd386f3b83182f7b0bb484e46b1c9a9b56a7b7784adb466d1e3851fc92d43b1",
+          "digestDomain": "k-in-k/failure-taxonomy/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "taxonomyId"
+          },
+          "selfIdField": "taxonomyId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "instrumented-definition",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "semantic-definition.schema.json",
+          "schemaDigest": "ac45f71536f3d989020612bc90e68a03b1f140a6625c0ff021b8c086d0f0f711",
+          "digestDomain": "k-in-k/definition/v1",
+          "projection": {
+            "kind": "definition-summary"
+          },
+          "selfIdField": "definitionDigest",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "lowering-cycle-proof",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "lowering-cycle-proof.schema.json",
+          "schemaDigest": "6e32c920133f268718de1f33f7fed4b0000df841609fc1c0aa799501d5af70db",
+          "digestDomain": "k-in-k/lowering-cycle-proof/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "proofId"
+          },
+          "selfIdField": "proofId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "lowering-profile",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "lowering-proof-check-receipt",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "lowering-proof-check-receipt.schema.json",
+          "schemaDigest": "5096ff2610cd0106db652bf999a166424c88b82e016c296a27075ff923b525f5",
+          "digestDomain": "k-in-k/lowering-proof-check-receipt/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "receiptId"
+          },
+          "selfIdField": "receiptId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "mutant-definition",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "semantic-definition.schema.json",
+          "schemaDigest": "ac45f71536f3d989020612bc90e68a03b1f140a6625c0ff021b8c086d0f0f711",
+          "digestDomain": "k-in-k/definition/v1",
+          "projection": {
+            "kind": "definition-summary"
+          },
+          "selfIdField": "definitionDigest",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "mutation-join",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "mutation-site-registry.schema.json#/properties/join",
+          "schemaDigest": "03fbe1be981bc51c2ee95625adaa5328634a694797bf756be04db60b6cd6441b",
+          "digestDomain": "k-in-k/mutation-join/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "joinDigest"
+          },
+          "selfIdField": "joinDigest",
+          "dispatch": {
+            "kind": "legacy-no-schema-version"
+          }
+        }
+      ]
+    },
+    {
+      "role": "mutation-materialization-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "mutation-materialization-result.schema.json",
+          "schemaDigest": "178d6725e7fd5d123792721ebb4c93ea7d3cc6fc2b2cf2f827884cee59eed03a",
+          "digestDomain": "k-in-k/mutation-materialization-result/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "resultId"
+          },
+          "selfIdField": "resultId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "mutation-module",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "mutation-operator",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "mutation-operator.schema.json",
+          "schemaDigest": "29c6487eea632165594cd5dba285c7bea1440a19dd4c7573e47aeccbe32bcb57",
+          "digestDomain": "k-in-k/mutation-operator/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "operatorDigest"
+          },
+          "selfIdField": "operatorDigest",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "mutation-selector",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "mutation-site-registry.schema.json#/properties/selector",
+          "schemaDigest": "03fbe1be981bc51c2ee95625adaa5328634a694797bf756be04db60b6cd6441b",
+          "digestDomain": "k-in-k/mutation-selector/v1",
+          "projection": {
+            "kind": "field",
+            "field": "clauses"
+          },
+          "selfIdField": "selectorDigest",
+          "dispatch": {
+            "kind": "legacy-no-schema-version"
+          }
+        }
+      ]
+    },
+    {
+      "role": "mutation-site-registry",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "mutation-site-registry.schema.json",
+          "schemaDigest": "03fbe1be981bc51c2ee95625adaa5328634a694797bf756be04db60b6cd6441b",
+          "digestDomain": "k-in-k/mutation-site-registry/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "registryId"
+          },
+          "selfIdField": "registryId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "observation-manifest",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "observation-manifest.schema.json",
+          "schemaDigest": "90572c95f5b56bca0e26176216663ac7e293807221993715ed261a06551c487c",
+          "digestDomain": "k-in-k/observation-manifest/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "manifestId"
+          },
+          "selfIdField": "manifestId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "observer",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "operation-receipt",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "operation-receipt.schema.json",
+          "schemaDigest": "5ec8fc67646dd568d7f6418c36afd5591ecbcc06a4da3b3556a4fcd8fe41b29c",
+          "digestDomain": "k-in-k/operation-receipt/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "receiptId"
+          },
+          "selfIdField": "receiptId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        },
+        {
+          "schemaVersion": 2,
+          "schemaId": "operation-receipt-v2.schema.json",
+          "digestDomain": "k-in-k/operation-receipt/v2",
+          "projection": {
+            "kind": "without-field",
+            "field": "receiptId"
+          },
+          "selfIdField": "receiptId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 2
+          },
+          "schemaDigest": "070d59425ba1ee580a2dfe6613da96716471b8f5f391814c263926626cc4c33e"
+        }
+      ]
+    },
+    {
+      "role": "options",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "oracle-comparison",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "oracle-comparison-production-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "oracle-comparison-production-result.schema.json",
+          "schemaDigest": "1f01dafc590c13ca0a9070ca454e91a9977f9e43dbd4a07a201125781c179c32",
+          "digestDomain": "k-in-k/oracle-comparison-production-result/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "resultId"
+          },
+          "selfIdField": "resultId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "oracle-comparison-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "oracle-semantics.schema.json#/$defs/comparison",
+          "schemaDigest": "20198915f7a15cc3a785e9e03fb5eddade594c629d895f9db612ca2e58ec08f8",
+          "digestDomain": "k-in-k/oracle-comparison-result/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "comparisonId"
+          },
+          "selfIdField": "comparisonId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "oracle-comparison-spec",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "oracle-conformance-suite",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "oracle-declaration",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "oracle-semantics.schema.json#/$defs/declaration",
+          "schemaDigest": "20198915f7a15cc3a785e9e03fb5eddade594c629d895f9db612ca2e58ec08f8",
+          "digestDomain": "k-in-k/oracle-declaration/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "declarationId"
+          },
+          "selfIdField": "declarationId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "oracle-evaluator-conformance",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "oracle-semantics.schema.json#/$defs/evaluatorConformance",
+          "schemaDigest": "20198915f7a15cc3a785e9e03fb5eddade594c629d895f9db612ca2e58ec08f8",
+          "digestDomain": "k-in-k/oracle-evaluator-conformance/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "conformanceId"
+          },
+          "selfIdField": "conformanceId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "oracle-operand",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "oracle-semantics.schema.json#/$defs/operand",
+          "schemaDigest": "20198915f7a15cc3a785e9e03fb5eddade594c629d895f9db612ca2e58ec08f8",
+          "digestDomain": "k-in-k/oracle-operand/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "operandId"
+          },
+          "selfIdField": "operandId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "oracle-operand-production-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "oracle-operand-production-result.schema.json",
+          "schemaDigest": "d4da4e7845d1fd552d7534d50022544d106c1310dc314b78e0e6ecfb85debbcf",
+          "digestDomain": "k-in-k/oracle-operand-production-result/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "resultId"
+          },
+          "selfIdField": "resultId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "oracle-projection",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "oracle-projection-plan",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "oracle-projection-query",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "oracle-projection-source",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "oracle-value",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "oracle-value.schema.json",
+          "schemaDigest": "ca072e977d25900509f17da1e34e22122bb090b7d032233b7e0b1c5a9fae0d14",
+          "digestDomain": "k-in-k/oracle-value/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "oracleValueDigest"
+          },
+          "selfIdField": "oracleValueDigest",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "parser",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "patch",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "patch.schema.json",
+          "schemaDigest": "139ddec72328aff10f9f1f15baaefe70d6ec5b553cdcdcf3be6d4a30bc928def",
+          "digestDomain": "k-in-k/patch/v1",
+          "projection": {
+            "kind": "select-fields",
+            "fields": [
+              "schemaVersion",
+              "edits"
+            ]
+          },
+          "selfIdField": "patchId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "patch-template",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "pattern-compiler-profile",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "pattern-evaluation-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "pattern-evaluation-result.schema.json",
+          "digestDomain": "k-in-k/pattern-evaluation-result/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "resultId"
+          },
+          "selfIdField": "resultId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          },
+          "schemaDigest": "fc288894fd4122393e0714e31856d9774ed6fd283aedccbd571fdc228d156d5e"
+        }
+      ]
+    },
+    {
+      "role": "pattern-plan",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "pattern-plan.schema.json",
+          "schemaDigest": "ae2f19e5957eb2a0d17602f47ebc61aaffed9c6927bcba3c5457e82e88c584a8",
+          "digestDomain": "k-in-k/pattern-plan/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "patternPlanDigest"
+          },
+          "selfIdField": "patternPlanDigest",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "pattern-query",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "pattern-query.schema.json",
+          "schemaDigest": "b2af4113c74b4ecd559ad871efffe0ca7224baf7befb5189546471129a01d577",
+          "digestDomain": "k-in-k/pattern-query/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "queryId"
+          },
+          "selfIdField": "queryId",
+          "dispatch": {
+            "kind": "legacy-no-schema-version"
+          }
+        }
+      ]
+    },
+    {
+      "role": "pattern-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "pattern-result.schema.json",
+          "schemaDigest": "6414b38c54f1e8d662e2dce4c20b686e16cdf2f029e388a4c8d7d94094fc7511",
+          "digestDomain": "k-in-k/pattern-result/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "resultId"
+          },
+          "selfIdField": "resultId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        },
+        {
+          "schemaVersion": 2,
+          "schemaId": "pattern-result-v2.schema.json",
+          "digestDomain": "k-in-k/pattern-result/v2",
+          "projection": {
+            "kind": "without-field",
+            "field": "resultId"
+          },
+          "selfIdField": "resultId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 2
+          },
+          "schemaDigest": "bf791f5134a2228978edd04033e610dbf252d46b5ffe6e409ab15f48076ac2ea"
+        }
+      ]
+    },
+    {
+      "role": "pattern-side-condition",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "pattern-source",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "postcondition",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "precondition",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "predicate-conformance-table",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "predicate-semantics.schema.json#/$defs/table",
+          "schemaDigest": "d7acbf1c969dab74ea47fbd665a3a3adc4acde40909761e49fd1c8404a71d905",
+          "digestDomain": "k-in-k/predicate-conformance-table/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "tableId"
+          },
+          "selfIdField": "tableId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "predicate-plan",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "predicate-semantics.schema.json#/$defs/plan",
+          "schemaDigest": "d7acbf1c969dab74ea47fbd665a3a3adc4acde40909761e49fd1c8404a71d905",
+          "digestDomain": "k-in-k/predicate-plan/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "planId"
+          },
+          "selfIdField": "planId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "predicate-query",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "predicate-semantics.schema.json#/$defs/query",
+          "schemaDigest": "d7acbf1c969dab74ea47fbd665a3a3adc4acde40909761e49fd1c8404a71d905",
+          "digestDomain": "k-in-k/predicate-query/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "queryId"
+          },
+          "selfIdField": "queryId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "predicate-source",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "program",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "provenance-mutation-report",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "provenance-mutation-report.schema.json",
+          "schemaDigest": "548b357a065a8611242a54723f269921b88fff36492255a6cfe4de605f2df31e",
+          "digestDomain": "k-in-k/provenance-mutation-report/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "reportId"
+          },
+          "selfIdField": "reportId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "reachability-conformance-table",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "reachability-semantics.schema.json#/$defs/table",
+          "schemaDigest": "495b0fd480ea7971edeb071631191e419539d281d8c6d58d75fe401fadd28408",
+          "digestDomain": "k-in-k/reachability-conformance-table/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "tableId"
+          },
+          "selfIdField": "tableId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "reachability-plan",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "reachability-semantics.schema.json#/$defs/plan",
+          "schemaDigest": "495b0fd480ea7971edeb071631191e419539d281d8c6d58d75fe401fadd28408",
+          "digestDomain": "k-in-k/reachability-plan/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "planId"
+          },
+          "selfIdField": "planId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "reachability-query",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "reachability-semantics.schema.json#/$defs/query",
+          "schemaDigest": "495b0fd480ea7971edeb071631191e419539d281d8c6d58d75fe401fadd28408",
+          "digestDomain": "k-in-k/reachability-query/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "queryId"
+          },
+          "selfIdField": "queryId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "reachability-source",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "reachability-witness",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "reachability-semantics.schema.json#/$defs/witness",
+          "schemaDigest": "495b0fd480ea7971edeb071631191e419539d281d8c6d58d75fe401fadd28408",
+          "digestDomain": "k-in-k/reachability-witness/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "witnessId"
+          },
+          "selfIdField": "witnessId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "replay-manifest",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "replay-manifest.schema.json",
+          "schemaDigest": "948b98c80ca157bb40ce0ece267af69bcea0d9c0b5439d482e866c78b505748a",
+          "digestDomain": "k-in-k/replay-manifest/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "replayId"
+          },
+          "selfIdField": "replayId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "replay-version-registry",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "replay-version-registry.schema.json",
+          "schemaDigest": "c0f34a2728c3ae0fc232d0057540b11f7375db9e87d0f8cdb4e83eaf97b30b2d",
+          "digestDomain": "k-in-k/replay-version-registry/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "registryId"
+          },
+          "selfIdField": "registryId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        },
+        {
+          "schemaVersion": 2,
+          "schemaId": "replay-version-registry-v2.schema.json",
+          "digestDomain": "k-in-k/replay-version-registry/v2",
+          "projection": {
+            "kind": "without-field",
+            "field": "registryId"
+          },
+          "selfIdField": "registryId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 2
+          },
+          "schemaDigest": "ae6ee1b6d4898e4ee04de1a39ccffe49bb43c9ad0056436501063bdc8f68bebe"
+        }
+      ]
+    },
+    {
+      "role": "report-publication-result",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "report-publication-result.schema.json",
+          "schemaDigest": "37cd3b13a6dacf8212870ddef84509b282687ce527ab4c10de55b1a918d97bdc",
+          "digestDomain": "k-in-k/report-publication-result/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "resultId"
+          },
+          "selfIdField": "resultId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "semantic-crash",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "semantic-crash.schema.json",
+          "schemaDigest": "5df42256a154e997fd8745d40b02d518ebee75d0dd543c3be63b1b145027a433",
+          "digestDomain": "k-in-k/semantic-crash/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "crashDigest"
+          },
+          "selfIdField": "crashDigest",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "semantic-output-bytes",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "semantic-output-finite-table",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "oracle-semantics.schema.json#/$defs/outputFiniteTable",
+          "schemaDigest": "20198915f7a15cc3a785e9e03fb5eddade594c629d895f9db612ca2e58ec08f8",
+          "digestDomain": "k-in-k/semantic-output-finite-table/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "tableId"
+          },
+          "selfIdField": "tableId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "side-condition-conformance-table",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "side-condition-conformance-table.schema.json",
+          "schemaDigest": "093aa43a248df973c37fbe4ac2d2a8f14bf5c71a642bf99c0e8fb49353cd4e93",
+          "digestDomain": "k-in-k/side-condition-conformance-table/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "tableDigest"
+          },
+          "selfIdField": "tableDigest",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "solver-profile",
+      "contentModel": "opaque-bytes",
+      "mediaType": "application/octet-stream",
+      "schema": null,
+      "digestDomain": "k-in-k/opaque-artifact/v1",
+      "projection": {
+        "kind": "opaque-envelope"
+      },
+      "selfIdField": null
+    },
+    {
+      "role": "structural-diff",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "structural-diff.schema.json",
+          "schemaDigest": "6fd70c1346bf9455acf76666fb787f5698b7c73d431d809f235d9e6f057cff62",
+          "digestDomain": "k-in-k/structural-diff/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "diffId"
+          },
+          "selfIdField": "diffId",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "terminal-state",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "terminal-state.schema.json",
+          "schemaDigest": "77e8cc50b50f9dd6b60c31a6b77a56d32ceef5566b2731d2196c1fae343309c8",
+          "digestDomain": "k-in-k/terminal-state/v1",
+          "projection": {
+            "kind": "without-field",
+            "field": "terminalStateDigest"
+          },
+          "selfIdField": "terminalStateDigest",
+          "dispatch": {
+            "kind": "schema-version",
+            "schemaVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "transformation",
+      "contentModel": "canonical-json",
+      "mediaType": "application/json",
+      "structuredVersions": [
+        {
+          "schemaVersion": 1,
+          "schemaId": "transformation.schema.json",
+          "schemaDigest": "27098ca4a7ad1f26eaf8eab47c4116d702a526baaf3fe814467c6206df1324ff",
+          "digestDomain": "k-in-k/transformation/v1",
+          "projection": {
+            "kind": "complete"
+          },
+          "selfIdField": null,
+          "dispatch": {
+            "kind": "legacy-no-schema-version"
+          }
+        }
+      ]
+    }
+  ]
+}

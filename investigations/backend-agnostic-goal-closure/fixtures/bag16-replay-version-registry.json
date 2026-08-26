@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 2,
+  "registryId": "f49f94fb615c7eaac6f9380e97a7f085de4a62d9d72a3caff3b26d3b01841c99",
+  "schemas": [
+    {
+      "schemaId": "artifact-catalog-v2.schema.json",
+      "schemaVersion": 2,
+      "schemaDigest": "9f3723ecb76e01daba63388eb7fa29db5c1e2761c51da7724d67fdc50ee8f362"
+    },
+    {
+      "schemaId": "artifact-role-specs-v2.schema.json",
+      "schemaVersion": 2,
+      "schemaDigest": "52348694a62d6f95dbbd7c53db8311a9a540ea50e6e6380b97536e46a719a745"
+    },
+    {
+      "schemaId": "bag16-common.schema.json",
+      "schemaVersion": 2,
+      "schemaDigest": "fc66e4236c6aac4c855530824fddf3787622fe87944ad2afc19a5e46ade8a682"
+    },
+    {
+      "schemaId": "branch-trace-collection.schema.json",
+      "schemaVersion": 1,
+      "schemaDigest": "deb6cbf351d1beb4c2c7a1d44bccb06739dd589336e7c9487b42aa064a05244e"
+    },
+    {
+      "schemaId": "cache-semantics-v2.schema.json",
+      "schemaVersion": 2,
+      "schemaDigest": "64b87ebd67dc2f8a46e71d98f668cb048b2304c4f5d5ab35a1dc8298c8c6d21a"
+    },
+    {
+      "schemaId": "cache-semantics.schema.json",
+      "schemaVersion": 1,
+      "schemaDigest": "4aa7ee3274d6fcfb0d4cd0d0e53f7646a323b48e160d9f40c24f40f68266d0d3"
+    },
+    {
+      "schemaId": "common.schema.json",
+      "schemaVersion": 1,
+      "schemaDigest": "475248ae3037a91d8fb28df794f9bdc1389d4c08a2402b5ebf26942f60d8d1dd"
+    },
+    {
+      "schemaId": "corpus-component-result.schema.json",
+      "schemaVersion": 1,
+      "schemaDigest": "1bc26383f3ef8307b36d260da2d7721035f40268ee4f9a1aea00a816183ea52b"
+    },
+    {
+      "schemaId": "corpus-derivation-result.schema.json",
+      "schemaVersion": 1,
+      "schemaDigest": "fd08221a98700dbf9f37fc0b5435694a89e1a4478360dfe5e7739ae4ae03dea3"
+    },
+    {
+      "schemaId": "corpus-manifest-v2.schema.json",
+      "schemaVersion": 2,
+      "schemaDigest": "017a5d74c044c395b0f769b02a7a79632021ae7130c7e000a679f0421b24959f"
+    },
+    {
+      "schemaId": "corpus-result-v2.schema.json",
+      "schemaVersion": 2,
+      "schemaDigest": "bd68bc621d1daf1dd32b6de8e8e0ea846d3ad0c10b8036f67c7d34c93515d784"
+    },
+    {
+      "schemaId": "event-trace-v2.schema.json",
+      "schemaVersion": 2,
+      "schemaDigest": "5dbe62be1941b49e6ce5a8d52bd640432e54e07a2f57c77027517880296d4450"
+    },
+    {
+      "schemaId": "event-trace.schema.json",
+      "schemaVersion": 1,
+      "schemaDigest": "e002109f6312224f653d516966dfed7f96fc09b52c22644a696a4f0a71e2cd15"
+    },
+    {
+      "schemaId": "execution-attempt-result-v2.schema.json",
+      "schemaVersion": 2,
+      "schemaDigest": "06ba0b713a9b12af39490e3322d91e38fe1f718f8c0eab6e1ef6417cf5ae5a20"
+    },
+    {
+      "schemaId": "execution-test-invocation-v2.schema.json",
+      "schemaVersion": 2,
+      "schemaDigest": "17a490679d8198ef4c22d99842f3a603b78289c24bf3688ef3eba8d525536fb0"
+    },
+    {
+      "schemaId": "observation-manifest.schema.json",
+      "schemaVersion": 1,
+      "schemaDigest": "90572c95f5b56bca0e26176216663ac7e293807221993715ed261a06551c487c"
+    },
+    {
+      "schemaId": "operation-invocation-v2.schema.json",
+      "schemaVersion": 2,
+      "schemaDigest": "d94dd160927535c33eada9871ea825577d517cd37122c509a3fffaba771612f8"
+    },
+    {
+      "schemaId": "operation-receipt-v2.schema.json",
+      "schemaVersion": 2,
+      "schemaDigest": "070d59425ba1ee580a2dfe6613da96716471b8f5f391814c263926626cc4c33e"
+    },
+    {
+      "schemaId": "oracle-operand-production-result.schema.json",
+      "schemaVersion": 1,
+      "schemaDigest": "d4da4e7845d1fd552d7534d50022544d106c1310dc314b78e0e6ecfb85debbcf"
+    },
+    {
+      "schemaId": "oracle-semantics.schema.json",
+      "schemaVersion": 1,
+      "schemaDigest": "20198915f7a15cc3a785e9e03fb5eddade594c629d895f9db612ca2e58ec08f8"
+    },
+    {
+      "schemaId": "pattern-evaluation-result.schema.json",
+      "schemaVersion": 1,
+      "schemaDigest": "fc288894fd4122393e0714e31856d9774ed6fd283aedccbd571fdc228d156d5e"
+    },
+    {
+      "schemaId": "pattern-plan.schema.json",
+      "schemaVersion": 1,
+      "schemaDigest": "ae2f19e5957eb2a0d17602f47ebc61aaffed9c6927bcba3c5457e82e88c584a8"
+    },
+    {
+      "schemaId": "pattern-query.schema.json",
+      "schemaVersion": 1,
+      "schemaDigest": "b2af4113c74b4ecd559ad871efffe0ca7224baf7befb5189546471129a01d577"
+    },
+    {
+      "schemaId": "pattern-result-v2.schema.json",
+      "schemaVersion": 2,
+      "schemaDigest": "bf791f5134a2228978edd04033e610dbf252d46b5ffe6e409ab15f48076ac2ea"
+    },
+    {
+      "schemaId": "portable-closure-root.schema.json",
+      "schemaVersion": 1,
+      "schemaDigest": "aaa203aa51029a880c9269bf235cd551a659419711aaedc19904ee891a6db883"
+    },
+    {
+      "schemaId": "replay-version-registry-v2.schema.json",
+      "schemaVersion": 2,
+      "schemaDigest": "ae6ee1b6d4898e4ee04de1a39ccffe49bb43c9ad0056436501063bdc8f68bebe"
+    },
+    {
+      "schemaId": "side-condition-conformance-table.schema.json",
+      "schemaVersion": 1,
+      "schemaDigest": "093aa43a248df973c37fbe4ac2d2a8f14bf5c71a642bf99c0e8fb49353cd4e93"
+    },
+    {
+      "schemaId": "terminal-state.schema.json",
+      "schemaVersion": 1,
+      "schemaDigest": "77e8cc50b50f9dd6b60c31a6b77a56d32ceef5566b2731d2196c1fae343309c8"
+    }
+  ],
+  "operations": [
+    {
+      "operationKind": "corpus-derivation",
+      "operationVersion": 1
+    },
+    {
+      "operationKind": "execution-attempt",
+      "operationVersion": 2
+    },
+    {
+      "operationKind": "pattern-evaluation",
+      "operationVersion": 1
+    }
+  ]
+}

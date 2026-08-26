@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 2,
+  "traceId": "75ba3d3d3edab4a9d6a527c0b13f23db58158048e592bb714ed6c5138958c1cc",
+  "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4",
+  "eventVocabularyDigest": "720146bbdd1ee63dac11c62b0505e3fff40d8a54743652f8e16b6bf7938c3187",
+  "pathPredicate": {
+    "encoding": "portable-term-v1",
+    "sort": "Bool",
+    "node": {
+      "kind": "token",
+      "text": "true"
+    }
+  },
+  "events": []
+}

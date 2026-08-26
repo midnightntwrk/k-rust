@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "resultId": "a62c600d5a903fb5dbd0f23d8d3c5ee8ed9a180226ddeb6f9932930fd422f79e",
+  "invocationDigest": "312cfa5587c9a963f9bf42067b33560bd5e5134a771253ae43b065e3e30f2970",
+  "outcome": {
+    "kind": "operand",
+    "operand": {
+      "role": "oracle-operand",
+      "digest": "39465d86a6ddb920f0df17d5d26cdc06bd0d195e016e62fc8f181580d14ea303"
+    }
+  },
+  "failure": null
+}

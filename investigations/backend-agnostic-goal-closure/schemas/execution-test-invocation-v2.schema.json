@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v2/execution-test-invocation-v2.schema.json",
+  "title": "Query-neutral execution test invocation v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "testInvocationDigest", "testId", "program", "parser", "startSymbol", "options", "bounds"],
+  "properties": {
+    "schemaVersion": {"const": 2},
+    "testInvocationDigest": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+    "testId": {"type": "string", "minLength": 1},
+    "program": {"$ref": "#/$defs/programKey"},
+    "parser": {"$ref": "#/$defs/parserKey"},
+    "startSymbol": {"type": "string", "minLength": 1},
+    "options": {"$ref": "#/$defs/optionsKey"},
+    "bounds": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/bounds"}
+  },
+  "$defs": {
+    "typedKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "digest"],
+      "properties": {
+        "role": {"enum": ["program", "parser", "options"]},
+        "digest": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"}
+      }
+    },
+    "programKey": {"allOf": [{"$ref": "#/$defs/typedKey"}, {"properties": {"role": {"const": "program"}}}]},
+    "parserKey": {"allOf": [{"$ref": "#/$defs/typedKey"}, {"properties": {"role": {"const": "parser"}}}]},
+    "optionsKey": {"allOf": [{"$ref": "#/$defs/typedKey"}, {"properties": {"role": {"const": "options"}}}]}
+  }
+}

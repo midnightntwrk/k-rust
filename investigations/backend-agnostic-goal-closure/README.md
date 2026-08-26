@@ -3,6 +3,12 @@
 Status: active portable investigation package; the refreshed BAG-11 witness-order and complete-denotation repairs and BAG-12 typed-oracle and inline-expectation repairs are independently accepted.
 BAG-14 per-attempt cache implementation and evidence were independently accepted after two finding-driven repair rounds, 26 August 2026.
 BAG-15 operation receipts, result wrappers, recursive version provenance, and campaign receipt DAG evidence were independently accepted after two finding-driven implementation repair rounds, 26 August 2026.
+BAG-16 collection-aware execution, pattern evaluation, corpus folding, and
+successor version provenance were independently accepted after finding-driven
+contract and implementation repair rounds, 26 August 2026. The accepted
+`bag16.py` SHA-256 is
+`ee0915a13836ec29acfd5118425c3089029c48e3ad50d5a0f88abc15bfd238b0`.
+They make no native branch-discovery or execution claim.
 
 This package records the semantic work that can be completed before K-in-K
 moves to its Rust-based execution stack. It deliberately does not preserve,
@@ -87,6 +93,15 @@ Cache location, lookup provenance, hit/miss state, and current resolver availabi
 
 `fixtures/bag15-replay-artifact-catalog.json` is the separate wholly bundled BAG-15 resolver snapshot and is bound by `vectors/replay-provenance-vectors.json.artifactCatalogDigest`.
 It contains derivative cache records whose accepted BAG-14 request keys, terminals, and produced artifacts are unchanged while their production-evidence arm names the exact BAG-15 receipt and operation-specific result wrapper.
+
+`fixtures/bag16-artifact-role-specs.json` and
+`fixtures/bag16-artifact-catalog.json` are the successor resolver authority for
+`vectors/corpus-search-replay-vectors.json`. The v2 dispatcher preserves exact
+historical schema bytes, admits an explicit legacy-no-version arm only where a
+frozen structured value lacks `schemaVersion`, and selects every other arm by
+its exact top-level integer. `portable-closure-root/v1` embeds this authority,
+the exact cache projection, and the recursive replay-version-registry/v2; it is
+not itself cataloged or produced by another receipt.
 
 None of the four current replay recipes is materially self-contained:
 `replay-manifest.json`, `write-only-replay-manifest.json`,

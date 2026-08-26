@@ -21,6 +21,9 @@ from bag14 import new_official_fixtures as bag14_official_fixtures
 from bag14 import verify_package as verify_bag14_package
 from bag15 import new_official_fixtures as bag15_official_fixtures
 from bag15 import verify_package as verify_bag15_package
+from bag16 import new_official_fixtures as bag16_official_fixtures
+from bag16 import successor_failure_taxonomy as bag16_successor_failure_taxonomy
+from bag16 import verify_package as verify_bag16_package
 
 
 PACKAGE = Path(__file__).resolve().parent
@@ -144,6 +147,8 @@ def validate_schema(value: Any, schema: dict[str, Any] | bool, schema_path: Path
             target = pointer(root_schema, reference)
         else:
             file_name, _, fragment = reference.partition("#")
+            if "://" in file_name:
+                file_name = file_name.rsplit("/", 1)[-1]
             target_path = schema_path.parent / file_name
             target_root = load(target_path)
             target = pointer(target_root, f"#{fragment}" if fragment else "#")
@@ -368,6 +373,12 @@ def verify_generic_failure_schema_inventory() -> None:
         "oracle-comparison-production-result.schema.json", "provenance-mutation-report.schema.json",
     }
     expected.update({placement: reference for placement, reference in actual.items() if placement[0] in bag15_failure_schemas})
+    bag16_failure_schemas = {
+        "bag16-common.schema.json", "branch-trace-collection.schema.json",
+        "corpus-component-result.schema.json", "operation-receipt-v2.schema.json",
+        "pattern-result-v2.schema.json",
+    }
+    expected.update({placement: reference for placement, reference in actual.items() if placement[0] in bag16_failure_schemas})
     expected.update({
         placement: reference for placement, reference in actual.items()
         if placement[0] == "cache-semantics.schema.json"
@@ -451,12 +462,21 @@ def verify_closure_matrix() -> None:
 
 
 def verify_taxonomy() -> None:
-    taxonomy = load(PACKAGE / "failure-taxonomy.json")
+    historical_taxonomy = load(PACKAGE / "failure-taxonomy.json")
+    taxonomy = load(FIXTURES / "bag16-failure-taxonomy.json")
     schema_path = SCHEMAS / "failure-taxonomy.schema.json"
     schema = load(schema_path)
+    validate_schema(historical_taxonomy, schema, schema_path, schema)
     validate_schema(taxonomy, schema, schema_path, schema)
+    validate_official_instance(historical_taxonomy, "failure-taxonomy.schema.json")
     validate_official_instance(taxonomy, "failure-taxonomy.schema.json")
+    ok(
+        historical_taxonomy["taxonomyId"]
+        == digest("k-in-k/failure-taxonomy/v1", value_without(historical_taxonomy, "taxonomyId")),
+        "historical failure taxonomy ID drift",
+    )
     ok(taxonomy["taxonomyId"] == digest("k-in-k/failure-taxonomy/v1", value_without(taxonomy, "taxonomyId")), "failure taxonomy ID drift")
+    ok(taxonomy == bag16_successor_failure_taxonomy(PACKAGE), "BAG-16 successor taxonomy is not the exact five-placement derivation")
     pairs = [(item["stage"], item["classification"]) for item in taxonomy["entries"]]
     ok(len(pairs) == len(set(pairs)), "duplicate failure stage/classification")
     common = load(SCHEMAS / "common.schema.json")
@@ -497,6 +517,44 @@ def verify_taxonomy() -> None:
                 candidate = {"stage": stage, "classification": classification, "context": context, "scope": scope, "retryability": retryability, "semanticEvidence": evidence, "details": {}}
                 if validator.is_valid(candidate):
                     schema_placements.add((context, scope, stage, classification))
+    # BAG-16 adds producer-only pattern-test infrastructure failures through
+    # its successor schema.  They are deliberately absent from the frozen v1
+    # common.schema.json context union.
+    bag16_common = load(SCHEMAS / "bag16-common.schema.json")
+    bag16_producer_schema = deepcopy(bag16_common)
+    bag16_producer_schema["$ref"] = "#/$defs/patternProducerFailure"
+    bag16_producer_validator = Draft202012Validator(bag16_producer_schema, registry=registry)
+    producer_retryability = {
+        "process-launch": "after-external-repair", "io": "after-external-repair",
+        "worker-lost": "after-external-repair", "artifact-corruption": "never",
+        "internal": "never",
+    }
+    retry_values = {"never", "same-input-after-resource-change", "after-external-repair"}
+    for classification, expected_retryability in producer_retryability.items():
+        for retryability in sorted(retry_values - {expected_retryability}):
+            wrong_retry = {
+                "stage": "infrastructure", "classification": classification,
+                "context": "pattern-test", "scope": "test",
+                "retryability": retryability, "semanticEvidence": [], "details": {},
+            }
+            ok(not bag16_producer_validator.is_valid(wrong_retry), f"BAG-16 producer failure accepted wrong retryability for {classification}")
+        wrong_evidence = {
+            "stage": "infrastructure", "classification": classification,
+            "context": "pattern-test", "scope": "test",
+            "retryability": expected_retryability,
+            "semanticEvidence": [{"role": "lowering-proof-check-receipt", "digest": "0" * 64}],
+            "details": {},
+        }
+        ok(not bag16_producer_validator.is_valid(wrong_evidence), f"BAG-16 producer failure accepted semantic evidence for {classification}")
+    for stage, classification in pairs:
+        retryability = retry_by_pair[(stage, classification)]
+        candidate = {
+            "stage": stage, "classification": classification,
+            "context": "pattern-test", "scope": "test",
+            "retryability": retryability, "semanticEvidence": [], "details": {},
+        }
+        if bag16_producer_validator.is_valid(candidate):
+            schema_placements.add(("pattern-test", "test", stage, classification))
     ok(schema_placements == set(placements), f"taxonomy/schema placement reachability differs: schema-only={sorted(schema_placements - set(placements))}, taxonomy-only={sorted(set(placements) - schema_placements)}")
 
     taxonomy_contexts = {context for context, _, _, _ in placements}
@@ -2884,7 +2942,7 @@ def official_fixture_schemas() -> dict[str, str]:
         "semantic-definition-counter.json": "semantic-definition.schema.json",
         "semantic-definition-generated.json": "semantic-definition.schema.json",
         "semantic-definition-identity-output.json": "semantic-definition.schema.json",
-    } | bag12_official_fixtures(PACKAGE) | bag14_official_fixtures(PACKAGE) | bag15_official_fixtures(PACKAGE)
+    } | bag12_official_fixtures(PACKAGE) | bag14_official_fixtures(PACKAGE) | bag15_official_fixtures(PACKAGE) | bag16_official_fixtures(PACKAGE)
 
 
 def official_package_schemas() -> dict[str, str]:
@@ -6604,6 +6662,10 @@ def main() -> int:
         "ok": ok,
         "expect_schema_rejection": expect_schema_rejection,
         "validate_pattern_result_semantics": validate_pattern_result_semantics,
+    })
+    verify_bag16_package(PACKAGE, {
+        "ok": ok,
+        "expect_schema_rejection": expect_schema_rejection,
     })
     verify_semantic_termination_and_crash_oracle()
     verify_policy_generation_fixtures()

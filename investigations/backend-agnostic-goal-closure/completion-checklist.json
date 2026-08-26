@@ -425,6 +425,21 @@
       "rustProof": "native adapter mapping, atomic publication, and native-proven receipts"
     },
     {
+      "id": "EX-11-collection-corpus-replay",
+      "goal": "execution-pattern",
+      "source": "BAG-16 acceptance",
+      "state": "portable-closed-rust-proof-pending",
+      "artifacts": [
+        "investigations/backend-agnostic-goal-closure/schemas/branch-trace-collection.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/pattern-result-v2.schema.json",
+        "investigations/backend-agnostic-goal-closure/schemas/portable-closure-root.schema.json",
+        "investigations/backend-agnostic-goal-closure/vectors/bag16-branch-collection-vectors.json",
+        "investigations/backend-agnostic-goal-closure/bag16.py"
+      ],
+      "historicalEvidence": [],
+      "rustProof": "native branch discovery, visit ordering, trace fidelity, and receipt-backed publication"
+    },
+    {
       "id": "SC-01-retired-backend-stop",
       "goal": "scope",
       "source": "D1 and terminal checkpoint",

@@ -1,0 +1,216 @@
+{
+  "schemaVersion": 2,
+  "receiptId": "88f95031c5f1ae0e80c64e775289f9dc71f323c687e9e784c5498a12c4ebe88c",
+  "invocationDigest": "f7529c5a0adf15901f40fbca501863436dcaa0355dd9c8d79631c5ffdc7be2c3",
+  "invocation": {
+    "schemaVersion": 2,
+    "invocationDigest": "f7529c5a0adf15901f40fbca501863436dcaa0355dd9c8d79631c5ffdc7be2c3",
+    "operationKind": "oracle-operand-production",
+    "operationVersion": 2,
+    "adapterContract": {
+      "adapterId": "bag16-portable-finite",
+      "adapterVersion": 1
+    },
+    "parameters": {
+      "projectionKind": "execution-pattern",
+      "declaration": {
+        "role": "oracle-declaration",
+        "digest": "0233e4a410fc1045c2667fe5ce2ee5a34fbe2f41be786966a9ce1d54e01156b7"
+      },
+      "subject": {
+        "kind": "baseline",
+        "definition": {
+          "role": "definition",
+          "digest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4"
+        }
+      },
+      "patternEvaluationInvocation": {
+        "schemaVersion": 2,
+        "invocationDigest": "799626b73398908ede4541ceb9ddcb79a23ac09e03dad9718b4e190de602dc10",
+        "operationKind": "pattern-evaluation",
+        "operationVersion": 1,
+        "adapterContract": {
+          "adapterId": "bag16-portable-finite",
+          "adapterVersion": 1
+        },
+        "parameters": {
+          "collection": {
+            "role": "branch-trace-collection",
+            "digest": "457138bffcfbf1e2a997d36389dbaa5ad6f6c14a6cb17d2dc7e38cf35b2e16bb"
+          },
+          "executionResult": {
+            "role": "execution-attempt-result",
+            "digest": "2dfbb6f2e0d2e64c7df0817715e07b52153e16e2f279e0a59159d35dfa038597"
+          },
+          "patternSource": {
+            "role": "pattern-source",
+            "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+          },
+          "patternPlan": {
+            "role": "pattern-plan",
+            "digest": "8a2359f706a8434cc3eaaf274850134e6095a79721b442c29e0765ef1ce080d0"
+          },
+          "patternQuery": {
+            "role": "pattern-query",
+            "digest": "117f9df30cc586da7c800df5d28522d1b74403aae300071e92242515d6b761cc"
+          },
+          "sideConditionTable": {
+            "role": "side-condition-conformance-table",
+            "digest": "6016b7960b0103c9b60f2419798f8419394f965f861241f6fa947540d49988bd"
+          },
+          "searchPolicy": "exhaustive"
+        },
+        "inputs": [
+          {
+            "edgeRole": "execution-result",
+            "artifact": {
+              "role": "execution-attempt-result",
+              "digest": "2dfbb6f2e0d2e64c7df0817715e07b52153e16e2f279e0a59159d35dfa038597"
+            }
+          },
+          {
+            "edgeRole": "branch-collection",
+            "artifact": {
+              "role": "branch-trace-collection",
+              "digest": "457138bffcfbf1e2a997d36389dbaa5ad6f6c14a6cb17d2dc7e38cf35b2e16bb"
+            }
+          },
+          {
+            "edgeRole": "pattern-source",
+            "artifact": {
+              "role": "pattern-source",
+              "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+            }
+          },
+          {
+            "edgeRole": "pattern-plan",
+            "artifact": {
+              "role": "pattern-plan",
+              "digest": "8a2359f706a8434cc3eaaf274850134e6095a79721b442c29e0765ef1ce080d0"
+            }
+          },
+          {
+            "edgeRole": "pattern-query",
+            "artifact": {
+              "role": "pattern-query",
+              "digest": "117f9df30cc586da7c800df5d28522d1b74403aae300071e92242515d6b761cc"
+            }
+          },
+          {
+            "edgeRole": "side-condition-conformance-table",
+            "artifact": {
+              "role": "side-condition-conformance-table",
+              "digest": "6016b7960b0103c9b60f2419798f8419394f965f861241f6fa947540d49988bd"
+            }
+          }
+        ],
+        "childReceipts": [
+          {
+            "edgeRole": "execution-production",
+            "receipt": {
+              "role": "operation-receipt",
+              "digest": "74812f1b6434a0bc34df7063230bc0615b9271fbee73d5f24c1b21faff077d8d"
+            }
+          }
+        ],
+        "outputRoles": [
+          "pattern-evaluation-result"
+        ]
+      },
+      "patternEvaluationResult": {
+        "role": "pattern-evaluation-result",
+        "digest": "54d89f3ae8b14d8fed1c18df481f37cf08e658c232f450390ba3530f2bffecc5"
+      },
+      "patternResult": {
+        "role": "pattern-result",
+        "digest": "7ceba67293609cf303489a9567d98bb20aa2e12794a8e053f25a4aeb91dd0ec3"
+      },
+      "collection": {
+        "role": "branch-trace-collection",
+        "digest": "457138bffcfbf1e2a997d36389dbaa5ad6f6c14a6cb17d2dc7e38cf35b2e16bb"
+      },
+      "patternSource": {
+        "role": "pattern-source",
+        "digest": "ed9ae3907d39b5d29809163ea7d272745a559504a408083b9edab6a9b5d267da"
+      },
+      "patternPlan": {
+        "role": "pattern-plan",
+        "digest": "8a2359f706a8434cc3eaaf274850134e6095a79721b442c29e0765ef1ce080d0"
+      },
+      "patternQuery": {
+        "role": "pattern-query",
+        "digest": "117f9df30cc586da7c800df5d28522d1b74403aae300071e92242515d6b761cc"
+      },
+      "sideConditionTable": {
+        "role": "side-condition-conformance-table",
+        "digest": "6016b7960b0103c9b60f2419798f8419394f965f861241f6fa947540d49988bd"
+      },
+      "searchPolicy": "exhaustive"
+    },
+    "inputs": [
+      {
+        "edgeRole": "declaration",
+        "artifact": {
+          "role": "oracle-declaration",
+          "digest": "0233e4a410fc1045c2667fe5ce2ee5a34fbe2f41be786966a9ce1d54e01156b7"
+        }
+      },
+      {
+        "edgeRole": "pattern-evaluation-result",
+        "artifact": {
+          "role": "pattern-evaluation-result",
+          "digest": "54d89f3ae8b14d8fed1c18df481f37cf08e658c232f450390ba3530f2bffecc5"
+        }
+      },
+      {
+        "edgeRole": "pattern-result",
+        "artifact": {
+          "role": "pattern-result",
+          "digest": "7ceba67293609cf303489a9567d98bb20aa2e12794a8e053f25a4aeb91dd0ec3"
+        }
+      },
+      {
+        "edgeRole": "branch-collection",
+        "artifact": {
+          "role": "branch-trace-collection",
+          "digest": "457138bffcfbf1e2a997d36389dbaa5ad6f6c14a6cb17d2dc7e38cf35b2e16bb"
+        }
+      }
+    ],
+    "childReceipts": [
+      {
+        "edgeRole": "pattern-evaluation-production",
+        "receipt": {
+          "role": "operation-receipt",
+          "digest": "f3c294eb8e28a9e1091148aeff7713d60f343ba6e90009f92d716d67ea93f66e"
+        }
+      }
+    ],
+    "outputRoles": [
+      "oracle-operand-production-result"
+    ]
+  },
+  "producer": {
+    "producerId": "bag16-deterministic-python",
+    "producerVersion": 1,
+    "executionConformance": "finite-vector-proven"
+  },
+  "producerStatus": "complete",
+  "outputs": [
+    {
+      "edgeRole": "oracle-operand-production-result",
+      "artifact": {
+        "role": "oracle-operand-production-result",
+        "digest": "8b660f0fbe6332f39d8a3b2109009ae48373abda8a7545cbedd6b20e8938501b"
+      }
+    }
+  ],
+  "semanticTerminal": {
+    "kind": "operand",
+    "operand": {
+      "role": "oracle-operand",
+      "digest": "27afeae8e20ac4ec03330bc13dc74ce7f1e670d1f73ef19000b5cda4e0376d89"
+    }
+  },
+  "failure": null
+}

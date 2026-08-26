@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "collectionId": "e68015eb8a899323f734f45287567305201e112ad89ee012e14bf58fa5558021",
+  "collectionScopeId": "59c2569de2be5fa3a2d9c5ac404dcd7b6113a8a8c808c67ab29e54f318159a9b",
+  "attemptKeyDigest": "cc6f017f025bfd7e6c1aaa48925d92fd198fd8f1b5fb24a15d62121fa20ba6ae",
+  "invocationDigest": "13c90d3cb43da58fe158eb4b99412eec89bd354cb28ebbf7ae8dd0a45294b26b",
+  "queryCoupling": {
+    "kind": "pattern-query"
+  },
+  "visited": [
+    {
+      "branchKey": "e8341ea8b5abacc769cf19ff9a04bf0362db6dea54a188a89c74d4d31174bcf5",
+      "visitOrdinal": 0,
+      "trace": {
+        "role": "event-trace",
+        "digest": "75ba3d3d3edab4a9d6a527c0b13f23db58158048e592bb714ed6c5138958c1cc"
+      },
+      "traceOccurrence": "7e5fb8065106bdd32dd7b6a5b01dafae6b8c6f5d7b2cdbe8fdc04adb878ab7cc",
+      "disposition": {
+        "kind": "normal",
+        "terminal": {
+          "role": "terminal-state",
+          "digest": "00958626001fc0db84da9145e7d654b51eba797f406aeab94ceb4d30237dc3fb"
+        }
+      }
+    }
+  ],
+  "pendingWork": {
+    "discoveredCount": 0
+  },
+  "stopReason": {
+    "kind": "search-exhausted"
+  },
+  "emptySearchDecision": null
+}

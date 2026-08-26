@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 2,
+  "receiptId": "754e1a962a72f9a0c5fc42504370c5b03c58333aa9752ae4e1b128c204636594",
+  "invocationDigest": "24ab5fb3b0367fc575f981ba948818176dcfc035851e59e6916835b44f3604ed",
+  "invocation": {
+    "schemaVersion": 2,
+    "invocationDigest": "24ab5fb3b0367fc575f981ba948818176dcfc035851e59e6916835b44f3604ed",
+    "operationKind": "corpus-derivation",
+    "operationVersion": 1,
+    "adapterContract": {
+      "adapterId": "bag16-portable-finite",
+      "adapterVersion": 1
+    },
+    "parameters": {
+      "corpusManifest": {
+        "role": "corpus-manifest",
+        "digest": "68c694a9dba44b259dd9120cfbfabfc0a25c07a6da396484bb5f92199285a7c3"
+      },
+      "schedulingPolicy": "full",
+      "components": [
+        {
+          "role": "corpus-component-result",
+          "digest": "9495329c6ace123cbf80d9524cefdf8d3add3b0fc2c494d5d158332417aa74aa"
+        },
+        {
+          "role": "corpus-component-result",
+          "digest": "f7e107b9253d5a350ca478b7e9f6248ef8315f113593887d5a105e4221da325b"
+        }
+      ]
+    },
+    "inputs": [
+      {
+        "edgeRole": "corpus-manifest",
+        "artifact": {
+          "role": "corpus-manifest",
+          "digest": "68c694a9dba44b259dd9120cfbfabfc0a25c07a6da396484bb5f92199285a7c3"
+        }
+      },
+      {
+        "edgeRole": "component-result",
+        "artifact": {
+          "role": "corpus-component-result",
+          "digest": "9495329c6ace123cbf80d9524cefdf8d3add3b0fc2c494d5d158332417aa74aa"
+        }
+      },
+      {
+        "edgeRole": "component-result",
+        "artifact": {
+          "role": "corpus-component-result",
+          "digest": "f7e107b9253d5a350ca478b7e9f6248ef8315f113593887d5a105e4221da325b"
+        }
+      }
+    ],
+    "childReceipts": [
+      {
+        "edgeRole": "execution-production",
+        "receipt": {
+          "role": "operation-receipt",
+          "digest": "74812f1b6434a0bc34df7063230bc0615b9271fbee73d5f24c1b21faff077d8d"
+        }
+      },
+      {
+        "edgeRole": "pattern-evaluation-production",
+        "receipt": {
+          "role": "operation-receipt",
+          "digest": "f3c294eb8e28a9e1091148aeff7713d60f343ba6e90009f92d716d67ea93f66e"
+        }
+      },
+      {
+        "edgeRole": "execution-production",
+        "receipt": {
+          "role": "operation-receipt",
+          "digest": "74812f1b6434a0bc34df7063230bc0615b9271fbee73d5f24c1b21faff077d8d"
+        }
+      },
+      {
+        "edgeRole": "pattern-evaluation-production",
+        "receipt": {
+          "role": "operation-receipt",
+          "digest": "f3c294eb8e28a9e1091148aeff7713d60f343ba6e90009f92d716d67ea93f66e"
+        }
+      }
+    ],
+    "outputRoles": [
+      "corpus-derivation-result"
+    ]
+  },
+  "producer": {
+    "producerId": "bag16-deterministic-python",
+    "producerVersion": 1,
+    "executionConformance": "finite-vector-proven"
+  },
+  "producerStatus": "complete",
+  "outputs": [
+    {
+      "edgeRole": "corpus-derivation-result",
+      "artifact": {
+        "role": "corpus-derivation-result",
+        "digest": "fccd786f604b3c276efcf19263b032d8a3de06d646f4101e95ba65b8d29a4f7b"
+      }
+    }
+  ],
+  "semanticTerminal": {
+    "kind": "match",
+    "completeCoverage": true
+  },
+  "failure": null
+}

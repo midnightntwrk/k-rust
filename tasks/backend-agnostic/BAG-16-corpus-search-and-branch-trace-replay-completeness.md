@@ -1,9 +1,11 @@
 # BAG-16: corpus search and branch-trace replay completeness
 
-Status: repaired portable contract accepted at Git commit `209df2e` after
-fifteen preflight rejection reports. The implementation candidate includes the
-subsequent test-local/global-root clarification below and remains pending final
-independent acceptance.
+Status: repaired portable contract and implementation independently accepted
+on 26 August 2026 after fifteen preflight rejection reports and finding-driven
+implementation repairs. The accepted implementation SHA-256 is
+`ee0915a13836ec29acfd5118425c3089029c48e3ad50d5a0f88abc15bfd238b0`;
+the test-local/global-root clarification was independently accepted at Git
+commit `c157997`.
 
 ## Objective
 

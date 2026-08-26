@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v2/operation-receipt-v2.schema.json",
+  "title": "Cycle-free BAG-16 operation receipt union v2",
+  "oneOf": [
+    {"$ref": "#/$defs/completedExecution"},
+    {"$ref": "#/$defs/failedExecution"},
+    {"$ref": "#/$defs/completedPatternEvaluation"},
+    {"$ref": "#/$defs/failedPatternEvaluation"},
+    {"$ref": "#/$defs/completedCorpusDerivation"},
+    {"$ref": "#/$defs/completedOracleOperandProduction"}
+  ],
+  "$defs": {
+    "base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "receiptId", "invocationDigest", "invocation", "producer", "producerStatus", "outputs", "semanticTerminal", "failure"],
+      "properties": {
+        "schemaVersion": {"const": 2},
+        "receiptId": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+        "invocationDigest": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+        "invocation": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/operation-invocation-v2.schema.json"},
+        "producer": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/producer"},
+        "producerStatus": {"enum": ["complete", "failed"]},
+        "outputs": {"type": "array"},
+        "semanticTerminal": {},
+        "failure": {"oneOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/failure"}, {"type": "null"}]}
+      }
+    },
+    "outputEdge": {
+      "type": "object", "additionalProperties": false, "required": ["edgeRole", "artifact"],
+      "properties": {
+        "edgeRole": {"enum": ["execution-attempt-result", "pattern-evaluation-result", "corpus-derivation-result", "oracle-operand-production-result"]},
+        "artifact": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/artifactKey"}
+      }
+    },
+    "completedExecution": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {"properties": {
+          "invocation": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/operation-invocation-v2.schema.json#/$defs/executionAttempt"},
+          "producerStatus": {"const": "complete"},
+          "outputs": {"type": "array", "prefixItems": [{"$ref": "#/$defs/executionOutput"}], "items": false, "minItems": 1, "maxItems": 1},
+          "semanticTerminal": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/cache-semantics-v2.schema.json#/$defs/executionTerminalRecord"},
+          "failure": {"oneOf": [{"type": "null"}, {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternTestExecutionFailure"}]}
+        }}
+      ]
+    },
+    "completedPatternEvaluation": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {"properties": {
+          "invocation": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/operation-invocation-v2.schema.json#/$defs/patternEvaluation"},
+          "producerStatus": {"const": "complete"},
+          "outputs": {"type": "array", "prefixItems": [{"$ref": "#/$defs/patternOutput"}], "items": false, "minItems": 1, "maxItems": 1},
+          "semanticTerminal": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/pattern-result-v2.schema.json#/$defs/decision"},
+          "failure": {"type": "null"}
+        }}
+      ]
+    },
+    "completedCorpusDerivation": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {"properties": {
+          "invocation": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/operation-invocation-v2.schema.json#/$defs/corpusDerivation"},
+          "producerStatus": {"const": "complete"},
+          "outputs": {"type": "array", "prefixItems": [{"$ref": "#/$defs/corpusOutput"}], "items": false, "minItems": 1, "maxItems": 1},
+          "semanticTerminal": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/corpus-result-v2.schema.json#/$defs/corpusDecision"},
+          "failure": {"type": "null"}
+        }}
+      ]
+    },
+    "completedOracleOperandProduction": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {"properties": {
+          "invocation": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/operation-invocation-v2.schema.json#/$defs/oracleOperandProduction"},
+          "producerStatus": {"const": "complete"},
+          "outputs": {"type": "array", "prefixItems": [{"$ref": "#/$defs/oracleOutput"}], "items": false, "minItems": 1, "maxItems": 1},
+          "semanticTerminal": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/oracle-operand-production-result.schema.json#/properties/outcome"},
+          "failure": {"oneOf": [{"type": "null"}, {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/oracleOperandProductionFailure"}]}
+        }}
+      ]
+    },
+    "failedExecution": {"$ref": "#/$defs/failedExecutionArm"},
+    "failedPatternEvaluation": {"$ref": "#/$defs/failedPatternArm"},
+    "failedExecutionArm": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {"properties": {"invocation": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/operation-invocation-v2.schema.json#/$defs/executionAttempt"}, "producerStatus": {"const": "failed"}, "outputs": {"type": "array", "maxItems": 0}, "semanticTerminal": {"type": "null"}, "failure": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternProducerFailure"}}}
+      ]
+    },
+    "failedPatternArm": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {"properties": {"invocation": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/operation-invocation-v2.schema.json#/$defs/patternEvaluation"}, "producerStatus": {"const": "failed"}, "outputs": {"type": "array", "maxItems": 0}, "semanticTerminal": {"type": "null"}, "failure": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternProducerFailure"}}}
+      ]
+    },
+    "executionOutput": {"allOf": [{"$ref": "#/$defs/outputEdge"}, {"properties": {"edgeRole": {"const": "execution-attempt-result"}, "artifact": {"properties": {"role": {"const": "execution-attempt-result"}}}}}]},
+    "patternOutput": {"allOf": [{"$ref": "#/$defs/outputEdge"}, {"properties": {"edgeRole": {"const": "pattern-evaluation-result"}, "artifact": {"properties": {"role": {"const": "pattern-evaluation-result"}}}}}]},
+    "corpusOutput": {"allOf": [{"$ref": "#/$defs/outputEdge"}, {"properties": {"edgeRole": {"const": "corpus-derivation-result"}, "artifact": {"properties": {"role": {"const": "corpus-derivation-result"}}}}}]},
+    "oracleOutput": {"allOf": [{"$ref": "#/$defs/outputEdge"}, {"properties": {"edgeRole": {"const": "oracle-operand-production-result"}, "artifact": {"properties": {"role": {"const": "oracle-operand-production-result"}}}}}]}
+  }
+}

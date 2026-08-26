@@ -962,3 +962,50 @@ The registry is sorted and duplicate-free, covers exactly the portable schemas a
 
 The bundled BAG-15 graph is finite-vector production conformance.
 It does not prove a native adapter, executor, cache store, compiler, backend, solver, or report publisher.
+
+## 13. Collection-aware search, replay, and corpus derivation
+
+BAG-16 preserves every accepted v1 byte and identity while adding explicit v2
+dispatch for shared roles. An execution-attempt-v2 request is either reusable
+query-neutral exhaustive observation or exact query-coupled existential search.
+It produces occurrence-neutral event traces plus occurrence-scoped branch
+records in semantic visit order, one global stop, explicit discovered pending
+work, and an empty-search decision when clean exhaustion has zero visits.
+
+The execution wrapper's duplicate-free output order is derived by scanning
+occurrences: normal/stuck terminal then trace; semantic-crash terminal, crash,
+then trace; terminal-free or incomplete dispositions contribute their trace;
+the empty marker follows the visits when required and the collection is last.
+The receipt outputs only that wrapper. Collection, trace, terminal, wrapper,
+receipt, and cache records retain the BAG-15 backward-only DAG direction.
+
+Pattern evaluation independently rederives every path denotation and witness.
+Existence `match` outranks unknown/error evidence, but any indeterminate or
+incomplete path keeps coverage false. Absence requires clean exhaustion,
+pending zero, conclusive trustworthy paths, and the exact empty marker for no
+visits. Outcome-only oracle projection may consume a proven false-coverage
+match; the complete-binding-multiset projection requires exhaustive true
+coverage.
+
+Concrete-output, reachability, and predicate finite-row operands require a
+clean query-neutral exhausted collection. Singleton projections equal the
+sole eligible occurrence; reachability's ordered trace/terminal vector equals
+the complete collection vector. Row `finiteComplete` applies only to
+reachability and never substitutes for collection completeness. Every inline
+expected normal value reruns BAG-12's kind-specific active-catalog validation
+before comparison.
+
+Corpus components preserve manifest test/slot order and repeated fan-out
+occurrences. A pure corpus derivation deterministically folds match before
+error, unknown, and complete no-match, selecting causes in manifest order.
+Producer failures and scheduled suffixes force false coverage. The top-level
+corpus decision is only match, no-match, unknown, or error; `skipped` is a
+test/component scheduling arm, never a corpus outcome.
+
+Cache v2 is execution-only. Production/conformance eligibility is checked
+first, then global and nested diagnostic evidence precedes bounded evidence,
+which precedes clean semantic results. A later stop cannot erase earlier
+incomplete evidence. The embedded v2 role registry, catalog, cache projection,
+and recursive version registry are closed by one non-cataloged portable root.
+This is deterministic finite portable evidence, not proof that a backend found
+all branches or emitted the recorded traces and stops.

@@ -201,6 +201,15 @@
       "notProven": ["native adapter execution", "native replay success", "atomic native publication", "native-proven receipt authority"]
     },
     {
+      "id": "bag16-portable-collection-replay",
+      "paths": ["investigations/backend-agnostic-goal-closure/vectors/bag16-branch-collection-vectors.json"],
+      "classification": ["portable-contract"],
+      "disposition": "accepted-portable-finite-conformance",
+      "portableClaims": ["query-neutral exhaustive and query-coupled existential execution identity", "occurrence-neutral event traces with collection-scoped branch provenance", "collection-aware pattern denotation and corpus scheduling folds", "execution-pattern and finite-row oracle production through generic receipts", "successor catalog dispatch and recursive replay-version closure"],
+      "proofScope": "deterministic bundled Python finite-vector derivation only",
+      "notProven": ["native branch discovery or exhaustion", "native visit ordering", "native trace fidelity", "native receipt or cache publication"]
+    },
+    {
       "id": "execution-pattern-rust-open",
       "paths": ["draft/goal/execution-pattern-matching.md"],
       "classification": ["portable-contract", "rust-stack-dependent-open"],

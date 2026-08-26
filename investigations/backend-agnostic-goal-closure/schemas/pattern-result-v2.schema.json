@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v2/pattern-result-v2.schema.json",
+  "title": "Collection-aware execution pattern result v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "resultId", "collection", "patternSource", "patternPlan", "patternQuery", "sideConditionTable", "searchPolicy", "pathResults", "witnesses", "decision"],
+  "properties": {
+    "schemaVersion": {"const": 2},
+    "resultId": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+    "collection": {"$ref": "#/$defs/collectionKey"},
+    "patternSource": {"$ref": "#/$defs/patternSourceKey"},
+    "patternPlan": {"$ref": "#/$defs/patternPlanKey"},
+    "patternQuery": {"$ref": "#/$defs/patternQueryKey"},
+    "sideConditionTable": {"$ref": "#/$defs/sideConditionTableKey"},
+    "searchPolicy": {"enum": ["exhaustive", "existential-first"]},
+    "pathResults": {"type": "array", "items": {"$ref": "#/$defs/pathResult"}},
+    "witnesses": {"type": "array", "items": {"$ref": "#/$defs/witness"}},
+    "decision": {"$ref": "#/$defs/decision"}
+  },
+  "$defs": {
+    "typedKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "digest"],
+      "properties": {
+        "role": {"enum": ["branch-trace-collection", "event-trace", "empty-search-decision", "pattern-source", "pattern-plan", "pattern-query", "side-condition-conformance-table"]},
+        "digest": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"}
+      }
+    },
+    "collectionKey": {"allOf": [{"$ref": "#/$defs/typedKey"}, {"properties": {"role": {"const": "branch-trace-collection"}}}]},
+    "traceKey": {"allOf": [{"$ref": "#/$defs/typedKey"}, {"properties": {"role": {"const": "event-trace"}}}]},
+    "emptyDecisionKey": {"allOf": [{"$ref": "#/$defs/typedKey"}, {"properties": {"role": {"const": "empty-search-decision"}}}]},
+    "patternSourceKey": {"allOf": [{"$ref": "#/$defs/typedKey"}, {"properties": {"role": {"const": "pattern-source"}}}]},
+    "patternPlanKey": {"allOf": [{"$ref": "#/$defs/typedKey"}, {"properties": {"role": {"const": "pattern-plan"}}}]},
+    "patternQueryKey": {"allOf": [{"$ref": "#/$defs/typedKey"}, {"properties": {"role": {"const": "pattern-query"}}}]},
+    "sideConditionTableKey": {"allOf": [{"$ref": "#/$defs/typedKey"}, {"properties": {"role": {"const": "side-condition-conformance-table"}}}]},
+    "firstIndeterminate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["collection", "visitOrdinal", "branchKey", "traceOccurrence"],
+      "properties": {
+        "collection": {"$ref": "#/$defs/collectionKey"},
+        "visitOrdinal": {"type": "integer", "minimum": 0},
+        "branchKey": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+        "traceOccurrence": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"}
+      }
+    },
+    "denotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidateCount", "indeterminateCandidateCount"],
+      "properties": {
+        "candidateCount": {"type": "integer", "minimum": 0},
+        "indeterminateCandidateCount": {"type": "integer", "minimum": 0}
+      }
+    },
+    "witness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["witnessOccurrence", "collection", "visitOrdinal", "branchKey", "trace", "traceOccurrence", "patternQuery", "armOrdinal", "eventIndices", "bindings", "pathPredicate", "events"],
+      "properties": {
+        "witnessOccurrence": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+        "collection": {"$ref": "#/$defs/collectionKey"},
+        "visitOrdinal": {"type": "integer", "minimum": 0},
+        "branchKey": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+        "trace": {"$ref": "#/$defs/traceKey"},
+        "traceOccurrence": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+        "patternQuery": {"$ref": "#/$defs/patternQueryKey"},
+        "armOrdinal": {"type": "integer", "minimum": 0},
+        "eventIndices": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 0}},
+        "bindings": {"type": "array", "items": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/binding"}},
+        "pathPredicate": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/term"},
+        "events": {"type": "array", "minItems": 1, "items": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/event-trace.schema.json#/$defs/event"}}
+      }
+    },
+    "evaluation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "status", "denotation", "witnesses"],
+          "properties": {
+            "kind": {"const": "trustworthy"},
+            "status": {"enum": ["match", "no-match", "unknown"]},
+            "denotation": {"$ref": "#/$defs/denotation"},
+            "witnesses": {"type": "array", "items": {"$ref": "#/$defs/witness"}}
+          },
+          "allOf": [
+            {"if": {"properties": {"status": {"const": "match"}}}, "then": {"properties": {"witnesses": {"minItems": 1}}}},
+            {"if": {"properties": {"status": {"enum": ["no-match", "unknown"]}}}, "then": {"properties": {"witnesses": {"maxItems": 0}}}}
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "failure"],
+          "properties": {
+            "kind": {"const": "untrustworthy"},
+            "failure": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternPathExecutionFailure"}
+          }
+        }
+      ]
+    },
+    "pathResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["visitOrdinal", "branchKey", "trace", "traceOccurrence", "disposition", "evaluation"],
+      "properties": {
+        "visitOrdinal": {"type": "integer", "minimum": 0},
+        "branchKey": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+        "trace": {"$ref": "#/$defs/traceKey"},
+        "traceOccurrence": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+        "disposition": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/branch-trace-collection.schema.json#/$defs/disposition"},
+        "evaluation": {"$ref": "#/$defs/evaluation"}
+      }
+    },
+    "decision": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "completeCoverage", "primaryWitness"],
+          "properties": {"kind": {"const": "match"}, "completeCoverage": {"type": "boolean"}, "primaryWitness": {"$ref": "#/$defs/witness"}}
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "completeCoverage"],
+          "properties": {"kind": {"const": "no-match"}, "completeCoverage": {"const": true}}
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "completeCoverage", "emptySearchDecision"],
+          "properties": {"kind": {"const": "no-match"}, "completeCoverage": {"const": true}, "emptySearchDecision": {"$ref": "#/$defs/emptyDecisionKey"}}
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "completeCoverage", "reason"],
+          "properties": {
+            "kind": {"const": "unknown"}, "completeCoverage": {"const": false},
+            "reason": {
+              "oneOf": [
+                {"type": "object", "additionalProperties": false, "required": ["kind", "firstIndeterminate"], "properties": {"kind": {"const": "indeterminate-denotation"}, "firstIndeterminate": {"$ref": "#/$defs/firstIndeterminate"}}},
+                {"type": "object", "additionalProperties": false, "required": ["kind", "failure"], "properties": {"kind": {"const": "execution-stop"}, "failure": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/failure"}}}
+              ]
+            }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "completeCoverage", "failure"],
+          "properties": {"kind": {"const": "error"}, "completeCoverage": {"const": false}, "failure": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/failure"}}
+        }
+      ]
+    }
+  }
+}

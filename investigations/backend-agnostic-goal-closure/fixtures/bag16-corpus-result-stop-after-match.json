@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 2,
+  "corpusResultId": "505bd0e4ce47ca1cab6d17939a0cd851bd33b0735ff2ddd54c0dd45928c6e857",
+  "corpusManifest": {
+    "role": "corpus-manifest",
+    "digest": "9617084af54532e585596d2506421a27507023f41857961fcebf8c2377410d21"
+  },
+  "schedulingPolicy": "stop-after-test-match",
+  "components": [
+    {
+      "role": "corpus-component-result",
+      "digest": "19ff8f340937bbddbad102a40ff89f54f803ce36148a468f3d90d9e7af9bb21b"
+    },
+    {
+      "role": "corpus-component-result",
+      "digest": "ff7703d71ffaea14c6c47211ac29e6a935d026ad359fa3477da4ffd71a8aece0"
+    }
+  ],
+  "testResults": [
+    {
+      "testOrdinal": 0,
+      "slots": [
+        {
+          "role": "corpus-component-result",
+          "digest": "19ff8f340937bbddbad102a40ff89f54f803ce36148a468f3d90d9e7af9bb21b"
+        }
+      ],
+      "decision": {
+        "kind": "match"
+      }
+    },
+    {
+      "testOrdinal": 1,
+      "slots": [
+        {
+          "role": "corpus-component-result",
+          "digest": "ff7703d71ffaea14c6c47211ac29e6a935d026ad359fa3477da4ffd71a8aece0"
+        }
+      ],
+      "decision": {
+        "kind": "skipped",
+        "schedulingReason": {
+          "kind": "stop-after-test-match",
+          "stoppedAfterTestOrdinal": 0
+        }
+      }
+    }
+  ],
+  "decision": {
+    "kind": "match",
+    "completeCoverage": false
+  }
+}

@@ -433,3 +433,31 @@ baseline/mutant definition, profiles, terminal, test, and producing attempt.
 K-authored projection and comparison roots use only their operation-specific
 roles. A conformant evaluator record without the matching BAG-15 production
 receipt remains insufficient authority.
+
+## BAG-16 native collection handoff
+
+Rust owns real branch discovery, frontier accounting, visit ordering, path
+predicates, trace emission, and stop fidelity. It must publish an
+execution-attempt-v2 wrapper and receipt only after atomically producing the
+exact terminal/crash/trace/marker/collection sequence. A portable collection
+or finite row is conformance input; it is not evidence that native execution
+visited the same branches.
+
+Query-neutral exhaustive attempts may fan out to multiple pattern evaluators.
+Existential-first attempts bind the exact query, side-condition table, and
+policy and stop at the first validated witness. Pending zero alone never proves
+exhaustion. A bounded, solver, backend, producer, or incomplete collection may
+preserve a prefix but cannot prove absence or produce a complete finite-row
+oracle operand.
+
+Native cache classification must apply resolver/material and execution-
+conformance gates before terminal arithmetic. `not-proven`, missing material,
+or production disagreement cannot be promoted by a clean result. Global or
+nested backend evidence is not reusable; otherwise bounded/solver evidence is
+identical-key bounded only; only fully validated clean semantic collections
+enter semantic reuse.
+
+Rust must consume the successor v2 catalog/role registry and recursive version
+registry without rewriting historical v1 schema bytes. The portable closure
+root is packaging over an already complete DAG, not a new operation or receipt.
+No implementation may revive or wrap the retired Java/Haskell execution path.

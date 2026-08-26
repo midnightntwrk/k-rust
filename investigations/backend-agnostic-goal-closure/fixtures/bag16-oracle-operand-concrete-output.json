@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "operandId": "39465d86a6ddb920f0df17d5d26cdc06bd0d195e016e62fc8f181580d14ea303",
+  "declaration": {
+    "role": "oracle-declaration",
+    "digest": "57c0e8771c49ff6320717719132b437693a7f856dfb4b03bc3de7fa508b98867"
+  },
+  "subject": {
+    "side": "baseline",
+    "definitionDigest": "bb777796c6d5b2b5739b07054ef3a869718211d4c030bdb39f03a4f7d04110d4"
+  },
+  "testInvocationDigest": "e02258e3248d987a176c1ef048c18834357450eb28a3917a969c3b7950d0e3df",
+  "compatibilityProfileDigest": "ad82459e7c7ec47e806ba9731937624b520cae14cc5af6120c9d4ebf03db5e51",
+  "executionProfileDigest": "e9b7845643b4942f1255e2fa3fd736eb28e60b9c402d6bdf67577142f7e009e9",
+  "solverProfileDigest": "424a43a7080091bef7c7c3561a12ce50354e38318c0ccc856da04855fff71161",
+  "completionEvidence": {
+    "kind": "semantic-output-finite-row",
+    "table": {
+      "role": "semantic-output-finite-table",
+      "digest": "4ee4520f7c3c95a43710178a61602518cd2127b90e5ad5648c3bbddf518fe770"
+    },
+    "rowId": "87be73e57d5a43c4c07f923c14fc366e3040a329040d82dc497981f698f5e9b9"
+  },
+  "normalizedValue": {
+    "channels": [
+      {
+        "name": "program-output",
+        "mediaType": "application/octet-stream",
+        "contentSha256": "8cced8aab2e5cce5c9498678f59373ef5e62018947ee55af55090317e529e07e",
+        "bytesArtifact": {
+          "role": "semantic-output-bytes",
+          "digest": "094b1fe71f07f21904c3cd5e47d756177d5d507358eba3b823d011f6d67e3b78"
+        },
+        "text": "alpha\r\nbeta\rfinal\n"
+      }
+    ]
+  }
+}

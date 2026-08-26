@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 2,
+  "resultId": "2dfbb6f2e0d2e64c7df0817715e07b52153e16e2f279e0a59159d35dfa038597",
+  "attemptKeyDigest": "b802f7360a806abb2d888860da25b246c36ae0a1eadea21b0b69e6704e5cd1a0",
+  "invocationDigest": "0467c9871d51289cbafc02630e6d2b3ed090240fcbfc27323f382af636d0ac74",
+  "terminalRecord": {
+    "kind": "branch-collection",
+    "collection": {
+      "role": "branch-trace-collection",
+      "digest": "457138bffcfbf1e2a997d36389dbaa5ad6f6c14a6cb17d2dc7e38cf35b2e16bb"
+    },
+    "stopReason": {
+      "kind": "search-exhausted"
+    }
+  },
+  "producedArtifacts": [
+    {
+      "role": "terminal-state",
+      "digest": "00958626001fc0db84da9145e7d654b51eba797f406aeab94ceb4d30237dc3fb"
+    },
+    {
+      "role": "event-trace",
+      "digest": "49977bb4fa2e6697148fd13a7329dba4182f76d8b1d25833509df410e6265f18"
+    },
+    {
+      "role": "branch-trace-collection",
+      "digest": "457138bffcfbf1e2a997d36389dbaa5ad6f6c14a6cb17d2dc7e38cf35b2e16bb"
+    }
+  ],
+  "branchCollection": {
+    "role": "branch-trace-collection",
+    "digest": "457138bffcfbf1e2a997d36389dbaa5ad6f6c14a6cb17d2dc7e38cf35b2e16bb"
+  }
+}

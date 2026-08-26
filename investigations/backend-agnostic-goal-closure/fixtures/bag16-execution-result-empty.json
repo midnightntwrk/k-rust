@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 2,
+  "resultId": "f9481df55902ab93b57ebaf1ee326437f22030d0e97942e6eaa3b5afbcf5edc4",
+  "attemptKeyDigest": "8e8c74d32c061866bd904b3b672fe16aed2b9e494b14997afdeac153e37076aa",
+  "invocationDigest": "5ae096c585e5e3792f7a24adf90a7c9d0b3e4c33a14ff9c29809b1c39b14fde5",
+  "terminalRecord": {
+    "kind": "branch-collection",
+    "collection": {
+      "role": "branch-trace-collection",
+      "digest": "13f9254d3182d687af231a19b443968a59a5a0a5a3bd1be80f5732831177c4e1"
+    },
+    "stopReason": {
+      "kind": "search-exhausted"
+    }
+  },
+  "producedArtifacts": [
+    {
+      "role": "empty-search-decision",
+      "digest": "71b7b396bcadfda21ce80639f068d8c45c0962951db1936e353de35fb66145e9"
+    },
+    {
+      "role": "branch-trace-collection",
+      "digest": "13f9254d3182d687af231a19b443968a59a5a0a5a3bd1be80f5732831177c4e1"
+    }
+  ],
+  "branchCollection": {
+    "role": "branch-trace-collection",
+    "digest": "13f9254d3182d687af231a19b443968a59a5a0a5a3bd1be80f5732831177c4e1"
+  }
+}

@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starstream.dev/k-in-k/backend-agnostic/v1/branch-trace-collection.schema.json",
+  "title": "Ordered branch-trace occurrence collection v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "collectionId", "collectionScopeId", "attemptKeyDigest", "invocationDigest", "queryCoupling", "visited", "pendingWork", "stopReason", "emptySearchDecision"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "collectionId": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+    "collectionScopeId": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+    "attemptKeyDigest": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+    "invocationDigest": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+    "queryCoupling": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "query-independent"}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "pattern-query"}}}
+      ]
+    },
+    "visited": {"type": "array", "items": {"$ref": "#/$defs/visit"}},
+    "pendingWork": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["discoveredCount"],
+      "properties": {"discoveredCount": {"type": "integer", "minimum": 0}}
+    },
+    "stopReason": {"$ref": "#/$defs/stopReason"},
+    "emptySearchDecision": {
+      "oneOf": [
+        {"$ref": "#/$defs/emptyDecisionKey"},
+        {"type": "null"}
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "visited": {"maxItems": 0},
+          "stopReason": {"required": ["kind"], "properties": {"kind": {"const": "search-exhausted"}}}
+        },
+        "required": ["visited", "stopReason"]
+      },
+      "then": {"properties": {"emptySearchDecision": {"$ref": "#/$defs/emptyDecisionKey"}}},
+      "else": {"properties": {"emptySearchDecision": {"type": "null"}}}
+    },
+    {
+      "if": {"properties": {"stopReason": {"required": ["kind"], "properties": {"kind": {"const": "search-exhausted"}}}}, "required": ["stopReason"]},
+      "then": {"properties": {"pendingWork": {"properties": {"discoveredCount": {"const": 0}}}}}
+    }
+  ],
+  "$defs": {
+    "typedKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "digest"],
+      "properties": {
+        "role": {"enum": ["terminal-state", "semantic-crash", "event-trace", "empty-search-decision"]},
+        "digest": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"}
+      }
+    },
+    "traceKey": {
+      "allOf": [
+        {"$ref": "#/$defs/typedKey"},
+        {"type": "object", "properties": {"role": {"const": "event-trace"}}}
+      ]
+    },
+    "emptyDecisionKey": {
+      "allOf": [
+        {"$ref": "#/$defs/typedKey"},
+        {"type": "object", "properties": {"role": {"const": "empty-search-decision"}}}
+      ]
+    },
+    "terminalKey": {
+      "allOf": [
+        {"$ref": "#/$defs/typedKey"},
+        {"type": "object", "properties": {"role": {"const": "terminal-state"}}}
+      ]
+    },
+    "crashKey": {
+      "allOf": [
+        {"$ref": "#/$defs/typedKey"},
+        {"type": "object", "properties": {"role": {"const": "semantic-crash"}}}
+      ]
+    },
+    "classifiedPathFailure": {
+      "oneOf": [
+        {"$ref": "#/$defs/depthPathFailure"}, {"$ref": "#/$defs/timePathFailure"}, {"$ref": "#/$defs/branchPathFailure"}, {"$ref": "#/$defs/resultPathFailure"}, {"$ref": "#/$defs/resourcePathFailure"}, {"$ref": "#/$defs/solverPathFailure"}, {"$ref": "#/$defs/backendPathFailure"}
+      ]
+    },
+    "depthPathFailure": {"allOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternPathExecutionFailure"}, {"properties": {"classification": {"const": "depth-limit"}}}]},
+    "timePathFailure": {"allOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternPathExecutionFailure"}, {"properties": {"classification": {"const": "time-limit"}}}]},
+    "branchPathFailure": {"allOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternPathExecutionFailure"}, {"properties": {"classification": {"const": "branch-limit"}}}]},
+    "resultPathFailure": {"allOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternPathExecutionFailure"}, {"properties": {"classification": {"const": "result-limit"}}}]},
+    "resourcePathFailure": {"allOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternPathExecutionFailure"}, {"properties": {"classification": {"const": "resource-limit"}}}]},
+    "solverPathFailure": {"allOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternPathExecutionFailure"}, {"properties": {"classification": {"const": "solver-unknown"}}}]},
+    "backendPathFailure": {"allOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternPathExecutionFailure"}, {"properties": {"classification": {"const": "backend-error"}}}]},
+    "disposition": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind", "terminal"], "properties": {"kind": {"enum": ["normal", "stuck"]}, "terminal": {"$ref": "#/$defs/terminalKey"}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "crash"], "properties": {"kind": {"const": "semantic-crash"}, "crash": {"$ref": "#/$defs/crashKey"}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "query-satisfied"}}},
+        {"$ref": "#/$defs/depthDisposition"}, {"$ref": "#/$defs/timeDisposition"}, {"$ref": "#/$defs/branchDisposition"}, {"$ref": "#/$defs/resultDisposition"}, {"$ref": "#/$defs/resourceDisposition"}, {"$ref": "#/$defs/solverDisposition"}, {"$ref": "#/$defs/backendDisposition"}
+      ]
+    },
+    "failureDisposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "failure"],
+      "properties": {"kind": {"type": "string"}, "failure": {"$ref": "#/$defs/classifiedPathFailure"}}
+    },
+    "depthDisposition": {"allOf": [{"$ref": "#/$defs/failureDisposition"}, {"properties": {"kind": {"const": "depth-limit"}, "failure": {"$ref": "#/$defs/depthPathFailure"}}}]},
+    "timeDisposition": {"allOf": [{"$ref": "#/$defs/failureDisposition"}, {"properties": {"kind": {"const": "time-limit"}, "failure": {"$ref": "#/$defs/timePathFailure"}}}]},
+    "branchDisposition": {"allOf": [{"$ref": "#/$defs/failureDisposition"}, {"properties": {"kind": {"const": "branch-limit"}, "failure": {"$ref": "#/$defs/branchPathFailure"}}}]},
+    "resultDisposition": {"allOf": [{"$ref": "#/$defs/failureDisposition"}, {"properties": {"kind": {"const": "result-limit"}, "failure": {"$ref": "#/$defs/resultPathFailure"}}}]},
+    "resourceDisposition": {"allOf": [{"$ref": "#/$defs/failureDisposition"}, {"properties": {"kind": {"const": "resource-limit"}, "failure": {"$ref": "#/$defs/resourcePathFailure"}}}]},
+    "solverDisposition": {"allOf": [{"$ref": "#/$defs/failureDisposition"}, {"properties": {"kind": {"const": "solver-unknown"}, "failure": {"$ref": "#/$defs/solverPathFailure"}}}]},
+    "backendDisposition": {"allOf": [{"$ref": "#/$defs/failureDisposition"}, {"properties": {"kind": {"const": "backend-failure"}, "failure": {"$ref": "#/$defs/backendPathFailure"}}}]},
+    "visit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branchKey", "visitOrdinal", "trace", "traceOccurrence", "disposition"],
+      "properties": {
+        "branchKey": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+        "visitOrdinal": {"type": "integer", "minimum": 0},
+        "trace": {"$ref": "#/$defs/traceKey"},
+        "traceOccurrence": {"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v1/common.schema.json#/$defs/digest"},
+        "disposition": {"$ref": "#/$defs/disposition"}
+      }
+    },
+    "classifiedTestFailure": {
+      "oneOf": [
+        {"$ref": "#/$defs/depthTestFailure"}, {"$ref": "#/$defs/timeTestFailure"}, {"$ref": "#/$defs/branchTestFailure"}, {"$ref": "#/$defs/resultTestFailure"}, {"$ref": "#/$defs/resourceTestFailure"}, {"$ref": "#/$defs/solverTestFailure"}, {"$ref": "#/$defs/backendTestFailure"}
+      ]
+    },
+    "depthTestFailure": {"allOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternTestExecutionFailure"}, {"properties": {"classification": {"const": "depth-limit"}}}]},
+    "timeTestFailure": {"allOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternTestExecutionFailure"}, {"properties": {"classification": {"const": "time-limit"}}}]},
+    "branchTestFailure": {"allOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternTestExecutionFailure"}, {"properties": {"classification": {"const": "branch-limit"}}}]},
+    "resultTestFailure": {"allOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternTestExecutionFailure"}, {"properties": {"classification": {"const": "result-limit"}}}]},
+    "resourceTestFailure": {"allOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternTestExecutionFailure"}, {"properties": {"classification": {"const": "resource-limit"}}}]},
+    "solverTestFailure": {"allOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternTestExecutionFailure"}, {"properties": {"classification": {"const": "solver-unknown"}}}]},
+    "backendTestFailure": {"allOf": [{"$ref": "https://starstream.dev/k-in-k/backend-agnostic/v2/bag16-common.schema.json#/$defs/patternTestExecutionFailure"}, {"properties": {"classification": {"const": "backend-error"}}}]},
+    "stopReason": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"enum": ["search-exhausted", "match-found"]}}},
+        {"$ref": "#/$defs/depthStop"}, {"$ref": "#/$defs/timeStop"}, {"$ref": "#/$defs/branchStop"}, {"$ref": "#/$defs/resultStop"}, {"$ref": "#/$defs/resourceStop"}, {"$ref": "#/$defs/solverStop"}, {"$ref": "#/$defs/backendStop"}
+      ]
+    },
+    "failureStop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "failure"],
+      "properties": {"kind": {"type": "string"}, "failure": {"$ref": "#/$defs/classifiedTestFailure"}}
+    },
+    "depthStop": {"allOf": [{"$ref": "#/$defs/failureStop"}, {"properties": {"kind": {"const": "depth-limit"}, "failure": {"$ref": "#/$defs/depthTestFailure"}}}]},
+    "timeStop": {"allOf": [{"$ref": "#/$defs/failureStop"}, {"properties": {"kind": {"const": "time-limit"}, "failure": {"$ref": "#/$defs/timeTestFailure"}}}]},
+    "branchStop": {"allOf": [{"$ref": "#/$defs/failureStop"}, {"properties": {"kind": {"const": "branch-limit"}, "failure": {"$ref": "#/$defs/branchTestFailure"}}}]},
+    "resultStop": {"allOf": [{"$ref": "#/$defs/failureStop"}, {"properties": {"kind": {"const": "result-limit"}, "failure": {"$ref": "#/$defs/resultTestFailure"}}}]},
+    "resourceStop": {"allOf": [{"$ref": "#/$defs/failureStop"}, {"properties": {"kind": {"const": "resource-limit"}, "failure": {"$ref": "#/$defs/resourceTestFailure"}}}]},
+    "solverStop": {"allOf": [{"$ref": "#/$defs/failureStop"}, {"properties": {"kind": {"const": "solver-unknown"}, "failure": {"$ref": "#/$defs/solverTestFailure"}}}]},
+    "backendStop": {"allOf": [{"$ref": "#/$defs/failureStop"}, {"properties": {"kind": {"const": "backend-failure"}, "failure": {"$ref": "#/$defs/backendTestFailure"}}}]}
+  }
+}
