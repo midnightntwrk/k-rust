@@ -1,0 +1,222 @@
+schema_version = 1
+register_id = "k-in-k/backend-target-dependency-issues/v1"
+status = "open"
+last_reviewed = 2026-08-28
+fully_blocked = false
+portable_contract_commit = "0da432cae8619ff837f59de9a1efdb1085471fa4"
+
+[decision]
+summary = "K-in-K2 may implement portable and orchestration layers now, but it may not claim native acceptance for capabilities that depend on the three open k-rust issues. No KRS-language blocker is established yet."
+blocked_acceptance = [
+  "RS-01 complete native provenance and lossless structured-ingress acceptance",
+  "RS-03 native conservative-observation acceptance",
+  "RS-04 end-to-end native event production and occurrence acceptance",
+  "RS-05 exhaustive symbolic absence and honest-stop acceptance",
+  "RS-07 native pattern-oracle and finite-reachability decisions that depend on those capabilities",
+]
+available_work = [
+  "RS-01 portable canonical values, identities, artifact ingress, and fail-closed supported-surface adapter",
+  "RS-02 original-relative patch algebra, atomic application, validation staging, and digest derivation",
+  "RS-04 trace-reference pattern-plan evaluator and fixture conformance",
+  "RS-06 operator, site, tuple, candidate, and deterministic patch discovery protocols",
+  "RS-07 cache, receipt, oracle, report, replay, scheduling, and worker-isolation layers that do not claim native semantic evidence",
+  "Upstream conformance tests and adapters behind explicit not-proven capability gates",
+]
+
+[classification]
+k_rust = "The frontend/backend engine that parses, lowers, executes, proves, searches, and exposes native evidence. Defects in those engine surfaces are k-rust issues even when KRS carries a local patch or workaround."
+KRS = "The Rust-based language used to author K definitions. A KRS blocker requires evidence that its language, compiler, IR, or k-rust adapter cannot express or preserve a K-in-K2-required construct."
+k_in_k2 = "The consumer and integration layer that owns the portable RS contracts, adapters, orchestration, receipts, caches, and acceptance policy. Missing portable implementation is K-in-K2 work, not an upstream issue."
+
+[[component]]
+id = "k-in-k2"
+display_name = "K-in-K2"
+role = "consumer and integration layer"
+blocker_status = "partially-blocked"
+established_blockers = []
+active_work = ["KINK2-LOCAL-001", "KINK2-LOCAL-002", "KINK2-LOCAL-003", "KINK2-LOCAL-004"]
+notes = "Portable work can proceed. Native acceptance remains gated by the listed k-rust issues and by a separate KRS-language capability audit."
+
+[[component]]
+id = "krs"
+display_name = "KRS"
+role = "Rust-based language for authoring K definitions"
+blocker_status = "audit-pending"
+established_blockers = []
+source_repository = "../krs"
+source_commit = "1e11d81f461175de2096f693edbc00a4e9bf8a15"
+source_state = "dirty active worktree; inspected read-only and not used as immutable acceptance evidence"
+preliminary_evidence = [
+  "K_RUST_HANDOFF.md documents a Definition-IR-to-k-rust frontend/backend route and concrete KEVM, KMIR, and KWasm gates.",
+  "K_RUST_UPSTREAM.toml assigns its recorded engine defects to k-rust and records local KRS workarounds or dedicated-worktree fixes.",
+]
+audit_must_establish = [
+  "The required K-in-K2 definition fragment can be expressed through typed KRS syntax and Definition IR without an untracked raw-K escape.",
+  "KRS preserves the authored identity and provenance needed at its boundary into k-rust and rejects unsupported or lossy constructs.",
+  "The KRS-to-k-rust adapter exposes every configuration, rule, claim, term, attribute, and hook needed by the selected K-in-K2 target fragment.",
+  "The required KRS revision and qualification evidence are immutable and reproducible before native acceptance depends on them.",
+]
+notes = "The current read-only evidence is encouraging but does not justify either a KRS blocker or KRS acceptance. Any future KRS issue must name a KRS language/compiler/IR/adapter failure and must not be inferred from a k-rust engine defect."
+
+[[component]]
+id = "k-rust"
+display_name = "k-rust"
+role = "K frontend and backend engine used by KRS"
+blocker_status = "partially-blocking"
+established_blockers = ["KRUST-UP-001", "KRUST-UP-002", "KRUST-UP-003"]
+subject_version = "0.4.0"
+subject_commit = "3cce7a47941c4dc0664e6e870d4e0529d74753c6"
+subject_worktree = "../inspirations/midnightntwrk/k-rust-krs"
+notes = "The three issues block specific native claims, not all concrete-backend development."
+
+[[issue]]
+id = "KRUST-UP-001"
+provider = "k-rust"
+consumer = "K-in-K2"
+state = "open"
+priority = "hard-blocker"
+component = "frontend semantic IR and lowering provenance"
+suggested_upstream_title = "Expose lossless nested and generated provenance through the public semantic IR"
+blocks = ["RS-01", "RS-02 native receipts", "RS-03 selector provenance", "RS-06 edit-to-source receipts", "RS-07 native production receipts"]
+does_not_block = ["portable identity implementation over a declared fail-closed subset", "patch algebra", "fixture conformance", "cache and report schemas"]
+summary = "Nested term metadata lacks absolute logical-source identity and generated-origin structure, remaining nested attributes are not fully preserved, and metadata is intentionally absent from ordinary KAST serialization and semantic equality. K-in-K2 therefore cannot prove an injective source/generated mapping or provenance-complete native receipts from this engine surface."
+temporary_policy = "K-in-K2 may support only forms whose provenance it can derive without loss and must mark all native proof states that need unavailable provenance as not-proven."
+request = "Provide a public structured provenance surface before KORE emission. It must retain the logical source and absolute range of every supported parsed term, retain every supported nested attribute without silent collapse, and classify every generated or rebuilt sentence and term with structured origin links or an explicit origin-free generated classification. Unsupported or lossy forms must return a structured error."
+acceptance = [
+  "A nested parsed term exposes logical source identity and an absolute source range after loading and rule parsing.",
+  "Supported nested attributes survive parsing, public IR access, lowering, and structured export without using pretty text as a semantic value.",
+  "Rules and terms generated by configuration, strictness/context, macro, fresh-variable, and sort-helper passes expose deterministic structured origins.",
+  "Generated insertion origins distinguish equal-side and equal-ordinal destinations by their actual destination anchor.",
+  "A closed supported-form inventory rejects every unsupported or lossy form instead of dropping metadata.",
+  "Differential tests cover checkout relocation, duplicate rule labels, parsed terms, and generated terms.",
+]
+
+[[issue.evidence]]
+path = "README.md"
+lines = "453-455"
+observation = "The upstream TODO explicitly calls for absolute nested locations, remaining nested attributes, and nested provenance."
+
+[[issue.evidence]]
+path = "crates/k-rust/src/kast/ast.rs"
+lines = "51-71"
+observation = "TermMetadata contains only a source-fragment-relative byte span, a catalog-scoped production index, and an optional sort; normal KAST equality and serialization ignore it."
+
+[[issue.evidence]]
+path = "crates/k-rust/src/definition/ast.rs"
+lines = "20-47"
+observation = "Frontend definition attributes are keyed by BTreeMap, so the supported surface must either prove that multiplicity and order are semantically unavailable or reject inputs that would be collapsed."
+
+[[issue]]
+id = "KRUST-UP-002"
+provider = "k-rust"
+consumer = "K-in-K2"
+state = "open"
+priority = "hard-blocker"
+component = "backend execution observation"
+suggested_upstream_title = "Add branch-local observation of committed semantic rule applications"
+blocks = ["RS-03", "RS-04 native event production", "RS-05 branch-local event monitoring", "RS-07 native execution-pattern oracles"]
+does_not_block = ["baseline execution", "portable event schemas", "trace-reference occurrence matching", "mutation discovery"]
+summary = "Execution leaves carry branch-local rule traces, and AppliedRule already carries useful substitutions and predicates, but the observer API receives only global BuiltinEffect values. BuiltinEffect currently has only UserLog. K-in-K2 cannot associate typed observations with a branch or observe the committed transition payload needed for RuleApplied and domain events."
+temporary_policy = "K-in-K2 may use existing traces only for diagnostics and test scaffolding; it must not promote them to accepted RuleApplied or domain-event evidence."
+request = "Expose observation at the committed semantic-transition boundary. Each branch must own independently cloned observation state, and each leaf must return its complete ordered observation sequence. A committed application observation must expose enough structured data to identify the rule and its source, bindings, introduced predicates, and before/after constrained patterns without parsing backend logs."
+acceptance = [
+  "One unconditional transition produces exactly one committed-rule observation with stable rule identity, bindings, introduced predicates, and before/after constrained patterns.",
+  "Sibling branches receive independent ordered observation sequences and never share or combine event state.",
+  "Builtin effects are associated with the branch and transition that produced them rather than only a result-global vector.",
+  "Simplification, rewrite, claim, and remainder activity are explicitly classified so a consumer cannot mistake a non-transition step for RuleApplied.",
+  "Disabling observation preserves terminal patterns, constraints, branch topology, halt reasons, and traces.",
+  "A two-rule allowlist succeeds atomically, while a stale or unsupported member rejects installation without partial observation.",
+]
+
+[[issue.evidence]]
+path = "crates/k-rust-backend/src/rewrite.rs"
+lines = "82-95,190-242,252-276"
+observation = "AppliedRule has substitution and predicate data and leaves have branch-local traces, but ExecutionResult stores effects globally and the observer accepts only BuiltinEffect."
+
+[[issue.evidence]]
+path = "crates/k-rust-backend/src/builtin.rs"
+lines = "41-52"
+observation = "BuiltinEffect has only UserLog and cannot represent committed semantic applications or typed domain events."
+
+[[issue]]
+id = "KRUST-UP-003"
+provider = "k-rust"
+consumer = "K-in-K2"
+state = "open"
+priority = "hard-blocker-for-exhaustive-claims"
+component = "backend search completeness and stop fidelity"
+suggested_upstream_title = "Report every bounded or interrupted search as explicitly incomplete"
+blocks = ["RS-05 exhaustive symbolic absence", "RS-07 exhaustive no-match", "RS-07 finite not-reached", "BAG-16 native collection completeness"]
+does_not_block = ["positive match evidence", "bounded prefix collection", "concrete execution without an absence claim", "portable aggregation logic"]
+summary = "SearchOptions has depth, breadth, and result bounds, but IncompleteSearch has no result-bound, timeout, cancellation, or resource stop. Reaching max_results breaks traversal without adding an incomplete reason, and zero max_results returns an empty result with no incomplete marker. A consumer can therefore mistake a bounded prefix for exhaustive absence or complete denotation."
+temporary_policy = "K-in-K2 must treat any result-bound request, external interruption, unavailable resource accounting, or missing explicit exhaustion evidence as unknown even when k-rust returns an empty incomplete list. Positive witnesses remain usable as bounded evidence."
+request = "Return an explicit collection-completeness result for every search. Every early stop must carry a closed reason plus the live frontier or equivalent unvisited accounting. Empty incomplete diagnostics must not be the sole proof of exhaustion. Search must expose cooperative cancellation and timeout classification compatible with execute/prove, while host resource limits may be supplied by a K-in-K2 worker if the result records their external stop distinctly."
+acceptance = [
+  "Reaching max_results reports result-bound incompleteness and preserves the unvisited frontier or an exact unvisited count.",
+  "A zero result bound is incomplete whenever reachable work exists and cannot serialize as exhaustive empty search.",
+  "Depth, breadth, result, timeout, cancellation, solver, simplification, match, and backend failures have distinct closed dispositions.",
+  "A clean finite traversal carries explicit exhaustive evidence rather than requiring inference from an empty diagnostic vector.",
+  "Pattern search reports whether its returned match set is the complete denotation; truncating matches cannot return complete coverage.",
+  "Tests cover finite absence, bounded absence, a match on one truncated sibling, and deterministic replay of every retained witness.",
+]
+
+[[issue.evidence]]
+path = "crates/k-rust-backend/src/search.rs"
+lines = "35-90"
+observation = "SearchOptions declares max_results, but IncompleteSearch has no result-bound, timeout, cancellation, resource, or explicit exhaustion arm."
+
+[[issue.evidence]]
+path = "crates/k-rust-backend/src/search.rs"
+lines = "278-281,395-400,449-468"
+observation = "Graph and pattern search stop at result bounds without recording incompleteness; a zero pattern result bound returns no matches and no incomplete reason."
+
+[[local_work]]
+id = "KINK2-LOCAL-001"
+owner = "K-in-K2"
+packets = ["RS-01"]
+status = "ready"
+depends_on_upstream = ["KRUST-UP-001 for final native acceptance only"]
+deliverable = "Portable semantic values, canonicalization, identity domains, artifact ingress, execution-profile identity, and a fail-closed k-rust adapter over the currently provable subset."
+
+[[local_work]]
+id = "KINK2-LOCAL-002"
+owner = "K-in-K2"
+packets = ["RS-02"]
+status = "ready"
+depends_on_upstream = ["KRUST-UP-001 for provenance-complete receipts only"]
+deliverable = "Original-relative typed paths, closed edits, immutable-baseline preconditions, overlap rejection, atomic patch application, digest derivation, and native validation staging."
+
+[[local_work]]
+id = "KINK2-LOCAL-003"
+owner = "K-in-K2"
+packets = ["RS-04", "RS-06"]
+status = "ready"
+depends_on_upstream = ["KRUST-UP-002 for native event production only"]
+deliverable = "Trace-reference pattern-plan evaluator, fixture denotation oracle, operator/site/tuple/candidate protocols, deterministic ordering, caps, and patch-template receipts."
+
+[[local_work]]
+id = "KINK2-LOCAL-004"
+owner = "K-in-K2"
+packets = ["RS-05", "RS-07"]
+status = "ready-with-not-proven-gates"
+depends_on_upstream = ["KRUST-UP-002", "KRUST-UP-003"]
+deliverable = "Aggregation truth tables, unknown propagation, replay-key derivation, cache/receipt/oracle schemas, scheduling, reporting, and worker isolation without native completeness claims."
+
+[local_constraint.external_z3]
+owner = "KRS"
+provider = "KRS dependency integration"
+consumer = "KRS"
+upstream_issue = false
+blocks_k_in_k2 = false
+policy = "The dedicated k-rust-krs worktree disables z3 crate gh-release acquisition and consumes externally supplied Z3 4.12.5 through the KRS Nix compatibility unit."
+acceptance = [
+  "The Nix unit pins the Z3 4.12.5 artifact and exposes its library and headers to z3-sys.",
+  "The KRS dependency closure is reproducible without selecting a solver release at build time.",
+  "Z3-enabled backend tests pass inside that pinned environment.",
+  "The KRS lock or equivalent Nix dependency closure remains consistent with the manifest while upstream Cargo.lock stays an upstream artifact.",
+]
+
+[scope]
+retired_backend_path = "must-not-extend"
+streaming_rs_08 = "held"
+notes = "K-in-K2 owns portable contracts and product orchestration. KRS owns its authoring-language and adapter boundary. k-rust owns its frontend/backend engine surfaces. The upstream requests are limited to engine evidence that cannot be reconstructed honestly by either adapter."
