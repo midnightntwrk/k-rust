@@ -1,0 +1,191 @@
+schema_version = 1
+matrix_id = "k-in-k/backend-target-capability-matrix/v1"
+status = "qualification-open"
+last_reviewed = 2026-08-28
+issue_register = "upstream-issues.toml"
+portable_contract_commit = "0da432cae8619ff837f59de9a1efdb1085471fa4"
+full_development_block = false
+full_native_acceptance_block = true
+
+[roles]
+k_in_k2 = "Owns portable semantics, mutation contracts, adapters, orchestration, evidence, receipts, caches, and fail-closed acceptance."
+KRS = "Provides the Rust-based language, compiler, typed semantic IR, Definition IR, and adapter used to author K definitions for the target."
+k_rust = "Provides the K frontend and backend engine used to load, lower, execute, prove, and search those definitions."
+
+[decision]
+development_now = [
+  "Implement and test portable RS-01 identities and artifact ingress.",
+  "Implement RS-02 patch algebra and atomic transactions.",
+  "Implement the RS-04 trace-reference evaluator without claiming native event production.",
+  "Implement RS-06 discovery and candidate protocols.",
+  "Implement the non-semantic RS-07 worker, receipt, cache, replay, and reporting layers behind not-proven gates.",
+  "Build minimized k-rust conformance reproducers for KRUST-UP-001 through KRUST-UP-003.",
+  "Build the KRS qualification fixture after the KRS worktree has an immutable revision.",
+]
+must_wait = [
+  "Native provenance-complete acceptance waits for KRUST-UP-001.",
+  "Native conservative observation and domain-event acceptance wait for KRUST-UP-002.",
+  "Exhaustive absence, complete-denotation, and finite not-reached acceptance wait for KRUST-UP-003.",
+  "Any claim that the selected KRS language surface is sufficient waits for KRS-QUAL-001.",
+]
+
+[[gate]]
+id = "KRS-QUAL-001"
+owner = "KRS"
+kind = "qualification-gate"
+status = "audit-pending"
+functional_defect_established = false
+blocks = ["selection of KRS as an accepted K-in-K2 authoring surface"]
+does_not_block = ["portable K-in-K2 implementation", "k-rust issue reproducers", "provisional adapter experiments"]
+reason = "The inspected KRS worktree contains broad positive capability evidence but is dirty and owned by another active session. It is not an immutable acceptance subject."
+required_fixture = "A committed, pinned KRS definition must exercise the selected K-in-K2 fragment through typed KRS syntax, semantic IR, Definition IR, the KRS-to-k-rust adapter, and k-rust frontend/backend execution without an untracked raw-K escape."
+acceptance = [
+  "The fixture records an immutable KRS commit and exact k-rust dependency commit.",
+  "The fixture covers modules, imports, sorts, subsorts, productions, configuration cells, rules, claims, requires/ensures, variables, applications, rewrites, sequences, collections, attributes, and every selected hook actually required by K-in-K2.",
+  "Every authored node has a typed KRS origin and every supported adapter destination has a deterministic structural sidecar entry.",
+  "Unsupported KRS or adapter forms reject with structured diagnostics rather than text fallback or silent metadata loss.",
+  "The emitted structured definition compiles and executes through k-rust while preserving the fixture's expected terminal and branch results.",
+  "The gate distinguishes a KRS language/compiler/IR/adapter failure from a downstream k-rust frontend/backend failure.",
+]
+
+[[gate.evidence]]
+repository = "../krs"
+path = "crates/krs-k-rust/src/lib.rs"
+lines = "54-148,203-253,549-700,998-1033"
+observation = "The live KRS adapter pins k-rust, declares structured preparation, retains authored-to-Definition-IR origins in a structural sidecar, and compiles structured Definition IR without reparsing emitted KRS source."
+authority = "preliminary-read-only"
+
+[[gate.evidence]]
+repository = "../krs"
+path = "K_RUST_HANDOFF.md"
+observation = "The live handoff reports concrete KEVM, KMIR, KWasm, and adapter gates through the dedicated k-rust frontend/backend dependency."
+authority = "preliminary-read-only-dirty-worktree"
+
+[[gate]]
+id = "KRUST-QUAL-001"
+owner = "k-rust"
+kind = "upstream-capability-gate"
+status = "partially-accepted"
+functional_defect_established = true
+blocks = ["the native claims named by KRUST-UP-001", "the native claims named by KRUST-UP-002", "the exhaustive claims named by KRUST-UP-003"]
+does_not_block = ["structured compilation", "concrete execution", "positive bounded search witnesses", "portable K-in-K2 layers"]
+reason = "The pinned engine exposes structured frontend and concrete/symbolic backend APIs, but the three audited evidence gaps prevent specific K-in-K2 acceptance claims."
+
+[[capability]]
+id = "TARGET-01"
+name = "Typed K definition authoring"
+required_by = ["RS-01", "RS-03", "RS-04", "RS-06", "RS-07 K-authored evaluators"]
+primary_provider = "KRS"
+supporting_provider = "k-rust"
+status = "qualification-pending"
+blocker = "KRS-QUAL-001"
+available_now = "The live KRS tree exposes typed semantic and Definition IR plus a structured adapter, so a minimized qualification fixture can be built once its revision is stable."
+missing_for_acceptance = "No immutable fixture yet proves that the exact K-in-K2-required language fragment crosses KRS and the adapter without an unsupported form or raw-K escape."
+
+[[capability]]
+id = "TARGET-02"
+name = "Structured frontend compilation and baseline execution"
+required_by = ["RS-01", "RS-02 native validation", "RS-07 concrete campaigns"]
+primary_provider = "k-rust"
+supporting_provider = "KRS"
+status = "available-for-development"
+blocker = "none for bounded concrete development"
+available_now = "k-rust exposes structured compilation, execution, simplification, implication, model, and proof APIs. KRS exposes a pinned Definition-IR adapter into that frontend."
+missing_for_acceptance = "The KRS qualification subject must be immutable, and production receipts must still be implemented by K-in-K2."
+
+[[capability.evidence]]
+repository = "../inspirations/midnightntwrk/k-rust-krs"
+path = "crates/k-rust/src/backend.rs"
+lines = "44-234,245-482"
+observation = "The public backend declares execution, simplification, implication, model, and proving request/result surfaces."
+
+[[capability]]
+id = "TARGET-03"
+name = "Lossless semantic identity and provenance"
+required_by = ["RS-01", "RS-02 receipts", "RS-03 selection", "RS-06 edit receipts", "RS-07 production receipts"]
+primary_provider = "k-rust"
+supporting_provider = "KRS"
+status = "blocked-for-complete-native-acceptance"
+blocker = "KRUST-UP-001"
+available_now = "KRS retains authored origins before the adapter boundary, and K-in-K2 can implement portable identities over an explicitly fail-closed subset."
+missing_for_acceptance = "k-rust does not expose complete absolute nested provenance, retained nested attributes, or structured origins for every generated/rebuilt node."
+
+[[capability]]
+id = "TARGET-04"
+name = "Typed patch application and mutation discovery"
+required_by = ["RS-02", "RS-06"]
+primary_provider = "K-in-K2"
+supporting_provider = "KRS"
+status = "ready-local"
+blocker = "none for portable implementation"
+available_now = "The frozen package defines original-relative paths, closed edits, overlap rejection, atomic transactions, deterministic discovery, and receipts."
+missing_for_acceptance = "Native type/lowering validation needs a qualified KRS adapter subject, and provenance-complete receipts remain gated by KRUST-UP-001."
+
+[[capability]]
+id = "TARGET-05"
+name = "Committed branch-local rule observation"
+required_by = ["RS-03", "RS-04 native production", "RS-05 monitoring", "RS-07 execution-pattern oracles"]
+primary_provider = "k-rust"
+supporting_provider = "K-in-K2"
+status = "blocked-for-native-acceptance"
+blocker = "KRUST-UP-002"
+available_now = "k-rust leaf traces identify rewrite classes and rules, and AppliedRule retains substitutions and introduced predicates."
+missing_for_acceptance = "The observer sees only global BuiltinEffect values; committed transition payloads and branch-owned ordered observations are unavailable."
+
+[[capability.evidence]]
+repository = "../inspirations/midnightntwrk/k-rust-krs"
+path = "crates/k-rust-backend/src/rewrite.rs"
+lines = "82-110,190-242,261-275"
+observation = "AppliedRule contains useful structured transition data and leaves contain traces, but ExecutionResult effects are global and the observer receives only BuiltinEffect."
+
+[[capability]]
+id = "TARGET-06"
+name = "Concrete event occurrence and pattern-plan evaluation"
+required_by = ["RS-04", "RS-07 concrete execution-pattern campaigns"]
+primary_provider = "K-in-K2"
+supporting_provider = "k-rust"
+status = "portable-ready-native-production-blocked"
+blocker = "KRUST-UP-002 for native event production only"
+available_now = "K-in-K2 can implement and qualify the complete trace-reference evaluator, DNF plan typing, witness ordering, and occurrence semantics."
+missing_for_acceptance = "End-to-end native RuleApplied and domain-event production cannot be accepted until committed branch-local observations exist."
+
+[[capability]]
+id = "TARGET-07"
+name = "Symbolic branching, pattern search, and honest completeness"
+required_by = ["RS-05", "RS-07 symbolic campaigns", "BAG-16 native collections"]
+primary_provider = "k-rust"
+supporting_provider = "K-in-K2"
+status = "positive-witnesses-only"
+blocker = "KRUST-UP-003 for exhaustive or absence claims; KRUST-UP-002 for branch-local monitored traces"
+available_now = "k-rust exposes branches, path predicates, traces, graph search, and pattern matches. Positive bounded witnesses and prefixes are usable with an explicit bounded modality."
+missing_for_acceptance = "Result-bound truncation and zero-result bounds can return no incompleteness marker, so empty or truncated results cannot establish exhaustion, no-match, or not-reached."
+
+[[capability.evidence]]
+repository = "../inspirations/midnightntwrk/k-rust-krs"
+path = "crates/k-rust-backend/src/search.rs"
+lines = "35-122,278-281,395-468"
+observation = "The search API returns structured states, substitutions, constraints, and incomplete reasons, but max_results truncation is not represented as incomplete."
+
+[[capability]]
+id = "TARGET-08"
+name = "Campaign isolation, receipts, cache, replay, and reporting"
+required_by = ["RS-07", "BAG-14", "BAG-15", "BAG-16"]
+primary_provider = "K-in-K2"
+supporting_provider = "k-rust"
+status = "ready-local-with-native-gates"
+blocker = "none for implementation; upstream issues gate only the semantic evidence they affect"
+available_now = "The frozen portable schemas and vectors define keys, receipts, cache publication, scheduling, replay, comparison, and failure semantics."
+missing_for_acceptance = "K-in-K2 must implement the worker/store boundary and may publish native-proven evidence only for capabilities accepted from KRS and k-rust."
+
+[[external_register]]
+owner = "KRS"
+path = "../krs/K_RUST_UPSTREAM.toml"
+status = "informational-read-only-dirty-worktree"
+issue_count_observed = 11
+provider = "k-rust"
+classification = "These are k-rust defects or performance findings discovered by KRS. Their locally-fixed or local-workaround state does not make them KRS-language blockers. They become K-in-K2 blockers only if the selected target fragment depends on the affected behavior and the dedicated mitigation is not included in the pinned target."
+
+[scope]
+retired_backend_path = "must-not-extend"
+streaming_rs_08 = "held"
+next_milestone = "Pin an immutable KRS revision and execute KRS-QUAL-001, while portable K-in-K2 implementation and the three k-rust upstream reproducers proceed in parallel."
