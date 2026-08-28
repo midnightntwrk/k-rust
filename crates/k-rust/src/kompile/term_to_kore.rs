@@ -525,8 +525,18 @@ impl<'a> TermConverter<'a> {
             }
             _ => {}
         }
+        let ids = self.productions.productions_for(&LabelHead::from(label));
         if let Some(resolved) = term.metadata().and_then(|metadata| metadata.production) {
             if resolved.0 >= self.productions.len() {
+                if ids.len() == 1 {
+                    let Sentence::Production {
+                        parameters, sort, ..
+                    } = self.productions.production(ids[0])
+                    else {
+                        unreachable!()
+                    };
+                    return Ok(production_result_sort(parameters, sort, label));
+                }
                 return Err(TermConversionError::InvalidResolvedProduction {
                     label: label.name.clone(),
                     production: resolved.0,
@@ -550,6 +560,15 @@ impl<'a> TermConverter<'a> {
                 .as_ref()
                 .is_none_or(|production_label| production_label.name != label.name)
             {
+                if ids.len() == 1 {
+                    let Sentence::Production {
+                        parameters, sort, ..
+                    } = self.productions.production(ids[0])
+                    else {
+                        unreachable!()
+                    };
+                    return Ok(production_result_sort(parameters, sort, label));
+                }
                 return Err(TermConversionError::InvalidResolvedProduction {
                     label: label.name.clone(),
                     production: resolved.0,
@@ -559,7 +578,6 @@ impl<'a> TermConverter<'a> {
             return Ok(production_result_sort(parameters, sort, label));
         }
 
-        let ids = self.productions.productions_for(&LabelHead::from(label));
         if ids.is_empty() {
             return Err(TermConversionError::UnknownLabel(label.name.clone()));
         }

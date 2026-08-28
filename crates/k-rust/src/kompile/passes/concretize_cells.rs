@@ -7,14 +7,12 @@ use std::{
 
 use crate::{
     definition::{
-        Definition, LabelHead, ModuleId, ProductionCatalog, ProductionItem, ResolvedDefinition,
-        Sentence,
+        Attributes, Definition, LabelHead, ModuleId, ProductionCatalog, ProductionId,
+        ProductionItem, ResolvedDefinition, Sentence,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
 };
-
-const MACRO_ATTRIBUTES: &[&str] = &["macro", "macro-rec", "alias", "alias-rec"];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConcretizeCellsError {
@@ -387,7 +385,11 @@ impl CellModel {
             Term::Rewrite { left, right } => {
                 let left = self.sort_for_side(left);
                 let right = self.sort_for_side(right);
-                if left == right { left } else { None }
+                match (left, right) {
+                    (Some(left), Some(right)) if left == right => Some(left),
+                    (Some(sort), None) | (None, Some(sort)) => Some(sort),
+                    _ => None,
+                }
             }
             _ => None,
         }
@@ -436,9 +438,6 @@ impl<'a> Concretizer<'a> {
         if matches!(&sentence, Sentence::Claim { body, .. } if !contains_cell(body, self.model)) {
             return Ok(sentence);
         }
-        if skip_sentence(&sentence) {
-            return Ok(sentence);
-        }
         self.variables.clear();
         self.fragments.clear();
         self.counter = 0;
@@ -456,7 +455,7 @@ impl<'a> Concretizer<'a> {
                 ensures,
                 attributes,
             } => {
-                let body = self.concretize_body(body)?;
+                let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
                 self.analyze_fragments([&body, &requires, &ensures])?;
                 Ok(Sentence::Rule {
                     body: self.sort_cells(body)?,
@@ -471,7 +470,7 @@ impl<'a> Concretizer<'a> {
                 ensures,
                 attributes,
             } => {
-                let body = self.concretize_body(body)?;
+                let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
                 self.analyze_fragments([&body, &requires, &ensures])?;
                 Ok(Sentence::Claim {
                     body: self.sort_cells(body)?,
@@ -485,7 +484,7 @@ impl<'a> Concretizer<'a> {
                 requires,
                 attributes,
             } => {
-                let body = self.concretize_body(body)?;
+                let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
                 self.analyze_fragments([&body, &requires])?;
                 Ok(Sentence::Context {
                     body: self.sort_cells(body)?,
@@ -497,8 +496,8 @@ impl<'a> Concretizer<'a> {
         }
     }
 
-    fn concretize_body(&mut self, body: Term) -> Result<Term, String> {
-        let body = if is_function(&body, self.productions) {
+    fn concretize_body(&mut self, body: Term, skip_root: bool) -> Result<Term, String> {
+        let body = if skip_root || is_function(&body, self.productions) {
             body
         } else {
             self.add_root(body)?
@@ -679,7 +678,27 @@ impl<'a> Concretizer<'a> {
             }
             completion = retained;
         }
-        others.extend(completion);
+        // Java's AddParentCells retains only the deepest remaining completion
+        // level here.  Besides being the normal direct-child level, this also
+        // means that a shallower, accidentally nested sibling is discarded when
+        // valid direct children are present.  Some real definitions (notably
+        // KMIR) rely on that compatibility quirk.
+        let deepest_remaining = completion
+            .iter()
+            .filter_map(|item| {
+                self.model
+                    .sort_for_term(item)
+                    .and_then(|sort| self.model.levels.get(&sort).copied())
+            })
+            .max();
+        others.extend(completion.into_iter().filter(|item| {
+            deepest_remaining.is_none_or(|deepest| {
+                self.model
+                    .sort_for_term(item)
+                    .and_then(|sort| self.model.levels.get(&sort).copied())
+                    == Some(deepest)
+            })
+        }));
         Ok(Term::Apply {
             label: label.clone(),
             arguments: vec![dot(open_left), make_body(others), dot(open_right)],
@@ -968,18 +987,32 @@ impl<'a> Concretizer<'a> {
         let mut ordered = BTreeMap::<Sort, Term>::new();
         let mut unknown = Vec::new();
         for item in arguments {
-            if let Some(sort) = self.model.sort_for_term(&item) {
-                self.insert_child(&mut ordered, sort, item, cell)?;
-            } else if matches!(item.unannotated(), Term::Variable { .. }) {
-                unknown.push(item);
-            } else if let Term::Rewrite { left, right } = item.unannotated() {
-                let left = split_side(left, self.model);
-                let right = split_side(right, self.model);
-                let sorts = left
+            if let Term::Rewrite { left, right } = item.unannotated() {
+                let left_side = left.as_ref();
+                let right_side = right.as_ref();
+                let left = self.split_rewrite_side(left_side, cell)?;
+                let right = self.split_rewrite_side(right_side, cell)?;
+                let mut sorts = left
                     .keys()
                     .chain(right.keys())
                     .cloned()
                     .collect::<BTreeSet<_>>();
+                if sorts.is_empty()
+                    && ((matches!(left_side.unannotated(), Term::Variable { .. })
+                        && is_empty_cell_bag(right_side))
+                        || (is_empty_cell_bag(left_side)
+                            && matches!(right_side.unannotated(), Term::Variable { .. })))
+                {
+                    let candidates = cell
+                        .children
+                        .iter()
+                        .filter(|child| child.multiplicity == Multiplicity::Star)
+                        .collect::<Vec<_>>();
+                    if let [child] = candidates.as_slice() {
+                        sorts.insert(child.sort.clone());
+                    }
+                }
+                let singleton_sort = sorts.len() == 1;
                 for sort in sorts {
                     let child = cell
                         .children
@@ -989,11 +1022,21 @@ impl<'a> Concretizer<'a> {
                     let left = left
                         .get(&sort)
                         .cloned()
+                        .or_else(|| {
+                            singleton_sort
+                                .then(|| rewrite_side_variable(item.unannotated(), false, child))
+                                .flatten()
+                        })
                         .or_else(|| unit(child))
                         .ok_or_else(|| format!("Cannot rewrite required cell {sort} from unit"))?;
                     let right = right
                         .get(&sort)
                         .cloned()
+                        .or_else(|| {
+                            singleton_sort
+                                .then(|| rewrite_side_variable(item.unannotated(), true, child))
+                                .flatten()
+                        })
                         .or_else(|| unit(child))
                         .ok_or_else(|| format!("Cannot rewrite required cell {sort} to unit"))?;
                     self.insert_child(
@@ -1006,6 +1049,10 @@ impl<'a> Concretizer<'a> {
                         cell,
                     )?;
                 }
+            } else if let Some(sort) = self.model.sort_for_term(&item) {
+                self.insert_child(&mut ordered, sort, item, cell)?;
+            } else if matches!(item.unannotated(), Term::Variable { .. }) {
+                unknown.push(item);
             } else {
                 return Err(format!(
                     "Unexpected term in parent cell {} during child ordering",
@@ -1069,6 +1116,30 @@ impl<'a> Concretizer<'a> {
         })
     }
 
+    fn split_rewrite_side(
+        &self,
+        term: &Term,
+        parent: &Cell,
+    ) -> Result<BTreeMap<Sort, Term>, String> {
+        let mut split = BTreeMap::new();
+        for item in flatten_cells(term) {
+            if let Some(sort) = self.model.sort_for_term(item) {
+                self.insert_child(&mut split, sort, item.clone(), parent)?;
+                continue;
+            }
+            let Term::Variable { name, .. } = item.unannotated() else {
+                continue;
+            };
+            let Some(fragment) = self.fragments.get(name) else {
+                continue;
+            };
+            for (sort, term) in &fragment.split {
+                self.insert_child(&mut split, sort.clone(), term.clone(), parent)?;
+            }
+        }
+        Ok(split)
+    }
+
     fn insert_child(
         &self,
         ordered: &mut BTreeMap<Sort, Term>,
@@ -1114,6 +1185,36 @@ impl<'a> Concretizer<'a> {
         };
         Term::Variable { name, sort }
     }
+}
+
+fn skip_root_wrapping(attributes: &Attributes) -> bool {
+    [
+        "macro",
+        "macro-rec",
+        "alias",
+        "alias-rec",
+        "anywhere",
+        "simplification",
+    ]
+    .iter()
+    .any(|attribute| attributes.get(attribute).is_some())
+}
+
+fn rewrite_side_variable(term: &Term, right: bool, child: &Child) -> Option<Term> {
+    let Term::Rewrite { left, right: rhs } = term else {
+        return None;
+    };
+    let side = if right { rhs.as_ref() } else { left.as_ref() };
+    matches!(side.unannotated(), Term::Variable { .. })
+        .then(|| set_variable_sort(side.clone(), child.value_sort.clone()))
+}
+
+fn is_empty_cell_bag(term: &Term) -> bool {
+    matches!(
+        term.unannotated(),
+        Term::Apply { label, arguments }
+            if arguments.is_empty() && matches!(label.name.as_str(), "#cells" | ".Bag")
+    )
 }
 
 fn collect_fragment_observations(
@@ -1242,28 +1343,49 @@ fn fragment_predicate(info: &FragmentInfo, model: &CellModel) -> Term {
         })
 }
 
-fn skip_sentence(sentence: &Sentence) -> bool {
-    MACRO_ATTRIBUTES
-        .iter()
-        .any(|attribute| sentence.attributes().get(attribute).is_some())
-        || sentence.attributes().get("anywhere").is_some()
-        || sentence.attributes().get("simplification").is_some()
-}
-
 fn is_function(term: &Term, productions: &ProductionCatalog<'_>) -> bool {
-    let label = match term.unannotated() {
-        Term::Apply { label, .. } => Some(label),
+    let application = match term.unannotated() {
+        Term::Apply { label, .. } => Some((term, label)),
         Term::Rewrite { left, .. } => match left.unannotated() {
-            Term::Apply { label, .. } => Some(label),
+            Term::Apply { label, .. } => Some((left.as_ref(), label)),
             _ => None,
         },
         _ => None,
     };
-    label.is_some_and(|label| {
-        productions
-            .function_labels()
-            .contains(&LabelHead::from(label))
+    application.is_some_and(|(application, label)| {
+        is_function_application(application, label, productions)
     })
+}
+
+fn is_function_application(
+    application: &Term,
+    label: &Label,
+    productions: &ProductionCatalog<'_>,
+) -> bool {
+    if let Some(resolved) = application
+        .metadata()
+        .and_then(|metadata| metadata.production)
+    {
+        if resolved.0 < productions.len() {
+            let production = productions.production(ProductionId(resolved.0));
+            if matches!(
+                production,
+                Sentence::Production { label: Some(candidate), .. } if candidate.name == label.name
+            ) {
+                return production.attributes().get("function").is_some();
+            }
+        }
+        let candidates = productions.productions_for(&LabelHead::from(label));
+        return candidates.len() == 1
+            && productions
+                .production(candidates[0])
+                .attributes()
+                .get("function")
+                .is_some();
+    }
+    productions
+        .function_labels()
+        .contains(&LabelHead::from(label))
 }
 
 fn contains_cell(term: &Term, model: &CellModel) -> bool {
@@ -1332,13 +1454,6 @@ fn make_body(mut items: Vec<Term>) -> Term {
     } else {
         Term::apply("#cells", items)
     }
-}
-
-fn split_side(term: &Term, model: &CellModel) -> BTreeMap<Sort, Term> {
-    flatten_cells(term)
-        .into_iter()
-        .filter_map(|item| model.sort_for_term(item).map(|sort| (sort, item.clone())))
-        .collect()
 }
 
 fn unit(child: &Child) -> Option<Term> {

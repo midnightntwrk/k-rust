@@ -92,7 +92,6 @@ pub enum LoadError {
         span: Span,
         message: String,
     },
-    CircularRequires(Vec<String>),
     DuplicateModule {
         name: String,
         first_source: String,
@@ -131,9 +130,6 @@ impl fmt::Display for LoadError {
                 formatter,
                 "could not resolve {required:?} required by {source:?}: {message}"
             ),
-            Self::CircularRequires(path) => {
-                write!(formatter, "circular requires: {}", path.join(" -> "))
-            }
             Self::DuplicateModule {
                 name,
                 first_source,
@@ -200,7 +196,6 @@ pub fn load_with_options(
         resolver,
         options,
         states: BTreeMap::new(),
-        stack: Vec::new(),
         files: Vec::new(),
     };
     for source in &options.implicit_sources {
@@ -346,21 +341,18 @@ struct Loader<'a, R> {
     resolver: &'a mut R,
     options: &'a LoadOptions,
     states: BTreeMap<String, VisitState>,
-    stack: Vec<String>,
     files: Vec<SourceFile>,
 }
 
 impl<R: SourceResolver> Loader<'_, R> {
     fn visit(&mut self, source: ResolvedSource) -> Result<(), LoadError> {
         match self.states.get(&source.source) {
-            Some(VisitState::Complete) => return Ok(()),
-            Some(VisitState::Visiting) => return Err(self.cycle(&source.source)),
+            Some(VisitState::Complete | VisitState::Visiting) => return Ok(()),
             None => {}
         }
 
         self.states
             .insert(source.source.clone(), VisitState::Visiting);
-        self.stack.push(source.source.clone());
         let text = if source.source.ends_with(".md") {
             extract_fenced_k_code(&source.text, &self.options.markdown_selector).map_err(
                 |error| LoadError::Markdown {
@@ -389,22 +381,9 @@ impl<R: SourceResolver> Loader<'_, R> {
             self.visit(required)?;
         }
 
-        let popped = self.stack.pop();
-        debug_assert_eq!(popped.as_deref(), Some(source.source.as_str()));
         self.states.insert(source.source, VisitState::Complete);
         self.files.push(parsed);
         Ok(())
-    }
-
-    fn cycle(&self, source: &str) -> LoadError {
-        let start = self
-            .stack
-            .iter()
-            .position(|candidate| candidate == source)
-            .expect("a visiting source is on the DFS stack");
-        let mut path = self.stack[start..].to_vec();
-        path.push(source.to_owned());
-        LoadError::CircularRequires(path)
     }
 }
 

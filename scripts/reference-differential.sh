@@ -3,7 +3,13 @@ set -euo pipefail
 
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
+imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
+wasm_checkout=${WASM_SEMANTICS_CHECKOUT:-"$workspace/wasm-semantics"}
+evm_checkout=${EVM_SEMANTICS_CHECKOUT:-"$workspace/evm-semantics"}
+mir_checkout=${MIR_SEMANTICS_CHECKOUT:-"$workspace/mir-semantics"}
 kompile=${K_KOMPILE:-}
+memory_limit_kib=${REFERENCE_DIFFERENTIAL_MEMORY_KIB:-}
+reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-}
 
 if [[ -z "$kompile" ]]; then
   kompile=$(command -v kompile || true)
@@ -21,18 +27,22 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/k-rust-reference-differential.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 
 cases=(
-  "append|k/k-distribution/tests/regression-new/append/test.k|TEST"
-  "ambiguous-rewrite|k/k-distribution/tests/regression-new/amb-rew/test.k|TEST"
-  "casts|k/k-distribution/tests/regression-new/cast/test.k|TEST"
-  "cell-map|k/k-distribution/tests/regression-new/cell_map/test.k|TEST"
-  "fresh-variables|k/k-distribution/tests/regression-new/fresh1/test.k|TEST"
-  "list-set|k/k-distribution/tests/regression-new/list-set/test.k|TEST"
-  "macro-rewrite|k/k-distribution/tests/regression-new/macro-rewrite/test.k|TEST"
+  "append|$k_checkout/k-distribution/tests/regression-new/append/test.k|TEST"
+  "ambiguous-rewrite|$k_checkout/k-distribution/tests/regression-new/amb-rew/test.k|TEST"
+  "casts|$k_checkout/k-distribution/tests/regression-new/cast/test.k|TEST"
+  "cell-map|$k_checkout/k-distribution/tests/regression-new/cell_map/test.k|TEST"
+  "evm-equivalence|$evm_checkout/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/optimizations.md|EVM-OPTIMIZATIONS|$evm_checkout/kevm-pyk/src/kevm_pyk/kproj/plugin"
+  "fresh-variables|$k_checkout/k-distribution/tests/regression-new/fresh1/test.k|TEST"
+  "imp|$imp_checkout/src/kimp/kdist/imp-semantics/imp.k|IMP"
+  "list-set|$k_checkout/k-distribution/tests/regression-new/list-set/test.k|TEST"
+  "macro-rewrite|$k_checkout/k-distribution/tests/regression-new/macro-rewrite/test.k|TEST"
+  "mir|$mir_checkout/kmir/src/kmir/kdist/mir-semantics/kmir.md|KMIR|$mir_checkout/kmir/src/kmir/kdist|k & ! concrete|KMIR-AST"
+  "wasm|$wasm_checkout/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md|WASM-TEST"
 )
 selected_count=0
 
 for fixture in "${cases[@]}"; do
-  IFS='|' read -r name relative_source module <<<"$fixture"
+  IFS='|' read -r name source module include selector syntax_module <<<"$fixture"
   selected=true
   if (($#)); then
     selected=false
@@ -46,31 +56,82 @@ for fixture in "${cases[@]}"; do
     continue
   fi
   selected_count=$((selected_count + 1))
-  source="$workspace/$relative_source"
+  if [[ ! -f "$source" ]]; then
+    case "$name" in
+      imp)
+        echo "error: set IMP_SEMANTICS_CHECKOUT to the pinned IMP semantics checkout (default: $workspace/imp-semantics)" >&2
+        ;;
+      wasm)
+        echo "error: set WASM_SEMANTICS_CHECKOUT to the pinned WASM semantics checkout (default: $workspace/wasm-semantics)" >&2
+        ;;
+      evm-equivalence)
+        echo "error: set EVM_SEMANTICS_CHECKOUT to the pinned EVM semantics checkout (default: $workspace/evm-semantics)" >&2
+        ;;
+      mir)
+        echo "error: set MIR_SEMANTICS_CHECKOUT to the pinned MIR semantics checkout (default: $workspace/mir-semantics)" >&2
+        ;;
+      *)
+        echo "error: missing corpus source: $source" >&2
+        ;;
+    esac
+    exit 2
+  fi
   reference="$work/$name/reference"
   rust="$work/$name/rust"
   mkdir -p "$reference" "$rust"
+  include_args=()
+  selector_args=()
+  syntax_args=()
+  if [[ -n "$include" ]]; then
+    if [[ ! -d "$include" ]]; then
+      echo "error: missing include directory: $include" >&2
+      exit 2
+    fi
+    include_args=(-I "$include")
+  fi
+  if [[ -n "$selector" ]]; then
+    selector_args=(--md-selector "$selector")
+  fi
+  if [[ -n "$syntax_module" ]]; then
+    syntax_args=(--syntax-module "$syntax_module")
+  fi
 
   echo "[$name] compiling with reference frontend"
   (
+    if [[ -n "$memory_limit_kib" ]]; then
+      ulimit -v "$memory_limit_kib"
+    fi
+    if [[ -n "$reference_k_opts" ]]; then
+      export K_OPTS="$reference_k_opts"
+    fi
     cd "$reference"
     "$kompile" "$source" \
       --backend kore \
       --main-module "$module" \
       --output-definition kompiled \
+      "${include_args[@]}" \
+      "${selector_args[@]}" \
+      "${syntax_args[@]}" \
       --warnings none
   )
 
   echo "[$name] compiling with k-rust"
-  cargo run --quiet --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust -- \
-    kcompile "$source" \
-    --main-module "$module" \
-    --backend llvm \
-    --output-directory "$rust" \
-    --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
+  (
+    if [[ -n "$memory_limit_kib" ]]; then
+      ulimit -v "$memory_limit_kib"
+    fi
+    cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust -- \
+      kcompile "$source" \
+      --main-module "$module" \
+      --backend llvm \
+      --output-directory "$rust" \
+      "${include_args[@]}" \
+      "${selector_args[@]}" \
+      --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
+  )
 
   echo "[$name] comparing structural KORE"
-  K_REFERENCE_KORE="$reference/$(basename "${source%.k}").kore" \
+  K_REFERENCE_KORE="$reference/$(basename "${source%.*}").kore" \
     K_RUST_KORE="$rust/definition.kore" \
     cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
       -p k-rust --test reference_differential -- --ignored --exact \
@@ -79,7 +140,7 @@ done
 
 if (($# && selected_count != $#)); then
   echo "error: one or more requested corpus cases are unknown" >&2
-  echo "available cases: append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite" >&2
+  echo "available cases: append ambiguous-rewrite casts cell-map evm-equivalence fresh-variables imp list-set macro-rewrite mir wasm" >&2
   exit 2
 fi
 

@@ -420,7 +420,7 @@ Definition {
                                 Number(35),
                             ],
                             "org.kframework.attributes.Source": String("record-and-list.k"),
-                            "symbol": String(".List{\"_,_\"}"),
+                            "symbol": String(".List{\"_,__OUTER-CORPUS\"}"),
                             "userList": String("+"),
                         },
                     },

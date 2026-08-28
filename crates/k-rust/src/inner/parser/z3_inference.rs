@@ -200,7 +200,7 @@ impl<'a> Encoding<'a> {
             }
             ParsedTerm::Term(term) => match term.unannotated() {
                 Term::Variable { name, .. } => {
-                    let variable = self.term_variable(name, path);
+                    let variable = self.term_variable(term, name, path);
                     Ok(match (is_anonymous(name), cast_context) {
                         // Anonymous occurrences are independent variables, but each one has the
                         // exact sort demanded by its context in the reference inferencer.
@@ -309,7 +309,7 @@ impl<'a> Encoding<'a> {
             }
             ParsedTerm::Term(term) => match term.unannotated() {
                 Term::Token { sort, .. } => self.sort_value(sort, &BTreeMap::new()),
-                Term::Variable { name, .. } => Ok(self.term_variable(name, path)),
+                Term::Variable { name, .. } => Ok(self.term_variable(term, name, path)),
                 _ => Err(z3_error("cannot determine the sort of this KAST node")),
             },
             ParsedTerm::Ambiguity(_) => Err(z3_error(
@@ -346,12 +346,8 @@ impl<'a> Encoding<'a> {
             .collect()
     }
 
-    fn term_variable(&mut self, name: &str, path: &str) -> Datatype {
-        let key = if is_anonymous(name) {
-            format!("anonymous_{path}")
-        } else {
-            format!("variable_{name}")
-        };
+    fn term_variable(&mut self, term: &Term, name: &str, path: &str) -> Datatype {
+        let key = inference_variable_key(term, name, path);
         self.variables
             .entry(key.clone())
             .or_insert_with(|| Datatype::new_const(key, &self.datatype.sort))
@@ -662,11 +658,7 @@ impl<'a> Encoding<'a> {
                 let Term::Variable { name, .. } = leaf.unannotated() else {
                     unreachable!()
                 };
-                let key = if is_anonymous(name) {
-                    format!("anonymous_{path}")
-                } else {
-                    format!("variable_{name}")
-                };
+                let key = inference_variable_key(leaf, name, path);
                 let inferred = model
                     .get(&key)
                     .ok_or_else(|| z3_error(format!("Z3 omitted a sort for variable {name}")))?;
@@ -1040,6 +1032,23 @@ fn is_anonymous(name: &str) -> bool {
         || name.starts_with("?_")
         || name.starts_with("!_")
         || name.starts_with("@_")
+}
+
+fn inference_variable_key(term: &Term, name: &str, path: &str) -> String {
+    if !is_anonymous(name) {
+        return format!("variable_{name}");
+    }
+    // Packed ambiguity branches share the same variable token. Java preserves
+    // that identity while traversing its parse forest, so a named anonymous
+    // occurrence participates in overload selection only once. A tree path
+    // would incorrectly turn the same token into one inference variable per
+    // branch and leave dominated list parses incomparable.
+    term.metadata()
+        .and_then(|metadata| metadata.span)
+        .map_or_else(
+            || format!("anonymous_{path}"),
+            |span| format!("anonymous_{}_{}", span.start, span.end),
+        )
 }
 
 fn and_all(items: &[Bool]) -> Bool {

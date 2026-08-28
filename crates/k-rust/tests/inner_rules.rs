@@ -91,6 +91,153 @@ fn sentence_summary(sentence: &Sentence) -> Option<SentenceSummary<'_>> {
     })
 }
 
+#[test]
+fn wraps_a_single_user_list_element_on_a_function_rhs() {
+    let source = indoc! {r##"
+        module MAIN
+          syntax Item ::= "i" [symbol(i)]
+          syntax Items ::= List{Item, ""} [symbol(items), terminator-symbol(.Items)]
+          syntax Items ::= "pick" Item [function, symbol(pick)]
+          rule pick i => i
+        endmodule
+    "##};
+    let resolved = resolve_rule_bubbles(&lowered(source)).unwrap();
+    let body = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    let Term::Rewrite { right, .. } = body.unannotated() else {
+        panic!("expected a rewrite, found {body}");
+    };
+
+    assert!(
+        right.to_string().contains(".Items"),
+        "the singleton list should include its terminator: {body}"
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn rule_conditions_can_select_an_overloaded_rewrite_super_sort() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Gas ::= Int
+          syntax Gas ::= cap(Gas) [symbol(capGas), overload(cap)]
+          syntax Int ::= cap(Int) [symbol(capInt), overload(cap)]
+          syntax Bool ::= Gas "<Gas" Gas [symbol(ltGas)]
+
+          rule cap(GCAP) => 0 requires GCAP <Gas 0
+        endmodule
+    "#};
+    let resolved = resolve_rule_bubbles(&lowered(source)).unwrap();
+    let Sentence::Rule { body, requires, .. } = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find(|sentence| matches!(sentence, Sentence::Rule { .. }))
+        .unwrap()
+    else {
+        unreachable!()
+    };
+
+    assert!(body.to_string().contains("capGas"), "{body}");
+    assert!(!body.to_string().contains("capInt"), "{body}");
+    assert!(requires.to_string().contains("GCAP"), "{requires}");
+}
+
+#[test]
+fn chooses_the_rewrite_overload_matching_the_rhs_sort() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bytes ::= ".Bytes" [symbol(.Bytes)]
+          syntax WordStack ::= ".WordStack" [symbol(.WordStack)]
+          syntax Bytes ::= Bytes "[" Int ":=" Bytes "]" [symbol(mapWriteRange)]
+          syntax WordStack ::= WordStack "[" Int ":=" Int "]" [symbol(setWordStack)]
+
+          rule _ [ START := _ ] => .Bytes
+        endmodule
+    "#};
+    let resolved = resolve_rule_bubbles(&lowered(source)).unwrap();
+    let body = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .unwrap();
+
+    assert!(
+        body.contains("mapWriteRange"),
+        "unexpected overload: {body}"
+    );
+    assert!(
+        !body.contains("setWordStack"),
+        "unexpected overload: {body}"
+    );
+}
+
+#[test]
+fn parses_a_semantic_cast_inside_nested_map_and_bytes_lookups() {
+    let source = indoc! {r##"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+                       | "lengthBytes" "(" Bytes ")" [symbol(lengthBytes), function]
+                       | Bytes "[" Int "]" [symbol(bytesLookup), function]
+                       | Int "-Int" Int [symbol(subInt), function]
+          syntax Bytes ::= "bytes" [symbol(bytes)]
+                         | "#range" "(" Bytes "," Int "," Int ")" [symbol(range), function]
+          syntax Map ::= "map" [symbol(map)]
+                       | Map "[" KItem "<-" KItem "]" [symbol(updateMap), function, prefer]
+          syntax KItem ::= Map "[" KItem "]" [symbol(lookupMap), function]
+          syntax KItem ::= Int | MerkleTree
+          syntax MerkleTree ::= "tree" [symbol(tree)]
+                              | "MerkleBranch" "(" Map "," String ")" [symbol(MerkleBranch)]
+                              | "MerkleDelete" "(" MerkleTree "," Bytes ")" [symbol(MerkleDelete), function]
+                              | "MerkleCheck" "(" MerkleTree ")" [symbol(MerkleCheck), function]
+
+          rule MerkleDelete( MerkleBranch( M, V ), PATH )
+            => MerkleCheck( MerkleBranch( M[PATH[0] <- MerkleDelete( {M[PATH[0]]}:>MerkleTree, #range(PATH, 1, lengthBytes(PATH) -Int 1) )], V ) )
+        endmodule
+    "##};
+    resolve_rule_bubbles(&lowered(source)).unwrap();
+}
+
+#[test]
+fn prunes_nested_rewrites_while_parsing_a_long_recursive_chain() {
+    let source = indoc! {r##"
+        module MAIN
+          syntax Int
+          syntax CallSixOp
+          syntax OpCode ::= CallSixOp | InternalOp
+          syntax KItem ::= OpCode
+          syntax InternalOp ::= "#exec" "[" OpCode "]" [symbol(exec)]
+                              | "#gas" "[" OpCode "," OpCode "]" [symbol(gas)]
+                              | CallSixOp Int Int Int Int Int Int [symbol(callSix)]
+          syntax WordStack ::= ".WordStack" [symbol(dotWordStack)]
+                             | Int ":" WordStack [symbol(consWordStack)]
+          syntax Bytes ::= Int ":" Bytes [symbol(consBytes), function]
+          syntax State ::= "<k>" K "..." "</k>"
+                           "<wordStack>" WordStack "</wordStack>" [symbol(state)]
+
+          rule <k> #exec [ CSO:CallSixOp ] => #gas [ CSO , CSO W0 W1 W2 W3 W4 W5 ] ~> CSO W0 W1 W2 W3 W4 W5 ... </k>
+               <wordStack> W0 : W1 : W2 : W3 : W4 : W5 : WS => WS </wordStack>
+        endmodule
+    "##};
+    resolve_rule_bubbles(&lowered(source)).unwrap();
+}
+
 fn lowered(source: &str) -> k_rust::definition::Definition {
     let parsed = k_rust::outer::parse("rules.k", source).unwrap();
     k_rust::outer::lower(&parsed, "MAIN").unwrap()
@@ -161,6 +308,54 @@ fn preserves_nested_term_spans_and_resolved_productions() {
     }, {
         insta::assert_debug_snapshot!(metadata);
     });
+}
+
+#[test]
+fn rule_parsing_always_includes_default_layout() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax #Layout [token]
+          syntax Exp ::= "x" [symbol(x)]
+          rule x => x
+        endmodule
+    "#};
+    let definition = resolve_rule_bubbles(&lowered(source)).unwrap();
+
+    assert!(
+        definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .any(|sentence| matches!(sentence, Sentence::Rule { .. }))
+    );
+}
+
+#[test]
+fn infers_empty_user_list_in_a_function_rule() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax TypeKeyWord ::= "param" | "result"
+          syntax ValType ::= "i32"
+          syntax ValTypes ::= List{ValType, ""} [symbol(listValTypes), terminator-symbol(".List{\"listValTypes\"}")]
+          syntax TypeDecl ::= TypeKeyWord ValTypes
+          syntax TypeDecls ::= List{TypeDecl, ""} [symbol(listTypeDecl), terminator-symbol(".List{\"listTypeDecl\"}")]
+          syntax VecType ::= "[" ValTypes "]" [symbol(aVecType)]
+          syntax VecType ::= #gatherTypes(TypeKeyWord, TypeDecls, ValTypes) [function, symbol(gatherTypes)]
+
+          rule #gatherTypes(_, .TypeDecls, TYPES) => [ TYPES ]
+        endmodule
+    "#};
+    let definition = resolve_rule_bubbles(&lowered(source)).unwrap();
+
+    assert!(
+        definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .any(|sentence| matches!(sentence, Sentence::Rule { .. }))
+    );
 }
 
 #[test]
@@ -370,6 +565,48 @@ fn loader_parses_rewrites_between_bags_inside_collection_cells() {
     }, {
         insta::assert_debug_snapshot!(rules);
     });
+}
+
+#[test]
+fn loader_parses_parenthesized_rewrites_between_bags_before_cell_dots() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Stmt ::= insert(Int, Int)
+          configuration
+            <k> $PGM:Stmt </k>
+            <map>
+              <entry multiplicity="*" type="Map">
+                <key> .K </key>
+                <value> .K </value>
+              </entry>
+            </map>
+
+          rule
+            <k> insert(Key, Value) => .K ...</k>
+            <map>
+              ( .Bag => <entry> <key> Key </key> <value> Value </value> </entry> )
+              ...
+            </map>
+        endmodule
+    "#};
+    let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+    let loaded = load(
+        ResolvedSource::new("parenthesized-collection-cells.k", source),
+        "MAIN",
+        &mut resolver,
+    )
+    .unwrap();
+
+    assert!(
+        loaded
+            .definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .any(|sentence| matches!(sentence, Sentence::Rule { .. }))
+    );
 }
 
 #[test]
@@ -832,6 +1069,94 @@ rule_snapshot!(
           rule pair(... left: 4) => pair(... left: 5)
         endmodule
     "#
+);
+
+rule_snapshot!(
+    collapses_a_record_pattern_before_an_as_pattern,
+    r##"
+        module MAIN
+          syntax Map ::= ".Map" [symbol(dotMap)]
+          syntax Int ::= "0" [symbol(zero)]
+          syntax TypesInfo ::= "#ti" "(" t2i: Map "," count: Int ")" [symbol(ti)]
+          syntax Result ::= "use" "(" TypesInfo ")" [symbol(use)]
+          rule use(#ti(... t2i: M) #as TI) => use(TI)
+        endmodule
+    "##
+);
+
+rule_snapshot!(
+    parses_nested_collection_operations_in_a_record_field,
+    r##"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+                       | Int "+Int" Int [symbol(addInt)]
+          syntax Key ::= "key" [symbol(key)]
+          syntax KItem ::= Int | Key
+          syntax Map ::= ".Map" [symbol(dotMap)]
+                       | Map "[" key: KItem "<-" value: KItem "]" [symbol(updateMap), prefer]
+          syntax KItem ::= Map "[" KItem "]" "orDefault" KItem [symbol(lookupMap)]
+          syntax TypesInfo ::= "#ti" "(" t2i: Map "," count: Int ")" [symbol(ti)]
+          syntax Result ::= "use" "(" TypesInfo ")" [symbol(use)]
+          rule use(#ti(... t2i: M, count: N))
+            => use(#ti(... t2i: M [ key <- (M [ key ] orDefault N) ], count: N +Int 1))
+        endmodule
+    "##
+);
+
+rule_snapshot!(
+    resolves_an_element_of_an_overloaded_user_list,
+    r##"
+        module MAIN
+          syntax EmptyStmt
+          syntax Instr ::= EmptyStmt
+          syntax Defn ::= EmptyStmt | "d" [symbol(d)]
+          syntax Stmt ::= Instr | Defn
+          syntax EmptyStmts ::= List{EmptyStmt, ""} [overload(listStmt), terminator-symbol(".List{\"listStmt\"}")]
+          syntax Instrs ::= List{Instr, ""} [overload(listStmt)]
+          syntax Defns ::= List{Defn, ""} [overload(listStmt)]
+          syntax Stmts ::= List{Stmt, ""} [overload(listStmt)]
+          syntax Instrs ::= EmptyStmts
+          syntax Defns ::= EmptyStmts
+          syntax Stmts ::= Instrs | Defns
+          syntax TypesInfo ::= "info" [symbol(info)]
+          syntax TypesInfo ::= "#types2indices" "(" Defns "," TypesInfo ")" [function, symbol(types2indices)]
+          rule #types2indices(_D DS, M) => #types2indices(DS, M) [owise]
+        endmodule
+    "##
+);
+
+rule_snapshot!(
+    collapses_a_record_with_a_rewrite_in_a_field,
+    r##"
+        module MAIN
+          syntax Defn ::= "t" [symbol(t)]
+          syntax Defns ::= List{Defn, ""} [symbol(listDefns), terminator-symbol(".Defns")]
+          syntax ModuleDecl ::= "#module" "(" types: Defns "," funcs: Defns ")" [symbol(aModuleDecl)]
+          syntax Result ::= "#structureModule" "(" Defns "," ModuleDecl ")" [symbol(structureModule)]
+          rule #structureModule((T:Defn DS:Defns => DS), #module(... types: TS => T TS))
+        endmodule
+    "##
+);
+
+rule_snapshot!(
+    infers_an_anonymous_bag_variable,
+    r#"
+        module MAIN
+          syntax Result ::= "clear" "(" Bag ")" [symbol(clear)]
+          rule clear(_) => clear(.Bag)
+        endmodule
+    "#
+);
+
+rule_snapshot!(
+    resolves_an_explicit_kast_token_over_a_generic_application,
+    r##"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= "use" "(" Int ")" [symbol(use)]
+          rule use(#token("1", "Int")) => use(1)
+        endmodule
+    "##
 );
 
 rule_snapshot!(

@@ -185,6 +185,7 @@ pub enum ModuleToKoreError {
     },
     ExpectedGeneratedTopCell {
         actual: Sort,
+        rule: String,
     },
     MissingEquationProduction {
         label: String,
@@ -232,9 +233,9 @@ impl fmt::Display for ModuleToKoreError {
             Self::ExpectedRewrite { sentence } => {
                 write!(formatter, "cannot emit {sentence} without a rewrite body")
             }
-            Self::ExpectedGeneratedTopCell { actual } => write!(
+            Self::ExpectedGeneratedTopCell { actual, rule } => write!(
                 formatter,
-                "ordinary semantic rules must rewrite GeneratedTopCell, found {actual}"
+                "ordinary semantic rules must rewrite GeneratedTopCell, found {actual} in rule {rule}"
             ),
             Self::MissingEquationProduction { label } => {
                 write!(
@@ -1016,21 +1017,9 @@ fn generated_axioms(
 
 fn constructor_productions(
     productions: &ProductionCatalog<'_>,
-    overloads: &OverloadOrder<'_>,
+    _overloads: &OverloadOrder<'_>,
     rules: &crate::definition::RuleCatalog<'_>,
 ) -> BTreeSet<ProductionId> {
-    let overloaded_greater = overloads
-        .order()
-        .elements()
-        .flat_map(|lesser| {
-            overloads
-                .order()
-                .relations_from(lesser)
-                .into_iter()
-                .flatten()
-                .copied()
-        })
-        .collect::<BTreeSet<_>>();
     let anywhere_labels = rules
         .rules()
         .filter(|(_, rule)| rule.attributes().get("anywhere").is_some())
@@ -1056,7 +1045,6 @@ fn constructor_productions(
             (attributes.get("function").is_none()
                 && !algebraic
                 && !is_macro
-                && !overloaded_greater.contains(&id)
                 && !anywhere_labels.contains(label)
                 && !is_builtin_label(&label.name))
             .then_some(id)
@@ -1965,10 +1953,7 @@ fn emit_rule_or_claim(
     let body_sort = injector.term_sort(body, None)?;
     let (left, right) = match body.unannotated() {
         Term::Rewrite { left, right } => (left.as_ref(), right.as_ref()),
-        _ if claim => (body, body),
-        _ => {
-            return Err(ModuleToKoreError::ExpectedRewrite { sentence: "rule" });
-        }
+        _ => (body, body),
     };
     let existentials = existential_variables(right, ensures, converter)?;
     let equation = equation_info(left, attributes, productions)?;
@@ -2002,7 +1987,10 @@ fn emit_rule_or_claim(
         return emit_macro_axiom(left, right, attributes, valued, injector, converter);
     }
     if !claim && body_sort != Sort::new("GeneratedTopCell") {
-        return Err(ModuleToKoreError::ExpectedGeneratedTopCell { actual: body_sort });
+        return Err(ModuleToKoreError::ExpectedGeneratedTopCell {
+            actual: body_sort,
+            rule: body.to_string(),
+        });
     }
     let result_sort = encode_kore_sort(&body_sort);
     let left = converter.convert(left)?;
@@ -2485,10 +2473,16 @@ fn emit_owise_equation(
     competitors.push(Pattern::Bottom {
         sort: predicate_sort.clone(),
     });
-    let any_competitor = Pattern::Or {
-        sort: predicate_sort.clone(),
-        arguments: competitors,
-    };
+    let mut competitors = competitors.into_iter().rev();
+    let mut any_competitor = competitors
+        .next()
+        .expect("the competitor disjunction always ends in bottom");
+    for competitor in competitors {
+        any_competitor = Pattern::Or {
+            sort: predicate_sort.clone(),
+            arguments: vec![competitor, any_competitor],
+        };
+    }
     let negative_match = Pattern::Not {
         sort: predicate_sort.clone(),
         argument: Box::new(any_competitor),
@@ -2592,11 +2586,12 @@ fn refresh_variables(
     term: &Term,
     avoid: &BTreeSet<String>,
     counter: &mut usize,
-    renames: &mut BTreeMap<String, String>,
+    renames: &mut BTreeMap<(String, Option<Sort>), String>,
 ) -> Term {
     let refreshed = match term.unannotated() {
         Term::Variable { name, sort } => {
-            let name = renames.entry(name.clone()).or_insert_with(|| {
+            let identity = (name.clone(), sort.clone());
+            let name = renames.entry(identity).or_insert_with(|| {
                 loop {
                     let candidate = format!("_Gen{counter}");
                     *counter += 1;
@@ -3675,5 +3670,39 @@ mod tests {
         assert_eq!(equation.argument_sorts, [from]);
         assert_eq!(equation.result_sort, to);
         assert!(equation.direct);
+    }
+
+    #[test]
+    fn refreshes_same_named_variables_at_distinct_sorts_independently() {
+        let term = Term::apply(
+            "pair",
+            vec![
+                Term::Variable {
+                    name: "X".into(),
+                    sort: Some(Sort::new("A")),
+                },
+                Term::Variable {
+                    name: "X".into(),
+                    sort: Some(Sort::new("B")),
+                },
+            ],
+        );
+        let refreshed = refresh_variables(&term, &BTreeSet::new(), &mut 0, &mut BTreeMap::new());
+        let variables = variable_terms([&refreshed]);
+
+        assert_eq!(
+            variables.keys().cloned().collect::<Vec<_>>(),
+            ["_Gen0", "_Gen1"]
+        );
+        assert_eq!(
+            variables
+                .values()
+                .map(|term| match term.unannotated() {
+                    Term::Variable { sort, .. } => sort.clone().unwrap(),
+                    _ => unreachable!(),
+                })
+                .collect::<Vec<_>>(),
+            [Sort::new("A"), Sort::new("B")]
+        );
     }
 }

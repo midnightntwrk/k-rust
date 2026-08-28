@@ -115,7 +115,7 @@ impl Grammar {
     fn add_empty_lists_with_order(
         &self,
         term: ParsedTerm,
-        _expected: &Sort,
+        expected: &Sort,
         subsorts: &PartialOrder<Sort>,
     ) -> Result<ParsedTerm, ParseError> {
         match term {
@@ -124,7 +124,7 @@ impl Grammar {
                 alternatives
                     .into_iter()
                     .map(|alternative| {
-                        self.add_empty_lists_with_order(alternative, _expected, subsorts)
+                        self.add_empty_lists_with_order(alternative, expected, subsorts)
                     })
                     .collect::<Result<_, _>>()?,
             )),
@@ -148,10 +148,29 @@ impl Grammar {
                         || label.name == "#SyntacticCastBraced"
                         || label.name.starts_with("#SemanticCastTo")
                 });
+                // Rewrite operands are parsed through generic K productions, but sort inference
+                // still requires both sides to share the function result sort. Preserve that
+                // context when one side is a user list so a singleton element on the other side
+                // receives its real recursive constructor and terminator.
+                let rewrite_list_sort = descriptor
+                    .label
+                    .as_ref()
+                    .is_some_and(|label| label.name == "#KRewrite")
+                    .then(|| {
+                        children
+                            .iter()
+                            .map(|child| parsed_sort(self, child))
+                            .filter(|sort| self.user_lists.contains_key(sort))
+                            .collect::<BTreeSet<_>>()
+                    })
+                    .and_then(|sorts| {
+                        (sorts.len() == 1).then(|| sorts.into_iter().next().unwrap())
+                    });
                 let children = children
                     .into_iter()
                     .zip(expected_children)
                     .map(|(child, expected_child)| {
+                        let expected_child = rewrite_list_sort.as_ref().unwrap_or(expected_child);
                         let child = if shields_children {
                             child
                         } else {
@@ -206,10 +225,25 @@ impl Grammar {
                         children.len()
                     )));
                 }
+                let rewrite_list_sort = descriptor
+                    .label
+                    .as_ref()
+                    .is_some_and(|label| label.name == "#KRewrite")
+                    .then(|| {
+                        children
+                            .iter()
+                            .map(|child| parsed_sort(self, child))
+                            .filter(|sort| self.user_lists.contains_key(sort))
+                            .collect::<BTreeSet<_>>()
+                    })
+                    .and_then(|sorts| {
+                        (sorts.len() == 1).then(|| sorts.into_iter().next().unwrap())
+                    });
                 let children = children
                     .into_iter()
                     .zip(&expected_children)
                     .map(|(child, expected_child)| {
+                        let expected_child = rewrite_list_sort.as_ref().unwrap_or(expected_child);
                         let child = self.wrap_list_child(child, expected_child, subsorts)?;
                         self.add_empty_lists_with_order(child, expected_child, subsorts)
                     })

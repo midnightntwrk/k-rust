@@ -260,3 +260,32 @@ fn resolved_production_identity_disambiguates_application_sorts() {
         k_rust::kore::ast::Pattern::Rewrites { .. }
     ));
 }
+
+#[test]
+fn recovers_a_stale_catalog_identity_for_a_unique_label() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+        endmodule
+    "#});
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let module = resolved.module_id("MAIN").unwrap();
+    let catalog = resolved.production_catalog(module);
+    let stale = catalog.productions_for(&LabelHead::new("b"))[0];
+    let term = Term::apply("a", Vec::new()).with_metadata(TermMetadata {
+        span: None,
+        production: Some(ResolvedProductionId(stale.0)),
+        sort: None,
+    });
+
+    assert_eq!(
+        Printer::compact().print_pattern(
+            &TermConverter::new(&resolved, "MAIN")
+                .unwrap()
+                .convert(&term)
+                .expect("the unique visible production should replace the stale identity")
+        ),
+        "Lbla{}()"
+    );
+}

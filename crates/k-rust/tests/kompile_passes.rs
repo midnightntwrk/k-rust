@@ -2,19 +2,19 @@ use indoc::indoc;
 use k_rust::{
     definition::{
         Attributes, Definition, FlatImport, FlatModule, LabelHead, ProductionId, ProductionItem,
-        ResolvedDefinition, Sentence,
+        ResolvedDefinition, Sentence, check_definition,
     },
     kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, printer::Printer},
     kompile::{
         add_cool_like_attributes, add_implicit_computation_cell, add_semantics_module,
-        check_simplification_rules, concretize_cells, constant_fold, expand_macros,
-        generate_sort_predicate_rules, generate_sort_predicate_syntax, generate_sort_projections,
-        guard_or_patterns, minimize_term_construction, module_to_kore, number_sentences,
-        propagate_macro_attributes, remove_unit, resolve_anon_vars, resolve_comm,
-        resolve_config_var, resolve_contexts, resolve_fresh_config_constants,
-        resolve_fresh_constants, resolve_fun, resolve_function_with_config,
-        resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts, resolve_strict,
-        subsort_kitem,
+        add_sort_injections_to_definition, check_simplification_rules, concretize_cells,
+        constant_fold, expand_macros, generate_sort_predicate_rules,
+        generate_sort_predicate_syntax, generate_sort_projections, guard_or_patterns,
+        minimize_term_construction, module_to_kore, number_sentences, propagate_macro_attributes,
+        remove_unit, resolve_anon_vars, resolve_comm, resolve_config_var, resolve_contexts,
+        resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
+        resolve_function_with_config, resolve_heat_cool_attributes, resolve_io,
+        resolve_semantic_casts, resolve_strict, subsort_kitem,
     },
     outer::{ResolvedSource, load},
 };
@@ -447,6 +447,61 @@ fn lowers_local_functions_with_closure_arguments_and_totality() {
             .iter()
             .any(|body| { body.contains("`#lambda__`(X,Y)=>plus(X,Y)") })
     );
+}
+
+#[test]
+fn local_function_variable_patterns_adopt_the_argument_sort() {
+    let a = Sort::new("A");
+    let b = Sort::new("B");
+    let local_function = application(
+        "#let",
+        vec![
+            Term::Variable {
+                name: "X".into(),
+                sort: Some(a),
+            },
+            Term::Token {
+                token: "b".into(),
+                sort: b.clone(),
+            },
+            Term::variable("X"),
+        ],
+    );
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: b.clone(),
+                    attributes: Attributes::default(),
+                },
+                rule(local_function, Attributes::default()),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+    let transformed = resolve_fun(&definition).unwrap();
+    let argument_sort = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label),
+                items,
+                ..
+            } if label.name.starts_with("#lambda") => items.iter().find_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => Some(sort),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .unwrap();
+
+    assert_eq!(argument_sort, &b);
 }
 
 #[test]
@@ -1505,6 +1560,41 @@ fn expands_nested_macros_child_first_in_priority_order() {
 }
 
 #[test]
+fn validates_smt_lemmas_after_expanding_aliases() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+                       | "pow256" [alias, symbol(pow256)]
+                       | "chop" "(" Int ")" [function, total, smtlib(chop), symbol(chop)]
+                       | Int "mod" Int [function, total, smt-hook(mod), symbol(mod)]
+          rule pow256 => 256
+          rule chop(I:Int) => I mod pow256 [smt-lemma]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    assert!(
+        check_definition(&resolved).unwrap().iter().all(
+            |diagnostic| diagnostic.code != k_rust::diagnostic::DiagnosticCode::InvalidSmtLemma
+        )
+    );
+
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let transformed = expand_macros(&definition).unwrap();
+    let smt_lemma = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find(|sentence| sentence.attributes().get("smt-lemma").is_some())
+        .unwrap();
+    let Sentence::Rule { body, .. } = smt_lemma else {
+        panic!("expected an SMT lemma rule");
+    };
+    assert!(!Printer::new().print_term(body).contains("pow256"));
+}
+
+#[test]
 fn macro_matching_reuses_repeated_variables_and_freshens_unbound_rhs_variables() {
     let source = indoc! {r#"
         module MAIN
@@ -1708,6 +1798,43 @@ fn imported_syntax_rules_use_the_main_modules_computation_cell() {
     assert!(matches!(
         body.unannotated(),
         Term::Apply { label, .. } if label.name == "<k>"
+    ));
+}
+
+#[test]
+fn wraps_a_non_function_overload_in_the_computation_cell() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(shared)]
+                       | "f" [function, symbol(shared)]
+                       | "done" [symbol(done)]
+          configuration <k> a </k>
+          rule a => done [label(step)]
+          rule f => a [label(equation)]
+        endmodule
+    "#};
+    let transformed = add_implicit_computation_cell(&parsed(source)).unwrap();
+    let bodies = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } => attributes.get_str("label").map(|label| (label, body)),
+            _ => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    assert!(matches!(
+        bodies["step"].unannotated(),
+        Term::Apply { label, .. } if label.name == "<k>"
+    ));
+    assert!(matches!(
+        bodies["equation"].unannotated(),
+        Term::Rewrite { left, .. }
+            if matches!(left.unannotated(), Term::Apply { label, .. } if label.name == "shared")
     ));
 }
 
@@ -1990,6 +2117,268 @@ fn concretizes_nested_cells_to_declared_fixed_arities() {
     }, {
         insta::assert_debug_snapshot!(output);
     });
+}
+
+#[test]
+fn drops_a_shallower_misnested_sibling_when_completing_parent_cells() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <left>
+                <value> 0 </value>
+              </left>
+              <right> 1 </right>
+            </top>
+          rule
+            <left>
+              <value> 0 => 2 </value>
+              <right> 1 => 3 </right>
+              ...
+            </left>
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_none()
+                && Printer::new().print_term(body).contains("#token(\"2\"") =>
+            {
+                Some(Printer::new().print_term(body))
+            }
+            _ => None,
+        })
+        .expect("the labeled rule should remain");
+
+    assert!(
+        body.contains("<value>"),
+        "the direct child was lost: {body}"
+    );
+    assert!(
+        !body.contains("<right>"),
+        "the shallower sibling should match Java's discarded level: {body}"
+    );
+}
+
+#[test]
+fn concretizes_cells_inside_generated_simplification_rules() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <batch> 0 </batch>
+            </top>
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+
+    for sentence in transformed
+        .modules
+        .iter()
+        .flat_map(|module| &module.local_sentences)
+    {
+        let Sentence::Rule { body, .. } = sentence else {
+            continue;
+        };
+        body.visit_preorder(&mut |term| {
+            if let Term::Apply { label, arguments } = term.unannotated()
+                && label.name == "<batch>"
+            {
+                assert_eq!(arguments.len(), 1, "incomplete batch cell in {body:?}");
+            }
+        });
+    }
+
+    let transformed = add_semantics_module(&transformed);
+    let transformed = resolve_config_var(&transformed);
+    let transformed = add_cool_like_attributes(&transformed);
+    let transformed = generate_sort_predicate_rules(&transformed);
+    let transformed = number_sentences(&transformed);
+    add_sort_injections_to_definition(&transformed).unwrap();
+}
+
+#[test]
+fn does_not_wrap_matching_logic_simplifications_in_the_generated_top_cell() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "m(" Exp ")" [mlOp, symbol(m)]
+          configuration <k> a </k>
+          rule m(a) => a [simplification]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("simplification").is_some() => {
+                Some(Printer::new().print_term(body))
+            }
+            _ => None,
+        })
+        .expect("the simplification rule should remain");
+
+    assert!(body.starts_with("m("), "rule was wrapped in a cell: {body}");
+    assert!(
+        !body.contains("<generatedTop>"),
+        "simplification rule gained the generated top cell: {body}"
+    );
+}
+
+#[test]
+fn splits_fragment_variables_on_both_sides_of_a_parent_cell_rewrite() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <k> 0 </k>
+              <saved>
+                <first> 1 </first>
+                <second> 2 </second>
+              </saved>
+            </top>
+          rule <k> 0 => 1 ... </k>
+               <saved> _ => SAVED </saved>
+        endmodule
+    "#};
+    let definition = resolve_anon_vars(&parsed(source));
+    let definition = resolve_semantic_casts(&definition);
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_none() => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .unwrap();
+
+    assert!(
+        body.contains("<saved>"),
+        "missing saved parent cell: {body}"
+    );
+    assert_eq!(
+        body.matches("=>").count(),
+        3,
+        "the k, first, and second cells should each contain a rewrite: {body}"
+    );
+}
+
+#[test]
+fn lifts_one_sided_repeated_cell_rewrites_through_missing_parents() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <store>
+                <items>
+                  <item multiplicity="*" type="Map">
+                    <id> 0 </id>
+                  </item>
+                </items>
+              </store>
+            </top>
+          rule (.Bag => <item> <id> 1 </id> </item>)
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_none() => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .expect("the repeated-cell insertion rule should remain");
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_snapshot!(body);
+    });
+}
+
+#[test]
+fn clears_repeated_cell_contents_without_removing_the_parent() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <items>
+                <item multiplicity="*" type="Map">
+                  <id> 0 </id>
+                </item>
+              </items>
+            </top>
+          rule <items> _ => .Bag </items>
+        endmodule
+    "#};
+    let definition = resolve_anon_vars(&parsed(source));
+    let definition = resolve_semantic_casts(&definition);
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_none() => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .expect("the repeated-cell clearing rule should remain");
+
+    assert!(
+        body.contains("`<items>`("),
+        "the parent cell was removed: {body}"
+    );
+    assert!(
+        body.contains("=>`.ItemCellMap`"),
+        "the repeated contents were not cleared: {body}"
+    );
 }
 
 #[test]

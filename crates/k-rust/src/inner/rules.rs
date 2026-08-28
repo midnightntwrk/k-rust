@@ -75,7 +75,6 @@ impl std::error::Error for RuleError {}
 pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleError> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(RuleError::Definition)?;
     let mut transformed = definition.clone();
-
     for module in &mut transformed.modules {
         if !module.local_sentences.iter().any(is_rule_bubble) {
             continue;
@@ -261,8 +260,9 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
     #[cfg(feature = "z3-inference")]
     add_builtin_rule_sentences(&mut parsing_sentences);
     let source_catalog = resolved.production_catalog(module);
-    let mut grammar =
-        Grammar::from_sentences_with_catalog(parsing_sentences.iter(), &source_catalog)?;
+    // The reference rule grammar imports DEFAULT-LAYOUT explicitly, independently
+    // of the layout used to parse programs in the language being compiled.
+    let mut grammar = Grammar::from_rule_sentences(parsing_sentences.iter(), &source_catalog)?;
     let bracket_sorts = visible
         .iter()
         .filter_map(|sentence| match sentence {
@@ -414,6 +414,41 @@ fn add_rule_k_syntax(
     )?;
     grammar.add_left_associative("#KList");
     grammar.add(
+        Sort::new("KString"),
+        vec![ProductionItem::regex(
+            r#"[\"](([^\"\n\r\\])|([\\][nrtf\"\\])|([\\][x][0-9a-fA-F]{2})|([\\][u][0-9a-fA-F]{4})|([\\][U][0-9a-fA-F]{8}))*[\"]"#,
+        )],
+        None,
+        true,
+        false,
+    )?;
+    grammar.add(
+        Sort::new("KBott"),
+        vec![
+            ProductionItem::Terminal("#token".into()),
+            ProductionItem::Terminal("(".into()),
+            nonterminal("KString"),
+            ProductionItem::Terminal(",".into()),
+            nonterminal("KString"),
+            ProductionItem::Terminal(")".into()),
+        ],
+        Some(Label::new("#KToken")),
+        false,
+        false,
+    )?;
+    grammar.add(
+        Sort::new("KBott"),
+        vec![
+            ProductionItem::Terminal("#klabel".into()),
+            ProductionItem::Terminal("(".into()),
+            nonterminal("KLabel"),
+            ProductionItem::Terminal(")".into()),
+        ],
+        Some(Label::new("#WrappedKLabel")),
+        false,
+        false,
+    )?;
+    grammar.add(
         Sort::new("KBott"),
         vec![
             nonterminal("KLabel"),
@@ -436,6 +471,32 @@ fn add_rule_k_syntax(
             ProductionItem::Terminal(")".into()),
         ],
     )?;
+    // `KItem` is also excluded from `concrete_sorts`. Materialize KAST's
+    // parametric bracket for it so a parenthesized lookup can inhabit a
+    // collection operation's KItem-valued field.
+    grammar.add_bracket(
+        Sort::new("KItem"),
+        vec![
+            ProductionItem::Terminal("(".into()),
+            nonterminal("KItem"),
+            ProductionItem::Terminal(")".into()),
+        ],
+    )?;
+    // Collection cells use parenthesized Bag rewrites immediately before their
+    // trailing cell dots. Keep a parse-only concrete bracket for the same reason
+    // as K above: the imported polymorphic bracket cannot always complete the
+    // rewrite at this boundary.
+    grammar.add_bracket(
+        Sort::new("Bag"),
+        vec![
+            ProductionItem::Terminal("(".into()),
+            nonterminal("Bag"),
+            ProductionItem::Terminal(")".into()),
+        ],
+    )?;
+    for sort in [Sort::new("Bag"), Sort::new("Cell")] {
+        add_casts(grammar, Sort::new("K"), sort.clone(), sort)?;
+    }
     #[cfg(not(feature = "z3-inference"))]
     add_rule_sort(grammar, &Sort::new("K"))?;
     let rule_body_sort = rule_sort(&Sort::new("K"));
@@ -468,12 +529,14 @@ fn add_rule_k_syntax(
     grammar.add(
         Sort::new("#RuleBody"),
         vec![
-            ProductionItem::Terminal("[[".into()),
+            ProductionItem::Terminal("[".into()),
+            ProductionItem::Terminal("[".into()),
             ProductionItem::NonTerminal {
                 sort: rule_body_sort,
                 name: None,
             },
-            ProductionItem::Terminal("]]".into()),
+            ProductionItem::Terminal("]".into()),
+            ProductionItem::Terminal("]".into()),
             nonterminal("Bag"),
         ],
         Some(Label::new("#withConfig")),

@@ -305,10 +305,15 @@ fn lower_user_list(
     );
     let unqualified_terminator = explicit_terminator.map_or_else(
         || {
+            let list_label = if has_symbol {
+                recursive_label.clone()
+            } else {
+                let raw_label = raw_prefix_label(production).0;
+                format!("{raw_label}_{}", module.name)
+            };
             format!(
                 ".List{{{}}}",
-                serde_json::to_string(&prefix_label(module, result_sort, production, false))
-                    .expect("strings serialize")
+                serde_json::to_string(&list_label).expect("strings serialize")
             )
         },
         |label| label.replace(' ', ""),

@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  configuration\n    <top>\n      <store>\n        <items>\n          <item multiplicity=\"*\" type=\"Map\">\n            <id> 0 </id>\n          </item>\n        </items>\n      </store>\n    </top>\n  rule (.Bag => <item> <id> 1 </id> </item>)\nendmodule\n"
+---
+`<generatedTop>`(`<top>`(`<store>`(`<items>`(`_ItemCellMap_`(`.ItemCellMap`(.KList)=>`<item>`(`<id>`(#token("1","Int"))),_DotVar0)))),_DotVar3)

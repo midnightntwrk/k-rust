@@ -182,6 +182,23 @@ module_snapshot!(
     "MAIN"
 );
 
+#[test]
+fn emits_non_rewrite_rules_as_reflexive_rewrites() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax GeneratedTopCell ::= "<top>" Int "</top>" [symbol(top)]
+
+          rule <top> 0 </top> [label(stutter)]
+        endmodule
+    "#};
+    let modules = module_to_kore(&rules(source, "MAIN"), "MAIN")
+        .expect("a non-rewrite rule should emit as an identity rewrite");
+    let semantics = Printer::pretty(100).print_module(&modules.semantics);
+
+    assert!(semantics.contains("\\rewrites{SortGeneratedTopCell{}}"));
+}
+
 module_snapshot!(
     emits_function_anywhere_and_simplification_equations,
     r#"
@@ -499,7 +516,7 @@ fn rejects_non_top_cell_semantic_rules() {
     let error = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap_err();
     assert_eq!(
         error.to_string(),
-        "ordinary semantic rules must rewrite GeneratedTopCell, found Int"
+        "ordinary semantic rules must rewrite GeneratedTopCell, found Int in rule #token(\"0\",\"Int\")=>#token(\"1\",\"Int\")"
     );
 }
 

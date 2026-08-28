@@ -37,6 +37,13 @@ pub enum SortInjectionError {
         module: String,
         message: String,
     },
+    Sentence {
+        module: String,
+        sentence: usize,
+        source: Option<String>,
+        line: Option<u32>,
+        error: Box<SortInjectionError>,
+    },
     InvalidArity {
         label: String,
         expected: usize,
@@ -90,6 +97,24 @@ impl fmt::Display for SortInjectionError {
                 formatter,
                 "cannot rebase production metadata from module {module:?}: {message}"
             ),
+            Self::Sentence {
+                module,
+                sentence,
+                source,
+                line,
+                error,
+            } => {
+                if let Some(source) = source {
+                    write!(formatter, "{source}")?;
+                    if let Some(line) = line {
+                        write!(formatter, ":{line}")?;
+                    }
+                    write!(formatter, ": ")?;
+                } else {
+                    write!(formatter, "sentence {sentence} of module {module:?}: ")?;
+                }
+                error.fmt(formatter)
+            }
             Self::InvalidArity {
                 label,
                 expected,
@@ -166,6 +191,10 @@ impl<'a> SortInjector<'a> {
     pub fn inject_at_top(&self, term: &Term) -> Result<Term, SortInjectionError> {
         let top = self.term_sort(term, None)?;
         self.inject_with_position(term, &top, false)
+    }
+
+    pub(crate) fn is_user_list_sort(&self, sort: &Sort) -> bool {
+        self.sorts.list_sorts().contains(sort)
     }
 
     /// Match Java's sentence boundary: rule/claim conditions are always `Bool`.
@@ -401,7 +430,105 @@ impl<'a> SortInjector<'a> {
         {
             return Ok(wrapped);
         }
+        if let Some(wrapped) = self.user_list_wrapper(&actual, expected, visited.clone()) {
+            return Ok(wrapped);
+        }
         Ok(injection(actual, expected.clone(), visited))
+    }
+
+    fn user_list_wrapper(&self, actual: &Sort, expected: &Sort, visited: Term) -> Option<Term> {
+        if !self.sorts.list_sorts().contains(expected) || self.sorts.list_sorts().contains(actual) {
+            return None;
+        }
+        let mut recursive = self
+            .productions
+            .productions_for_sort(&SortHead::from(expected))
+            .iter()
+            .filter_map(|id| match self.productions.production(*id) {
+                Sentence::Production {
+                    label: Some(label),
+                    parameters,
+                    sort,
+                    items,
+                    attributes,
+                } if parameters.is_empty()
+                    && sort == expected
+                    && attributes.get("userList").is_some() =>
+                {
+                    let arguments = items
+                        .iter()
+                        .filter_map(|item| match item {
+                            crate::definition::ProductionItem::NonTerminal { sort, .. } => {
+                                Some(sort)
+                            }
+                            crate::definition::ProductionItem::Terminal(_)
+                            | crate::definition::ProductionItem::RegexTerminal { .. } => None,
+                        })
+                        .collect::<Vec<_>>();
+                    match arguments.as_slice() {
+                        [child, list]
+                            if *list == expected
+                                && (actual == *child
+                                    || self.subsorts.less_than_eq(actual, child)) =>
+                        {
+                            Some((label.clone(), false))
+                        }
+                        [list, child]
+                            if *list == expected
+                                && (actual == *child
+                                    || self.subsorts.less_than_eq(actual, child)) =>
+                        {
+                            Some((label.clone(), true))
+                        }
+                        _ => None,
+                    }
+                }
+                _ => None,
+            });
+        let (recursive_label, left_associative) = recursive.next()?;
+        if recursive.next().is_some() {
+            return None;
+        }
+
+        let mut terminators = self
+            .productions
+            .productions_for_sort(&SortHead::from(expected))
+            .iter()
+            .filter_map(|id| match self.productions.production(*id) {
+                Sentence::Production {
+                    label: Some(label),
+                    parameters,
+                    sort,
+                    items,
+                    attributes,
+                } if parameters.is_empty()
+                    && sort == expected
+                    && attributes.get("userList").is_some()
+                    && !items.iter().any(|item| {
+                        matches!(item, crate::definition::ProductionItem::NonTerminal { .. })
+                    }) =>
+                {
+                    Some(label.clone())
+                }
+                _ => None,
+            });
+        let terminator = terminators.next()?;
+        if terminators.next().is_some() {
+            return None;
+        }
+        let terminator = Term::Apply {
+            label: terminator,
+            arguments: Vec::new(),
+        };
+        let arguments = if left_associative {
+            vec![terminator, visited]
+        } else {
+            vec![visited, terminator]
+        };
+        Some(Term::Apply {
+            label: recursive_label,
+            arguments,
+        })
     }
 
     fn collection_wrapper(
@@ -701,9 +828,10 @@ impl<'a> SortInjector<'a> {
     }
 
     fn production(&self, term: &Term, label: &Label) -> Result<&'a Sentence, SortInjectionError> {
+        let mut invalid_resolved = None;
         if let Some(resolved) = term.metadata().and_then(|metadata| metadata.production) {
             if resolved.0 >= self.productions.len() {
-                return Err(SortInjectionError::InvalidResolvedProduction {
+                invalid_resolved = Some(SortInjectionError::InvalidResolvedProduction {
                     label: label.name.clone(),
                     production: resolved.0,
                     message: format!(
@@ -711,26 +839,27 @@ impl<'a> SortInjector<'a> {
                         self.productions.len()
                     ),
                 });
-            }
-            let production = self.productions.production(ProductionId(resolved.0));
-            let Sentence::Production {
-                label: production_label,
-                ..
-            } = production
-            else {
-                unreachable!()
-            };
-            if production_label
-                .as_ref()
-                .is_none_or(|production_label| production_label.name != label.name)
-            {
-                return Err(SortInjectionError::InvalidResolvedProduction {
+            } else {
+                let production = self.productions.production(ProductionId(resolved.0));
+                let Sentence::Production {
+                    label: production_label,
+                    ..
+                } = production
+                else {
+                    unreachable!()
+                };
+                if production_label
+                    .as_ref()
+                    .is_some_and(|production_label| production_label.name == label.name)
+                {
+                    return Ok(production);
+                }
+                invalid_resolved = Some(SortInjectionError::InvalidResolvedProduction {
                     label: label.name.clone(),
                     production: resolved.0,
                     message: "the production belongs to a different KLabel".into(),
                 });
             }
-            return Ok(production);
         }
         let ids = self.productions.productions_for(&LabelHead::from(label));
         if ids.len() > 1
@@ -750,12 +879,15 @@ impl<'a> SortInjector<'a> {
             }
         }
         match ids {
-            [] => Err(SortInjectionError::UnknownLabel(label.name.clone())),
+            [] => Err(invalid_resolved
+                .unwrap_or_else(|| SortInjectionError::UnknownLabel(label.name.clone()))),
             [id] => Ok(self.productions.production(*id)),
-            ids => Err(SortInjectionError::AmbiguousLabel {
-                label: label.name.clone(),
-                productions: ids.len(),
-            }),
+            ids => Err(
+                invalid_resolved.unwrap_or_else(|| SortInjectionError::AmbiguousLabel {
+                    label: label.name.clone(),
+                    productions: ids.len(),
+                }),
+            ),
         }
     }
 
@@ -820,7 +952,7 @@ pub fn add_sort_injections(
     add_sort_injections_from_resolved(&resolved, module, term)
 }
 
-/// Materialize sort injections across every rule and claim before final KORE lowering.
+/// Materialize sort injections across the compiled main module and its imports.
 pub fn add_sort_injections_to_definition(
     definition: &Definition,
 ) -> Result<Definition, SortInjectionError> {
@@ -838,15 +970,11 @@ pub fn add_sort_injections_to_definition(
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let local_injector;
-        let injector = if target_modules.contains(&module_id) {
-            &target_injector
-        } else {
-            local_injector = SortInjector::new(&resolved, &module.name)?;
-            &local_injector
-        };
+        if !target_modules.contains(&module_id) {
+            continue;
+        }
         let source_catalog = resolved.production_catalog(module_id);
-        for sentence in &mut module.local_sentences {
+        for (sentence_index, sentence) in module.local_sentences.iter_mut().enumerate() {
             let mut input = sentence.clone();
             if module_id != target && target_modules.contains(&module_id) {
                 super::passes::rebase_sentence(
@@ -862,7 +990,18 @@ pub fn add_sort_injections_to_definition(
                     }
                 })?;
             }
-            let mut injected = injector.inject_sentence(&input)?;
+            let mut injected = target_injector.inject_sentence(&input).map_err(|error| {
+                SortInjectionError::Sentence {
+                    module: module.name.clone(),
+                    sentence: sentence_index,
+                    source: sentence.attributes().source().map(str::to_owned),
+                    line: sentence
+                        .attributes()
+                        .location()
+                        .map(|location| location.start_line),
+                    error: Box::new(error),
+                }
+            })?;
             if module_id != target && target_modules.contains(&module_id) {
                 localize_sentence_metadata(
                     &mut injected,

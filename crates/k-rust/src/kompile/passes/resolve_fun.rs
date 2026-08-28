@@ -219,7 +219,18 @@ impl Resolver<'_, '_> {
         let right = rewrite_right(&body);
         let lhs_sort = self.term_sort(&left, &attributes);
         let argument_sort = self.term_sort(&argument, &attributes);
+        // Java treats variables as an unknown `K` sort in this LUB. A local-function pattern
+        // headed by a (possibly cast) variable therefore adopts the concrete argument sort
+        // instead of widening two incidental parser annotations to KItem/K.
+        let variable_pattern = underlying_variable(&left).is_some();
+        let singleton_user_list_pattern = variable_pattern
+            && matches!(
+                (&lhs_sort, &argument_sort),
+                (Some(lhs), Some(argument))
+                    if lhs != argument && self.injector.is_user_list_sort(argument)
+            );
         let parameter_sort = match (lhs_sort, argument_sort) {
+            (_, Some(argument)) if variable_pattern => argument,
             (Some(lhs), Some(argument)) => self
                 .injector
                 .least_upper_bound(&[lhs.clone(), argument.clone()], None)
@@ -230,7 +241,8 @@ impl Resolver<'_, '_> {
         let predicate = matches!(source_label.name.as_str(), "_:=K_" | "_:/=K_");
 
         let total = matches!(source_label.name.as_str(), "#fun2" | "#fun3" | "#let")
-            && underlying_variable(&left).is_some();
+            && variable_pattern
+            && !singleton_user_list_pattern;
         let result_sort = if predicate {
             Sort::new("Bool")
         } else {

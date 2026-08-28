@@ -3,7 +3,7 @@ use k_rust::definition::{
     Attributes, Definition, FlatImport, FlatModule, ProductionItem, ResolvedDefinition, Sentence,
 };
 use k_rust::inner::resolve_rule_bubbles;
-use k_rust::kast::{Label, Sort, Term, TermMetadata};
+use k_rust::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata};
 use k_rust::kompile::{
     SortInjector, add_sort_injections_to_definition, generate_sort_projections,
     term_to_kore_from_resolved,
@@ -66,6 +66,51 @@ macro_rules! injection_snapshot {
             });
         }
     };
+}
+
+#[test]
+fn recovers_a_stale_catalog_identity_for_a_unique_label() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+        endmodule
+    "#});
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let module = resolved.module_id("MAIN").unwrap();
+    let catalog = resolved.production_catalog(module);
+    let stale = catalog.productions_for(&k_rust::definition::LabelHead::new("b"))[0];
+    let term = Term::apply("a", Vec::new()).with_metadata(TermMetadata {
+        span: None,
+        production: Some(ResolvedProductionId(stale.0)),
+        sort: None,
+    });
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+
+    assert_eq!(
+        injector.inject_at_top(&term).unwrap().to_string(),
+        "a(.KList)"
+    );
+}
+
+#[test]
+fn reconstructs_a_singleton_user_list_for_generated_terms() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Item ::= "item" [symbol(item)]
+          syntax Items ::= List{Item, ""} [symbol(items), terminator-symbol(.Items)]
+        endmodule
+    "#});
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let item = Term::Variable {
+        name: "X".into(),
+        sort: Some(Sort::new("Item")),
+    };
+
+    let injected = injector.inject(&item, &Sort::new("Items")).unwrap();
+
+    assert_eq!(injected.to_string(), "items(X,`.Items`(.KList))");
 }
 
 injection_snapshot!(
@@ -358,4 +403,43 @@ fn definition_injection_uses_the_selected_modules_visible_syntax() {
         body.to_string(),
         "consumerOnly(.KList)=>consumerOnly(.KList)"
     );
+}
+
+#[test]
+fn definition_injection_ignores_modules_outside_the_main_import_closure() {
+    let truth = Term::Token {
+        token: "true".into(),
+        sort: Sort::new("Bool"),
+    };
+    let unrelated_rule = Sentence::Rule {
+        body: Term::Rewrite {
+            left: Box::new(Term::apply("unrelated", vec![])),
+            right: Box::new(Term::apply("unrelated", vec![])),
+        },
+        requires: truth.clone(),
+        ensures: truth,
+        attributes: Attributes::default(),
+    };
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![
+            FlatModule {
+                name: "MAIN".into(),
+                imports: vec![],
+                local_sentences: vec![],
+                attributes: Attributes::default(),
+            },
+            FlatModule {
+                name: "UNRELATED".into(),
+                imports: vec![],
+                local_sentences: vec![unrelated_rule.clone()],
+                attributes: Attributes::default(),
+            },
+        ],
+        attributes: Attributes::default(),
+    };
+
+    let injected = add_sort_injections_to_definition(&definition).unwrap();
+
+    assert_eq!(injected.modules[1].local_sentences, vec![unrelated_rule]);
 }

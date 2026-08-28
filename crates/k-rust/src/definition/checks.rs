@@ -108,7 +108,9 @@ pub fn check_module_with_options(
             &production_catalog,
             &sort_catalog,
         ))
-        .chain(check_smt_lemmas(&sentences, &production_catalog))
+        // Java validates SMT lemmas from `ExpandMacros`, after aliases and macros have been
+        // removed from rule bodies. Checking here rejects valid lemmas that still contain an
+        // alias whose expansion uses only SMT-backed symbols.
         .chain(check_regexes(&sentences, &definition.sentences(module)))
         .collect::<Vec<_>>();
     diagnostics.sort();

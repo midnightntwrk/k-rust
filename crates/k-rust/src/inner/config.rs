@@ -155,7 +155,9 @@ fn configuration_grammar(
     module: ModuleId,
 ) -> Result<Grammar, ParseError> {
     let visible = resolved.sentences(module);
-    let mut grammar = Grammar::from_sentences(visible.iter().copied())?;
+    // The reference configuration grammar imports DEFAULT-LAYOUT explicitly,
+    // even when the language declares a program-specific `#Layout` sort.
+    let mut grammar = Grammar::from_configuration_sentences(visible.iter().copied())?;
     let mut concrete_sorts = visible
         .iter()
         .flat_map(|sentence| match sentence {

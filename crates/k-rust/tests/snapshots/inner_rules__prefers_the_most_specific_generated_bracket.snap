@@ -5,7 +5,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
 [
     SentenceSummary {
         kind: "rule",
-        body: "mapEntry(#token(\"0\",\"Int\"),#SemanticCastToInt(_)=>#SemanticCastToInt(I))=>dotMap(.KList)",
+        body: "mapEntry(#token(\"0\",\"Int\"),#SemanticCastToKItem(_)=>#SemanticCastToInt(I))=>dotMap(.KList)",
         requires: "#token(\"true\",\"Bool\")",
         ensures: Some(
             "#token(\"true\",\"Bool\")",
