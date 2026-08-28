@@ -198,6 +198,10 @@ struct KastArgs {
     #[arg(short = 'o', long, value_enum, default_value_t)]
     output: OutputFormat,
 
+    /// Select the backend-specific module view used by a compiled definition.
+    #[arg(long, value_enum, value_name = "BACKEND")]
+    backend: Option<CompilationBackendArg>,
+
     #[command(flatten)]
     source: SourceArgs,
 }
@@ -650,6 +654,7 @@ struct KastOptions {
     expression: Option<String>,
     program_file: Option<PathBuf>,
     output: OutputFormat,
+    backend: Option<CompilationBackend>,
 }
 
 #[derive(Debug)]
@@ -782,6 +787,7 @@ impl From<KastArgs> for KastOptions {
             expression: arguments.expression,
             program_file: arguments.program_file,
             output: arguments.output,
+            backend: arguments.backend.map(Into::into),
         }
     }
 }
@@ -911,7 +917,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
 }
 
 fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
-    let loaded = load_definition(&options.common, None, None)?;
+    let loaded = load_definition(&options.common, options.backend, None)?;
     let diagnostics = check_definition(&loaded.resolved)?;
     emit_diagnostics(&diagnostics);
     if diagnostics
@@ -2440,6 +2446,7 @@ mod tests {
         assert_eq!(options.sort, "Exp");
         assert_eq!(options.expression.as_deref(), Some("1 + 2"));
         assert_eq!(options.output, OutputFormat::Json);
+        assert_eq!(options.backend, None);
     }
 
     #[test]

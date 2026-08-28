@@ -380,21 +380,26 @@ impl Grammar {
                 items.clear();
             }
         }
-        Self::from_collected_sentences(sentences.iter().collect(), Some(source_catalog), false)
+        Self::from_collected_sentences(
+            sentences.iter().collect(),
+            Some(source_catalog),
+            false,
+            true,
+        )
     }
 
     pub fn from_sentences<'a>(
         sentences: impl IntoIterator<Item = &'a Sentence>,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
-        Self::from_collected_sentences(sentences, None, false)
+        Self::from_collected_sentences(sentences, None, false, false)
     }
 
     pub(super) fn from_configuration_sentences<'a>(
         sentences: impl IntoIterator<Item = &'a Sentence>,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
-        Self::from_collected_sentences(sentences, None, true)
+        Self::from_collected_sentences(sentences, None, true, false)
     }
 
     pub(super) fn from_rule_sentences<'a>(
@@ -402,13 +407,14 @@ impl Grammar {
         source_catalog: &ProductionCatalog<'_>,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
-        Self::from_collected_sentences(sentences, Some(source_catalog), true)
+        Self::from_collected_sentences(sentences, Some(source_catalog), true, false)
     }
 
     fn from_collected_sentences(
         sentences: Vec<&Sentence>,
         source_catalog: Option<&ProductionCatalog<'_>>,
         include_default_layout: bool,
+        remap_overloads_to_source: bool,
     ) -> Result<Self, ParseError> {
         let lexical = sentences
             .iter()
@@ -455,6 +461,23 @@ impl Grammar {
             .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
         let overloads = compute_overloads(sentences.iter().copied(), &semantic_subsorts)
             .map_err(|cycle| ParseError::CircularOverloads { path: cycle.path })?;
+        let overload_order =
+            match (remap_overloads_to_source, source_catalog) {
+                (true, Some(source_catalog)) => {
+                    let relations = overloads.order().direct_relations().iter().filter_map(
+                        |(lesser, greater)| {
+                            let lesser =
+                                source_production(source_catalog, overloads.production(*lesser))?;
+                            let greater =
+                                source_production(source_catalog, overloads.production(*greater))?;
+                            (lesser != greater).then_some((lesser, greater))
+                        },
+                    );
+                    PartialOrder::new(relations)
+                        .map_err(|cycle| ParseError::CircularOverloads { path: cycle.path })?
+                }
+                (false, _) | (true, None) => overloads.order().clone(),
+            };
         let source_catalog = source_catalog.unwrap_or_else(|| overloads.catalog());
         let mut grammar = Self {
             layout: if include_default_layout {
@@ -466,7 +489,7 @@ impl Grammar {
             },
             priorities,
             associativities,
-            overloads: overloads.order().clone(),
+            overloads: overload_order,
             ..Self::default()
         };
         for sentence in &sentences {
@@ -975,9 +998,48 @@ fn source_production(catalog: &ProductionCatalog<'_>, sentence: &Sentence) -> Op
     {
         return None;
     }
-    catalog
+    let exact = catalog
         .productions()
-        .find_map(|(id, candidate)| sentence_equivalent(candidate, sentence).then_some(id))
+        .find_map(|(id, candidate)| sentence_equivalent(candidate, sentence).then_some(id));
+    if exact.is_some() {
+        return exact;
+    }
+    let Sentence::Production {
+        label,
+        parameters,
+        sort,
+        items,
+        attributes,
+    } = sentence
+    else {
+        return None;
+    };
+    if !items.is_empty() || attributes.get_str("userList") != Some("*") {
+        return None;
+    }
+    // Program grammars make a `List{...}` terminator zero-width by removing
+    // its printed `.Sort` terminal. Recover the source production so overload
+    // resolution can still select the unique least terminator.
+    catalog.productions().find_map(|(id, candidate)| {
+        let Sentence::Production {
+            label: candidate_label,
+            parameters: candidate_parameters,
+            sort: candidate_sort,
+            items: candidate_items,
+            attributes: candidate_attributes,
+        } = candidate
+        else {
+            return None;
+        };
+        (candidate_label == label
+            && candidate_parameters == parameters
+            && candidate_sort == sort
+            && candidate_attributes.get_str("userList") == Some("*")
+            && candidate_items
+                .iter()
+                .all(|item| matches!(item, ProductionItem::Terminal(_))))
+        .then_some(id)
+    })
 }
 
 fn expand_regex(source: &str, lexical: &BTreeMap<String, KRegex>) -> Result<String, ParseError> {

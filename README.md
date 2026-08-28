@@ -146,6 +146,9 @@ krust kast definition.k --module MAIN --sort Exp --expression '1 + 2'
 krust kast definition.k --module MAIN --sort Exp program.exp --output json
 ```
 
+Pass `--backend rust` or `--backend llvm` to exclude modules for the same symbolic or concrete
+definition view used by backend compilation.
+
 Execute a concrete program using the in-process Rust backend:
 
 ```console
@@ -415,6 +418,17 @@ REFERENCE_DIFFERENTIAL_MEMORY_KIB=6291456 \
 REFERENCE_DIFFERENTIAL_K_OPTS='-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Dscala.concurrent.context.numThreads=4 -Dscala.concurrent.context.maxThreads=4' \
 scripts/reference-differential.sh mir
 ```
+
+The program-parser differential gate parses small semantics-specific terms through reference
+`kast` and `krust kast`, decodes their KAST JSON, and compares the terms structurally. It covers an
+empty WebAssembly module, an EVM schedule, and a MIR span:
+
+```console
+K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-kast-differential.sh
+scripts/reference-kast-differential.sh wasm evm-equivalence mir  # selected cases
+```
+
+It accepts the same checkout and memory-limit environment variables as the structural KORE gate.
 
 The backend acceptance gate compiles, executes, and proves with the in-process Rust backend:
 

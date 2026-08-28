@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, env, fs};
 
+use k_rust::kast::json as kast_json;
 use k_rust::kore::{
     ast::{Attributes, Definition, Pattern, Sentence},
     parser::parse_definition,
@@ -27,6 +28,19 @@ fn emitted_macro_kore_matches_the_reference_frontend() {
     let reference = parse_macro_sentences(&reference_source);
     let actual = parse_macro_sentences(&actual_source);
     compare_definitions(reference, actual);
+}
+
+#[test]
+#[ignore = "requires K_REFERENCE_KAST and K_RUST_KAST outputs"]
+fn parsed_kast_matches_the_reference_frontend() {
+    let reference_path = env::var("K_REFERENCE_KAST").expect("K_REFERENCE_KAST is required");
+    let actual_path = env::var("K_RUST_KAST").expect("K_RUST_KAST is required");
+    let reference_source = fs::read_to_string(&reference_path).unwrap();
+    let actual_source = fs::read_to_string(&actual_path).unwrap();
+    let reference = kast_json::from_str(&reference_source).unwrap();
+    let actual = kast_json::from_str(&actual_source).unwrap();
+
+    assert_eq!(reference, actual);
 }
 
 fn parse_macro_sentences(source: &str) -> Definition {

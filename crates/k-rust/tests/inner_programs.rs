@@ -35,6 +35,38 @@ fn parsed_production_ids_belong_to_the_resolved_definition_catalog() {
     assert_eq!(production.0, expected[0].0);
 }
 
+#[test]
+fn deduplicates_overloaded_empty_list_parses_after_terminator_resolution() {
+    let definition = lowered(
+        indoc! {r#"
+            module BASE
+              syntax Padding ::= "padding" [private]
+              syntax EmptyStmt
+              syntax Instr ::= EmptyStmt
+              syntax Defn ::= EmptyStmt
+              syntax Stmt ::= Instr | Defn
+              syntax EmptyStmts ::= List{EmptyStmt, ""}
+                [overload(listStmt), terminator-symbol(".List{\"listStmt\"}")]
+              syntax Instrs ::= List{Instr, ""} [overload(listStmt)]
+              syntax Defns ::= List{Defn, ""} [overload(listStmt)]
+              syntax Stmts ::= List{Stmt, ""} [overload(listStmt)]
+              syntax Instrs ::= EmptyStmts
+              syntax Defns ::= EmptyStmts
+              syntax Stmts ::= Instrs | Defns
+            endmodule
+
+            module MAIN
+              imports BASE
+              syntax ModuleDecl ::= "(" "module" Defns ")" [symbol(module)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+
+    parse_program(&definition, "MAIN", &Sort::new("ModuleDecl"), "(module)")
+        .expect("metadata-only parse duplicates should collapse");
+}
+
 macro_rules! program_snapshot {
     ($name:ident, $definition:expr, $module:expr, $sort:expr, $program:expr) => {
         #[test]
