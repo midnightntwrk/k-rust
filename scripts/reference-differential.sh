@@ -24,7 +24,11 @@ if [[ ! -d "$k_checkout/k-distribution/include/kframework/builtin" ]]; then
 fi
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/k-rust-reference-differential.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+if [[ "${REFERENCE_DIFFERENTIAL_KEEP_WORK:-0}" == 1 ]]; then
+  trap 'echo "differential artifacts retained at: $work"' EXIT
+else
+  trap 'rm -rf "$work"' EXIT
+fi
 
 cases=(
   "append|$k_checkout/k-distribution/tests/regression-new/append/test.k|TEST"
@@ -112,6 +116,7 @@ for fixture in "${cases[@]}"; do
       "${include_args[@]}" \
       "${selector_args[@]}" \
       "${syntax_args[@]}" \
+      --emit-json \
       --warnings none
   )
 
@@ -125,8 +130,10 @@ for fixture in "${cases[@]}"; do
       --main-module "$module" \
       --backend llvm \
       --output-directory "$rust" \
+      --emit-json \
       "${include_args[@]}" \
       "${selector_args[@]}" \
+      "${syntax_args[@]}" \
       --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
   )
 
@@ -150,6 +157,13 @@ for fixture in "${cases[@]}"; do
     cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
       -p k-rust --test reference_differential -- --ignored --exact \
       emitted_macro_kore_matches_the_reference_frontend
+
+  echo "[$name] comparing parsed definitions"
+  K_REFERENCE_DEFINITION="$reference/kompiled/parsed.json" \
+    K_RUST_DEFINITION="$rust/parsed.json" \
+    cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
+      -p k-rust --test reference_differential -- --ignored --exact \
+      parsed_definition_matches_the_reference_frontend
 done
 
 if (($# && selected_count != $#)); then

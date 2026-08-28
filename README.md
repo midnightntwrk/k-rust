@@ -128,6 +128,7 @@ Compile a definition into backend KORE artifacts:
 ```console
 krust kcompile definition.k \
   --main-module MAIN \
+  --syntax-module MAIN-SYNTAX \
   --backend llvm \
   --output-directory definition-kompiled
 ```
@@ -138,6 +139,10 @@ by the in-process Rust backend. Both modes write:
 - `definition.kore`
 - `syntaxDefinition.kore`
 - `macros.kore`
+
+Pass `--emit-json` to additionally write the frontend-trimmed parsed outer definition as KAST JSON
+v4 in `parsed.json`. `--syntax-module` defaults to `<main-module>-SYNTAX` when that module exists,
+and otherwise to the main module.
 
 Parse a concrete program as textual KAST or KAST JSON v4:
 
@@ -398,10 +403,12 @@ rejected by the pinned JavaCC grammar.
 
 The structural differential corpus compiles eleven upstream definitions through both frontends,
 strips source locations and generated sentence IDs, and compares the semantic definition, syntax
-definition, and standalone macro sentences as multisets. It covers append syntax, ambiguous
-rewrites, casts, collection-cell rewrites, fresh variables, IMP control flow, List/Set hooks,
-rewrite macros, the complete WASM and MIR semantics, and the EVM optimization semantics used by
-`evm-equivalence`:
+definition, standalone macro sentences, and parsed outer-definition JSON as multisets. The outer
+comparison preserves semantic attributes and regex languages while normalizing Java set order,
+generated parser metadata, source-path provenance, and inferred label-parameter representation. It
+covers append syntax, ambiguous rewrites, casts, collection-cell rewrites, fresh variables, IMP
+control flow, List/Set hooks, rewrite macros, the complete WASM and MIR semantics, and the EVM
+optimization semantics used by `evm-equivalence`:
 
 ```console
 K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-differential.sh
@@ -409,12 +416,13 @@ scripts/reference-differential.sh casts imp wasm evm-equivalence mir  # selected
 ```
 
 Set `K_CHECKOUT` if the ignored K checkout is not at `k/`. The external corpus locations can be
-overridden with `IMP_SEMANTICS_CHECKOUT`, `WASM_SEMANTICS_CHECKOUT`, and
+overridden with `IMP_SEMANTICS_CHECKOUT`, `WASM_SEMANTICS_CHECKOUT`,
 `EVM_SEMANTICS_CHECKOUT`, and `MIR_SEMANTICS_CHECKOUT`. Set
 `REFERENCE_DIFFERENTIAL_MEMORY_KIB` to apply a hard per-frontend virtual-memory limit when running
 large cases. The reference launcher defaults to an 8 GiB Java heap; use
-`REFERENCE_DIFFERENTIAL_K_OPTS` to lower it when applying a tighter limit. For example, the MIR
-case passes with a 6 GiB address-space ceiling and a 2 GiB serial-GC heap:
+`REFERENCE_DIFFERENTIAL_K_OPTS` to lower it when applying a tighter limit. Set
+`REFERENCE_DIFFERENTIAL_KEEP_WORK=1` to retain both frontend outputs after the gate. For example,
+the MIR case passes with a 6 GiB address-space ceiling and a 2 GiB serial-GC heap:
 
 ```console
 REFERENCE_DIFFERENTIAL_MEMORY_KIB=6291456 \
@@ -455,6 +463,15 @@ K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-proof-differential.sh
 ```
 
 It uses the same execution/proof memory controls.
+
+Execution and proof differential gates are intentionally limited to IMP at this pinned revision.
+The reference Haskell backend cannot execute the WASM definition because its hook set lacks
+`FLOAT.round`; the reference LLVM runtime cannot reserve its arena under a practical bounded
+runner. The EVM definition fails in the pinned reference `kore-expand-macros`, before either
+executor can provide an oracle. MIR execution constructs full configurations from generated SMIR
+through its Python tooling, so a representative fixture-driven execution gate would be a separate
+semantics integration project rather than a stable raw-`krun` comparison. The structural and
+program-parser gates above still cover all four semantics.
 
 The backend acceptance gate compiles, executes, and proves with the in-process Rust backend:
 
@@ -513,8 +530,8 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
   remaining nested term attributes.
 - Add Java-compatible unused-symbol and deprecated-production warnings once nested provenance is
   available.
-- Add an AST-level differential oracle against the JavaCC outer parser and broaden exact lexical
-  error and ambiguous/parametric inference coverage across rules, claims, contexts, and aliases.
+- Broaden exact lexical error and ambiguous/parametric inference coverage across rules, claims,
+  contexts, and aliases.
 - Reproduce exact Java scanner diagnostic wording and generated freezer-label iteration order.
 - Add a native diagnostic presentation adapter after the portable diagnostic model stabilizes;
   `miette` remains a possible renderer, not a core dependency.

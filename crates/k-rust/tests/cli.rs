@@ -1251,6 +1251,7 @@ fn kcompile_writes_parseable_kore_outputs() {
             "--output-directory",
             output_directory.to_str().unwrap(),
             "--no-prelude",
+            "--emit-json",
         ])
         .output()
         .unwrap();
@@ -1281,6 +1282,20 @@ fn kcompile_writes_parseable_kore_outputs() {
             .unwrap()
             .trim()
             .is_empty()
+    );
+    let parsed = k_rust::definition::json::from_str(
+        &fs::read_to_string(output_directory.join("parsed.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(parsed.main_module, "MAIN");
+    assert_eq!(parsed.attributes.get_str("syntaxModule"), Some("MAIN"));
+    assert_eq!(
+        parsed
+            .modules
+            .iter()
+            .map(|module| module.name.as_str())
+            .collect::<Vec<_>>(),
+        ["BASE", "MAIN"],
     );
 
     fs::remove_dir_all(root).unwrap();

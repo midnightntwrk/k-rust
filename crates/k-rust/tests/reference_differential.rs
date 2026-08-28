@@ -1,10 +1,19 @@
-use std::{collections::BTreeMap, env, fs};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    env, fs,
+};
 
-use k_rust::kast::json as kast_json;
 use k_rust::kore::{
     ast::{Attributes, Definition, Pattern, Sentence, Symbol},
     parser::parse_definition,
     parser::parse_pattern,
+};
+use k_rust::{
+    definition::{
+        json as definition_json,
+        regex::{self, CharClass, RegexBody},
+    },
+    kast::json as kast_json,
 };
 
 #[test]
@@ -40,6 +49,531 @@ fn parsed_kast_matches_the_reference_frontend() {
     let actual_source = fs::read_to_string(&actual_path).unwrap();
     let reference = kast_json::from_str(&reference_source).unwrap();
     let actual = kast_json::from_str(&actual_source).unwrap();
+
+    assert_eq!(reference, actual);
+}
+
+fn first_json_difference(
+    path: &str,
+    reference: &serde_json::Value,
+    actual: &serde_json::Value,
+) -> String {
+    match (reference, actual) {
+        (serde_json::Value::Object(reference), serde_json::Value::Object(actual)) => {
+            let keys = reference
+                .keys()
+                .chain(actual.keys())
+                .collect::<BTreeSet<_>>();
+            for key in keys {
+                match (reference.get(key), actual.get(key)) {
+                    (Some(reference), Some(actual)) if reference != actual => {
+                        return first_json_difference(&format!("{path}.{key}"), reference, actual);
+                    }
+                    (Some(_), None) => return format!("{path}.{key}: missing from actual"),
+                    (None, Some(_)) => return format!("{path}.{key}: extra in actual"),
+                    _ => {}
+                }
+            }
+        }
+        (serde_json::Value::Array(reference), serde_json::Value::Array(actual)) => {
+            if reference.len() != actual.len() {
+                return format!(
+                    "{path}: array lengths differ: reference={} (first: {}), actual={} (first: {})",
+                    reference.len(),
+                    reference
+                        .first()
+                        .map(json_summary)
+                        .unwrap_or_else(|| "<empty>".into()),
+                    actual.len(),
+                    actual
+                        .first()
+                        .map(json_summary)
+                        .unwrap_or_else(|| "<empty>".into()),
+                );
+            }
+            for (index, (reference, actual)) in reference.iter().zip(actual).enumerate() {
+                if reference != actual {
+                    return first_json_difference(&format!("{path}[{index}]"), reference, actual);
+                }
+            }
+        }
+        _ => {
+            return format!("{path}: reference={reference:?}, actual={actual:?}");
+        }
+    }
+    format!("{path}: values differ")
+}
+
+#[test]
+#[ignore = "requires K_REFERENCE_DEFINITION and K_RUST_DEFINITION outputs"]
+fn parsed_definition_matches_the_reference_frontend() {
+    let reference_path =
+        env::var("K_REFERENCE_DEFINITION").expect("K_REFERENCE_DEFINITION is required");
+    let actual_path = env::var("K_RUST_DEFINITION").expect("K_RUST_DEFINITION is required");
+    let reference_source = fs::read_to_string(reference_path).unwrap();
+    let actual_source = fs::read_to_string(actual_path).unwrap();
+    definition_json::from_str(&reference_source).unwrap();
+    definition_json::from_str(&actual_source).unwrap();
+    let mut reference: serde_json::Value = serde_json::from_str(&reference_source).unwrap();
+    let mut actual: serde_json::Value = serde_json::from_str(&actual_source).unwrap();
+    normalize_definition_json(&mut reference);
+    normalize_definition_json(&mut actual);
+
+    if reference != actual {
+        if let Some(directory) = env::var_os("K_DIFFERENTIAL_NORMALIZED_DIRECTORY") {
+            fs::create_dir_all(&directory).unwrap();
+            fs::write(
+                std::path::Path::new(&directory).join("reference.json"),
+                serde_json::to_string_pretty(&reference).unwrap(),
+            )
+            .unwrap();
+            fs::write(
+                std::path::Path::new(&directory).join("actual.json"),
+                serde_json::to_string_pretty(&actual).unwrap(),
+            )
+            .unwrap();
+        }
+        panic!(
+            "normalized parsed definitions differ at {}",
+            first_json_difference("$", &reference, &actual)
+        );
+    }
+}
+
+fn json_summary(value: &serde_json::Value) -> String {
+    let text = json_sort_key(value);
+    let mut summary = text.chars().take(400).collect::<String>();
+    if summary.len() < text.len() {
+        summary.push_str("…");
+    }
+    summary
+}
+
+fn normalize_definition_json(value: &mut serde_json::Value) {
+    let associative_units = associative_units(value);
+    normalize_definition_value(value, &associative_units);
+    let modules = value["term"]["modules"]
+        .as_array_mut()
+        .expect("definition modules must be an array");
+    for module in modules.iter_mut() {
+        module["imports"]
+            .as_array_mut()
+            .expect("module imports must be an array")
+            .sort_by_key(json_sort_key);
+        let sentences = module["localSentences"]
+            .as_array_mut()
+            .expect("local sentences must be an array");
+        let cell_sorts = sentences
+            .iter()
+            .filter(|sentence| {
+                sentence["node"] == "KProduction" && sentence["att"]["att"].get("cell").is_some()
+            })
+            .filter_map(|sentence| sentence["sort"]["name"].as_str().map(str::to_owned))
+            .collect::<BTreeSet<_>>();
+        let mut normalized = Vec::new();
+        for sentence in std::mem::take(sentences) {
+            // Rust can retain an empty generated sort declaration alongside the cell production
+            // that already declares that sort; Java's sentence set deduplicates it.
+            let redundant_cell_sort = sentence["node"] == "KSyntaxSort"
+                && sentence["att"]["att"]
+                    .as_object()
+                    .is_some_and(serde_json::Map::is_empty)
+                && sentence["sort"]["name"]
+                    .as_str()
+                    .is_some_and(|sort| cell_sorts.contains(sort));
+            if redundant_cell_sort {
+                continue;
+            } else if sentence["node"] == "KSyntaxAssociativity" {
+                let tags = sentence["tags"]
+                    .as_array()
+                    .expect("associativity tags must be an array");
+                for tag in tags {
+                    let mut singleton = sentence.clone();
+                    singleton["tags"] = serde_json::Value::Array(vec![tag.clone()]);
+                    normalized.push(singleton);
+                }
+            } else {
+                normalized.push(sentence);
+            }
+        }
+        normalized.sort_by_key(json_sort_key);
+        normalized.dedup();
+        *sentences = normalized;
+    }
+    modules.sort_by_key(|module| module["name"].as_str().unwrap_or_default().to_owned());
+}
+
+fn associative_units(value: &serde_json::Value) -> BTreeMap<String, String> {
+    fn collect(value: &serde_json::Value, result: &mut BTreeMap<String, String>) {
+        match value {
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    collect(value, result);
+                }
+            }
+            serde_json::Value::Object(object) => {
+                if object.get("node").and_then(serde_json::Value::as_str) == Some("KProduction")
+                    && object["att"]["att"].get("assoc").is_some()
+                    && let (Some(label), Some(unit)) = (
+                        object["klabel"]["name"].as_str(),
+                        object["att"]["att"]["unit"].as_str(),
+                    )
+                {
+                    result.insert(label.into(), unit.into());
+                }
+                if object.get("node").and_then(serde_json::Value::as_str) == Some("KProduction")
+                    && object["att"]["att"].get("userList").is_some()
+                    && object["productionItems"]
+                        .as_array()
+                        .is_some_and(|items| items.len() > 1)
+                    && let (Some(label), Some(sort)) = (
+                        object["klabel"]["name"].as_str(),
+                        object["sort"]["name"].as_str(),
+                    )
+                {
+                    result.insert(label.into(), format!(r#".List{{"{label}"}}_{sort}"#));
+                }
+                for value in object.values() {
+                    collect(value, result);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut result = BTreeMap::new();
+    collect(value, &mut result);
+    result
+}
+
+fn normalize_definition_value(
+    value: &mut serde_json::Value,
+    associative_units: &BTreeMap<String, String>,
+) {
+    match value {
+        serde_json::Value::Array(values) => {
+            for value in values {
+                normalize_definition_value(value, associative_units);
+            }
+        }
+        serde_json::Value::Object(object) => {
+            // These fields are frontend provenance or generated parser bookkeeping rather than
+            // the parsed definition's semantic structure.
+            for key in [
+                "digest",
+                "org.kframework.attributes.Source",
+                "org.kframework.attributes.Location",
+                "org.kframework.definition.Production",
+                "contentStartColumn",
+                "contentStartLine",
+                "temporary-cell-sort-decl",
+            ] {
+                object.remove(key);
+            }
+            if let Some(serde_json::Value::Object(label)) = object.get("bracketLabel") {
+                if let Some(name) = label.get("name").and_then(serde_json::Value::as_str) {
+                    object.insert("bracketLabel".into(), name.into());
+                }
+            }
+            for value in object.values_mut() {
+                normalize_definition_value(value, associative_units);
+            }
+            match object.get("node").and_then(serde_json::Value::as_str) {
+                Some("KVariable") => {
+                    let Some(name) = object["name"].as_str() else {
+                        return;
+                    };
+                    if name.starts_with('_') {
+                        // Java HashSet traversal and deterministic Rust traversal allocate suffixes
+                        // in different orders for generated anonymous variables.
+                        let stem =
+                            name.trim_end_matches(|character: char| character.is_ascii_digit());
+                        if stem.len() != name.len() {
+                            object.insert("name".into(), stem.into());
+                        }
+                    }
+                }
+                Some("KLabel") => {
+                    // Java's parsed JSON omits inferred concrete label parameters; declarations
+                    // still retain their separate `params` field, and KAST has its own exact gate.
+                    object.insert("params".into(), serde_json::Value::Array(Vec::new()));
+                }
+                Some("KRegexTerminal") => {
+                    let source = object["regex"].as_str().expect("regex must be a string");
+                    let parsed = regex::parse(source).unwrap_or_else(|error| {
+                        panic!("failed to normalize regex {source:?}: {error}")
+                    });
+                    object.insert(
+                        "regex".into(),
+                        canonical_regex(&parsed.body, parsed.start_line, parsed.end_line).into(),
+                    );
+                }
+                Some("KSyntaxAssociativity") => {
+                    object["tags"]
+                        .as_array_mut()
+                        .expect("associativity tags must be an array")
+                        .sort_by_key(json_sort_key);
+                }
+                Some("KSyntaxPriority") => {
+                    for group in object["priorities"]
+                        .as_array_mut()
+                        .expect("priority groups must be an array")
+                    {
+                        group
+                            .as_array_mut()
+                            .expect("priority group must be an array")
+                            .sort_by_key(json_sort_key);
+                    }
+                }
+                Some("KApply") => {
+                    let Some(label) = object["label"]["name"].as_str() else {
+                        return;
+                    };
+                    let Some(unit) = associative_units.get(label) else {
+                        return;
+                    };
+                    let label = label.to_owned();
+                    let arguments = object["args"]
+                        .as_array_mut()
+                        .expect("application arguments must be an array");
+                    let mut flattened = Vec::new();
+                    // User lists and associative productions can differ only in nesting and
+                    // explicit unit insertion before both frontends lower them to identical KORE.
+                    for argument in std::mem::take(arguments) {
+                        let nested_label = argument["label"]["name"].as_str();
+                        let nested_arguments = argument["args"].as_array();
+                        if nested_label == Some(label.as_str()) {
+                            flattened.extend(nested_arguments.unwrap().iter().cloned());
+                        } else if nested_label == Some(unit.as_str())
+                            && nested_arguments.is_some_and(Vec::is_empty)
+                        {
+                        } else {
+                            flattened.push(argument);
+                        }
+                    }
+                    if flattened.len() == 1
+                        && let serde_json::Value::Object(singleton) = flattened.pop().unwrap()
+                    {
+                        *object = singleton;
+                        return;
+                    }
+                    object.insert("arity".into(), flattened.len().into());
+                    object.insert("args".into(), flattened.into());
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+}
+
+fn json_sort_key(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Array(values) => format!(
+            "[{}]",
+            values
+                .iter()
+                .map(json_sort_key)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        serde_json::Value::Object(object) => {
+            let mut fields = object
+                .iter()
+                .map(|(key, value)| {
+                    format!(
+                        "{}:{}",
+                        serde_json::to_string(key).unwrap(),
+                        json_sort_key(value)
+                    )
+                })
+                .collect::<Vec<_>>();
+            fields.sort();
+            format!("{{{}}}", fields.join(","))
+        }
+        value => serde_json::to_string(value).unwrap(),
+    }
+}
+
+fn canonical_regex(body: &RegexBody, start_line: bool, end_line: bool) -> String {
+    format!(
+        "{}{}{}",
+        if start_line { "^" } else { "" },
+        canonical_regex_body(body),
+        if end_line { "$" } else { "" },
+    )
+}
+
+fn canonical_regex_body(body: &RegexBody) -> String {
+    match body {
+        RegexBody::Char(character) => format!("char:{character:?}"),
+        RegexBody::AnyChar => "any".into(),
+        RegexBody::Named(name) => format!("named:{name}"),
+        RegexBody::CharClass { negated, members } => {
+            let mut members = members
+                .iter()
+                .map(|member| match member {
+                    CharClass::Char(character) => format!("char:{character:?}"),
+                    CharClass::Range { start, end } => format!("range:{start:?}:{end:?}"),
+                })
+                .collect::<Vec<_>>();
+            members.sort();
+            members.dedup();
+            format!("class:{negated}:[{}]", members.join(","))
+        }
+        RegexBody::Union { .. } => {
+            fn flatten(body: &RegexBody, members: &mut Vec<String>) {
+                if let RegexBody::Union { left, right } = body {
+                    flatten(left, members);
+                    flatten(right, members);
+                } else {
+                    members.push(canonical_regex_body(body));
+                }
+            }
+            let mut members = Vec::new();
+            flatten(body, &mut members);
+            members.sort();
+            members.dedup();
+            format!("union:[{}]", members.join(","))
+        }
+        RegexBody::Concat(members) => format!(
+            "concat:[{}]",
+            members
+                .iter()
+                .map(canonical_regex_body)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        RegexBody::ZeroOrMore(body) => format!("star:{}", canonical_regex_body(body)),
+        RegexBody::ZeroOrOne(body) => format!("optional:{}", canonical_regex_body(body)),
+        RegexBody::OneOrMore(body) => format!("plus:{}", canonical_regex_body(body)),
+        RegexBody::Exactly { body, count } => {
+            format!("exactly:{count}:{}", canonical_regex_body(body))
+        }
+        RegexBody::AtLeast { body, count } => {
+            format!("at-least:{count}:{}", canonical_regex_body(body))
+        }
+        RegexBody::Range {
+            body,
+            at_least,
+            at_most,
+        } => format!("range:{at_least}:{at_most}:{}", canonical_regex_body(body)),
+    }
+}
+
+#[test]
+fn definition_normalizer_compares_regex_languages() {
+    let left = regex::parse("[A-Za-z_]").unwrap();
+    let right = regex::parse(r"[A-Za-z\_]").unwrap();
+
+    assert_eq!(
+        canonical_regex(&left.body, left.start_line, left.end_line),
+        canonical_regex(&right.body, right.start_line, right.end_line),
+    );
+}
+
+#[test]
+fn definition_normalizer_flattens_user_lists_and_generated_variables() {
+    let mut reference = serde_json::json!({
+        "node": "KApply",
+        "label": { "node": "KLabel", "name": "cons", "params": [{ "name": "Items" }] },
+        "arity": 2,
+        "args": [
+            {
+                "node": "KApply",
+                "label": { "node": "KLabel", "name": "cast", "params": [] },
+                "arity": 1,
+                "args": [{ "node": "KVariable", "name": "_item1" }]
+            },
+            {
+                "node": "KApply",
+                "label": { "node": "KLabel", "name": ".Items", "params": [] },
+                "arity": 0,
+                "args": []
+            }
+        ]
+    });
+    let mut actual = serde_json::json!({
+        "node": "KApply",
+        "label": { "node": "KLabel", "name": "cast", "params": [{ "name": "Items" }] },
+        "arity": 1,
+        "args": [{ "node": "KVariable", "name": "_item7" }]
+    });
+    let units = BTreeMap::from([("cons".into(), ".Items".into())]);
+
+    normalize_definition_value(&mut reference, &units);
+    normalize_definition_value(&mut actual, &units);
+
+    assert_eq!(reference, actual);
+}
+
+#[test]
+fn definition_normalizer_canonicalizes_set_valued_outer_syntax() {
+    let associativity = |tags: serde_json::Value| {
+        serde_json::json!({
+            "node": "KSyntaxAssociativity",
+            "assoc": "Left",
+            "tags": tags,
+            "att": { "node": "KAtt", "att": {} }
+        })
+    };
+    let priority = |first: serde_json::Value| {
+        serde_json::json!({
+            "node": "KSyntaxPriority",
+            "priorities": [first, ["low"]],
+            "att": { "node": "KAtt", "att": {} }
+        })
+    };
+    let module = |imports: serde_json::Value, sentences: serde_json::Value| {
+        serde_json::json!({
+            "node": "KFlatModule",
+            "name": "A",
+            "imports": imports,
+            "localSentences": sentences,
+            "att": { "node": "KAtt", "att": {} }
+        })
+    };
+    let empty_module = serde_json::json!({
+        "node": "KFlatModule",
+        "name": "B",
+        "imports": [],
+        "localSentences": [],
+        "att": { "node": "KAtt", "att": {} }
+    });
+    let import_y = serde_json::json!({ "node": "KImport", "name": "Y", "isPublic": true });
+    let import_z = serde_json::json!({ "node": "KImport", "name": "Z", "isPublic": true });
+    let mut reference = serde_json::json!({
+        "term": {
+            "modules": [
+                empty_module.clone(),
+                module(
+                    serde_json::json!([import_z.clone(), import_y.clone()]),
+                    serde_json::json!([
+                        associativity(serde_json::json!(["right", "left"])),
+                        priority(serde_json::json!(["right", "left"]))
+                    ])
+                )
+            ]
+        }
+    });
+    let mut actual = serde_json::json!({
+        "term": {
+            "modules": [
+                module(
+                    serde_json::json!([import_y, import_z]),
+                    serde_json::json!([
+                        priority(serde_json::json!(["left", "right"])),
+                        associativity(serde_json::json!(["left"])),
+                        associativity(serde_json::json!(["right"]))
+                    ])
+                ),
+                empty_module
+            ]
+        }
+    });
+
+    normalize_definition_json(&mut reference);
+    normalize_definition_json(&mut actual);
 
     assert_eq!(reference, actual);
 }
