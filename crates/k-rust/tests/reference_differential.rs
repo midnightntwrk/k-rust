@@ -12,8 +12,29 @@ fn emitted_kore_matches_the_reference_frontend() {
     let actual_path = env::var("K_RUST_KORE").expect("K_RUST_KORE is required");
     let reference_source = fs::read_to_string(&reference_path).unwrap();
     let actual_source = fs::read_to_string(&actual_path).unwrap();
-    let mut reference = parse_definition(&reference_source).unwrap();
-    let mut actual = parse_definition(&actual_source).unwrap();
+    let reference = parse_definition(&reference_source).unwrap();
+    let actual = parse_definition(&actual_source).unwrap();
+    compare_definitions(reference, actual);
+}
+
+#[test]
+#[ignore = "requires K_REFERENCE_KORE and K_RUST_KORE outputs"]
+fn emitted_macro_kore_matches_the_reference_frontend() {
+    let reference_path = env::var("K_REFERENCE_KORE").expect("K_REFERENCE_KORE is required");
+    let actual_path = env::var("K_RUST_KORE").expect("K_RUST_KORE is required");
+    let reference_source = fs::read_to_string(&reference_path).unwrap();
+    let actual_source = fs::read_to_string(&actual_path).unwrap();
+    let reference = parse_macro_sentences(&reference_source);
+    let actual = parse_macro_sentences(&actual_source);
+    compare_definitions(reference, actual);
+}
+
+fn parse_macro_sentences(source: &str) -> Definition {
+    parse_definition(&format!("[]\nmodule MACROS\n{source}\nendmodule []\n"))
+        .expect("macro sentence list should parse")
+}
+
+fn compare_definitions(mut reference: Definition, mut actual: Definition) {
     let raw_reference = reference.clone();
     let raw_actual = actual.clone();
     strip_source_metadata(&mut reference);

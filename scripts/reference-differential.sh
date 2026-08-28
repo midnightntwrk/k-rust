@@ -130,12 +130,26 @@ for fixture in "${cases[@]}"; do
       --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
   )
 
-  echo "[$name] comparing structural KORE"
+  echo "[$name] comparing semantic KORE"
   K_REFERENCE_KORE="$reference/$(basename "${source%.*}").kore" \
     K_RUST_KORE="$rust/definition.kore" \
     cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
       -p k-rust --test reference_differential -- --ignored --exact \
       emitted_kore_matches_the_reference_frontend
+
+  echo "[$name] comparing syntax KORE"
+  K_REFERENCE_KORE="$reference/kompiled/syntaxDefinition.kore" \
+    K_RUST_KORE="$rust/syntaxDefinition.kore" \
+    cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
+      -p k-rust --test reference_differential -- --ignored --exact \
+      emitted_kore_matches_the_reference_frontend
+
+  echo "[$name] comparing macro KORE"
+  K_REFERENCE_KORE="$reference/kompiled/macros.kore" \
+    K_RUST_KORE="$rust/macros.kore" \
+    cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
+      -p k-rust --test reference_differential -- --ignored --exact \
+      emitted_macro_kore_matches_the_reference_frontend
 done
 
 if (($# && selected_count != $#)); then

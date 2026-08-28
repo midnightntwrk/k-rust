@@ -3158,6 +3158,16 @@ fn add_syntax_attributes(
                 .collect(),
         ),
     );
+    // Java assigns a syntax-only symbol to an unlabeled bracket production,
+    // but `Production.klabel()` remains empty and its relation attributes are
+    // therefore omitted.
+    let unlabeled_bracket = source.get("bracket").is_some()
+        && ["symbol", "klabel"]
+            .iter()
+            .all(|key| source.get_str(key).is_none_or(str::is_empty));
+    if unlabeled_bracket {
+        return;
+    }
     entries.insert("priorities".into(), Value::String(String::new()));
     entries.insert("left".into(), Value::String(String::new()));
     entries.insert("right".into(), Value::String(String::new()));

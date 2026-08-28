@@ -108,6 +108,41 @@ fn loads_diamond_requires_dependency_first_and_resolves_global_tags() {
 }
 
 #[test]
+fn priority_separator_does_not_split_greater_than_inside_labels() {
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected require {required}"));
+    let loaded = load(
+        ResolvedSource::new(
+            "main.k",
+            indoc! {r#"
+                module MAIN
+                  syntax priority _|->_ > _Map_ .Map
+                endmodule
+            "#},
+        ),
+        "MAIN",
+        &mut resolver,
+    )
+    .unwrap();
+    let priorities = loaded
+        .resolved
+        .sentences(loaded.resolved.main_module_id())
+        .into_iter()
+        .find_map(|sentence| match sentence {
+            Sentence::SyntaxPriority { priorities, .. } => Some(priorities),
+            _ => None,
+        })
+        .unwrap();
+
+    assert_eq!(
+        priorities,
+        &[
+            vec![String::from("_|->_")],
+            vec![String::from("_Map_"), String::from(".Map")],
+        ]
+    );
+}
+
+#[test]
 fn canonical_source_identity_deduplicates_diamond_leaves() {
     let mut resolutions = 0;
     let mut resolver = |_: &str, required: &str| {

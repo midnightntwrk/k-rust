@@ -391,10 +391,11 @@ files are intentional malformed-string tests; the fifth is a legacy `Token{...}`
 rejected by the pinned JavaCC grammar.
 
 The structural differential corpus compiles eleven upstream definitions through both frontends,
-strips source locations and generated sentence IDs, and compares every KORE module as a sentence
-multiset. It covers append syntax, ambiguous rewrites, casts, collection-cell rewrites, fresh
-variables, IMP control flow, List/Set hooks, rewrite macros, the complete WASM and MIR semantics,
-and the EVM optimization semantics used by `evm-equivalence`:
+strips source locations and generated sentence IDs, and compares the semantic definition, syntax
+definition, and standalone macro sentences as multisets. It covers append syntax, ambiguous
+rewrites, casts, collection-cell rewrites, fresh variables, IMP control flow, List/Set hooks,
+rewrite macros, the complete WASM and MIR semantics, and the EVM optimization semantics used by
+`evm-equivalence`:
 
 ```console
 K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-differential.sh
