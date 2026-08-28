@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     env,
     error::Error,
     fmt, fs,
@@ -11,10 +11,13 @@ use std::{
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use k_rust::{
-    definition::checks::check_definition,
+    definition::{Sentence, checks::check_definition},
     diagnostic::{Diagnostic, Severity},
     inner::ProgramParser,
-    kast::{json as kast_json, parser::parse_sort, printer::Printer as KastPrinter},
+    kast::{
+        Sort as KastSort, Term as KastTerm, json as kast_json, parser::parse_sort,
+        printer::Printer as KastPrinter,
+    },
     kompile::{
         CompilationBackend, CompileOptions, SortInjector, compile_loaded_definition,
         encode_kore_sort, term_to_kore_from_resolved,
@@ -308,6 +311,10 @@ struct KrunArgs {
     /// Program file to execute, or `-` for standard input.
     #[arg(value_name = "PROGRAM_FILE")]
     program_file: Option<PathBuf>,
+
+    /// Set a configuration variable (for example `-c ENV=.Map`). May be repeated.
+    #[arg(short = 'c', long = "config-var", value_name = "NAME=VALUE")]
+    config_vars: Vec<String>,
 
     /// Maximum number of semantic rewrite steps per execution branch.
     #[arg(long, value_name = "STEPS")]
@@ -658,6 +665,7 @@ struct KrunOptions {
     sort: String,
     expression: Option<String>,
     program_file: Option<PathBuf>,
+    config_vars: Vec<String>,
     depth: u64,
     breadth_limit: Option<usize>,
     execute_to_branch: bool,
@@ -795,6 +803,7 @@ impl From<KrunArgs> for KrunOptions {
             sort: arguments.sort,
             expression: arguments.expression,
             program_file: arguments.program_file,
+            config_vars: arguments.config_vars,
             depth: arguments.depth.unwrap_or(u64::MAX),
             breadth_limit: arguments.breadth_limit,
             execute_to_branch: arguments.execute_to_branch,
@@ -958,7 +967,72 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
     let program_sort = injector.term_sort(&program, None)?;
     let program = injector.inject_at_top(&program)?;
     let program = term_to_kore_from_resolved(&loaded.resolved, &options.common.module, &program)?;
-    let initial = top_cell_initializer(program, encode_kore_sort(&program_sort));
+    let available_config_vars =
+        configuration_variable_sorts(&loaded.resolved, &options.common.module)?;
+    let mut seen_config_vars = BTreeSet::new();
+    let mut config_vars = Vec::new();
+    for assignment in &options.config_vars {
+        let (name, source) = assignment.split_once('=').ok_or_else(|| {
+            format!("invalid configuration variable `{assignment}`; expected NAME=VALUE")
+        })?;
+        let name = name.strip_prefix('$').unwrap_or(name);
+        if name.is_empty() {
+            return Err("configuration variable name cannot be empty".into());
+        }
+        if name == "PGM" {
+            return Err(
+                "$PGM is supplied by the program argument and cannot be set with -c".into(),
+            );
+        }
+        if !seen_config_vars.insert(name.to_owned()) {
+            return Err(
+                format!("configuration variable `${name}` was provided more than once").into(),
+            );
+        }
+        let sort = available_config_vars.get(name).ok_or_else(|| {
+            let available = available_config_vars
+                .keys()
+                .filter(|candidate| candidate.as_str() != "PGM")
+                .map(|candidate| format!("${candidate}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if available.is_empty() {
+                format!("definition has no configuration variable `${name}`")
+            } else {
+                format!(
+                    "definition has no configuration variable `${name}`; available variables: {available}"
+                )
+            }
+        })?;
+        let value = parser.parse(sort, source)?;
+        let value_sort = injector.term_sort(&value, None)?;
+        let value = injector.inject_at_top(&value)?;
+        let value = term_to_kore_from_resolved(&loaded.resolved, &options.common.module, &value)?;
+        config_vars.push((format!("${name}"), value, encode_kore_sort(&value_sort)));
+    }
+    let missing_config_vars = available_config_vars
+        .keys()
+        .filter(|name| name.as_str() != "PGM" && !seen_config_vars.contains(*name))
+        .map(|name| format!("${name}"))
+        .collect::<Vec<_>>();
+    if !missing_config_vars.is_empty() {
+        return Err(format!(
+            "missing required configuration variable{} {}; pass {}",
+            if missing_config_vars.len() == 1 {
+                ""
+            } else {
+                "s"
+            },
+            missing_config_vars.join(", "),
+            missing_config_vars
+                .iter()
+                .map(|name| format!("`-c {}=VALUE`", name.trim_start_matches('$')))
+                .collect::<Vec<_>>()
+                .join(" and ")
+        )
+        .into());
+    }
+    let initial = top_cell_initializer(program, encode_kore_sort(&program_sort), config_vars);
 
     let syntax = parse_kore_definition(&compiled.definition_kore)?;
     let backend = BackendDefinition::internalize(&syntax, &options.common.module)?;
@@ -2026,6 +2100,12 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                 error => format!("could not initialize Z3: {error:?}"),
             })
         })?;
+    let claim_labels = backend
+        .reachability_claims
+        .iter()
+        .filter_map(|claim| claim.attributes.label.clone())
+        .collect::<Vec<_>>();
+    let selected_labels = resolve_claim_labels(&claim_labels, &options.claims)?;
     let selected = backend
         .reachability_claims
         .iter()
@@ -2035,17 +2115,9 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                     .attributes
                     .label
                     .as_ref()
-                    .is_some_and(|label| options.claims.contains(label))
+                    .is_some_and(|label| selected_labels.contains(label))
         })
         .collect::<Vec<_>>();
-    for requested in &options.claims {
-        if !selected
-            .iter()
-            .any(|claim| claim.attributes.label.as_ref() == Some(requested))
-        {
-            return Err(format!("no modal reachability claim has label `{requested}`").into());
-        }
-    }
 
     let mut all_proven = true;
     for (index, claim) in selected.into_iter().enumerate() {
@@ -2107,6 +2179,44 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         return Err("one or more reachability claims were not proven".into());
     }
     Ok(())
+}
+
+fn resolve_claim_labels(
+    labels: &[String],
+    requested: &[String],
+) -> Result<BTreeSet<String>, Box<dyn Error>> {
+    let mut selected = BTreeSet::new();
+    for requested in requested {
+        if labels.iter().any(|label| label == requested) {
+            selected.insert(requested.clone());
+            continue;
+        }
+        let suffix = format!(".{requested}");
+        let matches = labels
+            .iter()
+            .filter(|label| label.ends_with(&suffix))
+            .collect::<Vec<_>>();
+        match matches.as_slice() {
+            [] => {
+                return Err(format!("no modal reachability claim has label `{requested}`").into());
+            }
+            [label] => {
+                selected.insert((**label).clone());
+            }
+            _ => {
+                return Err(format!(
+                    "claim label `{requested}` is ambiguous; matches {}",
+                    matches
+                        .iter()
+                        .map(|label| format!("`{label}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+                .into());
+            }
+        }
+    }
+    Ok(selected)
 }
 
 const SAVED_PROOFS_MODULE: &str =
@@ -2237,7 +2347,101 @@ fn read_program_source(
     })
 }
 
-fn top_cell_initializer(program: KorePattern, program_sort: KoreSort) -> KorePattern {
+fn configuration_variable_sorts(
+    definition: &k_rust::definition::ResolvedDefinition,
+    module: &str,
+) -> Result<BTreeMap<String, KastSort>, Box<dyn Error>> {
+    fn lookup_name(term: &KastTerm) -> Option<&str> {
+        let KastTerm::Apply { label, arguments } = term.unannotated() else {
+            return None;
+        };
+        if label.name != "Map:lookup" {
+            return None;
+        }
+        let [_, key] = arguments.as_slice() else {
+            return None;
+        };
+        let KastTerm::Token { token, sort } = key.unannotated() else {
+            return None;
+        };
+        (sort.name == "KConfigVar").then_some(token.as_str())
+    }
+
+    fn collect(
+        term: &KastTerm,
+        sorts: &mut BTreeMap<String, KastSort>,
+    ) -> Result<(), Box<dyn Error>> {
+        match term.unannotated() {
+            KastTerm::Apply { label, arguments } => {
+                if let Some(projected) = label.name.strip_prefix("project:")
+                    && let [argument] = arguments.as_slice()
+                    && let Some(name) = lookup_name(argument)
+                {
+                    let name = name.strip_prefix('$').unwrap_or(name).to_owned();
+                    let sort = parse_sort(projected)?;
+                    if let Some(existing) = sorts.insert(name.clone(), sort.clone())
+                        && existing != sort
+                    {
+                        return Err(format!(
+                            "configuration variable `${name}` is used at both sort {existing} and {sort}"
+                        )
+                        .into());
+                    }
+                }
+                for argument in arguments {
+                    collect(argument, sorts)?;
+                }
+            }
+            KastTerm::Rewrite { left, right } => {
+                collect(left, sorts)?;
+                collect(right, sorts)?;
+            }
+            KastTerm::As { pattern, alias } => {
+                collect(pattern, sorts)?;
+                collect(alias, sorts)?;
+            }
+            KastTerm::Sequence(items) => {
+                for item in items {
+                    collect(item, sorts)?;
+                }
+            }
+            KastTerm::InjectedLabel(_) | KastTerm::Variable { .. } | KastTerm::Token { .. } => {}
+            KastTerm::Annotated { .. } => unreachable!("unannotated terms are matched above"),
+        }
+        Ok(())
+    }
+
+    let module = definition
+        .module_id(module)
+        .ok_or_else(|| format!("definition has no module `{module}`"))?;
+    let mut sorts = BTreeMap::new();
+    for sentence in definition.sentences(module) {
+        if let Sentence::Rule { body, .. } = sentence {
+            collect(body, &mut sorts)?;
+        }
+    }
+    Ok(sorts)
+}
+
+fn top_cell_initializer(
+    program: KorePattern,
+    program_sort: KoreSort,
+    config_vars: Vec<(String, KorePattern, KoreSort)>,
+) -> KorePattern {
+    let mut entries = Vec::with_capacity(config_vars.len() + 1);
+    entries.push(("$PGM".to_owned(), program, program_sort));
+    entries.extend(config_vars);
+    let mut entries = entries
+        .into_iter()
+        .map(|(name, value, value_sort)| configuration_map_entry(&name, value, value_sort));
+    let first = entries.next().expect("$PGM always supplies one entry");
+    let config = entries.fold(first, |left, right| {
+        kore_application("Lbl'Unds'Map'Unds'", Vec::new(), vec![left, right])
+    });
+    kore_application("LblinitGeneratedTopCell", Vec::new(), vec![config])
+}
+
+fn configuration_map_entry(name: &str, value: KorePattern, value_sort: KoreSort) -> KorePattern {
     let config_var_sort = kore_sort("SortKConfigVar");
     let item_sort = kore_sort("SortKItem");
     let key = kore_application(
@@ -2245,16 +2449,15 @@ fn top_cell_initializer(program: KorePattern, program_sort: KoreSort) -> KorePat
         vec![config_var_sort.clone(), item_sort.clone()],
         vec![KorePattern::DomainValue {
             sort: config_var_sort,
-            value: "$PGM".into(),
+            value: name.into(),
         }],
     );
-    let program = if program_sort == item_sort {
-        program
+    let value = if value_sort == item_sort {
+        value
     } else {
-        kore_application("inj", vec![program_sort, item_sort], vec![program])
+        kore_application("inj", vec![value_sort, item_sort], vec![value])
     };
-    let config = kore_application("Lbl'UndsPipe'-'-GT-Unds'", Vec::new(), vec![key, program]);
-    kore_application("LblinitGeneratedTopCell", Vec::new(), vec![config])
+    kore_application("Lbl'UndsPipe'-'-GT-Unds'", Vec::new(), vec![key, value])
 }
 
 fn kore_application(
@@ -2474,6 +2677,8 @@ mod tests {
             "Exp",
             "--expression",
             "1 + 2",
+            "-c",
+            "ENV=.Map",
             "--depth",
             "42",
             "--breadth",
@@ -2499,6 +2704,7 @@ mod tests {
         assert_eq!(options.common.module, "MAIN");
         assert_eq!(options.sort, "Exp");
         assert_eq!(options.expression.as_deref(), Some("1 + 2"));
+        assert_eq!(options.config_vars, ["ENV=.Map"]);
         assert_eq!(options.depth, 42);
         assert_eq!(options.breadth_limit, Some(7));
         assert!(options.execute_to_branch);
@@ -2512,6 +2718,26 @@ mod tests {
         assert_eq!(options.step_timeout, Some(Duration::from_millis(250)));
         assert!(options.moving_average_timeout);
         assert_eq!(options.smt, Z3Options::default());
+    }
+
+    #[test]
+    fn resolves_unambiguous_short_claim_labels() {
+        let labels = vec![
+            "FIRST.alpha".to_owned(),
+            "SECOND.beta".to_owned(),
+            "exact".to_owned(),
+        ];
+        assert_eq!(
+            resolve_claim_labels(&labels, &["alpha".into(), "exact".into()]).unwrap(),
+            BTreeSet::from(["FIRST.alpha".into(), "exact".into()])
+        );
+    }
+
+    #[test]
+    fn rejects_ambiguous_short_claim_labels() {
+        let labels = vec!["FIRST.same".to_owned(), "SECOND.same".to_owned()];
+        let error = resolve_claim_labels(&labels, &["same".into()]).unwrap_err();
+        assert!(error.to_string().contains("is ambiguous"), "{error}");
     }
 
     #[test]

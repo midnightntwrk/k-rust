@@ -190,6 +190,74 @@ endmodule
 }
 
 #[test]
+fn krun_populates_additional_configuration_variables() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports MAP
+  syntax State ::= "a" [symbol(a)]
+                 | "b" [symbol(b)]
+  configuration <k> $PGM:State </k> <env> $ENV:Map </env>
+  rule <k> a => b </k> <env> .Map </env>
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+            "-c",
+            "ENV=.Map",
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(output.contains("Lblb{}()"), "{output}");
+    assert!(output.contains("Lbl'Stop'Map{}()"), "{output}");
+
+    let missing = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+        ])
+        .output()
+        .unwrap();
+    assert!(!missing.status.success());
+    assert!(
+        String::from_utf8_lossy(&missing.stderr)
+            .contains("missing required configuration variable $ENV; pass `-c ENV=VALUE`"),
+        "{}",
+        String::from_utf8_lossy(&missing.stderr)
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn krun_eliminates_a_k_sequence_rewritten_to_bottom() {
     let (root, definition) = fixture();
     fs::write(

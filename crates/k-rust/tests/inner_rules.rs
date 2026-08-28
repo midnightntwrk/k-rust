@@ -798,6 +798,21 @@ rule_snapshot!(
 
 rule_snapshot!(
     #[cfg(feature = "z3-inference")]
+    shares_inference_identity_for_a_parenthesized_rewrite_across_bracket_alternatives,
+    r#"
+        module MAIN
+          syntax Id ::= r"[a-z]+" [token]
+          syntax KItem ::= Id
+          syntax Map ::= ".Map" [symbol(dotMap)]
+                       | KItem "|->" KItem [symbol(mapEntry)]
+          syntax KItem ::= Map
+          rule x |-> (_ => ?_) => .Map
+        endmodule
+    "#
+);
+
+rule_snapshot!(
+    #[cfg(feature = "z3-inference")]
     infers_shared_collection_values_at_kitem_instead_of_k,
     r#"
         module MAIN

@@ -425,17 +425,19 @@ fn add_rule_k_syntax(
         false,
         false,
     )?;
-    // `K` is intentionally absent from `concrete_sorts`, but rule bodies still need a concrete
-    // bracket production. Relying only on KSEQ's parametric bracket leaves a parenthesized
-    // polymorphic rewrite unable to complete before a cell's trailing `...`.
-    grammar.add_bracket(
-        Sort::new("K"),
-        vec![
-            ProductionItem::Terminal("(".into()),
-            nonterminal("K"),
-            ProductionItem::Terminal(")".into()),
-        ],
-    )?;
+    // `K` and `KItem` are intentionally absent from `concrete_sorts`, but rule bodies still need
+    // their concrete bracket productions. In particular, a parenthesized polymorphic rewrite in
+    // a collection value must retain the KItem interpretation used by sort inference.
+    for sort in [Sort::new("K"), Sort::new("KItem")] {
+        grammar.add_bracket(
+            sort.clone(),
+            vec![
+                ProductionItem::Terminal("(".into()),
+                ProductionItem::NonTerminal { sort, name: None },
+                ProductionItem::Terminal(")".into()),
+            ],
+        )?;
+    }
     #[cfg(not(feature = "z3-inference"))]
     add_rule_sort(grammar, &Sort::new("K"))?;
     let rule_body_sort = rule_sort(&Sort::new("K"));

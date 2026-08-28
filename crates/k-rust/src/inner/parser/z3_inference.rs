@@ -200,7 +200,7 @@ impl<'a> Encoding<'a> {
             }
             ParsedTerm::Term(term) => match term.unannotated() {
                 Term::Variable { name, .. } => {
-                    let variable = self.term_variable(name, path);
+                    let variable = self.term_variable(term, name, path);
                     Ok(match (is_anonymous(name), cast_context) {
                         // Anonymous occurrences are independent variables, but each one has the
                         // exact sort demanded by its context in the reference inferencer.
@@ -228,10 +228,11 @@ impl<'a> Encoding<'a> {
             ParsedTerm::Production {
                 production,
                 children,
-                ..
+                metadata,
             } => {
                 let descriptor = &self.grammar.productions[*production];
-                let parameters = self.production_parameters(descriptor, path);
+                let parameters =
+                    self.production_parameters(*production, descriptor, metadata, path);
                 let actual_sort = production_result(descriptor);
                 let actual = self.sort_value(actual_sort, &parameters)?;
                 let mut constraints = Vec::new();
@@ -239,12 +240,10 @@ impl<'a> Encoding<'a> {
                     && is_real_sort(actual_sort, parameters.keys())
                 {
                     let strict = cast_context == CastContext::Strict
-                        || descriptor.parametric_origin.as_ref().is_some_and(|origin| {
-                            origin
-                                .parameters
-                                .iter()
-                                .any(|parameter| parameter == actual_sort)
-                        });
+                        || descriptor
+                            .parametric_origin
+                            .as_ref()
+                            .is_some_and(|origin| origin.parameters.contains(&origin.result));
                     constraints.push(if strict {
                         actual.eq(expected)
                     } else {
@@ -302,14 +301,19 @@ impl<'a> Encoding<'a> {
 
     fn actual_sort(&mut self, term: &ParsedTerm, path: &str) -> Result<Datatype, ParseError> {
         match term {
-            ParsedTerm::Production { production, .. } => {
+            ParsedTerm::Production {
+                production,
+                metadata,
+                ..
+            } => {
                 let descriptor = &self.grammar.productions[*production];
-                let parameters = self.production_parameters(descriptor, path);
+                let parameters =
+                    self.production_parameters(*production, descriptor, metadata, path);
                 self.sort_value(production_result(descriptor), &parameters)
             }
             ParsedTerm::Term(term) => match term.unannotated() {
                 Term::Token { sort, .. } => self.sort_value(sort, &BTreeMap::new()),
-                Term::Variable { name, .. } => Ok(self.term_variable(name, path)),
+                Term::Variable { name, .. } => Ok(self.term_variable(term, name, path)),
                 _ => Err(z3_error("cannot determine the sort of this KAST node")),
             },
             ParsedTerm::Ambiguity(_) => Err(z3_error(
@@ -323,7 +327,9 @@ impl<'a> Encoding<'a> {
 
     fn production_parameters(
         &mut self,
+        production_index: usize,
         production: &Production,
+        metadata: &super::TermMetadata,
         path: &str,
     ) -> BTreeMap<Sort, Datatype> {
         let Some(origin) = &production.parametric_origin else {
@@ -334,7 +340,7 @@ impl<'a> Encoding<'a> {
             .iter()
             .enumerate()
             .map(|(index, parameter)| {
-                let name = format!("parameter_{path}_{index}");
+                let name = inference_parameter_key(production_index, metadata, path, index);
                 let value = self
                     .variables
                     .entry(name.clone())
@@ -346,12 +352,8 @@ impl<'a> Encoding<'a> {
             .collect()
     }
 
-    fn term_variable(&mut self, name: &str, path: &str) -> Datatype {
-        let key = if is_anonymous(name) {
-            format!("anonymous_{path}")
-        } else {
-            format!("variable_{name}")
-        };
+    fn term_variable(&mut self, term: &Term, name: &str, path: &str) -> Datatype {
+        let key = inference_variable_key(term, name, path);
         self.variables
             .entry(key.clone())
             .or_insert_with(|| Datatype::new_const(key, &self.datatype.sort))
@@ -662,11 +664,7 @@ impl<'a> Encoding<'a> {
                 let Term::Variable { name, .. } = leaf.unannotated() else {
                     unreachable!()
                 };
-                let key = if is_anonymous(name) {
-                    format!("anonymous_{path}")
-                } else {
-                    format!("variable_{name}")
-                };
+                let key = inference_variable_key(leaf, name, path);
                 let inferred = model
                     .get(&key)
                     .ok_or_else(|| z3_error(format!("Z3 omitted a sort for variable {name}")))?;
@@ -701,7 +699,8 @@ impl<'a> Encoding<'a> {
                             .iter()
                             .enumerate()
                             .map(|(index, parameter)| {
-                                let name = format!("parameter_{path}_{index}");
+                                let name =
+                                    inference_parameter_key(production, &metadata, path, index);
                                 model
                                     .get(&name)
                                     .cloned()
@@ -930,7 +929,11 @@ fn declared_model_sort(
     path: &str,
 ) -> Sort {
     match term {
-        ParsedTerm::Production { production, .. } => {
+        ParsedTerm::Production {
+            production,
+            metadata,
+            ..
+        } => {
             let descriptor = &grammar.productions[*production];
             let parameters = descriptor
                 .parametric_origin
@@ -942,7 +945,7 @@ fn declared_model_sort(
                         .enumerate()
                         .filter_map(|(index, parameter)| {
                             model
-                                .get(&format!("parameter_{path}_{index}"))
+                                .get(&inference_parameter_key(*production, metadata, path, index))
                                 .cloned()
                                 .map(|value| (parameter.clone(), value))
                         })
@@ -954,11 +957,7 @@ fn declared_model_sort(
         ParsedTerm::Term(term) => match term.unannotated() {
             Term::Token { sort, .. } => sort.clone(),
             Term::Variable { name, .. } => {
-                let key = if is_anonymous(name) {
-                    format!("anonymous_{path}")
-                } else {
-                    format!("variable_{name}")
-                };
+                let key = inference_variable_key(term, name, path);
                 model.get(&key).cloned().unwrap_or_else(|| Sort::new("K"))
             }
             _ => Sort::new("K"),
@@ -1040,6 +1039,36 @@ fn is_anonymous(name: &str) -> bool {
         || name.starts_with("?_")
         || name.starts_with("!_")
         || name.starts_with("@_")
+}
+
+fn inference_variable_key(term: &Term, name: &str, path: &str) -> String {
+    if !is_anonymous(name) {
+        return format!("variable_{name}");
+    }
+    if let Some(span) = term.metadata().and_then(|metadata| metadata.span) {
+        // One source occurrence can appear beneath several alternatives in the shared parse
+        // forest. K's parser assigns that occurrence one inference variable; using its span here
+        // preserves the same identity after our value-based forest representation is factored.
+        format!("anonymous_{}_{}", span.start, span.end)
+    } else {
+        format!("anonymous_{path}")
+    }
+}
+
+fn inference_parameter_key(
+    production: usize,
+    metadata: &super::TermMetadata,
+    path: &str,
+    parameter: usize,
+) -> String {
+    if let Some(span) = metadata.span {
+        format!(
+            "parameter_{}_{}_{}_{}",
+            production, span.start, span.end, parameter
+        )
+    } else {
+        format!("parameter_{path}_{parameter}")
+    }
 }
 
 fn and_all(items: &[Bool]) -> Bool {
