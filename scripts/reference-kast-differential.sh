@@ -3,6 +3,7 @@ set -euo pipefail
 
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
+imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
 wasm_checkout=${WASM_SEMANTICS_CHECKOUT:-"$workspace/wasm-semantics"}
 evm_checkout=${EVM_SEMANTICS_CHECKOUT:-"$workspace/evm-semantics"}
 mir_checkout=${MIR_SEMANTICS_CHECKOUT:-"$workspace/mir-semantics"}
@@ -34,14 +35,15 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/k-rust-reference-kast-differential.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 
 cases=(
-  "wasm|$wasm_checkout/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md|WASM-TEST|WASM-TEST-SYNTAX|ModuleDecl|(module)"
-  "evm-equivalence|$evm_checkout/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/optimizations.md|EVM-OPTIMIZATIONS|EVM-OPTIMIZATIONS|Schedule|CANCUN|$evm_checkout/kevm-pyk/src/kevm_pyk/kproj/plugin"
-  "mir|$mir_checkout/kmir/src/kmir/kdist/mir-semantics/kmir.md|KMIR|KMIR-AST|Span|span(0)|$mir_checkout/kmir/src/kmir/kdist|k & ! concrete|KMIR-AST"
+  "imp|$imp_checkout/src/kimp/kdist/imp-semantics/imp.k|IMP|IMP-SYNTAX|Stmt|x = 1;|if ("
+  "wasm|$wasm_checkout/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md|WASM-TEST|WASM-TEST-SYNTAX|ModuleDecl|(module)|(module (func"
+  "evm-equivalence|$evm_checkout/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/optimizations.md|EVM-OPTIMIZATIONS|EVM-OPTIMIZATIONS|Schedule|CANCUN|NOT_A_SCHEDULE|$evm_checkout/kevm-pyk/src/kevm_pyk/kproj/plugin"
+  "mir|$mir_checkout/kmir/src/kmir/kdist/mir-semantics/kmir.md|KMIR|KMIR-AST|Span|span(0)|span(foo)|$mir_checkout/kmir/src/kmir/kdist|k & ! concrete|KMIR-AST"
 )
 selected_count=0
 
 for fixture in "${cases[@]}"; do
-  IFS='|' read -r name source main_module parser_module sort expression include selector syntax_module <<<"$fixture"
+  IFS='|' read -r name source main_module parser_module sort expression rejected_expression include selector syntax_module <<<"$fixture"
   selected=true
   if (($#)); then
     selected=false
@@ -135,11 +137,50 @@ for fixture in "${cases[@]}"; do
     cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
       -p k-rust --test reference_differential -- --ignored --exact \
       parsed_kast_matches_the_reference_frontend
+
+  echo "[$name] checking rejection agreement"
+  if (
+    if [[ -n "$memory_limit_kib" ]]; then
+      ulimit -v "$memory_limit_kib"
+    fi
+    if [[ -n "$reference_k_opts" ]]; then
+      export K_OPTS="$reference_k_opts"
+    fi
+    "$kast" \
+      --definition "$reference/kompiled" \
+      --module "$parser_module" \
+      --sort "$sort" \
+      --expression "$rejected_expression" \
+      --output json \
+      --warnings none >"$work/$name/reference-rejected.json" 2>"$work/$name/reference-rejected.log"
+  ); then
+    echo "error: reference kast unexpectedly accepted $name rejection fixture" >&2
+    exit 1
+  fi
+  if (
+    if [[ -n "$memory_limit_kib" ]]; then
+      ulimit -v "$memory_limit_kib"
+    fi
+    cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust -- \
+      kast "$source" \
+      --module "$parser_module" \
+      --sort "$sort" \
+      --expression "$rejected_expression" \
+      --output json \
+      --backend rust \
+      "${include_args[@]}" \
+      "${selector_args[@]}" \
+      --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin" \
+      >"$work/$name/rust-rejected.json" 2>"$work/$name/rust-rejected.log"
+  ); then
+    echo "error: krust kast unexpectedly accepted $name rejection fixture" >&2
+    exit 1
+  fi
 done
 
 if (($# && selected_count != $#)); then
   echo "error: one or more requested corpus cases are unknown" >&2
-  echo "available cases: wasm evm-equivalence mir" >&2
+  echo "available cases: imp wasm evm-equivalence mir" >&2
   exit 2
 fi
 

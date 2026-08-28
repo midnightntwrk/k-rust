@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     env,
     error::Error,
     fmt, fs,
@@ -11,10 +11,13 @@ use std::{
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use k_rust::{
-    definition::checks::check_definition,
+    definition::{Sentence, checks::check_definition},
     diagnostic::{Diagnostic, Severity},
     inner::ProgramParser,
-    kast::{json as kast_json, parser::parse_sort, printer::Printer as KastPrinter},
+    kast::{
+        Sort as KastSort, Term as KastTerm, json as kast_json, parser::parse_sort,
+        printer::Printer as KastPrinter,
+    },
     kompile::{
         CompilationBackend, CompileOptions, SortInjector, compile_loaded_definition,
         encode_kore_sort, term_to_kore_from_resolved,
@@ -312,6 +315,10 @@ struct KrunArgs {
     /// Program file to execute, or `-` for standard input.
     #[arg(value_name = "PROGRAM_FILE")]
     program_file: Option<PathBuf>,
+
+    /// Set a configuration variable using its declared syntax. May be repeated.
+    #[arg(short = 'c', long = "config-var", value_name = "NAME=VALUE")]
+    configuration: Vec<String>,
 
     /// Maximum number of semantic rewrite steps per execution branch.
     #[arg(long, value_name = "STEPS")]
@@ -663,6 +670,7 @@ struct KrunOptions {
     sort: String,
     expression: Option<String>,
     program_file: Option<PathBuf>,
+    configuration: Vec<String>,
     depth: u64,
     breadth_limit: Option<usize>,
     execute_to_branch: bool,
@@ -801,6 +809,7 @@ impl From<KrunArgs> for KrunOptions {
             sort: arguments.sort,
             expression: arguments.expression,
             program_file: arguments.program_file,
+            configuration: arguments.configuration,
             depth: arguments.depth.unwrap_or(u64::MAX),
             breadth_limit: arguments.breadth_limit,
             execute_to_branch: arguments.execute_to_branch,
@@ -964,7 +973,29 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
     let program_sort = injector.term_sort(&program, None)?;
     let program = injector.inject_at_top(&program)?;
     let program = term_to_kore_from_resolved(&loaded.resolved, &options.common.module, &program)?;
-    let initial = top_cell_initializer(program, encode_kore_sort(&program_sort));
+    let configuration_sorts =
+        configuration_variable_sorts(&loaded.resolved, &options.common.module)?;
+    let mut configuration = Vec::new();
+    for assignment in options.configuration {
+        let (name, source) = parse_configuration_assignment(&assignment)?;
+        let key = format!("${}", name.trim_start_matches('$'));
+        if key == "$PGM" {
+            return Err("$PGM is supplied by the program argument and cannot be overridden".into());
+        }
+        if configuration.iter().any(|(existing, _)| existing == &key) {
+            return Err(
+                format!("configuration variable {key} was specified more than once").into(),
+            );
+        }
+        let sort = configuration_sorts
+            .get(&key)
+            .ok_or_else(|| format!("configuration variable {key} is not declared"))?;
+        let value = parser.parse(sort, source)?;
+        let value = injector.inject(&value, &KastSort::new("KItem"))?;
+        let value = term_to_kore_from_resolved(&loaded.resolved, &options.common.module, &value)?;
+        configuration.push((key, value));
+    }
+    let initial = top_cell_initializer(program, encode_kore_sort(&program_sort), configuration);
 
     let syntax = parse_kore_definition(&compiled.definition_kore)?;
     let backend = BackendDefinition::internalize(&syntax, &options.common.module)?;
@@ -2243,7 +2274,98 @@ fn read_program_source(
     })
 }
 
-fn top_cell_initializer(program: KorePattern, program_sort: KoreSort) -> KorePattern {
+fn configuration_variable_sorts(
+    definition: &k_rust::definition::ResolvedDefinition,
+    module: &str,
+) -> Result<BTreeMap<String, KastSort>, Box<dyn Error>> {
+    let module = definition
+        .module_id(module)
+        .ok_or_else(|| format!("definition module {module:?} was not found"))?;
+    let mut variables = BTreeMap::new();
+    for sentence in definition.sentences(module) {
+        let (Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        }
+        | Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            ..
+        }) = sentence
+        else {
+            continue;
+        };
+        for term in [body, requires, ensures] {
+            term.visit_preorder(&mut |term| {
+                let KastTerm::Apply { label, arguments } = term.unannotated() else {
+                    return;
+                };
+                let Some(sort) = label.name.strip_prefix("project:") else {
+                    return;
+                };
+                let [lookup] = arguments.as_slice() else {
+                    return;
+                };
+                let KastTerm::Apply {
+                    label: lookup_label,
+                    arguments: lookup_arguments,
+                } = lookup.unannotated()
+                else {
+                    return;
+                };
+                let [_, key] = lookup_arguments.as_slice() else {
+                    return;
+                };
+                let KastTerm::Token {
+                    token,
+                    sort: token_sort,
+                } = key.unannotated()
+                else {
+                    return;
+                };
+                if lookup_label.name == "Map:lookup" && token_sort.name == "KConfigVar" {
+                    variables
+                        .entry(token.clone())
+                        .or_insert_with(|| KastSort::new(sort));
+                }
+            });
+        }
+    }
+    Ok(variables)
+}
+
+fn parse_configuration_assignment(assignment: &str) -> Result<(&str, &str), Box<dyn Error>> {
+    let (name, value) = assignment
+        .split_once('=')
+        .ok_or_else(|| format!("configuration assignment {assignment:?} must contain '='"))?;
+    if name.trim_start_matches('$').is_empty() {
+        return Err("configuration variable name cannot be empty".into());
+    }
+    Ok((name, value))
+}
+
+fn top_cell_initializer(
+    program: KorePattern,
+    program_sort: KoreSort,
+    configuration: Vec<(String, KorePattern)>,
+) -> KorePattern {
+    let mut entries = vec![configuration_map_item("$PGM", program, program_sort)];
+    entries.extend(
+        configuration
+            .into_iter()
+            .map(|(name, value)| configuration_map_item(&name, value, kore_sort("SortKItem"))),
+    );
+    let config = entries
+        .into_iter()
+        .reduce(|left, right| kore_application("Lbl'Unds'Map'Unds'", Vec::new(), vec![left, right]))
+        .expect("$PGM always supplies one configuration entry");
+    kore_application("LblinitGeneratedTopCell", Vec::new(), vec![config])
+}
+
+fn configuration_map_item(name: &str, value: KorePattern, value_sort: KoreSort) -> KorePattern {
     let config_var_sort = kore_sort("SortKConfigVar");
     let item_sort = kore_sort("SortKItem");
     let key = kore_application(
@@ -2251,16 +2373,15 @@ fn top_cell_initializer(program: KorePattern, program_sort: KoreSort) -> KorePat
         vec![config_var_sort.clone(), item_sort.clone()],
         vec![KorePattern::DomainValue {
             sort: config_var_sort,
-            value: "$PGM".into(),
+            value: name.into(),
         }],
     );
-    let program = if program_sort == item_sort {
-        program
+    let value = if value_sort == item_sort {
+        value
     } else {
-        kore_application("inj", vec![program_sort, item_sort], vec![program])
+        kore_application("inj", vec![value_sort, item_sort], vec![value])
     };
-    let config = kore_application("Lbl'UndsPipe'-'-GT-Unds'", Vec::new(), vec![key, program]);
-    kore_application("LblinitGeneratedTopCell", Vec::new(), vec![config])
+    kore_application("Lbl'UndsPipe'-'-GT-Unds'", Vec::new(), vec![key, value])
 }
 
 fn kore_application(
@@ -2481,6 +2602,7 @@ mod tests {
             "Exp",
             "--expression",
             "1 + 2",
+            "-cENV=.Map",
             "--depth",
             "42",
             "--breadth",
@@ -2506,6 +2628,7 @@ mod tests {
         assert_eq!(options.common.module, "MAIN");
         assert_eq!(options.sort, "Exp");
         assert_eq!(options.expression.as_deref(), Some("1 + 2"));
+        assert_eq!(options.configuration, ["ENV=.Map"]);
         assert_eq!(options.depth, 42);
         assert_eq!(options.breadth_limit, Some(7));
         assert!(options.execute_to_branch);

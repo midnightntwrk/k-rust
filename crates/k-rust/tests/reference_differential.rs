@@ -2,8 +2,9 @@ use std::{collections::BTreeMap, env, fs};
 
 use k_rust::kast::json as kast_json;
 use k_rust::kore::{
-    ast::{Attributes, Definition, Pattern, Sentence},
+    ast::{Attributes, Definition, Pattern, Sentence, Symbol},
     parser::parse_definition,
+    parser::parse_pattern,
 };
 
 #[test]
@@ -41,6 +42,188 @@ fn parsed_kast_matches_the_reference_frontend() {
     let actual = kast_json::from_str(&actual_source).unwrap();
 
     assert_eq!(reference, actual);
+}
+
+#[test]
+#[ignore = "requires K_REFERENCE_EXECUTION and K_RUST_EXECUTION outputs"]
+fn executed_kore_matches_the_reference_backend() {
+    let reference_path =
+        env::var("K_REFERENCE_EXECUTION").expect("K_REFERENCE_EXECUTION is required");
+    let actual_path = env::var("K_RUST_EXECUTION").expect("K_RUST_EXECUTION is required");
+    let reference_source = fs::read_to_string(&reference_path).unwrap();
+    let actual_source = fs::read_to_string(&actual_path).unwrap();
+    let reference = normalize_execution_pattern(parse_pattern(&reference_source).unwrap());
+    let actual = normalize_execution_pattern(parse_pattern(&actual_source).unwrap());
+
+    assert_eq!(reference, actual);
+}
+
+fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
+    match pattern {
+        Pattern::Application { symbol, arguments } => {
+            let arguments = arguments
+                .into_iter()
+                .map(normalize_execution_pattern)
+                .collect::<Vec<_>>();
+            if matches!(
+                symbol.name.as_str(),
+                "Lbl'Unds'Map'Unds'" | "Lbl'Unds'Set'Unds'"
+            ) {
+                let mut flattened = Vec::new();
+                for argument in arguments {
+                    flatten_collection(&symbol, argument, &mut flattened);
+                }
+                flattened.sort();
+                let mut flattened = flattened.into_iter().rev();
+                let mut result = flattened
+                    .next()
+                    .expect("collection concatenation is binary");
+                for argument in flattened {
+                    result = Pattern::Application {
+                        symbol: symbol.clone(),
+                        arguments: vec![argument, result],
+                    };
+                }
+                result
+            } else {
+                Pattern::Application { symbol, arguments }
+            }
+        }
+        Pattern::And { sort, arguments } => Pattern::And {
+            sort,
+            arguments: arguments
+                .into_iter()
+                .map(normalize_execution_pattern)
+                .collect(),
+        },
+        Pattern::Or { sort, arguments } => Pattern::Or {
+            sort,
+            arguments: arguments
+                .into_iter()
+                .map(normalize_execution_pattern)
+                .collect(),
+        },
+        Pattern::Not { sort, argument } => Pattern::Not {
+            sort,
+            argument: Box::new(normalize_execution_pattern(*argument)),
+        },
+        Pattern::Next { sort, argument } => Pattern::Next {
+            sort,
+            argument: Box::new(normalize_execution_pattern(*argument)),
+        },
+        Pattern::Implies { sort, left, right } => Pattern::Implies {
+            sort,
+            left: Box::new(normalize_execution_pattern(*left)),
+            right: Box::new(normalize_execution_pattern(*right)),
+        },
+        Pattern::Iff { sort, left, right } => Pattern::Iff {
+            sort,
+            left: Box::new(normalize_execution_pattern(*left)),
+            right: Box::new(normalize_execution_pattern(*right)),
+        },
+        Pattern::Rewrites { sort, left, right } => Pattern::Rewrites {
+            sort,
+            left: Box::new(normalize_execution_pattern(*left)),
+            right: Box::new(normalize_execution_pattern(*right)),
+        },
+        Pattern::Exists {
+            sort,
+            variable,
+            body,
+        } => Pattern::Exists {
+            sort,
+            variable,
+            body: Box::new(normalize_execution_pattern(*body)),
+        },
+        Pattern::Forall {
+            sort,
+            variable,
+            body,
+        } => Pattern::Forall {
+            sort,
+            variable,
+            body: Box::new(normalize_execution_pattern(*body)),
+        },
+        Pattern::Mu { variable, body } => Pattern::Mu {
+            variable,
+            body: Box::new(normalize_execution_pattern(*body)),
+        },
+        Pattern::Nu { variable, body } => Pattern::Nu {
+            variable,
+            body: Box::new(normalize_execution_pattern(*body)),
+        },
+        Pattern::Ceil {
+            operand_sort,
+            result_sort,
+            argument,
+        } => Pattern::Ceil {
+            operand_sort,
+            result_sort,
+            argument: Box::new(normalize_execution_pattern(*argument)),
+        },
+        Pattern::Floor {
+            operand_sort,
+            result_sort,
+            argument,
+        } => Pattern::Floor {
+            operand_sort,
+            result_sort,
+            argument: Box::new(normalize_execution_pattern(*argument)),
+        },
+        Pattern::Equals {
+            operand_sort,
+            result_sort,
+            left,
+            right,
+        } => Pattern::Equals {
+            operand_sort,
+            result_sort,
+            left: Box::new(normalize_execution_pattern(*left)),
+            right: Box::new(normalize_execution_pattern(*right)),
+        },
+        Pattern::In {
+            operand_sort,
+            result_sort,
+            left,
+            right,
+        } => Pattern::In {
+            operand_sort,
+            result_sort,
+            left: Box::new(normalize_execution_pattern(*left)),
+            right: Box::new(normalize_execution_pattern(*right)),
+        },
+        Pattern::AssociativeApplication {
+            associativity,
+            symbol,
+            arguments,
+        } => Pattern::AssociativeApplication {
+            associativity,
+            symbol,
+            arguments: arguments
+                .into_iter()
+                .map(normalize_execution_pattern)
+                .collect(),
+        },
+        leaf @ (Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. }) => leaf,
+    }
+}
+
+fn flatten_collection(symbol: &Symbol, pattern: Pattern, output: &mut Vec<Pattern>) {
+    match pattern {
+        Pattern::Application {
+            symbol: nested,
+            arguments,
+        } if nested == *symbol => {
+            for argument in arguments {
+                flatten_collection(symbol, argument, output);
+            }
+        }
+        pattern => output.push(pattern),
+    }
 }
 
 fn parse_macro_sentences(source: &str) -> Definition {

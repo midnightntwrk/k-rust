@@ -156,6 +156,9 @@ krust krun definition.k --main-module MAIN --sort Exp --expression '1 + 2'
 krust krun definition.k --main-module MAIN --sort Exp program.exp --depth 1000
 ```
 
+Use repeatable `-cNAME=VALUE` arguments for additional configuration variables; values are parsed
+with the sorts declared by the configuration.
+
 Execution explores every rewrite branch by default. Pass `--execute-to-branch` to return the
 configuration at the first branch point instead. Pass `--strategy any` for ordered,
 first-applicable rewriting instead of the default `--strategy all`. Pass `--breadth N` to cap the
@@ -421,14 +424,37 @@ scripts/reference-differential.sh mir
 
 The program-parser differential gate parses small semantics-specific terms through reference
 `kast` and `krust kast`, decodes their KAST JSON, and compares the terms structurally. It covers an
-empty WebAssembly module, an EVM schedule, and a MIR span:
+IMP assignment, an empty WebAssembly module, an EVM schedule, and a MIR span. Each case also checks
+that both parsers reject a malformed term:
 
 ```console
 K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-kast-differential.sh
-scripts/reference-kast-differential.sh wasm evm-equivalence mir  # selected cases
+scripts/reference-kast-differential.sh imp wasm evm-equivalence mir  # selected cases
 ```
 
 It accepts the same checkout and memory-limit environment variables as the structural KORE gate.
+
+The execution differential gate compiles IMP for the reference Haskell backend once, executes three
+upstream programs through both backends, and compares their terminal KORE configurations
+structurally:
+
+```console
+K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-execution-differential.sh
+```
+
+Reference Haskell validation needs more virtual address space than Java compilation alone, so this
+gate defaults to a 12 GiB address-space ceiling while retaining the 2 GiB JVM heap above and forcing
+one Haskell capability. Rust execution remains capped at 6 GiB. Override these independently with
+`REFERENCE_EXECUTION_MEMORY_KIB` and `RUST_DIFFERENTIAL_MEMORY_KIB`.
+
+The proof differential gate checks concrete evaluation, an SMT-constrained claim, and symbolic
+branching with an ensures clause through both IMP provers:
+
+```console
+K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-proof-differential.sh
+```
+
+It uses the same execution/proof memory controls.
 
 The backend acceptance gate compiles, executes, and proves with the in-process Rust backend:
 
