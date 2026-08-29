@@ -11,7 +11,7 @@ use std::{
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use k_rust::{
-    definition::checks::check_definition,
+    definition::{checks::check_definition, json as definition_json},
     diagnostic::{Diagnostic, Severity},
     inner::ProgramParser,
     kast::{
@@ -160,9 +160,17 @@ struct KcompileArgs {
     #[arg(long, value_enum, default_value_t)]
     backend: CompilationBackendArg,
 
+    /// Module whose grammar parses programs (defaults to MAIN-MODULE-SYNTAX when present).
+    #[arg(long, value_name = "MODULE")]
+    syntax_module: Option<String>,
+
     /// Directory in which generated KORE files are written.
     #[arg(short = 'o', long, default_value = ".", value_name = "DIR")]
     output_directory: PathBuf,
+
+    /// Also write the parsed outer definition as KAST JSON v4.
+    #[arg(long)]
+    emit_json: bool,
 
     #[command(flatten)]
     source: SourceArgs,
@@ -610,7 +618,9 @@ struct CommonOptions {
 struct KcompileOptions {
     common: CommonOptions,
     backend: CompilationBackend,
+    syntax_module: Option<String>,
     output_directory: PathBuf,
+    emit_json: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
@@ -779,7 +789,9 @@ impl From<KcompileArgs> for KcompileOptions {
                 .source
                 .common(arguments.definition, arguments.module),
             backend: arguments.backend.into(),
+            syntax_module: arguments.syntax_module,
             output_directory: arguments.output_directory,
+            emit_json: arguments.emit_json,
         }
     }
 }
@@ -909,6 +921,13 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     };
     emit_diagnostics(&artifacts.diagnostics);
     fs::create_dir_all(&options.output_directory)?;
+    if options.emit_json {
+        let definition = parsed_definition_for_json(&loaded, options.syntax_module.as_deref())?;
+        fs::write(
+            options.output_directory.join("parsed.json"),
+            definition_json::to_string_pretty(&definition)?,
+        )?;
+    }
     fs::write(
         options.output_directory.join("definition.kore"),
         artifacts.definition_kore,
@@ -922,6 +941,97 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
         artifacts.macros_kore,
     )?;
     Ok(())
+}
+
+fn parsed_definition_for_json(
+    loaded: &k_rust::outer::LoadedDefinition,
+    syntax_module: Option<&str>,
+) -> Result<k_rust::definition::Definition, Box<dyn Error>> {
+    // Match DefinitionParsing.parseDefinitionAndResolveBubbles: retain the semantic and syntax
+    // import closures, the frontend's always-present utility modules, and entry modules whose
+    // visible sentences contained no bubbles before backend-tag filtering.
+    let main = loaded.resolved.main_module();
+    let default_syntax_module = format!("{}-SYNTAX", main.name);
+    let syntax_module = match syntax_module {
+        Some(module) if loaded.resolved.module_id(module).is_none() => {
+            return Err(format!("definition syntax module {module:?} was not found").into());
+        }
+        Some(module) => module,
+        None => loaded
+            .resolved
+            .module_id(&default_syntax_module)
+            .map(|_| default_syntax_module.as_str())
+            .unwrap_or(&main.name),
+    };
+
+    let mut seeds = BTreeSet::from([
+        main.name.clone(),
+        syntax_module.to_owned(),
+        "K-REFLECTION".into(),
+        "STDIN-STREAM".into(),
+        "STDOUT-STREAM".into(),
+        "MAP".into(),
+    ]);
+    let source_modules = loaded
+        .files
+        .iter()
+        .flat_map(|file| &file.modules)
+        .collect::<Vec<_>>();
+    let mut modules_with_visible_bubbles = source_modules
+        .iter()
+        .filter(|module| {
+            module
+                .sentences
+                .iter()
+                .any(|sentence| matches!(sentence, k_rust::outer::Sentence::Bubble(_)))
+        })
+        .map(|module| module.name.as_str())
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+    loop {
+        let before = modules_with_visible_bubbles.len();
+        for module in &source_modules {
+            if module
+                .imports
+                .iter()
+                .any(|import| modules_with_visible_bubbles.contains(&import.module))
+            {
+                modules_with_visible_bubbles.insert(module.name.clone());
+            }
+        }
+        if modules_with_visible_bubbles.len() == before {
+            break;
+        }
+    }
+    for module in source_modules {
+        if !modules_with_visible_bubbles.contains(&module.name) {
+            seeds.insert(module.name.clone());
+        }
+    }
+
+    let mut retained = BTreeSet::new();
+    for seed in seeds {
+        let Some(module) = loaded.resolved.module_id(&seed) else {
+            continue;
+        };
+        retained.insert(loaded.resolved.module(module).name.clone());
+        retained.extend(
+            loaded
+                .resolved
+                .transitive_imports(module)
+                .into_iter()
+                .map(|import| loaded.resolved.module(import).name.clone()),
+        );
+    }
+    let mut definition = loaded.definition.clone();
+    definition
+        .modules
+        .retain(|module| retained.contains(&module.name));
+    definition.attributes.insert(
+        "syntaxModule",
+        serde_json::Value::String(syntax_module.into()),
+    );
+    Ok(definition)
 }
 
 fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
