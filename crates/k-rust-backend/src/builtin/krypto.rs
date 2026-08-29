@@ -142,7 +142,13 @@ fn string_term(value: impl Into<String>) -> Term {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
+    use crate::{
+        cancellation::CancellationToken,
+        term::{Symbol, Variable},
+    };
 
     fn string(value: &str) -> BuiltinResult {
         BuiltinResult::Value(string_term(value))
@@ -179,6 +185,151 @@ mod tests {
     }
 
     #[test]
+    fn hash_hooks_match_standard_nonempty_vectors() {
+        let abc = bytes::bytes_term(b"abc");
+        let cases = [
+            (
+                "KRYPTO.keccak256",
+                "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45",
+            ),
+            (
+                "KRYPTO.sha256",
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            ),
+            (
+                "KRYPTO.sha3256",
+                "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532",
+            ),
+            (
+                "KRYPTO.ripemd160",
+                "8eb208f7e05d987a9b044a8e98c6b087f15a0bfc",
+            ),
+        ];
+
+        for (hook, expected) in cases {
+            assert_eq!(
+                evaluate(hook, std::slice::from_ref(&abc)),
+                Ok(string(expected))
+            );
+        }
+    }
+
+    #[test]
+    fn keccak256raw_returns_the_raw_digest_bytes() {
+        let cases: [(&[u8], [u8; 32]); 2] = [
+            (
+                b"",
+                [
+                    0xc5, 0xd2, 0x46, 0x01, 0x86, 0xf7, 0x23, 0x3c, 0x92, 0x7e, 0x7d, 0xb2, 0xdc,
+                    0xc7, 0x03, 0xc0, 0xe5, 0x00, 0xb6, 0x53, 0xca, 0x82, 0x27, 0x3b, 0x7b, 0xfa,
+                    0xd8, 0x04, 0x5d, 0x85, 0xa4, 0x70,
+                ],
+            ),
+            (
+                b"abc",
+                [
+                    0x4e, 0x03, 0x65, 0x7a, 0xea, 0x45, 0xa9, 0x4f, 0xc7, 0xd4, 0x7b, 0xa8, 0x26,
+                    0xc8, 0xd6, 0x67, 0xc0, 0xd1, 0xe6, 0xe3, 0x3a, 0x64, 0xa0, 0x36, 0xec, 0x44,
+                    0xf5, 0x8f, 0xa1, 0x2d, 0x6c, 0x45,
+                ],
+            ),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(
+                evaluate("KRYPTO.keccak256raw", &[bytes::bytes_term(input)]),
+                Ok(BuiltinResult::Value(bytes::bytes_term(&expected)))
+            );
+        }
+    }
+
+    #[test]
+    fn hash_namespace_aliases_agree_with_their_krypto_spelling() {
+        let abc = bytes::bytes_term(b"abc");
+        for (alias, canonical) in [
+            ("HASH.keccak256", "KRYPTO.keccak256"),
+            ("HASH.sha256", "KRYPTO.sha256"),
+            ("HASH.sha3_256", "KRYPTO.sha3256"),
+            ("HASH.ripemd160", "KRYPTO.ripemd160"),
+        ] {
+            assert_eq!(
+                evaluate(alias, std::slice::from_ref(&abc)),
+                evaluate(canonical, std::slice::from_ref(&abc)),
+                "{alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn symbolic_arguments_stay_not_applicable_for_every_hook() {
+        let symbolic_bytes = || Term::variable(Variable::new("Bytes", Sort::simple("SortBytes")));
+        for hook in [
+            "KRYPTO.keccak256",
+            "HASH.keccak256",
+            "KRYPTO.keccak256raw",
+            "KRYPTO.sha256",
+            "HASH.sha256",
+            "KRYPTO.sha3256",
+            "HASH.sha3_256",
+            "KRYPTO.sha512_256raw",
+            "KRYPTO.ripemd160",
+            "HASH.ripemd160",
+            "KRYPTO.ecdsaPubKey",
+        ] {
+            assert_eq!(
+                evaluate(hook, &[symbolic_bytes()]),
+                Ok(BuiltinResult::NotApplicable)
+            );
+        }
+
+        let concrete_bytes = bytes::bytes_term(&[1; 32]);
+        let concrete_v = super::super::int_term(27.into());
+        let symbolic_int = Term::variable(Variable::new("V", Sort::simple("SortInt")));
+        for hook in ["KRYPTO.ecdsaRecover", "SECP256K1.ecdsaRecover"] {
+            for position in 0..4 {
+                let mut arguments = [
+                    concrete_bytes.clone(),
+                    concrete_v.clone(),
+                    concrete_bytes.clone(),
+                    concrete_bytes.clone(),
+                ];
+                arguments[position] = if position == 1 {
+                    symbolic_int.clone()
+                } else {
+                    symbolic_bytes()
+                };
+                assert_eq!(
+                    evaluate(hook, &arguments),
+                    Ok(BuiltinResult::NotApplicable),
+                    "{hook}, symbolic position {position}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn wrong_sort_and_non_byte_domain_values_are_not_applicable() {
+        let sort_bytes = Sort::simple("SortBytes");
+        let non_domain = Term::application(
+            Arc::new(Symbol::constructor("bytes", vec![], sort_bytes.clone())),
+            vec![],
+            vec![],
+        );
+        let cases = [
+            Term::domain_value(Sort::simple("SortString"), "abc"),
+            Term::domain_value(sort_bytes, "\u{100}"),
+            non_domain,
+        ];
+
+        for argument in cases {
+            assert_eq!(
+                evaluate("KRYPTO.keccak256", &[argument]),
+                Ok(BuiltinResult::NotApplicable)
+            );
+        }
+    }
+
+    #[test]
     fn raw_hash_hooks_return_bytes() {
         let empty = bytes::bytes_term(&[]);
         let expected = [
@@ -209,6 +360,38 @@ mod tests {
         assert_eq!(
             evaluate("KRYPTO.ecdsaPubKey", &[bytes::bytes_term(&[0; 32])]),
             Ok(string(""))
+        );
+    }
+
+    #[test]
+    fn invalid_concrete_secrets_yield_the_empty_public_key() {
+        let curve_order = [
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xfe, 0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c,
+            0xd0, 0x36, 0x41, 0x41,
+        ];
+        for (name, secret) in [
+            ("empty", vec![]),
+            ("zero scalar", vec![0; 32]),
+            ("33 bytes", vec![1; 33]),
+            ("curve order", curve_order.to_vec()),
+        ] {
+            assert_eq!(
+                evaluate("KRYPTO.ecdsaPubKey", &[bytes::bytes_term(&secret)]),
+                Ok(string("")),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn digests_are_interruptible() {
+        let token = CancellationToken::new();
+        token.cancel();
+
+        assert_eq!(
+            token.scope(|| evaluate("KRYPTO.keccak256", &[bytes::bytes_term(b"abc")])),
+            Err(BuiltinError::Interrupted)
         );
     }
 
