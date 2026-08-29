@@ -3,9 +3,10 @@ use k_rust::kompile::{
     declaration_modules, encode_kore_identifier, encode_kore_label, encode_kore_sort,
     module_to_kore,
 };
+use k_rust::kore::ast::{Pattern, Sentence};
 use k_rust::kore::parser::{parse_definition, parse_module, parse_sentence};
 use k_rust::kore::printer::Printer;
-use k_rust::{kast, outer};
+use k_rust::{kast, kast::Label, outer};
 
 fn lowered(source: &str, main_module: &str) -> k_rust::definition::Definition {
     let parsed = outer::parse("declarations.k", source).expect("definition should parse");
@@ -132,6 +133,48 @@ declaration_snapshot!(
     "#,
     "MAIN"
 );
+
+#[test]
+fn embedded_priority_separator_labels_reach_syntax_relations_intact() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= Exp "|->" Exp [symbol(_|->_)]
+                       | Exp Exp [symbol(_Map_)]
+                       | ".Map" [symbol(.Map)]
+          syntax priority _|->_ > _Map_ .Map
+        endmodule
+    "#};
+    let declarations = declaration_modules(&lowered(source, "MAIN"), "MAIN").unwrap();
+    let source_symbol = encode_kore_label(&Label::new("_|->_"));
+    let priorities = declarations
+        .syntax
+        .sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::SymbolDeclaration {
+                symbol, attributes, ..
+            } if symbol == &source_symbol => attributes.0.iter().find_map(|attribute| {
+                let Pattern::Application { symbol, arguments } = attribute else {
+                    return None;
+                };
+                (symbol.name == "priorities").then_some(arguments)
+            }),
+            _ => None,
+        })
+        .expect("the source symbol should carry a priorities relation");
+    let related = priorities
+        .iter()
+        .filter_map(|pattern| match pattern {
+            Pattern::Application { symbol, .. } => Some(symbol.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(related.len(), 2);
+    for label in ["_Map_", ".Map"] {
+        assert!(related.contains(&encode_kore_label(&Label::new(label))));
+    }
+}
 
 definition_snapshot!(
     wraps_generated_modules_in_the_standard_backend_definition,
