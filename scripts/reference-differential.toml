@@ -1,0 +1,424 @@
+version = 1
+
+[reference.k]
+revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+version = "v7.1.337"
+
+[reference.imp]
+revision = "683a773418add3bcae8ded47c2b24e94494e1988"
+
+[reference.wasm]
+revision = "212271bd434bd402e27c42f6416854342733386d"
+
+[reference.evm-equivalence]
+revision = "3a757eb6f88000047d6fd064d6b72b78b6e23592"
+
+[reference.kevm]
+revision = "5dd05ea7936c13f4029389bafd25785ed9ff0a55"
+
+[reference.kevm-plugin]
+revision = "651a2db5afc1789c89553f9113c1afa39e391e35"
+
+[reference.mir]
+revision = "4d793252bcd77091ee759ca6cd1629db41ed5496"
+
+[[compile]]
+name = "append"
+requires = ["reference-toolchain"]
+constructs = []
+source = "${k}/k-distribution/tests/regression-new/append/test.k"
+main-module = "TEST"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
+name = "ambiguous-rewrite"
+requires = ["reference-toolchain"]
+constructs = []
+source = "${k}/k-distribution/tests/regression-new/amb-rew/test.k"
+main-module = "TEST"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
+name = "casts"
+requires = ["reference-toolchain"]
+constructs = []
+source = "${k}/k-distribution/tests/regression-new/cast/test.k"
+main-module = "TEST"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
+name = "cell-map"
+requires = ["reference-toolchain"]
+constructs = ["collections", "star-cell-variable"]
+source = "${k}/k-distribution/tests/regression-new/cell_map/test.k"
+main-module = "TEST"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
+name = "evm-equivalence"
+requires = ["reference-toolchain", "semantics-support"]
+constructs = ["crypto-hook"]
+source = "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/optimizations.md"
+main-module = "EVM-OPTIMIZATIONS"
+include = "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin"
+hook-namespaces = ["JSON", "KRYPTO"]
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
+name = "fresh-variables"
+requires = ["reference-toolchain"]
+constructs = []
+source = "${k}/k-distribution/tests/regression-new/fresh1/test.k"
+main-module = "TEST"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
+name = "imp"
+requires = ["reference-toolchain", "semantics-support"]
+constructs = []
+source = "${imp}/src/kimp/kdist/imp-semantics/imp.k"
+main-module = "IMP"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
+name = "list-set"
+requires = ["reference-toolchain"]
+constructs = ["collections"]
+source = "${k}/k-distribution/tests/regression-new/list-set/test.k"
+main-module = "TEST"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
+name = "macro-rewrite"
+requires = ["reference-toolchain"]
+constructs = ["macro-runtime"]
+source = "${k}/k-distribution/tests/regression-new/macro-rewrite/test.k"
+main-module = "TEST"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
+name = "parametric-semantic-cast"
+requires = ["reference-toolchain"]
+constructs = []
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/parametric-semantic-cast.k"
+main-module = "PARAMETRIC-SEMANTIC-CAST"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
+name = "owise"
+requires = ["reference-toolchain"]
+constructs = ["owise"]
+source = "${k}/k-distribution/tests/regression-new/owise-haskell/demo.k"
+main-module = "DEMO"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
+name = "mir"
+requires = ["reference-toolchain", "semantics-support"]
+constructs = []
+source = "${mir}/kmir/src/kmir/kdist/mir-semantics/kmir.md"
+main-module = "KMIR"
+include = "${mir}/kmir/src/kmir/kdist"
+markdown-selector = "k & ! concrete"
+syntax-module = "KMIR-AST"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
+name = "wasm"
+requires = ["reference-toolchain", "semantics-support"]
+constructs = []
+source = "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md"
+main-module = "WASM-TEST"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[kast]]
+name = "imp"
+requires = ["reference-toolchain", "semantics-support"]
+constructs = []
+source = "${imp}/src/kimp/kdist/imp-semantics/imp.k"
+main-module = "IMP"
+parser-module = "IMP-SYNTAX"
+syntax-module = ""
+
+[[kast.accept]]
+name = "smoke"
+sort = "Stmt"
+expression = "x = 1;"
+
+[[kast.accept]]
+name = "dangling-else.imp"
+sort = "Stmt"
+file = "${imp}/examples/dangling-else.imp"
+
+[[kast.accept]]
+name = "gcd-while.imp"
+sort = "Stmt"
+file = "${imp}/examples/gcd-while.imp"
+
+[[kast.accept]]
+name = "sumto10.imp"
+sort = "Stmt"
+file = "${imp}/examples/sumto10.imp"
+
+[[kast.accept]]
+name = "while-and-following.imp"
+sort = "Stmt"
+file = "${imp}/examples/while-and-following.imp"
+
+[[kast.reject]]
+name = "smoke"
+sort = "Stmt"
+expression = "if ("
+
+[[kast.reject]]
+name = "gcd.imp"
+sort = "Stmt"
+file = "${imp}/examples/gcd.imp"
+
+[[kast.reject]]
+name = "sumrec10.imp"
+sort = "Stmt"
+file = "${imp}/examples/sumrec10.imp"
+
+[[kast]]
+name = "wasm"
+requires = ["reference-toolchain", "semantics-support"]
+constructs = []
+source = "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md"
+main-module = "WASM-TEST"
+parser-module = "WASM-TEST-SYNTAX"
+
+[[kast.accept]]
+name = "smoke"
+sort = "ModuleDecl"
+expression = "(module)"
+
+[[kast.accept]]
+name = "named-module"
+sort = "ModuleDecl"
+expression = "(module $$m)"
+
+[[kast.accept]]
+name = "empty-function"
+sort = "ModuleDecl"
+expression = "(module (func))"
+
+[[kast.accept]]
+name = "constant-function"
+sort = "ModuleDecl"
+expression = "(module (func (result i32) i32.const 1))"
+
+[[kast.accept]]
+name = "instruction"
+sort = "Stmts"
+expression = "(i32.const 3)"
+
+[[kast.accept]]
+name = "upstream-memory"
+sort = "ModuleDecl"
+file = "${wasm}/pykwasm/src/tests/integration/binary/memories.wat"
+
+[[kast.accept]]
+name = "upstream-function"
+sort = "ModuleDecl"
+file = "${wasm}/pykwasm/src/tests/integration/binary/funcs.wat"
+
+[[kast.accept]]
+name = "upstream-globals"
+sort = "ModuleDecl"
+file = "${wasm}/pykwasm/src/tests/integration/binary/globals.wat"
+
+[[kast.accept]]
+name = "upstream-exports"
+sort = "ModuleDecl"
+file = "${wasm}/pykwasm/src/tests/integration/binary/exports.wat"
+
+[[kast.reject]]
+name = "smoke"
+sort = "ModuleDecl"
+expression = "(module (func"
+
+[[kast]]
+name = "evm-equivalence"
+requires = ["reference-toolchain", "semantics-support"]
+constructs = ["crypto-hook"]
+source = "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/optimizations.md"
+main-module = "EVM-OPTIMIZATIONS"
+parser-module = "EVM-OPTIMIZATIONS"
+include = "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin"
+
+[[kast.accept]]
+name = "smoke"
+sort = "Schedule"
+expression = "CANCUN"
+
+[[kast.accept]]
+name = "berlin"
+sort = "Schedule"
+expression = "BERLIN"
+
+[[kast.accept]]
+name = "shanghai"
+sort = "Schedule"
+expression = "SHANGHAI"
+
+[[kast.reject]]
+name = "smoke"
+sort = "Schedule"
+expression = "NOT_A_SCHEDULE"
+
+[[kast]]
+name = "mir"
+requires = ["reference-toolchain", "semantics-support"]
+constructs = []
+source = "${mir}/kmir/src/kmir/kdist/mir-semantics/kmir.md"
+main-module = "KMIR"
+parser-module = "KMIR-AST"
+include = "${mir}/kmir/src/kmir/kdist"
+markdown-selector = "k & ! concrete"
+syntax-module = "KMIR-AST"
+
+[[kast.accept]]
+name = "smoke"
+sort = "Span"
+expression = "span(0)"
+
+[[kast.accept]]
+name = "negative-span"
+sort = "Span"
+expression = "span(-1)"
+
+[[kast.accept]]
+name = "type-id"
+sort = "Ty"
+expression = "ty(0)"
+
+[[kast.accept]]
+name = "nop-statement"
+sort = "Statement"
+expression = "statement(statementKindNop, span(1))"
+
+[[kast.accept]]
+name = "return-terminator"
+sort = "Terminator"
+expression = "terminator(terminatorKindReturn, span(2))"
+
+[[kast.accept]]
+name = "upstream-statement"
+sort = "Statement"
+file = "${mir}/kmir/src/tests/integration/data/schema-parse/statement/reference.kmir"
+
+[[kast.accept]]
+name = "upstream-goto"
+sort = "Terminator"
+file = "${mir}/kmir/src/tests/integration/data/schema-parse/terminatorgoto/reference.kmir"
+
+[[kast.reject]]
+name = "smoke"
+sort = "Span"
+expression = "span(foo)"
+
+[[execution]]
+name = "imp"
+requires = ["reference-toolchain", "semantics-support"]
+constructs = []
+source = "${imp}/src/kimp/kdist/imp-semantics/imp.k"
+main-module = "IMP"
+syntax-module = "IMP-SYNTAX"
+sort = "Stmt"
+configuration = ["ENV=.Map"]
+depth = 10000
+programs = [
+  "${imp}/examples/sumto10.imp",
+  "${imp}/examples/while-and-following.imp",
+  "${imp}/examples/dangling-else.imp",
+]
+
+[[execution.search]]
+name = "one"
+program = "${imp}/examples/sumto10.imp"
+mode = "--search-one-step"
+
+[[execution.search]]
+name = "star-depth-two"
+program = "${imp}/examples/sumto10.imp"
+mode = "--search-all"
+depth = 2
+
+[[execution]]
+name = "crypto"
+requires = ["reference-toolchain"]
+constructs = ["crypto-hook"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/crypto-execution.k"
+main-module = "CRYPTO-EXECUTION"
+syntax-module = "CRYPTO-EXECUTION"
+sort = "Input"
+hook-namespaces = ["KRYPTO"]
+depth = 10
+programs = [
+  "${workspace}/crates/k-rust/tests/fixtures/reference/keccak-empty.crypto",
+]
+
+[[execution]]
+name = "bounded-search"
+requires = ["reference-toolchain"]
+constructs = ["bounded-search"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/bounded-search.k"
+main-module = "BOUNDED-SEARCH"
+syntax-module = "BOUNDED-SEARCH"
+sort = "State"
+depth = 10
+
+[[execution.search]]
+name = "star-result-bound-ten"
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/start.state"
+mode = "--search-all"
+result-bound = 10
+
+[[execution]]
+name = "deep-term"
+requires = ["reference-toolchain"]
+constructs = ["deep-term"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/deep-term.k"
+main-module = "DEEP-TERM"
+syntax-module = "DEEP-TERM"
+sort = "Term"
+depth = 1
+programs = ["${workspace}/crates/k-rust/tests/fixtures/reference/deep.term"]
+
+[[proof]]
+name = "imp"
+requires = ["reference-toolchain", "semantics-support"]
+constructs = []
+source = "${imp}/src/kimp/kdist/imp-semantics/imp.k"
+main-module = "IMP"
+syntax-module = "IMP-SYNTAX"
+specification = "${imp}/examples/specs/imp-simple-spec.k"
+spec-module = "IMP-SIMPLE-SPEC"
+definition-module = "IMP-VERIFICATION"
+depth = 100
+claims = [
+  "IMP-SIMPLE-SPEC.addition-1",
+  "IMP-SIMPLE-SPEC.addition-2",
+  "IMP-SIMPLE-SPEC.addition-var",
+  "IMP-SIMPLE-SPEC.pre-branch-proved",
+  "IMP-SIMPLE-SPEC.branching",
+  "IMP-SIMPLE-SPEC.branching-program",
+  "IMP-SIMPLE-SPEC.branching-deadcode",
+  "IMP-SIMPLE-SPEC.while-cut-rule",
+  "IMP-SIMPLE-SPEC.while-cut-rule-delayed",
+  "IMP-SIMPLE-SPEC.sum-loop",
+  "IMP-SIMPLE-SPEC.sum-N",
+]
+failure-claim = "IMP-SIMPLE-SPEC.bmc-loop-concrete"
+
+[[rpc]]
+name = "imp"
+requires = ["reference-toolchain", "semantics-support"]
+constructs = []
+source = "${imp}/src/kimp/kdist/imp-semantics/imp.k"
+program = "${imp}/examples/sumto10.imp"
+main-module = "IMP"
+syntax-module = "IMP-SYNTAX"
+configuration = ["ENV=.Map"]
+responses = ["execute", "simplify", "implies", "model", "add-module", "error"]
