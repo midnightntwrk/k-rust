@@ -158,6 +158,56 @@ endmodule
 }
 
 #[test]
+fn krun_binds_declared_configuration_variables() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  syntax State ::= "a" [symbol(a)]
+  syntax State ::= "b" [symbol(b)]
+  syntax Env ::= "ready" [symbol(ready)]
+  configuration
+    <top>
+      <k> $PGM:State </k>
+      <env> $ENV:Env </env>
+    </top>
+  rule <k> a => b </k> <env> ready </env>
+endmodule
+"#,
+    )
+    .unwrap();
+    let binary = env!("CARGO_BIN_EXE_krust");
+    let output = Command::new(binary)
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+            "-cENV=ready",
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Lblb{}()"), "{stdout}");
+    assert!(stdout.contains("Lblready{}()"), "{stdout}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn installed_cli_uses_embedded_pinned_builtins_by_default() {
     let (root, definition) = fixture();
     fs::write(

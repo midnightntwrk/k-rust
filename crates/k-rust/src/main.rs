@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     env,
     error::Error,
     fmt, fs,
@@ -14,7 +14,9 @@ use k_rust::{
     definition::checks::check_definition,
     diagnostic::{Diagnostic, Severity},
     inner::ProgramParser,
-    kast::{json as kast_json, parser::parse_sort, printer::Printer as KastPrinter},
+    kast::{
+        Sort as KastSort, json as kast_json, parser::parse_sort, printer::Printer as KastPrinter,
+    },
     kompile::{
         CompilationBackend, CompileOptions, SortInjector, compile_loaded_definition,
         encode_kore_sort, term_to_kore_from_resolved,
@@ -312,6 +314,10 @@ struct KrunArgs {
     /// Program file to execute, or `-` for standard input.
     #[arg(value_name = "PROGRAM_FILE")]
     program_file: Option<PathBuf>,
+
+    /// Bind an additional configuration variable. May be repeated.
+    #[arg(short = 'c', long = "config-var", value_name = "NAME=VALUE")]
+    config_vars: Vec<String>,
 
     /// Maximum number of semantic rewrite steps per execution branch.
     #[arg(long, value_name = "STEPS")]
@@ -663,6 +669,7 @@ struct KrunOptions {
     sort: String,
     expression: Option<String>,
     program_file: Option<PathBuf>,
+    config_vars: Vec<String>,
     depth: u64,
     breadth_limit: Option<usize>,
     execute_to_branch: bool,
@@ -801,6 +808,7 @@ impl From<KrunArgs> for KrunOptions {
             sort: arguments.sort,
             expression: arguments.expression,
             program_file: arguments.program_file,
+            config_vars: arguments.config_vars,
             depth: arguments.depth.unwrap_or(u64::MAX),
             breadth_limit: arguments.breadth_limit,
             execute_to_branch: arguments.execute_to_branch,
@@ -964,9 +972,24 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
     let program_sort = injector.term_sort(&program, None)?;
     let program = injector.inject_at_top(&program)?;
     let program = term_to_kore_from_resolved(&loaded.resolved, &options.common.module, &program)?;
-    let initial = top_cell_initializer(program, encode_kore_sort(&program_sort));
-
     let syntax = parse_kore_definition(&compiled.definition_kore)?;
+    let declared = declared_configuration_variables(&syntax)?;
+    let assignments = validate_configuration_assignments(&options.config_vars, &declared)?;
+    let mut config_bindings = Vec::new();
+    for (name, source, sort) in assignments {
+        let value = parser.parse(&sort, &source).map_err(|error| {
+            format!("could not parse configuration variable {name} at sort {sort}: {error}")
+        })?;
+        let value = injector.inject_at_top(&value)?;
+        let value = term_to_kore_from_resolved(&loaded.resolved, &options.common.module, &value)?;
+        config_bindings.push(ConfigurationBinding {
+            name,
+            value,
+            sort: encode_kore_sort(&sort),
+        });
+    }
+    let initial = top_cell_initializer(program, encode_kore_sort(&program_sort), config_bindings);
+
     let backend = BackendDefinition::internalize(&syntax, &options.common.module)?;
     let initial = backend.internalize_frontend_term(&initial, &[])?;
     let output = run_backend(
@@ -2243,23 +2266,194 @@ fn read_program_source(
     })
 }
 
-fn top_cell_initializer(program: KorePattern, program_sort: KoreSort) -> KorePattern {
+fn declared_configuration_variables(
+    definition: &KoreDefinition,
+) -> Result<BTreeMap<String, KastSort>, String> {
+    let projection_sorts = definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| match sentence {
+            KoreSentence::SymbolDeclaration {
+                symbol,
+                result_sort,
+                ..
+            } if symbol.name.starts_with("Lblproject'Coln'") => {
+                Some((symbol.name.clone(), result_sort.clone()))
+            }
+            _ => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut variables = BTreeMap::new();
+    for sentence in definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+    {
+        let pattern = match sentence {
+            KoreSentence::Axiom { pattern, .. } | KoreSentence::Claim { pattern, .. } => pattern,
+            _ => continue,
+        };
+        collect_projected_configuration_variables(pattern, &projection_sorts, &mut variables)?;
+    }
+    Ok(variables)
+}
+
+fn collect_projected_configuration_variables(
+    pattern: &KorePattern,
+    projection_sorts: &BTreeMap<String, KoreSort>,
+    variables: &mut BTreeMap<String, KastSort>,
+) -> Result<(), String> {
+    if let KorePattern::Application { symbol, .. } = pattern
+        && let Some(result_sort) = projection_sorts.get(&symbol.name)
+    {
+        let sort = k_rust::kast::convert::convert_sort(result_sort)
+            .map_err(|error| format!("invalid configuration-variable sort: {error}"))?;
+        let mut names = BTreeSet::new();
+        collect_configuration_variable_tokens(pattern, &mut names);
+        for name in names {
+            let name = name.strip_prefix('$').unwrap_or(&name).to_owned();
+            if let Some(previous) = variables.insert(name.clone(), sort.clone())
+                && previous != sort
+            {
+                return Err(format!(
+                    "configuration variable {name} is projected at both {previous} and {sort}"
+                ));
+            }
+        }
+    }
+    visit_kore_children(pattern, &mut |child| {
+        collect_projected_configuration_variables(child, projection_sorts, variables)
+    })
+}
+
+fn collect_configuration_variable_tokens(pattern: &KorePattern, names: &mut BTreeSet<String>) {
+    if let KorePattern::DomainValue { sort, value } = pattern
+        && matches!(sort, KoreSort::Application { name, arguments }
+            if name == "SortKConfigVar" && arguments.is_empty())
+    {
+        names.insert(value.clone());
+    }
+    let _: Result<(), ()> = visit_kore_children(pattern, &mut |child| {
+        collect_configuration_variable_tokens(child, names);
+        Ok(())
+    });
+}
+
+fn visit_kore_children<E>(
+    pattern: &KorePattern,
+    visitor: &mut impl FnMut(&KorePattern) -> Result<(), E>,
+) -> Result<(), E> {
+    match pattern {
+        KorePattern::Application { arguments, .. }
+        | KorePattern::AssociativeApplication { arguments, .. }
+        | KorePattern::And { arguments, .. }
+        | KorePattern::Or { arguments, .. } => {
+            for argument in arguments {
+                visitor(argument)?;
+            }
+        }
+        KorePattern::Not { argument, .. }
+        | KorePattern::Next { argument, .. }
+        | KorePattern::Ceil { argument, .. }
+        | KorePattern::Floor { argument, .. } => visitor(argument)?,
+        KorePattern::Exists { body, .. }
+        | KorePattern::Forall { body, .. }
+        | KorePattern::Mu { body, .. }
+        | KorePattern::Nu { body, .. } => visitor(body)?,
+        KorePattern::Implies { left, right, .. }
+        | KorePattern::Iff { left, right, .. }
+        | KorePattern::Rewrites { left, right, .. }
+        | KorePattern::Equals { left, right, .. }
+        | KorePattern::In { left, right, .. } => {
+            visitor(left)?;
+            visitor(right)?;
+        }
+        KorePattern::String(_)
+        | KorePattern::Variable(_)
+        | KorePattern::Top { .. }
+        | KorePattern::Bottom { .. }
+        | KorePattern::DomainValue { .. } => {}
+    }
+    Ok(())
+}
+
+fn validate_configuration_assignments(
+    assignments: &[String],
+    declared: &BTreeMap<String, KastSort>,
+) -> Result<Vec<(String, String, KastSort)>, String> {
+    let mut seen = BTreeSet::new();
+    let mut validated = Vec::new();
+    for assignment in assignments {
+        let (name, value) = assignment.split_once('=').ok_or_else(|| {
+            format!("invalid configuration assignment {assignment:?}; expected NAME=VALUE")
+        })?;
+        let name = name.strip_prefix('$').unwrap_or(name);
+        if name.is_empty() {
+            return Err(format!(
+                "invalid configuration assignment {assignment:?}; variable name is empty"
+            ));
+        }
+        if name == "PGM" {
+            return Err("configuration variable PGM is supplied by the program argument".into());
+        }
+        if !seen.insert(name.to_owned()) {
+            return Err(format!(
+                "configuration variable {name} was supplied more than once"
+            ));
+        }
+        let sort = declared
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("configuration variable {name} is not declared"))?;
+        validated.push((name.to_owned(), value.to_owned(), sort));
+    }
+    Ok(validated)
+}
+
+struct ConfigurationBinding {
+    name: String,
+    value: KorePattern,
+    sort: KoreSort,
+}
+
+fn top_cell_initializer(
+    program: KorePattern,
+    program_sort: KoreSort,
+    additional: Vec<ConfigurationBinding>,
+) -> KorePattern {
     let config_var_sort = kore_sort("SortKConfigVar");
     let item_sort = kore_sort("SortKItem");
-    let key = kore_application(
-        "inj",
-        vec![config_var_sort.clone(), item_sort.clone()],
-        vec![KorePattern::DomainValue {
-            sort: config_var_sort,
-            value: "$PGM".into(),
-        }],
-    );
-    let program = if program_sort == item_sort {
-        program
-    } else {
-        kore_application("inj", vec![program_sort, item_sort], vec![program])
-    };
-    let config = kore_application("Lbl'UndsPipe'-'-GT-Unds'", Vec::new(), vec![key, program]);
+    let mut entries = vec![ConfigurationBinding {
+        name: "PGM".into(),
+        value: program,
+        sort: program_sort,
+    }];
+    entries.extend(additional);
+    let mut entries = entries.into_iter().map(|binding| {
+        let key = kore_application(
+            "inj",
+            vec![config_var_sort.clone(), item_sort.clone()],
+            vec![KorePattern::DomainValue {
+                sort: config_var_sort.clone(),
+                value: format!("${}", binding.name),
+            }],
+        );
+        let value = if binding.sort == item_sort {
+            binding.value
+        } else {
+            kore_application(
+                "inj",
+                vec![binding.sort, item_sort.clone()],
+                vec![binding.value],
+            )
+        };
+        kore_application("Lbl'UndsPipe'-'-GT-Unds'", Vec::new(), vec![key, value])
+    });
+    let first = entries.next().expect("$PGM always provides one map entry");
+    let config = entries.fold(first, |left, right| {
+        kore_application("Lbl'Unds'Map'Unds'", Vec::new(), vec![left, right])
+    });
     kore_application("LblinitGeneratedTopCell", Vec::new(), vec![config])
 }
 
@@ -2310,6 +2504,101 @@ fn emit_diagnostics(diagnostics: &[Diagnostic]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn discovers_and_validates_declared_configuration_variables() {
+        let projection = KoreSymbol {
+            name: "Lblproject'Coln'Map".into(),
+            sort_parameters: Vec::new(),
+        };
+        let config_token = KorePattern::DomainValue {
+            sort: kore_sort("SortKConfigVar"),
+            value: "$ENV".into(),
+        };
+        let pattern = KorePattern::Application {
+            symbol: projection.clone(),
+            arguments: vec![kore_application(
+                "LblMap'Coln'lookup",
+                Vec::new(),
+                vec![
+                    KorePattern::Variable(KoreVariable {
+                        kind: k_rust::kore::ast::VariableKind::Element,
+                        name: "VarInit".into(),
+                        sort: kore_sort("SortMap"),
+                    }),
+                    config_token,
+                ],
+            )],
+        };
+        let definition = KoreDefinition {
+            attributes: KoreAttributes::default(),
+            modules: vec![KoreModule {
+                name: "MAIN".into(),
+                sentences: vec![
+                    KoreSentence::SymbolDeclaration {
+                        hooked: false,
+                        symbol: projection,
+                        argument_sorts: vec![kore_sort("SortKItem")],
+                        result_sort: kore_sort("SortMap"),
+                        attributes: KoreAttributes::default(),
+                    },
+                    KoreSentence::Axiom {
+                        parameters: Vec::new(),
+                        pattern: Box::new(pattern),
+                        attributes: KoreAttributes::default(),
+                    },
+                ],
+                attributes: KoreAttributes::default(),
+            }],
+        };
+        let declared = declared_configuration_variables(&definition).unwrap();
+
+        assert_eq!(
+            declared,
+            BTreeMap::from([("ENV".into(), KastSort::new("Map"))])
+        );
+        assert_eq!(
+            validate_configuration_assignments(&["ENV=.Map".into()], &declared).unwrap(),
+            [("ENV".into(), ".Map".into(), KastSort::new("Map"))]
+        );
+        for (assignment, expected) in [
+            ("PGM=value", "supplied by the program argument"),
+            ("NOSUCH=value", "is not declared"),
+        ] {
+            let error =
+                validate_configuration_assignments(&[assignment.into()], &declared).unwrap_err();
+            assert!(error.contains(expected), "{error}");
+        }
+        let error =
+            validate_configuration_assignments(&["ENV=one".into(), "ENV=two".into()], &declared)
+                .unwrap_err();
+        assert!(error.contains("more than once"), "{error}");
+    }
+
+    #[test]
+    fn top_initializer_combines_program_and_configuration_bindings() {
+        let initial = top_cell_initializer(
+            KorePattern::DomainValue {
+                sort: kore_sort("SortExp"),
+                value: "program".into(),
+            },
+            kore_sort("SortExp"),
+            vec![ConfigurationBinding {
+                name: "ENV".into(),
+                value: kore_application("Lbl'Dot'Map", Vec::new(), Vec::new()),
+                sort: kore_sort("SortMap"),
+            }],
+        );
+        let rendered = KorePrinter::compact().print_pattern(&initial);
+
+        assert!(rendered.contains("Lbl'Unds'Map'Unds'"), "{rendered}");
+        assert!(rendered.contains("$PGM"), "{rendered}");
+        assert!(rendered.contains("$ENV"), "{rendered}");
+        assert!(
+            rendered.contains("inj{SortMap{}, SortKItem{}}"),
+            "{rendered}"
+        );
+    }
 
     fn deeply_nested_kore_pattern(depth: usize) -> KorePattern {
         let sort = KoreSort::Application {
@@ -2507,6 +2796,30 @@ mod tests {
     }
 
     #[test]
+    fn parses_an_optional_kast_backend() {
+        let cli = Cli::try_parse_from([
+            "krust",
+            "kast",
+            "definition.k",
+            "--module",
+            "MAIN",
+            "--sort",
+            "Exp",
+            "--backend",
+            "llvm",
+            "--expression",
+            "value",
+        ])
+        .unwrap();
+        let Command::Kast(options) = cli.command else {
+            panic!("expected kast command");
+        };
+        let options = KastOptions::from(options);
+
+        assert_eq!(options.backend, Some(CompilationBackend::Llvm));
+    }
+
+    #[test]
     fn accepts_haskell_as_a_legacy_name_for_the_rust_backend() {
         let cli = Cli::try_parse_from([
             "krust",
@@ -2538,6 +2851,9 @@ mod tests {
             "Exp",
             "--expression",
             "1 + 2",
+            "-cENV=.Map",
+            "--config-var",
+            "ARGS=.List",
             "--depth",
             "42",
             "--breadth",
@@ -2563,6 +2879,7 @@ mod tests {
         assert_eq!(options.common.module, "MAIN");
         assert_eq!(options.sort, "Exp");
         assert_eq!(options.expression.as_deref(), Some("1 + 2"));
+        assert_eq!(options.config_vars, ["ENV=.Map", "ARGS=.List"]);
         assert_eq!(options.depth, 42);
         assert_eq!(options.breadth_limit, Some(7));
         assert!(options.execute_to_branch);

@@ -243,6 +243,10 @@ pub fn convert(pattern: &Pattern) -> Result<Term, ConversionError> {
     Converter::new(&HashMap::new()).convert(pattern)
 }
 
+pub fn convert_sort(sort: &KoreSort) -> Result<Sort, ConversionError> {
+    Converter::new(&HashMap::new()).sort(sort)
+}
+
 fn decode_label(name: &str) -> Result<String, ConversionError> {
     decode_identifier(name.strip_prefix("Lbl").unwrap_or(name))
 }
