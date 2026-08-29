@@ -62,6 +62,7 @@ pub struct SearchState {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IncompleteSearch {
+    ResultBound,
     DepthBound(SearchState),
     BreadthBound(Vec<SearchState>),
     Indeterminate {
@@ -223,6 +224,7 @@ pub fn search_graph_with_solver_and_observer(
     }
 
     if options.max_results == Some(0) {
+        incomplete.push(IncompleteSearch::ResultBound);
         return SearchResult {
             states,
             effects,
@@ -278,6 +280,7 @@ pub fn search_graph_with_solver_and_observer(
         if selects_reachable_state(options.search_type, state.depth)
             && push_unique(&mut states, state.clone(), options.max_results)
         {
+            incomplete.push(IncompleteSearch::ResultBound);
             break;
         }
         if options.search_type == SearchType::One && state.depth == 1 {
@@ -301,6 +304,7 @@ pub fn search_graph_with_solver_and_observer(
                 RewriteResult::Stuck(pattern) => {
                     state.pattern = pattern;
                     if push_unique(&mut states, state, options.max_results) {
+                        incomplete.push(IncompleteSearch::ResultBound);
                         break;
                     }
                 }
@@ -322,6 +326,7 @@ pub fn search_graph_with_solver_and_observer(
                 if options.search_type == SearchType::Final
                     && push_unique(&mut states, state, options.max_results)
                 {
+                    incomplete.push(IncompleteSearch::ResultBound);
                     break;
                 }
             }
@@ -397,7 +402,7 @@ pub fn search_pattern_with_solver(
         return PatternSearchResult {
             matches: Vec::new(),
             effects: Vec::new(),
-            incomplete: Vec::new(),
+            incomplete: vec![IncompleteSearch::ResultBound],
         };
     }
     let graph = search_graph_with_solver(
@@ -457,6 +462,7 @@ pub fn search_pattern_with_solver(
             matches.push(found);
         }
         if requested_bound.is_some_and(|bound| matches.len() >= bound) {
+            incomplete.push(IncompleteSearch::ResultBound);
             break;
         }
     }
@@ -809,7 +815,50 @@ mod tests {
         );
 
         assert_eq!(names(&result), BTreeSet::from(["next1".into()]));
-        assert!(result.incomplete.is_empty());
+        assert_eq!(result.incomplete, [IncompleteSearch::ResultBound]);
+    }
+
+    #[test]
+    fn zero_result_bounds_are_reported_as_incomplete() {
+        let definition = definition();
+        let options = SearchOptions {
+            search_type: SearchType::Star,
+            max_results: Some(0),
+            ..SearchOptions::default()
+        };
+        let graph = search_graph(&definition, initial(&definition), options);
+        assert!(graph.states.is_empty());
+        assert_eq!(graph.incomplete, [IncompleteSearch::ResultBound]);
+
+        let target = Pattern {
+            term: Term::variable(Variable::new("Result", Sort::simple("SortS"))),
+            constraints: Vec::new(),
+        };
+        let pattern = search_pattern(&definition, initial(&definition), &target, options);
+        assert!(pattern.matches.is_empty());
+        assert_eq!(pattern.incomplete, [IncompleteSearch::ResultBound]);
+    }
+
+    #[test]
+    fn pattern_result_bound_reports_mid_collection_truncation() {
+        let definition = definition();
+        let target = Pattern {
+            term: Term::variable(Variable::new("Result", Sort::simple("SortS"))),
+            constraints: Vec::new(),
+        };
+        let result = search_pattern(
+            &definition,
+            initial(&definition),
+            &target,
+            SearchOptions {
+                search_type: SearchType::Final,
+                max_results: Some(1),
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(result.matches.len(), 1);
+        assert_eq!(result.incomplete, [IncompleteSearch::ResultBound]);
     }
 
     #[test]
