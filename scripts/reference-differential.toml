@@ -105,6 +105,31 @@ main-module = "PARAMETRIC-SEMANTIC-CAST"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
 
 [[compile]]
+name = "hooked-namespaces"
+requires = ["reference-toolchain"]
+constructs = ["crypto-hook"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/hooked-namespaces.k"
+main-module = "HOOKED-NAMESPACES"
+hook-namespaces = ["KRYPTO", "HASH", "SECP256K1"]
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
+name = "star-cell-config"
+requires = ["reference-toolchain"]
+constructs = ["star-cell-variable"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/star-cell-config.k"
+main-module = "STAR-CELL-CONFIG"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
+name = "owise-functions"
+requires = ["reference-toolchain"]
+constructs = ["owise"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/owise-functions.k"
+main-module = "OWISE-FUNCTIONS"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
 name = "owise"
 requires = ["reference-toolchain"]
 constructs = ["owise"]
