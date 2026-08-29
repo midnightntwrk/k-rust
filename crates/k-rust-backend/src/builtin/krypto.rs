@@ -290,7 +290,11 @@ mod tests {
         ];
 
         for (name, arguments) in cases {
-            assert_eq!(evaluate("KRYPTO.ecdsaRecover", &arguments), expected, "{name}");
+            assert_eq!(
+                evaluate("KRYPTO.ecdsaRecover", &arguments),
+                expected,
+                "{name}"
+            );
         }
     }
 }
