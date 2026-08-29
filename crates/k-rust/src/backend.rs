@@ -910,6 +910,79 @@ mod tests {
     }
 
     #[test]
+    fn prove_request_budget_reaches_the_prover() {
+        let mut chain = String::new();
+        for index in 0..=128 {
+            chain.push_str(&format!(
+                "symbol chain{index}{{}}() : SortS{{}} [function{{}}()]\n"
+            ));
+        }
+        for index in 0..128 {
+            let next = index + 1;
+            chain.push_str(&format!(
+                r#"
+                axiom{{R}} \implies{{R}}(
+                    \top{{R}}(),
+                    \equals{{SortS{{}}, R}}(
+                        chain{index}{{}}(),
+                        \and{{SortS{{}}}}(chain{next}{{}}(), \top{{SortS{{}}}}())
+                    )
+                ) [label{{}}("chain-{index}"), simplification{{}}()]
+                "#
+            ));
+        }
+        chain.push_str(
+            r#"
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortS{}, R}(
+                        chain128{}(),
+                        \and{SortS{}}(a{}(), \top{SortS{}}())
+                    )
+                ) [label{}("chain-done"), simplification{}()]
+            "#,
+        );
+        let definition = format!(
+            r#"[]
+            module MAIN
+                sort SortS{{}} []
+                symbol a{{}}() : SortS{{}} [constructor{{}}()]
+                symbol c{{}}() : SortS{{}} [constructor{{}}()]
+                {chain}
+                axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(
+                        a{{}}(),
+                        \equals{{SortS{{}}, SortS{{}}}}(chain0{{}}(), a{{}}())
+                    ),
+                    c{{}}()
+                ) [label{{}}("conditional")]
+                claim{{}} \implies{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(a{{}}(), \top{{SortS{{}}}}()),
+                    weakAlwaysFinally{{SortS{{}}}}(c{{}}())
+                ) [label{{}}("budgeted-claim")]
+            endmodule []"#
+        );
+        let mut backend = Backend::new(&definition, "MAIN", BackendOptions::default()).unwrap();
+
+        let result = backend
+            .prove(ProveRequest {
+                max_simplification_iterations: 1,
+                ..ProveRequest::default()
+            })
+            .expect("budget exhaustion should be represented as a proof result");
+
+        assert_eq!(result.status, "indeterminate", "{result:#?}");
+        assert!(
+            result
+                .leaves
+                .iter()
+                .any(|leaf| leaf.outcome.contains("Simplification")
+                    && leaf.outcome.contains("IterationLimit")),
+            "{result:#?}"
+        );
+    }
+
+    #[test]
     fn added_modules_are_available_to_later_calls() {
         let mut backend = backend();
         let module = r#"module EXTRA
