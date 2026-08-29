@@ -343,6 +343,312 @@ name = "smoke"
 sort = "Span"
 expression = "span(foo)"
 
+[[kast]]
+name = "bounded-search-local"
+requires = ["reference-toolchain"]
+constructs = ["bounded-search"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/bounded-search.k"
+main-module = "BOUNDED-SEARCH"
+parser-module = "BOUNDED-SEARCH"
+
+[[kast.accept]]
+name = "seed"
+sort = "State"
+expression = "seed"
+
+[[kast.accept]]
+name = "start"
+sort = "State"
+expression = "start"
+
+[[kast.reject]]
+name = "unknown-state"
+sort = "State"
+expression = "missing"
+
+[[kast]]
+name = "crypto-local"
+requires = ["reference-toolchain"]
+constructs = ["crypto-hook"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/crypto-execution.k"
+main-module = "CRYPTO-EXECUTION"
+parser-module = "CRYPTO-EXECUTION"
+hook-namespaces = ["KRYPTO"]
+
+[[kast.accept]]
+name = "keccak"
+sort = "Input"
+expression = 'Keccak256raw(b"abc")'
+
+[[kast.accept]]
+name = "sha256"
+sort = "Input"
+expression = 'Sha256(b"")'
+
+[[kast.reject]]
+name = "unterminated-call"
+sort = "Input"
+expression = 'Keccak256raw(b""'
+
+[[kast]]
+name = "collections-local"
+requires = ["reference-toolchain"]
+constructs = ["collections"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/collections.k"
+main-module = "LOCAL-COLLECTIONS"
+parser-module = "LOCAL-COLLECTIONS"
+
+[[kast.accept]]
+name = "map-ops"
+sort = "Input"
+expression = "mapOps"
+
+[[kast.accept]]
+name = "list-ops"
+sort = "Input"
+expression = "listOps"
+
+[[kast.reject]]
+name = "unknown-operation"
+sort = "Input"
+expression = "queueOps"
+
+[[kast]]
+name = "bytes-local"
+requires = ["reference-toolchain"]
+constructs = ["bytes-hook"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/bytes-ops.k"
+main-module = "BYTES-OPS"
+parser-module = "BYTES-OPS"
+
+[[kast.accept]]
+name = "operation"
+sort = "Input"
+expression = "bytesOps"
+
+[[kast.accept]]
+name = "result"
+sort = "Input"
+expression = 'bytesResult(b"", b"", b"", b"", 0, 0)'
+
+[[kast.reject]]
+name = "unknown-operation"
+sort = "Input"
+expression = "byteOps"
+
+[[kast]]
+name = "deep-config-local"
+requires = ["reference-toolchain"]
+constructs = ["star-cell-variable", "deep-configuration"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/deep-config.k"
+main-module = "DEEP-CONFIG"
+parser-module = "DEEP-CONFIG"
+
+[[kast.accept]]
+name = "go"
+sort = "Cmd"
+expression = "go"
+
+[[kast.reject]]
+name = "unknown-command"
+sort = "Cmd"
+expression = "stop"
+
+[[kast]]
+name = "deep-term-local"
+requires = ["reference-toolchain"]
+constructs = ["deep-term"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/deep-term.k"
+main-module = "DEEP-TERM"
+parser-module = "DEEP-TERM"
+
+[[kast.accept]]
+name = "builder"
+sort = "Input"
+expression = "build(3)"
+
+[[kast.accept]]
+name = "nested"
+sort = "Input"
+expression = "wrap(wrap(zero))"
+
+[[kast.reject]]
+name = "unterminated-builder"
+sort = "Input"
+expression = "build(3"
+
+[[kast]]
+name = "macro-runtime-local"
+requires = ["reference-toolchain"]
+constructs = ["macro-runtime"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/macro-runtime.k"
+main-module = "MACRO-RUNTIME"
+parser-module = "MACRO-RUNTIME"
+
+[[kast.accept]]
+name = "macro"
+sort = "Input"
+expression = "twice(21)"
+
+[[kast.accept]]
+name = "integer"
+sort = "Input"
+expression = "42"
+
+[[kast.reject]]
+name = "unterminated-macro"
+sort = "Input"
+expression = "twice(21"
+
+[[kast]]
+name = "hooked-namespaces-local"
+requires = ["reference-toolchain"]
+constructs = ["crypto-hook"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/hooked-namespaces.k"
+main-module = "HOOKED-NAMESPACES"
+parser-module = "HOOKED-NAMESPACES"
+hook-namespaces = ["KRYPTO", "HASH", "SECP256K1"]
+
+[[kast.accept]]
+name = "keccak"
+sort = "Bytes"
+expression = 'KeccakRaw(b"")'
+
+[[kast.accept]]
+name = "sha256"
+sort = "String"
+expression = 'Sha256(b"abc")'
+
+[[kast.reject]]
+name = "wrong-result-sort"
+sort = "Bytes"
+expression = 'Sha256(b"abc")'
+
+[[kast]]
+name = "star-cell-config-local"
+requires = ["reference-toolchain"]
+constructs = ["star-cell-variable"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/star-cell-config.k"
+main-module = "STAR-CELL-CONFIG"
+parser-module = "STAR-CELL-CONFIG"
+
+[[kast.accept]]
+name = "run"
+sort = "Cmd"
+expression = "run"
+
+[[kast.reject]]
+name = "unknown-command"
+sort = "Cmd"
+expression = "stop"
+
+[[kast]]
+name = "owise-functions-local"
+requires = ["reference-toolchain"]
+constructs = ["owise"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/owise-functions.k"
+main-module = "OWISE-FUNCTIONS"
+parser-module = "OWISE-FUNCTIONS"
+
+[[kast.accept]]
+name = "function"
+sort = "Int"
+expression = "classify(0)"
+
+[[kast.accept]]
+name = "integer"
+sort = "Int"
+expression = "7"
+
+[[kast.reject]]
+name = "unterminated-function"
+sort = "Int"
+expression = "classify(0"
+
+[[kast]]
+name = "parametric-cast-local"
+requires = ["reference-toolchain"]
+constructs = []
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/parametric-semantic-cast.k"
+main-module = "PARAMETRIC-SEMANTIC-CAST"
+parser-module = "PARAMETRIC-SEMANTIC-CAST"
+
+[[kast.accept]]
+name = "a"
+sort = "A"
+expression = "a"
+
+[[kast.accept]]
+name = "pair"
+sort = "A"
+expression = "pair(a,a)"
+
+[[kast.reject]]
+name = "wrong-sort"
+sort = "A"
+expression = "b"
+
+[[kast]]
+name = "mini-proof-local"
+requires = ["reference-toolchain"]
+constructs = ["local-proof"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/mini-proof.k"
+main-module = "MINI-PROOF"
+parser-module = "MINI-PROOF"
+
+[[kast.accept]]
+name = "start"
+sort = "State"
+expression = "start"
+
+[[kast.accept]]
+name = "done"
+sort = "State"
+expression = "done"
+
+[[kast.reject]]
+name = "unknown-state"
+sort = "State"
+expression = "missing"
+
+[[kast]]
+name = "wasm-shaped-lists-local"
+requires = ["reference-toolchain"]
+constructs = ["overloaded-user-lists"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/wasm-shaped-lists.k"
+main-module = "WASM-SHAPED-LISTS"
+parser-module = "WASM-SHAPED-LISTS"
+
+[[kast.accept]]
+name = "empty-module"
+sort = "Module"
+expression = "(module)"
+
+[[kast.accept]]
+name = "empty-function"
+sort = "Module"
+expression = "(module (func))"
+
+[[kast.accept]]
+name = "function-body"
+sort = "Module"
+expression = "(module (func (result i32) i32.const 1))"
+
+[[kast.accept]]
+name = "root-instruction-list"
+sort = "Stmts"
+expression = "i32.const 1"
+
+[[kast.reject]]
+name = "unterminated-function"
+sort = "Module"
+expression = "(module (func"
+
+[[kast.reject]]
+name = "missing-instruction-argument"
+sort = "Stmts"
+expression = "i32.const"
+
 [[execution]]
 name = "imp"
 requires = ["reference-toolchain", "semantics-support"]
