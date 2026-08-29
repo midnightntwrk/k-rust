@@ -466,6 +466,12 @@ section = "execution"
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/fresh-constants.k"
 reason = "Exploratory only: backend-generated fresh counters are intentionally implementation-specific, so exact terminal KORE is not a portable differential contract."
 
+[[excluded]]
+name = "proof-counterexample-artifact"
+section = "proof"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/mini-spec.k"
+reason = "The pinned prover emits a concrete generatedCounter cell containing a fresh Int variable, while k-rust reports an unconstrained generatedCounter cell variable; both identify the same stuck k cell, but exact KORE comparison would pin backend-internal framing. Verdicts are compared per claim instead."
+
 [[proof]]
 name = "imp"
 requires = ["reference-toolchain", "semantics-support"]
@@ -491,6 +497,20 @@ claims = [
   "IMP-SIMPLE-SPEC.sum-N",
 ]
 failure-claim = "IMP-SIMPLE-SPEC.bmc-loop-concrete"
+
+[[proof]]
+name = "mini-proof"
+requires = ["reference-toolchain"]
+constructs = ["local-proof"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/mini-proof.k"
+main-module = "MINI-PROOF"
+syntax-module = "MINI-PROOF"
+specification = "${workspace}/crates/k-rust/tests/fixtures/reference/mini-spec.k"
+spec-module = "MINI-SPEC"
+definition-module = "MINI-PROOF"
+depth = 10
+claims = ["claim-proven"]
+failure-claim = "claim-refuted"
 
 [[rpc]]
 name = "imp"
