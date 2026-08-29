@@ -169,7 +169,7 @@ fn kast_parses_and_rejects_a_batch_with_one_frontend_load() {
 }
 
 #[test]
-fn kast_and_krun_expand_macros_in_concrete_programs() {
+fn kast_preserves_and_krun_expands_macros_in_concrete_programs() {
     let (root, definition) = fixture();
     fs::write(
         &definition,
@@ -206,8 +206,8 @@ endmodule
         String::from_utf8_lossy(&kast.stderr)
     );
     let kast = String::from_utf8(kast.stdout).unwrap();
-    assert!(!kast.contains("twice"), "{kast}");
-    assert!(kast.contains("_+Int_"), "{kast}");
+    assert!(kast.contains("twice"), "{kast}");
+    assert!(!kast.contains("_+Int_"), "{kast}");
 
     let krun = Command::new(binary)
         .args([

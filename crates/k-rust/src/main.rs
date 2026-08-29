@@ -1110,8 +1110,6 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
             let term = parser
                 .parse(&sort, &case.expression)
                 .map_err(|error| format!("KAST batch case {:?}: {error}", case.name))?;
-            let term = expand_macros_in_term(&loaded.definition, &options.common.module, term)
-                .map_err(|error| format!("KAST batch case {:?}: {error}", case.name))?;
             let encoded: serde_json::Value =
                 serde_json::from_str(&kast_json::to_string_pretty(&term)?)?;
             if output.insert(case.name.clone(), encoded).is_some() {
@@ -1121,10 +1119,7 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
         for case in options.batch_reject_cases {
             let sort = parse_sort(&case.sort)
                 .map_err(|error| format!("KAST rejection batch case {:?}: {error}", case.name))?;
-            let accepted = parser.parse(&sort, &case.expression).is_ok_and(|term| {
-                expand_macros_in_term(&loaded.definition, &options.common.module, term).is_ok()
-            });
-            if accepted {
+            if parser.parse(&sort, &case.expression).is_ok() {
                 return Err(format!(
                     "KAST rejection batch case {:?} was unexpectedly accepted",
                     case.name
@@ -1138,7 +1133,6 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
     let source = read_program_source(options.expression, options.program_file)?;
     let sort = parse_sort(options.sort.as_deref().expect("clap requires --sort"))?;
     let term = parser.parse(&sort, &source)?;
-    let term = expand_macros_in_term(&loaded.definition, &options.common.module, term)?;
     match options.output {
         OutputFormat::Text => println!("{}", KastPrinter::new().print_term(&term)),
         OutputFormat::Json => println!("{}", kast_json::to_string_pretty(&term)?),
