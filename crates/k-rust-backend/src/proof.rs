@@ -96,6 +96,7 @@ pub enum ClaimIndeterminateReason {
         remainder: Vec<(Term, Term)>,
     },
     Requires(Vec<crate::rule::Predicate>),
+    Simplification(SimplificationError),
     Smt(SmtError),
 }
 
@@ -506,9 +507,13 @@ pub fn prove_claim(
                 }
             }
             RewriteResult::Indeterminate { reason, .. } => {
-                record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
-                    ProofIndeterminateReason::Rewrite(reason),
-                )));
+                let reason = match reason {
+                    IndeterminateReason::Simplification { error, .. } => {
+                        ProofIndeterminateReason::Simplification(error)
+                    }
+                    reason => ProofIndeterminateReason::Rewrite(reason),
+                };
+                record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(reason)));
             }
         }
     }
@@ -631,7 +636,7 @@ fn apply_claim(
             substitution,
             remainder,
         } => {
-            let recovered = recover_indeterminate_match(
+            let recovered = match recover_indeterminate_match(
                 definition,
                 substitution,
                 remainder,
@@ -640,7 +645,14 @@ fn apply_claim(
                     max_iterations: options.max_simplification_iterations,
                 },
                 solver,
-            );
+            ) {
+                Ok(recovered) => recovered,
+                Err(error) => {
+                    return ClaimApplication::Indeterminate(
+                        ClaimIndeterminateReason::Simplification(error),
+                    );
+                }
+            };
             match recovered.result {
                 MatchResult::Success(substitution) => (substitution, recovered.conditions),
                 MatchResult::Failed(_) => return ClaimApplication::NotApplicable,

@@ -1502,6 +1502,9 @@ fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
     let (reason, rule_id) = match reason {
         HaltReason::Stuck => ("No applicable rules found", None),
         HaltReason::Indeterminate(indeterminate) => match indeterminate {
+            k_rust_backend::rewrite::IndeterminateReason::Simplification { rule_id, .. } => {
+                ("Internal match error", rule_id.as_ref())
+            }
             k_rust_backend::rewrite::IndeterminateReason::Match { rule_id, .. } => {
                 ("Uncertain about unification of rule", Some(rule_id))
             }

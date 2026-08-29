@@ -312,7 +312,7 @@ pub fn search_graph_with_solver_and_observer(
                 RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
                 RewriteResult::Indeterminate { pattern, reason } => {
                     state.pattern = pattern;
-                    incomplete.push(IncompleteSearch::Indeterminate { state, reason });
+                    incomplete.push(rewrite_incomplete(state, reason));
                 }
                 RewriteResult::Finished(_) | RewriteResult::Branch { .. } => {
                     incomplete.push(IncompleteSearch::DepthBound(state));
@@ -334,7 +334,7 @@ pub fn search_graph_with_solver_and_observer(
             RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
             RewriteResult::Indeterminate { pattern, reason } => {
                 state.pattern = pattern;
-                incomplete.push(IncompleteSearch::Indeterminate { state, reason });
+                incomplete.push(rewrite_incomplete(state, reason));
             }
             RewriteResult::Finished(applied) => {
                 record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
@@ -606,13 +606,19 @@ fn simplification_options(options: SearchOptions) -> SimplificationOptions {
     }
 }
 
-fn simplification_incomplete(
-    state: SearchState,
-    error: SimplificationError,
-) -> IncompleteSearch {
+fn simplification_incomplete(state: SearchState, error: SimplificationError) -> IncompleteSearch {
     match error {
         SimplificationError::Cancelled => IncompleteSearch::Cancelled(state),
         error => IncompleteSearch::Simplification { state, error },
+    }
+}
+
+fn rewrite_incomplete(state: SearchState, reason: IndeterminateReason) -> IncompleteSearch {
+    match reason {
+        IndeterminateReason::Simplification { error, .. } => {
+            simplification_incomplete(state, error)
+        }
+        reason => IncompleteSearch::Indeterminate { state, reason },
     }
 }
 
@@ -854,13 +860,8 @@ mod tests {
         let token = CancellationToken::new();
         token.cancel();
 
-        let result = token.scope(|| {
-            search_graph(
-                &definition,
-                initial(&definition),
-                SearchOptions::default(),
-            )
-        });
+        let result = token
+            .scope(|| search_graph(&definition, initial(&definition), SearchOptions::default()));
 
         assert!(matches!(
             result.incomplete.as_slice(),

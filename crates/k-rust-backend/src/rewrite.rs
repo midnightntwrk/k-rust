@@ -119,6 +119,10 @@ pub enum RewriteResult {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IndeterminateReason {
+    Simplification {
+        rule_id: Option<String>,
+        error: SimplificationError,
+    },
     Match {
         rule_id: String,
         substitution: Substitution,
@@ -286,7 +290,7 @@ pub fn execute_with_solver_and_observer(
             effects,
         };
     }
-    while let Some(mut state) = pending.pop_front() {
+    'execution: while let Some(mut state) = pending.pop_front() {
         let mut step_timer = timeout_controller.begin_step();
         macro_rules! finish_if_interrupted {
             () => {
@@ -445,17 +449,25 @@ pub fn execute_with_solver_and_observer(
                 trace: state.trace,
                 halt_reason: HaltReason::Vacuous,
             }),
-            RewriteResult::Indeterminate { pattern, reason } => leaves.push(ExecutionLeaf {
-                pattern,
-                depth: state.depth,
-                trace: state.trace,
-                halt_reason: HaltReason::Indeterminate(reason),
-            }),
+            RewriteResult::Indeterminate { pattern, reason } => {
+                let halt_reason = match reason {
+                    IndeterminateReason::Simplification { error, .. } => {
+                        HaltReason::Simplification(error)
+                    }
+                    reason => HaltReason::Indeterminate(reason),
+                };
+                leaves.push(ExecutionLeaf {
+                    pattern,
+                    depth: state.depth,
+                    trace: state.trace,
+                    halt_reason,
+                });
+            }
             RewriteResult::Finished(applied) => {
                 record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
                 if let Some(rule) = selected_stop_rule(&applied, &options.cut_point_rules) {
                     let mut applied = applied;
-                    applied.pattern = simplify_result_pattern(
+                    applied.pattern = match simplify_result_pattern(
                         definition,
                         &applied.pattern,
                         options.max_simplification_iterations,
@@ -464,7 +476,18 @@ pub fn execute_with_solver_and_observer(
                         &mut state.trace,
                         &mut effects,
                         &mut observe,
-                    );
+                    ) {
+                        Ok(pattern) => pattern,
+                        Err(error) => {
+                            leaves.push(ExecutionLeaf {
+                                pattern: applied.pattern,
+                                depth: state.depth,
+                                trace: state.trace,
+                                halt_reason: HaltReason::Simplification(error),
+                            });
+                            continue 'execution;
+                        }
+                    };
                     finish_if_interrupted!();
                     if predicates_truth(&applied.pattern.constraints) == Truth::False {
                         leaves.push(ExecutionLeaf {
@@ -489,7 +512,7 @@ pub fn execute_with_solver_and_observer(
                 let terminal_rule = selected_stop_rule(&applied, &options.terminal_rules);
                 let mut next = next_state(state.depth, state.trace, applied);
                 if let Some(rule) = terminal_rule {
-                    next.pattern = simplify_result_pattern(
+                    next.pattern = match simplify_result_pattern(
                         definition,
                         &next.pattern,
                         options.max_simplification_iterations,
@@ -498,7 +521,18 @@ pub fn execute_with_solver_and_observer(
                         &mut next.trace,
                         &mut effects,
                         &mut observe,
-                    );
+                    ) {
+                        Ok(pattern) => pattern,
+                        Err(error) => {
+                            leaves.push(ExecutionLeaf {
+                                pattern: next.pattern,
+                                depth: next.depth,
+                                trace: next.trace,
+                                halt_reason: HaltReason::Simplification(error),
+                            });
+                            continue 'execution;
+                        }
+                    };
                     if cancellation_requested() {
                         step_timer.discard_measurement();
                         leaves.push(ExecutionLeaf {
@@ -543,7 +577,7 @@ pub fn execute_with_solver_and_observer(
                 mut remainder,
             } => {
                 if options.branch_mode == ExecutionBranchMode::StopAtBranch {
-                    expand_stopped_branch_remainder(
+                    if let Err(error) = expand_stopped_branch_remainder(
                         definition,
                         &mut branches,
                         &mut remainder,
@@ -553,9 +587,17 @@ pub fn execute_with_solver_and_observer(
                         },
                         solver,
                         (options.mode, options.assume_initial_defined),
-                    );
+                    ) {
+                        leaves.push(ExecutionLeaf {
+                            pattern: state.pattern,
+                            depth: state.depth,
+                            trace: state.trace,
+                            halt_reason: HaltReason::Simplification(error),
+                        });
+                        continue 'execution;
+                    }
                     let mut original = original;
-                    original = simplify_result_pattern(
+                    original = match simplify_result_pattern(
                         definition,
                         &original,
                         options.max_simplification_iterations,
@@ -564,7 +606,18 @@ pub fn execute_with_solver_and_observer(
                         &mut state.trace,
                         &mut effects,
                         &mut observe,
-                    );
+                    ) {
+                        Ok(pattern) => pattern,
+                        Err(error) => {
+                            leaves.push(ExecutionLeaf {
+                                pattern: original,
+                                depth: state.depth,
+                                trace: state.trace,
+                                halt_reason: HaltReason::Simplification(error),
+                            });
+                            continue 'execution;
+                        }
+                    };
                     if predicates_truth(&original.constraints) == Truth::False {
                         leaves.push(ExecutionLeaf {
                             pattern: original,
@@ -574,8 +627,9 @@ pub fn execute_with_solver_and_observer(
                         });
                         continue;
                     }
-                    branches.retain_mut(|applied| {
-                        applied.pattern = simplify_result_pattern(
+                    let mut retained_branches = Vec::with_capacity(branches.len());
+                    for mut applied in branches {
+                        applied.pattern = match simplify_result_pattern(
                             definition,
                             &applied.pattern,
                             options.max_simplification_iterations,
@@ -584,11 +638,25 @@ pub fn execute_with_solver_and_observer(
                             &mut state.trace,
                             &mut effects,
                             &mut observe,
-                        );
-                        predicates_truth(&applied.pattern.constraints) != Truth::False
-                    });
+                        ) {
+                            Ok(pattern) => pattern,
+                            Err(error) => {
+                                leaves.push(ExecutionLeaf {
+                                    pattern: applied.pattern,
+                                    depth: state.depth + 1,
+                                    trace: state.trace,
+                                    halt_reason: HaltReason::Simplification(error),
+                                });
+                                continue 'execution;
+                            }
+                        };
+                        if predicates_truth(&applied.pattern.constraints) != Truth::False {
+                            retained_branches.push(applied);
+                        }
+                    }
+                    branches = retained_branches;
                     if let Some(candidate) = &mut remainder {
-                        candidate.pattern = simplify_result_pattern(
+                        candidate.pattern = match simplify_result_pattern(
                             definition,
                             &candidate.pattern,
                             options.max_simplification_iterations,
@@ -597,7 +665,18 @@ pub fn execute_with_solver_and_observer(
                             &mut state.trace,
                             &mut effects,
                             &mut observe,
-                        );
+                        ) {
+                            Ok(pattern) => pattern,
+                            Err(error) => {
+                                leaves.push(ExecutionLeaf {
+                                    pattern: candidate.pattern.clone(),
+                                    depth: state.depth,
+                                    trace: state.trace,
+                                    halt_reason: HaltReason::Simplification(error),
+                                });
+                                continue 'execution;
+                            }
+                        };
                         if predicates_truth(&candidate.pattern.constraints) == Truth::False {
                             remainder = None;
                         }
@@ -670,7 +749,7 @@ fn expand_stopped_branch_remainder(
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     execution: (ExecutionMode, bool),
-) {
+) -> Result<(), SimplificationError> {
     let (mode, assume_initial_defined) = execution;
     while let Some(current) = remainder.take() {
         match rewrite_step_with_mode(
@@ -692,6 +771,10 @@ fn expand_stopped_branch_remainder(
                 *branches = lower_branches;
                 *remainder = lower_remainder;
             }
+            RewriteResult::Indeterminate {
+                reason: IndeterminateReason::Simplification { error, .. },
+                ..
+            } => return Err(error),
             RewriteResult::Stuck(_) | RewriteResult::Indeterminate { .. } => {
                 *remainder = Some(current);
                 break;
@@ -699,6 +782,7 @@ fn expand_stopped_branch_remainder(
             RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => break,
         }
     }
+    Ok(())
 }
 
 fn selected_stop_rule(applied: &AppliedRule, selected: &BTreeSet<String>) -> Option<String> {
@@ -763,7 +847,7 @@ fn simplify_result_pattern(
     trace: &mut Vec<TraceEntry>,
     effects: &mut Vec<BuiltinEffect>,
     observe: &mut impl FnMut(&BuiltinEffect),
-) -> Pattern {
+) -> Result<Pattern, SimplificationError> {
     let PatternSimplification {
         pattern,
         applied_rules,
@@ -773,12 +857,7 @@ fn simplify_result_pattern(
         pattern,
         SimplificationOptions { max_iterations },
         solver,
-    )
-    .unwrap_or_else(|_| PatternSimplification {
-        pattern: pattern.clone(),
-        applied_rules: Vec::new(),
-        effects: Vec::new(),
-    });
+    )?;
     trace.extend(applied_rules.into_iter().map(|unique_id| TraceEntry {
         depth,
         kind: TraceKind::Simplification,
@@ -786,7 +865,7 @@ fn simplify_result_pattern(
         unique_id,
     }));
     record_effects(effects, simplified_effects, observe);
-    pattern
+    Ok(pattern)
 }
 
 fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> ExecutionState {
@@ -948,14 +1027,21 @@ fn rewrite_step_all(
             .iter()
             .map(|application| application.remainder.clone())
             .collect::<Vec<_>>();
-        let remainder = simplify_predicates_with_solver(
+        let remainder = match simplify_predicates_with_solver(
             definition,
             &raw_remainder,
             &pattern.constraints,
             simplification_options,
             solver,
-        )
-        .unwrap_or(raw_remainder);
+        ) {
+            Ok(remainder) => remainder,
+            Err(error) => {
+                return RewriteResult::Indeterminate {
+                    pattern: pattern.clone(),
+                    reason: simplification_reason(None, error),
+                };
+            }
+        };
         let remainder_result = if applied.is_empty() || predicates_truth(&remainder) == Truth::False
         {
             Ok(Satisfiability::Unsat)
@@ -1070,14 +1156,20 @@ fn rewrite_step_any(
                     );
                     applied.push(application.applied);
                 }
-                if let Ok(constraints) = simplify_predicates_with_solver(
+                match simplify_predicates_with_solver(
                     definition,
                     &remaining.constraints,
                     &pattern.constraints,
                     simplification_options,
                     solver,
                 ) {
-                    remaining.constraints = constraints;
+                    Ok(constraints) => remaining.constraints = constraints,
+                    Err(error) => {
+                        return RewriteResult::Indeterminate {
+                            pattern: remaining,
+                            reason: simplification_reason(None, error),
+                        };
+                    }
                 }
             }
             RuleAttempt::Indeterminate(reason) => {
@@ -1168,6 +1260,16 @@ enum RuleAttempt {
     Indeterminate(IndeterminateReason),
 }
 
+fn simplification_reason(
+    rule: Option<&RewriteRule>,
+    error: SimplificationError,
+) -> IndeterminateReason {
+    IndeterminateReason::Simplification {
+        rule_id: rule.map(|rule| rule.attributes.unique_id.clone()),
+        error,
+    }
+}
+
 pub(crate) struct RecoveredMatch {
     pub(crate) result: MatchResult,
     pub(crate) conditions: Vec<Predicate>,
@@ -1187,7 +1289,7 @@ pub(crate) fn recover_indeterminate_match(
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> RecoveredMatch {
+) -> Result<RecoveredMatch, SimplificationError> {
     let mut unresolved = Vec::new();
     let mut conditions = Vec::new();
     for (pattern, subject) in remainder {
@@ -1196,23 +1298,15 @@ pub(crate) fn recover_indeterminate_match(
         let mut knowledge = known_predicates.to_vec();
         extend_unique(&mut knowledge, conditions.iter().cloned());
         let simplified_pattern =
-            match simplify_with_solver(definition, &pattern, &knowledge, options, solver) {
-                Ok(result) => {
-                    extend_unique(&mut conditions, result.constraints);
-                    result.term
-                }
-                Err(_) => pattern.clone(),
-            };
+            simplify_with_solver(definition, &pattern, &knowledge, options, solver)?;
+        extend_unique(&mut conditions, simplified_pattern.constraints);
+        let simplified_pattern = simplified_pattern.term;
         let mut knowledge = known_predicates.to_vec();
         extend_unique(&mut knowledge, conditions.iter().cloned());
         let simplified_subject =
-            match simplify_with_solver(definition, &subject, &knowledge, options, solver) {
-                Ok(result) => {
-                    extend_unique(&mut conditions, result.constraints);
-                    result.term
-                }
-                Err(_) => subject.clone(),
-            };
+            simplify_with_solver(definition, &subject, &knowledge, options, solver)?;
+        extend_unique(&mut conditions, simplified_subject.constraints);
+        let simplified_subject = simplified_subject.term;
 
         if !simplified_pattern
             .attributes()
@@ -1244,10 +1338,10 @@ pub(crate) fn recover_indeterminate_match(
                             FailReason::DifferentSymbols(left, right)
                         }
                     };
-                    return RecoveredMatch {
+                    return Ok(RecoveredMatch {
                         result: MatchResult::Failed(reason),
                         conditions,
-                    };
+                    });
                 }
                 UnificationResult::Unsupported { .. } => {}
             }
@@ -1264,10 +1358,10 @@ pub(crate) fn recover_indeterminate_match(
                 continue;
             }
             MatchResult::Failed(reason) => {
-                return RecoveredMatch {
+                return Ok(RecoveredMatch {
                     result: MatchResult::Failed(reason),
                     conditions,
-                };
+                });
             }
             MatchResult::Indeterminate {
                 substitution: found,
@@ -1306,16 +1400,13 @@ pub(crate) fn recover_indeterminate_match(
         let candidate_pattern = substitute(&pattern, &candidate_substitution);
         let mut witness_knowledge = known_predicates.to_vec();
         extend_unique(&mut witness_knowledge, conditions.iter().cloned());
-        let Ok(candidate_pattern) = simplify_with_solver(
+        let candidate_pattern = simplify_with_solver(
             definition,
             &candidate_pattern,
             &witness_knowledge,
             options,
             solver,
-        ) else {
-            unresolved.extend(pair_remainder);
-            continue;
-        };
+        )?;
         extend_unique(&mut conditions, candidate_pattern.constraints);
         match match_terms_in_definition(
             MatchMode::Rewrite,
@@ -1341,7 +1432,7 @@ pub(crate) fn recover_indeterminate_match(
             remainder: unresolved,
         }
     };
-    RecoveredMatch { result, conditions }
+    Ok(RecoveredMatch { result, conditions })
 }
 
 enum GeneralUnificationRecovery {
@@ -1757,14 +1848,22 @@ fn apply_rule_with_match(
             substitution,
             remainder,
         } => {
-            let recovered = recover_indeterminate_match(
+            let recovered = match recover_indeterminate_match(
                 definition,
                 substitution,
                 remainder,
                 &inherited_knowledge,
                 simplification_options,
                 solver,
-            );
+            ) {
+                Ok(recovered) => recovered,
+                Err(error) => {
+                    return RuleAttempt::Indeterminate(IndeterminateReason::Simplification {
+                        rule_id: Some(rule.attributes.unique_id.clone()),
+                        error,
+                    });
+                }
+            };
             extend_unique(
                 &mut inherited_conditions,
                 recovered.conditions.iter().cloned(),
@@ -2004,14 +2103,20 @@ fn apply_rule_with_match(
                                 } else {
                                     let requires =
                                         substitute_predicates(&rule.requires, &substitution);
-                                    let requires = simplify_predicates_with_solver(
+                                    let requires = match simplify_predicates_with_solver(
                                         definition,
                                         &requires,
                                         &inherited_knowledge,
                                         simplification_options,
                                         solver,
-                                    )
-                                    .unwrap_or(requires);
+                                    ) {
+                                        Ok(requires) => requires,
+                                        Err(error) => {
+                                            return RuleAttempt::Indeterminate(
+                                                simplification_reason(Some(rule), error),
+                                            );
+                                        }
+                                    };
                                     if predicates_truth(&requires) == Truth::False {
                                         return RuleAttempt::NotApplicable;
                                     }
@@ -2070,14 +2175,18 @@ fn apply_rule_with_match(
         extend_unique(&mut match_conditions, ceil_term(definition, &value));
     }
     inherited_conditions.append(&mut match_conditions);
-    let inherited_conditions = simplify_predicates_with_solver(
+    let inherited_conditions = match simplify_predicates_with_solver(
         definition,
         &inherited_conditions,
         &path_knowledge,
         simplification_options,
         solver,
-    )
-    .unwrap_or(inherited_conditions);
+    ) {
+        Ok(conditions) => conditions,
+        Err(error) => {
+            return RuleAttempt::Indeterminate(simplification_reason(Some(rule), error));
+        }
+    };
     if predicates_truth(&inherited_conditions) == Truth::False {
         return RuleAttempt::NotApplicable;
     }
@@ -2095,14 +2204,18 @@ fn apply_rule_with_match(
     }
     let mut definedness_knowledge = path_knowledge.clone();
     extend_unique(&mut definedness_knowledge, match_conditions.iter().cloned());
-    let definedness_conditions = simplify_predicates_with_solver(
+    let definedness_conditions = match simplify_predicates_with_solver(
         definition,
         &definedness_conditions,
         &definedness_knowledge,
         simplification_options,
         solver,
-    )
-    .unwrap_or(definedness_conditions);
+    ) {
+        Ok(conditions) => conditions,
+        Err(error) => {
+            return RuleAttempt::Indeterminate(simplification_reason(Some(rule), error));
+        }
+    };
     if predicates_truth(&definedness_conditions) == Truth::False {
         return RuleAttempt::Trivial;
     }
@@ -2143,14 +2256,18 @@ fn apply_rule_with_match(
     let requires = substitute_predicates(&rule.requires, &substitution);
     let mut match_knowledge = path_knowledge;
     extend_unique(&mut match_knowledge, match_conditions.iter().cloned());
-    let requires = simplify_predicates_with_solver(
+    let requires = match simplify_predicates_with_solver(
         definition,
         &requires,
         &match_knowledge,
         simplification_options,
         solver,
-    )
-    .unwrap_or(requires);
+    ) {
+        Ok(requires) => requires,
+        Err(error) => {
+            return RuleAttempt::Indeterminate(simplification_reason(Some(rule), error));
+        }
+    };
     if predicates_truth(&requires) == Truth::False {
         return RuleAttempt::NotApplicable;
     }
@@ -2226,20 +2343,26 @@ fn apply_rule_with_match(
                 solver,
             ) {
                 Ok(simplified) => (simplified.term, simplified.constraints, simplified.effects),
-                Err(_) => (rhs, Vec::new(), Vec::new()),
+                Err(error) => {
+                    return RuleAttempt::Indeterminate(simplification_reason(Some(rule), error));
+                }
             }
         };
     extend_unique(&mut condition_knowledge, rhs_constraints.iter().cloned());
     if !rule.computed_attributes.undefined_symbols.is_empty() {
         let obligations = ceil_term(definition, &rhs);
-        let obligations = simplify_predicates_with_solver(
+        let obligations = match simplify_predicates_with_solver(
             definition,
             &obligations,
             &condition_knowledge,
             simplification_options,
             solver,
-        )
-        .unwrap_or(obligations);
+        ) {
+            Ok(obligations) => obligations,
+            Err(error) => {
+                return RuleAttempt::Indeterminate(simplification_reason(Some(rule), error));
+            }
+        };
         match predicates_truth(&obligations) {
             Truth::True => {}
             Truth::False => return RuleAttempt::Trivial,
@@ -2262,14 +2385,18 @@ fn apply_rule_with_match(
         &substitute_predicates(&rule.ensures, &substitution),
         &existential_substitution,
     );
-    let mut ensures = simplify_predicates_with_solver(
+    let mut ensures = match simplify_predicates_with_solver(
         definition,
         &ensures,
         &condition_knowledge,
         simplification_options,
         solver,
-    )
-    .unwrap_or(ensures);
+    ) {
+        Ok(ensures) => ensures,
+        Err(error) => {
+            return RuleAttempt::Indeterminate(simplification_reason(Some(rule), error));
+        }
+    };
     match predicates_truth(&ensures) {
         Truth::False => return RuleAttempt::Trivial,
         Truth::True => {}
@@ -5051,6 +5178,131 @@ mod tests {
                 &mut fresh,
             )),
             "fallback"
+        );
+    }
+
+    #[test]
+    fn rule_condition_iteration_limit_halts_execution_as_a_simplification_error() {
+        let definition = definition(
+            r#"
+            sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            symbol check0{}() : SortBool{} [function{}(), total{}()]
+            symbol check1{}() : SortBool{} [function{}(), total{}()]
+            symbol check2{}() : SortBool{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortBool{}, R}(
+                    check0{}(),
+                    \and{SortBool{}}(check1{}(), \top{SortBool{}}())
+                )
+            ) [label{}("check-0"), simplification{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortBool{}, R}(
+                    check1{}(),
+                    \and{SortBool{}}(check2{}(), \top{SortBool{}}())
+                )
+            ) [label{}("check-1"), simplification{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortBool{}, R}(
+                    check2{}(),
+                    \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+                )
+            ) [label{}("check-2"), simplification{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(X:SortS{}),
+                    \equals{SortBool{}, SortS{}}(
+                        check0{}(),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                \dv{SortS{}}("done")
+            ) [label{}("conditional")]
+            "#,
+        );
+
+        let result = execute(
+            &definition,
+            subject(&definition, "value"),
+            ExecutionOptions {
+                max_simplification_iterations: 1,
+                ..ExecutionOptions::default()
+            },
+        );
+
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one halted leaf, found {:?}", result.leaves);
+        };
+        assert!(
+            matches!(
+                leaf.halt_reason,
+                HaltReason::Simplification(
+                    SimplificationError::IterationLimit { .. }
+                        | SimplificationError::PredicateIterationLimit { .. }
+                )
+            ),
+            "unexpected halt reason: {:?}",
+            leaf.halt_reason
+        );
+    }
+
+    #[test]
+    fn terminal_result_iteration_limit_halts_execution_as_a_simplification_error() {
+        let definition = definition(
+            r#"
+            symbol chain0{}() : SortS{} [function{}(), total{}()]
+            symbol chain1{}() : SortS{} [function{}(), total{}()]
+            symbol chain2{}() : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    chain0{}(),
+                    \and{SortS{}}(chain1{}(), \top{SortS{}}())
+                )
+            ) [label{}("chain-0"), simplification{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    chain1{}(),
+                    \and{SortS{}}(chain2{}(), \top{SortS{}}())
+                )
+            ) [label{}("chain-1"), simplification{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    chain2{}(),
+                    \and{SortS{}}(\dv{SortS{}}("done"), \top{SortS{}}())
+                )
+            ) [label{}("chain-2"), simplification{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                chain0{}()
+            ) [label{}("terminal")]
+            "#,
+        );
+
+        let result = execute(
+            &definition,
+            subject(&definition, "value"),
+            ExecutionOptions {
+                max_simplification_iterations: 1,
+                terminal_rules: BTreeSet::from(["terminal".into()]),
+                ..ExecutionOptions::default()
+            },
+        );
+
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one halted leaf, found {:?}", result.leaves);
+        };
+        assert!(
+            matches!(
+                leaf.halt_reason,
+                HaltReason::Simplification(SimplificationError::IterationLimit { .. })
+            ),
+            "unexpected halt reason: {:?}",
+            leaf.halt_reason
         );
     }
 
