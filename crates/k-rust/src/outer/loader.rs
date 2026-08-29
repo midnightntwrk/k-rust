@@ -430,7 +430,7 @@ fn validate_unique_modules(files: &[SourceFile]) -> Result<(), LoadError> {
 mod tests {
     use super::*;
     use crate::{
-        definition::{Attributes, FlatModule},
+        definition::{Attributes, FlatImport, FlatModule},
         kast::{Sort, Term},
     };
 
@@ -502,5 +502,72 @@ mod tests {
             contents: "<k> $PGM:K </k>".into(),
             attributes: Attributes::default(),
         });
+    }
+
+    #[test]
+    fn imported_configurations_suppress_default_but_do_not_import_map() {
+        let configuration = Sentence::Configuration {
+            body: Term::variable("CONFIG"),
+            ensures: Term::Token {
+                token: "true".into(),
+                sort: Sort::new("Bool"),
+            },
+            attributes: Attributes::default(),
+        };
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![
+                FlatModule {
+                    name: "MAP".into(),
+                    imports: vec![],
+                    local_sentences: vec![],
+                    attributes: Attributes::default(),
+                },
+                FlatModule {
+                    name: "DEFAULT-CONFIGURATION".into(),
+                    imports: vec![],
+                    local_sentences: vec![],
+                    attributes: Attributes::default(),
+                },
+                FlatModule {
+                    name: "HELPER".into(),
+                    imports: vec![],
+                    local_sentences: vec![configuration],
+                    attributes: Attributes::default(),
+                },
+                FlatModule {
+                    name: "MAIN".into(),
+                    imports: vec![FlatImport {
+                        name: "HELPER".into(),
+                        public: true,
+                    }],
+                    local_sentences: vec![],
+                    attributes: Attributes::default(),
+                },
+            ],
+            attributes: Attributes::default(),
+        };
+
+        let transformed = add_implicit_configuration_imports(definition, None).unwrap();
+        let main = transformed.main_module().unwrap();
+        // DEFAULT-CONFIGURATION observes transitively visible sentences, whereas MAP is attached
+        // only to the module that locally owns a configuration. This asymmetry is intentional.
+        assert!(
+            !main
+                .imports
+                .iter()
+                .any(|import| { matches!(import.name.as_str(), "DEFAULT-CONFIGURATION" | "MAP") })
+        );
+        let helper = transformed
+            .modules
+            .iter()
+            .find(|module| module.name == "HELPER")
+            .unwrap();
+        assert!(
+            helper
+                .imports
+                .iter()
+                .any(|import| import.name == "MAP" && import.public)
+        );
     }
 }
