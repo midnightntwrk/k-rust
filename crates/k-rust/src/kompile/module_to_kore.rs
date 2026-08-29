@@ -3163,6 +3163,12 @@ fn add_syntax_attributes(
                 .collect(),
         ),
     );
+    let has_user_label = ["symbol", "klabel"]
+        .iter()
+        .any(|key| source.get_str(key).is_some_and(|label| !label.is_empty()));
+    if source.get("bracket").is_some() && !has_user_label {
+        return;
+    }
     entries.insert("priorities".into(), Value::String(String::new()));
     entries.insert("left".into(), Value::String(String::new()));
     entries.insert("right".into(), Value::String(String::new()));

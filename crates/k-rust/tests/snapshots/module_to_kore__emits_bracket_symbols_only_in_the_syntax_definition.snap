@@ -45,11 +45,8 @@ module MAIN
     format{}(),
     functional{}(),
     injective{}(),
-    left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,39)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    priorities{}(),
-    right{}(),
     terminals{}("101")
   ]
 endmodule []

@@ -135,6 +135,64 @@ declaration_snapshot!(
 );
 
 #[test]
+fn omits_syntax_relations_only_from_unlabeled_brackets() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "(" Exp ")" [bracket, color(red)]
+                       | "[" Exp "]" [bracket, symbol(group)]
+        endmodule
+    "#};
+    let declarations =
+        declaration_modules(&lowered(source, "MAIN"), "MAIN").expect("declarations should emit");
+
+    let attribute_names = |label: &str| {
+        let encoded = encode_kore_label(&Label::new(label));
+        declarations
+            .syntax
+            .sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::SymbolDeclaration {
+                    symbol, attributes, ..
+                } if symbol == &encoded => Some(
+                    attributes
+                        .0
+                        .iter()
+                        .filter_map(|attribute| match attribute {
+                            Pattern::Application { symbol, .. } => Some(symbol.name.as_str()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
+            })
+            .expect("bracket symbol should be declared in the syntax module")
+    };
+
+    let unlabeled = attribute_names("(_)_MAIN_Exp_Exp");
+    for retained in ["bracket", "colors", "format", "terminals"] {
+        assert!(
+            unlabeled.contains(&retained),
+            "missing `{retained}` attribute"
+        );
+    }
+    for relation in ["priorities", "left", "right"] {
+        assert!(
+            !unlabeled.contains(&relation),
+            "unlabeled bracket retained `{relation}` attribute"
+        );
+    }
+
+    let labeled = attribute_names("group");
+    for relation in ["priorities", "left", "right"] {
+        assert!(
+            labeled.contains(&relation),
+            "labeled bracket omitted `{relation}` attribute"
+        );
+    }
+}
+
+#[test]
 fn embedded_priority_separator_labels_reach_syntax_relations_intact() {
     let source = indoc! {r#"
         module MAIN
