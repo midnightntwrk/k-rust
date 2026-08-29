@@ -845,7 +845,7 @@ failure-claim = "claim-refuted"
 
 [[rpc]]
 name = "imp"
-requires = ["reference-toolchain", "semantics-support"]
+requires = ["reference-toolchain"]
 constructs = []
 source = "${imp}/src/kimp/kdist/imp-semantics/imp.k"
 program = "${imp}/examples/sumto10.imp"

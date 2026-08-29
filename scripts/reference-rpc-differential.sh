@@ -4,6 +4,7 @@ set -euo pipefail
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$workspace/scripts/reference-pins.sh"
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
+imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
 kompile=${K_KOMPILE:-}
 krun=${K_KRUN:-}
 kast=${K_KAST:-}
@@ -14,9 +15,11 @@ reference_port=${REFERENCE_RPC_PORT:-31347}
 rust_port=${RUST_RPC_PORT:-31348}
 reference_memory_kib=${REFERENCE_EXECUTION_MEMORY_KIB:-12582912}
 rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}
+reference_retries=${REFERENCE_EXECUTION_RETRIES:-3}
 reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-'-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Dscala.concurrent.context.numThreads=2 -Dscala.concurrent.context.maxThreads=2'}
 manifest_json=$(
   WORKSPACE="$workspace" K_CHECKOUT="$k_checkout" \
+  IMP_SEMANTICS_CHECKOUT="$imp_checkout" \
     "$workspace/scripts/reference-manifest.py"
 )
 
@@ -59,16 +62,23 @@ fi
 rpc=$(jq -c --arg name "$name" '.rpc[] | select(.name == $name)' <<<"$manifest_json")
 semantics=$(jq -r '.source' <<<"$rpc")
 program=$(jq -r '.program' <<<"$rpc")
-stuck_program=$(jq -r '.["stuck-program"]' <<<"$rpc")
+stuck_program=$(jq -r '.["stuck-program"] // empty' <<<"$rpc")
 main_module=$(jq -r '.["main-module"]' <<<"$rpc")
 syntax_module=$(jq -r '.["syntax-module"]' <<<"$rpc")
-program_sort=$(jq -r '.sort' <<<"$rpc")
+program_sort=$(jq -r '.sort // empty' <<<"$rpc")
 mapfile -t configuration_args < <(
   jq -r '(.configuration // [])[] | "-c" + .' <<<"$rpc"
 )
-if [[ ! -f "$semantics" || ! -f "$program" || ! -f "$stuck_program" ]]; then
+if [[ ! -f "$semantics" || ! -f "$program" ]]; then
   echo "error: missing local RPC fixture for $name" >&2
   exit 2
+fi
+if [[ "$name" != imp && ! -f "$stuck_program" ]]; then
+  echo "error: missing stuck-program RPC fixture for $name" >&2
+  exit 2
+fi
+if [[ "$name" == imp ]]; then
+  reference_require_git_pin IMP "$imp_checkout" "$IMP_REFERENCE_REVISION"
 fi
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/k-rust-reference-rpc.XXXXXX")
@@ -126,6 +136,29 @@ send_raw() {
   printf '%s\n' "$response" >"$output"
 }
 
+run_reference_krun() {
+  local output=$1
+  shift
+  local attempt
+  for ((attempt = 1; attempt <= reference_retries; attempt++)); do
+    if (
+      ulimit -v "$reference_memory_kib"
+      export GHCRTS=${GHCRTS:--N1}
+      export K_OPTS="$reference_k_opts"
+      "$krun" "$@" >"$output"
+    ); then
+      return 0
+    fi
+    if [[ -e "$output" ]]; then
+      find "$output" -delete
+    fi
+    if ((attempt < reference_retries)); then
+      echo "reference krun preprocessing failed; retrying ($attempt/$reference_retries)" >&2
+    fi
+  done
+  return 1
+}
+
 generate_state() {
   local input=$1
   local stem=$2
@@ -159,6 +192,22 @@ collect_responses() {
   local port=$1
   local prefix=$2
   export GHCRTS=
+  if [[ "$name" == imp ]]; then
+    "$rpc_client" --port "$port" execute "$work/state.json" \
+      -O max-depth=1 -o "$work/$prefix-execute.json"
+    "$rpc_client" --port "$port" simplify "$work/bool.json" \
+      -o "$work/$prefix-simplify.json"
+    "$rpc_client" --port "$port" send "$work/implies-request.json" \
+      -o "$work/$prefix-implies.json"
+    "$rpc_client" --port "$port" get-model "$work/model.json" \
+      -o "$work/$prefix-model.json"
+    "$rpc_client" --port "$port" send "$work/add-module-request.json" \
+      -o "$work/$prefix-add-module.json"
+    send_raw "$port" \
+      '{"jsonrpc":"2.0","id":"unknown-1","method":"unknown"}' \
+      "$work/$prefix-error.json"
+    return
+  fi
   "$rpc_client" --port "$port" execute "$work/start.json" \
     -O max-depth=1 -o "$work/$prefix-execute-branching.json"
   "$rpc_client" --port "$port" execute "$work/done.json" \
@@ -208,9 +257,28 @@ echo "[$name:rpc] compiling the reference Haskell definition"
     --warnings none
 )
 
-echo "[$name:rpc] generating start and stuck configurations"
-generate_state "$program" start
-generate_state "$stuck_program" done
+echo "[$name:rpc] generating request configurations"
+if [[ "$name" == imp ]]; then
+  run_reference_krun "$work/state.kore" \
+    "$program" \
+    --definition "$work/kompiled" \
+    "${configuration_args[@]}" \
+    --depth 0 \
+    --smt none \
+    --output kore
+  (
+    ulimit -v "$rust_memory_kib"
+    export GHCRTS=
+    "$kore_parser" "$work/kompiled/definition.kore" \
+      --pattern "$work/state.kore" \
+      --module "$main_module" \
+      --print-pattern-json \
+      --no-print-definition >"$work/state.json"
+  )
+else
+  generate_state "$program" start
+  generate_state "$stuck_program" done
+fi
 
 jq -n '{
   format: "KORE",
@@ -221,40 +289,60 @@ jq -n '{
     value: "true"
   }
 }' >"$work/bool.json"
-jq '{
-  jsonrpc: "2.0",
-  id: "implies-valid",
-  method: "implies",
-  params: {antecedent: ., consequent: ., "assume-defined": true}
-}' "$work/start.json" >"$work/implies-valid-request.json"
-jq --slurp '{
-  jsonrpc: "2.0",
-  id: "implies-invalid",
-  method: "implies",
-  params: {antecedent: .[1], consequent: .[0], "assume-defined": true}
-}' "$work/start.json" "$work/done.json" >"$work/implies-invalid-request.json"
-jq '{
-  format: "KORE",
-  version: 1,
-  term: {
-    tag: "Equals",
-    argSort: {tag: "SortApp", name: "SortGeneratedTopCell", args: []},
-    sort: {tag: "SortApp", name: "SortGeneratedTopCell", args: []},
-    first: .term,
-    second: .term
-  }
-}' "$work/start.json" >"$work/model-sat.json"
-jq --slurp '{
-  format: "KORE",
-  version: 1,
-  term: {
-    tag: "Equals",
-    argSort: {tag: "SortApp", name: "SortGeneratedTopCell", args: []},
-    sort: {tag: "SortApp", name: "SortGeneratedTopCell", args: []},
-    first: .[0].term,
-    second: .[1].term
-  }
-}' "$work/start.json" "$work/done.json" >"$work/model-unsat.json"
+if [[ "$name" == imp ]]; then
+  jq '{
+    jsonrpc: "2.0",
+    id: 1,
+    method: "implies",
+    params: {antecedent: ., consequent: ., "assume-defined": true}
+  }' "$work/state.json" >"$work/implies-request.json"
+  jq '{
+    format: "KORE",
+    version: 1,
+    term: {
+      tag: "Equals",
+      argSort: {tag: "SortApp", name: "SortGeneratedTopCell", args: []},
+      sort: {tag: "SortApp", name: "SortGeneratedTopCell", args: []},
+      first: .term,
+      second: .term
+    }
+  }' "$work/state.json" >"$work/model.json"
+else
+  jq '{
+    jsonrpc: "2.0",
+    id: "implies-valid",
+    method: "implies",
+    params: {antecedent: ., consequent: ., "assume-defined": true}
+  }' "$work/start.json" >"$work/implies-valid-request.json"
+  jq --slurp '{
+    jsonrpc: "2.0",
+    id: "implies-invalid",
+    method: "implies",
+    params: {antecedent: .[1], consequent: .[0], "assume-defined": true}
+  }' "$work/start.json" "$work/done.json" >"$work/implies-invalid-request.json"
+  jq '{
+    format: "KORE",
+    version: 1,
+    term: {
+      tag: "Equals",
+      argSort: {tag: "SortApp", name: "SortGeneratedTopCell", args: []},
+      sort: {tag: "SortApp", name: "SortGeneratedTopCell", args: []},
+      first: .term,
+      second: .term
+    }
+  }' "$work/start.json" >"$work/model-sat.json"
+  jq --slurp '{
+    format: "KORE",
+    version: 1,
+    term: {
+      tag: "Equals",
+      argSort: {tag: "SortApp", name: "SortGeneratedTopCell", args: []},
+      sort: {tag: "SortApp", name: "SortGeneratedTopCell", args: []},
+      first: .[0].term,
+      second: .[1].term
+    }
+  }' "$work/start.json" "$work/done.json" >"$work/model-unsat.json"
+fi
 jq -n '{
   jsonrpc: "2.0",
   id: "add-module",
