@@ -69,6 +69,7 @@ pub enum IncompleteSearch {
         state: SearchState,
         reason: IndeterminateReason,
     },
+    Cancelled(SearchState),
     Simplification {
         state: SearchState,
         error: SimplificationError,
@@ -242,7 +243,7 @@ pub fn search_graph_with_solver_and_observer(
         ) {
             Ok(constraints) => state.pattern.constraints = constraints,
             Err(error) => {
-                incomplete.push(IncompleteSearch::Simplification { state, error });
+                incomplete.push(simplification_incomplete(state, error));
                 continue;
             }
         }
@@ -272,7 +273,7 @@ pub fn search_graph_with_solver_and_observer(
                     );
             }
             Err(error) => {
-                incomplete.push(IncompleteSearch::Simplification { state, error });
+                incomplete.push(simplification_incomplete(state, error));
                 continue;
             }
         }
@@ -442,7 +443,7 @@ pub fn search_pattern_with_solver(
                 continue;
             }
             Err(PatternMatchError::Simplification(error)) => {
-                incomplete.push(IncompleteSearch::Simplification { state, error });
+                incomplete.push(simplification_incomplete(state, error));
                 continue;
             }
             Err(PatternMatchError::Smt(error)) => {
@@ -471,6 +472,13 @@ pub fn search_pattern_with_solver(
         matches,
         effects: graph.effects,
         incomplete,
+    }
+}
+
+fn simplification_incomplete(state: SearchState, error: SimplificationError) -> IncompleteSearch {
+    match error {
+        SimplificationError::Cancelled => IncompleteSearch::Cancelled(state),
+        error => IncompleteSearch::Simplification { state, error },
     }
 }
 
@@ -677,6 +685,21 @@ mod tests {
 
     use super::*;
     use crate::term::{Sort, Symbol, Term, TermKind, Variable};
+
+    #[test]
+    fn cancellation_is_not_reported_as_a_simplifier_failure() {
+        let definition = definition();
+        let token = crate::cancellation::CancellationToken::new();
+        token.cancel();
+        let result = token
+            .scope(|| search_graph(&definition, initial(&definition), SearchOptions::default()));
+
+        assert!(result.states.is_empty());
+        let [IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice() else {
+            panic!("expected cancellation, found {:?}", result.incomplete);
+        };
+        assert_eq!(state.depth, 0);
+    }
 
     fn definition() -> BackendDefinition {
         let syntax = parse_definition(
