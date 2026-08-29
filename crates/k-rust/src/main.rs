@@ -1736,10 +1736,7 @@ fn run_backend(
     if let Some(search) = options.search {
         let target = match search.pattern {
             Some(path) => load_backend_pattern(backend, &path, "search")?,
-            None => Pattern {
-                term: Term::variable(Variable::new("Result", initial.term.sort())),
-                constraints: Vec::new(),
-            },
+            None => default_search_pattern(&initial),
         };
         let result = search_pattern_with_solver(
             backend,
@@ -1825,6 +1822,14 @@ fn run_backend(
             arguments: states,
         },
     })
+}
+
+fn default_search_pattern(initial: &Pattern) -> Pattern {
+    Pattern {
+        // This is already a KORE variable, so use reference krun's mangled K-level spelling.
+        term: Term::variable(Variable::new("VarResult", initial.term.sort())),
+        constraints: Vec::new(),
+    }
 }
 
 fn load_backend_pattern(
@@ -2504,6 +2509,23 @@ fn emit_diagnostics(diagnostics: &[Diagnostic]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_search_uses_the_reference_kore_variable_name() {
+        let initial = Pattern {
+            term: Term::variable(Variable::new(
+                "Initial",
+                BackendSort::simple("SortGeneratedTopCell"),
+            )),
+            constraints: Vec::new(),
+        };
+        let target = default_search_pattern(&initial);
+        let TermKind::Variable(variable) = target.term.kind() else {
+            panic!("default search target should be a variable");
+        };
+
+        assert_eq!(variable.name.as_ref(), "VarResult");
+    }
 
     #[test]
     fn discovers_and_validates_declared_configuration_variables() {
