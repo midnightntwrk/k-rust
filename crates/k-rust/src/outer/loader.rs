@@ -292,8 +292,9 @@ fn add_implicit_configuration_imports(
             .sentences(configuration_module_id)
             .iter()
             .any(|sentence| {
-            matches!(sentence, Sentence::Bubble { sentence_type, .. } if sentence_type == "config")
-        });
+                matches!(sentence, Sentence::Configuration { .. })
+                    || matches!(sentence, Sentence::Bubble { sentence_type, .. } if sentence_type == "config")
+            });
         if !has_visible_configuration {
             let module = definition
                 .modules
@@ -401,4 +402,69 @@ fn validate_unique_modules(files: &[SourceFile]) -> Result<(), LoadError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        definition::{Attributes, FlatModule},
+        kast::Term,
+    };
+
+    fn definition_with_configuration(sentence: Sentence) -> Definition {
+        Definition {
+            main_module: "MAIN".into(),
+            modules: vec![
+                FlatModule {
+                    name: "DEFAULT-CONFIGURATION".into(),
+                    imports: Vec::new(),
+                    local_sentences: Vec::new(),
+                    attributes: Attributes::default(),
+                },
+                FlatModule {
+                    name: "MAIN".into(),
+                    imports: Vec::new(),
+                    local_sentences: vec![sentence],
+                    attributes: Attributes::default(),
+                },
+            ],
+            attributes: Attributes::default(),
+        }
+    }
+
+    fn imports_default_configuration(definition: &Definition) -> bool {
+        definition
+            .main_module()
+            .unwrap()
+            .imports
+            .iter()
+            .any(|import| import.name == "DEFAULT-CONFIGURATION" && import.public)
+    }
+
+    #[test]
+    fn configuration_bubbles_suppress_the_default_configuration_import() {
+        let definition = definition_with_configuration(Sentence::Bubble {
+            sentence_type: "config".into(),
+            contents: "<k> $PGM:K </k>".into(),
+            attributes: Attributes::default(),
+        });
+
+        let transformed = add_implicit_configuration_imports(definition, None).unwrap();
+
+        assert!(!imports_default_configuration(&transformed));
+    }
+
+    #[test]
+    fn structured_configurations_suppress_the_default_configuration_import() {
+        let definition = definition_with_configuration(Sentence::Configuration {
+            body: Term::variable("CONFIG"),
+            ensures: Term::variable("ENSURES"),
+            attributes: Attributes::default(),
+        });
+
+        let transformed = add_implicit_configuration_imports(definition, None).unwrap();
+
+        assert!(!imports_default_configuration(&transformed));
+    }
 }
