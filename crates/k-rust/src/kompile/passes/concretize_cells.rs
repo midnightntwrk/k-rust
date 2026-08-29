@@ -103,6 +103,8 @@ struct CellModel {
     by_label: BTreeMap<LabelHead, Sort>,
     cell_term_sort: BTreeMap<LabelHead, Sort>,
     collection_member: BTreeMap<LabelHead, Sort>,
+    collection_sort_members: BTreeMap<Sort, BTreeSet<Sort>>,
+    initializer_result_sort: BTreeMap<LabelHead, Sort>,
     parents: BTreeMap<Sort, Sort>,
     levels: BTreeMap<Sort, usize>,
     root: Sort,
@@ -141,6 +143,8 @@ impl CellModel {
                 by_label: BTreeMap::new(),
                 cell_term_sort: BTreeMap::new(),
                 collection_member: BTreeMap::new(),
+                collection_sort_members: BTreeMap::new(),
+                initializer_result_sort: BTreeMap::new(),
                 parents: BTreeMap::new(),
                 levels: BTreeMap::new(),
                 root: Sort::new("GeneratedTopCell"),
@@ -177,23 +181,22 @@ impl CellModel {
                 Sentence::Production {
                     label: Some(label),
                     sort,
-                    items,
                     attributes,
                     ..
-                } if attributes.get("initializer").is_some()
-                    && items
-                        .iter()
-                        .all(|item| !matches!(item, ProductionItem::NonTerminal { .. })) =>
-                {
-                    Some((sort.clone(), label.clone()))
-                }
+                } if attributes.get("initializer").is_some() => Some((sort.clone(), label.clone())),
                 _ => None,
             })
+            .collect::<Vec<_>>();
+        let initializer_result_sort = initializers
+            .iter()
+            .map(|(sort, label)| (LabelHead::from(label), sort.clone()))
             .collect::<BTreeMap<_, _>>();
+        let initializers = initializers.into_iter().collect::<BTreeMap<_, _>>();
 
         let mut cells = BTreeMap::new();
         let mut by_label = BTreeMap::new();
         let mut collection_member = BTreeMap::new();
+        let mut collection_sort_members = BTreeMap::<Sort, BTreeSet<Sort>>::new();
         for (sort, label, items, _attributes) in raw_cells {
             if cells.contains_key(&sort) {
                 return Err(format!("Too many productions for cell sort: {sort}"));
@@ -232,6 +235,10 @@ impl CellModel {
                         .collect::<Vec<_>>();
                     members.sort();
                     for member in members {
+                        collection_sort_members
+                            .entry(collection_sort.clone())
+                            .or_default()
+                            .insert(member.clone());
                         children.push(Child {
                             sort: member.clone(),
                             multiplicity: Multiplicity::Star,
@@ -358,6 +365,8 @@ impl CellModel {
             by_label,
             cell_term_sort,
             collection_member,
+            collection_sort_members,
+            initializer_result_sort,
             parents,
             levels,
             root,
@@ -377,7 +386,12 @@ impl CellModel {
                 .cell_term_sort
                 .get(&LabelHead::from(label))
                 .or_else(|| self.collection_member.get(&LabelHead::from(label)))
-                .cloned(),
+                .cloned()
+                .or_else(|| {
+                    self.initializer_result_sort
+                        .get(&LabelHead::from(label))
+                        .and_then(|sort| self.cell_sort_for_declared_sort(sort))
+                }),
             Term::Variable { sort, .. } => sort
                 .clone()
                 .or_else(|| term.metadata().and_then(|metadata| metadata.sort.clone()))
@@ -392,6 +406,18 @@ impl CellModel {
                 }
             }
             _ => None,
+        }
+    }
+
+    fn cell_sort_for_declared_sort(&self, sort: &Sort) -> Option<Sort> {
+        if self.cells.contains_key(sort) {
+            return Some(sort.clone());
+        }
+        let members = self.collection_sort_members.get(sort)?;
+        if members.len() == 1 {
+            members.first().cloned()
+        } else {
+            None
         }
     }
 

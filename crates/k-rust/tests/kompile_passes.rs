@@ -2431,6 +2431,89 @@ fn fills_absent_optional_and_repeated_cells_with_their_units() {
 }
 
 #[test]
+fn concretizes_parameterized_repeated_cell_initializers_as_parent_children() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <thread multiplicity="*" type="Map">
+                <id> 0 </id>
+                <k> $PGM:K </k>
+              </thread>
+            </top>
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_some()
+                && Printer::new().print_term(body).contains("initThreadCell")
+                && Printer::new().print_term(body).contains("<top>") =>
+            {
+                Some(Printer::new().print_term(body))
+            }
+            _ => None,
+        })
+        .expect("the top initializer should contain the repeated-cell initializer");
+
+    assert!(
+        body.contains("initThreadCell("),
+        "the parameterized initializer was lost: {body}"
+    );
+}
+
+#[test]
+fn concretizes_nullary_initial_repeated_cell_initializers_as_parent_children() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <thread multiplicity="*" type="Map" initial="">
+                <id> 0 </id>
+              </thread>
+            </top>
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_some()
+                && Printer::new().print_term(body).contains("initThreadCell")
+                && Printer::new().print_term(body).contains("<top>") =>
+            {
+                Some(Printer::new().print_term(body))
+            }
+            _ => None,
+        })
+        .expect("the top initializer should contain the repeated-cell initializer");
+
+    assert!(
+        body.contains("initThreadCell"),
+        "the nullary initializer was lost: {body}"
+    );
+}
+
+#[test]
 fn splits_cell_fragment_variables_and_rebuilds_external_occurrences() {
     let source = indoc! {r#"
         module MAIN
