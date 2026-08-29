@@ -11,11 +11,12 @@ use std::{
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use k_rust::{
-    definition::{checks::check_definition, json as definition_json},
+    definition::{ProductionCatalog, Sentence, checks::check_definition, json as definition_json},
     diagnostic::{Diagnostic, Severity},
     inner::ProgramParser,
     kast::{
-        Sort as KastSort, json as kast_json, parser::parse_sort, printer::Printer as KastPrinter,
+        Sort as KastSort, Term as KastTerm, json as kast_json, parser::parse_sort,
+        printer::Printer as KastPrinter,
     },
     kompile::{
         CompilationBackend, CompileOptions, SortInjector, compile_loaded_definition,
@@ -1099,6 +1100,11 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
         return Err("definition checks failed".into());
     }
     let parser = ProgramParser::from_resolved(&loaded.resolved, &options.common.module)?;
+    let module = loaded
+        .resolved
+        .module_id(&options.common.module)
+        .expect("the program parser resolved this module");
+    let productions = loaded.resolved.production_catalog(module);
     if !options.batch_cases.is_empty() || !options.batch_reject_cases.is_empty() {
         if options.output != OutputFormat::Json {
             return Err("KAST batch mode requires --output json".into());
@@ -1110,6 +1116,7 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
             let term = parser
                 .parse(&sort, &case.expression)
                 .map_err(|error| format!("KAST batch case {:?}: {error}", case.name))?;
+            let term = prepare_reference_kast(term, &productions);
             let encoded: serde_json::Value =
                 serde_json::from_str(&kast_json::to_string_pretty(&term)?)?;
             if output.insert(case.name.clone(), encoded).is_some() {
@@ -1133,11 +1140,69 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
     let source = read_program_source(options.expression, options.program_file)?;
     let sort = parse_sort(options.sort.as_deref().expect("clap requires --sort"))?;
     let term = parser.parse(&sort, &source)?;
+    let term = prepare_reference_kast(term, &productions);
     match options.output {
         OutputFormat::Text => println!("{}", KastPrinter::new().print_term(&term)),
         OutputFormat::Json => println!("{}", kast_json::to_string_pretty(&term)?),
     }
     Ok(())
+}
+
+/// Match the reference `kast` presentation boundary without weakening the typed term used by
+/// execution and compilation. The reference concrete parser infers parametric production sorts
+/// but omits those inferred arguments from the user-facing KLabel.
+fn prepare_reference_kast(term: KastTerm, productions: &ProductionCatalog<'_>) -> KastTerm {
+    let metadata = term.metadata().cloned();
+    let inferred_production_parameters = metadata
+        .as_ref()
+        .and_then(|metadata| metadata.production)
+        .is_some_and(|production| {
+            production.0 < productions.len()
+                && matches!(
+                    productions.production(k_rust::definition::ProductionId(production.0)),
+                    Sentence::Production { parameters, .. } if !parameters.is_empty()
+                )
+        });
+    let rebuilt = match term.into_unannotated() {
+        KastTerm::Apply {
+            mut label,
+            arguments,
+        } => {
+            if inferred_production_parameters {
+                label.parameters.clear();
+            }
+            KastTerm::Apply {
+                label,
+                arguments: arguments
+                    .into_iter()
+                    .map(|argument| prepare_reference_kast(argument, productions))
+                    .collect(),
+            }
+        }
+        KastTerm::InjectedLabel(mut label) => {
+            if inferred_production_parameters {
+                label.parameters.clear();
+            }
+            KastTerm::InjectedLabel(label)
+        }
+        KastTerm::Rewrite { left, right } => KastTerm::Rewrite {
+            left: Box::new(prepare_reference_kast(*left, productions)),
+            right: Box::new(prepare_reference_kast(*right, productions)),
+        },
+        KastTerm::As { pattern, alias } => KastTerm::As {
+            pattern: Box::new(prepare_reference_kast(*pattern, productions)),
+            alias: Box::new(prepare_reference_kast(*alias, productions)),
+        },
+        KastTerm::Sequence(items) => KastTerm::Sequence(
+            items
+                .into_iter()
+                .map(|item| prepare_reference_kast(item, productions))
+                .collect(),
+        ),
+        leaf @ (KastTerm::Variable { .. } | KastTerm::Token { .. }) => leaf,
+        KastTerm::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+    };
+    metadata.map_or(rebuilt.clone(), |metadata| rebuilt.with_metadata(metadata))
 }
 
 fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
