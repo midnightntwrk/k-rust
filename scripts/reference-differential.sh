@@ -44,6 +44,7 @@ cases=(
   "imp|$imp_checkout/src/kimp/kdist/imp-semantics/imp.k|IMP"
   "list-set|$k_checkout/k-distribution/tests/regression-new/list-set/test.k|TEST"
   "macro-rewrite|$k_checkout/k-distribution/tests/regression-new/macro-rewrite/test.k|TEST"
+  "parametric-semantic-cast|$workspace/crates/k-rust/tests/fixtures/reference/parametric-semantic-cast.k|PARAMETRIC-SEMANTIC-CAST"
   "mir|$mir_checkout/kmir/src/kmir/kdist/mir-semantics/kmir.md|KMIR|$mir_checkout/kmir/src/kmir/kdist|k & ! concrete|KMIR-AST"
   "wasm|$wasm_checkout/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md|WASM-TEST"
 )
@@ -196,7 +197,7 @@ done
 
 if (($# && selected_count != $#)); then
   echo "error: one or more requested corpus cases are unknown" >&2
-  echo "available cases: append ambiguous-rewrite casts cell-map evm-equivalence fresh-variables imp list-set macro-rewrite mir wasm" >&2
+  echo "available cases: append ambiguous-rewrite casts cell-map evm-equivalence fresh-variables imp list-set macro-rewrite parametric-semantic-cast mir wasm" >&2
   exit 2
 fi
 

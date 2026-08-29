@@ -721,6 +721,10 @@ impl<'a> SortInjector<'a> {
         else {
             unreachable!()
         };
+        let expected = term
+            .metadata()
+            .and_then(|metadata| metadata.sort.as_ref())
+            .or(expected);
         let argument_sorts = items
             .iter()
             .filter_map(|item| match item {

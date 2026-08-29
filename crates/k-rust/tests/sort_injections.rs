@@ -6,7 +6,7 @@ use k_rust::inner::resolve_rule_bubbles;
 use k_rust::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata};
 use k_rust::kompile::{
     SortInjector, add_sort_injections_to_definition, generate_sort_projections,
-    term_to_kore_from_resolved,
+    resolve_semantic_casts, term_to_kore_from_resolved,
 };
 use k_rust::kore::printer::Printer;
 
@@ -23,40 +23,44 @@ struct InjectionSummary {
     kore: String,
 }
 
+fn injection_summaries(definition: Definition) -> Vec<InjectionSummary> {
+    let definition =
+        generate_sort_projections(&definition).expect("sort projections should generate");
+    let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
+    let injector = SortInjector::new(&resolved, "MAIN").expect("injector should build");
+    definition
+        .main_module()
+        .expect("main module should exist")
+        .local_sentences
+        .iter()
+        .filter(|sentence| {
+            matches!(sentence, Sentence::Rule { .. } | Sentence::Claim { .. })
+                && sentence.attributes().get("projection").is_none()
+        })
+        .map(|sentence| {
+            let injected = injector
+                .inject_sentence(sentence)
+                .expect("sort injections should succeed");
+            let body = match &injected {
+                Sentence::Rule { body, .. } | Sentence::Claim { body, .. } => body,
+                _ => unreachable!(),
+            };
+            let kore = term_to_kore_from_resolved(&resolved, "MAIN", body)
+                .expect("injected term should convert to KORE");
+            InjectionSummary {
+                injected: body.to_string(),
+                kore: Printer::pretty(100).print_pattern(&kore),
+            }
+        })
+        .collect()
+}
+
 macro_rules! injection_snapshot {
     ($name:ident, $source:expr) => {
         #[test]
         fn $name() {
             let source = indoc!($source);
-            let definition = generate_sort_projections(&lowered(source))
-                .expect("sort projections should generate");
-            let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
-            let injector = SortInjector::new(&resolved, "MAIN").expect("injector should build");
-            let summaries = definition
-                .main_module()
-                .expect("main module should exist")
-                .local_sentences
-                .iter()
-                .filter(|sentence| {
-                    matches!(sentence, Sentence::Rule { .. } | Sentence::Claim { .. })
-                        && sentence.attributes().get("projection").is_none()
-                })
-                .map(|sentence| {
-                    let injected = injector
-                        .inject_sentence(sentence)
-                        .expect("sort injections should succeed");
-                    let body = match &injected {
-                        Sentence::Rule { body, .. } | Sentence::Claim { body, .. } => body,
-                        _ => unreachable!(),
-                    };
-                    let kore = term_to_kore_from_resolved(&resolved, "MAIN", body)
-                        .expect("injected term should convert to KORE");
-                    InjectionSummary {
-                        injected: body.to_string(),
-                        kore: Printer::pretty(100).print_pattern(&kore),
-                    }
-                })
-                .collect::<Vec<_>>();
+            let summaries = injection_summaries(lowered(source));
             insta::with_settings!({
                 description => format!("K definition:\n\n{source}"),
                 omit_expression => true,
@@ -151,6 +155,32 @@ injection_snapshot!(
         endmodule
     "#
 );
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn semantic_cast_context_disambiguates_parametric_production_signatures() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+          syntax C ::= A | B
+          syntax D ::= A | B
+          syntax {S} S ::= "pair(" S "," S ")" [symbol(pair)]
+
+          rule pair(a,b):C => pair(a,b):C
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&lowered(source));
+    let summaries = injection_summaries(definition);
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(summaries);
+    });
+}
 
 injection_snapshot!(
     preserves_semantic_cast_variable_context,

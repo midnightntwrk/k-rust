@@ -411,18 +411,13 @@ The outer parser accepts 1,499 of the 1,504 `.k` files probed at the pinned comm
 files are intentional malformed-string tests; the fifth is a legacy `Token{...}` fixture also
 rejected by the pinned JavaCC grammar.
 
-The structural differential corpus compiles eleven upstream definitions through both frontends,
-strips source locations and generated sentence IDs, and compares the semantic definition, syntax
-definition, standalone macro sentences, and parsed outer-definition JSON as multisets. The outer
-comparison preserves semantic attributes and regex languages while normalizing Java set order,
-generated parser metadata, source-path provenance, and inferred label-parameter representation. It
-covers append syntax, ambiguous rewrites, casts, collection-cell rewrites, fresh variables, IMP
-control flow, List/Set hooks, rewrite macros, the complete WASM and MIR semantics, and the EVM
-optimization semantics used by `evm-equivalence`:
+The structural differential corpus compiles eleven upstream definitions and one focused local definition through both frontends, strips source locations and generated sentence IDs, and compares the semantic definition, syntax definition, standalone macro sentences, and parsed outer-definition JSON as multisets.
+The outer comparison preserves semantic attributes and regex languages while normalizing Java set order, generated parser metadata, source-path provenance, and inferred label-parameter representation.
+It covers append syntax, ambiguous rewrites, casts, collection-cell rewrites, fresh variables, IMP control flow, List/Set hooks, rewrite macros, ambiguous parametric semantic-cast contexts, the complete WASM and MIR semantics, and the EVM optimization semantics used by `evm-equivalence`:
 
 ```console
 K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-differential.sh
-scripts/reference-differential.sh casts imp wasm evm-equivalence mir  # selected cases
+scripts/reference-differential.sh casts parametric-semantic-cast imp wasm evm-equivalence mir  # selected cases
 ```
 
 Set `K_CHECKOUT` if the ignored K checkout is not at `k/`. The external corpus locations can be

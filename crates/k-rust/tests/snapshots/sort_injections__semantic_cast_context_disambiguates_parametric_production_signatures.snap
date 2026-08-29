@@ -1,0 +1,10 @@
+---
+source: crates/k-rust/tests/sort_injections.rs
+description: "K definition:\n\nmodule MAIN\n  syntax A ::= \"a\" [symbol(a)]\n  syntax B ::= \"b\" [symbol(b)]\n  syntax C ::= A | B\n  syntax D ::= A | B\n  syntax {S} S ::= \"pair(\" S \",\" S \")\" [symbol(pair)]\n\n  rule pair(a,b):C => pair(a,b):C\nendmodule\n"
+---
+[
+    InjectionSummary {
+        injected: "pair{C}(inj{A,C}(a(.KList)),inj{B,C}(b(.KList)))=>pair{C}(inj{A,C}(a(.KList)),inj{B,C}(b(.KList)))",
+        kore: "\\rewrites{SortC{}}(\n  Lblpair{SortC{}}(inj{SortA{}, SortC{}}(Lbla{}()), inj{SortB{}, SortC{}}(Lblb{}())),\n  Lblpair{SortC{}}(inj{SortA{}, SortC{}}(Lbla{}()), inj{SortB{}, SortC{}}(Lblb{}()))\n)",
+    },
+]
