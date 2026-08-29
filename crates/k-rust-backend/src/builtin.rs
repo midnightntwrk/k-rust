@@ -787,4 +787,37 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn krypto_wrong_arity_is_an_error_not_a_fallthrough() {
+        let dummy = Term::domain_value(Sort::simple("SortBytes"), "");
+        let cases = [
+            ("KRYPTO.keccak256", 1),
+            ("HASH.keccak256", 1),
+            ("KRYPTO.keccak256raw", 1),
+            ("KRYPTO.sha256", 1),
+            ("HASH.sha256", 1),
+            ("KRYPTO.sha3256", 1),
+            ("HASH.sha3_256", 1),
+            ("KRYPTO.sha512_256raw", 1),
+            ("KRYPTO.ripemd160", 1),
+            ("HASH.ripemd160", 1),
+            ("KRYPTO.ecdsaPubKey", 1),
+            ("KRYPTO.ecdsaRecover", 4),
+            ("SECP256K1.ecdsaRecover", 4),
+        ];
+
+        for (hook, expected) in cases {
+            let arguments = vec![dummy.clone(); expected + 1];
+            assert_eq!(
+                evaluate_hook(hook, &arguments),
+                Err(BuiltinError::WrongArity {
+                    hook: hook.into(),
+                    expected,
+                    actual: expected + 1,
+                }),
+                "{hook}"
+            );
+        }
+    }
 }
