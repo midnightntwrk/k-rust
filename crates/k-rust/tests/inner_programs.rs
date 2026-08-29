@@ -206,6 +206,67 @@ fn rejects_an_empty_nonempty_user_list() {
 }
 
 #[test]
+fn parses_empty_and_singleton_overloaded_user_lists() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Defn ::= "func" [symbol(func)]
+              syntax Item ::= Defn
+              syntax Defns ::= List{Defn, ""} [overload(listStmt), symbol(defns)]
+              syntax Items ::= List{Item, ""} [overload(listStmt), symbol(items)]
+              syntax Module ::= "(" "module" Defns ")" [symbol(module)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parser = ProgramParser::new(&definition, "MAIN").unwrap();
+
+    for source in ["(module)", "(module func)"] {
+        let term = parser
+            .parse(&Sort::new("Module"), source)
+            .unwrap_or_else(|error| panic!("{source}: {error}"));
+        let rendered = term.to_string();
+        assert!(rendered.contains("defns"), "{source}: {rendered}");
+        assert!(!rendered.contains("items"), "{source}: {rendered}");
+    }
+}
+
+#[test]
+fn parses_wasm_shaped_adjacent_overloaded_user_lists() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Type ::= "i32" [symbol(i32)]
+              syntax Result ::= "(" "result" Type ")" [symbol(result)]
+              syntax Instr ::= "i32.const" Int [symbol(const)]
+              syntax Int ::= r"[0-9]+" [token]
+              syntax BodyItem ::= Result | Instr
+              syntax Results ::= List{Result, ""} [overload(listStmt), symbol(results)]
+              syntax Instrs ::= List{Instr, ""} [overload(listStmt), symbol(instrs)]
+              syntax BodyItems ::= List{BodyItem, ""} [overload(listStmt), symbol(bodyItems)]
+              syntax Defn ::= "(" "func" Results Instrs ")" [symbol(func)]
+              syntax Defns ::= List{Defn, ""} [overload(listStmt), symbol(defns)]
+              syntax Module ::= "(" "module" Defns ")" [symbol(module)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parsed = parse_program(
+        &definition,
+        "MAIN",
+        &Sort::new("Module"),
+        "(module (func (result i32) i32.const 1))",
+    )
+    .unwrap();
+    let rendered = parsed.to_string();
+
+    for label in ["module", "defns", "func", "results", "instrs"] {
+        assert!(rendered.contains(label), "missing {label}: {rendered}");
+    }
+    assert!(!rendered.contains("bodyItems"), "{rendered}");
+}
+
+#[test]
 fn reports_a_missing_syntax_module_before_parsing() {
     let definition_source = indoc! {r#"
         module MAIN

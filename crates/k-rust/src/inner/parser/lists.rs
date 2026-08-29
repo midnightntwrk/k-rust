@@ -6,7 +6,7 @@ use crate::definition::{PartialOrder, ProductionItem};
 use crate::kast::{Sort, Term};
 
 use super::parametric::substitute_sort;
-use super::{Grammar, Item, ParseError, ParsedTerm};
+use super::{Grammar, Item, ParseError, ParsedTerm, ParserRole};
 
 #[derive(Clone, Debug)]
 pub(super) struct UserList {
@@ -110,6 +110,87 @@ impl Grammar {
         let subsorts = PartialOrder::new(self.subsort_relations.iter().cloned())
             .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
         self.add_empty_lists_with_order(term, expected, &subsorts)
+    }
+
+    pub(super) fn prefer_program_lists(&self, term: ParsedTerm) -> ParsedTerm {
+        match term {
+            ParsedTerm::Ambiguity(alternatives) => {
+                let alternatives = alternatives
+                    .into_iter()
+                    .map(|alternative| self.prefer_program_lists(alternative))
+                    .collect::<BTreeSet<_>>();
+                let singleton_elements = alternatives
+                    .iter()
+                    .filter_map(|alternative| self.program_list_singleton(alternative))
+                    .cloned()
+                    .collect::<BTreeSet<_>>();
+                let retained = alternatives
+                    .into_iter()
+                    .filter(|alternative| !singleton_elements.contains(alternative))
+                    .collect::<BTreeSet<_>>();
+                if retained.len() == 1 {
+                    retained.into_iter().next().unwrap()
+                } else {
+                    ParsedTerm::Ambiguity(retained)
+                }
+            }
+            ParsedTerm::Production {
+                production,
+                children,
+                metadata,
+            } => ParsedTerm::Production {
+                production,
+                children: children
+                    .into_iter()
+                    .map(|child| self.prefer_program_lists(child))
+                    .collect(),
+                metadata,
+            },
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            } => ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children: children
+                    .into_iter()
+                    .map(|child| self.prefer_program_lists(child))
+                    .collect(),
+                metadata,
+            },
+            ParsedTerm::Term(_) => term,
+        }
+    }
+
+    fn program_list_singleton<'a>(&self, term: &'a ParsedTerm) -> Option<&'a ParsedTerm> {
+        let ParsedTerm::Production {
+            production,
+            children,
+            ..
+        } = term
+        else {
+            return None;
+        };
+        let list = self
+            .user_lists
+            .values()
+            .find(|list| list.list_production == *production)?;
+        let [first, second] = children.as_slice() else {
+            return None;
+        };
+        let is_terminator = |term: &ParsedTerm| {
+            matches!(term, ParsedTerm::Production { production, children, .. }
+                if *production == list.terminator_production && children.is_empty())
+        };
+        if list.left_associative && is_terminator(first) {
+            Some(second)
+        } else if !list.left_associative && is_terminator(second) {
+            Some(first)
+        } else {
+            None
+        }
     }
 
     fn add_empty_lists_with_order(
@@ -265,21 +346,26 @@ impl Grammar {
         let list_sort = least.first().expect("length was checked above");
         let list = &self.user_lists[list_sort];
 
-        let terminator_candidates = self
-            .user_lists
-            .keys()
-            .filter(|sort| subsorts.less_than_eq(sort, expected))
-            .cloned()
-            .collect::<BTreeSet<_>>();
-        let least_terminators = subsorts.minimal(terminator_candidates.iter());
-        if least_terminators.len() != 1 {
-            return Err(ParseError::ListTerminator {
-                possible_sorts: least_terminators.into_iter().collect(),
-            });
-        }
-        let terminator_sort = least_terminators.first().expect("length was checked above");
+        let terminator_production = if self.role == ParserRole::Program {
+            list.terminator_production
+        } else {
+            let terminator_candidates = self
+                .user_lists
+                .keys()
+                .filter(|sort| subsorts.less_than_eq(sort, expected))
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            let least_terminators = subsorts.minimal(terminator_candidates.iter());
+            if least_terminators.len() != 1 {
+                return Err(ParseError::ListTerminator {
+                    possible_sorts: least_terminators.into_iter().collect(),
+                });
+            }
+            let terminator_sort = least_terminators.first().expect("length was checked above");
+            self.user_lists[terminator_sort].terminator_production
+        };
         let terminator = ParsedTerm::Production {
-            production: self.user_lists[terminator_sort].terminator_production,
+            production: terminator_production,
             children: Vec::new(),
             metadata: super::TermMetadata::default(),
         };
@@ -538,5 +624,29 @@ mod tests {
                 possible_sorts: vec![Sort::new("Firsts"), Sort::new("Seconds")],
             }
         );
+
+        let source_catalog = crate::definition::ProductionCatalog::from_visible(&base);
+        let program = Grammar::from_program_sentences(&base, &source_catalog).unwrap();
+        let completed = program
+            .add_empty_lists(held_atom(&program), &Sort::new("Holder"))
+            .unwrap();
+        let ParsedTerm::Production { children, .. } = completed else {
+            unreachable!()
+        };
+        let [
+            ParsedTerm::Production {
+                production,
+                children: list_children,
+                ..
+            },
+        ] = children.as_slice()
+        else {
+            panic!("program list should be reconstructed under the holder");
+        };
+        assert_eq!(program.productions[*production].result, Sort::new("Firsts"));
+        assert!(list_children.iter().any(|child| matches!(child,
+            ParsedTerm::Production { production, children, .. }
+                if program.productions[*production].result == Sort::new("Firsts")
+                    && children.is_empty())));
     }
 }
