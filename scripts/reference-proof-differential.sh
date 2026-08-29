@@ -4,13 +4,17 @@ set -euo pipefail
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$workspace/scripts/reference-pins.sh"
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
+imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
 kompile=${K_KOMPILE:-}
 kprove=${K_KPROVE:-}
 reference_memory_kib=${REFERENCE_EXECUTION_MEMORY_KIB:-12582912}
 rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}
 reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-'-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Dscala.concurrent.context.numThreads=2 -Dscala.concurrent.context.maxThreads=2'}
 manifest_json=$(
-  WORKSPACE="$workspace" K_CHECKOUT="$k_checkout"     "$workspace/scripts/reference-manifest.py"
+  WORKSPACE="$workspace" \
+  K_CHECKOUT="$k_checkout" \
+  IMP_SEMANTICS_CHECKOUT="$imp_checkout" \
+    "$workspace/scripts/reference-manifest.py"
 )
 
 if [[ -z "$kompile" ]]; then
@@ -68,6 +72,9 @@ for name in "${selected[@]}"; do
     echo "error: missing local proof fixture for $name" >&2
     exit 2
   fi
+  if [[ "$name" == imp ]]; then
+    reference_require_git_pin IMP "$imp_checkout" "$IMP_REFERENCE_REVISION"
+  fi
   semantics_dir=$(dirname "$semantics")
   definition="$work/$name-kompiled"
 
@@ -83,18 +90,26 @@ for name in "${selected[@]}"; do
   failure_claim=$(jq -r '.["failure-claim"]' <<<"$proof")
   for claim in "${proven_claims[@]}"; do
     echo "[$name:$claim] checking the reference proven verdict"
-    (
+    if ! (
       ulimit -v "$reference_memory_kib"
       export GHCRTS=${GHCRTS:--N1}
       export K_OPTS="$reference_k_opts"
       "$kprove" "$specification"         --definition "$definition"         --spec-module "$spec_module"         --claims "$claim"         --depth "$proof_depth"         --output none         --warnings none         -I "$semantics_dir"
-    ) >"$work/$name-$claim.reference.log" 2>&1
+    ) >"$work/$name-$claim.reference.log" 2>&1; then
+      echo "error: reference kprove did not prove $name:$claim" >&2
+      cat "$work/$name-$claim.reference.log" >&2
+      exit 1
+    fi
 
     echo "[$name:$claim] checking the k-rust proven verdict"
-    (
+    if ! (
       ulimit -v "$rust_memory_kib"
       cargo run --quiet --release --manifest-path "$workspace/Cargo.toml"         -p k-rust --bin krust --         kprove "$specification"         --main-module "$spec_module"         --definition-module "$definition_module"         --claim "$claim"         --depth "$proof_depth"         -I "$semantics_dir"         --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
-    ) >"$work/$name-$claim.rust.log" 2>&1
+    ) >"$work/$name-$claim.rust.log" 2>&1; then
+      echo "error: k-rust did not prove $name:$claim" >&2
+      cat "$work/$name-$claim.rust.log" >&2
+      exit 1
+    fi
     if ! grep -Fq "claim $claim: proven" "$work/$name-$claim.rust.log"; then
       echo "error: k-rust did not report the proven verdict for $name:$claim" >&2
       cat "$work/$name-$claim.rust.log" >&2
