@@ -603,6 +603,16 @@ fn executed_kore_matches_the_reference_backend() {
     assert_eq!(reference, actual);
 }
 
+#[test]
+fn execution_normalizer_treats_search_disjunctions_as_result_sets() {
+    let left = parse_pattern(r"\or{S{}}(\or{S{}}(a{}(), b{}()), c{}())").unwrap();
+    let right = parse_pattern(r"\or{S{}}(\or{S{}}(c{}(), a{}()), b{}())").unwrap();
+    assert_eq!(
+        normalize_execution_pattern(left),
+        normalize_execution_pattern(right)
+    );
+}
+
 fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
     match pattern {
         Pattern::Application { symbol, arguments } => {
@@ -641,13 +651,23 @@ fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
                 .map(normalize_execution_pattern)
                 .collect(),
         },
-        Pattern::Or { sort, arguments } => Pattern::Or {
-            sort,
-            arguments: arguments
-                .into_iter()
-                .map(normalize_execution_pattern)
-                .collect(),
-        },
+        Pattern::Or { sort, arguments } => {
+            let mut flattened = Vec::new();
+            for argument in arguments.into_iter().map(normalize_execution_pattern) {
+                match argument {
+                    Pattern::Or {
+                        sort: nested_sort,
+                        arguments,
+                    } if nested_sort == sort => flattened.extend(arguments),
+                    argument => flattened.push(argument),
+                }
+            }
+            flattened.sort();
+            Pattern::Or {
+                sort,
+                arguments: flattened,
+            }
+        }
         Pattern::Not { sort, argument } => Pattern::Not {
             sort,
             argument: Box::new(normalize_execution_pattern(*argument)),

@@ -406,6 +406,10 @@ reference executables to report K v7.1.337. Set `REFERENCE_DIFFERENTIAL_ALLOW_UN
 an explicit local comparison against a different revision. The EVM gates additionally accept
 `EVM_EQUIVALENCE_CHECKOUT` for the pinned consumer checkout and validate the pinned KEVM plugin
 submodule.
+Pins, source paths, production flags, artifact comparison modes, parser cases, execution searches,
+proof claims, and RPC response coverage are declared in
+`scripts/reference-differential.toml`; the shell gates consume that manifest rather than carrying
+independent fixture arrays.
 
 The outer parser accepts 1,499 of the 1,504 `.k` files probed at the pinned commit. Four rejected
 files are intentional malformed-string tests; the fifth is a legacy `Token{...}` fixture also
@@ -468,6 +472,21 @@ one Haskell capability. Rust execution remains capped at 6 GiB. Override these i
 intermittently fail during its temporary macro-expansion preprocessing; the gate retries that
 reference-only step up to `REFERENCE_EXECUTION_RETRIES` times (three by default).
 
+A bounded non-IMP execution gate adds two small, focused oracles without loading a large semantics.
+The crypto case executes `KRYPTO.keccak256raw` over empty bytes through both backends.
+The bounded-search case compares the complete set of states from a branching semantics while a
+finite result bound is active; search disjunctions are normalized as sets because traversal order is
+not semantic:
+
+```console
+K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-non-imp-execution-differential.sh
+scripts/reference-non-imp-execution-differential.sh crypto bounded-search  # selected cases
+```
+
+Both cases run serially.
+The reference side defaults to an 8 GiB address-space ceiling, a 2 GiB serial-GC Java heap, and one
+Haskell capability; Rust remains capped at 6 GiB.
+
 The proof differential gate checks eleven successful IMP claims spanning concrete evaluation,
 symbolic constraints, branching, cut-rule behavior, and an arithmetic loop lemma with its dependent
 program claim. It also requires both provers to reject the bounded-model counterexample claim rather
@@ -492,7 +511,8 @@ It uses the same 12 GiB reference and 6 GiB Rust ceilings as execution and proof
 reference Haskell server is restricted to one capability; non-threaded `kore-parser` and
 `kore-rpc-client` invocations deliberately run without that RTS flag.
 
-Execution and proof differential gates are intentionally limited to IMP at this pinned revision.
+Large-semantics execution and proof differential gates are intentionally limited to IMP at this
+pinned revision; the focused non-IMP gate above covers crypto hooks and bounded search separately.
 The reference Haskell backend cannot execute the WASM definition because its hook set lacks
 `FLOAT.round`; the reference LLVM runtime cannot reserve its arena under a practical bounded
 runner. The EVM definition fails in the pinned reference `kore-expand-macros`, before either

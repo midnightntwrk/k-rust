@@ -37,6 +37,15 @@ fn differential_manifest_is_complete_and_unambiguous() {
         }
     }
 
+    let execution_names = manifest["execution"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["name"].as_str().unwrap())
+        .collect::<BTreeSet<_>>();
+    assert!(execution_names.contains("crypto"));
+    assert!(execution_names.contains("bounded-search"));
+
     let compile = manifest["compile"].as_array().unwrap();
     let compiled_names = compile
         .iter()

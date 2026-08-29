@@ -303,6 +303,32 @@ program = "${imp}/examples/sumto10.imp"
 mode = "--search-all"
 depth = 2
 
+[[execution]]
+name = "crypto"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/crypto-execution.k"
+main-module = "CRYPTO-EXECUTION"
+syntax-module = "CRYPTO-EXECUTION"
+sort = "Input"
+hook-namespaces = ["KRYPTO"]
+depth = 10
+programs = [
+  "${workspace}/crates/k-rust/tests/fixtures/reference/keccak-empty.crypto",
+]
+
+[[execution]]
+name = "bounded-search"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/bounded-search.k"
+main-module = "BOUNDED-SEARCH"
+syntax-module = "BOUNDED-SEARCH"
+sort = "State"
+depth = 10
+
+[[execution.search]]
+name = "star-result-bound-ten"
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/start.state"
+mode = "--search-all"
+result-bound = 10
+
 [[proof]]
 name = "imp"
 source = "${imp}/src/kimp/kdist/imp-semantics/imp.k"
