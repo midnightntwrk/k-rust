@@ -25,7 +25,8 @@ use super::term_to_kore::{TermConversionError, TermConverter};
 
 const PROGRAM_BUILTIN_MODULE: &str = "K";
 const COLLECTION_HOOKS: [&str; 4] = ["SET.Set", "MAP.Map", "LIST.List", "RANGEMAP.RangeMap"];
-const HOOK_NAMESPACES: [&str; 19] = [
+// Keep this list aligned with the namespaces dispatched by the backend's builtin evaluator.
+const HOOK_NAMESPACES: [&str; 22] = [
     "BOOL",
     "BUFFER",
     "BYTES",
@@ -45,6 +46,9 @@ const HOOK_NAMESPACES: [&str; 19] = [
     "UNIFICATION",
     "JSON",
     "TIMER",
+    "KRYPTO",
+    "HASH",
+    "SECP256K1",
 ];
 const BUILTIN_LABELS: [&str; 14] = [
     "#Bottom",

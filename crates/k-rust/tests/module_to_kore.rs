@@ -690,6 +690,56 @@ declaration_snapshot!(
 );
 
 #[test]
+fn preserves_backend_crypto_hooks_in_both_declaration_views() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Bytes
+          syntax String
+          syntax String ::= "keccak(" Bytes ")"
+            [function, hook(KRYPTO.keccak256), symbol(keccak)]
+          syntax String ::= "sha(" Bytes ")"
+            [function, hook(HASH.sha256), symbol(sha)]
+          syntax String ::= "recover(" Bytes ")"
+            [function, hook(SECP256K1.ecdsaRecover), symbol(recover)]
+        endmodule
+    "#};
+    let declarations = declaration_modules(&lowered(source, "MAIN"), "MAIN").unwrap();
+
+    for module in [&declarations.semantics, &declarations.syntax] {
+        for (label, hook) in [
+            ("keccak", "KRYPTO.keccak256"),
+            ("sha", "HASH.sha256"),
+            ("recover", "SECP256K1.ecdsaRecover"),
+        ] {
+            let symbol = encode_kore_label(&Label::new(label));
+            let (hooked, attributes) = module
+                .sentences
+                .iter()
+                .find_map(|sentence| match sentence {
+                    Sentence::SymbolDeclaration {
+                        hooked,
+                        symbol: declared,
+                        attributes,
+                        ..
+                    } if declared == &symbol => Some((*hooked, attributes)),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("missing declaration for {label}"));
+            assert!(hooked, "{label} was emitted as an ordinary symbol");
+            assert!(
+                attributes.0.iter().any(|attribute| matches!(
+                    attribute,
+                    Pattern::Application { symbol, arguments }
+                        if symbol.name == "hook"
+                            && arguments == &[Pattern::String(hook.to_owned())]
+                )),
+                "{label} dropped hook({hook})"
+            );
+        }
+    }
+}
+
+#[test]
 fn encodes_java_kore_identifier_edge_cases() {
     assert_eq!(encode_kore_identifier("_+_"), "'UndsPlusUnds'");
     assert_eq!(
