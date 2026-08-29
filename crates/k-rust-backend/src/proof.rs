@@ -373,6 +373,7 @@ pub fn prove_claim(
             continue;
         }
 
+        let mut claim_indeterminate = None;
         if state.depth > 0 {
             let mut claim_transition = None;
             for candidate in &definition.reachability_claims {
@@ -390,7 +391,15 @@ pub fn prove_claim(
                 finish_if_timed_out!();
                 match transition {
                     ClaimApplication::NotApplicable => {}
-                    transition => {
+                    ClaimApplication::Indeterminate(reason) => {
+                        claim_indeterminate.get_or_insert_with(|| {
+                            ProofIndeterminateReason::Claim {
+                                claim_id: candidate.attributes.unique_id.clone(),
+                                reason,
+                            }
+                        });
+                    }
+                    transition @ ClaimApplication::Applied(_) => {
                         claim_transition = Some((candidate, transition));
                         break;
                     }
@@ -418,15 +427,9 @@ pub fn prove_claim(
                             ));
                         }
                     }
-                    ClaimApplication::Indeterminate(reason) => {
-                        record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
-                            ProofIndeterminateReason::Claim {
-                                claim_id: candidate.attributes.unique_id.clone(),
-                                reason,
-                            },
-                        )));
+                    ClaimApplication::Indeterminate(_) | ClaimApplication::NotApplicable => {
+                        unreachable!()
                     }
-                    ClaimApplication::NotApplicable => unreachable!(),
                 }
                 continue;
             }
@@ -487,6 +490,8 @@ pub fn prove_claim(
             RewriteResult::Stuck(_) => {
                 let outcome = if implication_indeterminate {
                     ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication)
+                } else if let Some(reason) = claim_indeterminate {
+                    ProofLeafOutcome::Indeterminate(reason)
                 } else {
                     ProofLeafOutcome::Stuck
                 };
@@ -1467,6 +1472,119 @@ mod tests {
         assert_eq!(direct.leaves[0].depth, 0);
         assert_eq!(rewritten.status, ProofStatus::Proven);
         assert_eq!(rewritten.leaves[0].depth, 1);
+    }
+
+    fn optional_indeterminate_claims(
+        extra_rules: &str,
+        include_applicable_claim: bool,
+    ) -> BackendDefinition {
+        let rules = format!(
+            r#"
+            symbol opaque{{}}() : SortS{{}} [function{{}}()]
+            axiom{{}} \rewrites{{SortS{{}}}}(
+                \and{{SortS{{}}}}(a{{}}(), \top{{SortS{{}}}}()),
+                b{{}}()
+            ) [label{{}}("a-to-b")]
+            {extra_rules}
+            "#
+        );
+        let applicable = if include_applicable_claim {
+            r#"
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(b{}(), \top{SortS{}}()),
+                weakAlwaysFinally{SortS{}}(c{}())
+            ) [label{}("applicable-third"), trusted{}()]
+            "#
+        } else {
+            ""
+        };
+        let claims = format!(
+            r#"
+            claim{{}} \implies{{SortS{{}}}}(
+                \and{{SortS{{}}}}(a{{}}(), \top{{SortS{{}}}}()),
+                weakAlwaysFinally{{SortS{{}}}}(c{{}}())
+            ) [label{{}}("main")]
+            claim{{}} \implies{{SortS{{}}}}(
+                \and{{SortS{{}}}}(
+                    b{{}}(),
+                    \equals{{SortS{{}}, SortS{{}}}}(opaque{{}}(), a{{}}())
+                ),
+                weakAlwaysFinally{{SortS{{}}}}(c{{}}())
+            ) [label{{}}("indeterminate-second"), trusted{{}}()]
+            {applicable}
+            "#
+        );
+        definition(&rules, &claims)
+    }
+
+    #[test]
+    fn later_applicable_claim_wins_over_an_indeterminate_candidate() {
+        let definition = optional_indeterminate_claims("", true);
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        assert!(result.leaves[0].trace.iter().any(|entry| {
+            entry.kind == TraceKind::Claim && entry.label.as_deref() == Some("applicable-third")
+        }));
+    }
+
+    #[test]
+    fn ordinary_rewriting_continues_past_an_indeterminate_claim() {
+        let definition = optional_indeterminate_claims(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(b{}(), \top{SortS{}}()),
+                c{}()
+            ) [label{}("b-to-c")]
+            "#,
+            false,
+        );
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        assert!(
+            result.leaves[0]
+                .trace
+                .iter()
+                .any(|entry| entry.label.as_deref() == Some("b-to-c"))
+        );
+    }
+
+    #[test]
+    fn stuck_state_reports_the_first_indeterminate_claim() {
+        let definition = optional_indeterminate_claims("", false);
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+
+        assert!(matches!(
+            result.leaves.as_slice(),
+            [ProofLeaf {
+                outcome: ProofLeafOutcome::Indeterminate(
+                    ProofIndeterminateReason::Claim { claim_id, .. }
+                ),
+                ..
+            }] if claim_id == "indeterminate-second"
+        ));
     }
 
     #[test]
