@@ -75,8 +75,12 @@ fn ecdsa_public_key(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     let Some(secret) = bytes::read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let encoded = k256::SecretKey::from_slice(&secret)
-        .ok()
+    let secret = if secret.len() == 32 {
+        k256::SecretKey::from_slice(&secret).ok()
+    } else {
+        None
+    };
+    let encoded = secret
         .map(|secret| secret.public_key().to_sec1_point(false))
         .and_then(|point| point.as_bytes().get(1..).map(encode_hex))
         .unwrap_or_default();
@@ -372,6 +376,7 @@ mod tests {
         ];
         for (name, secret) in [
             ("empty", vec![]),
+            ("31 bytes", vec![1; 31]),
             ("zero scalar", vec![0; 32]),
             ("33 bytes", vec![1; 33]),
             ("curve order", curve_order.to_vec()),
