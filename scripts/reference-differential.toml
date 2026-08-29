@@ -357,7 +357,58 @@ hook-namespaces = ["KRYPTO"]
 depth = 10
 programs = [
   "${workspace}/crates/k-rust/tests/fixtures/reference/keccak-empty.crypto",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/keccak-abc.crypto",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/sha256-abc.crypto",
 ]
+
+[[execution]]
+name = "collections"
+requires = ["reference-toolchain"]
+constructs = ["collections"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/collections.k"
+main-module = "LOCAL-COLLECTIONS"
+syntax-module = "LOCAL-COLLECTIONS"
+sort = "Input"
+depth = 1
+programs = [
+  "${workspace}/crates/k-rust/tests/fixtures/reference/map-ops.collections",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/set-ops.collections",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/list-ops.collections",
+]
+
+[[execution]]
+name = "bytes-ops"
+requires = ["reference-toolchain"]
+constructs = ["bytes-hook"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/bytes-ops.k"
+main-module = "BYTES-OPS"
+syntax-module = "BYTES-OPS"
+sort = "Input"
+depth = 1
+programs = ["${workspace}/crates/k-rust/tests/fixtures/reference/bytes.ops"]
+
+[[execution]]
+name = "deep-config"
+requires = ["reference-toolchain"]
+constructs = ["star-cell-variable", "deep-configuration"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/deep-config.k"
+main-module = "DEEP-CONFIG"
+syntax-module = "DEEP-CONFIG"
+sort = "Cmd"
+configuration = ["ENV=40", "MODE=5"]
+depth = 1
+programs = ["${workspace}/crates/k-rust/tests/fixtures/reference/go.cmd"]
+
+[[execution]]
+name = "macro-runtime"
+requires = ["reference-toolchain"]
+constructs = ["macro-runtime"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/macro-runtime.k"
+main-module = "MACRO-RUNTIME"
+syntax-module = "MACRO-RUNTIME"
+sort = "Input"
+depth = 1
+programs = ["${workspace}/crates/k-rust/tests/fixtures/reference/twice.macro"]
 
 [[execution]]
 name = "bounded-search"
@@ -375,6 +426,23 @@ program = "${workspace}/crates/k-rust/tests/fixtures/reference/start.state"
 mode = "--search-all"
 result-bound = 10
 
+[[execution.search]]
+name = "final"
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/start.state"
+mode = "--search-final"
+
+[[execution.search]]
+name = "one-or-more"
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/start.state"
+mode = "--search-one-or-more-steps"
+
+[[execution.search]]
+name = "depth-two-result-bound-ten"
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/start.state"
+mode = "--search-all"
+depth = 2
+result-bound = 10
+
 [[execution]]
 name = "deep-term"
 requires = ["reference-toolchain"]
@@ -382,9 +450,21 @@ constructs = ["deep-term"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/deep-term.k"
 main-module = "DEEP-TERM"
 syntax-module = "DEEP-TERM"
-sort = "Term"
-depth = 1
+sort = "Input"
+depth = 193
 programs = ["${workspace}/crates/k-rust/tests/fixtures/reference/deep.term"]
+
+[[excluded]]
+name = "ecdsa-invalid-execution"
+section = "execution"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/ecdsa-invalid.crypto"
+reason = "The pinned Haskell backend crashes in Kore.Builtin.Krypto.encodePoint for bad recovery ids instead of returning a value, so it cannot serve as an oracle for k-rust's empty-Bytes invalid-input contract."
+
+[[excluded]]
+name = "fresh-constants-execution"
+section = "execution"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/fresh-constants.k"
+reason = "Exploratory only: backend-generated fresh counters are intentionally implementation-specific, so exact terminal KORE is not a portable differential contract."
 
 [[proof]]
 name = "imp"
