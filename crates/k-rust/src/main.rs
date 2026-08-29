@@ -19,7 +19,7 @@ use k_rust::{
     },
     kompile::{
         CompilationBackend, CompileOptions, SortInjector, compile_loaded_definition,
-        encode_kore_sort, term_to_kore_from_resolved,
+        encode_kore_sort, expand_macros_in_term, term_to_kore_from_resolved,
     },
     kore::{
         ast::{
@@ -938,6 +938,7 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
     let sort = parse_sort(&options.sort)?;
     let parser = ProgramParser::from_resolved(&loaded.resolved, &options.common.module)?;
     let term = parser.parse(&sort, &source)?;
+    let term = expand_macros_in_term(&loaded.definition, &options.common.module, term)?;
     match options.output {
         OutputFormat::Text => println!("{}", KastPrinter::new().print_term(&term)),
         OutputFormat::Json => println!("{}", kast_json::to_string_pretty(&term)?),
@@ -966,6 +967,7 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
     let start_sort = parse_sort(&options.sort)?;
     let parser = ProgramParser::from_resolved(&loaded.resolved, &options.common.module)?;
     let program = parser.parse(&start_sort, &source)?;
+    let program = expand_macros_in_term(&loaded.definition, &options.common.module, program)?;
     // Parser annotations refer to the source definition's production catalog. Perform
     // production-sensitive conversion there, before crossing into the transformed definition.
     let injector = SortInjector::new(&loaded.resolved, &options.common.module)?;
@@ -980,6 +982,7 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
         let value = parser.parse(&sort, &source).map_err(|error| {
             format!("could not parse configuration variable {name} at sort {sort}: {error}")
         })?;
+        let value = expand_macros_in_term(&loaded.definition, &options.common.module, value)?;
         let value = injector.inject_at_top(&value)?;
         let value = term_to_kore_from_resolved(&loaded.resolved, &options.common.module, &value)?;
         config_bindings.push(ConfigurationBinding {
