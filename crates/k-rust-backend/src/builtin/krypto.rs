@@ -91,9 +91,6 @@ fn ecdsa_recover(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, Builti
     let Some(v) = read_int(&arguments[1]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(v) = v.to_u8() else {
-        return Ok(BuiltinResult::Bottom);
-    };
     let Some(r) = bytes::read_bytes(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
@@ -101,46 +98,42 @@ fn ecdsa_recover(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, Builti
         return Ok(BuiltinResult::NotApplicable);
     };
 
+    let Some(v) = v.to_u8().filter(|v| matches!(v, 27 | 28)) else {
+        return Ok(invalid_ecdsa_recovery());
+    };
     let Some(recovery_id) = v
         .checked_sub(27)
         .and_then(|id| RecoveryId::try_from(id).ok())
     else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(invalid_ecdsa_recovery());
     };
-    let Some(r) = scalar_bytes(&r) else {
-        return Ok(BuiltinResult::Bottom);
+    let Ok(message_hash): Result<[u8; 32], _> = message_hash.try_into() else {
+        return Ok(invalid_ecdsa_recovery());
     };
-    let Some(s) = scalar_bytes(&s) else {
-        return Ok(BuiltinResult::Bottom);
+    let Ok(r): Result<[u8; 32], _> = r.try_into() else {
+        return Ok(invalid_ecdsa_recovery());
+    };
+    let Ok(s): Result<[u8; 32], _> = s.try_into() else {
+        return Ok(invalid_ecdsa_recovery());
     };
     let mut signature_bytes = [0_u8; 64];
     signature_bytes[..32].copy_from_slice(&r);
     signature_bytes[32..].copy_from_slice(&s);
     let Ok(signature) = Signature::from_slice(&signature_bytes) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(invalid_ecdsa_recovery());
     };
     let Ok(key) = VerifyingKey::recover_from_prehash(&message_hash, &signature, recovery_id) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(invalid_ecdsa_recovery());
     };
     let encoded = key.to_sec1_point(false);
     let Some(coordinates) = encoded.as_bytes().get(1..) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(invalid_ecdsa_recovery());
     };
     Ok(BuiltinResult::Value(bytes::bytes_term(coordinates)))
 }
 
-fn scalar_bytes(input: &[u8]) -> Option<[u8; 32]> {
-    let first_nonzero = input
-        .iter()
-        .position(|byte| *byte != 0)
-        .unwrap_or(input.len());
-    let significant = &input[first_nonzero..];
-    if significant.len() > 32 {
-        return None;
-    }
-    let mut output = [0_u8; 32];
-    output[32 - significant.len()..].copy_from_slice(significant);
-    Some(output)
+fn invalid_ecdsa_recovery() -> BuiltinResult {
+    BuiltinResult::Value(bytes::bytes_term(&[]))
 }
 
 fn string_term(value: impl Into<String>) -> Term {
@@ -249,5 +242,55 @@ mod tests {
                 &public_key.as_bytes()[1..]
             )))
         );
+    }
+
+    #[test]
+    fn invalid_concrete_ecdsa_recovery_returns_empty_bytes() {
+        use k256::ecdsa::SigningKey;
+
+        let mut secret = [0_u8; 32];
+        secret[31] = 1;
+        let signing_key = SigningKey::from_slice(&secret).expect("valid secret key");
+        let message_hash = Sha256::digest(b"k-rust invalid recovery test");
+        let (signature, _) = signing_key.sign_prehash_recoverable(&message_hash);
+        let signature = signature.to_bytes();
+        let r = signature[..32].to_vec();
+        let s = signature[32..].to_vec();
+        let expected = Ok(BuiltinResult::Value(bytes::bytes_term(&[])));
+        let arguments = |hash: &[u8], v: i32, r: &[u8], s: &[u8]| {
+            vec![
+                bytes::bytes_term(hash),
+                super::super::int_term(v.into()),
+                bytes::bytes_term(r),
+                bytes::bytes_term(s),
+            ]
+        };
+
+        let mut long_r = vec![0];
+        long_r.extend_from_slice(&r);
+        let mut long_s = vec![0];
+        long_s.extend_from_slice(&s);
+        let zero_scalar = [0_u8; 32];
+        let out_of_range_scalar = [0xff_u8; 32];
+        let cases = [
+            ("negative v", arguments(&message_hash, -1, &r, &s)),
+            ("v below range", arguments(&message_hash, 26, &r, &s)),
+            ("v above range", arguments(&message_hash, 29, &r, &s)),
+            ("large v", arguments(&message_hash, 300, &r, &s)),
+            ("short hash", arguments(&message_hash[..31], 27, &r, &s)),
+            ("short r", arguments(&message_hash, 27, &r[..31], &s)),
+            ("long r", arguments(&message_hash, 27, &long_r, &s)),
+            ("short s", arguments(&message_hash, 27, &r, &s[..31])),
+            ("long s", arguments(&message_hash, 27, &r, &long_s)),
+            ("zero r", arguments(&message_hash, 27, &zero_scalar, &s)),
+            (
+                "out-of-range s",
+                arguments(&message_hash, 27, &r, &out_of_range_scalar),
+            ),
+        ];
+
+        for (name, arguments) in cases {
+            assert_eq!(evaluate("KRYPTO.ecdsaRecover", &arguments), expected, "{name}");
+        }
     }
 }
