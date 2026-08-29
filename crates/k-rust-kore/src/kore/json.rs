@@ -58,6 +58,7 @@ pub fn from_str_unbounded(input: &str) -> Result<Pattern, Error> {
     let mut deserializer = serde_json::Deserializer::from_str(input);
     deserializer.disable_recursion_limit();
     let envelope = Envelope::deserialize(&mut deserializer)?;
+    deserializer.end()?;
     decode_envelope(envelope)
 }
 
@@ -77,6 +78,18 @@ pub fn to_string(pattern: &Pattern) -> Result<String, Error> {
         version: VERSION,
         term: pattern.into(),
     })?)
+}
+
+/// Convert a KORE pattern to a JSON value without serde_json's nesting limit.
+///
+/// Callers must provide enough stack for deeply nested syntax.
+pub fn to_value(pattern: &Pattern) -> Result<serde_json::Value, Error> {
+    let encoded = to_string(pattern)?;
+    let mut deserializer = serde_json::Deserializer::from_str(&encoded);
+    deserializer.disable_recursion_limit();
+    let value = serde_json::Value::deserialize(&mut deserializer)?;
+    deserializer.end()?;
+    Ok(value)
 }
 
 pub fn to_string_pretty(pattern: &Pattern) -> Result<String, Error> {
@@ -664,5 +677,21 @@ mod tests {
 
         assert!(from_str(&source).is_err());
         assert!(from_str_unbounded(&source).is_ok());
+    }
+
+    #[test]
+    fn converts_deep_kore_patterns_to_json_values_without_the_default_limit() {
+        let sort = Sort::Application {
+            name: "SortK".into(),
+            arguments: Vec::new(),
+        };
+        let pattern = (0..160).fold(Pattern::Top { sort: sort.clone() }, |argument, _| {
+            Pattern::Not {
+                sort: sort.clone(),
+                argument: Box::new(argument),
+            }
+        });
+
+        assert!(to_value(&pattern).is_ok());
     }
 }

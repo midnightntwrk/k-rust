@@ -1169,7 +1169,7 @@ fn model_output(
     };
     let mut output = serde_json::json!({ "satisfiable": satisfiable });
     if let Some(substitution) = substitution {
-        output["substitution"] = serde_json::from_str(&kore_json::to_string(&substitution)?)?;
+        output["substitution"] = kore_json::to_value(&substitution)?;
     }
     Ok(serde_json::to_string_pretty(&output)?)
 }
@@ -1429,7 +1429,7 @@ fn implication_substitution(
 }
 
 fn kore_json_value(pattern: &KorePattern) -> Result<serde_json::Value, Box<dyn Error>> {
-    Ok(serde_json::from_str(&kore_json::to_string(pattern)?)?)
+    Ok(kore_json::to_value(pattern)?)
 }
 
 fn reject_non_singleton_implication_pattern(
@@ -1845,7 +1845,7 @@ fn decode_backend_pattern(
     let source = std::str::from_utf8(input)
         .map_err(|error| invalid_kore_pattern(path, purpose, "UTF-8", error))?;
     let syntax = if source.trim_start().starts_with('{') {
-        kore_json::from_str(source)
+        kore_json::from_str_unbounded(source)
             .map_err(|error| invalid_kore_pattern(path, purpose, "JSON", error))?
     } else {
         parse_kore_pattern(source)
@@ -2304,6 +2304,64 @@ fn emit_diagnostics(diagnostics: &[Diagnostic]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn deeply_nested_kore_pattern(depth: usize) -> KorePattern {
+        let sort = KoreSort::Application {
+            name: "SortK".into(),
+            arguments: Vec::new(),
+        };
+        (0..depth).fold(KorePattern::Top { sort: sort.clone() }, |argument, _| {
+            KorePattern::Not {
+                sort: sort.clone(),
+                argument: Box::new(argument),
+            }
+        })
+    }
+
+    #[test]
+    fn converts_deep_kore_output_to_json_values() {
+        assert!(kore_json_value(&deeply_nested_kore_pattern(160)).is_ok());
+    }
+
+    #[test]
+    fn decodes_deep_backend_kore_json_input() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                let syntax = parse_kore_definition(
+                    r#"[]
+                    module MAIN
+                      sort SortK{} []
+                      symbol value{}() : SortK{} [constructor{}()]
+                      symbol wrap{}(SortK{}) : SortK{} [constructor{}()]
+                    endmodule []"#,
+                )
+                .unwrap();
+                let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+                let mut pattern = parse_kore_pattern("value{}()").unwrap();
+                for _ in 0..160 {
+                    pattern = KorePattern::Application {
+                        symbol: KoreSymbol {
+                            name: "wrap".into(),
+                            sort_parameters: Vec::new(),
+                        },
+                        arguments: vec![pattern],
+                    };
+                }
+                let source = kore_json::to_string(&pattern).unwrap();
+
+                decode_backend_pattern(
+                    &definition,
+                    Path::new("state.json"),
+                    "initial",
+                    source.as_bytes(),
+                )
+                .unwrap();
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 
     #[test]
     fn decodes_text_json_and_binary_backend_patterns() {

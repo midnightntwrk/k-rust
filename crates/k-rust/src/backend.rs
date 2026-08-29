@@ -592,10 +592,7 @@ fn decode_pattern(value: Value) -> Result<KorePattern, BackendError> {
 }
 
 fn encode_pattern(pattern: &KorePattern) -> Result<Value, BackendError> {
-    serde_json::from_str(
-        &kore_json::to_string(pattern).map_err(error("could not encode KORE JSON"))?,
-    )
-    .map_err(error("could not encode KORE JSON"))
+    kore_json::to_value(pattern).map_err(error("could not encode KORE JSON"))
 }
 
 fn trace_entry(entry: k_rust_backend::rewrite::TraceEntry) -> TraceEntry {
@@ -868,6 +865,17 @@ mod tests {
 
     fn text(value: Value) -> String {
         Printer::compact().print_pattern(&decode_pattern(value).unwrap())
+    }
+
+    #[test]
+    fn encodes_deep_patterns_without_the_default_json_recursion_limit() {
+        let mut source = r"\top{SortS{}}()".to_owned();
+        for _ in 0..160 {
+            source = format!(r"\not{{SortS{{}}}}({source})");
+        }
+
+        let pattern = parse_pattern(&source).unwrap();
+        assert!(encode_pattern(&pattern).is_ok());
     }
 
     #[test]
