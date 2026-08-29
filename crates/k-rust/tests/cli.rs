@@ -51,6 +51,25 @@ fn fixture() -> (PathBuf, PathBuf) {
     (root, definition)
 }
 
+fn branching_search_fixture() -> (PathBuf, PathBuf) {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  syntax State ::= "a" | "b" | "c" | "d" | "e"
+  configuration <k> $PGM:State </k>
+  rule a => b
+  rule b => c
+  rule c => d
+  rule c => e
+endmodule
+"#,
+    )
+    .unwrap();
+    (root, definition)
+}
+
 #[test]
 fn kast_parses_a_program_as_text_and_json() {
     let (root, definition) = fixture();
@@ -203,6 +222,10 @@ endmodule
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("Lblb{}()"), "{stdout}");
     assert!(stdout.contains("Lblready{}()"), "{stdout}");
+    assert!(
+        !stdout.contains("\\bottom{SortGeneratedTopCell{}}("),
+        "{stdout}"
+    );
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -414,22 +437,8 @@ endmodule
 
 #[test]
 fn krun_search_explores_an_unconditional_branch() {
-    let (root, definition) = fixture();
+    let (root, definition) = branching_search_fixture();
     let search_pattern = root.join("target.kore");
-    fs::write(
-        &definition,
-        r#"
-module MAIN
-  syntax State ::= "a" | "b" | "c" | "d" | "e"
-  configuration <k> $PGM:State </k>
-  rule a => b
-  rule b => c
-  rule c => d
-  rule c => e
-endmodule
-"#,
-    )
-    .unwrap();
     fs::write(&search_pattern, "Result:SortGeneratedTopCell{}").unwrap();
 
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
@@ -464,6 +473,153 @@ endmodule
         !output.contains("Lblc'Unds'MAIN'Unds'State{}()"),
         "{output}"
     );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn default_search_binds_the_reference_result_variable() {
+    let (root, definition) = branching_search_fixture();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+            "--depth",
+            "10",
+            "--search-one-step",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("VarResult:SortGeneratedTopCell{}"),
+        "{stdout}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn search_bound_truncation_is_reported_to_the_user() {
+    let (root, definition) = branching_search_fixture();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+            "--depth",
+            "10",
+            "--search-all",
+            "--search-bound",
+            "1",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("in-process backend search was incomplete: ResultBound"),
+        "{stderr}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn undeclared_config_variables_are_rejected_by_name() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  syntax State ::= "a" [symbol(a)]
+  configuration <k> $PGM:State </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+            "-cNOPE=1",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("NOPE"), "{stderr}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn search_flag_combinations_are_validated() {
+    let (root, definition) = fixture();
+    let target = root.join("target.kore");
+    fs::write(&target, "Result:SortExp{}").unwrap();
+    let cases = [
+        (
+            "exclusive search modes",
+            vec!["--search-all", "--search-one-step"],
+            "--search-one-step",
+        ),
+        (
+            "bound requires a mode",
+            vec!["--search-bound", "3"],
+            "--search-bound",
+        ),
+        (
+            "pattern requires a mode",
+            vec!["--search-pattern", target.to_str().unwrap()],
+            "--search-pattern",
+        ),
+    ];
+
+    for (name, extra, expected) in cases {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "MAIN",
+                "--sort",
+                "Exp",
+                "--expression",
+                "1",
+            ])
+            .args(extra)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{name} unexpectedly succeeded");
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains(expected), "{name}: {stderr}");
+    }
 
     fs::remove_dir_all(root).unwrap();
 }
