@@ -4,15 +4,17 @@ set -euo pipefail
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$workspace/scripts/reference-pins.sh"
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
+imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
 kompile=${K_KOMPILE:-}
 krun=${K_KRUN:-}
 kast=${K_KAST:-}
 reference_memory_kib=${REFERENCE_EXECUTION_MEMORY_KIB:-8388608}
 rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}
-reference_retries=${REFERENCE_EXECUTION_RETRIES:-2}
+reference_retries=${REFERENCE_EXECUTION_RETRIES:-3}
 reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-'-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Dscala.concurrent.context.numThreads=2 -Dscala.concurrent.context.maxThreads=2'}
 manifest_json=$(
   WORKSPACE="$workspace" K_CHECKOUT="$k_checkout" \
+  IMP_SEMANTICS_CHECKOUT="$imp_checkout" \
     "$workspace/scripts/reference-manifest.py"
 )
 
@@ -40,11 +42,11 @@ fi
 reference_require_k_version "$kompile"
 reference_require_git_pin K "$k_checkout" "$K_REFERENCE_REVISION"
 
-work=$(mktemp -d "${TMPDIR:-/tmp}/k-rust-reference-non-imp-execution.XXXXXX")
+work=$(mktemp -d "${TMPDIR:-/tmp}/k-rust-reference-execution.XXXXXX")
 if [[ "${REFERENCE_DIFFERENTIAL_KEEP_WORK:-0}" == 1 ]]; then
   trap 'echo "differential artifacts retained at: $work"' EXIT
 else
-  trap 'rm -rf "$work"' EXIT
+  trap 'find "$work" -depth -delete' EXIT
 fi
 
 run_reference_krun() {
@@ -104,6 +106,9 @@ for name in "${selected[@]}"; do
   if [[ ! -f "$source" ]]; then
     echo "error: missing $name semantics source: $source" >&2
     exit 2
+  fi
+  if [[ "$name" == imp ]]; then
+    reference_require_git_pin IMP "$imp_checkout" "$IMP_REFERENCE_REVISION"
   fi
 
   definition="$work/$name-kompiled"

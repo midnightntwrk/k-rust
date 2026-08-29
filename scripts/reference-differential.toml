@@ -74,7 +74,7 @@ comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"
 
 [[compile]]
 name = "imp"
-requires = ["reference-toolchain", "semantics-support"]
+requires = ["reference-toolchain"]
 constructs = []
 source = "${imp}/src/kimp/kdist/imp-semantics/imp.k"
 main-module = "IMP"
@@ -158,7 +158,7 @@ comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"
 
 [[kast]]
 name = "imp"
-requires = ["reference-toolchain", "semantics-support"]
+requires = ["reference-toolchain"]
 constructs = []
 source = "${imp}/src/kimp/kdist/imp-semantics/imp.k"
 main-module = "IMP"
@@ -651,7 +651,7 @@ expression = "i32.const"
 
 [[execution]]
 name = "imp"
-requires = ["reference-toolchain", "semantics-support"]
+requires = ["reference-toolchain"]
 constructs = []
 source = "${imp}/src/kimp/kdist/imp-semantics/imp.k"
 main-module = "IMP"
