@@ -2514,6 +2514,57 @@ fn concretizes_nullary_initial_repeated_cell_initializers_as_parent_children() {
 }
 
 #[test]
+fn generated_repeated_cell_initializers_conform_to_every_collection_consumer() {
+    for collection in ["Map", "Set", "List"] {
+        for (shape, cell_attributes, contents) in [
+            ("parameterized", "", "<k> $PGM:K </k>"),
+            ("nullary", " initial=\"\"", "<id> 0 </id>"),
+        ] {
+            let source = format!(
+                r#"
+                module MAIN
+                  syntax Int ::= r"[0-9]+" [token]
+                  configuration
+                    <top>
+                      <entry multiplicity="*" type="{collection}"{cell_attributes}>
+                        {contents}
+                      </entry>
+                    </top>
+                endmodule
+                "#
+            );
+            let definition = resolve_semantic_casts(&parsed(&source));
+            let definition = add_implicit_computation_cell(&definition).unwrap();
+            let definition = resolve_fresh_constants(&definition, 0).unwrap();
+            let transformed = concretize_cells(&definition).unwrap_or_else(|error| {
+                panic!("{collection}/{shape} generated an incompatible construct: {error}")
+            });
+            let top_initializer = transformed
+                .main_module()
+                .unwrap()
+                .local_sentences
+                .iter()
+                .find_map(|sentence| match sentence {
+                    Sentence::Rule {
+                        body, attributes, ..
+                    } if attributes.get("initializer").is_some()
+                        && Printer::new().print_term(body).contains("initEntryCell")
+                        && Printer::new().print_term(body).contains("<top>") =>
+                    {
+                        Some(Printer::new().print_term(body))
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| {
+                    panic!("{collection}/{shape} lost its generated repeated-cell initializer")
+                });
+
+            assert!(top_initializer.contains("initEntryCell"));
+        }
+    }
+}
+
+#[test]
 fn splits_cell_fragment_variables_and_rebuilds_external_occurrences() {
     let source = indoc! {r#"
         module MAIN
