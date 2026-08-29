@@ -644,23 +644,52 @@ impl RpcService {
         validate_implication_variable_capture(&antecedent, &consequent)?;
         validate_implication_sorts(&antecedent, &consequent)?;
         let sort_variables = super::implication_sort_variables(&antecedent, &consequent);
-        if let Some(result) = special_implication_result(&antecedent, &consequent) {
+        let special_result = special_implication_result(&antecedent, &consequent);
+        if special_result.is_some()
+            && matches!(super::strip_exists(&antecedent), KorePattern::Bottom { .. })
+        {
             let (_, result_sort) = definition
                 .internalize_predicate(&antecedent, &sort_variables)
                 .map_err(RpcFault::pattern)?;
-            return implication_result(&antecedent, &consequent, &result_sort, result);
+            return implication_result(
+                &antecedent,
+                &consequent,
+                &result_sort,
+                special_result.expect("bottom antecedents have a special result"),
+            );
         }
         let (antecedent_pattern, antecedent_existentials) = definition
             .internalize_implication_pattern(&antecedent, &sort_variables)
             .map_err(RpcFault::pattern)?;
         let result_sort = antecedent_pattern.term.sort();
+        let solver = solver(&definition, self.smt_options)?;
+        if let Some(result) = special_result {
+            let antecedent = simplified_implication_response_syntax(
+                &definition,
+                &antecedent,
+                &antecedent_pattern,
+                &solver,
+            );
+            return implication_result(&antecedent, &consequent, &result_sort, result);
+        }
         if matches!(super::strip_exists(&consequent), KorePattern::Not { .. }) {
             let result = ImplicationResult {
                 status: ImplicationStatus::Invalid,
                 condition: None,
                 failure: None,
             };
-            let antecedent = normalized_implication_syntax(&antecedent, &antecedent_pattern);
+            let antecedent = simplified_implication_response_syntax(
+                &definition,
+                &antecedent,
+                &antecedent_pattern,
+                &solver,
+            );
+            let consequent = simplified_not_consequent_response_syntax(
+                &definition,
+                &consequent,
+                &sort_variables,
+                &solver,
+            );
             return implication_result(&antecedent, &consequent, &result_sort, result);
         }
         let (consequent_pattern, consequent_existentials) = definition
@@ -669,7 +698,6 @@ impl RpcService {
         if result_sort != consequent_pattern.term.sort() {
             return Err(RpcFault::pattern("antecedent and consequent sorts differ"));
         }
-        let solver = solver(&definition, self.smt_options)?;
         let result = check_implication_with_existentials_complete(
             &definition,
             &antecedent_pattern,
@@ -686,15 +714,23 @@ impl RpcService {
                 condition.predicates.as_slice() == [Predicate::False]
                     && condition.substitution.is_empty()
             });
-        let antecedent = if vacuous_antecedent {
-            antecedent
+        let (antecedent, consequent) = if vacuous_antecedent {
+            (antecedent, consequent)
         } else {
-            normalized_implication_syntax(&antecedent, &antecedent_pattern)
-        };
-        let consequent = if vacuous_antecedent {
-            consequent
-        } else {
-            normalized_implication_syntax(&consequent, &consequent_pattern)
+            (
+                simplified_implication_response_syntax(
+                    &definition,
+                    &antecedent,
+                    &antecedent_pattern,
+                    &solver,
+                ),
+                simplified_implication_response_syntax(
+                    &definition,
+                    &consequent,
+                    &consequent_pattern,
+                    &solver,
+                ),
+            )
         };
         implication_result(&antecedent, &consequent, &result_sort, result)
     }
@@ -1245,6 +1281,84 @@ fn normalized_implication_syntax(original: &KorePattern, pattern: &Pattern) -> K
             body: Box::new(normalized_implication_syntax(body, pattern)),
         },
         _ => normalize_body(original, pattern),
+    }
+}
+
+fn simplified_implication_response_syntax(
+    definition: &BackendDefinition,
+    original: &KorePattern,
+    unsimplified: &Pattern,
+    solver: &dyn SmtSolver,
+) -> KorePattern {
+    let Ok(simplified) = simplify_pattern_with_solver(
+        definition,
+        unsimplified,
+        SimplificationOptions::default(),
+        solver,
+    ) else {
+        return normalized_implication_syntax(original, unsimplified);
+    };
+    if unsimplified.term == simplified.term {
+        return normalized_implication_syntax(original, &simplified);
+    }
+
+    let mut result = externalize::constrained_pattern(&simplified);
+    let mut binders = Vec::new();
+    let mut body = original;
+    while let KorePattern::Exists {
+        sort,
+        variable,
+        body: next,
+    } = body
+    {
+        binders.push((sort.clone(), variable.clone()));
+        body = next;
+    }
+    for (sort, variable) in binders.into_iter().rev() {
+        result = KorePattern::Exists {
+            sort,
+            variable,
+            body: Box::new(result),
+        };
+    }
+    result
+}
+
+fn simplified_not_consequent_response_syntax(
+    definition: &BackendDefinition,
+    original: &KorePattern,
+    sort_variables: &[super::BackendName],
+    solver: &dyn SmtSolver,
+) -> KorePattern {
+    match original {
+        KorePattern::Exists {
+            sort,
+            variable,
+            body,
+        } => KorePattern::Exists {
+            sort: sort.clone(),
+            variable: variable.clone(),
+            body: Box::new(simplified_not_consequent_response_syntax(
+                definition,
+                body,
+                sort_variables,
+                solver,
+            )),
+        },
+        KorePattern::Not { sort, argument } => {
+            let Ok((pattern, _)) =
+                definition.internalize_implication_pattern(argument, sort_variables)
+            else {
+                return original.clone();
+            };
+            KorePattern::Not {
+                sort: sort.clone(),
+                argument: Box::new(simplified_implication_response_syntax(
+                    definition, argument, &pattern, solver,
+                )),
+            }
+        }
+        _ => original.clone(),
     }
 }
 
@@ -2101,6 +2215,28 @@ mod tests {
         ))
     }
 
+    fn simplifying_implication_service() -> RpcService {
+        RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[]
+                module TEST
+                  sort SortState{} []
+                  symbol initial{}() : SortState{} [function{}(), total{}()]
+                  symbol state{}() : SortState{} [constructor{}()]
+                  axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortState{}, R}(
+                      initial{}(),
+                      \and{SortState{}}(state{}(), \top{SortState{}}())
+                    )
+                  ) [label{}("init"), simplification{}()]
+                endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ))
+    }
+
     fn smt_implication_service() -> RpcService {
         RpcService::new(BackendSession::new(
             parse_definition(
@@ -2493,6 +2629,144 @@ mod tests {
         assert_eq!(substitution["tag"], "Equals");
         assert_eq!(substitution["first"]["name"], "X");
         assert_eq!(substitution["second"]["name"], "Z");
+    }
+
+    #[test]
+    fn implication_response_simplifies_both_function_terms() {
+        let mut service = simplifying_implication_service();
+        let initial = encode_kore(&parse_pattern("initial{}()").unwrap()).unwrap();
+        let response = request(
+            &mut service,
+            1,
+            "implies",
+            json!({
+                "antecedent": initial,
+                "consequent": initial,
+            }),
+        );
+        let implication = &response["result"]["implication"]["term"];
+
+        assert_eq!(response["result"]["status"], "valid");
+        assert_eq!(implication["first"]["name"], "state");
+        assert_eq!(implication["second"]["name"], "state");
+    }
+
+    #[test]
+    fn special_consequent_responses_still_simplify_non_vacuous_antecedents() {
+        let mut service = simplifying_implication_service();
+        for (consequent, status) in [
+            (r#"\top{SortState{}}()"#, "valid"),
+            (r#"\bottom{SortState{}}()"#, "invalid"),
+        ] {
+            let antecedent = encode_kore(&parse_pattern("initial{}()").unwrap()).unwrap();
+            let consequent = encode_kore(&parse_pattern(consequent).unwrap()).unwrap();
+            let response = request(
+                &mut service,
+                1,
+                "implies",
+                json!({
+                    "antecedent": antecedent,
+                    "consequent": consequent,
+                }),
+            );
+
+            assert_eq!(response["result"]["status"], status, "{response:#}");
+            assert_eq!(
+                response["result"]["implication"]["term"]["first"]["name"],
+                "state"
+            );
+        }
+    }
+
+    #[test]
+    fn implication_simplification_preserves_leading_binder_order() {
+        let mut service = simplifying_implication_service();
+        let source = r#"\exists{SortState{}}(
+            X:SortState{},
+            \exists{SortState{}}(Y:SortState{}, initial{}())
+        )"#;
+        let pattern = encode_kore(&parse_pattern(source).unwrap()).unwrap();
+        let response = request(
+            &mut service,
+            1,
+            "implies",
+            json!({
+                "antecedent": pattern,
+                "consequent": pattern,
+            }),
+        );
+        let antecedent = &response["result"]["implication"]["term"]["first"];
+
+        assert_eq!(response["result"]["status"], "valid", "{response:#}");
+        assert_eq!(antecedent["tag"], "Exists");
+        assert_eq!(antecedent["var"], "X");
+        assert_eq!(antecedent["arg"]["tag"], "Exists");
+        assert_eq!(antecedent["arg"]["var"], "Y");
+        assert_eq!(antecedent["arg"]["arg"]["name"], "state");
+    }
+
+    #[test]
+    fn not_consequent_early_response_still_simplifies_both_patterns() {
+        let mut service = simplifying_implication_service();
+        let antecedent = encode_kore(&parse_pattern("initial{}()").unwrap()).unwrap();
+        let consequent =
+            encode_kore(&parse_pattern(r#"\not{SortState{}}(initial{}())"#).unwrap()).unwrap();
+        let response = request(
+            &mut service,
+            1,
+            "implies",
+            json!({
+                "antecedent": antecedent,
+                "consequent": consequent,
+            }),
+        );
+
+        assert_eq!(response["result"]["status"], "invalid", "{response:#}");
+        assert_eq!(
+            response["result"]["implication"]["term"]["first"]["name"],
+            "state"
+        );
+        assert_eq!(
+            response["result"]["implication"]["term"]["second"]["arg"]["name"],
+            "state"
+        );
+    }
+
+    #[test]
+    fn implication_response_rendering_degrades_on_simplification_failure() {
+        let syntax = parse_definition(
+            r#"[]
+            module TEST
+              sort SortState{} []
+              symbol state{}() : SortState{} [constructor{}()]
+              symbol loop{}(SortState{}) : SortState{} [function{}(), total{}()]
+              axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortState{}, R}(
+                  loop{}(X:SortState{}),
+                  \and{SortState{}}(
+                    loop{}(loop{}(X:SortState{})),
+                    \top{SortState{}}()
+                  )
+                )
+              ) [label{}("loop"), simplification{}()]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "TEST").unwrap();
+        let original = parse_pattern("loop{}(state{}())").unwrap();
+        let (pattern, _) = definition
+            .internalize_implication_pattern(&original, &[])
+            .unwrap();
+
+        let rendered = simplified_implication_response_syntax(
+            &definition,
+            &original,
+            &pattern,
+            &k_rust_backend::smt::NoSolver,
+        );
+
+        assert_eq!(rendered, original);
     }
 
     #[test]
