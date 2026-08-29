@@ -2042,6 +2042,57 @@ fn fills_absent_optional_and_repeated_cells_with_their_units() {
 }
 
 #[test]
+fn preserves_repeated_cell_initializers_for_every_collection_shape() {
+    for collection in ["Map", "Set", "List"] {
+        for (shape, body, initial) in [
+            ("parameterized", "$PGM:Int", ""),
+            ("nullary", "0", " initial=\"\""),
+        ] {
+            let source = format!(
+                r#"
+                module MAIN
+                  syntax Int ::= r"[0-9]+" [token]
+                  configuration
+                    <top>
+                      <thread multiplicity="*" type="{collection}"{initial}>
+                        <id> {body} </id>
+                      </thread>
+                    </top>
+                endmodule
+                "#
+            );
+            let definition = resolve_semantic_casts(&parsed(&source));
+            let definition = add_implicit_computation_cell(&definition).unwrap();
+            let definition = resolve_fresh_constants(&definition, 0).unwrap();
+            let transformed = concretize_cells(&definition).unwrap_or_else(|error| {
+                panic!("{collection}/{shape} concretization failed: {error:?}")
+            });
+            let top_initializer = transformed
+                .main_module()
+                .unwrap()
+                .local_sentences
+                .iter()
+                .find_map(|sentence| match sentence {
+                    Sentence::Rule {
+                        body, attributes, ..
+                    } if attributes.get("initializer").is_some()
+                        && Printer::new().print_term(body).starts_with("initTopCell") =>
+                    {
+                        Some(Printer::new().print_term(body))
+                    }
+                    _ => None,
+                })
+                .expect("the generated top initializer should remain present");
+
+            assert!(
+                top_initializer.contains("initThreadCell"),
+                "{collection}/{shape} lost its repeated-cell initializer: {top_initializer}"
+            );
+        }
+    }
+}
+
+#[test]
 fn splits_cell_fragment_variables_and_rebuilds_external_occurrences() {
     let source = indoc! {r#"
         module MAIN
