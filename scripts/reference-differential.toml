@@ -798,6 +798,24 @@ source = "${workspace}/crates/k-rust/tests/fixtures/reference/fresh-constants.k"
 reason = "Exploratory only: backend-generated fresh counters are intentionally implementation-specific, so exact terminal KORE is not a portable differential contract."
 
 [[excluded]]
+name = "wasm-execution"
+section = "execution"
+source = "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md"
+reason = "The pinned Haskell backend lacks the FLOAT.round hook required by the WASM semantics, while its LLVM runtime cannot reserve an arena under the bounded differential runner; neither is a valid execution oracle for this pin."
+
+[[excluded]]
+name = "evm-execution"
+section = "execution"
+source = "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/optimizations.md"
+reason = "The pinned reference execution path fails in kore-expand-macros before producing a configuration, so exact backend comparison cannot reach either executor."
+
+[[excluded]]
+name = "mir-execution"
+section = "execution"
+source = "${mir}/kmir/src/kmir/kdist/mir-semantics/kmir.md"
+reason = "MIR programs require configurations generated from SMIR by the semantics' Python toolchain; a raw source fixture does not define a reproducible cross-backend execution input."
+
+[[excluded]]
 name = "proof-counterexample-artifact"
 section = "proof"
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/mini-spec.k"
