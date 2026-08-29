@@ -5,7 +5,7 @@ use std::{fmt, str::FromStr};
 use crate::{
     definition::{
         ResolvedDefinition, StructuralCheckBackend, StructuralCheckOptions,
-        checks::check_definition_with_options,
+        checks::check_definition_with_options, expand_configurations,
     },
     diagnostic::{Diagnostic, Severity},
     kore::printer::Printer as KorePrinter,
@@ -166,9 +166,19 @@ pub fn compile_loaded_definition(
     loaded: &LoadedDefinition,
     options: CompileOptions,
 ) -> Result<CompiledKoreArtifacts, CompileError> {
+    // Loader-produced definitions are already expanded, while structured embedders can construct
+    // the public LoadedDefinition fields directly. Normalize both entry paths before checks.
+    let definition = stage(
+        "expand structured configurations",
+        expand_configurations(&loaded.definition),
+    )?;
+    let resolved = stage(
+        "resolve structured configurations",
+        ResolvedDefinition::resolve(&definition),
+    )?;
     let diagnostics = stage(
         "definition checks",
-        check_definition_with_options(&loaded.resolved, options.backend.structural_check_options()),
+        check_definition_with_options(&resolved, options.backend.structural_check_options()),
     )?;
     if diagnostics
         .iter()
@@ -181,10 +191,7 @@ pub fn compile_loaded_definition(
         ));
     }
 
-    let definition = diagnostic_stage!(
-        "resolve commutative rules",
-        resolve_comm(&loaded.definition)
-    );
+    let definition = diagnostic_stage!("resolve commutative rules", resolve_comm(&definition));
     let definition = diagnostic_stage!("resolve I/O streams", resolve_io(&definition));
     let definition = diagnostic_stage!("resolve local functions", resolve_fun(&definition));
     let definition = diagnostic_stage!(
@@ -266,7 +273,7 @@ pub fn compile_loaded_definition(
         "emit KORE",
         module_to_kore_from_resolved_with_options(
             &resolved,
-            &loaded.definition.main_module,
+            &definition.main_module,
             ModuleToKoreOptions {
                 generate_map_ceil_axioms: options.backend == CompilationBackend::Rust,
                 default_claims_to_all_path: options.default_claims_to_all_path,
