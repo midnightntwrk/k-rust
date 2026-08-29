@@ -1403,7 +1403,7 @@ fn model_output(
     };
     let mut output = serde_json::json!({ "satisfiable": satisfiable });
     if let Some(substitution) = substitution {
-        output["substitution"] = serde_json::from_str(&kore_json::to_string(&substitution)?)?;
+        output["substitution"] = kore_json::to_value(&substitution)?;
     }
     Ok(serde_json::to_string_pretty(&output)?)
 }
@@ -1663,7 +1663,7 @@ fn implication_substitution(
 }
 
 fn kore_json_value(pattern: &KorePattern) -> Result<serde_json::Value, Box<dyn Error>> {
-    Ok(serde_json::from_str(&kore_json::to_string(pattern)?)?)
+    Ok(kore_json::to_value(pattern)?)
 }
 
 fn reject_non_singleton_implication_pattern(

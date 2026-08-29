@@ -1654,9 +1654,7 @@ fn parse_json_value(source: &str) -> serde_json::Result<Value> {
 }
 
 fn encode_kore(pattern: &KorePattern) -> Result<Value, RpcFault> {
-    let source = kore_json::to_string(pattern)
-        .map_err(|error| RpcFault::backend(format!("could not encode KORE JSON: {error}")))?;
-    parse_json_value(&source)
+    kore_json::to_value(pattern)
         .map_err(|error| RpcFault::backend(format!("could not encode KORE JSON: {error}")))
 }
 

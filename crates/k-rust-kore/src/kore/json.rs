@@ -79,6 +79,16 @@ pub fn to_string(pattern: &Pattern) -> Result<String, Error> {
     })?)
 }
 
+/// Encode KORE JSON as a value without serde_json's nesting limit.
+pub fn to_value(pattern: &Pattern) -> Result<serde_json::Value, Error> {
+    let source = to_string(pattern)?;
+    let mut deserializer = serde_json::Deserializer::from_str(&source);
+    deserializer.disable_recursion_limit();
+    let value = serde_json::Value::deserialize(&mut deserializer)?;
+    deserializer.end()?;
+    Ok(value)
+}
+
 pub fn to_string_pretty(pattern: &Pattern) -> Result<String, Error> {
     Ok(serde_json::to_string_pretty(&Envelope {
         format: FORMAT.into(),
