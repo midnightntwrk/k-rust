@@ -108,6 +108,35 @@ pub fn expand_macros(definition: &Definition) -> Result<Definition, ExpandMacros
     }
 }
 
+/// Expand macros in a term parsed outside the definition, such as a program or
+/// configuration-variable value.
+///
+/// Definition compilation expands sentence bodies, but concrete programs are parsed only after
+/// that pipeline has finished. They must use the same propagated macro rules before sort
+/// injection and KORE conversion.
+pub fn expand_macros_in_term(
+    definition: &Definition,
+    module: &str,
+    term: Term,
+) -> Result<Term, String> {
+    // Rule parsing retains semantic-cast wrappers around variables. The compilation pipeline
+    // removes those wrappers before macro matching, so concrete terms must build their expander
+    // from the same rule shape.
+    let definition = super::resolve_semantic_casts(definition);
+    let definition = super::propagate_macro_attributes(&definition)?;
+    let resolved = ResolvedDefinition::resolve(&definition).map_err(|error| error.to_string())?;
+    let module = resolved
+        .module_id(module)
+        .ok_or_else(|| format!("unknown module {module}"))?;
+    let mut expander = Expander::new(&resolved, module)?;
+    term.visit_preorder(&mut |term| {
+        if let Term::Variable { name, .. } = term.unannotated() {
+            expander.variables.insert(name.clone());
+        }
+    });
+    expander.expand_term(term, &BTreeSet::new())
+}
+
 struct Expander<'a> {
     productions: ProductionCatalog<'a>,
     sorts: SortCatalog<'a>,
@@ -136,7 +165,7 @@ impl<'a> Expander<'a> {
             .sentences(module)
             .into_iter()
             .enumerate()
-            .filter_map(|(id, sentence)| macro_rule(id, sentence))
+            .filter_map(|(id, sentence)| macro_rule(id, sentence, &productions))
             .collect::<Vec<_>>();
         let priorities = all
             .iter()
@@ -445,22 +474,36 @@ impl<'a> Expander<'a> {
     }
 }
 
-fn macro_rule(id: usize, sentence: &Sentence) -> Option<MacroRule> {
+fn macro_rule(
+    id: usize,
+    sentence: &Sentence,
+    productions: &ProductionCatalog<'_>,
+) -> Option<MacroRule> {
     let Sentence::Rule {
         body, attributes, ..
     } = sentence
     else {
         return None;
     };
-    if !is_macro(attributes) {
+    let left = rewrite_projection(body, false);
+    let production_attributes = match left.unannotated() {
+        Term::Apply { label, .. } => productions.attributes_for(&LabelHead::from(label)),
+        _ => None,
+    };
+    if !is_macro(attributes) && !production_attributes.is_some_and(is_macro) {
         return None;
     }
+    let recursive = attributes.get("macro-rec").is_some()
+        || attributes.get("alias-rec").is_some()
+        || production_attributes.is_some_and(|attributes| {
+            attributes.get("macro-rec").is_some() || attributes.get("alias-rec").is_some()
+        });
     Some(MacroRule {
         id,
         sentence: sentence.clone(),
-        left: rewrite_projection(body, false),
+        left,
         right: rewrite_projection(body, true),
-        recursive: attributes.get("macro-rec").is_some() || attributes.get("alias-rec").is_some(),
+        recursive,
     })
 }
 

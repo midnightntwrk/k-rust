@@ -129,6 +129,74 @@ fn kast_parses_a_program_as_text_and_json() {
 }
 
 #[test]
+fn kast_and_krun_expand_macros_in_concrete_programs() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  syntax Input ::= Int | "twice" "(" Int ")" [macro]
+  rule twice(I) => I +Int I
+  configuration <k> $PGM:Input </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let binary = env!("CARGO_BIN_EXE_krust");
+
+    let kast = Command::new(binary)
+        .args([
+            "kast",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--sort",
+            "Input",
+            "--expression",
+            "twice(21)",
+            "--output",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        kast.status.success(),
+        "{}",
+        String::from_utf8_lossy(&kast.stderr)
+    );
+    let kast = String::from_utf8(kast.stdout).unwrap();
+    assert!(!kast.contains("twice"), "{kast}");
+    assert!(kast.contains("_+Int_"), "{kast}");
+
+    let krun = Command::new(binary)
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Input",
+            "--expression",
+            "twice(21)",
+            "--depth",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        krun.status.success(),
+        "{}",
+        String::from_utf8_lossy(&krun.stderr)
+    );
+    let krun = String::from_utf8(krun.stdout).unwrap();
+    assert!(!krun.contains("Lbltwice"), "{krun}");
+    assert!(krun.contains(r#"\dv{SortInt{}}("42")"#), "{krun}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kast_backend_selects_the_matching_module_view() {
     let source = r#"
 module SYMBOLIC [symbolic]
