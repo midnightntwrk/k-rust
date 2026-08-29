@@ -39,7 +39,7 @@ cases=(
   "ambiguous-rewrite|$k_checkout/k-distribution/tests/regression-new/amb-rew/test.k|TEST"
   "casts|$k_checkout/k-distribution/tests/regression-new/cast/test.k|TEST"
   "cell-map|$k_checkout/k-distribution/tests/regression-new/cell_map/test.k|TEST"
-  "evm-equivalence|$evm_checkout/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/optimizations.md|EVM-OPTIMIZATIONS|$evm_checkout/kevm-pyk/src/kevm_pyk/kproj/plugin"
+  "evm-equivalence|$evm_checkout/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/optimizations.md|EVM-OPTIMIZATIONS|$evm_checkout/kevm-pyk/src/kevm_pyk/kproj/plugin|||JSON KRYPTO"
   "fresh-variables|$k_checkout/k-distribution/tests/regression-new/fresh1/test.k|TEST"
   "imp|$imp_checkout/src/kimp/kdist/imp-semantics/imp.k|IMP"
   "list-set|$k_checkout/k-distribution/tests/regression-new/list-set/test.k|TEST"
@@ -50,7 +50,7 @@ cases=(
 selected_count=0
 
 for fixture in "${cases[@]}"; do
-  IFS='|' read -r name source module include selector syntax_module <<<"$fixture"
+  IFS='|' read -r name source module include selector syntax_module hook_namespaces <<<"$fixture"
   selected=true
   if (($#)); then
     selected=false
@@ -109,6 +109,7 @@ for fixture in "${cases[@]}"; do
   include_args=()
   selector_args=()
   syntax_args=()
+  hook_args=()
   if [[ -n "$include" ]]; then
     if [[ ! -d "$include" ]]; then
       echo "error: missing include directory: $include" >&2
@@ -121,6 +122,9 @@ for fixture in "${cases[@]}"; do
   fi
   if [[ -n "$syntax_module" ]]; then
     syntax_args=(--syntax-module "$syntax_module")
+  fi
+  if [[ -n "$hook_namespaces" ]]; then
+    hook_args=(--hook-namespaces "$hook_namespaces")
   fi
 
   echo "[$name] compiling with reference frontend"
@@ -139,6 +143,7 @@ for fixture in "${cases[@]}"; do
       "${include_args[@]}" \
       "${selector_args[@]}" \
       "${syntax_args[@]}" \
+      "${hook_args[@]}" \
       --emit-json \
       --warnings none
   )

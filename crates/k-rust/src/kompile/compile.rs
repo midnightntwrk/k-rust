@@ -348,6 +348,48 @@ mod tests {
         assert!("nope".parse::<CompilationBackend>().is_err());
     }
 
+    #[test]
+    fn rust_backend_emits_its_extension_hooks_as_hooked_symbols() {
+        let source = r#"
+            module MAIN
+              syntax Value
+              syntax Value ::= "krypto" [function, hook(KRYPTO.keccak256), symbol(krypto)]
+                             | "hash" [function, hook(HASH.sha256), symbol(hash)]
+                             | "secp256k1" [function, hook(SECP256K1.ecdsaRecover), symbol(secp256k1)]
+            endmodule
+        "#;
+        let mut resolver = |_: &str, required: &str| Err(format!("unexpected require {required}"));
+        let loaded = load(
+            ResolvedSource::new("definition.k", source),
+            "MAIN",
+            &mut resolver,
+        )
+        .unwrap();
+
+        let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+
+        for (symbol, hook) in [
+            ("krypto", "KRYPTO.keccak256"),
+            ("hash", "HASH.sha256"),
+            ("secp256k1", "SECP256K1.ecdsaRecover"),
+        ] {
+            let symbol = crate::kompile::encode_kore_label(&crate::kast::Label::new(symbol)).name;
+            assert!(
+                artifacts
+                    .definition_kore
+                    .contains(&format!("hooked-symbol {symbol}")),
+                "{symbol} was not emitted as a hooked symbol:\n{}",
+                artifacts.definition_kore,
+            );
+            assert!(
+                artifacts
+                    .definition_kore
+                    .contains(&format!(r#"hook{{}}("{hook}")"#)),
+                "{symbol} did not retain its {hook} attribute",
+            );
+        }
+    }
+
     #[cfg(feature = "z3-inference")]
     #[test]
     fn emitted_symbolic_kore_internalizes_in_process() {
