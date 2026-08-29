@@ -2193,6 +2193,9 @@ mod tests {
             [label{}("TEST.step"), UNIQUE'Unds'ID{}("rule-id")]
         endmodule []"#;
 
+    // Accepted matrix gap: backend code 1 and SMT code 5 failures require deterministic fault
+    // injection. Their wire shapes are covered by the reference differential RPC corpus.
+
     fn service() -> RpcService {
         RpcService::new(BackendSession::new(
             parse_definition(DEFINITION).unwrap(),
@@ -2412,6 +2415,111 @@ mod tests {
         assert_eq!(missing["id"], "request-7");
         assert_eq!(missing["error"]["code"], -32601);
         assert_eq!(missing["error"]["data"], "missing");
+    }
+
+    #[test]
+    fn invalid_requests_report_the_reference_error_shape() {
+        let cases = vec![
+            ("empty batch", json!([]), None),
+            ("non-object", json!(42), Some(json!(42))),
+            (
+                "missing version",
+                json!({ "id": 1, "method": "execute" }),
+                Some(json!({ "id": 1, "method": "execute" })),
+            ),
+            (
+                "wrong version",
+                json!({ "jsonrpc": "1.0", "id": 1, "method": "execute" }),
+                Some(json!({ "jsonrpc": "1.0", "id": 1, "method": "execute" })),
+            ),
+            (
+                "missing method",
+                json!({ "jsonrpc": "2.0", "id": 1 }),
+                Some(json!({ "jsonrpc": "2.0", "id": 1 })),
+            ),
+            (
+                "object id",
+                json!({ "jsonrpc": "2.0", "id": {}, "method": "execute" }),
+                Some(json!({ "jsonrpc": "2.0", "id": {}, "method": "execute" })),
+            ),
+            (
+                "array id",
+                json!({ "jsonrpc": "2.0", "id": [], "method": "execute" }),
+                Some(json!({ "jsonrpc": "2.0", "id": [], "method": "execute" })),
+            ),
+        ];
+
+        for (name, message, expected_data) in cases {
+            let mut service = service();
+            let response: Value = serde_json::from_str(
+                &service
+                    .handle_line(&message.to_string())
+                    .unwrap_or_else(|| panic!("{name} must receive an error response")),
+            )
+            .unwrap();
+            assert_eq!(response["jsonrpc"], "2.0", "{name}");
+            assert_eq!(response["id"], Value::Null, "{name}");
+            assert_eq!(response["error"]["code"], -32600, "{name}");
+            assert_eq!(response["error"]["message"], "Invalid Request", "{name}");
+            assert_eq!(
+                response["error"].get("data"),
+                expected_data.as_ref(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_params_report_code_32602_for_every_method() {
+        let state = trivial_model_state();
+        let cases = vec![
+            ("simplify missing state", "simplify", json!({})),
+            ("simplify wrong state", "simplify", json!({ "state": 7 })),
+            (
+                "implies missing consequent",
+                "implies",
+                json!({ "antecedent": state.clone() }),
+            ),
+            (
+                "implies wrong consequent",
+                "implies",
+                json!({ "antecedent": state.clone(), "consequent": 7 }),
+            ),
+            ("add-module missing module", "add-module", json!({})),
+            (
+                "add-module wrong module",
+                "add-module",
+                json!({ "module": 7 }),
+            ),
+            ("get-model missing state", "get-model", json!({})),
+            ("get-model wrong state", "get-model", json!({ "state": 7 })),
+        ];
+
+        for (name, method, params) in cases {
+            let mut service = service();
+            let response = request(&mut service, 17, method, params.clone());
+            assert_eq!(response["id"], 17, "{name}");
+            assert_eq!(response["error"]["code"], -32602, "{name}");
+            assert_eq!(response["error"]["message"], "Invalid params", "{name}");
+            assert_eq!(response["error"]["data"], params, "{name}");
+        }
+    }
+
+    #[test]
+    fn unknown_param_keys_are_accepted_and_ignored() {
+        // This is serde's compatibility disposition and is cross-checked against kore-rpc by the
+        // differential RPC corpus.
+        let mut service = service();
+        let state = encode_kore(&parse_pattern("state{}()").unwrap()).unwrap();
+        let response = request(
+            &mut service,
+            1,
+            "execute",
+            json!({ "state": state, "max-depth": 0, "future-option": true }),
+        );
+
+        assert!(response.get("error").is_none(), "{response:#}");
+        assert_eq!(response["result"]["reason"], "depth-bound");
     }
 
     #[test]
@@ -3096,6 +3204,38 @@ mod tests {
     }
 
     #[test]
+    fn implication_internalized_sort_mismatch_is_a_pattern_fault() {
+        let definition = parse_definition(
+            r#"[]
+            module TEST
+              sort SortA{} []
+              sort SortB{} []
+              symbol a{}() : SortA{} [constructor{}()]
+              symbol b{}() : SortB{} [constructor{}()]
+            endmodule []"#,
+        )
+        .unwrap();
+        let mut service = RpcService::new(BackendSession::new(definition, "TEST"));
+        let antecedent = encode_kore(&parse_pattern("a{}()").unwrap()).unwrap();
+        let consequent = encode_kore(&parse_pattern("b{}()").unwrap()).unwrap();
+        let response = request(
+            &mut service,
+            1,
+            "implies",
+            json!({ "antecedent": antecedent, "consequent": consequent }),
+        );
+
+        assert_eq!(
+            response["error"],
+            json!({
+                "code": 2,
+                "message": "Could not verify pattern",
+                "data": "antecedent and consequent sorts differ",
+            })
+        );
+    }
+
+    #[test]
     fn protocol_parser_accepts_deep_json_without_serde_recursion_limits() {
         let depth = 300;
         let source = format!("{}null{}", "[".repeat(depth), "]".repeat(depth));
@@ -3135,6 +3275,36 @@ mod tests {
             service.handle_line(r#"[{"jsonrpc":"2.0","method":"cancel"}]"#),
             None
         );
+    }
+
+    #[test]
+    fn mixed_batches_answer_requests_in_order_and_skip_notifications() {
+        let mut service = service();
+        let batch = json!([
+            { "jsonrpc": "2.0", "id": "first", "method": "missing" },
+            { "jsonrpc": "2.0", "method": "missing-notification" },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "get-model",
+                "params": { "state": trivial_model_state() },
+            },
+        ]);
+        let response: Value = serde_json::from_str(
+            &service
+                .handle_line(&batch.to_string())
+                .expect("the requests in a mixed batch need responses"),
+        )
+        .unwrap();
+        let responses = response
+            .as_array()
+            .expect("batch response must be an array");
+
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0]["id"], "first");
+        assert_eq!(responses[0]["error"]["code"], -32601);
+        assert_eq!(responses[1]["id"], 2);
+        assert_eq!(responses[1]["result"]["satisfiable"], "Sat");
     }
 
     #[test]
@@ -3233,24 +3403,106 @@ mod tests {
     }
 
     #[test]
-    fn missing_requested_modules_use_the_reference_error_shape() {
-        let mut service = service();
-        let state = encode_kore(&parse_pattern("state{}()").unwrap()).unwrap();
-        let response = request(
-            &mut service,
-            1,
-            "execute",
-            json!({ "state": state, "module": "MISSING" }),
-        );
+    fn fault_responses_preserve_ids_of_every_scalar_type() {
+        for id in [json!("request-id"), json!(0), Value::Null] {
+            let mut invalid_params_service = service();
+            let invalid_params = request_with_id(
+                &mut invalid_params_service,
+                id.clone(),
+                "simplify",
+                json!({}),
+            );
 
-        assert_eq!(
-            response["error"],
-            json!({
-                "code": 3,
-                "message": "Could not find module",
-                "data": "MISSING",
-            })
-        );
+            let mut pattern_service = service();
+            let invalid_application = encode_kore(
+                &parse_pattern("state{}(next{}())").expect("invalid arity remains valid syntax"),
+            )
+            .unwrap();
+            let pattern = request_with_id(
+                &mut pattern_service,
+                id.clone(),
+                "execute",
+                json!({ "state": invalid_application }),
+            );
+
+            let mut missing_module_service = service();
+            let state = encode_kore(&parse_pattern("state{}()").unwrap()).unwrap();
+            let module = request_with_id(
+                &mut missing_module_service,
+                id.clone(),
+                "execute",
+                json!({ "state": state, "module": "MISSING" }),
+            );
+
+            let mut implication_service = implication_service();
+            let antecedent = encode_kore(&parse_pattern("X:S1{}").unwrap()).unwrap();
+            let consequent =
+                encode_kore(&parse_pattern(r#"\exists{SortK{}}(Y:SortK{}, Y:SortK{})"#).unwrap())
+                    .unwrap();
+            let implication = request_with_id(
+                &mut implication_service,
+                id.clone(),
+                "implies",
+                json!({ "antecedent": antecedent, "consequent": consequent }),
+            );
+
+            let mut invalid_module_service = service();
+            let invalid_module = request_with_id(
+                &mut invalid_module_service,
+                id.clone(),
+                "add-module",
+                json!({ "module": "module EXTRA import MISSING [] endmodule []" }),
+            );
+
+            for (name, response, code) in [
+                ("invalid params", invalid_params, -32602),
+                ("pattern", pattern, 2),
+                ("missing module", module, 3),
+                ("implication", implication, 4),
+                ("invalid module", invalid_module, 8),
+            ] {
+                assert_eq!(response["id"], id, "{name}");
+                assert_eq!(response["error"]["code"], code, "{name}, id {id}");
+            }
+        }
+    }
+
+    #[test]
+    fn missing_module_faults_cover_every_definition_consumer() {
+        let state = encode_kore(&parse_pattern("state{}()").unwrap()).unwrap();
+        let cases = [
+            (
+                "execute",
+                json!({ "state": state.clone(), "module": "MISSING" }),
+            ),
+            (
+                "simplify",
+                json!({ "state": state.clone(), "module": "MISSING" }),
+            ),
+            (
+                "implies",
+                json!({
+                    "antecedent": state.clone(),
+                    "consequent": state.clone(),
+                    "module": "MISSING",
+                }),
+            ),
+            ("get-model", json!({ "state": state, "module": "MISSING" })),
+        ];
+
+        for (method, params) in cases {
+            let mut service = service();
+            let response = request(&mut service, 1, method, params);
+            assert_eq!(
+                response["error"],
+                json!({
+                    "code": 3,
+                    "message": "Could not find module",
+                    "data": "MISSING",
+                }),
+                "{method}"
+            );
+        }
     }
 
     #[test]
@@ -3770,7 +4022,7 @@ mod tests {
     }
 
     #[test]
-    fn serves_multiple_newline_delimited_requests_on_one_socket() {
+    fn standalone_cancel_with_a_scalar_id_is_consumed_without_a_response() {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let address = listener.local_addr().unwrap();
         let service = Arc::new(Mutex::new(service()));
@@ -3782,7 +4034,7 @@ mod tests {
 
         let mut client = TcpStream::connect(address).unwrap();
         let messages = [
-            json!({ "jsonrpc": "2.0", "method": "cancel" }),
+            json!({ "jsonrpc": "2.0", "id": "swallowed-cancel", "method": "cancel" }),
             json!({ "jsonrpc": "2.0", "id": 1, "method": "missing" }),
             json!({
                 "jsonrpc": "2.0",
@@ -3806,7 +4058,7 @@ mod tests {
         assert_eq!(
             responses.len(),
             2,
-            "notifications must not receive a response"
+            "a standalone cancel must not receive a response even when it has an id"
         );
         assert_eq!(responses[0]["error"]["code"], -32601);
         assert_eq!(responses[1]["result"]["satisfiable"], "Sat");
@@ -3923,7 +4175,79 @@ mod tests {
         server.join().unwrap();
     }
 
+    #[test]
+    fn cancelling_a_batch_yields_a_batch_shaped_cancellation_response() {
+        let definition = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                    wrap{}(X:SortS{})
+                ) [label{}("loop"), UNIQUE'Unds'ID{}("loop")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let service = Arc::new(Mutex::new(RpcService::new(BackendSession::new(
+            definition, "MAIN",
+        ))));
+        let server_service = Arc::clone(&service);
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            serve_connection(stream, server_service).unwrap();
+        });
+
+        let mut client = TcpStream::connect(address).unwrap();
+        let mut responses = BufReader::new(client.try_clone().unwrap());
+        let state =
+            encode_kore(&parse_pattern(r#"wrap{}(\dv{SortS{}}("zero"))"#).unwrap()).unwrap();
+        writeln!(
+            client,
+            "{}",
+            json!([{
+                "jsonrpc": "2.0",
+                "id": "slow-batch-request",
+                "method": "execute",
+                "params": { "state": state },
+            }])
+        )
+        .unwrap();
+        thread::sleep(Duration::from_millis(10));
+        writeln!(
+            client,
+            "{}",
+            json!({ "jsonrpc": "2.0", "id": "cancel-command", "method": "cancel" })
+        )
+        .unwrap();
+
+        let mut line = String::new();
+        responses.read_line(&mut line).unwrap();
+        let cancelled: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(
+            cancelled,
+            json!([{
+                "jsonrpc": "2.0",
+                "id": "slow-batch-request",
+                "error": {
+                    "code": -32000,
+                    "message": "Request cancelled",
+                    "data": null,
+                },
+            }])
+        );
+
+        client.shutdown(Shutdown::Write).unwrap();
+        server.join().unwrap();
+    }
+
     fn request(service: &mut RpcService, id: u64, method: &str, params: Value) -> Value {
+        request_with_id(service, Value::from(id), method, params)
+    }
+
+    fn request_with_id(service: &mut RpcService, id: Value, method: &str, params: Value) -> Value {
         let request = json!({
             "jsonrpc": "2.0",
             "id": id,
