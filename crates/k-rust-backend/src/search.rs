@@ -691,6 +691,7 @@ mod tests {
     use std::{collections::BTreeSet, sync::Arc};
 
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+    use proptest::prelude::*;
 
     use super::*;
     use crate::{
@@ -768,6 +769,87 @@ mod tests {
                 ..SearchOptions::default()
             },
         )
+    }
+
+    fn search_types() -> impl Strategy<Value = SearchType> {
+        prop_oneof![
+            Just(SearchType::One),
+            Just(SearchType::Star),
+            Just(SearchType::Plus),
+            Just(SearchType::Final),
+        ]
+    }
+
+    proptest! {
+        #[test]
+        fn complete_result_bounded_state_search_agrees_with_unbounded_search(
+            search_type in search_types(),
+            max_depth in 0_u64..=4,
+            max_results in 0_usize..=7,
+        ) {
+            let definition = definition();
+            let options = SearchOptions {
+                search_type,
+                max_depth,
+                max_results: Some(max_results),
+                ..SearchOptions::default()
+            };
+            let bounded = search_graph(&definition, initial(&definition), options);
+            if bounded.incomplete.is_empty() {
+                let unbounded = search_graph(
+                    &definition,
+                    initial(&definition),
+                    SearchOptions {
+                        max_results: None,
+                        ..options
+                    },
+                );
+                prop_assert_eq!(names(&bounded), names(&unbounded));
+            }
+        }
+
+        #[test]
+        fn complete_result_bounded_pattern_search_agrees_with_unbounded_search(
+            search_type in search_types(),
+            max_depth in 0_u64..=4,
+            max_results in 0_usize..=7,
+        ) {
+            let definition = definition();
+            let result_variable = Variable::new("Result", Sort::simple("SortS"));
+            let target = Pattern {
+                term: Term::variable(result_variable.clone()),
+                constraints: Vec::new(),
+            };
+            let options = SearchOptions {
+                search_type,
+                max_depth,
+                max_results: Some(max_results),
+                ..SearchOptions::default()
+            };
+            let bounded = search_pattern(&definition, initial(&definition), &target, options);
+            if bounded.incomplete.is_empty() {
+                let unbounded = search_pattern(
+                    &definition,
+                    initial(&definition),
+                    &target,
+                    SearchOptions {
+                        max_results: None,
+                        ..options
+                    },
+                );
+                let values = |result: &PatternSearchResult| {
+                    result
+                        .matches
+                        .iter()
+                        .map(|found| match found.substitution[&result_variable].kind() {
+                            TermKind::Application { symbol, .. } => symbol.name.to_string(),
+                            other => panic!("expected an application, found {other:?}"),
+                        })
+                        .collect::<BTreeSet<_>>()
+                };
+                prop_assert_eq!(values(&bounded), values(&unbounded));
+            }
+        }
     }
 
     #[test]
