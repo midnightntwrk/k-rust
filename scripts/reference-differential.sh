@@ -2,10 +2,12 @@
 set -euo pipefail
 
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+source "$workspace/scripts/reference-pins.sh"
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
 imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
 wasm_checkout=${WASM_SEMANTICS_CHECKOUT:-"$workspace/wasm-semantics"}
 evm_checkout=${EVM_SEMANTICS_CHECKOUT:-"$workspace/evm-semantics"}
+evm_equivalence_checkout=${EVM_EQUIVALENCE_CHECKOUT:-"$workspace/evm-equivalence"}
 mir_checkout=${MIR_SEMANTICS_CHECKOUT:-"$workspace/mir-semantics"}
 kompile=${K_KOMPILE:-}
 memory_limit_kib=${REFERENCE_DIFFERENTIAL_MEMORY_KIB:-}
@@ -22,6 +24,8 @@ if [[ ! -d "$k_checkout/k-distribution/include/kframework/builtin" ]]; then
   echo "error: set K_CHECKOUT to the pinned K checkout (default: $workspace/k)" >&2
   exit 2
 fi
+reference_require_k_version "$kompile"
+reference_require_git_pin K "$k_checkout" "$K_REFERENCE_REVISION"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/k-rust-reference-differential.XXXXXX")
 if [[ "${REFERENCE_DIFFERENTIAL_KEEP_WORK:-0}" == 1 ]]; then
@@ -80,6 +84,25 @@ for fixture in "${cases[@]}"; do
     esac
     exit 2
   fi
+  case "$name" in
+    imp)
+      reference_require_git_pin IMP "$imp_checkout" "$IMP_REFERENCE_REVISION"
+      ;;
+    wasm)
+      reference_require_git_pin WASM "$wasm_checkout" "$WASM_REFERENCE_REVISION"
+      ;;
+    evm-equivalence)
+      reference_require_git_pin evm-equivalence "$evm_equivalence_checkout" \
+        "$EVM_EQUIVALENCE_REFERENCE_REVISION"
+      reference_require_git_pin KEVM "$evm_checkout" "$EVM_SEMANTICS_REFERENCE_REVISION"
+      reference_require_git_pin KEVM-plugin \
+        "$evm_checkout/kevm-pyk/src/kevm_pyk/kproj/plugin" \
+        "$EVM_PLUGIN_REFERENCE_REVISION"
+      ;;
+    mir)
+      reference_require_git_pin MIR "$mir_checkout" "$MIR_REFERENCE_REVISION"
+      ;;
+  esac
   reference="$work/$name/reference"
   rust="$work/$name/rust"
   mkdir -p "$reference" "$rust"

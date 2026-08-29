@@ -372,8 +372,9 @@ pub fn prove_claim(
             continue;
         }
 
+        let mut claim_indeterminate = None;
         if state.depth > 0 {
-            let mut claim_transition = None;
+            let mut applied_claim = None;
             for candidate in &definition.reachability_claims {
                 if candidate.mode != claim.mode {
                     continue;
@@ -389,43 +390,35 @@ pub fn prove_claim(
                 finish_if_timed_out!();
                 match transition {
                     ClaimApplication::NotApplicable => {}
-                    transition => {
-                        claim_transition = Some((candidate, transition));
+                    ClaimApplication::Applied(patterns) => {
+                        applied_claim = Some((candidate, patterns));
                         break;
                     }
+                    ClaimApplication::Indeterminate(reason) if claim_indeterminate.is_none() => {
+                        claim_indeterminate =
+                            Some((candidate.attributes.unique_id.clone(), reason));
+                    }
+                    ClaimApplication::Indeterminate(_) => {}
                 }
             }
-            if let Some((candidate, transition)) = claim_transition {
-                match transition {
-                    ClaimApplication::Applied(patterns) => {
-                        if extend_frontier(
-                            &mut pending,
-                            patterns.into_iter().map(|pattern| {
-                                state.clone().claimed(
-                                    pattern,
-                                    candidate.attributes.label.clone(),
-                                    candidate.attributes.unique_id.clone(),
-                                )
-                            }),
-                            options.breadth_limit,
-                        ) {
-                            return Ok(finish_at_breadth_limit(
-                                claim.mode,
-                                leaves,
-                                pending,
-                                explored_states,
-                            ));
-                        }
-                    }
-                    ClaimApplication::Indeterminate(reason) => {
-                        record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
-                            ProofIndeterminateReason::Claim {
-                                claim_id: candidate.attributes.unique_id.clone(),
-                                reason,
-                            },
-                        )));
-                    }
-                    ClaimApplication::NotApplicable => unreachable!(),
+            if let Some((candidate, patterns)) = applied_claim {
+                if extend_frontier(
+                    &mut pending,
+                    patterns.into_iter().map(|pattern| {
+                        state.clone().claimed(
+                            pattern,
+                            candidate.attributes.label.clone(),
+                            candidate.attributes.unique_id.clone(),
+                        )
+                    }),
+                    options.breadth_limit,
+                ) {
+                    return Ok(finish_at_breadth_limit(
+                        claim.mode,
+                        leaves,
+                        pending,
+                        explored_states,
+                    ));
                 }
                 continue;
             }
@@ -486,6 +479,11 @@ pub fn prove_claim(
             RewriteResult::Stuck(_) => {
                 let outcome = if implication_indeterminate {
                     ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication)
+                } else if let Some((claim_id, reason)) = claim_indeterminate {
+                    ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Claim {
+                        claim_id,
+                        reason,
+                    })
                 } else {
                     ProofLeafOutcome::Stuck
                 };
@@ -1669,6 +1667,91 @@ mod tests {
                 .map(|entry| entry.kind)
                 .collect::<Vec<_>>(),
             vec![TraceKind::Rewrite, TraceKind::Claim]
+        );
+    }
+
+    #[test]
+    fn prefers_an_applicable_claim_over_an_earlier_indeterminate_candidate() {
+        let definition = definition(
+            r#"
+            symbol opaque{}() : SortS{} [function{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()),
+                \and{SortS{}}(b{}(), \top{SortS{}}())
+            ) [label{}("a-to-b")]
+            "#,
+            r#"
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()),
+                weakAlwaysFinally{SortS{}}(c{}())
+            ) [label{}("main")]
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(opaque{}(), \top{SortS{}}()),
+                weakAlwaysFinally{SortS{}}(c{}())
+            ) [label{}("indeterminate")]
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(b{}(), \top{SortS{}}()),
+                weakAlwaysFinally{SortS{}}(c{}())
+            ) [label{}("applicable")]
+            "#,
+        );
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &NoSolver,
+        )
+        .expect("claim should execute");
+
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        assert!(result.leaves[0].trace.iter().any(|entry| {
+            entry.kind == TraceKind::Claim && entry.label.as_deref() == Some("applicable")
+        }));
+    }
+
+    #[test]
+    fn continues_rewriting_past_an_optional_indeterminate_claim() {
+        let definition = definition(
+            r#"
+            symbol opaque{}() : SortS{} [function{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()),
+                \and{SortS{}}(b{}(), \top{SortS{}}())
+            ) [label{}("a-to-b")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(b{}(), \top{SortS{}}()),
+                \and{SortS{}}(c{}(), \top{SortS{}}())
+            ) [label{}("b-to-c")]
+            "#,
+            r#"
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()),
+                weakAlwaysFinally{SortS{}}(c{}())
+            ) [label{}("main")]
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(opaque{}(), \top{SortS{}}()),
+                weakAlwaysFinally{SortS{}}(c{}())
+            ) [label{}("indeterminate")]
+            "#,
+        );
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &NoSolver,
+        )
+        .expect("claim should execute");
+
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        assert_eq!(
+            result.leaves[0]
+                .trace
+                .iter()
+                .filter(|entry| entry.kind == TraceKind::Rewrite)
+                .count(),
+            2
         );
     }
 

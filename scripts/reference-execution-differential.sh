@@ -2,6 +2,7 @@
 set -euo pipefail
 
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+source "$workspace/scripts/reference-pins.sh"
 imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
 kompile=${K_KOMPILE:-}
@@ -36,6 +37,9 @@ if [[ ! -f "$semantics" ]]; then
   echo "error: set IMP_SEMANTICS_CHECKOUT to the pinned IMP checkout" >&2
   exit 2
 fi
+reference_require_k_version "$kompile"
+reference_require_git_pin K "$k_checkout" "$K_REFERENCE_REVISION"
+reference_require_git_pin IMP "$imp_checkout" "$IMP_REFERENCE_REVISION"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/k-rust-reference-execution-differential.XXXXXX")
 trap 'rm -rf "$work"' EXIT

@@ -387,7 +387,7 @@ impl RpcService {
             _ => Err(RpcFault {
                 code: -32601,
                 message: "Method not found".into(),
-                data: None,
+                data: Some(Value::String(method.into())),
             }),
         };
         if cancellation_requested() {
@@ -686,15 +686,35 @@ impl RpcService {
                 condition.predicates.as_slice() == [Predicate::False]
                     && condition.substitution.is_empty()
             });
-        let antecedent = if vacuous_antecedent {
-            antecedent
+        let (antecedent, consequent) = if vacuous_antecedent {
+            (antecedent, consequent)
         } else {
-            normalized_implication_syntax(&antecedent, &antecedent_pattern)
-        };
-        let consequent = if vacuous_antecedent {
-            consequent
-        } else {
-            normalized_implication_syntax(&consequent, &consequent_pattern)
+            let simplified_antecedent = simplify_pattern_with_solver(
+                &definition,
+                &antecedent_pattern,
+                SimplificationOptions::default(),
+                &solver,
+            )
+            .map_err(|error| simplify_fault(error, &result_sort))?;
+            let simplified_consequent = simplify_pattern_with_solver(
+                &definition,
+                &consequent_pattern,
+                SimplificationOptions::default(),
+                &solver,
+            )
+            .map_err(|error| simplify_fault(error, &result_sort))?;
+            (
+                simplified_implication_syntax(
+                    &antecedent,
+                    &antecedent_pattern,
+                    &simplified_antecedent,
+                ),
+                simplified_implication_syntax(
+                    &consequent,
+                    &consequent_pattern,
+                    &simplified_consequent,
+                ),
+            )
         };
         implication_result(&antecedent, &consequent, &result_sort, result)
     }
@@ -1246,6 +1266,37 @@ fn normalized_implication_syntax(original: &KorePattern, pattern: &Pattern) -> K
         },
         _ => normalize_body(original, pattern),
     }
+}
+
+fn simplified_implication_syntax(
+    original: &KorePattern,
+    unsimplified: &Pattern,
+    simplified: &Pattern,
+) -> KorePattern {
+    if unsimplified.term == simplified.term {
+        return normalized_implication_syntax(original, simplified);
+    }
+
+    let mut result = externalize::constrained_pattern(simplified);
+    let mut binders = Vec::new();
+    let mut body = original;
+    while let KorePattern::Exists {
+        sort,
+        variable,
+        body: next,
+    } = body
+    {
+        binders.push((sort.clone(), variable.clone()));
+        body = next;
+    }
+    for (sort, variable) in binders.into_iter().rev() {
+        result = KorePattern::Exists {
+            sort,
+            variable,
+            body: Box::new(result),
+        };
+    }
+    result
 }
 
 fn validate_implication_variable_capture(
@@ -2098,6 +2149,28 @@ mod tests {
         ))
     }
 
+    fn simplifying_implication_service() -> RpcService {
+        RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[]
+                module TEST
+                  sort SortState{} []
+                  symbol initial{}() : SortState{} [function{}(), total{}()]
+                  symbol state{}() : SortState{} [constructor{}()]
+                  axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortState{}, R}(
+                      initial{}(),
+                      \and{SortState{}}(state{}(), \top{SortState{}}())
+                    )
+                  ) [label{}("init"), simplification{}()]
+                endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ))
+    }
+
     fn smt_implication_service() -> RpcService {
         RpcService::new(BackendSession::new(
             parse_definition(
@@ -2218,6 +2291,7 @@ mod tests {
         .unwrap();
         assert_eq!(missing["id"], "request-7");
         assert_eq!(missing["error"]["code"], -32601);
+        assert_eq!(missing["error"]["data"], "missing");
     }
 
     #[test]
@@ -2490,6 +2564,26 @@ mod tests {
         assert_eq!(substitution["tag"], "Equals");
         assert_eq!(substitution["first"]["name"], "X");
         assert_eq!(substitution["second"]["name"], "Z");
+    }
+
+    #[test]
+    fn implication_response_simplifies_function_terms() {
+        let mut service = simplifying_implication_service();
+        let initial = encode_kore(&parse_pattern("initial{}()").unwrap()).unwrap();
+        let response = request(
+            &mut service,
+            1,
+            "implies",
+            json!({
+                "antecedent": initial,
+                "consequent": initial,
+            }),
+        );
+        let implication = &response["result"]["implication"]["term"];
+
+        assert_eq!(response["result"]["status"], "valid");
+        assert_eq!(implication["first"]["name"], "state");
+        assert_eq!(implication["second"]["name"], "state");
     }
 
     #[test]

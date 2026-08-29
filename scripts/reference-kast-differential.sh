@@ -2,10 +2,12 @@
 set -euo pipefail
 
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+source "$workspace/scripts/reference-pins.sh"
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
 imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
 wasm_checkout=${WASM_SEMANTICS_CHECKOUT:-"$workspace/wasm-semantics"}
 evm_checkout=${EVM_SEMANTICS_CHECKOUT:-"$workspace/evm-semantics"}
+evm_equivalence_checkout=${EVM_EQUIVALENCE_CHECKOUT:-"$workspace/evm-equivalence"}
 mir_checkout=${MIR_SEMANTICS_CHECKOUT:-"$workspace/mir-semantics"}
 kompile=${K_KOMPILE:-}
 kast=${K_KAST:-}
@@ -30,6 +32,8 @@ if [[ ! -d "$k_checkout/k-distribution/include/kframework/builtin" ]]; then
   echo "error: set K_CHECKOUT to the pinned K checkout (default: $workspace/k)" >&2
   exit 2
 fi
+reference_require_k_version "$kompile"
+reference_require_git_pin K "$k_checkout" "$K_REFERENCE_REVISION"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/k-rust-reference-kast-differential.XXXXXX")
 trap 'rm -rf "$work"' EXIT
@@ -61,6 +65,25 @@ for fixture in "${cases[@]}"; do
     echo "error: missing $name semantics source: $source" >&2
     exit 2
   fi
+  case "$name" in
+    imp)
+      reference_require_git_pin IMP "$imp_checkout" "$IMP_REFERENCE_REVISION"
+      ;;
+    wasm)
+      reference_require_git_pin WASM "$wasm_checkout" "$WASM_REFERENCE_REVISION"
+      ;;
+    evm-equivalence)
+      reference_require_git_pin evm-equivalence "$evm_equivalence_checkout" \
+        "$EVM_EQUIVALENCE_REFERENCE_REVISION"
+      reference_require_git_pin KEVM "$evm_checkout" "$EVM_SEMANTICS_REFERENCE_REVISION"
+      reference_require_git_pin KEVM-plugin \
+        "$evm_checkout/kevm-pyk/src/kevm_pyk/kproj/plugin" \
+        "$EVM_PLUGIN_REFERENCE_REVISION"
+      ;;
+    mir)
+      reference_require_git_pin MIR "$mir_checkout" "$MIR_REFERENCE_REVISION"
+      ;;
+  esac
 
   reference="$work/$name/reference"
   mkdir -p "$reference"
@@ -110,6 +133,10 @@ for fixture in "${cases[@]}"; do
         'empty-function|ModuleDecl|(module (func))'
         'constant-function|ModuleDecl|(module (func (result i32) i32.const 1))'
         'instruction|Stmts|(i32.const 3)'
+        "upstream-memory|ModuleDecl|@$wasm_checkout/pykwasm/src/tests/integration/binary/memories.wat"
+        "upstream-function|ModuleDecl|@$wasm_checkout/pykwasm/src/tests/integration/binary/funcs.wat"
+        "upstream-globals|ModuleDecl|@$wasm_checkout/pykwasm/src/tests/integration/binary/globals.wat"
+        "upstream-exports|ModuleDecl|@$wasm_checkout/pykwasm/src/tests/integration/binary/exports.wat"
       )
       ;;
     evm-equivalence)
@@ -124,6 +151,8 @@ for fixture in "${cases[@]}"; do
         'type-id|Ty|ty(0)'
         'nop-statement|Statement|statement(statementKindNop, span(1))'
         'return-terminator|Terminator|terminator(terminatorKindReturn, span(2))'
+        "upstream-statement|Statement|@$mir_checkout/kmir/src/tests/integration/data/schema-parse/statement/reference.kmir"
+        "upstream-goto|Terminator|@$mir_checkout/kmir/src/tests/integration/data/schema-parse/terminatorgoto/reference.kmir"
       )
       ;;
   esac

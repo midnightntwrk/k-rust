@@ -401,6 +401,12 @@ The implementation is compared against these pinned references:
 | [`runtimeverification/mir-semantics`](https://github.com/runtimeverification/mir-semantics) | `4d793252bcd77091ee759ca6cd1629db41ed5496` |
 | [`runtimeverification/scala-kore`](https://github.com/runtimeverification/scala-kore) | `844214975c` (v0.3.3) |
 
+Reference gates enforce these Git revisions, reject tracked modifications, and require the
+reference executables to report K v7.1.337. Set `REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED=1` only for
+an explicit local comparison against a different revision. The EVM gates additionally accept
+`EVM_EQUIVALENCE_CHECKOUT` for the pinned consumer checkout and validate the pinned KEVM plugin
+submodule.
+
 The outer parser accepts 1,499 of the 1,504 `.k` files probed at the pinned commit. Four rejected
 files are intentional malformed-string tests; the fifth is a legacy `Token{...}` fixture also
 rejected by the pinned JavaCC grammar.
@@ -436,8 +442,9 @@ scripts/reference-differential.sh mir
 
 The program-parser differential gate parses semantics-specific terms through reference `kast` and
 `krust kast`, decodes their KAST JSON, and compares the terms structurally. It covers every upstream
-example accepted by the pinned IMP grammar, WebAssembly modules, functions and instructions,
-multiple EVM schedules, and MIR spans, types, statements and terminators. Each semantics also checks
+example accepted by the pinned IMP grammar, hand-written WebAssembly modules, functions and
+instructions plus four upstream `.wat` modules, multiple EVM schedules, and MIR spans, types,
+statements and terminators plus two upstream `.kmir` schema fixtures. Each semantics also checks
 that both parsers reject a malformed term; the IMP corpus additionally checks rejection agreement
 for the two upstream examples that use function syntax outside that grammar:
 
@@ -466,14 +473,29 @@ one Haskell capability. Rust execution remains capped at 6 GiB. Override these i
 intermittently fail during its temporary macro-expansion preprocessing; the gate retries that
 reference-only step up to `REFERENCE_EXECUTION_RETRIES` times (three by default).
 
-The proof differential gate checks concrete evaluation, an SMT-constrained claim, and symbolic
-branching with an ensures clause through both IMP provers:
+The proof differential gate checks eleven successful IMP claims spanning concrete evaluation,
+symbolic constraints, branching, cut-rule behavior, and an arithmetic loop lemma with its dependent
+program claim. It also requires both provers to reject the bounded-model counterexample claim rather
+than treating a non-success exit as an undifferentiated pass:
 
 ```console
 K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-proof-differential.sh
 ```
 
 It uses the same execution/proof memory controls.
+
+The JSON-RPC differential gate generates a real IMP configuration with the reference frontend and
+compares exact responses for one-step execution, simplification, implication, model lookup, dynamic
+module addition, and an unknown-method protocol error. The reference and Rust servers run
+sequentially so their memory footprints never overlap:
+
+```console
+K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-rpc-differential.sh
+```
+
+It uses the same 12 GiB reference and 6 GiB Rust ceilings as execution and proof validation. The
+reference Haskell server is restricted to one capability; non-threaded `kore-parser` and
+`kore-rpc-client` invocations deliberately run without that RTS flag.
 
 Execution and proof differential gates are intentionally limited to IMP at this pinned revision.
 The reference Haskell backend cannot execute the WASM definition because its hook set lacks
