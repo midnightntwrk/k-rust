@@ -8,6 +8,7 @@ kompile=${K_KOMPILE:-}
 krun=${K_KRUN:-}
 reference_memory_kib=${REFERENCE_EXECUTION_MEMORY_KIB:-12582912}
 rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}
+reference_retries=${REFERENCE_EXECUTION_RETRIES:-3}
 reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-'-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Dscala.concurrent.context.numThreads=4 -Dscala.concurrent.context.maxThreads=4'}
 
 if [[ -z "$kompile" ]]; then
@@ -39,6 +40,26 @@ fi
 work=$(mktemp -d "${TMPDIR:-/tmp}/k-rust-reference-execution-differential.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 
+run_reference_krun() {
+  local output=$1
+  shift
+  local attempt
+  for ((attempt = 1; attempt <= reference_retries; attempt++)); do
+    if (
+      ulimit -v "$reference_memory_kib"
+      export GHCRTS=${GHCRTS:--N1}
+      "$krun" "$@" >"$output"
+    ); then
+      return 0
+    fi
+    rm -f "$output"
+    if ((attempt < reference_retries)); then
+      echo "reference krun preprocessing failed; retrying ($attempt/$reference_retries)" >&2
+    fi
+  done
+  return 1
+}
+
 echo "[imp] compiling the reference Haskell definition"
 (
   ulimit -v "$reference_memory_kib"
@@ -65,16 +86,13 @@ for program in "${cases[@]}"; do
   fi
 
   echo "[imp:$program] executing with reference krun"
-  (
-    ulimit -v "$reference_memory_kib"
-    export GHCRTS=${GHCRTS:--N1}
-    "$krun" "$examples/$program" \
-      --definition "$work/kompiled" \
-      -cENV=.Map \
-      --depth 10000 \
-      --smt none \
-      --output kore >"$work/$program.reference.kore"
-  )
+  run_reference_krun "$work/$program.reference.kore" \
+    "$examples/$program" \
+    --definition "$work/kompiled" \
+    -cENV=.Map \
+    --depth 10000 \
+    --smt none \
+    --output kore
 
   echo "[imp:$program] executing with krust krun"
   (
@@ -99,4 +117,51 @@ for program in "${cases[@]}"; do
       executed_kore_matches_the_reference_backend
 done
 
-echo "reference IMP execution differential corpus passed"
+search_program=sumto10.imp
+search_cases=(
+  "one|--search-one-step|"
+  "star-depth-two|--search-all|2"
+)
+
+for fixture in "${search_cases[@]}"; do
+  IFS='|' read -r name mode depth <<<"$fixture"
+  depth_args=()
+  if [[ -n "$depth" ]]; then
+    depth_args=(--depth "$depth")
+  fi
+
+  echo "[imp:$search_program:$name] searching with reference krun"
+  run_reference_krun "$work/$search_program.$name.reference.kore" \
+    "$examples/$search_program" \
+    --definition "$work/kompiled" \
+    -cENV=.Map \
+    "$mode" \
+    "${depth_args[@]}" \
+    --smt none \
+    --output kore
+
+  echo "[imp:$search_program:$name] searching with krust krun"
+  (
+    ulimit -v "$rust_memory_kib"
+    cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" \
+      -p k-rust --bin krust -- \
+      krun "$semantics" \
+      --main-module IMP \
+      --sort Stmt \
+      "$examples/$search_program" \
+      -cENV=.Map \
+      "$mode" \
+      "${depth_args[@]}" \
+      --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin" \
+      >"$work/$search_program.$name.rust.kore"
+  )
+
+  echo "[imp:$search_program:$name] comparing search KORE"
+  K_REFERENCE_EXECUTION="$work/$search_program.$name.reference.kore" \
+    K_RUST_EXECUTION="$work/$search_program.$name.rust.kore" \
+    cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
+      -p k-rust --test reference_differential -- --ignored --exact \
+      executed_kore_matches_the_reference_backend
+done
+
+echo "reference IMP execution and search differential corpus passed"

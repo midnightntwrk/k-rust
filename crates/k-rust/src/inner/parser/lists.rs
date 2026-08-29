@@ -109,6 +109,7 @@ impl Grammar {
     ) -> Result<ParsedTerm, ParseError> {
         let subsorts = PartialOrder::new(self.subsort_relations.iter().cloned())
             .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
+        let term = self.wrap_list_child(term, expected, &subsorts)?;
         self.add_empty_lists_with_order(term, expected, &subsorts)
     }
 
@@ -120,14 +121,73 @@ impl Grammar {
     ) -> Result<ParsedTerm, ParseError> {
         match term {
             ParsedTerm::Term(_) => Ok(term),
-            ParsedTerm::Ambiguity(alternatives) => Ok(ParsedTerm::Ambiguity(
-                alternatives
-                    .into_iter()
-                    .map(|alternative| {
-                        self.add_empty_lists_with_order(alternative, expected, subsorts)
+            ParsedTerm::Ambiguity(alternatives) => {
+                // The temporary `ListSort ::= ElementSort` production and the real recursive
+                // list production can both recognize a singleton. With an overloaded empty-list
+                // terminator, the latter can itself have several equivalent tails. Java prefers
+                // the recursive singleton whose tail is that same list's own terminator. Preserve
+                // that representation when available so overloaded empty lists remain distinct
+                // from a concrete list's implicit singleton tail.
+                if self.program_list_terminators {
+                    let canonical_lists = self
+                        .user_lists
+                        .iter()
+                        .filter(|(list_sort, _)| subsorts.less_than_eq(list_sort, expected))
+                        .flat_map(|(_, list)| {
+                            alternatives.iter().filter(move |alternative| {
+                                let ParsedTerm::Production {
+                                    production,
+                                    children,
+                                    ..
+                                } = alternative
+                                else {
+                                    return false;
+                                };
+                                *production == list.list_production
+                                    && children.iter().any(|child| {
+                                        matches!(child, ParsedTerm::Production { production, .. } if *production == list.terminator_production)
+                                    })
+                            })
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    if let [canonical] = canonical_lists.as_slice() {
+                        return self.add_empty_lists_with_order(
+                            canonical.clone(),
+                            expected,
+                            subsorts,
+                        );
+                    }
+                }
+
+                // If the parser packed only the temporary singleton injection, reconstruct the
+                // unique compatible list once its enclosing expected sort is known.
+                let singleton_lists = self
+                    .user_lists
+                    .iter()
+                    .filter(|(list_sort, _)| subsorts.less_than_eq(list_sort, expected))
+                    .flat_map(|(list_sort, list)| {
+                        alternatives.iter().filter_map(move |alternative| {
+                            let sort = parsed_sort(self, alternative);
+                            (sort != *list_sort && subsorts.less_than_eq(&sort, &list.child_sort))
+                                .then(|| (list_sort, alternative))
+                        })
                     })
-                    .collect::<Result<_, _>>()?,
-            )),
+                    .collect::<Vec<_>>();
+                if let [(list_sort, singleton)] = singleton_lists.as_slice() {
+                    let wrapped =
+                        self.wrap_list_child((*singleton).clone(), list_sort, subsorts)?;
+                    return self.add_empty_lists_with_order(wrapped, expected, subsorts);
+                }
+                Ok(ParsedTerm::Ambiguity(
+                    alternatives
+                        .into_iter()
+                        .map(|alternative| {
+                            self.add_empty_lists_with_order(alternative, expected, subsorts)
+                        })
+                        .collect::<Result<_, _>>()?,
+                ))
+            }
             ParsedTerm::Production {
                 production,
                 children,
@@ -299,21 +359,26 @@ impl Grammar {
         let list_sort = least.first().expect("length was checked above");
         let list = &self.user_lists[list_sort];
 
-        let terminator_candidates = self
-            .user_lists
-            .keys()
-            .filter(|sort| subsorts.less_than_eq(sort, expected))
-            .cloned()
-            .collect::<BTreeSet<_>>();
-        let least_terminators = subsorts.minimal(terminator_candidates.iter());
-        if least_terminators.len() != 1 {
-            return Err(ParseError::ListTerminator {
-                possible_sorts: least_terminators.into_iter().collect(),
-            });
-        }
-        let terminator_sort = least_terminators.first().expect("length was checked above");
+        let terminator_production = if self.program_list_terminators {
+            list.terminator_production
+        } else {
+            let terminator_candidates = self
+                .user_lists
+                .keys()
+                .filter(|sort| subsorts.less_than_eq(sort, expected))
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            let least_terminators = subsorts.minimal(terminator_candidates.iter());
+            if least_terminators.len() != 1 {
+                return Err(ParseError::ListTerminator {
+                    possible_sorts: least_terminators.into_iter().collect(),
+                });
+            }
+            let terminator_sort = least_terminators.first().expect("length was checked above");
+            self.user_lists[terminator_sort].terminator_production
+        };
         let terminator = ParsedTerm::Production {
-            production: self.user_lists[terminator_sort].terminator_production,
+            production: terminator_production,
             children: Vec::new(),
             metadata: super::TermMetadata::default(),
         };
@@ -491,7 +556,7 @@ mod tests {
     }
 
     #[test]
-    fn reports_ambiguous_list_and_terminator_sorts() {
+    fn distinguishes_rule_and_program_list_terminators() {
         let atom = production(
             "Atom",
             vec![ProductionItem::Terminal("atom".into())],
@@ -572,5 +637,30 @@ mod tests {
                 possible_sorts: vec![Sort::new("Firsts"), Sort::new("Seconds")],
             }
         );
+
+        let mut program_terminators = ambiguous_terminators.clone();
+        program_terminators.program_list_terminators = true;
+        let selected_terminator = program_terminators
+            .add_empty_lists(held_atom(&program_terminators), &Sort::new("Holder"))
+            .expect("the program parser uses the selected list's own terminator");
+        let ParsedTerm::Production { children, .. } = selected_terminator else {
+            panic!("holder should remain a production");
+        };
+        let ParsedTerm::Production {
+            production,
+            children,
+            ..
+        } = &children[0]
+        else {
+            panic!("holder child should be the selected list");
+        };
+        assert_eq!(
+            *production,
+            program_terminators.user_lists[&Sort::new("Firsts")].list_production
+        );
+        assert!(children.iter().any(|child| {
+            matches!(child, ParsedTerm::Production { production, .. }
+                if *production == program_terminators.user_lists[&Sort::new("Firsts")].terminator_production)
+        }));
     }
 }

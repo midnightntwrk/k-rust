@@ -338,6 +338,7 @@ pub struct Grammar {
     syntactic_subsort_relations: BTreeSet<(Sort, Sort)>,
     overloads: PartialOrder<ProductionId>,
     user_lists: BTreeMap<Sort, UserList>,
+    program_list_terminators: bool,
     productive_unary_cycles: BTreeSet<usize>,
 }
 
@@ -354,6 +355,7 @@ impl Default for Grammar {
             syntactic_subsort_relations: BTreeSet::new(),
             overloads: PartialOrder::new([]).expect("an empty relation is acyclic"),
             user_lists: BTreeMap::new(),
+            program_list_terminators: false,
             productive_unary_cycles: BTreeSet::new(),
         }
     }
@@ -490,6 +492,9 @@ impl Grammar {
             priorities,
             associativities,
             overloads: overload_order,
+            // Reference K's program parser preserves a concrete singleton list's own
+            // terminator, while its rule parser uses the least overloaded terminator.
+            program_list_terminators: remap_overloads_to_source,
             ..Self::default()
         };
         for sentence in &sentences {
@@ -744,12 +749,17 @@ impl Grammar {
         let inferred = self.infer_sorts(forest, start, is_anywhere)?;
         let resolved = self.resolve_overloaded_terminators(inferred)?;
         let filtered = self.filter_overloads_prefer_avoid(resolved);
-        let parses = Grammar::ambiguity_count(&filtered);
+        // Singleton user-list parses can remain represented as either an element injection or a
+        // recursive list with one of several equivalent empty terminators. Reconstructing lists
+        // before the final ambiguity count collapses those metadata-only alternatives, matching
+        // Java's post-inference list handling.
+        let listed = self.add_empty_lists(filtered, start)?;
+        let cleaned = self.remove_brackets_and_syntactic_casts(listed);
+        let cleaned = self.factor_ambiguities(cleaned);
+        let parses = Grammar::ambiguity_count(&cleaned);
         if parses > 1 {
             Err(ParseError::Ambiguous { parses })
         } else {
-            let listed = self.add_empty_lists(filtered, start)?;
-            let cleaned = self.remove_brackets_and_syntactic_casts(listed);
             Ok(self.lower(cleaned))
         }
     }

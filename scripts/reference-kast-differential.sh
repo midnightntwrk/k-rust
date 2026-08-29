@@ -96,24 +96,79 @@ for fixture in "${cases[@]}"; do
       --warnings none
   )
 
-  echo "[$name] parsing with reference kast"
-  (
-    if [[ -n "$memory_limit_kib" ]]; then
-      ulimit -v "$memory_limit_kib"
-    fi
-    if [[ -n "$reference_k_opts" ]]; then
-      export K_OPTS="$reference_k_opts"
-    fi
-    "$kast" \
-      --definition "$reference/kompiled" \
-      --module "$parser_module" \
-      --sort "$sort" \
-      --expression "$expression" \
-      --output json \
-      --warnings none >"$work/$name/reference.json"
-  )
+  parse_cases=("smoke|$sort|$expression")
+  case "$name" in
+    imp)
+      for program_name in dangling-else.imp gcd-while.imp sumto10.imp while-and-following.imp; do
+        program="$imp_checkout/examples/$program_name"
+        parse_cases+=("$(basename "$program")|Stmt|@$program")
+      done
+      ;;
+    wasm)
+      parse_cases+=(
+        'named-module|ModuleDecl|(module $m)'
+        'empty-function|ModuleDecl|(module (func))'
+        'constant-function|ModuleDecl|(module (func (result i32) i32.const 1))'
+        'instruction|Stmts|(i32.const 3)'
+      )
+      ;;
+    evm-equivalence)
+      parse_cases+=(
+        'berlin|Schedule|BERLIN'
+        'shanghai|Schedule|SHANGHAI'
+      )
+      ;;
+    mir)
+      parse_cases+=(
+        'negative-span|Span|span(-1)'
+        'type-id|Ty|ty(0)'
+        'nop-statement|Statement|statement(statementKindNop, span(1))'
+        'return-terminator|Terminator|terminator(terminatorKindReturn, span(2))'
+      )
+      ;;
+  esac
 
-  echo "[$name] parsing with krust kast"
+  rust_batch_args=()
+  for parse_fixture in "${parse_cases[@]}"; do
+    IFS='|' read -r parse_name parse_sort parse_expression <<<"$parse_fixture"
+    if [[ "$parse_expression" == @* ]]; then
+      parse_expression=$(<"${parse_expression#@}")
+    fi
+    echo "[$name:$parse_name] parsing with reference kast"
+    (
+      if [[ -n "$memory_limit_kib" ]]; then
+        ulimit -v "$memory_limit_kib"
+      fi
+      if [[ -n "$reference_k_opts" ]]; then
+        export K_OPTS="$reference_k_opts"
+      fi
+      "$kast" \
+        --definition "$reference/kompiled" \
+        --module "$parser_module" \
+        --sort "$parse_sort" \
+        --expression "$parse_expression" \
+        --output json \
+        --warnings none >"$work/$name/reference-$parse_name.json"
+    )
+    rust_batch_args+=(--batch-case "$parse_name" "$parse_sort" "$parse_expression")
+  done
+
+  rejected_cases=("smoke|$sort|$rejected_expression")
+  if [[ "$name" == imp ]]; then
+    rejected_cases+=(
+      "gcd.imp|Stmt|@$imp_checkout/examples/gcd.imp"
+      "sumrec10.imp|Stmt|@$imp_checkout/examples/sumrec10.imp"
+    )
+  fi
+  for rejected_fixture in "${rejected_cases[@]}"; do
+    IFS='|' read -r rejected_name rejected_sort rejected_case <<<"$rejected_fixture"
+    if [[ "$rejected_case" == @* ]]; then
+      rejected_case=$(<"${rejected_case#@}")
+    fi
+    rust_batch_args+=(--batch-reject-case "$rejected_name" "$rejected_sort" "$rejected_case")
+  done
+
+  echo "[$name] parsing the corpus with one krust kast frontend session"
   (
     if [[ -n "$memory_limit_kib" ]]; then
       ulimit -v "$memory_limit_kib"
@@ -121,61 +176,52 @@ for fixture in "${cases[@]}"; do
     cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust -- \
       kast "$source" \
       --module "$parser_module" \
-      --sort "$sort" \
-      --expression "$expression" \
+      "${rust_batch_args[@]}" \
       --output json \
       --backend rust \
       "${include_args[@]}" \
       "${selector_args[@]}" \
       --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin" \
-      >"$work/$name/rust.json"
+      >"$work/$name/rust-batch.json"
   )
 
-  echo "[$name] comparing structural KAST"
-  K_REFERENCE_KAST="$work/$name/reference.json" \
-    K_RUST_KAST="$work/$name/rust.json" \
-    cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
-      -p k-rust --test reference_differential -- --ignored --exact \
-      parsed_kast_matches_the_reference_frontend
+  for parse_fixture in "${parse_cases[@]}"; do
+    IFS='|' read -r parse_name _ <<<"$parse_fixture"
+    echo "[$name:$parse_name] comparing structural KAST"
+    K_REFERENCE_KAST="$work/$name/reference-$parse_name.json" \
+      K_RUST_KAST="$work/$name/rust-batch.json" \
+      K_RUST_KAST_CASE="$parse_name" \
+      cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
+        -p k-rust --test reference_differential -- --ignored --exact \
+        parsed_kast_matches_the_reference_frontend
+  done
 
-  echo "[$name] checking rejection agreement"
-  if (
-    if [[ -n "$memory_limit_kib" ]]; then
-      ulimit -v "$memory_limit_kib"
+  for rejected_fixture in "${rejected_cases[@]}"; do
+    IFS='|' read -r rejected_name rejected_sort rejected_case <<<"$rejected_fixture"
+    if [[ "$rejected_case" == @* ]]; then
+      rejected_case=$(<"${rejected_case#@}")
     fi
-    if [[ -n "$reference_k_opts" ]]; then
-      export K_OPTS="$reference_k_opts"
+    echo "[$name:$rejected_name] checking rejection agreement"
+    if (
+      if [[ -n "$memory_limit_kib" ]]; then
+        ulimit -v "$memory_limit_kib"
+      fi
+      if [[ -n "$reference_k_opts" ]]; then
+        export K_OPTS="$reference_k_opts"
+      fi
+      "$kast" \
+        --definition "$reference/kompiled" \
+        --module "$parser_module" \
+        --sort "$rejected_sort" \
+        --expression "$rejected_case" \
+        --output json \
+        --warnings none >"$work/$name/reference-rejected-$rejected_name.json" \
+        2>"$work/$name/reference-rejected-$rejected_name.log"
+    ); then
+      echo "error: reference kast unexpectedly accepted $name:$rejected_name rejection fixture" >&2
+      exit 1
     fi
-    "$kast" \
-      --definition "$reference/kompiled" \
-      --module "$parser_module" \
-      --sort "$sort" \
-      --expression "$rejected_expression" \
-      --output json \
-      --warnings none >"$work/$name/reference-rejected.json" 2>"$work/$name/reference-rejected.log"
-  ); then
-    echo "error: reference kast unexpectedly accepted $name rejection fixture" >&2
-    exit 1
-  fi
-  if (
-    if [[ -n "$memory_limit_kib" ]]; then
-      ulimit -v "$memory_limit_kib"
-    fi
-    cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust -- \
-      kast "$source" \
-      --module "$parser_module" \
-      --sort "$sort" \
-      --expression "$rejected_expression" \
-      --output json \
-      --backend rust \
-      "${include_args[@]}" \
-      "${selector_args[@]}" \
-      --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin" \
-      >"$work/$name/rust-rejected.json" 2>"$work/$name/rust-rejected.log"
-  ); then
-    echo "error: krust kast unexpectedly accepted $name rejection fixture" >&2
-    exit 1
-  fi
+  done
 done
 
 if (($# && selected_count != $#)); then

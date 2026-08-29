@@ -48,7 +48,18 @@ fn parsed_kast_matches_the_reference_frontend() {
     let reference_source = fs::read_to_string(&reference_path).unwrap();
     let actual_source = fs::read_to_string(&actual_path).unwrap();
     let reference = kast_json::from_str(&reference_source).unwrap();
-    let actual = kast_json::from_str(&actual_source).unwrap();
+    let actual = if let Ok(case) = env::var("K_RUST_KAST_CASE") {
+        let batch: serde_json::Value = serde_json::from_str(&actual_source).unwrap();
+        let encoded = serde_json::to_string(
+            batch
+                .get(&case)
+                .unwrap_or_else(|| panic!("KAST batch output has no case {case:?}")),
+        )
+        .unwrap();
+        kast_json::from_str(&encoded).unwrap()
+    } else {
+        kast_json::from_str(&actual_source).unwrap()
+    };
 
     assert_eq!(reference, actual);
 }

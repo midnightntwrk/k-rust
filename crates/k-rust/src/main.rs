@@ -188,8 +188,36 @@ struct KastArgs {
     module: String,
 
     /// Start sort for the program parser.
-    #[arg(short = 's', long, value_name = "SORT")]
-    sort: String,
+    #[arg(
+        short = 's',
+        long,
+        value_name = "SORT",
+        required_unless_present_any = ["batch_case", "batch_reject_case"],
+        conflicts_with_all = ["batch_case", "batch_reject_case"]
+    )]
+    sort: Option<String>,
+
+    /// Parse one named case in a shared frontend session; may be repeated.
+    #[arg(
+        long,
+        num_args = 3,
+        value_names = ["NAME", "SORT", "PROGRAM"],
+        action = clap::ArgAction::Append,
+        allow_hyphen_values = true,
+        conflicts_with_all = ["expression", "program_file"]
+    )]
+    batch_case: Vec<String>,
+
+    /// Require one named case to be rejected in the shared frontend session; may be repeated.
+    #[arg(
+        long,
+        num_args = 3,
+        value_names = ["NAME", "SORT", "PROGRAM"],
+        action = clap::ArgAction::Append,
+        allow_hyphen_values = true,
+        conflicts_with_all = ["expression", "program_file"]
+    )]
+    batch_reject_case: Vec<String>,
 
     /// Parse this program text instead of reading a file or standard input.
     #[arg(
@@ -202,7 +230,10 @@ struct KastArgs {
     expression: Option<String>,
 
     /// Program file to parse, or `-` for standard input.
-    #[arg(value_name = "PROGRAM_FILE")]
+    #[arg(
+        value_name = "PROGRAM_FILE",
+        conflicts_with_all = ["batch_case", "batch_reject_case"]
+    )]
     program_file: Option<PathBuf>,
 
     /// KAST output format.
@@ -667,11 +698,20 @@ impl From<ExecutionStrategyArg> for ExecutionMode {
 #[derive(Debug)]
 struct KastOptions {
     common: CommonOptions,
-    sort: String,
+    sort: Option<String>,
+    batch_cases: Vec<KastBatchCase>,
+    batch_reject_cases: Vec<KastBatchCase>,
     expression: Option<String>,
     program_file: Option<PathBuf>,
     output: OutputFormat,
     backend: Option<CompilationBackend>,
+}
+
+#[derive(Debug)]
+struct KastBatchCase {
+    name: String,
+    sort: String,
+    expression: String,
 }
 
 #[derive(Debug)]
@@ -799,11 +839,25 @@ impl From<KcompileArgs> for KcompileOptions {
 
 impl From<KastArgs> for KastOptions {
     fn from(arguments: KastArgs) -> Self {
+        let collect_cases = |values: Vec<String>| {
+            values
+                .chunks_exact(3)
+                .map(|case| KastBatchCase {
+                    name: case[0].clone(),
+                    sort: case[1].clone(),
+                    expression: case[2].clone(),
+                })
+                .collect()
+        };
+        let batch_cases = collect_cases(arguments.batch_case);
+        let batch_reject_cases = collect_cases(arguments.batch_reject_case);
         Self {
             common: arguments
                 .source
                 .common(arguments.definition, arguments.module),
             sort: arguments.sort,
+            batch_cases,
+            batch_reject_cases,
             expression: arguments.expression,
             program_file: arguments.program_file,
             output: arguments.output,
@@ -1047,9 +1101,40 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
     {
         return Err("definition checks failed".into());
     }
-    let source = read_program_source(options.expression, options.program_file)?;
-    let sort = parse_sort(&options.sort)?;
     let parser = ProgramParser::from_resolved(&loaded.resolved, &options.common.module)?;
+    if !options.batch_cases.is_empty() || !options.batch_reject_cases.is_empty() {
+        if options.output != OutputFormat::Json {
+            return Err("KAST batch mode requires --output json".into());
+        }
+        let mut output = serde_json::Map::new();
+        for case in options.batch_cases {
+            let sort = parse_sort(&case.sort)
+                .map_err(|error| format!("KAST batch case {:?}: {error}", case.name))?;
+            let term = parser
+                .parse(&sort, &case.expression)
+                .map_err(|error| format!("KAST batch case {:?}: {error}", case.name))?;
+            let encoded: serde_json::Value =
+                serde_json::from_str(&kast_json::to_string_pretty(&term)?)?;
+            if output.insert(case.name.clone(), encoded).is_some() {
+                return Err(format!("duplicate KAST batch case name {:?}", case.name).into());
+            }
+        }
+        for case in options.batch_reject_cases {
+            let sort = parse_sort(&case.sort)
+                .map_err(|error| format!("KAST rejection batch case {:?}: {error}", case.name))?;
+            if parser.parse(&sort, &case.expression).is_ok() {
+                return Err(format!(
+                    "KAST rejection batch case {:?} was unexpectedly accepted",
+                    case.name
+                )
+                .into());
+            }
+        }
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        return Ok(());
+    }
+    let source = read_program_source(options.expression, options.program_file)?;
+    let sort = parse_sort(options.sort.as_deref().expect("clap requires --sort"))?;
     let term = parser.parse(&sort, &source)?;
     match options.output {
         OutputFormat::Text => println!("{}", KastPrinter::new().print_term(&term)),
@@ -1857,7 +1942,8 @@ fn run_backend(
         let target = match search.pattern {
             Some(path) => load_backend_pattern(backend, &path, "search")?,
             None => Pattern {
-                term: Term::variable(Variable::new("Result", initial.term.sort())),
+                // Match the default search variable emitted by reference K's `krun`.
+                term: Term::variable(Variable::new("VarResult", initial.term.sort())),
                 constraints: Vec::new(),
             },
         };
@@ -2676,10 +2762,52 @@ mod tests {
         assert_eq!(options.common.definition, Path::new("definition.k"));
         assert_eq!(options.common.module, "MAIN");
         assert_eq!(options.common.includes, [PathBuf::from("builtins")]);
-        assert_eq!(options.sort, "Exp");
+        assert_eq!(options.sort.as_deref(), Some("Exp"));
+        assert!(options.batch_cases.is_empty());
+        assert!(options.batch_reject_cases.is_empty());
         assert_eq!(options.expression.as_deref(), Some("1 + 2"));
         assert_eq!(options.output, OutputFormat::Json);
         assert_eq!(options.backend, None);
+    }
+
+    #[test]
+    fn parses_kast_batch_cases() {
+        let cli = Cli::try_parse_from([
+            "krust",
+            "kast",
+            "definition.k",
+            "--module",
+            "MAIN",
+            "--batch-case",
+            "one",
+            "Exp",
+            "1",
+            "--batch-case",
+            "sum",
+            "Exp",
+            "1 + 2",
+            "--batch-reject-case",
+            "bad",
+            "Exp",
+            "+",
+            "--output",
+            "json",
+        ])
+        .unwrap();
+        let Command::Kast(options) = cli.command else {
+            panic!("expected kast command");
+        };
+        let options = KastOptions::from(options);
+        assert_eq!(options.sort, None);
+        assert_eq!(options.batch_cases.len(), 2);
+        assert_eq!(options.batch_cases[0].name, "one");
+        assert_eq!(options.batch_cases[0].sort, "Exp");
+        assert_eq!(options.batch_cases[0].expression, "1");
+        assert_eq!(options.batch_cases[1].name, "sum");
+        assert_eq!(options.batch_cases[1].expression, "1 + 2");
+        assert_eq!(options.batch_reject_cases.len(), 1);
+        assert_eq!(options.batch_reject_cases[0].name, "bad");
+        assert_eq!(options.batch_reject_cases[0].expression, "+");
     }
 
     #[test]

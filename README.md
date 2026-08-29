@@ -151,6 +151,10 @@ krust kast definition.k --module MAIN --sort Exp --expression '1 + 2'
 krust kast definition.k --module MAIN --sort Exp program.exp --output json
 ```
 
+Large test corpora can share one definition load by repeating
+`--batch-case NAME SORT PROGRAM`; add `--batch-reject-case NAME SORT PROGRAM` for inputs that must
+fail. Batch mode requires `--output json` and returns an object keyed by case name.
+
 Pass `--backend rust` or `--backend llvm` to exclude modules for the same symbolic or concrete
 definition view used by backend compilation.
 
@@ -430,10 +434,12 @@ REFERENCE_DIFFERENTIAL_K_OPTS='-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedC
 scripts/reference-differential.sh mir
 ```
 
-The program-parser differential gate parses small semantics-specific terms through reference
-`kast` and `krust kast`, decodes their KAST JSON, and compares the terms structurally. It covers an
-IMP assignment, an empty WebAssembly module, an EVM schedule, and a MIR span. Each case also checks
-that both parsers reject a malformed term:
+The program-parser differential gate parses semantics-specific terms through reference `kast` and
+`krust kast`, decodes their KAST JSON, and compares the terms structurally. It covers every upstream
+example accepted by the pinned IMP grammar, WebAssembly modules, functions and instructions,
+multiple EVM schedules, and MIR spans, types, statements and terminators. Each semantics also checks
+that both parsers reject a malformed term; the IMP corpus additionally checks rejection agreement
+for the two upstream examples that use function syntax outside that grammar:
 
 ```console
 K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-kast-differential.sh
@@ -441,10 +447,13 @@ scripts/reference-kast-differential.sh imp wasm evm-equivalence mir  # selected 
 ```
 
 It accepts the same checkout and memory-limit environment variables as the structural KORE gate.
+All positive and negative Rust cases for one semantics share a single frontend session, avoiding
+repeated large-definition loads.
 
 The execution differential gate compiles IMP for the reference Haskell backend once, executes three
 upstream programs through both backends, and compares their terminal KORE configurations
-structurally:
+structurally. It also compares the exact one-step search result and the set of states reachable
+through depth two, catching intermediate-state differences that terminal execution can hide:
 
 ```console
 K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-execution-differential.sh
@@ -453,7 +462,9 @@ K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-execution-differential.s
 Reference Haskell validation needs more virtual address space than Java compilation alone, so this
 gate defaults to a 12 GiB address-space ceiling while retaining the 2 GiB JVM heap above and forcing
 one Haskell capability. Rust execution remains capped at 6 GiB. Override these independently with
-`REFERENCE_EXECUTION_MEMORY_KIB` and `RUST_DIFFERENTIAL_MEMORY_KIB`.
+`REFERENCE_EXECUTION_MEMORY_KIB` and `RUST_DIFFERENTIAL_MEMORY_KIB`. The pinned `krun` launcher can
+intermittently fail during its temporary macro-expansion preprocessing; the gate retries that
+reference-only step up to `REFERENCE_EXECUTION_RETRIES` times (three by default).
 
 The proof differential gate checks concrete evaluation, an SMT-constrained claim, and symbolic
 branching with an ensures clause through both IMP provers:

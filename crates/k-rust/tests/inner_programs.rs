@@ -67,6 +67,65 @@ fn deduplicates_overloaded_empty_list_parses_after_terminator_resolution() {
         .expect("metadata-only parse duplicates should collapse");
 }
 
+#[test]
+fn parses_a_function_with_adjacent_empty_user_lists() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax OptionalId ::= "" [symbol(.Identifier)]
+              syntax TypeDecl
+              syntax TypeDecl ::= "(" "result" "i32" ")"
+              syntax TypeDecls ::= List{TypeDecl, ""}
+                [symbol(listTypeDecl), terminator-symbol(".List{\"listTypeDecl\"}")]
+              syntax TypeUse ::= TypeDecls
+              syntax LocalDecl
+              syntax LocalDecls ::= List{LocalDecl, ""}
+                [symbol(listLocalDecl), terminator-symbol(".List{\"listLocalDecl\"}")]
+              syntax EmptyStmt
+              syntax Instr ::= EmptyStmt
+              syntax Instr ::= "i32.const" WasmInt [symbol(i32const)]
+              syntax WasmInt ::= r"[0-9]+" [token]
+              syntax Defn ::= EmptyStmt
+              syntax Stmt ::= Instr | Defn
+              syntax EmptyStmts ::= List{EmptyStmt, ""}
+                [overload(listStmt), terminator-symbol(".List{\"listStmt\"}")]
+              syntax Instrs ::= List{Instr, ""} [overload(listStmt)]
+              syntax Defns ::= List{Defn, ""} [overload(listStmt)]
+              syntax Stmts ::= List{Stmt, ""} [overload(listStmt)]
+              syntax Instrs ::= EmptyStmts
+              syntax Defns ::= EmptyStmts
+              syntax Stmts ::= Instrs | Defns
+              syntax FuncDefn ::= "(" "func" OptionalId FuncSpec ")"
+              syntax FuncSpec ::= TypeUse LocalDecls Instrs
+              syntax Defn ::= FuncDefn
+              syntax ModuleDecl ::= "(" "module" OptionalId Defns ")"
+            endmodule
+        "#},
+        "MAIN",
+    );
+
+    parse_program(
+        &definition,
+        "MAIN",
+        &Sort::new("ModuleDecl"),
+        "(module (func))",
+    )
+    .expect("adjacent empty lists should have the same unique parse as reference K");
+
+    parse_program(
+        &definition,
+        "MAIN",
+        &Sort::new("ModuleDecl"),
+        "(module (func (result i32) i32.const 1))",
+    )
+    .expect("a singleton type and instruction list should match reference K");
+
+    let instruction_list = parse_program(&definition, "MAIN", &Sort::new("Stmts"), "i32.const 1")
+        .expect("a root singleton should be reconstructed as its most specific list")
+        .to_string();
+    assert!(instruction_list.contains(".List"), "{instruction_list}");
+}
+
 macro_rules! program_snapshot {
     ($name:ident, $definition:expr, $module:expr, $sort:expr, $program:expr) => {
         #[test]

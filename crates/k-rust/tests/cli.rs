@@ -110,6 +110,46 @@ fn kast_parses_a_program_as_text_and_json() {
 }
 
 #[test]
+fn kast_parses_and_rejects_a_batch_with_one_frontend_load() {
+    let (root, definition) = fixture();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kast",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--batch-case",
+            "integer",
+            "Exp",
+            "42",
+            "--batch-case",
+            "addition",
+            "Exp",
+            "1 + 2",
+            "--batch-reject-case",
+            "malformed",
+            "Exp",
+            "+",
+            "--output",
+            "json",
+            "--no-prelude",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["integer"]["term"]["token"], "42");
+    assert_eq!(value["addition"]["term"]["node"], "KApply");
+    assert!(value.get("malformed").is_none());
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn installed_cli_uses_embedded_pinned_builtins_by_default() {
     let (root, definition) = fixture();
     fs::write(
@@ -413,6 +453,31 @@ endmodule
     assert!(
         !output.contains("Lblc'Unds'MAIN'Unds'State{}()"),
         "{output}"
+    );
+
+    let default_search = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+            "--search-one-step",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        default_search.status.success(),
+        "{}",
+        String::from_utf8_lossy(&default_search.stderr)
+    );
+    let default_search = String::from_utf8(default_search.stdout).unwrap();
+    assert!(
+        default_search.contains("VarResult:SortGeneratedTopCell{}"),
+        "{default_search}"
     );
 
     fs::remove_dir_all(root).unwrap();
