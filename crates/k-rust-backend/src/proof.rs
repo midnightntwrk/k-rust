@@ -91,6 +91,7 @@ pub enum ProofIndeterminateReason {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClaimIndeterminateReason {
+    Simplification(SimplificationError),
     Match {
         substitution: Substitution,
         remainder: Vec<(Term, Term)>,
@@ -508,9 +509,13 @@ pub fn prove_claim(
                 }
             }
             RewriteResult::Indeterminate { reason, .. } => {
-                record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
-                    ProofIndeterminateReason::Rewrite(reason),
-                )));
+                let reason = match reason {
+                    IndeterminateReason::Simplification { error, .. } => {
+                        ProofIndeterminateReason::Simplification(error)
+                    }
+                    reason => ProofIndeterminateReason::Rewrite(reason),
+                };
+                record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(reason,)));
             }
         }
     }
@@ -633,7 +638,7 @@ fn apply_claim(
             substitution,
             remainder,
         } => {
-            let recovered = recover_indeterminate_match(
+            let recovered = match recover_indeterminate_match(
                 definition,
                 substitution,
                 remainder,
@@ -642,7 +647,14 @@ fn apply_claim(
                     max_iterations: options.max_simplification_iterations,
                 },
                 solver,
-            );
+            ) {
+                Ok(recovered) => recovered,
+                Err(error) => {
+                    return ClaimApplication::Indeterminate(
+                        ClaimIndeterminateReason::Simplification(error),
+                    );
+                }
+            };
             match recovered.result {
                 MatchResult::Success(substitution) => (substitution, recovered.conditions),
                 MatchResult::Failed(_) => return ClaimApplication::NotApplicable,
@@ -673,8 +685,10 @@ fn apply_claim(
         solver,
     ) {
         Ok(requires) => requires,
-        Err(_) => {
-            return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Requires(requires));
+        Err(error) => {
+            return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Simplification(
+                error,
+            ));
         }
     };
     match predicates_truth(&requires) {
@@ -1156,6 +1170,105 @@ mod tests {
         assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
         assert_eq!(result.explored_states, 3);
         assert_eq!(result.unexplored_states, 0);
+    }
+
+    const NON_TERMINATING_SIMPLIFIER: &str = r#"
+        symbol expand{}(SortS{}) : SortS{} [function{}()]
+        axiom{R} \implies{R}(
+            \top{R}(),
+            \equals{SortS{}, R}(
+                expand{}(X:SortS{}),
+                \and{SortS{}}(
+                    expand{}(expand{}(X:SortS{})),
+                    \top{SortS{}}()
+                )
+            )
+        ) [label{}("expand"), simplification{}()]
+    "#;
+
+    #[test]
+    fn rewrite_simplification_failure_is_a_proof_simplification_outcome() {
+        let rules = format!(
+            r#"
+            {NON_TERMINATING_SIMPLIFIER}
+            axiom{{}} \rewrites{{SortS{{}}}}(
+                \and{{SortS{{}}}}(
+                    a{{}}(),
+                    \equals{{SortS{{}}, SortS{{}}}}(
+                        expand{{}}(a{{}}()),
+                        a{{}}()
+                    )
+                ),
+                b{{}}()
+            ) [label{{}}("conditional")]
+            "#
+        );
+        let claims = modal_claim(ReachabilityMode::AllPath, "a", "c", false);
+        let definition = definition(&rules, &claims);
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions {
+                max_simplification_iterations: 1,
+                ..ProofOptions::default()
+            },
+            &NoSolver,
+        )
+        .expect("simplification failure should be a proof outcome");
+
+        assert!(matches!(
+            result.leaves.as_slice(),
+            [ProofLeaf {
+                outcome: ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Simplification(
+                    SimplificationError::IterationLimit { .. }
+                        | SimplificationError::PredicateIterationLimit { .. }
+                )),
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn claim_requires_simplification_failure_keeps_its_identity() {
+        let claims = r#"
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(
+                    a{}(),
+                    \equals{SortS{}, SortS{}}(
+                        expand{}(a{}()),
+                        a{}()
+                    )
+                ),
+                weakAlwaysFinally{SortS{}}(c{}())
+            ) [label{}("conditional-claim")]
+        "#;
+        let definition = definition(NON_TERMINATING_SIMPLIFIER, claims);
+        let subject = Pattern {
+            term: term(&definition, "a{}()"),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        let result = apply_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            &subject,
+            ProofOptions {
+                max_simplification_iterations: 1,
+                ..ProofOptions::default()
+            },
+            &NoSolver,
+            &mut fresh,
+        );
+
+        assert!(matches!(
+            result,
+            ClaimApplication::Indeterminate(ClaimIndeterminateReason::Simplification(
+                SimplificationError::IterationLimit { .. }
+                    | SimplificationError::PredicateIterationLimit { .. }
+            ))
+        ));
     }
 
     #[cfg(feature = "z3")]

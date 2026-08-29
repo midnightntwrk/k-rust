@@ -312,7 +312,7 @@ pub fn search_graph_with_solver_and_observer(
                 RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
                 RewriteResult::Indeterminate { pattern, reason } => {
                     state.pattern = pattern;
-                    incomplete.push(IncompleteSearch::Indeterminate { state, reason });
+                    incomplete.push(rewrite_incomplete(state, reason));
                 }
                 RewriteResult::Finished(_) | RewriteResult::Branch { .. } => {
                     incomplete.push(IncompleteSearch::DepthBound(state));
@@ -334,7 +334,7 @@ pub fn search_graph_with_solver_and_observer(
             RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
             RewriteResult::Indeterminate { pattern, reason } => {
                 state.pattern = pattern;
-                incomplete.push(IncompleteSearch::Indeterminate { state, reason });
+                incomplete.push(rewrite_incomplete(state, reason));
             }
             RewriteResult::Finished(applied) => {
                 record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
@@ -479,6 +479,15 @@ fn simplification_incomplete(state: SearchState, error: SimplificationError) -> 
     match error {
         SimplificationError::Cancelled => IncompleteSearch::Cancelled(state),
         error => IncompleteSearch::Simplification { state, error },
+    }
+}
+
+fn rewrite_incomplete(state: SearchState, reason: IndeterminateReason) -> IncompleteSearch {
+    match reason {
+        IndeterminateReason::Simplification { error, .. } => {
+            simplification_incomplete(state, error)
+        }
+        reason => IncompleteSearch::Indeterminate { state, reason },
     }
 }
 
@@ -732,6 +741,84 @@ mod tests {
         .expect("search definition should parse");
         BackendDefinition::internalize(&syntax, "SEARCH")
             .expect("search definition should internalize")
+    }
+
+    fn rewrite_simplification_failure_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module SEARCH
+                sort SortS{} []
+                symbol initial{}() : SortS{} [constructor{}()]
+                symbol done{}() : SortS{} [constructor{}()]
+                symbol expand{}(SortS{}) : SortS{} [function{}()]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortS{}, R}(
+                        expand{}(X:SortS{}),
+                        \and{SortS{}}(
+                            expand{}(expand{}(X:SortS{})),
+                            \top{SortS{}}()
+                        )
+                    )
+                ) [label{}("expand"), simplification{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        initial{}(),
+                        \equals{SortS{}, SortS{}}(
+                            expand{}(initial{}()),
+                            initial{}()
+                        )
+                    ),
+                    done{}()
+                ) [label{}("conditional")]
+            endmodule []"#,
+        )
+        .expect("search definition should parse");
+        BackendDefinition::internalize(&syntax, "SEARCH")
+            .expect("search definition should internalize")
+    }
+
+    #[test]
+    fn rewrite_simplification_failure_is_classified_as_simplification() {
+        let definition = rewrite_simplification_failure_definition();
+        let result = search_graph(
+            &definition,
+            pattern(&definition, "initial{}()"),
+            SearchOptions {
+                max_simplification_iterations: 1,
+                ..SearchOptions::default()
+            },
+        );
+
+        assert!(matches!(
+            result.incomplete.as_slice(),
+            [IncompleteSearch::Simplification {
+                error: SimplificationError::IterationLimit { .. }
+                    | SimplificationError::PredicateIterationLimit { .. },
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn cancelled_rewrite_simplification_is_classified_as_cancellation() {
+        let definition = definition();
+        let state = SearchState {
+            pattern: initial(&definition),
+            depth: 0,
+            trace: Vec::new(),
+        };
+
+        assert_eq!(
+            rewrite_incomplete(
+                state.clone(),
+                IndeterminateReason::Simplification {
+                    rule_id: Some("rule".into()),
+                    error: SimplificationError::Cancelled,
+                },
+            ),
+            IncompleteSearch::Cancelled(state)
+        );
     }
 
     fn initial(definition: &BackendDefinition) -> Pattern {

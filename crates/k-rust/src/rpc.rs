@@ -1463,6 +1463,9 @@ fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
                 "Uncertain about the remainder after applying a rule",
                 rule_ids.first(),
             ),
+            k_rust_backend::rewrite::IndeterminateReason::Simplification { rule_id, .. } => {
+                ("Internal match error", rule_id.as_ref())
+            }
         },
         HaltReason::Simplification(_) => ("Internal match error", None),
         _ => return None,
