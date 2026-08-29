@@ -522,3 +522,31 @@ main-module = "IMP"
 syntax-module = "IMP-SYNTAX"
 configuration = ["ENV=.Map"]
 responses = ["execute", "simplify", "implies", "model", "add-module", "error"]
+
+[[rpc]]
+name = "bounded-search"
+requires = ["reference-toolchain"]
+constructs = ["local-rpc", "bounded-search"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/bounded-search.k"
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/seed.state"
+stuck-program = "${workspace}/crates/k-rust/tests/fixtures/reference/done.state"
+main-module = "BOUNDED-SEARCH"
+syntax-module = "BOUNDED-SEARCH"
+sort = "State"
+configuration = []
+responses = [
+  "execute-branching",
+  "execute-stuck",
+  "simplify",
+  "implies-valid",
+  "implies-invalid",
+  "model-sat",
+  "model-unsat",
+  "add-module",
+  "error-unknown",
+  "invalid-execute",
+  "invalid-simplify",
+  "invalid-implies",
+  "invalid-get-model",
+  "invalid-add-module",
+]
