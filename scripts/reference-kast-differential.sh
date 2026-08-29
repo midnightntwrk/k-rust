@@ -13,6 +13,16 @@ kompile=${K_KOMPILE:-}
 kast=${K_KAST:-}
 memory_limit_kib=${REFERENCE_DIFFERENTIAL_MEMORY_KIB:-}
 reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-}
+manifest_json=$(
+  WORKSPACE="$workspace" \
+  K_CHECKOUT="$k_checkout" \
+  IMP_SEMANTICS_CHECKOUT="$imp_checkout" \
+  WASM_SEMANTICS_CHECKOUT="$wasm_checkout" \
+  EVM_SEMANTICS_CHECKOUT="$evm_checkout" \
+  EVM_EQUIVALENCE_CHECKOUT="$evm_equivalence_checkout" \
+  MIR_SEMANTICS_CHECKOUT="$mir_checkout" \
+    "$workspace/scripts/reference-manifest.py"
+)
 
 if [[ -z "$kompile" ]]; then
   kompile=$(command -v kompile || true)
@@ -38,16 +48,21 @@ reference_require_git_pin K "$k_checkout" "$K_REFERENCE_REVISION"
 work=$(mktemp -d "${TMPDIR:-/tmp}/k-rust-reference-kast-differential.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 
-cases=(
-  "imp|$imp_checkout/src/kimp/kdist/imp-semantics/imp.k|IMP|IMP-SYNTAX|Stmt|x = 1;|if ("
-  "wasm|$wasm_checkout/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md|WASM-TEST|WASM-TEST-SYNTAX|ModuleDecl|(module)|(module (func"
-  "evm-equivalence|$evm_checkout/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/optimizations.md|EVM-OPTIMIZATIONS|EVM-OPTIMIZATIONS|Schedule|CANCUN|NOT_A_SCHEDULE|$evm_checkout/kevm-pyk/src/kevm_pyk/kproj/plugin"
-  "mir|$mir_checkout/kmir/src/kmir/kdist/mir-semantics/kmir.md|KMIR|KMIR-AST|Span|span(0)|span(foo)|$mir_checkout/kmir/src/kmir/kdist|k & ! concrete|KMIR-AST"
+mapfile -t cases < <(
+  jq -r '.kast[] | [
+    .name,
+    .source,
+    .["main-module"],
+    .["parser-module"],
+    (.include // ""),
+    (.["markdown-selector"] // ""),
+    (.["syntax-module"] // "")
+  ] | join("\u001f")' <<<"$manifest_json"
 )
 selected_count=0
 
 for fixture in "${cases[@]}"; do
-  IFS='|' read -r name source main_module parser_module sort expression rejected_expression include selector syntax_module <<<"$fixture"
+  IFS=$'\x1f' read -r name source main_module parser_module include selector syntax_module <<<"$fixture"
   selected=true
   if (($#)); then
     selected=false
@@ -119,47 +134,15 @@ for fixture in "${cases[@]}"; do
       --warnings none
   )
 
-  parse_cases=("smoke|$sort|$expression")
-  case "$name" in
-    imp)
-      for program_name in dangling-else.imp gcd-while.imp sumto10.imp while-and-following.imp; do
-        program="$imp_checkout/examples/$program_name"
-        parse_cases+=("$(basename "$program")|Stmt|@$program")
-      done
-      ;;
-    wasm)
-      parse_cases+=(
-        'named-module|ModuleDecl|(module $m)'
-        'empty-function|ModuleDecl|(module (func))'
-        'constant-function|ModuleDecl|(module (func (result i32) i32.const 1))'
-        'instruction|Stmts|(i32.const 3)'
-        "upstream-memory|ModuleDecl|@$wasm_checkout/pykwasm/src/tests/integration/binary/memories.wat"
-        "upstream-function|ModuleDecl|@$wasm_checkout/pykwasm/src/tests/integration/binary/funcs.wat"
-        "upstream-globals|ModuleDecl|@$wasm_checkout/pykwasm/src/tests/integration/binary/globals.wat"
-        "upstream-exports|ModuleDecl|@$wasm_checkout/pykwasm/src/tests/integration/binary/exports.wat"
-      )
-      ;;
-    evm-equivalence)
-      parse_cases+=(
-        'berlin|Schedule|BERLIN'
-        'shanghai|Schedule|SHANGHAI'
-      )
-      ;;
-    mir)
-      parse_cases+=(
-        'negative-span|Span|span(-1)'
-        'type-id|Ty|ty(0)'
-        'nop-statement|Statement|statement(statementKindNop, span(1))'
-        'return-terminator|Terminator|terminator(terminatorKindReturn, span(2))'
-        "upstream-statement|Statement|@$mir_checkout/kmir/src/tests/integration/data/schema-parse/statement/reference.kmir"
-        "upstream-goto|Terminator|@$mir_checkout/kmir/src/tests/integration/data/schema-parse/terminatorgoto/reference.kmir"
-      )
-      ;;
-  esac
+  mapfile -t parse_cases < <(
+    jq -r --arg name "$name" '.kast[] | select(.name == $name) | .accept[] |
+      [.name, .sort, (if .file then "@" + .file else .expression end)] |
+      join("\u001f")' <<<"$manifest_json"
+  )
 
   rust_batch_args=()
   for parse_fixture in "${parse_cases[@]}"; do
-    IFS='|' read -r parse_name parse_sort parse_expression <<<"$parse_fixture"
+    IFS=$'\x1f' read -r parse_name parse_sort parse_expression <<<"$parse_fixture"
     if [[ "$parse_expression" == @* ]]; then
       parse_expression=$(<"${parse_expression#@}")
     fi
@@ -182,15 +165,13 @@ for fixture in "${cases[@]}"; do
     rust_batch_args+=(--batch-case "$parse_name" "$parse_sort" "$parse_expression")
   done
 
-  rejected_cases=("smoke|$sort|$rejected_expression")
-  if [[ "$name" == imp ]]; then
-    rejected_cases+=(
-      "gcd.imp|Stmt|@$imp_checkout/examples/gcd.imp"
-      "sumrec10.imp|Stmt|@$imp_checkout/examples/sumrec10.imp"
-    )
-  fi
+  mapfile -t rejected_cases < <(
+    jq -r --arg name "$name" '.kast[] | select(.name == $name) | .reject[] |
+      [.name, .sort, (if .file then "@" + .file else .expression end)] |
+      join("\u001f")' <<<"$manifest_json"
+  )
   for rejected_fixture in "${rejected_cases[@]}"; do
-    IFS='|' read -r rejected_name rejected_sort rejected_case <<<"$rejected_fixture"
+    IFS=$'\x1f' read -r rejected_name rejected_sort rejected_case <<<"$rejected_fixture"
     if [[ "$rejected_case" == @* ]]; then
       rejected_case=$(<"${rejected_case#@}")
     fi
@@ -215,7 +196,7 @@ for fixture in "${cases[@]}"; do
   )
 
   for parse_fixture in "${parse_cases[@]}"; do
-    IFS='|' read -r parse_name _ <<<"$parse_fixture"
+    IFS=$'\x1f' read -r parse_name _ <<<"$parse_fixture"
     echo "[$name:$parse_name] comparing structural KAST"
     K_REFERENCE_KAST="$work/$name/reference-$parse_name.json" \
       K_RUST_KAST="$work/$name/rust-batch.json" \
@@ -226,7 +207,7 @@ for fixture in "${cases[@]}"; do
   done
 
   for rejected_fixture in "${rejected_cases[@]}"; do
-    IFS='|' read -r rejected_name rejected_sort rejected_case <<<"$rejected_fixture"
+    IFS=$'\x1f' read -r rejected_name rejected_sort rejected_case <<<"$rejected_fixture"
     if [[ "$rejected_case" == @* ]]; then
       rejected_case=$(<"${rejected_case#@}")
     fi
@@ -255,7 +236,7 @@ done
 
 if (($# && selected_count != $#)); then
   echo "error: one or more requested corpus cases are unknown" >&2
-  echo "available cases: imp wasm evm-equivalence mir" >&2
+  echo "available cases: $(jq -r '[.kast[].name] | join(" ")' <<<"$manifest_json")" >&2
   exit 2
 fi
 

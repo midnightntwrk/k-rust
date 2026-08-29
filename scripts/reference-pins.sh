@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 
-readonly K_REFERENCE_REVISION=4a46d1231473b599c699160132fd6e76a5c46406
-readonly K_REFERENCE_VERSION=v7.1.337
-readonly IMP_REFERENCE_REVISION=683a773418add3bcae8ded47c2b24e94494e1988
-readonly WASM_REFERENCE_REVISION=212271bd434bd402e27c42f6416854342733386d
-readonly EVM_EQUIVALENCE_REFERENCE_REVISION=3a757eb6f88000047d6fd064d6b72b78b6e23592
-readonly EVM_SEMANTICS_REFERENCE_REVISION=5dd05ea7936c13f4029389bafd25785ed9ff0a55
-readonly EVM_PLUGIN_REFERENCE_REVISION=651a2db5afc1789c89553f9113c1afa39e391e35
-readonly MIR_REFERENCE_REVISION=4d793252bcd77091ee759ca6cd1629db41ed5496
+reference_scripts=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+reference_manifest_json=$("$reference_scripts/reference-manifest.py")
+readonly K_REFERENCE_REVISION=$(jq -r '.reference.k.revision' <<<"$reference_manifest_json")
+readonly K_REFERENCE_VERSION=$(jq -r '.reference.k.version' <<<"$reference_manifest_json")
+readonly IMP_REFERENCE_REVISION=$(jq -r '.reference.imp.revision' <<<"$reference_manifest_json")
+readonly WASM_REFERENCE_REVISION=$(jq -r '.reference.wasm.revision' <<<"$reference_manifest_json")
+readonly EVM_EQUIVALENCE_REFERENCE_REVISION=$(jq -r '.reference["evm-equivalence"].revision' <<<"$reference_manifest_json")
+readonly EVM_SEMANTICS_REFERENCE_REVISION=$(jq -r '.reference.kevm.revision' <<<"$reference_manifest_json")
+readonly EVM_PLUGIN_REFERENCE_REVISION=$(jq -r '.reference["kevm-plugin"].revision' <<<"$reference_manifest_json")
+readonly MIR_REFERENCE_REVISION=$(jq -r '.reference.mir.revision' <<<"$reference_manifest_json")
 
 reference_require_git_pin() {
   local name=$1

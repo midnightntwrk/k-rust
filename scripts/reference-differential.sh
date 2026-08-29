@@ -12,6 +12,16 @@ mir_checkout=${MIR_SEMANTICS_CHECKOUT:-"$workspace/mir-semantics"}
 kompile=${K_KOMPILE:-}
 memory_limit_kib=${REFERENCE_DIFFERENTIAL_MEMORY_KIB:-}
 reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-}
+manifest_json=$(
+  WORKSPACE="$workspace" \
+  K_CHECKOUT="$k_checkout" \
+  IMP_SEMANTICS_CHECKOUT="$imp_checkout" \
+  WASM_SEMANTICS_CHECKOUT="$wasm_checkout" \
+  EVM_SEMANTICS_CHECKOUT="$evm_checkout" \
+  EVM_EQUIVALENCE_CHECKOUT="$evm_equivalence_checkout" \
+  MIR_SEMANTICS_CHECKOUT="$mir_checkout" \
+    "$workspace/scripts/reference-manifest.py"
+)
 
 if [[ -z "$kompile" ]]; then
   kompile=$(command -v kompile || true)
@@ -34,24 +44,22 @@ else
   trap 'rm -rf "$work"' EXIT
 fi
 
-cases=(
-  "append|$k_checkout/k-distribution/tests/regression-new/append/test.k|TEST"
-  "ambiguous-rewrite|$k_checkout/k-distribution/tests/regression-new/amb-rew/test.k|TEST"
-  "casts|$k_checkout/k-distribution/tests/regression-new/cast/test.k|TEST"
-  "cell-map|$k_checkout/k-distribution/tests/regression-new/cell_map/test.k|TEST"
-  "evm-equivalence|$evm_checkout/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/optimizations.md|EVM-OPTIMIZATIONS|$evm_checkout/kevm-pyk/src/kevm_pyk/kproj/plugin|||JSON KRYPTO"
-  "fresh-variables|$k_checkout/k-distribution/tests/regression-new/fresh1/test.k|TEST"
-  "imp|$imp_checkout/src/kimp/kdist/imp-semantics/imp.k|IMP"
-  "list-set|$k_checkout/k-distribution/tests/regression-new/list-set/test.k|TEST"
-  "macro-rewrite|$k_checkout/k-distribution/tests/regression-new/macro-rewrite/test.k|TEST"
-  "parametric-semantic-cast|$workspace/crates/k-rust/tests/fixtures/reference/parametric-semantic-cast.k|PARAMETRIC-SEMANTIC-CAST"
-  "mir|$mir_checkout/kmir/src/kmir/kdist/mir-semantics/kmir.md|KMIR|$mir_checkout/kmir/src/kmir/kdist|k & ! concrete|KMIR-AST"
-  "wasm|$wasm_checkout/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md|WASM-TEST"
+mapfile -t cases < <(
+  jq -r '.compile[] | [
+    .name,
+    .source,
+    .["main-module"],
+    (.include // ""),
+    (.["markdown-selector"] // ""),
+    (.["syntax-module"] // ""),
+    ((.["hook-namespaces"] // []) | join(" ")),
+    (.comparisons | join(" "))
+  ] | join("\u001f")' <<<"$manifest_json"
 )
 selected_count=0
 
 for fixture in "${cases[@]}"; do
-  IFS='|' read -r name source module include selector syntax_module hook_namespaces <<<"$fixture"
+  IFS=$'\x1f' read -r name source module include selector syntax_module hook_namespaces comparisons <<<"$fixture"
   selected=true
   if (($#)); then
     selected=false
@@ -166,38 +174,43 @@ for fixture in "${cases[@]}"; do
       --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
   )
 
-  echo "[$name] comparing semantic KORE"
-  K_REFERENCE_KORE="$reference/$(basename "${source%.*}").kore" \
-    K_RUST_KORE="$rust/definition.kore" \
-    cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
-      -p k-rust --test reference_differential -- --ignored --exact \
-      emitted_kore_matches_the_reference_frontend
-
-  echo "[$name] comparing syntax KORE"
-  K_REFERENCE_KORE="$reference/kompiled/syntaxDefinition.kore" \
-    K_RUST_KORE="$rust/syntaxDefinition.kore" \
-    cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
-      -p k-rust --test reference_differential -- --ignored --exact \
-      emitted_kore_matches_the_reference_frontend
-
-  echo "[$name] comparing macro KORE"
-  K_REFERENCE_KORE="$reference/kompiled/macros.kore" \
-    K_RUST_KORE="$rust/macros.kore" \
-    cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
-      -p k-rust --test reference_differential -- --ignored --exact \
-      emitted_macro_kore_matches_the_reference_frontend
-
-  echo "[$name] comparing parsed definitions"
-  K_REFERENCE_DEFINITION="$reference/kompiled/parsed.json" \
-    K_RUST_DEFINITION="$rust/parsed.json" \
-    cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
-      -p k-rust --test reference_differential -- --ignored --exact \
-      parsed_definition_matches_the_reference_frontend
+  if [[ " $comparisons " == *" semantic-kore "* ]]; then
+    echo "[$name] comparing semantic KORE"
+    K_REFERENCE_KORE="$reference/$(basename "${source%.*}").kore" \
+      K_RUST_KORE="$rust/definition.kore" \
+      cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
+        -p k-rust --test reference_differential -- --ignored --exact \
+        emitted_kore_matches_the_reference_frontend
+  fi
+  if [[ " $comparisons " == *" syntax-kore "* ]]; then
+    echo "[$name] comparing syntax KORE"
+    K_REFERENCE_KORE="$reference/kompiled/syntaxDefinition.kore" \
+      K_RUST_KORE="$rust/syntaxDefinition.kore" \
+      cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
+        -p k-rust --test reference_differential -- --ignored --exact \
+        emitted_kore_matches_the_reference_frontend
+  fi
+  if [[ " $comparisons " == *" macro-kore "* ]]; then
+    echo "[$name] comparing macro KORE"
+    K_REFERENCE_KORE="$reference/kompiled/macros.kore" \
+      K_RUST_KORE="$rust/macros.kore" \
+      cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
+        -p k-rust --test reference_differential -- --ignored --exact \
+        emitted_macro_kore_matches_the_reference_frontend
+  fi
+  if [[ " $comparisons " == *" parsed-definition "* ]]; then
+    echo "[$name] comparing parsed definitions"
+    K_REFERENCE_DEFINITION="$reference/kompiled/parsed.json" \
+      K_RUST_DEFINITION="$rust/parsed.json" \
+      cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
+        -p k-rust --test reference_differential -- --ignored --exact \
+        parsed_definition_matches_the_reference_frontend
+  fi
 done
 
 if (($# && selected_count != $#)); then
   echo "error: one or more requested corpus cases are unknown" >&2
-  echo "available cases: append ambiguous-rewrite casts cell-map evm-equivalence fresh-variables imp list-set macro-rewrite parametric-semantic-cast mir wasm" >&2
+  echo "available cases: $(jq -r '[.compile[].name] | join(" ")' <<<"$manifest_json")" >&2
   exit 2
 fi
 

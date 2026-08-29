@@ -15,6 +15,11 @@ reference_memory_kib=${REFERENCE_EXECUTION_MEMORY_KIB:-12582912}
 rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}
 reference_retries=${REFERENCE_EXECUTION_RETRIES:-3}
 reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-'-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Dscala.concurrent.context.numThreads=4 -Dscala.concurrent.context.maxThreads=4'}
+manifest_json=$(
+  WORKSPACE="$workspace" IMP_SEMANTICS_CHECKOUT="$imp_checkout" \
+    "$workspace/scripts/reference-manifest.py"
+)
+rpc=$(jq -c '.rpc[] | select(.name == "imp")' <<<"$manifest_json")
 
 if [[ -z "$kompile" ]]; then
   kompile=$(command -v kompile || true)
@@ -35,8 +40,11 @@ for tool in "$krun" "$kore_parser" "$kore_rpc" "$rpc_client"; do
   fi
 done
 
-semantics="$imp_checkout/src/kimp/kdist/imp-semantics/imp.k"
-program="$imp_checkout/examples/sumto10.imp"
+semantics=$(jq -r '.source' <<<"$rpc")
+program=$(jq -r '.program' <<<"$rpc")
+main_module=$(jq -r '.["main-module"]' <<<"$rpc")
+syntax_module=$(jq -r '.["syntax-module"]' <<<"$rpc")
+mapfile -t configuration_args < <(jq -r '.configuration[] | "-c" + .' <<<"$rpc")
 if [[ ! -f "$semantics" || ! -f "$program" ]]; then
   echo "error: set IMP_SEMANTICS_CHECKOUT to the pinned IMP checkout" >&2
   exit 2
@@ -140,8 +148,8 @@ echo "[imp:rpc] compiling the reference Haskell definition"
   export K_OPTS="$reference_k_opts"
   "$kompile" "$semantics" \
     --backend haskell \
-    --main-module IMP \
-    --syntax-module IMP-SYNTAX \
+    --main-module "$main_module" \
+    --syntax-module "$syntax_module" \
     --output-definition "$work/kompiled" \
     --warnings none
 )
@@ -150,7 +158,7 @@ echo "[imp:rpc] generating a depth-zero reference configuration"
 run_reference_krun "$work/state.kore" \
   "$program" \
   --definition "$work/kompiled" \
-  -cENV=.Map \
+  "${configuration_args[@]}" \
   --depth 0 \
   --smt none \
   --output kore
@@ -161,7 +169,7 @@ echo "[imp:rpc] converting the configuration to KORE JSON"
   export GHCRTS=
   "$kore_parser" "$work/kompiled/definition.kore" \
     --pattern "$work/state.kore" \
-    --module IMP \
+    --module "$main_module" \
     --print-pattern-json \
     --no-print-definition >"$work/state.json"
 )
@@ -204,7 +212,7 @@ echo "[imp:rpc] collecting pinned reference responses"
   ulimit -v "$reference_memory_kib"
   export GHCRTS=${GHCRTS:--N1}
   exec "$kore_rpc" "$work/kompiled/definition.kore" \
-    --module IMP \
+    --module "$main_module" \
     --smt none \
     --server-port "$reference_port" \
     --no-bug-report
@@ -234,7 +242,7 @@ wait_for_server "$rust_port"
 collect_responses "$rust_port" rust
 stop_server
 
-responses=(execute simplify implies model add-module error)
+mapfile -t responses < <(jq -r '.responses[]' <<<"$rpc")
 for response in "${responses[@]}"; do
   echo "[imp:rpc:$response] comparing JSON response"
   if ! diff -u \

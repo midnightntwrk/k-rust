@@ -11,6 +11,11 @@ reference_memory_kib=${REFERENCE_EXECUTION_MEMORY_KIB:-12582912}
 rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}
 reference_retries=${REFERENCE_EXECUTION_RETRIES:-3}
 reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-'-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Dscala.concurrent.context.numThreads=4 -Dscala.concurrent.context.maxThreads=4'}
+manifest_json=$(
+  WORKSPACE="$workspace" K_CHECKOUT="$k_checkout" IMP_SEMANTICS_CHECKOUT="$imp_checkout" \
+    "$workspace/scripts/reference-manifest.py"
+)
+execution=$(jq -c '.execution[] | select(.name == "imp")' <<<"$manifest_json")
 
 if [[ -z "$kompile" ]]; then
   kompile=$(command -v kompile || true)
@@ -31,8 +36,14 @@ if [[ ! -d "$k_checkout/k-distribution/include/kframework/builtin" ]]; then
   exit 2
 fi
 
-semantics="$imp_checkout/src/kimp/kdist/imp-semantics/imp.k"
-examples="$imp_checkout/examples"
+semantics=$(jq -r '.source' <<<"$execution")
+main_module=$(jq -r '.["main-module"]' <<<"$execution")
+syntax_module=$(jq -r '.["syntax-module"]' <<<"$execution")
+program_sort=$(jq -r '.sort' <<<"$execution")
+execution_depth=$(jq -r '.depth' <<<"$execution")
+mapfile -t configuration_args < <(
+  jq -r '.configuration[] | "-c" + .' <<<"$execution"
+)
 if [[ ! -f "$semantics" ]]; then
   echo "error: set IMP_SEMANTICS_CHECKOUT to the pinned IMP checkout" >&2
   exit 2
@@ -71,98 +82,95 @@ echo "[imp] compiling the reference Haskell definition"
   export K_OPTS="$reference_k_opts"
   "$kompile" "$semantics" \
     --backend haskell \
-    --main-module IMP \
-    --syntax-module IMP-SYNTAX \
+    --main-module "$main_module" \
+    --syntax-module "$syntax_module" \
     --output-definition "$work/kompiled" \
     --warnings none
 )
 
-cases=(
-  sumto10.imp
-  while-and-following.imp
-  dangling-else.imp
-)
+mapfile -t cases < <(jq -r '.programs[]' <<<"$execution")
 
 for program in "${cases[@]}"; do
-  if [[ ! -f "$examples/$program" ]]; then
-    echo "error: missing IMP execution fixture: $examples/$program" >&2
+  if [[ ! -f "$program" ]]; then
+    echo "error: missing IMP execution fixture: $program" >&2
     exit 2
   fi
+  program_name=$(basename "$program")
 
-  echo "[imp:$program] executing with reference krun"
-  run_reference_krun "$work/$program.reference.kore" \
-    "$examples/$program" \
+  echo "[imp:$program_name] executing with reference krun"
+  run_reference_krun "$work/$program_name.reference.kore" \
+    "$program" \
     --definition "$work/kompiled" \
-    -cENV=.Map \
-    --depth 10000 \
+    "${configuration_args[@]}" \
+    --depth "$execution_depth" \
     --smt none \
     --output kore
 
-  echo "[imp:$program] executing with krust krun"
+  echo "[imp:$program_name] executing with krust krun"
   (
     ulimit -v "$rust_memory_kib"
     cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" \
       -p k-rust --bin krust -- \
       krun "$semantics" \
-      --main-module IMP \
-      --sort Stmt \
-      "$examples/$program" \
-      -cENV=.Map \
-      --depth 10000 \
+      --main-module "$main_module" \
+      --sort "$program_sort" \
+      "$program" \
+      "${configuration_args[@]}" \
+      --depth "$execution_depth" \
       --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin" \
-      >"$work/$program.rust.kore"
+      >"$work/$program_name.rust.kore"
   )
 
-  echo "[imp:$program] comparing terminal KORE"
-  K_REFERENCE_EXECUTION="$work/$program.reference.kore" \
-    K_RUST_EXECUTION="$work/$program.rust.kore" \
+  echo "[imp:$program_name] comparing terminal KORE"
+  K_REFERENCE_EXECUTION="$work/$program_name.reference.kore" \
+    K_RUST_EXECUTION="$work/$program_name.rust.kore" \
     cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
       -p k-rust --test reference_differential -- --ignored --exact \
       executed_kore_matches_the_reference_backend
 done
 
-search_program=sumto10.imp
-search_cases=(
-  "one|--search-one-step|"
-  "star-depth-two|--search-all|2"
+mapfile -t search_cases < <(
+  jq -r '.search[] | [.name, .program, .mode, (.depth // "")] | join("\u001f")' \
+    <<<"$execution"
 )
 
 for fixture in "${search_cases[@]}"; do
-  IFS='|' read -r name mode depth <<<"$fixture"
+  IFS=$'\x1f' read -r name search_program mode depth <<<"$fixture"
+  search_program_name=$(basename "$search_program")
   depth_args=()
   if [[ -n "$depth" ]]; then
     depth_args=(--depth "$depth")
   fi
 
-  echo "[imp:$search_program:$name] searching with reference krun"
-  run_reference_krun "$work/$search_program.$name.reference.kore" \
-    "$examples/$search_program" \
+  echo "[imp:$search_program_name:$name] searching with reference krun"
+  run_reference_krun "$work/$search_program_name.$name.reference.kore" \
+    "$search_program" \
     --definition "$work/kompiled" \
-    -cENV=.Map \
+    "${configuration_args[@]}" \
     "$mode" \
     "${depth_args[@]}" \
     --smt none \
     --output kore
 
-  echo "[imp:$search_program:$name] searching with krust krun"
+  echo "[imp:$search_program_name:$name] searching with krust krun"
   (
     ulimit -v "$rust_memory_kib"
     cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" \
       -p k-rust --bin krust -- \
       krun "$semantics" \
-      --main-module IMP \
-      --sort Stmt \
-      "$examples/$search_program" \
-      -cENV=.Map \
+      --main-module "$main_module" \
+      --sort "$program_sort" \
+      "$search_program" \
+      "${configuration_args[@]}" \
       "$mode" \
       "${depth_args[@]}" \
       --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin" \
-      >"$work/$search_program.$name.rust.kore"
+      >"$work/$search_program_name.$name.rust.kore"
   )
 
-  echo "[imp:$search_program:$name] comparing search KORE"
-  K_REFERENCE_EXECUTION="$work/$search_program.$name.reference.kore" \
-    K_RUST_EXECUTION="$work/$search_program.$name.rust.kore" \
+  echo "[imp:$search_program_name:$name] comparing search KORE"
+  K_REFERENCE_EXECUTION="$work/$search_program_name.$name.reference.kore" \
+    K_RUST_EXECUTION="$work/$search_program_name.$name.rust.kore" \
     cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
       -p k-rust --test reference_differential -- --ignored --exact \
       executed_kore_matches_the_reference_backend

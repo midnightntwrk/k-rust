@@ -10,6 +10,11 @@ kprove=${K_KPROVE:-}
 reference_memory_kib=${REFERENCE_EXECUTION_MEMORY_KIB:-12582912}
 rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}
 reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-'-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Dscala.concurrent.context.numThreads=4 -Dscala.concurrent.context.maxThreads=4'}
+manifest_json=$(
+  WORKSPACE="$workspace" K_CHECKOUT="$k_checkout" IMP_SEMANTICS_CHECKOUT="$imp_checkout" \
+    "$workspace/scripts/reference-manifest.py"
+)
+proof=$(jq -c '.proof[] | select(.name == "imp")' <<<"$manifest_json")
 
 if [[ -z "$kompile" ]]; then
   kompile=$(command -v kompile || true)
@@ -30,9 +35,14 @@ if [[ ! -d "$k_checkout/k-distribution/include/kframework/builtin" ]]; then
   exit 2
 fi
 
-semantics_dir="$imp_checkout/src/kimp/kdist/imp-semantics"
-semantics="$semantics_dir/imp.k"
-specification="$imp_checkout/examples/specs/imp-simple-spec.k"
+semantics=$(jq -r '.source' <<<"$proof")
+semantics_dir=$(dirname "$semantics")
+main_module=$(jq -r '.["main-module"]' <<<"$proof")
+syntax_module=$(jq -r '.["syntax-module"]' <<<"$proof")
+specification=$(jq -r '.specification' <<<"$proof")
+spec_module=$(jq -r '.["spec-module"]' <<<"$proof")
+definition_module=$(jq -r '.["definition-module"]' <<<"$proof")
+proof_depth=$(jq -r '.depth' <<<"$proof")
 if [[ ! -f "$semantics" || ! -f "$specification" ]]; then
   echo "error: set IMP_SEMANTICS_CHECKOUT to the pinned IMP checkout" >&2
   exit 2
@@ -51,26 +61,14 @@ echo "[imp] compiling the reference Haskell definition"
   export K_OPTS="$reference_k_opts"
   "$kompile" "$semantics" \
     --backend haskell \
-    --main-module IMP \
-    --syntax-module IMP-SYNTAX \
+    --main-module "$main_module" \
+    --syntax-module "$syntax_module" \
     --output-definition "$work/kompiled" \
     --warnings none
 )
 
-claims=(
-  IMP-SIMPLE-SPEC.addition-1
-  IMP-SIMPLE-SPEC.addition-2
-  IMP-SIMPLE-SPEC.addition-var
-  IMP-SIMPLE-SPEC.pre-branch-proved
-  IMP-SIMPLE-SPEC.branching
-  IMP-SIMPLE-SPEC.branching-program
-  IMP-SIMPLE-SPEC.branching-deadcode
-  IMP-SIMPLE-SPEC.while-cut-rule
-  IMP-SIMPLE-SPEC.while-cut-rule-delayed
-  IMP-SIMPLE-SPEC.sum-loop
-  IMP-SIMPLE-SPEC.sum-N
-)
-failure_claim=IMP-SIMPLE-SPEC.bmc-loop-concrete
+mapfile -t claims < <(jq -r '.claims[]' <<<"$proof")
+failure_claim=$(jq -r '.["failure-claim"]' <<<"$proof")
 claim_csv=$(IFS=,; echo "${claims[*]}")
 
 echo "[imp] proving selected claims with reference kprove"
@@ -80,9 +78,9 @@ echo "[imp] proving selected claims with reference kprove"
   export K_OPTS="$reference_k_opts"
   "$kprove" "$specification" \
     --definition "$work/kompiled" \
-    --spec-module IMP-SIMPLE-SPEC \
+    --spec-module "$spec_module" \
     --claims "$claim_csv" \
-    --depth 100 \
+    --depth "$proof_depth" \
     --output none \
     --warnings none \
     -I "$semantics_dir"
@@ -95,9 +93,9 @@ if (
   export K_OPTS="$reference_k_opts"
   "$kprove" "$specification" \
     --definition "$work/kompiled" \
-    --spec-module IMP-SIMPLE-SPEC \
+    --spec-module "$spec_module" \
     --claims "$failure_claim" \
-    --depth 100 \
+    --depth "$proof_depth" \
     --output none \
     --warnings none \
     -I "$semantics_dir" \
@@ -123,10 +121,10 @@ done
   cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" \
     -p k-rust --bin krust -- \
     kprove "$specification" \
-    --main-module IMP-SIMPLE-SPEC \
-    --definition-module IMP-VERIFICATION \
+    --main-module "$spec_module" \
+    --definition-module "$definition_module" \
     "${rust_claim_args[@]}" \
-    --depth 100 \
+    --depth "$proof_depth" \
     -I "$semantics_dir" \
     --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin" \
     >"$work/rust-proof.log"
@@ -146,10 +144,10 @@ if (
   cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" \
     -p k-rust --bin krust -- \
     kprove "$specification" \
-    --main-module IMP-SIMPLE-SPEC \
-    --definition-module IMP-VERIFICATION \
+    --main-module "$spec_module" \
+    --definition-module "$definition_module" \
     --claim "$failure_claim" \
-    --depth 100 \
+    --depth "$proof_depth" \
     -I "$semantics_dir" \
     --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin" \
     >"$work/rust-failure.log" 2>&1
