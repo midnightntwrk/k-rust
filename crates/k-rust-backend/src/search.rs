@@ -65,6 +65,7 @@ pub enum IncompleteSearch {
     DepthBound(SearchState),
     BreadthBound(Vec<SearchState>),
     ResultBound,
+    Cancelled(SearchState),
     Indeterminate {
         state: SearchState,
         reason: IndeterminateReason,
@@ -242,7 +243,7 @@ pub fn search_graph_with_solver_and_observer(
         ) {
             Ok(constraints) => state.pattern.constraints = constraints,
             Err(error) => {
-                incomplete.push(IncompleteSearch::Simplification { state, error });
+                incomplete.push(simplification_incomplete(state, error));
                 continue;
             }
         }
@@ -272,7 +273,7 @@ pub fn search_graph_with_solver_and_observer(
                     );
             }
             Err(error) => {
-                incomplete.push(IncompleteSearch::Simplification { state, error });
+                incomplete.push(simplification_incomplete(state, error));
                 continue;
             }
         }
@@ -442,7 +443,7 @@ pub fn search_pattern_with_solver(
                 continue;
             }
             Err(PatternMatchError::Simplification(error)) => {
-                incomplete.push(IncompleteSearch::Simplification { state, error });
+                incomplete.push(simplification_incomplete(state, error));
                 continue;
             }
             Err(PatternMatchError::Smt(error)) => {
@@ -605,6 +606,16 @@ fn simplification_options(options: SearchOptions) -> SimplificationOptions {
     }
 }
 
+fn simplification_incomplete(
+    state: SearchState,
+    error: SimplificationError,
+) -> IncompleteSearch {
+    match error {
+        SimplificationError::Cancelled => IncompleteSearch::Cancelled(state),
+        error => IncompleteSearch::Simplification { state, error },
+    }
+}
+
 fn selects_reachable_state(search_type: SearchType, depth: u64) -> bool {
     match search_type {
         SearchType::Star => true,
@@ -676,7 +687,10 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
-    use crate::term::{Sort, Symbol, Term, TermKind, Variable};
+    use crate::{
+        cancellation::CancellationToken,
+        term::{Sort, Symbol, Term, TermKind, Variable},
+    };
 
     fn definition() -> BackendDefinition {
         let syntax = parse_definition(
@@ -832,6 +846,26 @@ mod tests {
 
         assert!(result.states.is_empty());
         assert_eq!(result.incomplete, vec![IncompleteSearch::ResultBound]);
+    }
+
+    #[test]
+    fn cancelled_search_is_not_reported_as_a_simplification_failure() {
+        let definition = definition();
+        let token = CancellationToken::new();
+        token.cancel();
+
+        let result = token.scope(|| {
+            search_graph(
+                &definition,
+                initial(&definition),
+                SearchOptions::default(),
+            )
+        });
+
+        assert!(matches!(
+            result.incomplete.as_slice(),
+            [IncompleteSearch::Cancelled(state)] if state.depth == 0
+        ));
     }
 
     #[test]
