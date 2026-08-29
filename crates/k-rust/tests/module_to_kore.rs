@@ -7,6 +7,7 @@ use k_rust::kore::ast::{Pattern, Sentence};
 use k_rust::kore::parser::{parse_definition, parse_module, parse_sentence};
 use k_rust::kore::printer::Printer;
 use k_rust::{kast, kast::Label, outer};
+use serde::Deserialize;
 
 fn lowered(source: &str, main_module: &str) -> k_rust::definition::Definition {
     let parsed = outer::parse("declarations.k", source).expect("definition should parse");
@@ -690,28 +691,28 @@ declaration_snapshot!(
 );
 
 #[test]
-fn preserves_backend_crypto_hooks_in_both_declaration_views() {
-    let source = indoc! {r#"
-        module MAIN
-          syntax Bytes
-          syntax String
-          syntax String ::= "keccak(" Bytes ")"
-            [function, hook(KRYPTO.keccak256), symbol(keccak)]
-          syntax String ::= "sha(" Bytes ")"
-            [function, hook(HASH.sha256), symbol(sha)]
-          syntax String ::= "recover(" Bytes ")"
-            [function, hook(SECP256K1.ecdsaRecover), symbol(recover)]
-        endmodule
-    "#};
-    let declarations = declaration_modules(&lowered(source, "MAIN"), "MAIN").unwrap();
+fn backend_dispatched_namespaces_are_emitted_as_real_hooks() {
+    #[derive(Deserialize)]
+    struct Manifest {
+        backend_namespaces: Vec<String>,
+    }
+
+    let manifest: Manifest = toml::from_str(include_str!("fixtures/hook-capabilities.toml"))
+        .expect("hook capability manifest must be valid TOML");
+    let mut source = "module MAIN\n  syntax Value\n".to_owned();
+    for (index, namespace) in manifest.backend_namespaces.iter().enumerate() {
+        source.push_str(&format!(
+            "  syntax Value ::= \"probe{index}\" [function, hook({namespace}.probe), symbol(probe{index})]\n"
+        ));
+    }
+    source.push_str("endmodule\n");
+    let declarations = declaration_modules(&lowered(&source, "MAIN"), "MAIN").unwrap();
 
     for module in [&declarations.semantics, &declarations.syntax] {
-        for (label, hook) in [
-            ("keccak", "KRYPTO.keccak256"),
-            ("sha", "HASH.sha256"),
-            ("recover", "SECP256K1.ecdsaRecover"),
-        ] {
-            let symbol = encode_kore_label(&Label::new(label));
+        for (index, namespace) in manifest.backend_namespaces.iter().enumerate() {
+            let label = format!("probe{index}");
+            let hook = format!("{namespace}.probe");
+            let symbol = encode_kore_label(&Label::new(&label));
             let (hooked, attributes) = module
                 .sentences
                 .iter()
@@ -725,17 +726,54 @@ fn preserves_backend_crypto_hooks_in_both_declaration_views() {
                     _ => None,
                 })
                 .unwrap_or_else(|| panic!("missing declaration for {label}"));
-            assert!(hooked, "{label} was emitted as an ordinary symbol");
+            assert!(hooked, "{hook} was emitted as an ordinary symbol");
             assert!(
                 attributes.0.iter().any(|attribute| matches!(
                     attribute,
                     Pattern::Application { symbol, arguments }
                         if symbol.name == "hook"
-                            && arguments == &[Pattern::String(hook.to_owned())]
+                            && arguments == &[Pattern::String(hook.clone())]
                 )),
                 "{label} dropped hook({hook})"
             );
         }
+    }
+}
+
+#[test]
+fn out_of_catalog_hook_namespaces_are_not_emitted_as_hooked_symbols() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Value
+          syntax Value ::= "probe"
+            [function, hook(NOTANAMESPACE.probe), symbol(probe)]
+        endmodule
+    "#};
+    let declarations = declaration_modules(&lowered(source, "MAIN"), "MAIN").unwrap();
+    let symbol = encode_kore_label(&Label::new("probe"));
+
+    for module in [&declarations.semantics, &declarations.syntax] {
+        let (hooked, attributes) = module
+            .sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::SymbolDeclaration {
+                    hooked,
+                    symbol: declared,
+                    attributes,
+                    ..
+                } if declared == &symbol => Some((*hooked, attributes)),
+                _ => None,
+            })
+            .expect("missing probe declaration");
+        assert!(!hooked, "unknown hook namespace emitted as hooked-symbol");
+        assert!(
+            !attributes.0.iter().any(|attribute| matches!(
+                attribute,
+                Pattern::Application { symbol, .. } if symbol.name == "hook"
+            )),
+            "unknown hook attribute survived ordinary-symbol emission"
+        );
     }
 }
 
