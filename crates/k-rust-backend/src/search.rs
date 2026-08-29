@@ -57,6 +57,7 @@ impl Default for SearchOptions {
 pub struct SearchState {
     pub pattern: Pattern,
     pub depth: u64,
+    /// One valid path to this pattern; when paths converge, which witness survives is unspecified.
     pub trace: Vec<TraceEntry>,
 }
 
@@ -691,6 +692,7 @@ mod tests {
     use std::{collections::BTreeSet, sync::Arc};
 
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+    use proptest::prelude::*;
 
     use super::*;
     use crate::term::{Sort, Symbol, Term, TermKind, Variable};
@@ -741,6 +743,43 @@ mod tests {
         .expect("search definition should parse");
         BackendDefinition::internalize(&syntax, "SEARCH")
             .expect("search definition should internalize")
+    }
+
+    fn converging_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module SEARCH
+                sort SortS{} []
+                symbol initial{}() : SortS{} [constructor{}()]
+                symbol next1{}() : SortS{} [constructor{}()]
+                symbol next2{}() : SortS{} [constructor{}()]
+                symbol final1{}() : SortS{} [constructor{}()]
+                symbol final2{}() : SortS{} [constructor{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(initial{}(), \top{SortS{}}()),
+                    next1{}()
+                ) [label{}("initial-next1")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(initial{}(), \top{SortS{}}()),
+                    next2{}()
+                ) [label{}("initial-next2")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(next1{}(), \top{SortS{}}()),
+                    final1{}()
+                ) [label{}("next1-final1")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(next2{}(), \top{SortS{}}()),
+                    final1{}()
+                ) [label{}("next2-final1")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(next2{}(), \top{SortS{}}()),
+                    final2{}()
+                ) [label{}("next2-final2")]
+            endmodule []"#,
+        )
+        .expect("converging search definition should parse");
+        BackendDefinition::internalize(&syntax, "SEARCH")
+            .expect("converging search definition should internalize")
     }
 
     fn rewrite_simplification_failure_definition() -> BackendDefinition {
@@ -846,6 +885,269 @@ mod tests {
                 other => panic!("expected an application, found {other:?}"),
             })
             .collect()
+    }
+
+    fn state_name(state: &SearchState) -> String {
+        match state.pattern.term.kind() {
+            TermKind::Application { symbol, .. } => symbol.name.to_string(),
+            other => panic!("expected an application, found {other:?}"),
+        }
+    }
+
+    fn search_types() -> impl Strategy<Value = SearchType> {
+        prop_oneof![
+            Just(SearchType::One),
+            Just(SearchType::Star),
+            Just(SearchType::Plus),
+            Just(SearchType::Final),
+        ]
+    }
+
+    fn result_variable() -> Variable {
+        Variable::new("Result", Sort::simple("SortS"))
+    }
+
+    fn pattern_result_names(result: &PatternSearchResult, variable: &Variable) -> BTreeSet<String> {
+        result
+            .matches
+            .iter()
+            .map(|found| match found.substitution[variable].kind() {
+                TermKind::Application { symbol, .. } => symbol.name.to_string(),
+                other => panic!("expected an application, found {other:?}"),
+            })
+            .collect()
+    }
+
+    proptest! {
+        #[test]
+        fn complete_result_bounded_state_search_agrees_with_unbounded_search(
+            search_type in search_types(),
+            max_depth in 0_u64..=4,
+            max_results in 0_usize..=7,
+        ) {
+            let definition = definition();
+            let options = SearchOptions {
+                search_type,
+                max_depth,
+                max_results: Some(max_results),
+                ..SearchOptions::default()
+            };
+            let bounded = search_graph(&definition, initial(&definition), options);
+            if bounded.incomplete.is_empty() {
+                let unbounded = search_graph(
+                    &definition,
+                    initial(&definition),
+                    SearchOptions { max_results: None, ..options },
+                );
+                prop_assert_eq!(names(&bounded), names(&unbounded));
+            }
+        }
+
+        #[test]
+        fn complete_result_bounded_pattern_search_agrees_with_unbounded_search(
+            search_type in search_types(),
+            max_depth in 0_u64..=4,
+            max_results in 0_usize..=7,
+        ) {
+            let definition = definition();
+            let result_variable = result_variable();
+            let target = Pattern {
+                term: Term::variable(result_variable.clone()),
+                constraints: Vec::new(),
+            };
+            let options = SearchOptions {
+                search_type,
+                max_depth,
+                max_results: Some(max_results),
+                ..SearchOptions::default()
+            };
+            let bounded = search_pattern(&definition, initial(&definition), &target, options);
+            if bounded.incomplete.is_empty() {
+                let unbounded = search_pattern(
+                    &definition,
+                    initial(&definition),
+                    &target,
+                    SearchOptions { max_results: None, ..options },
+                );
+                prop_assert_eq!(
+                    pattern_result_names(&bounded, &result_variable),
+                    pattern_result_names(&unbounded, &result_variable),
+                );
+            }
+        }
+
+        #[test]
+        fn bounded_search_incompleteness_never_invents_states(
+            search_type in search_types(),
+            max_depth in 0_u64..=4,
+            max_breadth in 0_usize..=7,
+            max_results in 0_usize..=7,
+        ) {
+            let definition = definition();
+            let bounded = search_graph(
+                &definition,
+                initial(&definition),
+                SearchOptions {
+                    search_type,
+                    max_depth,
+                    max_breadth: Some(max_breadth),
+                    max_results: Some(max_results),
+                    ..SearchOptions::default()
+                },
+            );
+            prop_assume!(!bounded.incomplete.is_empty());
+
+            let selected = search_graph(
+                &definition,
+                initial(&definition),
+                SearchOptions { search_type, ..SearchOptions::default() },
+            );
+            let closure = search_graph(
+                &definition,
+                initial(&definition),
+                SearchOptions { search_type: SearchType::Star, ..SearchOptions::default() },
+            );
+            let selected_names = names(&selected);
+            let closure_names = names(&closure);
+
+            prop_assert!(names(&bounded).is_subset(&selected_names));
+            for marker in &bounded.incomplete {
+                match marker {
+                    IncompleteSearch::DepthBound(state) => {
+                        prop_assert!(closure_names.contains(&state_name(state)));
+                    }
+                    IncompleteSearch::BreadthBound(states) => {
+                        for state in states {
+                            prop_assert!(closure_names.contains(&state_name(state)));
+                        }
+                    }
+                    IncompleteSearch::ResultBound => {}
+                    other => prop_assert!(false, "unexpected marker for finite fixture: {other:?}"),
+                }
+            }
+        }
+
+        #[test]
+        fn bounded_properties_hold_on_the_converging_fixture(
+            search_type in search_types(),
+            max_depth in 0_u64..=4,
+            max_results in 0_usize..=7,
+        ) {
+            let definition = converging_definition();
+            let options = SearchOptions {
+                search_type,
+                max_depth,
+                max_results: Some(max_results),
+                ..SearchOptions::default()
+            };
+            let bounded = search_graph(&definition, initial(&definition), options);
+            if bounded.incomplete.is_empty() {
+                let unbounded = search_graph(
+                    &definition,
+                    initial(&definition),
+                    SearchOptions { max_results: None, ..options },
+                );
+                prop_assert_eq!(names(&bounded), names(&unbounded));
+            }
+        }
+    }
+
+    #[test]
+    fn converging_paths_collapse_to_one_state_per_pattern() {
+        let definition = converging_definition();
+        let result = search_graph(
+            &definition,
+            initial(&definition),
+            SearchOptions {
+                search_type: SearchType::Final,
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(
+            names(&result),
+            BTreeSet::from(["final1".into(), "final2".into()])
+        );
+        assert_eq!(
+            result
+                .states
+                .iter()
+                .filter(|state| state_name(state) == "final1")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_deduplicated_state_keeps_one_valid_trace() {
+        let definition = converging_definition();
+        let result = search_graph(
+            &definition,
+            initial(&definition),
+            SearchOptions {
+                search_type: SearchType::Final,
+                ..SearchOptions::default()
+            },
+        );
+        let final1 = result
+            .states
+            .iter()
+            .find(|state| state_name(state) == "final1")
+            .expect("final1 should be reachable");
+        let labels = final1
+            .trace
+            .iter()
+            .filter(|entry| entry.kind == TraceKind::Rewrite)
+            .map(|entry| entry.label.as_deref().expect("fixture rules have labels"))
+            .collect::<Vec<_>>();
+
+        assert!(
+            labels == ["initial-next1", "next1-final1"]
+                || labels == ["initial-next2", "next2-final1"],
+            "unexpected witness: {labels:?}"
+        );
+    }
+
+    #[test]
+    fn search_traces_are_always_valid_paths() {
+        for definition in [definition(), converging_definition()] {
+            for search_type in [
+                SearchType::One,
+                SearchType::Star,
+                SearchType::Plus,
+                SearchType::Final,
+            ] {
+                let result = search_graph(
+                    &definition,
+                    initial(&definition),
+                    SearchOptions {
+                        search_type,
+                        ..SearchOptions::default()
+                    },
+                );
+                for state in result.states {
+                    let mut current = "initial";
+                    let mut rewrite_count = 0;
+                    for entry in &state.trace {
+                        if entry.kind != TraceKind::Rewrite {
+                            continue;
+                        }
+                        let label = entry.label.as_deref().expect("fixture rules have labels");
+                        current = match (current, label) {
+                            ("initial", "initial-next1") => "next1",
+                            ("initial", "initial-next2") => "next2",
+                            ("next1", "next1-final1") => "final1",
+                            ("next2", "next2-final1") => "final1",
+                            ("next2", "next2-final2") => "final2",
+                            edge => panic!("invalid trace edge {edge:?} in {:?}", state.trace),
+                        };
+                        rewrite_count += 1;
+                    }
+                    assert_eq!(rewrite_count, state.depth, "{:?}", state.trace);
+                    assert_eq!(current, state_name(&state), "{:?}", state.trace);
+                }
+            }
+        }
     }
 
     fn search(search_type: SearchType) -> SearchResult {
