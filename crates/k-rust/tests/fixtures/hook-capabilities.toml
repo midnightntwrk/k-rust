@@ -1,0 +1,339 @@
+# Runtime hook capabilities for the K 7.1.337 prelude embedded by k-rust.
+# Every hook in prelude.md and its transitive requires must occur exactly once.
+version = 1
+backend_namespaces = [
+  "BOOL", "BYTES", "HASH", "INT", "IO", "KEQUAL", "KRYPTO", "LIST", "MAP",
+  "SECP256K1", "SET", "STRING",
+]
+
+implemented = [
+  "BOOL.and",
+  "BOOL.andThen",
+  "BOOL.eq",
+  "BOOL.implies",
+  "BOOL.ne",
+  "BOOL.not",
+  "BOOL.or",
+  "BOOL.orElse",
+  "BOOL.xor",
+  "BYTES.bytes2int",
+  "BYTES.bytes2string",
+  "BYTES.concat",
+  "BYTES.decodeBytes",
+  "BYTES.empty",
+  "BYTES.encodeBytes",
+  "BYTES.get",
+  "BYTES.int2bytes",
+  "BYTES.length",
+  "BYTES.padLeft",
+  "BYTES.padRight",
+  "BYTES.replaceAt",
+  "BYTES.reverse",
+  "BYTES.string2bytes",
+  "BYTES.substr",
+  "BYTES.update",
+  "INT.abs",
+  "INT.add",
+  "INT.and",
+  "INT.ediv",
+  "INT.emod",
+  "INT.eq",
+  "INT.ge",
+  "INT.gt",
+  "INT.le",
+  "INT.log2",
+  "INT.lt",
+  "INT.max",
+  "INT.min",
+  "INT.mul",
+  "INT.ne",
+  "INT.not",
+  "INT.or",
+  "INT.pow",
+  "INT.powmod",
+  "INT.shl",
+  "INT.shr",
+  "INT.sub",
+  "INT.tdiv",
+  "INT.tmod",
+  "INT.xor",
+  "IO.logString",
+  "KEQUAL.eq",
+  "KEQUAL.ite",
+  "KEQUAL.ne",
+  "LIST.concat",
+  "LIST.element",
+  "LIST.get",
+  "LIST.in",
+  "LIST.make",
+  "LIST.range",
+  "LIST.size",
+  "LIST.unit",
+  "LIST.update",
+  "LIST.updateAll",
+  "MAP.concat",
+  "MAP.element",
+  "MAP.in_keys",
+  "MAP.inclusion",
+  "MAP.keys",
+  "MAP.keys_list",
+  "MAP.lookup",
+  "MAP.lookupOrDefault",
+  "MAP.remove",
+  "MAP.removeAll",
+  "MAP.size",
+  "MAP.unit",
+  "MAP.update",
+  "MAP.updateAll",
+  "MAP.values",
+  "SET.concat",
+  "SET.difference",
+  "SET.element",
+  "SET.in",
+  "SET.inclusion",
+  "SET.intersection",
+  "SET.list2set",
+  "SET.set2list",
+  "SET.size",
+  "SET.unit",
+  "STRING.base2string",
+  "STRING.chr",
+  "STRING.concat",
+  "STRING.eq",
+  "STRING.find",
+  "STRING.ge",
+  "STRING.gt",
+  "STRING.int2string",
+  "STRING.le",
+  "STRING.length",
+  "STRING.lt",
+  "STRING.ne",
+  "STRING.ord",
+  "STRING.string2base",
+  "STRING.string2int",
+  "STRING.string2token",
+  "STRING.substr",
+  "STRING.token2string",
+]
+
+# These hooks identify KORE builtin sorts; the backend internalizer handles
+# them structurally and they are never evaluator calls.
+structural = [
+  "BOOL.Bool",
+  "BUFFER.StringBuffer",
+  "BYTES.Bytes",
+  "FLOAT.Float",
+  "INT.Int",
+  "K.K",
+  "K.KItem",
+  "LIST.List",
+  "MAP.Map",
+  "MINT.MInt",
+  "RANGEMAP.RangeMap",
+  "SET.Set",
+  "STRING.String",
+]
+
+[[unsupported]]
+reason = "mutable string buffers have no in-process backend representation"
+hooks = ["BUFFER.concat", "BUFFER.empty", "BUFFER.toString"]
+
+[[unsupported]]
+reason = "MInt-specialized and utility byte operations are not implemented"
+hooks = [
+  "BYTES.bytes2hex",
+  "BYTES.getMInt",
+  "BYTES.lengthMInt",
+  "BYTES.memset",
+  "BYTES.padLeftMInt",
+  "BYTES.padRightMInt",
+  "BYTES.replaceAtMInt",
+  "BYTES.substrMInt",
+  "BYTES.updateMInt",
+]
+
+[[unsupported]]
+reason = "arbitrary-precision floating-point evaluation is not implemented"
+hooks = [
+  "FLOAT.abs", "FLOAT.acos", "FLOAT.add", "FLOAT.asin", "FLOAT.atan",
+  "FLOAT.atan2", "FLOAT.ceil", "FLOAT.cos", "FLOAT.div", "FLOAT.eq",
+  "FLOAT.exp", "FLOAT.exponent", "FLOAT.exponentBits", "FLOAT.float2int",
+  "FLOAT.floor", "FLOAT.ge", "FLOAT.gt", "FLOAT.int2float", "FLOAT.isNaN",
+  "FLOAT.le", "FLOAT.log", "FLOAT.lt", "FLOAT.max", "FLOAT.maxValue",
+  "FLOAT.min", "FLOAT.minValue", "FLOAT.mul", "FLOAT.neg", "FLOAT.pow",
+  "FLOAT.precision", "FLOAT.rem", "FLOAT.root", "FLOAT.round", "FLOAT.sign",
+  "FLOAT.sin", "FLOAT.sub", "FLOAT.tan", "FLOAT.trunc",
+]
+
+[[unsupported]]
+reason = "randomness and bit-range operations are not implemented"
+hooks = ["INT.bitRange", "INT.rand", "INT.signExtendBitRange", "INT.srand"]
+
+[[unsupported]]
+reason = "host filesystem, process, clock, and stream effects are not exposed by the backend"
+hooks = [
+  "IO.accept", "IO.close", "IO.getc", "IO.lock", "IO.log", "IO.mkstemp",
+  "IO.open", "IO.putc", "IO.read", "IO.remove", "IO.seek", "IO.seekEnd",
+  "IO.shutdownWrite", "IO.system", "IO.tell", "IO.time", "IO.traceTerm",
+  "IO.unlock", "IO.write",
+]
+
+[[unsupported]]
+reason = "compiler and process reflection services are not exposed by the backend"
+hooks = [
+  "KREFLECTION.argv", "KREFLECTION.configuration", "KREFLECTION.fresh",
+  "KREFLECTION.getKLabel", "KREFLECTION.getenv", "KREFLECTION.kompiledDir",
+  "KREFLECTION.printKORE", "KREFLECTION.sort",
+]
+
+[[unsupported]]
+reason = "MInt-specialized and deque-like list operations are not implemented"
+hooks = ["LIST.fill", "LIST.getMInt", "LIST.push", "LIST.sizeMInt", "LIST.updateMInt"]
+
+[[unsupported]]
+reason = "nondeterministic choice and map difference are not implemented"
+hooks = ["MAP.choice", "MAP.difference"]
+
+[[unsupported]]
+reason = "fixed-width machine integer evaluation is not implemented"
+hooks = [
+  "MINT.MInt2bytes", "MINT.add", "MINT.and", "MINT.ashr", "MINT.bitwidth",
+  "MINT.bytes2MInt", "MINT.eq", "MINT.integer", "MINT.literal", "MINT.lshr",
+  "MINT.mul", "MINT.ne", "MINT.neg", "MINT.not", "MINT.or", "MINT.pow",
+  "MINT.round", "MINT.sdiv", "MINT.sext", "MINT.sge", "MINT.sgt",
+  "MINT.shl", "MINT.sle", "MINT.slt", "MINT.smax", "MINT.smin",
+  "MINT.srem", "MINT.sub", "MINT.svalue", "MINT.udiv", "MINT.uge",
+  "MINT.ugt", "MINT.ule", "MINT.ult", "MINT.umax", "MINT.umin",
+  "MINT.urem", "MINT.uvalue", "MINT.xor",
+]
+
+[[unsupported]]
+reason = "range-map values have no in-process backend representation"
+hooks = [
+  "RANGEMAP.choice", "RANGEMAP.concat", "RANGEMAP.difference",
+  "RANGEMAP.elementRng", "RANGEMAP.find_range", "RANGEMAP.in_keys",
+  "RANGEMAP.inclusion", "RANGEMAP.keys", "RANGEMAP.keys_list",
+  "RANGEMAP.lookup", "RANGEMAP.lookupOrDefault", "RANGEMAP.removeAll",
+  "RANGEMAP.removeRng", "RANGEMAP.size", "RANGEMAP.unit",
+  "RANGEMAP.updateAll", "RANGEMAP.updateRng", "RANGEMAP.values",
+]
+
+[[unsupported]]
+reason = "nondeterministic choice and redundant union are not implemented"
+hooks = ["SET.choice", "SET.union"]
+
+[[unsupported]]
+reason = "Unicode properties, replacement utilities, floating conversion, and UUID generation are not implemented"
+hooks = [
+  "STRING.category", "STRING.countAllOccurrences", "STRING.directionality",
+  "STRING.findChar", "STRING.float2string", "STRING.floatFormat", "STRING.replace",
+  "STRING.replaceAll", "STRING.replaceFirst", "STRING.rfind", "STRING.rfindChar",
+  "STRING.string2float", "STRING.uuid",
+]
+
+# Crypto evaluators in the K v7.1.337 reference stack come from its pinned
+# Haskell backend input, not from K's embedded prelude. The broader KRYPTO
+# vocabulary is declared by blockchain-k-plugin. These immutable revisions
+# make the union classified below reviewable:
+# - runtimeverification/haskell-backend 38afc81, Kore.Builtin.Krypto
+# - runtimeverification/blockchain-k-plugin 207ae512, plugin/krypto.md
+[crypto]
+sources = [
+  "runtimeverification/haskell-backend@38afc81:Kore.Builtin.Krypto",
+  "runtimeverification/blockchain-k-plugin@207ae512:plugin/krypto.md",
+]
+implemented = [
+  "HASH.keccak256",
+  "HASH.ripemd160",
+  "HASH.sha256",
+  "HASH.sha3_256",
+  "KRYPTO.ecdsaPubKey",
+  "KRYPTO.ecdsaRecover",
+  "KRYPTO.keccak256",
+  "KRYPTO.keccak256raw",
+  "KRYPTO.ripemd160",
+  "KRYPTO.sha256",
+  "KRYPTO.sha3256",
+  "KRYPTO.sha512_256raw",
+  "SECP256K1.ecdsaRecover",
+]
+
+[crypto.arities]
+"HASH.keccak256" = 1
+"HASH.ripemd160" = 1
+"HASH.sha256" = 1
+"HASH.sha3_256" = 1
+"KRYPTO.blake2b256" = 1
+"KRYPTO.blake2b256raw" = 1
+"KRYPTO.blake2compress" = 1
+"KRYPTO.bls12G1Add" = 2
+"KRYPTO.bls12G1InSubgroup" = 1
+"KRYPTO.bls12G1Msm" = 2
+"KRYPTO.bls12G1Mul" = 2
+"KRYPTO.bls12G1OnCurve" = 1
+"KRYPTO.bls12G2Add" = 2
+"KRYPTO.bls12G2InSubgroup" = 1
+"KRYPTO.bls12G2Msm" = 2
+"KRYPTO.bls12G2Mul" = 2
+"KRYPTO.bls12G2OnCurve" = 1
+"KRYPTO.bls12MapFp2ToG2" = 2
+"KRYPTO.bls12MapFpToG1" = 1
+"KRYPTO.bls12PairingCheck" = 2
+"KRYPTO.bn128add" = 2
+"KRYPTO.bn128ate" = 2
+"KRYPTO.bn128g2valid" = 1
+"KRYPTO.bn128mul" = 2
+"KRYPTO.bn128valid" = 1
+"KRYPTO.ecdsaPubKey" = 1
+"KRYPTO.ecdsaRecover" = 4
+"KRYPTO.ecdsaSign" = 2
+"KRYPTO.ed25519verify" = 3
+"KRYPTO.keccak256" = 1
+"KRYPTO.keccak256raw" = 1
+"KRYPTO.p256verify" = 1
+"KRYPTO.ripemd160" = 1
+"KRYPTO.ripemd160raw" = 1
+"KRYPTO.sha256" = 1
+"KRYPTO.sha256raw" = 1
+"KRYPTO.sha3" = 1
+"KRYPTO.sha3256" = 1
+"KRYPTO.sha3raw" = 1
+"KRYPTO.sha512" = 1
+"KRYPTO.sha512_256" = 1
+"KRYPTO.sha512_256raw" = 1
+"KRYPTO.sha512raw" = 1
+"KRYPTO.verifyKZGProof" = 4
+"SECP256K1.ecdsaRecover" = 4
+
+[[crypto.unsupported]]
+reason = "the reference plugin's remaining hash algorithms and raw forms have no in-process evaluator"
+hooks = [
+  "KRYPTO.blake2b256", "KRYPTO.blake2b256raw", "KRYPTO.blake2compress",
+  "KRYPTO.ripemd160raw", "KRYPTO.sha256raw", "KRYPTO.sha3", "KRYPTO.sha3raw",
+  "KRYPTO.sha512", "KRYPTO.sha512_256", "KRYPTO.sha512raw",
+]
+
+[[crypto.unsupported]]
+reason = "signing and the additional signature schemes are not implemented by the in-process backend"
+hooks = ["KRYPTO.ecdsaSign", "KRYPTO.ed25519verify", "KRYPTO.p256verify"]
+
+[[crypto.unsupported]]
+reason = "BN128 curve operations are tracked as unsupported semantics capabilities"
+hooks = [
+  "KRYPTO.bn128add", "KRYPTO.bn128ate", "KRYPTO.bn128g2valid",
+  "KRYPTO.bn128mul", "KRYPTO.bn128valid",
+]
+
+[[crypto.unsupported]]
+reason = "BLS12-381 curve operations are not implemented by the in-process backend"
+hooks = [
+  "KRYPTO.bls12G1Add", "KRYPTO.bls12G1InSubgroup", "KRYPTO.bls12G1Msm",
+  "KRYPTO.bls12G1Mul", "KRYPTO.bls12G1OnCurve", "KRYPTO.bls12G2Add",
+  "KRYPTO.bls12G2InSubgroup", "KRYPTO.bls12G2Msm", "KRYPTO.bls12G2Mul",
+  "KRYPTO.bls12G2OnCurve", "KRYPTO.bls12MapFp2ToG2", "KRYPTO.bls12MapFpToG1",
+  "KRYPTO.bls12PairingCheck",
+]
+
+[[crypto.unsupported]]
+reason = "the EIP-4844 KZG verifier is not implemented by the in-process backend"
+hooks = ["KRYPTO.verifyKZGProof"]
