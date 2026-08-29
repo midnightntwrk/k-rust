@@ -91,9 +91,6 @@ fn ecdsa_recover(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, Builti
     let Some(v) = read_int(&arguments[1]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(v) = v.to_u8() else {
-        return Ok(BuiltinResult::Bottom);
-    };
     let Some(r) = bytes::read_bytes(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
@@ -101,46 +98,42 @@ fn ecdsa_recover(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, Builti
         return Ok(BuiltinResult::NotApplicable);
     };
 
+    let Some(v) = v.to_u8().filter(|v| matches!(v, 27 | 28)) else {
+        return Ok(failed_recovery());
+    };
     let Some(recovery_id) = v
         .checked_sub(27)
         .and_then(|id| RecoveryId::try_from(id).ok())
     else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(failed_recovery());
     };
-    let Some(r) = scalar_bytes(&r) else {
-        return Ok(BuiltinResult::Bottom);
+    let Ok(message_hash): Result<[u8; 32], _> = message_hash.try_into() else {
+        return Ok(failed_recovery());
     };
-    let Some(s) = scalar_bytes(&s) else {
-        return Ok(BuiltinResult::Bottom);
+    let Ok(r): Result<[u8; 32], _> = r.try_into() else {
+        return Ok(failed_recovery());
+    };
+    let Ok(s): Result<[u8; 32], _> = s.try_into() else {
+        return Ok(failed_recovery());
     };
     let mut signature_bytes = [0_u8; 64];
     signature_bytes[..32].copy_from_slice(&r);
     signature_bytes[32..].copy_from_slice(&s);
     let Ok(signature) = Signature::from_slice(&signature_bytes) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(failed_recovery());
     };
     let Ok(key) = VerifyingKey::recover_from_prehash(&message_hash, &signature, recovery_id) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(failed_recovery());
     };
     let encoded = key.to_sec1_point(false);
     let Some(coordinates) = encoded.as_bytes().get(1..) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(failed_recovery());
     };
     Ok(BuiltinResult::Value(bytes::bytes_term(coordinates)))
 }
 
-fn scalar_bytes(input: &[u8]) -> Option<[u8; 32]> {
-    let first_nonzero = input
-        .iter()
-        .position(|byte| *byte != 0)
-        .unwrap_or(input.len());
-    let significant = &input[first_nonzero..];
-    if significant.len() > 32 {
-        return None;
-    }
-    let mut output = [0_u8; 32];
-    output[32 - significant.len()..].copy_from_slice(significant);
-    Some(output)
+fn failed_recovery() -> BuiltinResult {
+    BuiltinResult::Value(bytes::bytes_term(&[]))
 }
 
 fn string_term(value: impl Into<String>) -> Term {
@@ -248,6 +241,130 @@ mod tests {
             Ok(BuiltinResult::Value(bytes::bytes_term(
                 &public_key.as_bytes()[1..]
             )))
+        );
+    }
+
+    #[test]
+    fn invalid_concrete_recoveries_return_empty_bytes() {
+        let hash = vec![1_u8; 32];
+        let scalar = vec![1_u8; 32];
+        let curve_order = vec![
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xfe, 0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c,
+            0xd0, 0x36, 0x41, 0x41,
+        ];
+        let cases = vec![
+            (
+                "negative v",
+                hash.clone(),
+                (-1).into(),
+                scalar.clone(),
+                scalar.clone(),
+            ),
+            (
+                "v = 26",
+                hash.clone(),
+                26.into(),
+                scalar.clone(),
+                scalar.clone(),
+            ),
+            (
+                "v = 29",
+                hash.clone(),
+                29.into(),
+                scalar.clone(),
+                scalar.clone(),
+            ),
+            (
+                "v = 30",
+                hash.clone(),
+                30.into(),
+                scalar.clone(),
+                scalar.clone(),
+            ),
+            (
+                "v >= 256",
+                hash.clone(),
+                256.into(),
+                scalar.clone(),
+                scalar.clone(),
+            ),
+            (
+                "31-byte hash",
+                vec![1; 31],
+                27.into(),
+                scalar.clone(),
+                scalar.clone(),
+            ),
+            (
+                "33-byte hash",
+                vec![1; 33],
+                27.into(),
+                scalar.clone(),
+                scalar.clone(),
+            ),
+            (
+                "31-byte r",
+                hash.clone(),
+                27.into(),
+                vec![1; 31],
+                scalar.clone(),
+            ),
+            (
+                "33-byte zero-prefixed r",
+                hash.clone(),
+                27.into(),
+                [vec![0], scalar.clone()].concat(),
+                scalar.clone(),
+            ),
+            (
+                "31-byte s",
+                hash.clone(),
+                27.into(),
+                scalar.clone(),
+                vec![1; 31],
+            ),
+            (
+                "33-byte s",
+                hash.clone(),
+                27.into(),
+                scalar.clone(),
+                vec![1; 33],
+            ),
+            (
+                "zero r",
+                hash.clone(),
+                27.into(),
+                vec![0; 32],
+                scalar.clone(),
+            ),
+            ("s at curve order", hash, 27.into(), scalar, curve_order),
+        ];
+        let empty = BuiltinResult::Value(bytes::bytes_term(&[]));
+
+        for (name, hash, v, r, s) in cases {
+            let arguments = [
+                bytes::bytes_term(&hash),
+                super::super::int_term(v),
+                bytes::bytes_term(&r),
+                bytes::bytes_term(&s),
+            ];
+            assert_eq!(
+                evaluate("KRYPTO.ecdsaRecover", &arguments),
+                Ok(empty.clone()),
+                "{name}"
+            );
+        }
+
+        let symbolic = [
+            bytes::bytes_term(&[1; 32]),
+            Term::variable(crate::term::Variable::new("V", Sort::simple("SortInt"))),
+            bytes::bytes_term(&[1; 32]),
+            bytes::bytes_term(&[1; 32]),
+        ];
+        assert_eq!(
+            evaluate("KRYPTO.ecdsaRecover", &symbolic),
+            Ok(BuiltinResult::NotApplicable)
         );
     }
 }
