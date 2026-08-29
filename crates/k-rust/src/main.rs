@@ -176,6 +176,10 @@ struct KastArgs {
     #[arg(short = 'm', long, value_name = "MODULE")]
     module: String,
 
+    /// Backend whose module view should be used while parsing.
+    #[arg(long, value_enum)]
+    backend: Option<CompilationBackendArg>,
+
     /// Start sort for the program parser.
     #[arg(short = 's', long, value_name = "SORT")]
     sort: String,
@@ -646,6 +650,7 @@ impl From<ExecutionStrategyArg> for ExecutionMode {
 #[derive(Debug)]
 struct KastOptions {
     common: CommonOptions,
+    backend: Option<CompilationBackend>,
     sort: String,
     expression: Option<String>,
     program_file: Option<PathBuf>,
@@ -778,6 +783,7 @@ impl From<KastArgs> for KastOptions {
             common: arguments
                 .source
                 .common(arguments.definition, arguments.module),
+            backend: arguments.backend.map(Into::into),
             sort: arguments.sort,
             expression: arguments.expression,
             program_file: arguments.program_file,
@@ -911,7 +917,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
 }
 
 fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
-    let loaded = load_definition(&options.common, None, None)?;
+    let loaded = load_definition(&options.common, options.backend, None)?;
     let diagnostics = check_definition(&loaded.resolved)?;
     emit_diagnostics(&diagnostics);
     if diagnostics

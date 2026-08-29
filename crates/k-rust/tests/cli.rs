@@ -110,6 +110,54 @@ fn kast_parses_a_program_as_text_and_json() {
 }
 
 #[test]
+fn kast_backend_selects_the_matching_module_view() {
+    let source = r#"
+module SYMBOLIC [symbolic]
+  syntax Exp ::= "symbolic" [symbol(symbolicOnly)]
+endmodule
+
+module CONCRETE [concrete]
+  syntax Exp ::= "concrete" [symbol(concreteOnly)]
+endmodule
+
+module MAIN
+  imports SYMBOLIC
+  imports CONCRETE
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let binary = env!("CARGO_BIN_EXE_krust");
+    let kast = |backend: Option<&str>, expression: &str| {
+        let mut command = Command::new(binary);
+        command.args([
+            "kast",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--sort",
+            "Exp",
+            "--expression",
+            expression,
+            "--no-prelude",
+        ]);
+        if let Some(backend) = backend {
+            command.args(["--backend", backend]);
+        }
+        command.output().unwrap()
+    };
+
+    assert!(kast(None, "symbolic").status.success());
+    assert!(kast(None, "concrete").status.success());
+    assert!(kast(Some("rust"), "symbolic").status.success());
+    assert!(!kast(Some("rust"), "concrete").status.success());
+    assert!(kast(Some("llvm"), "concrete").status.success());
+    assert!(!kast(Some("llvm"), "symbolic").status.success());
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn installed_cli_uses_embedded_pinned_builtins_by_default() {
     let (root, definition) = fixture();
     fs::write(
