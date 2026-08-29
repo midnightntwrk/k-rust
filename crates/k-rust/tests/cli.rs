@@ -237,6 +237,51 @@ endmodule
 }
 
 #[test]
+fn kast_omits_inferred_parametric_label_arguments() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  syntax A ::= "a" [symbol(a)]
+  syntax {S} S ::= "pair(" S "," S ")" [symbol(pair)]
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kast",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--batch-case",
+            "pair",
+            "A",
+            "pair(a,a)",
+            "--output",
+            "json",
+            "--no-prelude",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["pair"]["term"]["label"]["name"], "pair");
+    assert_eq!(
+        value["pair"]["term"]["label"]["params"],
+        serde_json::json!([])
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kast_backend_selects_the_matching_module_view() {
     let source = r#"
 module SYMBOLIC [symbolic]
