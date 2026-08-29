@@ -1993,6 +1993,68 @@ fn concretizes_nested_cells_to_declared_fixed_arities() {
 }
 
 #[test]
+fn complete_cells_are_rejected_with_a_typed_error() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <k> 0 </k>
+              <state> 0 </state>
+              <output> 0 </output>
+            </top>
+          rule <k> 0 => 1 </k>
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let child = || application("<k>", vec![Term::variable("K")]);
+    let cases = [
+        (
+            "one complete child",
+            vec![child()],
+            "Expected incomplete cell with 3 arguments, found 1",
+        ),
+        (
+            "three complete children",
+            vec![child(), child(), child()],
+            "Expected #dots() or #noDots() in incomplete cell",
+        ),
+    ];
+
+    for (name, arguments, expected) in cases {
+        let mut input = definition.clone();
+        let rule = input
+            .modules
+            .iter_mut()
+            .find(|module| module.name == "MAIN")
+            .unwrap()
+            .local_sentences
+            .iter_mut()
+            .find(|sentence| {
+                matches!(sentence, Sentence::Rule { attributes, .. }
+                    if attributes.get("initializer").is_none())
+            })
+            .expect("fixture has an ordinary rule");
+        let Sentence::Rule { body, .. } = rule else {
+            unreachable!()
+        };
+        *body = application("<top>", arguments);
+
+        let error = match concretize_cells(&input) {
+            Err(error) => error,
+            Ok(_) => panic!("{name} unexpectedly concretized"),
+        };
+        assert_eq!(error.diagnostics.len(), 1, "{name}: {error:#?}");
+        assert!(
+            error.diagnostics[0].message.contains(expected),
+            "{name}: {error:#?}"
+        );
+    }
+}
+
+#[test]
 fn fills_absent_optional_and_repeated_cells_with_their_units() {
     let source = indoc! {r#"
         module MAIN
