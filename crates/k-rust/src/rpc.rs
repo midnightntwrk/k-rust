@@ -2237,6 +2237,60 @@ mod tests {
         ))
     }
 
+    fn budget_policy_service() -> RpcService {
+        let mut theory = String::new();
+        for index in 0..=128 {
+            theory.push_str(&format!(
+                "symbol chain{index}{{}}() : SortState{{}} [function{{}}()]\n"
+            ));
+        }
+        for index in 0..128 {
+            let next = index + 1;
+            theory.push_str(&format!(
+                r#"
+                axiom{{R}} \implies{{R}}(
+                    \top{{R}}(),
+                    \equals{{SortState{{}}, R}}(
+                        chain{index}{{}}(),
+                        \and{{SortState{{}}}}(chain{next}{{}}(), \top{{SortState{{}}}}())
+                    )
+                ) [label{{}}("chain-{index}"), simplification{{}}()]
+                "#
+            ));
+        }
+        theory.push_str(
+            r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortState{}, R}(
+                    chain128{}(),
+                    \and{SortState{}}(done{}(), \top{SortState{}}())
+                )
+            ) [label{}("chain-done"), simplification{}()]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(
+                    wrap{}(X:SortState{}),
+                    \equals{SortState{}, SortState{}}(chain0{}(), done{}())
+                ),
+                done{}()
+            ) [label{}("conditional")]
+            "#,
+        );
+        let source = format!(
+            r#"[]
+            module TEST
+                sort SortState{{}} [hasDomainValues{{}}()]
+                symbol wrap{{}}(SortState{{}}) : SortState{{}} [constructor{{}}()]
+                symbol done{{}}() : SortState{{}} [constructor{{}}()]
+                {theory}
+            endmodule []"#
+        );
+        RpcService::new(BackendSession::new(
+            parse_definition(&source).expect("budget definition should parse"),
+            "TEST",
+        ))
+    }
+
     fn smt_implication_service() -> RpcService {
         RpcService::new(BackendSession::new(
             parse_definition(
@@ -3677,6 +3731,23 @@ mod tests {
             json!({ "state": model_state }),
         );
         assert_eq!(model["result"], json!({ "satisfiable": "Sat" }));
+    }
+
+    #[test]
+    fn simplify_and_execute_budget_asymmetry_is_deliberate() {
+        let mut service = budget_policy_service();
+        let chain = encode_kore(&parse_pattern("chain0{}()").unwrap()).unwrap();
+        let simplify = request(&mut service, 1, "simplify", json!({ "state": chain }));
+
+        // The standalone simplify API is intentionally unbounded for reference parity, while
+        // execution uses the shared finite default and reports exhaustion as an aborted leaf.
+        assert!(simplify.get("error").is_none(), "{simplify:#}");
+        assert!(simplify["result"]["state"].to_string().contains("done"));
+
+        let initial =
+            encode_kore(&parse_pattern(r#"wrap{}(\dv{SortState{}}("value"))"#).unwrap()).unwrap();
+        let execute = request(&mut service, 2, "execute", json!({ "state": initial }));
+        assert_eq!(execute["result"]["reason"], "aborted", "{execute:#}");
     }
 
     #[test]

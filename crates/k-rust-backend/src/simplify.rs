@@ -3290,8 +3290,7 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn unbounded_simplification_completes_a_long_fixed_point_chain() {
+    fn long_fixed_point_chain() -> (BackendDefinition, Term, Term) {
         let mut theory = String::new();
         for index in 0..=128 {
             theory.push_str(&format!(
@@ -3327,10 +3326,22 @@ mod tests {
         let input = term(&definition, "chain0{}()");
         let expected = term(&definition, r#"\dv{SortS{}}("done")"#);
 
+        (definition, input, expected)
+    }
+
+    #[test]
+    fn default_budget_halts_a_long_chain_with_a_typed_error() {
+        let (definition, input, _) = long_fixed_point_chain();
+
         assert!(matches!(
             simplify(&definition, &input, SimplificationOptions::default()),
             Err(SimplificationError::IterationLimit { limit: 100, .. })
         ));
+    }
+
+    #[test]
+    fn unbounded_simplification_completes_a_long_fixed_point_chain() {
+        let (definition, input, expected) = long_fixed_point_chain();
 
         let result = simplify(&definition, &input, SimplificationOptions::unbounded())
             .expect("the complete Kore-style pass should finish finite computations");

@@ -5938,6 +5938,69 @@ mod tests {
         ));
     }
 
+    fn long_requires_chain() -> String {
+        let mut theory = String::new();
+        for index in 0..=128 {
+            theory.push_str(&format!(
+                "symbol chain{index}{{}}() : SortS{{}} [function{{}}()]\n"
+            ));
+        }
+        for index in 0..128 {
+            let next = index + 1;
+            theory.push_str(&format!(
+                r#"
+                axiom{{R}} \implies{{R}}(
+                    \top{{R}}(),
+                    \equals{{SortS{{}}, R}}(
+                        chain{index}{{}}(),
+                        \and{{SortS{{}}}}(chain{next}{{}}(), \top{{SortS{{}}}}())
+                    )
+                ) [label{{}}("chain-{index}"), simplification{{}}()]
+                "#
+            ));
+        }
+        theory.push_str(
+            r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    chain128{}(),
+                    \and{SortS{}}(\dv{SortS{}}("done"), \top{SortS{}}())
+                )
+            ) [label{}("chain-done"), simplification{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(X:SortS{}),
+                    \equals{SortS{}, SortS{}}(
+                        chain0{}(),
+                        \dv{SortS{}}("done")
+                    )
+                ),
+                \dv{SortS{}}("rewritten")
+            ) [label{}("conditional")]
+            "#,
+        );
+        theory
+    }
+
+    #[test]
+    fn execution_reports_default_budget_exhaustion_as_a_simplification_leaf() {
+        let definition = definition(&long_requires_chain());
+        let result = execute(
+            &definition,
+            subject(&definition, "value"),
+            ExecutionOptions::default(),
+        );
+
+        let [leaf] = result.leaves.as_slice() else {
+            panic!(
+                "expected one exhausted execution leaf, found {:?}",
+                result.leaves
+            );
+        };
+        assert_iteration_limit(&leaf.halt_reason);
+    }
+
     #[test]
     fn rule_requires_simplification_failure_halts_execution() {
         let definition = definition(
