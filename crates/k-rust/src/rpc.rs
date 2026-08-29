@@ -387,7 +387,7 @@ impl RpcService {
             _ => Err(RpcFault {
                 code: -32601,
                 message: "Method not found".into(),
-                data: None,
+                data: Some(Value::String(method.into())),
             }),
         };
         if cancellation_requested() {
@@ -2357,6 +2357,7 @@ mod tests {
         .unwrap();
         assert_eq!(missing["id"], "request-7");
         assert_eq!(missing["error"]["code"], -32601);
+        assert_eq!(missing["error"]["data"], "missing");
     }
 
     #[test]
