@@ -13,7 +13,7 @@ use crate::{
     provenance::{LogicalSourceId, SourceTable},
 };
 
-use super::{MarkdownError, extract_fenced_k_code};
+use super::{MarkdownError, extract_fenced_k_code_with_map};
 use super::{ParseError, SourceFile, Span, lower::lower_files, parse};
 
 /// Source text returned by a host resolver.
@@ -477,16 +477,22 @@ impl<R: SourceResolver> Loader<'_, R> {
         let source_id = self
             .source_table
             .intern(LogicalSourceId::new(logical, source.text.as_bytes()));
-        let text = if source.source.ends_with(".md") {
-            extract_fenced_k_code(&source.text, &self.options.markdown_selector).map_err(
-                |error| LoadError::Markdown {
-                    source: source.source.clone(),
-                    error,
-                },
-            )?
+        let (text, offset_map) = if source.source.ends_with(".md") {
+            let extracted =
+                extract_fenced_k_code_with_map(&source.text, &self.options.markdown_selector)
+                    .map_err(|error| LoadError::Markdown {
+                        source: source.source.clone(),
+                        error,
+                    })?;
+            (extracted.text, Some(extracted.offset_map))
         } else {
-            source.text
+            (source.text, None)
         };
+        if let Some(offset_map) = offset_map {
+            self.source_table
+                .set_offset_map(source_id, offset_map)
+                .expect("the source was interned immediately before its offset map");
+        }
         let mut parsed = parse(source.source.clone(), &text).map_err(|error| LoadError::Parse {
             source: source.source.clone(),
             error,

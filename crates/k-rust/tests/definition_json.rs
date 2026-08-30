@@ -7,7 +7,7 @@ use k_rust::definition::{
 use k_rust::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan};
 use k_rust::provenance::{
     DestinationAnchor, GeneratingPass, LogicalSourceId, ORIGIN_ATTRIBUTE, OriginRecord,
-    ProvenanceLink, SourceTable,
+    ProvenanceLink, SourceOffsetMap, SourceTable,
 };
 use serde::Deserialize;
 use serde_json::{Value, json as value};
@@ -225,6 +225,9 @@ fn rejects_non_unique_main_modules_and_unrepresentable_context_aliases() {
 fn provenance_export_round_trips_sources_attributes_and_term_metadata() {
     let mut sources = SourceTable::default();
     let source = sources.intern(LogicalSourceId::new("src/definition.k", b"module MAIN\n"));
+    sources
+        .set_offset_map(source, SourceOffsetMap::identity("module MAIN\n".len()))
+        .unwrap();
     let span = TermSpan {
         source,
         start: 7,
@@ -279,18 +282,26 @@ fn provenance_export_round_trips_sources_attributes_and_term_metadata() {
     assert_eq!(wire_source["logical"], "src/definition.k");
     assert_eq!(wire_source["contentHash"].as_str().unwrap().len(), 64);
     assert_eq!(
+        wire_source["offsetMap"]["semanticLength"],
+        "module MAIN\n".len()
+    );
+    let wire_identity = value!({
+        "logical": wire_source["logical"],
+        "contentHash": wire_source["contentHash"],
+    });
+    assert_eq!(
         &envelope["termMetadata"][0]["metadata"]["span"]["source"],
-        wire_source
+        &wire_identity
     );
     assert_eq!(
         &envelope["term"]["modules"][0]["localSentences"][0]["att"]["att"]
             [k_rust::definition::SOURCE_ID_ATTRIBUTE],
-        wire_source
+        &wire_identity
     );
     assert_eq!(
         &envelope["term"]["modules"][0]["localSentences"][0]["att"]["att"][ORIGIN_ATTRIBUTE]["origins"]
             [0]["source"],
-        wire_source
+        &wire_identity
     );
     let decoded = json::from_provenance_str(&encoded).unwrap();
 
@@ -411,6 +422,9 @@ fn provenance_export_rejects_malformed_source_attributes() {
 fn provenance_decoder_rejects_malformed_wire_forms() {
     let mut sources = SourceTable::default();
     let source = sources.intern(LogicalSourceId::new("src/definition.k", b"X"));
+    sources
+        .set_offset_map(source, SourceOffsetMap::identity(1))
+        .unwrap();
     let origin = OriginRecord {
         pass: GeneratingPass::MacroExpansion,
         origins: vec![ProvenanceLink::Source {
@@ -443,6 +457,27 @@ fn provenance_decoder_rejects_malformed_wire_forms() {
     ));
 
     let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
+    envelope["sources"][0]["offsetMap"]["unexpected"] = value!(true);
+    assert!(matches!(
+        json::from_provenance_str(&serde_json::to_string(&envelope).unwrap()),
+        Err(json::Error::Json(_))
+    ));
+
+    let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
+    envelope["sources"][0]["offsetMap"]["segments"][0]["unexpected"] = value!(true);
+    assert!(matches!(
+        json::from_provenance_str(&serde_json::to_string(&envelope).unwrap()),
+        Err(json::Error::Json(_))
+    ));
+
+    let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
+    envelope["sources"][0]["unexpected"] = value!(true);
+    assert!(matches!(
+        json::from_provenance_str(&serde_json::to_string(&envelope).unwrap()),
+        Err(json::Error::Json(_))
+    ));
+
+    let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
     envelope["termMetadata"][0]["metadata"]["origin"]["origins"][0]["unexpected"] = value!(true);
     assert!(matches!(
         json::from_provenance_str(&serde_json::to_string(&envelope).unwrap()),
@@ -459,6 +494,27 @@ fn provenance_decoder_rejects_malformed_wire_forms() {
 
     let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
     envelope["sources"] = value!([]);
+    assert!(matches!(
+        json::from_provenance_str(&serde_json::to_string(&envelope).unwrap()),
+        Err(json::Error::InvalidProvenance(_))
+    ));
+
+    let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
+    envelope["sources"][0]["offsetMap"]["semanticLength"] = value!(2);
+    assert!(matches!(
+        json::from_provenance_str(&serde_json::to_string(&envelope).unwrap()),
+        Err(json::Error::InvalidProvenance(_))
+    ));
+
+    let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
+    envelope["sources"][0]["offsetMap"] = value!({
+        "semanticLength": 2,
+        "rawLength": 2,
+        "segments": [
+            {"semanticStart": 0, "rawStart": 1, "length": 1},
+            {"semanticStart": 1, "rawStart": 0, "length": 1}
+        ]
+    });
     assert!(matches!(
         json::from_provenance_str(&serde_json::to_string(&envelope).unwrap()),
         Err(json::Error::InvalidProvenance(_))

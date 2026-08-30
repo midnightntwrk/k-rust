@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 
 use indoc::indoc;
 use k_rust::definition::Sentence;
+use k_rust::kast::TermSpan;
 use k_rust::outer::{LoadError, LoadOptions, ResolvedSource, load, load_with_options};
+use k_rust::provenance::SourceId;
 use proptest::prelude::*;
 
 #[derive(Debug)]
@@ -166,6 +168,15 @@ fn relocation_preserves_logical_identity() {
     let second = load_at("/relocated/second");
 
     assert_eq!(first.source_table, second.source_table);
+    assert_eq!(first.source_table.offset_map(SourceId(0)), None);
+    assert_eq!(
+        first.source_table.raw_range(TermSpan {
+            source: SourceId(0),
+            start: 0,
+            end: 6,
+        }),
+        Some(0..6),
+    );
     let identity = first.source_table.iter().next().unwrap();
     assert_eq!(identity.logical, "src/main.k");
     assert_eq!(

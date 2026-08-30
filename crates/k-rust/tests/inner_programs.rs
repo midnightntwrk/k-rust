@@ -1,7 +1,8 @@
 use indoc::indoc;
 use k_rust::definition::{Definition, LabelHead, ResolvedDefinition};
 use k_rust::inner::{ParseError, ProgramError, ProgramParser, parse_program};
-use k_rust::kast::Sort;
+use k_rust::kast::{Sort, Term};
+use k_rust::provenance::SourceId;
 
 fn lowered(source: &str, main_module: &str) -> Definition {
     let parsed = k_rust::outer::parse("program.k", source).expect("definition should parse");
@@ -59,8 +60,14 @@ fn wasm_empty_function_overloaded_lists() -> Definition {
 
 #[cfg(not(feature = "z3-inference"))]
 fn assert_ambiguous_program_requires_z3(definition: &Definition, start_sort: &str, source: &str) {
-    let error = parse_program(definition, "MAIN", &Sort::new(start_sort), source)
-        .expect_err("an ambiguous program should require Z3 inference");
+    let error = parse_program(
+        definition,
+        "MAIN",
+        &Sort::new(start_sort),
+        source,
+        SourceId(0),
+    )
+    .expect_err("an ambiguous program should require Z3 inference");
     assert!(
         matches!(
             error,
@@ -96,12 +103,65 @@ fn parsed_production_ids_belong_to_the_resolved_definition_catalog() {
         .metadata()
         .and_then(|metadata| metadata.production)
         .expect("parsed application should retain its production identity");
+    assert_eq!(
+        parsed.metadata().and_then(|metadata| metadata.span),
+        None,
+        "legacy parsing must not fabricate an unknown source identity",
+    );
     let module = resolved.module_id("MAIN").expect("module should exist");
     let catalog = resolved.production_catalog(module);
     let expected = catalog.productions_for(&LabelHead::new("a"));
 
     assert_eq!(expected.len(), 1);
     assert_eq!(production.0, expected[0].0);
+}
+
+#[test]
+fn legacy_program_parser_omits_nested_spans_but_retains_productions() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax State ::= "f" "(" State ")" [symbol(f)]
+                             | "a" [symbol(a)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parsed = ProgramParser::new(&definition, "MAIN")
+        .unwrap()
+        .parse(&Sort::new("State"), "f(a)")
+        .unwrap();
+    let Term::Apply { arguments, .. } = parsed.unannotated() else {
+        panic!("expected an application")
+    };
+
+    for term in [&parsed, &arguments[0]] {
+        let metadata = term.metadata().expect("production metadata should remain");
+        assert_eq!(metadata.span, None);
+        assert!(metadata.production.is_some());
+    }
+}
+
+#[test]
+fn parse_program_records_the_callers_logical_source_identity() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax State ::= "a" [symbol(a)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parsed = parse_program(&definition, "MAIN", &Sort::new("State"), "a", SourceId(7)).unwrap();
+
+    assert_eq!(
+        parsed.metadata().and_then(|metadata| metadata.span),
+        Some(k_rust::kast::TermSpan {
+            source: SourceId(7),
+            start: 0,
+            end: 1,
+        })
+    );
 }
 
 macro_rules! program_snapshot {
@@ -116,6 +176,7 @@ macro_rules! program_snapshot {
                 $module,
                 &Sort::new($sort),
                 program_source,
+                SourceId(0),
             )
             .expect("program should parse")
             .to_string();
@@ -263,7 +324,8 @@ fn rejects_an_empty_nonempty_user_list() {
         endmodule
     "#};
     let definition = lowered(definition_source, "MAIN");
-    let error = parse_program(&definition, "MAIN", &Sort::new("Exp"), "0[]").unwrap_err();
+    let error =
+        parse_program(&definition, "MAIN", &Sort::new("Exp"), "0[]", SourceId(0)).unwrap_err();
     assert!(
         matches!(
             error,
@@ -340,6 +402,7 @@ fn parses_wasm_shaped_adjacent_overloaded_user_lists() {
         "MAIN",
         &Sort::new("Module"),
         "(module (func (result i32) i32.const 1))",
+        SourceId(0),
     )
     .unwrap();
     let rendered = parsed.to_string();
@@ -357,9 +420,15 @@ fn preserves_outer_list_terminator_after_an_empty_inner_overloaded_list() {
     assert_ambiguous_program_requires_z3(&definition, "Module", "(module (func))");
     #[cfg(feature = "z3-inference")]
     {
-        let rendered = parse_program(&definition, "MAIN", &Sort::new("Module"), "(module (func))")
-            .expect("an empty function should parse uniquely inside its module")
-            .to_string();
+        let rendered = parse_program(
+            &definition,
+            "MAIN",
+            &Sort::new("Module"),
+            "(module (func))",
+            SourceId(0),
+        )
+        .expect("an empty function should parse uniquely inside its module")
+        .to_string();
 
         for label in ["module", "defns", "func"] {
             assert!(rendered.contains(label), "missing {label}: {rendered}");
@@ -382,9 +451,15 @@ fn reconstructs_a_root_sort_singleton_as_its_most_specific_list() {
     assert_ambiguous_program_requires_z3(&definition, "Stmts", "i32.const 1");
     #[cfg(feature = "z3-inference")]
     {
-        let rendered = parse_program(&definition, "MAIN", &Sort::new("Stmts"), "i32.const 1")
-            .expect("a root singleton should be reconstructed as a list")
-            .to_string();
+        let rendered = parse_program(
+            &definition,
+            "MAIN",
+            &Sort::new("Stmts"),
+            "i32.const 1",
+            SourceId(0),
+        )
+        .expect("a root singleton should be reconstructed as a list")
+        .to_string();
 
         assert!(rendered.contains("instrs"), "{rendered}");
         assert!(!rendered.contains("stmts"), "{rendered}");
@@ -399,7 +474,7 @@ fn parses_an_empty_program_at_a_root_list_sort() {
     assert_ambiguous_program_requires_z3(&definition, "Stmts", "");
     #[cfg(feature = "z3-inference")]
     {
-        let rendered = parse_program(&definition, "MAIN", &Sort::new("Stmts"), "")
+        let rendered = parse_program(&definition, "MAIN", &Sort::new("Stmts"), "", SourceId(0))
             .expect("the empty list should parse at a root list sort")
             .to_string();
 
@@ -415,6 +490,7 @@ fn parses_multiple_defns_with_empty_inner_lists() {
         "MAIN",
         &Sort::new("Module"),
         "(module (func) (func))",
+        SourceId(0),
     )
     .expect("an outer list should accept multiple elements with empty inner lists")
     .to_string();
@@ -432,6 +508,7 @@ fn program_parsing_is_layout_insensitive() {
         "MAIN",
         &Sort::new("Module"),
         "(module (func) (func))",
+        SourceId(0),
     )
     .expect("compact program should parse")
     .to_string();
@@ -440,6 +517,7 @@ fn program_parsing_is_layout_insensitive() {
         "MAIN",
         &Sort::new("Module"),
         "( // open\n module // first function\n ( func ) // second function\n ( func ) // close\n )",
+        SourceId(0),
     )
     .expect("layout and comments should not affect parsing")
     .to_string();
@@ -456,7 +534,7 @@ fn rejects_programs_outside_the_grammar() {
         ("missing instruction argument", "Stmts", "i32.const"),
     ] {
         assert!(
-            parse_program(&definition, "MAIN", &Sort::new(sort), source).is_err(),
+            parse_program(&definition, "MAIN", &Sort::new(sort), source, SourceId(0),).is_err(),
             "{name} unexpectedly parsed: {source}"
         );
     }
@@ -488,7 +566,14 @@ fn rejects_private_syntax_from_an_imported_module() {
         endmodule
     "#};
     let definition = lowered(definition_source, "MAIN");
-    let error = parse_program(&definition, "MAIN", &Sort::new("Start"), "hidden").unwrap_err();
+    let error = parse_program(
+        &definition,
+        "MAIN",
+        &Sort::new("Start"),
+        "hidden",
+        SourceId(0),
+    )
+    .unwrap_err();
     assert!(
         matches!(
             error,
