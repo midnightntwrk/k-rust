@@ -11,6 +11,25 @@ enum KFloat {
     Binary64(f64),
 }
 
+#[derive(Clone, Copy)]
+enum BinaryOperation {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Min,
+    Max,
+}
+
+#[derive(Clone, Copy)]
+enum Comparison {
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+    Equal,
+}
+
 impl KFloat {
     fn parse(hook: &str, token: &str) -> Result<Self, BuiltinError> {
         let (text, precision, exponent_bits) = parse_parts(hook, token)?;
@@ -64,6 +83,86 @@ impl KFloat {
         }
     }
 
+    fn abs(self) -> Self {
+        match self {
+            Self::Binary32(value) => Self::Binary32(value.abs()),
+            Self::Binary64(value) => Self::Binary64(value.abs()),
+        }
+    }
+
+    fn floor(self) -> Self {
+        match self {
+            Self::Binary32(value) => Self::Binary32(value.floor()),
+            Self::Binary64(value) => Self::Binary64(value.floor()),
+        }
+    }
+
+    fn ceil(self) -> Self {
+        match self {
+            Self::Binary32(value) => Self::Binary32(value.ceil()),
+            Self::Binary64(value) => Self::Binary64(value.ceil()),
+        }
+    }
+
+    fn trunc(self) -> Self {
+        match self {
+            Self::Binary32(value) => Self::Binary32(value.trunc()),
+            Self::Binary64(value) => Self::Binary64(value.trunc()),
+        }
+    }
+
+    fn binary(
+        self,
+        other: Self,
+        hook: &str,
+        operation: BinaryOperation,
+    ) -> Result<Self, BuiltinError> {
+        match (self, other) {
+            (Self::Binary32(left), Self::Binary32(right)) => Ok(Self::Binary32(match operation {
+                BinaryOperation::Add => left + right,
+                BinaryOperation::Sub => left - right,
+                BinaryOperation::Mul => left * right,
+                BinaryOperation::Div => left / right,
+                BinaryOperation::Min => minimum_f32(left, right),
+                BinaryOperation::Max => maximum_f32(left, right),
+            })),
+            (Self::Binary64(left), Self::Binary64(right)) => Ok(Self::Binary64(match operation {
+                BinaryOperation::Add => left + right,
+                BinaryOperation::Sub => left - right,
+                BinaryOperation::Mul => left * right,
+                BinaryOperation::Div => left / right,
+                BinaryOperation::Min => minimum_f64(left, right),
+                BinaryOperation::Max => maximum_f64(left, right),
+            })),
+            (left, right) => Err(BuiltinError::MismatchedFloatFormats {
+                hook: hook.into(),
+                left_precision: left.precision(),
+                left_exponent_bits: left.exponent_bits(),
+                right_precision: right.precision(),
+                right_exponent_bits: right.exponent_bits(),
+            }),
+        }
+    }
+
+    fn compare(self, other: Self, comparison: Comparison) -> bool {
+        let left = self.as_f64();
+        let right = other.as_f64();
+        match comparison {
+            Comparison::Less => left < right,
+            Comparison::LessEqual => left <= right,
+            Comparison::Greater => left > right,
+            Comparison::GreaterEqual => left >= right,
+            Comparison::Equal => left == right,
+        }
+    }
+
+    fn as_f64(self) -> f64 {
+        match self {
+            Self::Binary32(value) => f64::from(value),
+            Self::Binary64(value) => value,
+        }
+    }
+
     fn token(self) -> String {
         match self {
             Self::Binary32(value) => canonical_f32(value),
@@ -83,8 +182,57 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
         "FLOAT.sign" => inspect(hook, arguments, |value| bool_term(value.is_sign_negative())),
         "FLOAT.isNaN" => inspect(hook, arguments, |value| bool_term(value.is_nan())),
         "FLOAT.neg" => inspect(hook, arguments, |value| float_term(value.neg())),
+        "FLOAT.abs" => inspect(hook, arguments, |value| float_term(value.abs())),
+        "FLOAT.floor" => inspect(hook, arguments, |value| float_term(value.floor())),
+        "FLOAT.ceil" => inspect(hook, arguments, |value| float_term(value.ceil())),
+        "FLOAT.trunc" => inspect(hook, arguments, |value| float_term(value.trunc())),
+        "FLOAT.add" => binary(hook, arguments, BinaryOperation::Add),
+        "FLOAT.sub" => binary(hook, arguments, BinaryOperation::Sub),
+        "FLOAT.mul" => binary(hook, arguments, BinaryOperation::Mul),
+        "FLOAT.div" => binary(hook, arguments, BinaryOperation::Div),
+        "FLOAT.min" => binary(hook, arguments, BinaryOperation::Min),
+        "FLOAT.max" => binary(hook, arguments, BinaryOperation::Max),
+        "FLOAT.lt" => compare(hook, arguments, Comparison::Less),
+        "FLOAT.le" => compare(hook, arguments, Comparison::LessEqual),
+        "FLOAT.gt" => compare(hook, arguments, Comparison::Greater),
+        "FLOAT.ge" => compare(hook, arguments, Comparison::GreaterEqual),
+        "FLOAT.eq" => compare(hook, arguments, Comparison::Equal),
         _ => Ok(BuiltinResult::NotApplicable),
     }
+}
+
+fn binary(
+    hook: &str,
+    arguments: &[Term],
+    operation: BinaryOperation,
+) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity(hook, arguments, 2)?;
+    let Some(left) = read_float(hook, &arguments[0])? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some(right) = read_float(hook, &arguments[1])? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    Ok(BuiltinResult::Value(float_term(
+        left.binary(right, hook, operation)?,
+    )))
+}
+
+fn compare(
+    hook: &str,
+    arguments: &[Term],
+    comparison: Comparison,
+) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity(hook, arguments, 2)?;
+    let Some(left) = read_float(hook, &arguments[0])? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some(right) = read_float(hook, &arguments[1])? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    Ok(BuiltinResult::Value(bool_term(
+        left.compare(right, comparison),
+    )))
 }
 
 fn inspect(
@@ -211,4 +359,60 @@ fn normalize_exponent(scientific: String) -> String {
         .parse::<i32>()
         .expect("Rust scientific Float formatting uses a decimal exponent");
     format!("{mantissa}e{exponent:+03}")
+}
+
+fn minimum_f32(left: f32, right: f32) -> f32 {
+    if left.is_nan() {
+        right
+    } else if right.is_nan() || left < right {
+        left
+    } else if right < left {
+        right
+    } else if left == 0.0 && (left.is_sign_negative() || right.is_sign_negative()) {
+        -0.0
+    } else {
+        left
+    }
+}
+
+fn maximum_f32(left: f32, right: f32) -> f32 {
+    if left.is_nan() {
+        right
+    } else if right.is_nan() || left > right {
+        left
+    } else if right > left {
+        right
+    } else if left == 0.0 && (!left.is_sign_negative() || !right.is_sign_negative()) {
+        0.0
+    } else {
+        left
+    }
+}
+
+fn minimum_f64(left: f64, right: f64) -> f64 {
+    if left.is_nan() {
+        right
+    } else if right.is_nan() || left < right {
+        left
+    } else if right < left {
+        right
+    } else if left == 0.0 && (left.is_sign_negative() || right.is_sign_negative()) {
+        -0.0
+    } else {
+        left
+    }
+}
+
+fn maximum_f64(left: f64, right: f64) -> f64 {
+    if left.is_nan() {
+        right
+    } else if right.is_nan() || left > right {
+        left
+    } else if right > left {
+        right
+    } else if left == 0.0 && (!left.is_sign_negative() || !right.is_sign_negative()) {
+        0.0
+    } else {
+        left
+    }
 }

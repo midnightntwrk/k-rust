@@ -818,6 +818,116 @@ mod tests {
     }
 
     #[test]
+    fn float_unary_hooks_cover_ieee_special_values() {
+        let cases = [
+            ("FLOAT.abs", "-Infinityf", float_term("Infinityp24x8")),
+            ("FLOAT.abs", "-0.0", float_term("0e+00p53x11")),
+            ("FLOAT.floor", "1.75f", float_term("1.00000000e+00p24x8")),
+            (
+                "FLOAT.ceil",
+                "-1.25",
+                float_term("-1.0000000000000000e+00p53x11"),
+            ),
+            ("FLOAT.trunc", "-1.75f", float_term("-1.00000000e+00p24x8")),
+            (
+                "FLOAT.trunc",
+                "-1.40129846e-45p24x8",
+                float_term("-0e+00p24x8"),
+            ),
+            ("FLOAT.floor", "NaN", float_term("NaNp53x11")),
+        ];
+
+        for (hook, argument, expected) in cases {
+            assert_eq!(
+                evaluate_hook(hook, &[float_term(argument)]),
+                Ok(BuiltinResult::Value(expected)),
+                "{hook}({argument})"
+            );
+        }
+    }
+
+    #[test]
+    fn float_arithmetic_hooks_match_native_ieee_results() {
+        let cases = [
+            ("FLOAT.add", "1.5f", "2.25f", "3.75000000e+00p24x8"),
+            ("FLOAT.sub", "1.5f", "2.25f", "-7.50000000e-01p24x8"),
+            ("FLOAT.mul", "1.5f", "2.25f", "3.37500000e+00p24x8"),
+            ("FLOAT.div", "1.5f", "2.0f", "7.50000000e-01p24x8"),
+            ("FLOAT.add", "0.1", "0.2", "3.0000000000000004e-01p53x11"),
+            (
+                "FLOAT.add",
+                "1.40129846e-45p24x8",
+                "0.0f",
+                "1.40129846e-45p24x8",
+            ),
+            ("FLOAT.div", "1.0", "0.0", "Infinityp53x11"),
+            ("FLOAT.div", "0.0", "0.0", "NaNp53x11"),
+            ("FLOAT.mul", "Infinityf", "0.0f", "NaNp24x8"),
+        ];
+
+        for (hook, left, right, expected) in cases {
+            assert_eq!(
+                evaluate_hook(hook, &[float_term(left), float_term(right)]),
+                Ok(BuiltinResult::Value(float_term(expected))),
+                "{hook}({left}, {right})"
+            );
+        }
+    }
+
+    #[test]
+    fn float_min_max_and_comparisons_follow_k_ieee_contracts() {
+        let float_cases = [
+            ("FLOAT.min", "NaNf", "2.0f", "2.00000000e+00p24x8"),
+            ("FLOAT.max", "2.0", "NaN", "2.0000000000000000e+00p53x11"),
+            ("FLOAT.min", "-0.0f", "0.0f", "-0e+00p24x8"),
+            ("FLOAT.max", "-0.0", "0.0", "0e+00p53x11"),
+        ];
+        for (hook, left, right, expected) in float_cases {
+            assert_eq!(
+                evaluate_hook(hook, &[float_term(left), float_term(right)]),
+                Ok(BuiltinResult::Value(float_term(expected))),
+                "{hook}({left}, {right})"
+            );
+        }
+
+        let bool_cases = [
+            ("FLOAT.lt", "1.0f", "2.0", true),
+            ("FLOAT.le", "2.0f", "2.0", true),
+            ("FLOAT.gt", "2.0f", "1.0", true),
+            ("FLOAT.ge", "2.0f", "2.0", true),
+            ("FLOAT.eq", "-0.0f", "0.0", true),
+        ];
+        for (hook, left, right, expected) in bool_cases {
+            assert_eq!(
+                evaluate_hook(hook, &[float_term(left), float_term(right)]),
+                Ok(BuiltinResult::Value(bool_term(expected))),
+                "{hook}({left}, {right})"
+            );
+        }
+        for hook in ["FLOAT.lt", "FLOAT.le", "FLOAT.gt", "FLOAT.ge", "FLOAT.eq"] {
+            assert_eq!(
+                evaluate_hook(hook, &[float_term("NaNf"), float_term("1.0")]),
+                Ok(BuiltinResult::Value(bool_term(false))),
+                "{hook}(NaN, 1)"
+            );
+        }
+    }
+
+    #[test]
+    fn float_arithmetic_rejects_mixed_formats() {
+        assert_eq!(
+            evaluate_hook("FLOAT.add", &[float_term("1.0f"), float_term("1.0")]),
+            Err(BuiltinError::MismatchedFloatFormats {
+                hook: "FLOAT.add".into(),
+                left_precision: 24,
+                left_exponent_bits: 8,
+                right_precision: 53,
+                right_exponent_bits: 11,
+            })
+        );
+    }
+
+    #[test]
     fn integer_fallback_hooks_match_kore_arithmetic() {
         let cases = [
             ("INT.tdiv", &[-5, -3][..], 1),
