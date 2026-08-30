@@ -3,7 +3,9 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    definition::{Definition, LabelHead, ProductionCatalog, ResolvedDefinition, Sentence},
+    definition::{
+        Definition, LabelHead, ProductionCatalog, ProductionId, ResolvedDefinition, Sentence,
+    },
     kast::{Label, Sort, Term},
 };
 
@@ -81,19 +83,48 @@ fn skip_sentence(sentence: &Sentence) -> bool {
 }
 
 fn is_function(term: &Term, productions: &ProductionCatalog<'_>) -> bool {
-    let label = match term.unannotated() {
-        Term::Apply { label, .. } => Some(label),
+    let application = match term.unannotated() {
+        Term::Apply { label, .. } => Some((term, label)),
         Term::Rewrite { left, .. } => match left.unannotated() {
-            Term::Apply { label, .. } => Some(label),
+            Term::Apply { label, .. } => Some((left.as_ref(), label)),
             _ => None,
         },
         _ => None,
     };
-    label.is_some_and(|label| {
-        productions
-            .function_labels()
-            .contains(&LabelHead::from(label))
+    application.is_some_and(|(application, label)| {
+        is_function_application(application, label, productions)
     })
+}
+
+fn is_function_application(
+    application: &Term,
+    label: &Label,
+    productions: &ProductionCatalog<'_>,
+) -> bool {
+    if let Some(resolved) = application
+        .metadata()
+        .and_then(|metadata| metadata.production)
+    {
+        if resolved.0 < productions.len() {
+            let production = productions.production(ProductionId(resolved.0));
+            if matches!(
+                production,
+                Sentence::Production { label: Some(candidate), .. } if candidate.name == label.name
+            ) {
+                return production.attributes().get("function").is_some();
+            }
+        }
+        let candidates = productions.productions_for(&LabelHead::from(label));
+        return candidates.len() == 1
+            && productions
+                .production(candidates[0])
+                .attributes()
+                .get("function")
+                .is_some();
+    }
+    productions
+        .function_labels()
+        .contains(&LabelHead::from(label))
 }
 
 fn should_consider(items: &[&Term], is_claim: bool) -> bool {
