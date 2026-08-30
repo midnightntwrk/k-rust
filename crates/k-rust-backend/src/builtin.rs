@@ -72,6 +72,12 @@ pub fn evaluate(term: &Term) -> Result<BuiltinResult, BuiltinError> {
     evaluate_hook_with_sort(hook, arguments, Some(&result_sort))
 }
 
+/// Hook namespaces this backend dispatches beyond K's fixed builtin set.
+///
+/// Java K only treats these plugin namespaces as hooked when `kompile --hook-namespaces` names
+/// them; the Rust backend implements them natively, so KORE emitted for it admits them by default.
+pub const PLUGIN_HOOK_NAMESPACES: [&str; 3] = ["KRYPTO", "HASH", "SECP256K1"];
+
 pub fn evaluate_hook(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     evaluate_hook_with_sort(hook, arguments, None)
 }
@@ -128,9 +134,9 @@ fn evaluate_hook_with_sort(
         hook if hook.starts_with("MAP.") => return map::evaluate(hook, arguments),
         hook if hook.starts_with("SET.") => set::evaluate(hook, arguments),
         hook if hook.starts_with("BYTES.") => return bytes::evaluate(hook, arguments),
-        hook if hook.starts_with("KRYPTO.")
-            || hook.starts_with("HASH.")
-            || hook.starts_with("SECP256K1.") =>
+        hook if hook
+            .split_once('.')
+            .is_some_and(|(namespace, _)| PLUGIN_HOOK_NAMESPACES.contains(&namespace)) =>
         {
             return krypto::evaluate(hook, arguments);
         }

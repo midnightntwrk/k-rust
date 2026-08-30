@@ -25,8 +25,9 @@ use super::term_to_kore::{TermConversionError, TermConverter};
 
 const PROGRAM_BUILTIN_MODULE: &str = "K";
 const COLLECTION_HOOKS: [&str; 4] = ["SET.Set", "MAP.Map", "LIST.List", "RANGEMAP.RangeMap"];
-// Keep this list aligned with the namespaces dispatched by the backend's builtin evaluator.
-const HOOK_NAMESPACES: [&str; 22] = [
+// Java `Hooks.namespaces`: hooks outside this set are only emitted as hooked symbols when the
+// compilation admits their namespace through `ModuleToKoreOptions::hook_namespaces`.
+const BUILTIN_HOOK_NAMESPACES: [&str; 19] = [
     "BOOL",
     "BUFFER",
     "BYTES",
@@ -46,9 +47,6 @@ const HOOK_NAMESPACES: [&str; 22] = [
     "UNIFICATION",
     "JSON",
     "TIMER",
-    "KRYPTO",
-    "HASH",
-    "SECP256K1",
 ];
 const BUILTIN_LABELS: [&str; 14] = [
     "#Bottom",
@@ -82,12 +80,34 @@ pub struct DeclarationModules {
 }
 
 /// Backend-specific KORE generation switches.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModuleToKoreOptions {
     /// Generate definedness axioms for hooked maps used by the symbolic Rust backend.
     pub generate_map_ceil_axioms: bool,
     /// Treat otherwise-unqualified claims as all-path reachability claims.
     pub default_claims_to_all_path: bool,
+    /// Plugin hook namespaces admitted as hooked symbols in addition to K's builtin set, the
+    /// counterpart of `kompile --hook-namespaces`.
+    pub hook_namespaces: Vec<String>,
+}
+
+impl Default for ModuleToKoreOptions {
+    /// Defaults target the in-process Rust backend, so its plugin namespaces are admitted.
+    fn default() -> Self {
+        Self {
+            generate_map_ceil_axioms: false,
+            default_claims_to_all_path: false,
+            hook_namespaces: rust_backend_hook_namespaces(),
+        }
+    }
+}
+
+/// The plugin hook namespaces the in-process Rust backend dispatches natively.
+pub fn rust_backend_hook_namespaces() -> Vec<String> {
+    k_rust_backend::builtin::PLUGIN_HOOK_NAMESPACES
+        .iter()
+        .map(|namespace| (*namespace).to_owned())
+        .collect()
 }
 
 impl DeclarationModules {
@@ -358,6 +378,19 @@ pub fn declaration_modules_from_resolved(
     definition: &ResolvedDefinition,
     module: &str,
 ) -> Result<DeclarationModules, DeclarationError> {
+    declaration_modules_from_resolved_with_options(
+        definition,
+        module,
+        &rust_backend_hook_namespaces(),
+    )
+}
+
+/// Build declarations, admitting `hook_namespaces` as hooked symbols beyond K's builtin set.
+pub fn declaration_modules_from_resolved_with_options(
+    definition: &ResolvedDefinition,
+    module: &str,
+    hook_namespaces: &[String],
+) -> Result<DeclarationModules, DeclarationError> {
     let module_id = definition
         .module_id(module)
         .ok_or_else(|| DeclarationError::MissingModule(module.to_owned()))?;
@@ -427,6 +460,7 @@ pub fn declaration_modules_from_resolved(
             false,
             items,
             &syntax_relations,
+            hook_namespaces,
         );
         let syntax_attributes = symbol_attributes(
             attributes,
@@ -440,8 +474,10 @@ pub fn declaration_modules_from_resolved(
             true,
             items,
             &syntax_relations,
+            hook_namespaces,
         );
-        let hooked = attributes.get("function").is_some() && is_real_hook(attributes);
+        let hooked =
+            attributes.get("function").is_some() && is_real_hook(attributes, hook_namespaces);
         let declaration = |attributes| KoreSentence::SymbolDeclaration {
             hooked,
             symbol: encode_kore_label_with_formals(label, parameters),
@@ -487,6 +523,7 @@ pub fn declaration_modules_from_resolved(
             true,
             items,
             &syntax_relations,
+            hook_namespaces,
         );
         syntax_sentences.push(KoreSentence::SymbolDeclaration {
             hooked: false,
@@ -597,7 +634,11 @@ pub fn module_to_kore_from_resolved_with_options(
     module: &str,
     options: ModuleToKoreOptions,
 ) -> Result<DeclarationModules, ModuleToKoreError> {
-    let mut modules = declaration_modules_from_resolved(definition, module)?;
+    let mut modules = declaration_modules_from_resolved_with_options(
+        definition,
+        module,
+        &options.hook_namespaces,
+    )?;
     let module_id = definition
         .module_id(module)
         .ok_or_else(|| DeclarationError::MissingModule(module.to_owned()))?;
@@ -3040,6 +3081,7 @@ fn symbol_attributes(
     with_syntax: bool,
     items: &[ProductionItem],
     syntax_relations: &SyntaxRelations,
+    hook_namespaces: &[String],
 ) -> Attributes {
     let mut entries = source.entries().clone();
     for key in [
@@ -3066,7 +3108,7 @@ fn symbol_attributes(
         .iter()
         .any(|key| source.get(key).is_some());
     let anywhere = overloaded_greater.contains(&id) || anywhere_labels.contains(&label.name);
-    if is_real_hook(source)
+    if is_real_hook(source, hook_namespaces)
         && let Some(hook) = source.get("hook")
     {
         entries.insert("hook".into(), hook.clone());
@@ -3444,10 +3486,12 @@ fn should_emit(key: &str) -> bool {
     )
 }
 
-fn is_real_hook(attributes: &KAttributes) -> bool {
+fn is_real_hook(attributes: &KAttributes, hook_namespaces: &[String]) -> bool {
     attributes.get_str("hook").is_some_and(|hook| {
-        hook.split_once('.')
-            .is_some_and(|(namespace, _)| HOOK_NAMESPACES.contains(&namespace))
+        hook.split_once('.').is_some_and(|(namespace, _)| {
+            BUILTIN_HOOK_NAMESPACES.contains(&namespace)
+                || hook_namespaces.iter().any(|admitted| admitted == namespace)
+        })
     })
 }
 

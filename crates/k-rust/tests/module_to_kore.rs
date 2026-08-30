@@ -1,7 +1,8 @@
 use indoc::indoc;
+use k_rust::definition::ResolvedDefinition;
 use k_rust::kompile::{
-    declaration_modules, encode_kore_identifier, encode_kore_label, encode_kore_sort,
-    module_to_kore,
+    declaration_modules, declaration_modules_from_resolved_with_options, encode_kore_identifier,
+    encode_kore_label, encode_kore_sort, module_to_kore,
 };
 use k_rust::kore::ast::{Pattern, Sentence};
 use k_rust::kore::parser::{parse_definition, parse_module, parse_sentence};
@@ -738,6 +739,63 @@ fn backend_dispatched_namespaces_are_emitted_as_real_hooks() {
             );
         }
     }
+}
+
+#[test]
+fn plugin_hook_namespaces_are_hooked_only_when_admitted() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Bytes
+          syntax String
+          syntax String ::= "keccak(" Bytes ")"
+            [function, hook(KRYPTO.keccak256), symbol(keccak)]
+          syntax Bytes ::= "concat(" Bytes "," Bytes ")"
+            [function, hook(BYTES.concat), symbol(concat)]
+        endmodule
+    "#};
+    let resolved = ResolvedDefinition::resolve(&lowered(source, "MAIN")).unwrap();
+    let hooked = |namespaces: &[&str], label: &str| {
+        let namespaces = namespaces
+            .iter()
+            .map(|namespace| (*namespace).to_owned())
+            .collect::<Vec<_>>();
+        let declarations =
+            declaration_modules_from_resolved_with_options(&resolved, "MAIN", &namespaces).unwrap();
+        let symbol = encode_kore_label(&Label::new(label));
+        [&declarations.semantics, &declarations.syntax].map(|module| {
+            module
+                .sentences
+                .iter()
+                .find_map(|sentence| match sentence {
+                    Sentence::SymbolDeclaration {
+                        hooked,
+                        symbol: declared,
+                        attributes,
+                        ..
+                    } if declared == &symbol => Some((
+                        *hooked,
+                        attributes.0.iter().any(|attribute| {
+                            matches!(
+                                attribute,
+                                Pattern::Application { symbol, .. } if symbol.name == "hook"
+                            )
+                        }),
+                    )),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("missing declaration for {label}"))
+        })
+    };
+
+    // Java's fixed builtin namespaces are hooked regardless of the plugin allow-list.
+    assert_eq!(hooked(&[], "concat"), [(true, true), (true, true)]);
+    // A plugin namespace is an ordinary symbol until `--hook-namespaces` admits it.
+    assert_eq!(hooked(&[], "keccak"), [(false, false), (false, false)]);
+    assert_eq!(hooked(&["KRYPTO"], "keccak"), [(true, true), (true, true)]);
+    assert_eq!(
+        hooked(&["HASH"], "keccak"),
+        [(false, false), (false, false)]
+    );
 }
 
 #[test]

@@ -1698,6 +1698,53 @@ fn kcompile_writes_parseable_kore_outputs() {
 }
 
 #[test]
+fn kcompile_hook_namespaces_default_per_backend() {
+    let source = r#"
+module MAIN
+  syntax Bytes
+  syntax String
+  syntax String ::= "keccak(" Bytes ")" [function, hook(KRYPTO.keccak256), symbol(keccak)]
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+
+    let kompile = |name: &str, extra: &[&str]| {
+        let output_directory = root.join(name);
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--output-directory",
+            output_directory.to_str().unwrap(),
+            "--no-prelude",
+        ]);
+        command.args(extra);
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        fs::read_to_string(output_directory.join("definition.kore")).unwrap()
+    };
+    let hooked = |kore: &str| kore.contains("hooked-symbol Lblkeccak{}");
+
+    // The Rust backend implements KRYPTO natively, so it is admitted without a flag.
+    assert!(hooked(&kompile("rust", &[])));
+    // Other backends match a default Java kompile: plugin hooks need --hook-namespaces.
+    assert!(!hooked(&kompile("llvm", &["--backend", "llvm"])));
+    assert!(hooked(&kompile(
+        "llvm-admitted",
+        &["--backend", "llvm", "--hook-namespaces", "HASH,KRYPTO"]
+    )));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kcompile_backend_selects_symbolic_or_concrete_modules() {
     let source = r#"
 module SYMBOLIC [symbolic]

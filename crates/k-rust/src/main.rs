@@ -164,6 +164,11 @@ struct KcompileArgs {
     #[arg(long, value_name = "MODULE")]
     syntax_module: Option<String>,
 
+    /// Plugin hook namespaces (for example `KRYPTO`) emitted as hooked symbols. Defaults to the
+    /// namespaces the Rust backend implements, or to none for other backends.
+    #[arg(long, value_name = "NAMESPACE", value_delimiter = ',')]
+    hook_namespaces: Option<Vec<String>>,
+
     /// Directory in which generated KORE files are written.
     #[arg(short = 'o', long, default_value = ".", value_name = "DIR")]
     output_directory: PathBuf,
@@ -650,6 +655,7 @@ struct CommonOptions {
 struct KcompileOptions {
     common: CommonOptions,
     backend: CompilationBackend,
+    hook_namespaces: Option<Vec<String>>,
     syntax_module: Option<String>,
     output_directory: PathBuf,
     emit_json: bool,
@@ -830,6 +836,7 @@ impl From<KcompileArgs> for KcompileOptions {
                 .source
                 .common(arguments.definition, arguments.module),
             backend: arguments.backend.into(),
+            hook_namespaces: arguments.hook_namespaces,
             syntax_module: arguments.syntax_module,
             output_directory: arguments.output_directory,
             emit_json: arguments.emit_json,
@@ -965,6 +972,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
         &loaded,
         CompileOptions {
             backend: options.backend,
+            hook_namespaces: options.hook_namespaces,
             ..CompileOptions::default()
         },
     ) {
