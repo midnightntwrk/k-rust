@@ -1019,6 +1019,46 @@ mod tests {
     }
 
     #[test]
+    fn every_generating_pass_has_a_production_emission_site() {
+        let emitter_sources = [
+            include_str!("definition/configuration.rs"),
+            include_str!("kompile/passes.rs"),
+            include_str!("kompile/passes/resolve_io.rs"),
+            include_str!("kompile/passes/resolve_fun.rs"),
+            include_str!("kompile/passes/resolve_function_with_config.rs"),
+            include_str!("kompile/passes/resolve_strict.rs"),
+            include_str!("kompile/passes/resolve_anon_vars.rs"),
+            include_str!("kompile/passes/resolve_contexts.rs"),
+            include_str!("kompile/passes/resolve_heat_cool.rs"),
+            include_str!("kompile/passes/resolve_semantic_casts.rs"),
+            include_str!("kompile/passes/subsort_kitem.rs"),
+            include_str!("kompile/passes/constant_folding.rs"),
+            include_str!("kompile/passes/guard_or_patterns.rs"),
+            include_str!("kompile/passes/resolve_fresh_config_constants.rs"),
+            include_str!("kompile/passes/generate_sort_helpers.rs"),
+            include_str!("kompile/passes/expand_macros.rs"),
+            include_str!("kompile/passes/add_implicit_computation_cell.rs"),
+            include_str!("kompile/passes/resolve_fresh_constants.rs"),
+            include_str!("kompile/passes/concretize_cells.rs"),
+            include_str!("kompile/passes/finalize.rs"),
+            include_str!("kompile/sort_injections.rs"),
+            include_str!("kompile/passes/remove_unit.rs"),
+            include_str!("kompile/passes/minimize_term_construction.rs"),
+            include_str!("kompile/module_to_kore.rs"),
+        ]
+        .map(|source| source.split("\n#[cfg(test)]").next().unwrap())
+        .join("\n");
+
+        for pass in GeneratingPass::ALL {
+            let variant = format!("GeneratingPass::{pass:?}");
+            assert!(
+                emitter_sources.contains(&variant),
+                "{pass:?} has no production emission site",
+            );
+        }
+    }
+
+    #[test]
     fn duplicate_sentence_keys_do_not_reuse_a_before_counterpart() {
         for key in ["label", "UNIQUE_ID"] {
             let duplicate_attributes = || {

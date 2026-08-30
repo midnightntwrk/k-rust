@@ -4,7 +4,7 @@ use std::{fmt, str::FromStr};
 
 use crate::{
     definition::{
-        ResolvedDefinition, StructuralCheckBackend, StructuralCheckOptions,
+        Definition, ResolvedDefinition, StructuralCheckBackend, StructuralCheckOptions,
         checks::check_definition_with_options, expand_configurations,
     },
     diagnostic::{Diagnostic, Severity},
@@ -184,6 +184,51 @@ pub fn compile_loaded_definition(
     loaded: &LoadedDefinition,
     options: CompileOptions,
 ) -> Result<CompiledKoreArtifacts, CompileError> {
+    let (definition, diagnostics) = transform_loaded_definition(loaded, &options)?;
+    let resolved = stage(
+        "resolve transformed definition",
+        ResolvedDefinition::resolve(&definition),
+    )?;
+    let generated = stage(
+        "emit KORE",
+        module_to_kore_from_resolved_with_options(
+            &resolved,
+            &definition.main_module,
+            ModuleToKoreOptions {
+                generate_map_ceil_axioms: options.backend == CompilationBackend::Rust,
+                default_claims_to_all_path: options.default_claims_to_all_path,
+                hook_namespaces: options
+                    .hook_namespaces
+                    .clone()
+                    .unwrap_or_else(|| options.backend.default_hook_namespaces()),
+            },
+        ),
+    )?;
+
+    let printer = KorePrinter::pretty(options.kore_width);
+    let definition_kore = with_newline(printer.print_definition(&generated.semantics_definition()));
+    let syntax_definition_kore =
+        with_newline(printer.print_definition(&generated.syntax_definition()));
+    let macros_kore = with_newline(
+        generated
+            .macros
+            .iter()
+            .map(|sentence| printer.print_sentence(sentence))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    Ok(CompiledKoreArtifacts {
+        definition_kore,
+        syntax_definition_kore,
+        macros_kore,
+        diagnostics,
+    })
+}
+
+fn transform_loaded_definition(
+    loaded: &LoadedDefinition,
+    options: &CompileOptions,
+) -> Result<(Definition, Vec<Diagnostic>), CompileError> {
     // Loader-produced definitions are already expanded, while structured embedders can construct
     // the public LoadedDefinition fields directly. Normalize both entry paths before checks.
     let definition = stage(
@@ -283,44 +328,7 @@ pub fn compile_loaded_definition(
         "minimize term construction",
         minimize_term_construction(&definition),
     )?;
-    let resolved = stage(
-        "resolve transformed definition",
-        ResolvedDefinition::resolve(&definition),
-    )?;
-    let generated = stage(
-        "emit KORE",
-        module_to_kore_from_resolved_with_options(
-            &resolved,
-            &definition.main_module,
-            ModuleToKoreOptions {
-                generate_map_ceil_axioms: options.backend == CompilationBackend::Rust,
-                default_claims_to_all_path: options.default_claims_to_all_path,
-                hook_namespaces: options
-                    .hook_namespaces
-                    .clone()
-                    .unwrap_or_else(|| options.backend.default_hook_namespaces()),
-            },
-        ),
-    )?;
-
-    let printer = KorePrinter::pretty(options.kore_width);
-    let definition_kore = with_newline(printer.print_definition(&generated.semantics_definition()));
-    let syntax_definition_kore =
-        with_newline(printer.print_definition(&generated.syntax_definition()));
-    let macros_kore = with_newline(
-        generated
-            .macros
-            .iter()
-            .map(|sentence| printer.print_sentence(sentence))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    );
-    Ok(CompiledKoreArtifacts {
-        definition_kore,
-        syntax_definition_kore,
-        macros_kore,
-        diagnostics,
-    })
+    Ok((definition, diagnostics))
 }
 
 fn with_newline(mut text: String) -> String {
@@ -341,6 +349,8 @@ mod tests {
         outer::{LoadOptions, load_with_options},
     };
     use crate::{
+        definition::{Definition, Sentence},
+        kast::Term,
         kore::parser::parse_definition,
         outer::{ResolvedSource, load},
     };
@@ -403,6 +413,109 @@ mod tests {
                 String::from("a78f2c566b2439463a2e7ca515bbfa3f92948506583cbadaebdd507f277542bd",),
             ],
         );
+    }
+
+    fn origin_receipts(definition: &Definition) -> Vec<serde_json::Value> {
+        fn collect_term(term: &Term, receipts: &mut Vec<serde_json::Value>) {
+            if let Some(origin) = term
+                .metadata()
+                .and_then(|metadata| metadata.origin.as_deref())
+            {
+                receipts.push(origin.to_value());
+            }
+            match term.unannotated() {
+                Term::Rewrite { left, right } => {
+                    collect_term(left, receipts);
+                    collect_term(right, receipts);
+                }
+                Term::As { pattern, alias } => {
+                    collect_term(pattern, receipts);
+                    collect_term(alias, receipts);
+                }
+                Term::Sequence(items)
+                | Term::Apply {
+                    arguments: items, ..
+                } => {
+                    for item in items {
+                        collect_term(item, receipts);
+                    }
+                }
+                Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => {}
+                Term::Annotated { .. } => unreachable!(),
+            }
+        }
+
+        let mut receipts = Vec::new();
+        for sentence in definition
+            .modules
+            .iter()
+            .flat_map(|module| &module.local_sentences)
+        {
+            if let Some(receipt) = sentence
+                .attributes()
+                .get(crate::provenance::ORIGIN_ATTRIBUTE)
+            {
+                receipts.push(receipt.clone());
+            }
+            match sentence {
+                Sentence::Rule {
+                    body,
+                    requires,
+                    ensures,
+                    ..
+                }
+                | Sentence::Claim {
+                    body,
+                    requires,
+                    ensures,
+                    ..
+                } => {
+                    collect_term(body, &mut receipts);
+                    collect_term(requires, &mut receipts);
+                    collect_term(ensures, &mut receipts);
+                }
+                Sentence::Context { body, requires, .. }
+                | Sentence::ContextAlias { body, requires, .. } => {
+                    collect_term(body, &mut receipts);
+                    collect_term(requires, &mut receipts);
+                }
+                Sentence::Configuration { body, ensures, .. } => {
+                    collect_term(body, &mut receipts);
+                    collect_term(ensures, &mut receipts);
+                }
+                _ => {}
+            }
+        }
+        receipts
+    }
+
+    #[test]
+    fn origin_records_are_deterministic_across_compiles() {
+        let source = r#"
+            module MAIN
+              syntax Exp ::= "a" [symbol(a)]
+                           | "b" [symbol(b)]
+                           | "m(" Exp ")" [macro, symbol(m)]
+              rule m(_X:Exp) => b
+              rule m(a) => a [label(subject)]
+            endmodule
+        "#;
+        let mut resolver = |_: &str, required: &str| Err(format!("unexpected require {required}"));
+        let loaded = load(
+            ResolvedSource::new("determinism.k", source),
+            "MAIN",
+            &mut resolver,
+        )
+        .unwrap();
+        let options = CompileOptions::default();
+
+        let (first, _) = transform_loaded_definition(&loaded, &options).unwrap();
+        let (second, _) = transform_loaded_definition(&loaded, &options).unwrap();
+        let first = origin_receipts(&first);
+        let second = origin_receipts(&second);
+
+        assert!(!first.is_empty());
+        assert_eq!(first, second);
     }
 
     #[test]
