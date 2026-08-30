@@ -39,7 +39,7 @@ fn differential_manifest_is_complete_and_unambiguous() {
         "K must have a pinned release version"
     );
 
-    let allowed_requirements = BTreeSet::from(["reference-toolchain", "semantics-support"]);
+    let allowed_requirements = BTreeSet::from(["reference-toolchain"]);
     for section in SECTIONS {
         let entries = manifest[section].as_array().expect("coverage array");
         assert!(!entries.is_empty(), "{section} coverage must not be empty");
