@@ -285,6 +285,21 @@ module_snapshot!(
     "MAIN"
 );
 
+#[test]
+fn rejects_non_rewrite_rules() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax GeneratedTopCell ::= "<top>" Int "</top>" [symbol(top)]
+
+          rule <top> 0 </top> [label(stutter)]
+        endmodule
+    "#};
+    let error = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap_err();
+
+    assert_eq!(error.to_string(), "cannot emit rule without a rewrite body");
+}
+
 module_snapshot!(
     emits_function_anywhere_and_simplification_equations,
     r#"
