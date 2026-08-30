@@ -1,10 +1,16 @@
 //! Reachability search over the symbolic execution tree.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::{
+    collections::{BTreeSet, VecDeque},
+    fmt,
+};
+
+use sha2::{Digest, Sha256};
 
 use crate::{
     builtin::BuiltinEffect,
     definition::BackendDefinition,
+    externalize,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rewrite::{
         AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry,
@@ -37,6 +43,41 @@ pub enum SearchType {
 pub enum ResultModality {
     StateSet,
     PathSet,
+}
+
+/// A stable SHA-256 digest of a constrained pattern's canonical compact KORE form.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PatternDigest([u8; 32]);
+
+impl PatternDigest {
+    pub fn of(pattern: &Pattern) -> Self {
+        let canonical = externalize::constrained_pattern(pattern).to_string();
+        Self(Sha256::digest(canonical.as_bytes()).into())
+    }
+
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    pub const fn into_bytes(self) -> [u8; 32] {
+        self.0
+    }
+}
+
+impl fmt::Display for PatternDigest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.0 {
+            write!(formatter, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+/// Definition-derived identity for a committed transition and its successor.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TransitionId {
+    pub rule: String,
+    pub target: PatternDigest,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -922,6 +963,16 @@ mod tests {
 
     fn initial(definition: &BackendDefinition) -> Pattern {
         pattern(definition, "initial{}()")
+    }
+
+    #[test]
+    fn pattern_digests_pin_canonical_kore() {
+        let definition = definition();
+
+        assert_eq!(
+            PatternDigest::of(&initial(&definition)).to_string(),
+            "7712dc0593a7e3c45c882dedb8016f1d148662e343ffe9e3b87705f3f15c83b9"
+        );
     }
 
     fn pattern(definition: &BackendDefinition, source: &str) -> Pattern {
