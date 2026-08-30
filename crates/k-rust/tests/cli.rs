@@ -686,12 +686,47 @@ fn search_bound_truncation_is_reported_to_the_user() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(
-        stderr.contains("in-process backend search was incomplete: ResultBound"),
+        stderr.contains("search stopped at the requested result bound"),
         "{stderr}"
     );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!stdout.contains("\\or{"), "{stdout}");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+            "--depth",
+            "10",
+            "--search-final",
+            "--search-bound",
+            "2",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(!stderr.contains("result bound"), "{stderr}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("\\or{"), "{stdout}");
 
     fs::remove_dir_all(root).unwrap();
 }

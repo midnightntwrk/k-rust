@@ -282,7 +282,11 @@ pub fn search_graph_with_solver_and_observer(
         if selects_reachable_state(options.search_type, state.depth)
             && push_unique(&mut states, state.clone(), options.max_results)
         {
-            incomplete.push(IncompleteSearch::ResultBound);
+            if !pending.is_empty()
+                || state_may_expand(definition, &state, options, &mut fresh_counter, solver)
+            {
+                incomplete.push(IncompleteSearch::ResultBound);
+            }
             break;
         }
         if options.search_type == SearchType::One && state.depth == 1 {
@@ -306,7 +310,9 @@ pub fn search_graph_with_solver_and_observer(
                 RewriteResult::Stuck(pattern) => {
                     state.pattern = pattern;
                     if push_unique(&mut states, state, options.max_results) {
-                        incomplete.push(IncompleteSearch::ResultBound);
+                        if !pending.is_empty() {
+                            incomplete.push(IncompleteSearch::ResultBound);
+                        }
                         break;
                     }
                 }
@@ -328,7 +334,9 @@ pub fn search_graph_with_solver_and_observer(
                 if options.search_type == SearchType::Final
                     && push_unique(&mut states, state, options.max_results)
                 {
-                    incomplete.push(IncompleteSearch::ResultBound);
+                    if !pending.is_empty() {
+                        incomplete.push(IncompleteSearch::ResultBound);
+                    }
                     break;
                 }
             }
@@ -420,7 +428,8 @@ pub fn search_pattern_with_solver(
     let mut incomplete = graph.incomplete;
     let output_variables = pattern_variables(target);
 
-    for state in graph.states {
+    let mut remaining = graph.states.into_iter();
+    while let Some(state) = remaining.next() {
         let found = match match_pattern_with_variables(
             definition,
             target,
@@ -464,7 +473,10 @@ pub fn search_pattern_with_solver(
             matches.push(found);
         }
         if requested_bound.is_some_and(|bound| matches.len() >= bound) {
-            incomplete.push(IncompleteSearch::ResultBound);
+            // The bound only truncates the answer when candidate states were left unchecked.
+            if remaining.len() > 0 {
+                incomplete.push(IncompleteSearch::ResultBound);
+            }
             break;
         }
     }
@@ -630,6 +642,35 @@ fn selects_reachable_state(search_type: SearchType, depth: u64) -> bool {
         SearchType::One => depth == 1,
         SearchType::Final => false,
     }
+}
+
+/// Whether a state that just satisfied the result bound could still contribute unexplored
+/// successors. Stopping at the bound is only a truncation when such work remains; a search
+/// that is exhausted exactly at the bound is complete.
+fn state_may_expand(
+    definition: &BackendDefinition,
+    state: &SearchState,
+    options: SearchOptions,
+    fresh_counter: &mut u64,
+    solver: &dyn SmtSolver,
+) -> bool {
+    if options.search_type == SearchType::One && state.depth == 1 {
+        return false;
+    }
+    if state.depth >= options.max_depth {
+        // Continuing would have reported a depth bound; the frontier is not exhausted.
+        return true;
+    }
+    !matches!(
+        rewrite_step_with_options(
+            definition,
+            &state.pattern,
+            fresh_counter,
+            simplification_options(options),
+            solver,
+        ),
+        RewriteResult::Stuck(_) | RewriteResult::Trivial(_) | RewriteResult::Vacuous(_)
+    )
 }
 
 /// Returns whether the requested solution bound has been reached.
@@ -1231,6 +1272,68 @@ mod tests {
     }
 
     #[test]
+    fn exhausting_the_graph_exactly_at_the_result_bound_is_complete() {
+        let definition = definition();
+        for (search_type, bound, expected) in [
+            (SearchType::One, 2, ["next1", "next2"].as_slice()),
+            (SearchType::Final, 2, ["final1", "final2"].as_slice()),
+            (
+                SearchType::Star,
+                5,
+                ["initial", "next1", "next2", "final1", "final2"].as_slice(),
+            ),
+        ] {
+            let result = search_graph(
+                &definition,
+                initial(&definition),
+                SearchOptions {
+                    search_type,
+                    max_results: Some(bound),
+                    ..SearchOptions::default()
+                },
+            );
+            assert_eq!(
+                names(&result),
+                expected.iter().map(|name| (*name).to_owned()).collect(),
+                "{search_type:?}"
+            );
+            assert!(result.incomplete.is_empty(), "{search_type:?}");
+        }
+    }
+
+    #[test]
+    fn result_bound_at_the_depth_bound_still_reports_truncation() {
+        let definition = definition();
+        let result = search_graph(
+            &definition,
+            initial(&definition),
+            SearchOptions {
+                search_type: SearchType::Star,
+                max_depth: 1,
+                max_results: Some(3),
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(
+            names(&result),
+            BTreeSet::from(["initial".into(), "next1".into(), "next2".into()])
+        );
+        // `next1` was already reported as depth-bound before the result bound fired on `next2`.
+        assert!(
+            matches!(
+                result.incomplete.as_slice(),
+                [
+                    IncompleteSearch::DepthBound(_),
+                    IncompleteSearch::ResultBound
+                ]
+            ),
+            "{:?}",
+            result.incomplete
+        );
+    }
+
+    #[test]
     fn zero_result_bounds_are_reported_as_incomplete() {
         let definition = definition();
         let options = SearchOptions {
@@ -1271,6 +1374,19 @@ mod tests {
 
         assert_eq!(result.matches.len(), 1);
         assert_eq!(result.incomplete, [IncompleteSearch::ResultBound]);
+
+        let result = search_pattern(
+            &definition,
+            initial(&definition),
+            &target,
+            SearchOptions {
+                search_type: SearchType::Final,
+                max_results: Some(2),
+                ..SearchOptions::default()
+            },
+        );
+        assert_eq!(result.matches.len(), 2);
+        assert!(result.incomplete.is_empty());
     }
 
     #[test]

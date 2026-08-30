@@ -1960,11 +1960,17 @@ fn run_backend(
                 BuiltinEffect::UserLog(message) => eprintln!("{message}"),
             }
         }
-        if let Some(incomplete) = result
-            .incomplete
-            .iter()
-            .find(|incomplete| !matches!(incomplete, IncompleteSearch::DepthBound(_)))
-        {
+        // Depth and result bounds are limits the user asked for, not engine failures: the
+        // states found are still valid answers, so report the truncation and succeed.
+        if result.incomplete.contains(&IncompleteSearch::ResultBound) {
+            eprintln!("search stopped at the requested result bound; further results may exist");
+        }
+        if let Some(incomplete) = result.incomplete.iter().find(|incomplete| {
+            !matches!(
+                incomplete,
+                IncompleteSearch::DepthBound(_) | IncompleteSearch::ResultBound
+            )
+        }) {
             return Err(io::Error::other(format!(
                 "in-process backend search was incomplete: {incomplete:?}"
             ))
