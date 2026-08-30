@@ -28,6 +28,12 @@ Continue in this order:
 The canonical product definitions live in the standalone `semantics/` Cargo workspace.
 `tests/kwasm`, `tests/kevm`, and `tests/kmir` own only external evidence, probes, revision pins, and fail-closed qualification gates.
 
+K-Rust is the routine development-time correctness authority for all three semantic ports.
+Default semantic gates must compile Definition IR directly through the pinned K-Rust frontend and execute concrete corpora through persistent in-process backend workers.
+They must not invoke `kompile`, `krun`, `kprove`, the JVM, or the Haskell backend.
+The explicit `--java-reference` option reserves the K toolchain comparison and proof workload for deliberate final validation.
+Any missing K-Rust feature or defect must be recorded in `K_RUST_UPSTREAM.toml`; KRS-specific fixes must remain in the dedicated `k-rust-krs` checkout or the KRS adapter so the shared upstream checkout stays clean.
+
 ## Authorities and path translation
 
 These sources have different jobs:
@@ -1002,7 +1008,7 @@ All 17 adapter tests pass.
 `Krs.lock` and the complete M4 ledger pin the frontend, backend, and shared KORE subtrees separately.
 The final isolated M4.1–M4.8 gate passes with exact 1,206/1,206 native KORE parity, behavior evidence `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, all proofs, and compatibility evidence `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6`.
 `K_RUST_HANDOFF.md` records the coordination boundary and upstream follow-up policy.
-No upstream k-rust functional defect was found during the migration.
+Later direct native KEVM compilation exposed the semantic-cast projection defect now recorded in `K_RUST_UPSTREAM.toml`.
 
 This tranche advances the explicit KEVM inventory but does not complete the port.
 Environmental, memory, storage, control-flow, call, creation, log, termination, transaction, schedule, account, cryptographic, and symbolic surfaces remain uncovered.
@@ -1041,6 +1047,1189 @@ The complete IMP M4.1–M4.8 gate also passes with exact 1,206/1,206 native KORE
 This tranche advances the explicit KEVM inventory but does not complete the port.
 Environmental, memory, storage, call, creation, log, termination, transaction, schedule, account, cryptographic, and symbolic surfaces remain uncovered.
 
+### Phase 19 — KEVM Shanghai execution-context tranche — complete; port incomplete
+
+The next KEVM tranche selects the nullary `ADDRESS`, `ORIGIN`, `CALLER`, `CALLVALUE`, `CALLDATASIZE`, `CODESIZE`, `GASPRICE`, `RETURNDATASIZE`, `COINBASE`, `TIMESTAMP`, `NUMBER`, `PREVRANDAO`, `GASLIMIT`, `CHAINID`, `BASEFEE`, and `GAS` family from the pinned `evm.md` and Shanghai schedule.
+The canonical package now carries the exact selected transaction, call, block, chain, output, and gas configuration cells.
+Each operation enforces the 1,024-word push boundary before charging `Gbase = 2`, and `GAS` pushes the post-charge remainder.
+The upstream `STOP` transition now clears `<output>` rather than preserving it.
+
+The `STOP` rule exposed a shared authoring requirement rather than a port-local approximation opportunity.
+Descriptor protocol 21 and Definition IR schema 14 add the pinned zero-argument `BYTES.empty` identity.
+The facade spelling `bytes::empty()` emits `.Bytes` and remains typed through registry resolution, descriptor transport, Semantic IR, Definition IR, reference expansion, canonical K emission, and native frontend adaptation.
+
+Ordinary KEVM development qualification now uses K-Rust behavior as the default authority.
+The release-mode persistent runner executes all 105 cases in approximately three seconds and directly observes the `<output>` cell.
+The structured K-Rust behavior SHA-256 is `3f0a2ee31bfc1e242c103f6dafac73d7330bcf7d162bd4f95e875fb5e4bada0c`.
+The normalized KORE SHA-256 is `1298606514130917d09a3ce1451fa3716426540679f22b7b76d191337e801e72`.
+The six Java/K proofs remain explicit milestone or final authority checks through `tests/kevm/verify.py --java-reference`; they are not run during ordinary development.
+
+This tranche advances the explicit KEVM inventory but does not complete the port.
+`BLOCKHASH`, memory, storage, copying, call, creation, log, explicit return/revert, transaction, schedule, account, cryptographic, and symbolic surfaces remain uncovered.
+
+### Phase 20 — KEVM Shanghai block-history tranche — complete; port incomplete
+
+The next KEVM tranche selects `BLOCKHASH` from the pinned `evm.md`, `schedule.md`, and `summaries/blockhash-summary.k` evidence.
+The canonical package now carries the exact upstream `<blockhashes>` builtin-List cell and decodes opcode `0x40` without overlapping the invalid-opcode partition.
+The lookup preserves the upstream newest-first traversal, current and future block rejection, 256-block cutoff, and zero sentinel.
+Execution replaces the unary stack argument, advances the program counter by one, charges Shanghai `Gblockhash = 20`, and retains the existing underflow and out-of-gas ordering.
+
+The K-Rust-first development corpus now contains 112 executions.
+It covers the latest and older available hashes, the current-block exclusion, the 256-block boundary, the zero sentinel, stack underflow, insufficient gas, and a combined execution-context path.
+The structured behavior SHA-256 is `f8e5d5f96c411272446a7de335b4fd7fbe8d1cbb466117c7629e864551aeb31b`.
+The normalized KORE SHA-256 is `27c2e3e57cf8d5fc60c78daf9ed10a810ce73f2b4baac8c0da7d7df083627de3`.
+The six Java/K proofs remain deferred to an explicit milestone or final `tests/kevm/verify.py --java-reference` run.
+
+This tranche advances the explicit KEVM inventory but does not complete the port.
+Memory, storage, copying, call, creation, log, explicit return/revert, transaction, schedule, account, cryptographic, and symbolic surfaces remain uncovered.
+
+### Phase 21 — KEVM Shanghai memory tranche — complete; port incomplete
+
+The next KEVM tranche selects `MLOAD`, `MSTORE`, `MSTORE8`, and `MSIZE` from the pinned `evm.md`, Shanghai schedule, and checked-in opcode summaries.
+The canonical package now carries exact `<localMem>:Bytes` and `<memoryUsed>:Int` cells, zero-padded big-endian 32-byte reads, padded full-word writes, low-byte writes, and active-memory size observation.
+Memory grows in 32-byte words and charges `Cmem(N) = 3*N + N*N/512`, including the quadratic expansion boundary.
+The selected operations retain the upstream `Gverylow` or `Gbase` base cost, structural underflow, and insufficient-gas ordering.
+
+Descriptor protocol 22 and Definition IR schema 15 add the pinned `BYTES.update` and `BYTES.padRight` operations.
+Both operations remain typed through registry resolution, descriptor transport, Semantic IR, Definition IR, reference expansion, canonical K emission, and native frontend adaptation.
+
+Ordinary qualification now compiles Definition IR directly through the KRS adapter, K-Rust frontend, and K-Rust backend.
+The native frontend exposed a K-Rust semantic-cast defect for typed builtin `List:get`; KRS lowers that boundary directly to the generated `project:<Sort>` function and records the upstream issue in `K_RUST_UPSTREAM.toml`.
+The shared K-Rust checkout remains clean, and the dedicated checkout retains only its solver-policy and deep-result changes.
+
+The K-Rust-first development corpus contains 124 executions and seven deferred Java/K proofs.
+The behavior matrix covers zero-padded reads, full-word and unaligned writes, no-expansion and quadratic-expansion boundaries, low-byte truncation, family underflow, out-of-gas, `MSIZE`, and a combined write/read/size execution through `STOP`.
+K-Rust caught an invalid 17-gas premise in the combined memory claim; the exact selected schedule requires 20 gas, and the claim and corpus now agree.
+The structured behavior SHA-256 is `fb36c7bdc155b79289a3864978ffab557186c0ebf2c1bc422a1c7b7dd601e973`.
+The native K-Rust KORE SHA-256 is `b501017bd064c3a4a915c707575c23004f7c051a025e26f0230b5fdf1b505235`.
+Java behavior and proof execution remain deferred to explicit final or requested validation.
+
+This tranche advances the explicit KEVM inventory but does not complete the port.
+Storage, copying, call, creation, log, explicit return/revert, transaction, schedule, account, cryptographic, and symbolic surfaces remain uncovered.
+
+### Phase 22 — KEVM Shanghai non-account load/copy tranche — complete; port incomplete
+
+The canonical KEVM package now implements `CALLDATALOAD`, `CALLDATACOPY`, `CODECOPY`, and `RETURNDATACOPY` against the pinned `evm.md` and four checked-in opcode summaries.
+`CALLDATALOAD` performs a zero-padded big-endian 32-byte read without expanding local memory.
+The three copy operations preserve the upstream top-first destination/source/width operand order, expand local memory in 32-byte words, and charge `Gverylow + Gcopy * ceil(width / 32)` plus exact memory expansion.
+Calldata and program sources zero-pad out-of-range bytes.
+Return-data copies require `source + width <= lengthBytes(output)` and otherwise consume the operands, charge gas and active memory, preserve local bytes, and halt with `EVMC_INVALID_MEMORY_ACCESS`.
+Insufficient gas is resolved before the return-data bounds failure.
+
+The K-Rust-first corpus contains 148 executions and eight deferred Java/K proofs.
+It covers full and short calldata loads, normal and source-padded copies, zero-width non-expansion, the 33-byte copy-gas ceiling, every zero/one/two-operand copy underflow boundary, out-of-gas ordering, valid and invalid return-data bounds, and a combined load/copy path.
+The fail-closed K-Rust behavior SHA-256 is `28f7b7c3912b13a978f47dc030d4e1cffcc37d9b1b7c7c26954e7e6ce885c6be`.
+The native K-Rust KORE SHA-256 is `96fb32d6b25b80ca243f54ed43b6f691da9da6e432d89433374a73a050c1fd0f`.
+Java behavior and proof execution remain deferred to explicit final or requested validation.
+
+This tranche advances the explicit KEVM inventory but does not complete the port.
+Storage, account access, calls, creation, logs, explicit return/revert, transactions, schedules, cryptographic hooks, and symbolic surfaces remain uncovered.
+
+### Phase 23 — KEVM Shanghai current-account storage — complete; port incomplete
+
+Descriptor protocol 23 and Definition IR schema 16 add typed `Map` lookup and key-membership operations plus K's builtin `Set` sort and its empty, item, concatenation, and membership operations.
+The operations retain their result and operand sorts through facade marker identity, descriptor transport, Semantic IR, Definition IR, canonical K source emission, reference expansion, and direct K-Rust adaptation.
+Typed Map lookup uses the same explicit native `project:<Sort>` boundary as typed List lookup, avoiding K-Rust's recorded semantic-cast erasure defect.
+
+Focused native qualification verifies the closed registries, exact canonical source spellings, structural native terms, and the exact `Map:lookup`, `MAP.in_keys`, `SET.unit`, `SET.element`, `SET.concat`, and `SET.in` labels exposed by the pinned K-Rust prelude.
+No Java frontend or backend participates in this development gate.
+
+Descriptor protocol 24 and Definition IR schema 17 add classified repeated-cell multiplicity and collection type, nested ancestry-aware rule emission, and readable head-rule `requires` transport.
+The canonical configuration now preserves `<accounts><account multiplicity="*" type="Map">` with nested `<acctID>`, `<storage>`, and `<origStorage>` cells; no permanent top-level current-storage adapter was introduced.
+
+The KEVM package implements `SLOAD` and `SSTORE` with absent-slot zero fallback, accessed-storage Map-of-Sets, 100/2100 warm/cold loads, cold store surcharge, Shanghai set/reset/dirty costs, stipend and static-mode ordering, and the 4,800/19,900/2,800 refund cases.
+Storage/access/refund mutation occurs only after successful charging, and the repeated account rule is guarded by equality between `<id>` and `<acctID>`.
+
+K-Rust's own CLI initially rejected its generated parameterized repeated-cell initializer `initAccountCell(Init:Map)` during cell concretization.
+The dedicated KRS checkout carries a focused local fix and regression, while the exact standalone reproducer and requested upstream action are recorded in `K_RUST_UPSTREAM.toml`.
+The shared K-Rust checkout remains clean.
+
+The independently expanded readable Rust originally lost the declaration owner
+for nested account leaves and tried to resolve `account_id`, `storage`, and
+`original_storage` as direct `Machine` fields.  The reference surface now emits
+owner-qualified `cells!` fields, the macro transport retains those exact nested
+owners, and protocol-v7 accepts declared nested-cell owners while the collector
+still rejects identities absent from the fixed-cell table.  A focused
+`NestedMachine`/`Store::env` regression and the full readable re-emission gate
+both pass.
+
+The K-Rust-first corpus contains 163 executions and eight deferred Java/K proofs.
+It covers cold absent/present and repeated warm loads; clean set/reset/clear; dirty restoration refunds; stipend and ordinary out-of-gas; static violation; storage underflow; and deliberate non-selection of a mismatched account.
+The fail-closed behavior SHA-256 is `773bd0c59d3d3144dba682b4f78ec6e7f88b8b77fa9bd2bb118646cc15a797d1`.
+The native K-Rust KORE SHA-256 is `cdcb4ef444b2716e9b4fd1b62179b70b7a258df3da8a6bb8133c1b873624487d`.
+No Java frontend or backend participated; the explicit final authority run remains deferred to `tests/kevm/verify.py --java-reference`.
+
+### Phase 24 — KEVM Shanghai explicit return/revert — complete; port incomplete
+
+The next control-flow tranche selects `RETURN` and `REVERT` from pinned
+`evm.md` and the Shanghai schedule.  Both operations consume a memory start
+and width, charge `Gzero = 0` plus exact memory expansion, copy a byte-exact
+zero-padded range into `<output>`, and terminate without advancing `<pc>`.
+`RETURN` selects `EVMC_SUCCESS`; `REVERT` selects `EVMC_REVERT`.
+
+The implementation reuses the qualified Bytes and memory surfaces rather than
+introducing an output adapter.  It preserves stack, output, memory, memory-use,
+and gas state when expansion charging fails, and includes both binary-stack
+underflow partitions.
+
+The K-Rust-first corpus now contains 170 executions and eight deferred Java/K
+proofs.  The behavior SHA-256 is
+`8cf77c612be95a04e049334076071649649e155ef3b808fc04101f5166b561d9` and
+the native K-Rust KORE SHA-256 is
+`18356845d6d2c52a249b15c7c3aa9dca3f247dc3e2b8b4b66421bbb6f179005a`.
+No Java frontend or backend participated.
+
+### Phase 25 — KEVM Shanghai account queries — complete; port incomplete
+
+Descriptor protocol 25 adds typed `#[k::rule(owise)]` metadata for ordered fallback rules.
+The authored marker and `rule_owise` provenance survive ordinary, head, and configuration descriptors, Semantic IR, Definition IR, canonical K emission as effective priority 200, and deterministic readable expansion.
+Overlap analysis compares the effective default priority 50 with the fallback priority 200, so a present-account rule and its absent-account fallback remain intentionally ordered rather than spuriously conflicting.
+
+The KEVM account shape now includes nested `<balance>:Int` and `<code>:Bytes` leaves and the machine configuration includes `<accessedAccounts>:Set`.
+The selected tranche implements `BALANCE`, `EXTCODESIZE`, `EXTCODECOPY`, and `SELFBALANCE`.
+Present-account rules require exact equality between the requested address and `<acctID>`, while absent-account `BALANCE` and `EXTCODESIZE` rules return zero and absent-account `EXTCODECOPY` copies from empty bytes through an ordered fallback.
+
+Berlin account access costs are exactly 100 for warm accounts and 2,600 for cold accounts.
+An account enters `<accessedAccounts>` only after successful charging.
+`EXTCODECOPY` additionally charges memory expansion and `3 * ceil(width / 32)`, copies bytes exactly, and right-pads missing source bytes with zero.
+Out-of-gas behavior leaves the stack, local memory, active-memory words, gas, and account-access set unchanged.
+
+The first fresh K-Rust execution exposed a decoder partition overlap because the invalid-opcode equation still included decimal opcodes 49, 59, 60, and 71.
+Excluding the four newly implemented opcodes fixed the KRS semantics; this was not a K-Rust defect and is not recorded upstream.
+
+The focused Rust gate and all 183 K-Rust corpus executions pass without Java.
+The behavior SHA-256 is `e9a34043f4ef04e46cde7e4af46a475bdad43b821a2d08f7ec400079effa16d8`.
+The native K-Rust KORE SHA-256 is `4f9702babfd0603d1e4bda0d57f1ce8cbfe24a47857ef97c60469b63aa580b42`.
+The eight Java/K proofs remain deferred to the explicit final `tests/kevm/verify.py --java-reference` authority run.
+
+### Phase 26 — KEVM Shanghai LOG0-LOG4 — complete; port incomplete
+
+The exact builtin-List `<log>` configuration cell now holds typed `LogEntry` values containing the current address, an ordered builtin List of zero through four topics, and the byte-exact event data.
+Successful execution appends one entry, consumes only the start, width, and selected topics, updates active memory words, advances the program counter, and deducts gas.
+
+The Shanghai charge is memory expansion plus `Glog = 375`, `Glogdata = 8` per byte, and `Glogtopic = 375` per topic.
+Stack underflow takes precedence over static-mode rejection, static rejection takes precedence over charging, and all log, stack, memory-use, program-counter, and gas state remains unchanged when charging fails.
+Memory extraction uses the already qualified zero-padded Bytes boundary.
+
+All five opcodes from `0xa0` through `0xa4` have direct K-Rust behavior evidence.
+The 190-case corpus passes without Java with behavior SHA-256 `aff843ba6fca75a459621d009e3aae1a516241a306c25f07bfb421128fc6da5b` and native KORE SHA-256 `74f7aa3682f9763a9108c850307b0b063431927bc8c950da23b11104fed59f7a`.
+The eight Java/K proofs remain deferred to final validation.
+
+### Phase 27 — KEVM Shanghai SHA3 — complete; port incomplete
+
+Descriptor protocol 26 and Definition IR schema 18 add the closed typed `krypto::keccak256_raw` function-hook identity.
+The hook remains exactly `Bytes -> Bytes` through syntax parsing, provenance, descriptors, Semantic IR, Definition IR, canonical K emission as `KRYPTO.keccak256raw`, readable expansion, and direct K-Rust adaptation.
+
+The KEVM package now decodes opcode `0x20`, extracts zero-padded memory bytes, hashes them with the selected hook, converts the digest to an unsigned big-endian word, and charges Shanghai `Gsha3 = 30`, `Gsha3word = 6`, and exact memory expansion.
+The four-case tranche covers the standard empty and `abc` digests, stack underflow, and atomic out-of-gas behavior.
+
+K-Rust's backend already implemented the hook, but its frontend omitted the `KRYPTO` namespace and silently compiled the application as an ordinary symbol.
+The dedicated KRS checkout carries the minimal namespace fix and regression; `K_RUST_UPSTREAM.toml` records the upstream defect, while the shared checkout remains clean.
+
+All 194 K-Rust corpus executions pass without Java.
+The behavior SHA-256 is `2ac33e0f5c9adcc353ebb50acc4d04f5a8bd5168796f46ef8f47c728668fcda6` and the native K-Rust KORE SHA-256 is `696e4665c1b9c076b7315acbc908b29ca8093de2588037367f25af96c6028e54`.
+The eight Java/K proofs remain deferred to final validation.
+
+### Phase 28 — KEVM Shanghai EXTCODEHASH — complete; port incomplete
+
+The canonical account shape now includes the upstream `<nonce>:Int` leaf and the native and deferred-reference harnesses expose its `NONCE` initializer.
+The selected `#kevmAccountEmpty` boundary follows the pinned upstream definition: an account is empty exactly when its code is empty and both nonce and balance are zero.
+
+`EXTCODEHASH` decodes opcode `0x3f`, charges 100 gas for a warm account or 2,600 gas for a cold account, marks access only after successful charging, returns `Keccak(code)` for a present nonempty account, and returns zero for an empty or absent account through the ordered fallback.
+The corpus independently qualifies code-, nonce-, and balance-based nonemptiness plus empty-present, absent, underflow, and atomic out-of-gas behavior.
+
+All 201 K-Rust corpus executions pass without Java.
+The behavior SHA-256 is `e0dc0292635871695fdee0b0e1d423f228d66cf2a08a95e61f321d39143a68f9` and the native K-Rust KORE SHA-256 is `6d8eb6a9c9598b1e7886f40a41e838f1623ac6b32d67845e735945ee6fede191`.
+The eight Java/K proofs remain deferred to final validation.
+
+### Phase 29 — KEVM Shanghai PUSH0 — complete; port incomplete
+
+The pinned Shanghai inventory exposed `PUSH0` as an uncovered active opcode before the call-frame tranche.
+The canonical package now decodes `0x5f` as `PUSHZERO`, pushes the exact zero word, advances the program counter by one, charges `Gbase = 2`, and reuses the qualified 1,024-word push boundary and atomic gas failure.
+
+All 203 K-Rust corpus executions pass without Java.
+The behavior SHA-256 is `fbac2e70e2c882e977a4f035d7890af07756e9830658f6080a8764ec4e8a409f` and the native K-Rust KORE SHA-256 is `8b11c02cdee0585a93c4457598d369a4373b0f23243637cc48b5f251079a7af2`.
+The eight Java/K proofs remain deferred to final validation.
+
+### Phase 30 — KEVM Shanghai STATICCALL empty/absent branch — complete; port incomplete
+
+The call-family audit identifies upstream whole nested `<callState>` and `{<accounts>|<substate>}` fragments stored in builtin Lists as the required boundary for nonempty child execution and rollback.
+KRS does not yet expose those first-class cell terms, and this phase does not introduce a port-local frame adapter.
+
+The source-complete branch that does not require a child frame now qualifies `STATICCALL` to non-precompile absent accounts and present empty accounts.
+It decodes `0xfa`, enforces the six-operand stack contract, charges exact Berlin warm/cold account access plus both argument and return memory regions, marks access and expands memory only after successful charging, clears return data, returns success, and retains atomic underflow and out-of-gas behavior.
+Nonempty-code and precompile targets have no success rule and are not claimed complete.
+
+All 208 K-Rust corpus executions pass without Java.
+The behavior SHA-256 is `548897681091f221fe0435e33895ba13234b964c1ca2a9d7004ee8076bd7d22d` and the native K-Rust KORE SHA-256 is `a5ec34d806f128baba9a6a6e55c39a11992f4b3b014c9c0176badb5ccf5ca58e`.
+The eight Java/K proofs remain deferred to final validation.
+
+### Phase 31 — K-Rust-first KMIR and KWasm qualification — complete
+
+The KMIR and KWasm default gates now use the same direct Definition IR to K-Rust frontend/backend route as KEVM.
+Routine runs build `krs-native-compile` and `krs-native-runner`, compile the pinned Definition IR without parsing emitted K, and execute each concrete corpus through one persistent worker.
+The previous `kompile`, `krun`, and `kprove` route remains available only through `--java-reference`.
+
+Structured bootstrap preparation now removes the loader-added `DEFAULT-CONFIGURATION` module and its dangling imports before inserting the authored definition.
+This prevents the fallback `<k>` initializer from colliding with KWasm's real `<instrs>` computation cell.
+A focused adapter regression compiles a fixed `<instrs>` configuration, and `K_RUST_UPSTREAM.toml` records the upstream structured-loading gap.
+
+The KWasm gate passes at descriptor protocol 26 and Definition IR schema 18 with 60 descriptors, 32 K-Rust executions, behavior SHA-256 `4a3b6107cb23fa451a392d0a0ef1d42203d5eb64cda8cbcda025e75d2458afd5`, and direct KORE SHA-256 `35835f531a224c68f5ab63892448d2a2f60a6f0c268be521189a8f4df04245d1`.
+The KMIR gate passes at the same schemas with 94 descriptors, 11 K-Rust executions, behavior SHA-256 `f10f7a2df6103ffca4814598f42667b123a682489228eaa1c18419c5582f0d4a`, and direct KORE SHA-256 `33e12b776065b81010aa8e9eca0b3b68bb8cd9bc5775332eeffcc68064321b67`.
+No Java or Haskell backend was run during this phase.
+
+### Phase 32 — KEVM nested STATICCALL return and rollback — complete; port incomplete
+
+KRS and the dedicated K-Rust checkout now preserve complete nested `<callState>` fragments through the builtin-List call stack.
+The KEVM slice installs a nonempty-code child context, restores all 15 caller fields, and models success, revert, and represented exceptional return branches.
+Typed `<interimStates>` snapshots preserve the selected repeated-account record plus complete substate, drop on success, and restore on revert or exception.
+The selected-account boundary is exact for the current static/non-mutating account surface but must become a full repeated-account collection snapshot before mutable nested calls or creation.
+
+The native-only gate passes 212 K-Rust executions with behavior SHA-256 `05522da133bebf7a7619d1d52aeb55896bdadd2189a89f2bfbd8160093d35dc1` and direct KORE SHA-256 `8b29f3a39aa9dabf9140462ca543f175420b837a40fe4c5487399f7c38443326`.
+No Java or Haskell backend was run during this phase.
+
+### Phase 33 — KEVM Shanghai identity precompile — complete; port incomplete
+
+Address 4 now selects the Shanghai `ID` precompile through a structurally distinct base-gas result, so ordinary account calls and precompile calls cannot overlap in K-Rust rule dispatch.
+The port charges exact `15 + 3 * ceil(input-width / 32)` execution gas, applies EIP-150 forwarded-gas capping, returns the input bytes exactly, copies bounded returndata into caller memory, warms the account, and consumes the forwarded allowance on precompile failure.
+The two new corpus cases qualify both sufficient and insufficient forwarded gas while observing empty call/world stacks.
+
+The complete native-only checkpoint passes with 260 equations, 259 machine rules, 8 claims, 888 descriptors, and 214 K-Rust executions.
+The behavior SHA-256 is `7f2f4377a87584e7e1879b756d0d30a09390dddccaf02ccac5304fa1cc89eaa9` and the direct KORE SHA-256 is `fa81cb7cb6b4e0d514bea5abb69028d7f71ae63dd25f681692ab56b4cf3024c0`.
+All eight Java reference proofs remain deferred to the explicit `--java-reference` final-validation mode; no Java or Haskell backend was run during this phase.
+
+### Phase 34 — KEVM Shanghai SHA-256 precompile — complete; port incomplete
+
+Descriptor protocol 27 and Definition IR schema 19 add `krypto::sha256_raw` to the closed typed hook catalog.
+The KRS route preserves the `Bytes -> Bytes` identity through descriptor collection, both IRs, canonical K emission as `KRYPTO.sha256raw`, readable expansion, and direct K-Rust adaptation.
+K-Rust already implemented raw digest evaluation but omitted `KRYPTO.sha256raw` from its dispatcher; the dedicated checkout carries the one-line dispatch fix and a standard-vector backend regression, while `K_RUST_UPSTREAM.toml` records the upstream issue.
+
+Address 2 now implements the Shanghai `SHA256` precompile with exact `60 + 12 * ceil(input-width / 32)` gas, EIP-150 forwarded-gas success/failure, byte-exact output, bounded caller-memory copying, access warming, and empty call/world stack postconditions.
+The complete native-only milestone gate passes 907 descriptors and 216 K-Rust executions with behavior SHA-256 `9688304cb7bf003c1c06eddd154f8e411e48c8f785f5c9c85739eab344e29237` and direct KORE SHA-256 `a0180c02bec835c6d822ca1050db9fe4ae3648500d96846b74e4fbdf1b220dfe`.
+The definition contains 264 equations, 262 machine rules, and 8 claims across 907 descriptors.
+The refreshed provenance, schema, source, artifact, expansion, native KORE, and behavior pins all pass their fail-closed checks.
+No Java or Haskell backend was run during this phase; eight Java reference proofs remain explicitly deferred to the optional `--java-reference` final gate.
+
+### Phase 35 — KEVM Shanghai RIPEMD-160 precompile — complete; port incomplete
+
+Descriptor protocol 28 and Definition IR schema 20 add `krypto::ripemd160_raw` to the closed typed hook catalog.
+The KRS route preserves its `Bytes -> Bytes` identity through descriptor collection, both IRs, canonical K emission as `KRYPTO.ripemd160raw`, readable expansion, and direct K-Rust adaptation.
+K-Rust already implemented RIPEMD-160 and generic raw digest evaluation but omitted the raw dispatcher entry; the dedicated checkout carries the one-line dispatch fix and standard empty-input byte-vector regression, while `K_RUST_UPSTREAM.toml` records the upstream issue.
+
+Address 3 implements the Shanghai `RIP160` precompile with exact `600 + 120 * ceil(input-width / 32)` gas, a byte-exact 20-byte digest left-padded to 32 bytes, EIP-150 forwarded-gas success/failure, bounded caller-memory copying, access warming, and empty call/world stack postconditions.
+The complete native-only milestone gate passes 926 descriptors and 218 K-Rust executions with behavior SHA-256 `42a3d597a59afde0478dae10cf7d614ab3bef0b002df8a4e863804eaf47d5fc6` and direct KORE SHA-256 `1d77a68b723560b94de2bafc6498ee516ca9571135e28910e58c12f25445bd8b`.
+The definition contains 268 equations, 265 machine rules, and 8 claims across 926 descriptors.
+No Java or Haskell backend was run during this phase; eight Java reference proofs remain explicitly deferred to the optional `--java-reference` final gate.
+
+### Phase 36 — KEVM Shanghai ECREC precompile — complete; port incomplete
+
+Descriptor protocol 29 and Definition IR schema 21 add `krypto::ecdsa_recover` to the closed typed hook catalog.
+The KRS route preserves its `Bytes * Int * Bytes * Bytes -> Bytes` identity through descriptor collection, both IRs, canonical K emission as `KRYPTO.ecdsaRecover`, readable expansion, and direct K-Rust adaptation.
+The dedicated K-Rust checkout now returns empty Bytes for invalid concrete recovery inputs instead of Bottom, and `K_RUST_UPSTREAM.toml` records the correctness defect and focused regressions.
+
+Address 1 implements the Shanghai `ECREC` precompile with fixed 3,000 gas, zero-padded 128-byte input splitting, valid recovered-address output, successful empty returndata for invalid signatures, EIP-150 forwarded-gas failure, bounded caller-memory copying, access warming, and empty call/world stack postconditions.
+The complete native-only corpus passes 949 descriptors and 221 K-Rust executions with behavior SHA-256 `de383024cbcc4efc3ba9ee4db7f689267af845b550005699f3db49afee851c44` and direct KORE SHA-256 `9d5829c79cc082bb4fd9a3c3b6f591953623242bb764f6af9f66ae7bdea520f5`.
+The definition contains 274 equations, 268 machine rules, and 8 claims across 949 descriptors.
+No Java or Haskell backend was run during this phase; eight Java reference proofs remain explicitly deferred to the optional `--java-reference` final gate.
+
+### Phase 37 — KEVM Berlin MODEXP precompile — complete; port incomplete
+
+Address 5 implements the Berlin EIP-2565 `MODEXP` precompile through the already-qualified `int::pow_mod` and `int::log2` boundaries.
+The implementation parses zero-padded 32-byte base, exponent, and modulus lengths; consumes zero-padded big-endian operands; emits exactly the declared modulus width; returns empty Bytes for a zero output width; and returns zero at the declared width when the modulus is zero.
+The semantic wrapper totalizes modulus zero before the raw `INT.powmod` hook, matching pinned KEVM rather than treating K-Rust's partial raw hook as a defect.
+
+Gas charging implements `max(200, floor(ceil(max(base length, modulus length) / 8)^2 * max(adjusted exponent length, 1) / 3))` with the Berlin divisor of three.
+Focused native cases pin `2^5 mod 13 = 6`, modulus zero, zero output width, 199/200 forwarded-gas failure/success, and a 216-gas vector whose exponent length exceeds 32 bytes.
+The persistent native runner now accepts repeatable `--case` selectors for focused inner-loop qualification while an unfiltered invocation retains the complete corpus as the milestone gate.
+
+The complete native-only corpus passes 992 descriptors and 226 K-Rust executions with behavior SHA-256 `2f28aab675ac152c03c6da3f68d0476bb91d08881c7525c5bca552873b8a13b4` and direct KORE SHA-256 `46db9fbf7e127ea6885c7f2fab6d6b8761a34f08c4df77faecf5078747a14c3a`.
+The definition contains 290 equations, 271 machine rules, and 8 claims across 992 descriptors.
+No K-Rust bug or missing feature was encountered, and no Java or Haskell backend was run; eight Java reference proofs remain explicitly deferred to the optional `--java-reference` final gate.
+
+### Phase 38 — KEVM Istanbul ECADD precompile — complete; port incomplete
+
+Descriptor protocol 30 and Definition IR schema 22 add declared-sort `krypto::bn128_valid` and `krypto::bn128_add` identities to the closed typed hook catalog.
+The KRS route enforces `G1Point -> Bool` and `G1Point * G1Point -> G1Point`, emits the exact `KRYPTO.bn128valid` and `KRYPTO.bn128add` names, and preserves them through descriptor collection, both IRs, canonical K emission, and direct K-Rust adaptation.
+
+K-Rust did not implement any pinned BN128 hook.
+The dedicated `k-rust-krs` checkout now implements G1 validity and addition through `substrate-bn` 0.6.0 with Ethereum-compatible infinity, field-bound, curve-membership, and two-`Int` constructor behavior.
+Focused backend regressions cover the standard EIP/revm addition vector, infinity, an invalid field coordinate, and an off-curve point.
+`K_RUST_UPSTREAM.toml` records the partial local fix and leaves multiplication, G2 validity, and pairing open for addresses 7 and 8.
+
+Address 6 implements Istanbul `ECADD` with zero-padded 128-byte coordinate input, exact 64-byte output, fixed 150 gas charging, invalid-point precompile failure, EIP-150 forwarded-gas failure, bounded caller-memory copying, access warming, touched-account tracking, and empty call/world stack postconditions.
+The complete native-only corpus passes 1,027 descriptors and 230 K-Rust executions with behavior SHA-256 `a7335b2307a2df0dca1ceb9f15786d13d1bbb13824c422da21d791ce94bf59a1` and direct KORE SHA-256 `bc6cddc9ccdf34abb2a9ea6938255d466e5c819226e6a5d3958008268dec84c0`.
+The definition contains 299 equations, 274 machine rules, and 8 claims across 1,027 descriptors.
+No Java or Haskell backend was run; eight Java reference proofs remain explicitly deferred to the optional `--java-reference` final gate.
+
+### Phase 39 — KEVM Istanbul ECMUL precompile — complete; port incomplete
+
+Descriptor protocol 31 and Definition IR schema 23 add declared-sort `krypto::bn128_mul` to the closed typed hook catalog.
+The KRS route enforces `G1Point * Int -> G1Point`, emits the exact `KRYPTO.bn128mul` name, and preserves it through descriptor collection, both IRs, canonical K emission, and direct K-Rust adaptation.
+
+The dedicated `k-rust-krs` checkout implements multiplication through `substrate-bn` 0.6.0 and reduces the complete unsigned 256-bit scalar rather than narrowing it to a machine integer.
+Focused backend regressions cover generator multiplication by two, zero-scalar infinity, invalid input points, and negative hook inputs.
+`K_RUST_UPSTREAM.toml` records multiplication as locally fixed while G2 validity and pairing remain open for address 8.
+
+Address 7 implements Istanbul `ECMUL` with zero-padded 96-byte input, exact 64-byte output, fixed 6,000 gas charging, invalid-point precompile failure, EIP-150 forwarded-gas failure, bounded caller-memory copying, access warming, touched-account tracking, and empty call/world stack postconditions.
+The complete native-only corpus passes 1,053 descriptors and 234 K-Rust executions with behavior SHA-256 `0b930a079c7f2e56711fc4e71eebb8c47efb01bdf844c816a4b767bbfbf8c2d9` and direct KORE SHA-256 `6c8f71fb2af7626ef2ffec1dc8e07909a30ed50b5bed6ebdf07ff2eb03778a1f`.
+The definition contains 306 equations, 277 machine rules, and 8 claims across 1,053 descriptors.
+No Java or Haskell backend was run; eight Java reference proofs remain explicitly deferred to the optional `--java-reference` final gate.
+
+### Phase 40 — KEVM Istanbul ECPAIRING precompile — complete; port incomplete
+
+Descriptor protocol 32 and Definition IR schema 24 add declared-sort `krypto::bn128_g2_valid` and builtin-List `krypto::bn128_ate` identities to the closed typed hook catalog.
+The KRS route enforces `G2Point -> Bool` and `List * List -> Bool`, emits the exact `KRYPTO.bn128g2valid` and `KRYPTO.bn128ate` names, and preserves them through descriptor collection, both IRs, canonical K emission, and direct K-Rust adaptation.
+
+The dedicated `k-rust-krs` checkout implements G2 field, curve, and subgroup validation and pairing-product evaluation through `substrate-bn` 0.6.0.
+Focused backend regressions cover G2 generator and infinity validity, off-curve and out-of-field rejection, empty-product identity, a non-identity generator product, a cancelling product, injected concrete List elements, mismatched lists, invalid points, and opaque lists.
+`K_RUST_UPSTREAM.toml` records the complete BN128 hook-family local fix for upstream review.
+
+Address 8 implements Istanbul `ECPAIRING` with exact 192-byte tuple validation, upstream-compatible imaginary/real G2 byte decoding, G1/G2 infinity encoding, exact 32-byte Boolean output, `45,000 + 34,000 * pair-count` gas charging, invalid-length and invalid-point precompile failure, EIP-150 forwarded-gas failure, bounded caller-memory copying, access warming, touched-account tracking, and empty call/world stack postconditions.
+The complete native-only corpus passes 1,100 descriptors and 240 K-Rust executions with behavior SHA-256 `7d7fd9dac9d3088682fa3ea27686c2a431219ded26f8a13400d2f4025f024673` and direct KORE SHA-256 `b9244153684ae6cb40f17954d5e67c5590a1e52fdcff54e14fadea87d819ffb0`.
+The definition contains 321 equations, 280 machine rules, and 8 claims across 1,100 descriptors.
+No Java or Haskell backend was run; eight Java reference proofs remain explicitly deferred to the optional `--java-reference` final gate.
+
+### Phase 41 — KMIR typed locals and move invalidation — complete; port incomplete
+
+The KMIR locals cell now uses the source-shaped builtin `List` of typed entries rather than the port-local `Map<Int, MirValue>` adapter.
+`newLocal` and initialized entries retain opaque type and mutability metadata, assignment preserves both fields, and `place(local(...), .ProjectionElems)` is the exact selected place boundary.
+Copy reads preserve the source entry; move reads return its value while replacing the source with a metadata-preserving moved entry; moved entries may be reassigned and cannot be read.
+
+This tranche exposed a shared KRS lowering gap because readable three-argument cell updates were previously validated only as `map::update`.
+Head-rule lowering now resolves the cell sort and admits the registered persistent update for either builtin `Map` or builtin `List`, while retaining exact collection/base identity checks.
+No descriptor-protocol or Definition IR schema change was required.
+
+The focused semantics test passes with 130 descriptors and the native K-Rust corpus passes 13 executions with behavior SHA-256 `4863d82660266c837d0e85c496403a3157598b8983380fd3d47bf391383db983`.
+The direct K-Rust KORE SHA-256 is `558e53aed25196b7b8f0e35a648c5d022f7ccd3d913b3b4439d6a62de7c79ec0`.
+Nonempty projection traversal is the next KMIR data boundary.
+No Java or Haskell backend was run; the reference proof remains deferred to the optional `--java-reference` final gate.
+
+### Phase 42 — KMIR aggregate field projection — complete; port incomplete
+
+KMIR `Place` terms now admit one source-shaped `projectionElemField(fieldIdx(...), Ty)` in addition to `.ProjectionElems`.
+Typed aggregate values retain their variant index and builtin-List fields.
+Projected copies select the field through typed List lookup; projected assignment rebuilds the field list, aggregate, and enclosing typed local through nested persistent List updates while preserving local type and mutability metadata.
+
+Two new K-Rust cases qualify a nonzero field read and a field write observed through a later projected copy.
+The native corpus passes 15 executions with behavior SHA-256 `2958d25ed98f5bc25ef8dc0449f75b06d801ca8702808e6ac0e98b539f177258`.
+The definition contains 31 machine rules and one claim across 145 descriptors, and its direct K-Rust KORE SHA-256 is `e0769f3821a79e1a523c394b9b5f0f5c6dd526737dffb4972d2ce8e609278b3a`.
+No K-Rust bug or missing feature was encountered.
+No Java or Haskell backend was run; the reference proof remains deferred to the optional `--java-reference` final gate.
+
+### Phase 43 — KMIR binary operations and ordered `SwitchInt` — complete; port incomplete
+
+KMIR values now use the selected upstream `Integer(value, width, signed)` and `BoolVal(value)` constructor shapes.
+Rvalues use `rvalueUse` and staged `rvalueBinaryOp` evaluation with source-shaped `binOpAdd`, `binOpSub`, `binOpMul`, and all six integer comparison operators.
+The selected arithmetic rules preserve equal operand width and signedness metadata and are qualified only on non-overflowing concrete inputs; integer truncation, overflow behavior, and checked arithmetic remain explicit later work.
+
+The temporary Boolean two-target `SwitchInt` adapter has been removed.
+Terminators now carry `switchTargets(Branches, otherwise)`, scan ordered `branch(value, target)` entries, match Boolean discriminants through the upstream zero/one convention, match selected integer discriminants, and fall back to the otherwise block.
+Width-aware unsigned truncation for integer discriminants remains deferred.
+
+The K-Rust-only corpus adds subtraction, multiplication, the `42 > 0` comparison from pinned `const-arithm-simple.rs`, another ordered comparison, comparison-driven control flow, ordered Boolean branch scanning, and ordered integer branch scanning.
+The native corpus passes 22 executions with behavior SHA-256 `3e04c4f0c8d1531b69b6d55bdff97a4f1efa93b0164409c5d588202c31506041`.
+The definition contains 44 machine rules and one claim across 188 descriptors, and its direct K-Rust KORE SHA-256 is `bf4a10f594cd61830656edfc9885ab93a6e713596f91cabd58d2c4ede2d86d80`.
+No K-Rust bug or missing feature was encountered.
+No Java or Haskell backend was run; the reference proof remains deferred to the optional `--java-reference` final gate.
+
+### Phase 44 — KMIR Boolean comparison and bitwise operations — complete; port incomplete
+
+The staged `rvalueBinaryOp` path now covers Boolean operands for all six comparison constructors, following pinned KMIR's `false < true` ordering.
+It also covers `binOpBitAnd`, `binOpBitOr`, and `binOpBitXor` for equal-metadata integer operands and Boolean operands.
+The selected bitwise results preserve integer width and signedness, while Boolean exclusive disjunction uses inequality as the exact truth function.
+
+Pinned `bitwise-not-shift.rs` is now acceptance evidence for integer and Boolean bitwise behavior.
+Five new K-Rust executions qualify all three integer operations, Boolean exclusive disjunction, and Boolean ordering.
+The native corpus passes 27 executions with behavior SHA-256 `8e780b730d402e8e27697893d228d4744b9c6cbf10c51d96ed6ac6d1c67cdbbf`.
+The definition contains 56 machine rules and one claim across 206 descriptors, and its direct K-Rust KORE SHA-256 is `b2b5f0894308d5f7742adaa6a652e804056a18623042d4179694785ccc3388e1`.
+No K-Rust bug or missing feature was encountered.
+No Java or Haskell backend was run; the reference proof remains deferred to the optional `--java-reference` final gate.
+
+### Phase 45 — KMIR width-aware numeric core — complete; port incomplete
+
+KMIR now defines total signed and unsigned width-normalization functions and selects between them through the value's signedness bit.
+Ordinary add, subtract, multiply, and divide rules require the infinite-precision result to equal its normalized representation, preserving pinned undefinedness on overflow; division and truncating remainder also require a nonzero divisor.
+`rvalueCheckedBinaryOp` stages both operands and returns the source-shaped variant-zero aggregate containing the wrapped result and exact overflow flag for addition, subtraction, and multiplication.
+
+The binary family now includes signed and unsigned left/right shifts and the unchecked shift variants with their width guard.
+Unary evaluation covers signed negation, Boolean not, and signed/unsigned integer bitwise not.
+Integer `SwitchInt` matching now compares branch values with the discriminant's unsigned width-normalized representation, including the pinned `-127_i8` to `129` example.
+
+The K-Rust corpus adds 18 executions covering no-overflow and overflowing checked arithmetic, signed/unsigned wraparound, division and remainder truncating toward zero, normal and unchecked shifts, unary wraparound and not, and width-aware signed discriminants.
+The native corpus passes 45 executions with behavior SHA-256 `071c1cab4e736d6e6e4735b529b6fb12e1cc54010e4a9c1af3d497c486c020f2`.
+The definition contains seven equations, 70 machine rules, and one claim across 256 descriptors, and its direct K-Rust KORE SHA-256 is `44c8b65efb494136c5350699692d58c267b73f96165d6198d32b9dbf7c6460be`.
+No K-Rust bug or missing feature was encountered.
+No Java or Haskell backend was run; the reference proof remains deferred to the optional `--java-reference` final gate.
+
+### Phase 46 — KMIR recursive aggregate field projection — complete; port incomplete
+
+The one-field projection special case has been replaced by partial recursive `#readProjection` and `#writeProjection` functions over source-shaped `ProjectionElems`.
+Reads traverse arbitrary `projectionElemField` chains through typed builtin-List lookup.
+Writes rebuild the selected field and every enclosing aggregate through persistent List updates, preserving nested variant indices plus the enclosing local's type and mutability.
+Invalid projection/value combinations remain undefined because the recursive functions are partial.
+
+Pinned `struct.rs` is now acceptance evidence for aggregate-field behavior.
+Two new K-Rust executions qualify a two-level nested field read and a two-level nested write observed through a later read.
+The native corpus passes 47 executions with behavior SHA-256 `994b5a7303689a3a0f4368963ac83ee6710354e5e2c6b999d601f3fc9734fef4`.
+The definition contains 11 equations, 70 machine rules, and one claim across 264 descriptors, and its direct K-Rust KORE SHA-256 is `2bdb48cf9de9c358c07ce2b621f258cd814992a2cdd0bbb52e920a2a67b1a64d`.
+No K-Rust bug or missing feature was encountered.
+No Java or Haskell backend was run; the reference proof remains deferred to the optional `--java-reference` final gate.
+
+### Phase 47 — KMIR local-indexed range projection — complete; port incomplete
+
+KMIR now retains source-shaped `Range(List)` values and `projectionElemIndex(local(...))` projection syntax.
+The partial `#expectUsize` function accepts exactly a typed `Integer(_, 64, false)` index local, matching the pinned source boundary.
+Recursive reads select the indexed element before continuing through the remaining projections.
+Recursive writes persistently rebuild the selected element, enclosing ranges or aggregates, and the typed local while preserving type and mutability metadata.
+Invalid indices, index-local shapes, and value/projection combinations remain undefined.
+
+Pinned `array_write.rs` is now acceptance evidence for the dynamic array-index boundary; its reference and dereference behavior remains explicitly deferred.
+Two new K-Rust executions qualify a local-indexed range read and a local-indexed persistent write observed through a later read.
+The native corpus passes 49 executions with behavior SHA-256 `8cfeea1eaf7a26d493610ec971cf9bbb274378d189dd5e21d9e706977f4235d8`.
+The definition contains 14 equations, 70 machine rules, and one claim across 273 descriptors, and its direct K-Rust KORE SHA-256 is `168ca1421b8808fb114360ed0016c4890049679aad053f22d62983a6f14cfeaf`.
+No K-Rust bug or missing feature was encountered.
+No Java or Haskell backend was run; the reference proof remains deferred to the optional `--java-reference` final gate.
+
+### Phase 48 — KMIR constant-index range projection — complete; port incomplete
+
+KMIR `Place` terms now admit source-shaped `projectionElemConstantIndex(offset, minLength, fromEnd)` values.
+Front-relative reads and writes select the supplied in-range offset.
+End-relative reads and writes require the supplied minimum length to equal the concrete range length and consistently select `minLength - offset`.
+Both routes continue through arbitrary remaining selected projections and persistently rebuild every enclosing range or aggregate while preserving typed-local metadata.
+
+The pinned upstream source contains an inconsistency for the end-relative case: its prose and `CtxIndex` write path use `MINLEN -Int OFFSET`, while its read expression uses `getValue(ELEMENTS, OFFSET)`.
+KRS follows the documented Stable MIR meaning and records the actionable upstream report in `MIR_SEMANTICS_UPSTREAM.toml`.
+Pinned `exec-smir/arrays/array_write.state` supplies concrete source-shaped front-relative evidence.
+
+Four new K-Rust executions qualify front- and end-relative reads plus persistent writes.
+The native corpus passes 53 executions with behavior SHA-256 `edf22b0202f2c5a7c2db5baed1541f879f46696396ef8c3c3e9c9f02cbe260c7`.
+The definition contains 18 equations, 70 machine rules, and one claim across 279 descriptors, and its direct K-Rust KORE SHA-256 is `06654ac2508c21faeb46b92ec3ec51aca8522233691b0510f11708203fb96a09`.
+No K-Rust bug or missing feature was encountered.
+No Java or Haskell backend was run; the reference proof remains deferred to the optional `--java-reference` final gate.
+
+### Phase 49 — KMIR same-frame references and dereferencing — complete; port incomplete
+
+KMIR now retains source-shaped erased regions, shared and default mutable borrow kinds, metadata sizes, metadata triples, `Reference(height, place, mutability, metadata)` values, `rvalueRef`, and `projectionElemDeref`.
+Selected reference creation targets the current stack frame and derives reference mutability from the source borrow kind.
+Dynamic index projections are frozen into front-relative constant indices at borrow time, so later mutation of an index local cannot retarget an existing reference.
+
+Dereference reads fetch the same-frame pointee and append the retained place projections before continuing the selected recursive traversal.
+Dereference writes redirect `#setLocalValue` to the pointee local, append the retained and remaining projection paths, and persistently rebuild the pointee without replacing the reference.
+The selected metadata is the exact thin-pointer triple `metadata(noMetadataSize, 0, noMetadataSize)` emitted by the pinned array program.
+Stack-relative references, pointer offsets, metadata-driven slice truncation, raw pointers, and allocation references remain deferred.
+
+Pinned `array_write.smir.json` now supplies serialized Stable MIR evidence for mutable reference creation through a dynamic array index, dereference assignment, and later indexed copies.
+Three new K-Rust executions qualify shared reference creation, dynamic-index freezing followed by dereference read, and a mutable write through a retained constant-index reference.
+The native corpus passes 56 executions with behavior SHA-256 `a0422115f128b36c8c128c084b85fb355d8fa7c64bad96843426cce2d7bf9ec7`.
+The definition contains 29 equations, 74 machine rules, and one claim across 328 descriptors, and its direct K-Rust KORE SHA-256 is `96ddf2b9bed65cb4f2cc1c6f93748a52ba847619ea916eae1bc8855b97940267`.
+No K-Rust bug or missing feature was encountered.
+No Java or Haskell backend was run; the reference proof remains deferred to the optional `--java-reference` final gate.
+
+### Phase 50 — KMIR subslice projection — complete; port incomplete
+
+KMIR `Place` terms now admit source-shaped `projectionElemSubslice(from, to, fromEnd)` values.
+Front-relative reads remove `from` elements from the front and `to` elements from the back.
+End-relative reads follow the pinned source's reversed operand interpretation.
+Nested writes rebuild the selected value and persistently replace the same contiguous region while preserving enclosing ranges, aggregates, and typed-local metadata.
+Retained references preserve subslice projections unchanged when their place is frozen.
+
+This tranche extends the shared KRS List surface with exact `LIST.range` and `LIST.updateAll` operations in descriptor protocol 33 and Definition IR schema 25.
+The K-Rust backend already implements both hooks.
+Its frontend assigns the `LIST.updateAll` production without an explicit `symbol(...)` the synthesized label `updateList(_,_,_)_LIST_List_List_Int_List`; the KRS adapter now uses that pinned identity and a focused regression verifies it against the production hook.
+No K-Rust checkout change or upstream report was required.
+
+Pinned `array_match.rs` is now acceptance evidence for the Stable MIR subslice boundary.
+Four new K-Rust executions qualify front- and end-relative reads plus nested persistent writes in both orientations.
+The native corpus passes 60 executions with behavior SHA-256 `6918f8a904d1ff6c58186dfa1104167a907ce9e829dbc44f5d31dd9c2b3753f7`.
+The definition contains 36 equations, 75 machine rules, and one claim across 342 descriptors, and its direct K-Rust KORE SHA-256 is `1df01324c61877a08e07600b0e5dba1c6c40f6fd120a2c503255140731e26660`.
+The complete default KMIR gate passes at protocol 33, and the protocol/schema compatibility refresh also passes the KEVM 240-execution and KWasm 32-execution K-Rust gates.
+The shared Rust workspace library suite passes 104 tests.
+No Java or Haskell backend was run; the reference proof remains deferred to the optional `--java-reference` final gate.
+
+### Phase 51 — KMIR projected moves and checked-arithmetic assertions — complete; port incomplete
+
+KMIR now retains the source `Moved` value inside aggregates and ranges, in addition to the existing metadata-preserving whole-local moved state.
+A projected `Move` returns the selected value and persistently reconstructs its enclosing value with only the selected projection replaced by `Moved`.
+The selected route preserves the enclosing local's type and mutability and remains partial for unsupported projection/value combinations.
+
+The control-flow surface now includes source-shaped `assert(condition, expected, message, target, unwindActionContinue)` terminators and the checked-arithmetic `assertMessageOverflow` constructor.
+Assert operands use the existing explicit evaluation pipeline.
+A matching `BoolVal` continues at the target block; a mismatch leaves `#ProgramError(AssertError(message))` terminal at the head of the computation, with the target continuation retained behind it exactly as in the pinned source rule sequence.
+Other assertion messages and unwind actions remain deferred.
+
+Pinned `arith.smir.json` supplies serialized Stable MIR evidence for checked addition and multiplication followed by an `Assert` whose condition is a projected `Move` of the overflow flag.
+Two new K-Rust executions qualify the no-overflow continuation and overflowing terminal-error paths.
+The native corpus passes 62 executions with behavior SHA-256 `6df248ebbe08683e264b9fd4b239ad71dc74b9794eb7b6b56159fe4898c52a7f`.
+The definition contains 36 equations, 81 machine rules, and one claim across 369 descriptors, and its direct K-Rust KORE SHA-256 is `2d3bf7e81955c84aa6c7bb9faf91e7bb0c134d3a8938c200d8909aad2cff4de7`.
+No shared KRS protocol or Definition IR change was required.
+The complete default KMIR gate passes at descriptor protocol 33 with 62 K-Rust executions.
+The KEVM and KWasm source-ledger preflights also pass after pinning the updated shared coverage ledger; their semantic artifacts were not regenerated because this tranche changed no shared KRS source or schema.
+No Java or Haskell backend was run; the reference proof remains deferred to the optional `--java-reference` final gate.
+
+### Phase 52 — KMIR remaining primitive arithmetic, downcast, and runtime terminators — complete; port incomplete
+
+KMIR now retains the source `binOpAddUnchecked`, `binOpSubUnchecked`, and `binOpMulUnchecked` constructors.
+Each uses the same width-aware arithmetic and undefined-on-overflow guard as the pinned source rules, while checked arithmetic remains confined to the existing wrapped-result route.
+
+The recursive place engine now admits `projectionElemDowncast(variantIdx(...))`.
+Reading reinterprets an aggregate with the selected variant before continuing through the projection tail; writing persistently rebuilds the selected aggregate and enclosing typed local, including writes through fields of the downcast variant.
+
+The control-flow surface now includes source-shaped `terminatorKindDrop(place, target, unwind)` and `terminatorKindUnreachable` values.
+`Drop` follows the pinned semantics' current no-op elaboration and enters its target block without inspecting or mutating the place.
+`Unreachable` leaves terminal `#ProgramError(ReachedUnreachable)` state.
+
+Seven new K-Rust executions qualify all three unchecked arithmetic constructors on defined inputs, downcast reinterpretation and field update, drop continuation, and unreachable failure.
+The native corpus passes 69 executions with behavior SHA-256 `da32f14b143747925a8049d9d1a869439cc93246ca890ebc9b436bd5bfc3e3cb`.
+The definition contains 39 equations, 87 machine rules, and one claim across 392 descriptors, and its direct K-Rust KORE SHA-256 is `3668773329a373472675f005ec7f350ce377345b496477a194208bd5f01d4a8e`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 69 K-Rust executions.
+The KEVM and KWasm source-ledger preflights pass after pinning the updated shared coverage ledger; their semantic artifacts were not regenerated because this tranche changed no shared KRS source or schema.
+No Java or Haskell backend was run; the reference proof remains deferred to the optional `--java-reference` final gate.
+
+### Phase 53 — KMIR regular function calls and stack frames — complete; port incomplete
+
+KMIR now uses the source-shaped nested current frame with current-function identity, caller metadata, destination, continuation target, unwind action, typed locals, a function map, and a call stack.
+Regular constant-target calls resolve the callee through the function map, save the caller frame, reserve locals from the callee declarations, and begin the callee's first block.
+
+Argument setup covers constants plus copied and moved whole-local operands.
+Copies preserve the saved caller local; moves replace it with a metadata-preserving moved entry before the caller is restored.
+Nested returns restore the caller function, body, metadata, and locals, place an initialized callee return value at the destination, and resume at the selected target block.
+Unit returns restore the caller without writing an uninitialized return local.
+
+Pinned Stable MIR artifacts cover a nested zero-argument call chain and constant/copied argument transfer.
+Five new K-Rust executions qualify returned-value placement, nested unit calls, constant arguments, copied arguments, and caller-side moved-argument invalidation.
+The native corpus passes 74 executions with behavior SHA-256 `fae9d39724016563bf6b33dad24544901edc04840e0ffe5930ee40cbfde12e11`.
+The definition contains 44 equations, 95 machine rules, and one claim across 450 descriptors, and its direct K-Rust KORE SHA-256 is `95293b5366b4e686cf9404f4ef7ac92f0b6dc7df71edc012f543bf391e448a9a`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 74 K-Rust executions.
+The KEVM and KWasm source-ledger pins retain their existing semantic artifacts while acknowledging the updated shared coverage ledger.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 54 — KMIR cross-frame reference arguments and returns — complete; port incomplete
+
+Reference-valued call arguments now follow the pinned frame-height protocol.
+Copying or moving an argument increments every selected reference height recursively through aggregate and range values after the caller frame is pushed.
+Returning a value decrements those heights before writing into the restored caller.
+
+Read-only dereference now resolves a positive-height reference through the saved stack frame at `height - 1`, adjusts any fetched reference by the traversed height, and applies the retained place and operand projections against that frame's locals.
+The existing same-frame route remains the fallback for height zero.
+Cross-frame mutation and nested cross-frame dereference chains remain deferred rather than being approximated by current-frame writes.
+
+Pinned `refAsArg` and `refReturned` Stable MIR plus concrete state artifacts supply direct authority for callee dereference and returned-reference restoration.
+Two new K-Rust executions qualify a copied reference dereferenced by its callee and a reference returned to and dereferenced by its caller.
+The native corpus passes 76 executions with behavior SHA-256 `90573c79c87b5757b7b18fe702a3679c95ea00785aa7d516da49479baffb65ce`.
+The definition contains 54 equations, 98 machine rules, and one claim across 471 descriptors, and its direct K-Rust KORE SHA-256 is `1620f30a47334f09dbc0c8db0584a30f46a0590f50120fb2dcc9dc85899ce4e6`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 76 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 55 — KMIR cross-frame mutable-reference writes — complete; port incomplete
+
+Positive-height mutable-reference writes now select the saved frame at `height - 1` and update the referenced caller local rather than falling through to current-frame mutation.
+Retained reference projections are appended to the post-dereference write path.
+The saved typed local preserves its original type and mutability.
+
+Replacement values are recursively adjusted by `-height` before storage, following the pinned upstream `#adjustRef(#buildUpdate(...), 0 -Int FRAME)` policy.
+This keeps references written by a callee in caller coordinates rather than validating only the scalar `mutableRef` example.
+
+Pinned `mutableRef.rs`, Stable MIR, and concrete state artifacts supply direct authority for callee mutation of caller state.
+One K-Rust execution qualifies the source-shaped scalar write, and a second qualifies caller-coordinate restoration for a reference-valued write.
+The native corpus passes 78 executions with behavior SHA-256 `85d9e8f7dc399dca982170edefa6a4f5bbe6dc1df110ee9270b8d2be8ff2b7e9`.
+The definition contains 56 equations, 99 machine rules, and one claim across 478 descriptors, and its direct K-Rust KORE SHA-256 is `9494d7de734f9408beb4fc45dbbc287a787938697d3c59937c897c23b7830f16`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 78 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 56 — KMIR stack-aware nested reference reads — complete; port incomplete
+
+Projected copy reads now use an execution-level traversal over every selected aggregate, downcast, range-index, subslice, and dereference step.
+The traversal retains access to the call stack between steps, so a dereference that fetches another positive-height reference can select its saved frame and continue.
+References transferred across two saved call frames use the same height-indexed route.
+
+Pinned `doubleRef` and `refAsArg2` source, Stable MIR, and concrete state artifacts supply direct authority for repeated dereference and multi-frame reference transfer.
+Three new K-Rust executions qualify repeated same-frame dereference, a positive-height dereference followed by another positive-height dereference, and a read through two saved call frames.
+Representative aggregate, range, and frozen-index reads also pass through the new traversal.
+The native corpus passes 81 executions with behavior SHA-256 `6af61b32a29817f0e36ec7fa2b33c9d531e40ef844da265b8144570f7305a9ee`.
+The definition contains 56 equations, 107 machine rules, and one claim across 487 descriptors, and its direct K-Rust KORE SHA-256 is `ad7c1dacdae49f36f01ecf972333b925b67d37839f475a1aafc5154239d76996`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 81 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 57 — KMIR shared read/write/move projection traversal — complete; port incomplete
+
+Projected reads, writes, and moves now use one upstream-shaped execution traversal carrying a local or saved-stack target, persistent reconstruction contexts, current locals, and an explicit action.
+Field, range-index, and subslice traversal records the enclosing value needed for persistent reconstruction.
+Dereference discards obsolete contexts and redirects the target to the referenced current or saved local.
+
+Nested positive-height dereference writes now continue through references fetched from caller frames before updating the final saved target.
+Projected moves through a cross-frame reference return the selected value in current coordinates and rebuild the caller aggregate with only that projection replaced by `Moved`.
+Reference-valued replacements retain the upstream recursive `-height` restoration policy.
+
+Pinned `weirdRefs` source, Stable MIR, and concrete state artifacts supply direct authority for nested mutable dereference and reference/field chains.
+Two new K-Rust executions qualify nested cross-frame mutation and cross-frame projected move invalidation.
+Representative nested aggregate, indexed range, same-frame dereference write, and checked projected-move behaviors remain green through the shared route.
+The native corpus passes 83 executions with behavior SHA-256 `6f60db8ed84bb49b34f51491603b3c80b4e601b44e8dbe4e16ba6fb4466ab500`.
+The definition contains 60 equations, 104 machine rules, and one claim across 515 descriptors, and its direct K-Rust KORE SHA-256 is `c9d80249c6e43c431d1658680ed6f5e6f6cc73bcf0b5fb481ed4db7a9a24b7db`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 83 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 58 — KMIR pointer offsets and metadata-truncated references — complete; port incomplete
+
+KMIR now retains the source `PointerOffset(offset, originSize)` projection over `Range` values and applies reference metadata in the pinned upstream order.
+Dereference first applies the frozen projections retained in the reference place, then a metadata-provided pointer offset, then static or dynamic metadata truncation, and finally the remaining operand projections.
+No-metadata range references retain the source array-head behavior, while no-metadata non-range references pass through unchanged.
+
+Pointer-offset traversal records the original range as a persistent reconstruction context.
+Metadata truncation narrows the selected view without adding a reconstruction context, following the pinned `rt/data.md` equations.
+Writes therefore rebuild through the pointer offset and any earlier field/index/subslice contexts while leaving the truncation itself view-only.
+The same traversal restores caller coordinates for a pointer-offset write through a saved stack frame.
+
+Pinned `offset_read`, `offset_write`, `offset_struct_field_read`, and `offset_struct_field_write` source, Stable MIR, and concrete state artifacts supply direct authority for the selected behavior.
+Five new K-Rust executions qualify retained and metadata-provided offsets, dynamic and static truncation, aggregate-contained pointer offsets, persistent writes, and cross-frame mutation.
+The native corpus passes 88 executions with behavior SHA-256 `2de12e49f41544faa570d4bc57195d7db7885b323fba6a484269368d18fd14a5`.
+The definition contains 66 equations, 109 machine rules, and one claim across 534 descriptors, and its direct K-Rust KORE SHA-256 is `4126cb73768af4289e1bac5a2b04bab7cc246623c9ec6c9fb9af4b807f143254`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 88 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 59 — KMIR raw local pointers and AddressOf — complete; port incomplete
+
+KMIR now retains the source-shaped `rvalueAddressOf(Mutability, Place)` operation and `PtrLocal(height, place, mutability, metadata)` value.
+Direct local addresses freeze dynamic index projections before storing the pointer, so later index-local mutation cannot retarget the address.
+Addressing a reference through the sole `Deref` projection uses the pinned upstream shortening rule and converts the reference directly to a raw pointer over the same place and metadata.
+
+Raw-pointer dereference reuses the shared projection traversal for local and saved-stack targets.
+It therefore inherits field/index/subslice reconstruction, pointer offsets, metadata truncation, cross-frame writes, and caller-coordinate restoration without a parallel pointer adapter.
+Recursive reference-height adjustment now covers `PtrLocal` values as well as pointers nested inside aggregates and ranges, so copied pointer arguments select their caller frame and restore correctly on return.
+
+Pinned `ref_ptr_cases` source, Stable MIR, and concrete state artifacts supply direct authority for local addresses, frozen array-element identity, reference-to-pointer conversion, and raw-pointer mutation.
+Five new K-Rust executions qualify direct address reads, frozen dynamic indices, reference-to-pointer writes, pointer argument transfer and cross-frame mutation, and pointer-offset raw-pointer writes.
+The native corpus passes 93 executions with behavior SHA-256 `94f655d52675adb0a1d3ee8b28ae89aa0a671197960cdd66e701b152513d58d3`.
+The definition contains 68 equations, 114 machine rules, and one claim across 547 descriptors, and its direct K-Rust KORE SHA-256 is `3fa2c3625c6d474a4f93cc1821aceecf4aec6241203596076a10e3c2d161ea3e`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 93 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 60 — KMIR raw-pointer identity comparison — complete; port incomplete
+
+KMIR now implements the pinned raw-pointer `binOpEq` and `binOpNe` contract.
+Two pointers compare equal exactly when their frame height, frozen projected place, and complete metadata match; pointer mutability is deliberately ignored.
+The implementation uses repeated structural pattern variables for the equal case and ordered fallback rules for inequality, so it preserves pointer provenance without inventing numeric host addresses.
+
+The existing pinned `ref_ptr_cases` evidence directly exercises aliasing references, distinct locals, and distinct array-element addresses.
+Five new K-Rust executions qualify equality across different mutability, inequality for distinct locals and array projections, metadata-sensitive inequality, and frame-height-sensitive inequality.
+The native corpus passes 98 executions with behavior SHA-256 `196be580799f090f5248807b619c2fbcba26f86d6ecfaadf454bc9081d219088`.
+The definition contains 68 equations, 118 machine rules, and one claim across 551 descriptors, and its direct K-Rust KORE SHA-256 is `cb53a1042047cdbfc13837b2ea6d281481bd11294b4768c007ddb16f18d67e37`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 98 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 61 — KMIR pointer metadata and bounded offset arithmetic — complete; port incomplete
+
+KMIR now retains `unOpPtrMetadata` and `binOpOffset` from the pinned pointer-operation surface.
+Dynamic metadata extraction returns `Integer(size, 64, false)` for both `PtrLocal` and `Reference` values and remains undefined for metadata shapes for which upstream supplies no rule.
+
+A zero offset preserves every component of any raw pointer, including a thin pointer without origin metadata.
+Nonzero offsets preserve the current view size and advance only the metadata offset when the operand is nonnegative and the resulting offset does not exceed the static or dynamic origin size.
+The exact one-past-end result remains defined as a pointer value, matching upstream; subsequent dereference remains guarded by the projection traversal.
+
+Pinned `offset_get_unchecked` source, Stable MIR, and concrete state artifacts supply direct authority for pointer metadata extraction, offset arithmetic, and offset-element reads.
+Five new K-Rust executions qualify pointer and reference dynamic metadata, zero-offset thin-pointer identity, a dynamic interior offset followed by dereference, and the static one-past-end boundary.
+The native corpus passes 103 executions with behavior SHA-256 `fdf1d3936524950570fb756f9fc0c36c96e536371b414f95b620d14fe3e0abb3`.
+The definition contains 68 equations, 123 machine rules, and one claim across 560 descriptors, and its direct K-Rust KORE SHA-256 is `a0b7c0e2893da391d244d2f9809be2ab98fd123f22c6abf1581a05b7ae59caf7`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 103 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 62 — KMIR pointer unsizing coercion — complete; port incomplete
+
+KMIR now retains the source-shaped `rvalueCast(castKindPointerCoercion(pointerCoercionUnsize), operand, target)` boundary.
+The cast evaluates copied and moved operands through the existing operand machinery, so move invalidation remains uniform rather than requiring a cast-specific local adapter.
+
+Raw local pointers and references with static size metadata are converted to the corresponding dynamic size.
+Frame height, frozen place, mutability, pointer offset, and origin metadata are preserved exactly.
+Unsupported coercions and operands remain undefined; general `PtrToPtr` casts remain deferred until their type-directed projection and metadata conversion dependencies are present.
+
+The pinned `offset_get_unchecked` source, Stable MIR, and concrete state artifacts supply direct authority for the selected `PointerCoercion::Unsize` behavior.
+Three new K-Rust executions qualify raw-pointer provenance preservation, reference unsizing through a moved operand, and metadata extraction from an unsized pointer.
+The native corpus passes 106 executions with behavior SHA-256 `1f417dfb8dae6e174eef1f1132aec97db617dba34139be29a2dfe20dd898302f`.
+The definition contains 68 equations, 126 machine rules, and one claim across 573 descriptors, and its direct K-Rust KORE SHA-256 is `746dd1e67528813efc7d5114ca29ff295b334490a09f36b6de48677c73fc812a`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 106 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 63 — KMIR concrete pointer types and same-pointee casts — complete; port incomplete
+
+KMIR now retains the concrete `<types>` lookup boundary as a builtin map from `Ty` to the selected `typeInfoPtrType(pointee)` surface.
+The exact all-path claim carries the new fixed cell explicitly, preserving closed-configuration coverage.
+
+Whole-local copy and move `rvalueCast(castKindPtrToPtr, operand, target)` operations resolve source and target type entries before evaluating the operand.
+When both pointer types name the same pointee, every raw-pointer component is preserved unchanged, matching the pinned higher-priority upstream rule.
+The move form continues through the shared operand machinery and invalidates its source local.
+Missing type entries, different pointees, projected operands, and projection-changing casts remain undefined.
+
+Pinned `rt/data.md` and `rt/types.md` rules supply direct authority for the source cast staging, type lookup, and identical-pointee compatibility contract.
+Two new K-Rust executions qualify copy and move casts between distinct pointer types with a common pointee.
+The native corpus passes 108 executions with behavior SHA-256 `c0efc639626051392fb6fa5630e9c3f4e191319a47b98866b2d0a17502ecae26`.
+The definition contains 71 equations, 129 machine rules, and one claim across 588 descriptors, and its direct K-Rust KORE SHA-256 is `cd8e8c0d7d6992d56ceedc8937acad767ac8bc24fa36b4c7dc4d56fdad710f4a`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 108 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 64 — KMIR recursive array pointer casts — complete; port incomplete
+
+KMIR now retains primitive-u8, dynamic-slice, and unsized-array `TypeInfo` entries for the selected projection-changing `PtrToPtr` boundary.
+The cast resolver follows the pinned upstream source-first recursion through explicit compare, source, and target phases, avoiding ambiguous overlapping fallback rules while preserving the source rule order.
+
+Source arrays append the source-shaped zero `projectionElemConstantIndex`, target arrays append `projectionElemSingletonArray`, and inverse adjacent projections cancel.
+Thin and dynamic metadata convert according to the resolved target pointee, while pointer frame height, base place, mutability, offset, and origin metadata remain unchanged.
+The recursive traversal supports nested arrays and rejects incompatible terminal pointees by remaining undefined.
+Projected operands, static-array lengths, transparent-wrapper and zero-sized projections, allocation references, opaque casts, and subtype projections remain deferred.
+
+Pinned `rt/types.md`, `prove-rs/pointer-cast.rs`, and the `pointer-cast-length-test-fail` source, Stable MIR, and state artifacts supply direct authority for source-first array traversal, pointer projection, metadata conversion, and the deliberate invalid-length boundary.
+Four new K-Rust executions qualify slice-to-element dereference, element-to-slice construction, inverse projection cancellation through a roundtrip, and nested slice-to-element conversion.
+The native corpus passes 112 executions with behavior SHA-256 `43f55f9fbe7b9f9c9265c9b98677f766ec76f3cfb4443a78aa1f277aa548fc7f`.
+The definition contains 82 equations, 135 machine rules, and one claim across 632 descriptors, and its direct K-Rust KORE SHA-256 is `15bb33b93d203d33e52bfcd9c43455c8b7198461238557cf4f24673ea66e3b3f`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 112 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 65 — KMIR fixed-array pointer metadata — complete; port incomplete
+
+KMIR now retains source-shaped fixed-array lengths as `someTyConst(tyConst(tyConstKindValue(...)))` values with allocation bytes, empty provenance, alignment, and mutability.
+The selected unsigned `usize` allocation bytes are decoded little-endian, matching pinned KMIR's concrete `readTyConstInt` boundary without replacing it by an integer-length adapter.
+
+The pointer-cast resolver already cancels inverse array-element and singleton-array projections, so equal-element slice/fixed-array and differing fixed-array casts preserve the same pointer place.
+Target metadata conversion now covers thin-to-static, dynamic-to-static, static-to-dynamic, and static-to-static sizes while retaining the upstream source-size origin.
+Construction of a pointer to a longer fixed array remains allowed as upstream specifies; insufficient origin length remains a later dereference failure rather than a cast failure.
+Signed constants, non-value TyConst kinds, nonempty provenance, transparent-wrapper and zero-sized projections, and allocation references beyond fixed-length metadata remain deferred.
+
+Pinned `rt/types.md`, `rt/data.md`, `prove-rs/pointer-cast.rs`, and the `pointer-cast-length-test-fail` source, Stable MIR, and state artifacts supply direct authority for the allocation-backed length, metadata conversion, and deliberate invalid-length boundary.
+Three new K-Rust executions qualify slice-to-fixed-array conversion, fixed-array-to-slice conversion, and a moved fixed-array pointer length change with ordinary invalidation.
+The native corpus passes 115 executions with behavior SHA-256 `c8f6b5d851c8cb4f68f92c13c80cd1c30ec6efad72d3c5a152df2f590eb09624`.
+The definition contains 88 equations, 135 machine rules, and one claim across 660 descriptors, and its direct K-Rust KORE SHA-256 is `462df2bc83098bf7fbc225a8d4507e926f1d5964a19a8a6edc7fb19f866f8b5e`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 115 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 66 — KMIR zero-sized pointer casts — complete; port incomplete
+
+KMIR now retains the source `typeInfoVoidType` zero-sized pointee and the `projectionElemToZST` / `projectionElemFromZST` cast projections.
+Material-to-ZST and ZST-to-material `PtrToPtr` casts preserve pointer frame height, base place, mutability, and metadata while appending the corresponding source marker.
+Adjacent inverse markers cancel during cast-projection append, recovering the original place across a roundtrip.
+
+The explicit TypeInfo cases keep `#zeroSizedType` total over the retained metadata subset and make the cast rules structurally disjoint for KRS's overlap proof.
+Pinned KMIR defines construction and inverse cancellation for these projections but no dereference traversal rule, so dereferencing an outstanding ZST marker remains deliberately undefined.
+Function-item, empty-tuple, and empty-struct ZST classification, transparent wrappers, and ZST materialization remain deferred.
+
+Pinned `rt/types.md` supplies direct authority for void-type classification, material/ZST cast direction, the no-recursion boundary, and inverse cancellation.
+Three new K-Rust executions qualify both standalone directions and a moved roundtrip with ordinary source invalidation.
+The native corpus passes 118 executions with behavior SHA-256 `417b6c6b502fda09cd3f7ebe274d5a68845925df9e091ed4c9b9f0e2c8a714e4`.
+The definition contains 95 equations, 141 machine rules, and one claim across 681 descriptors, and its direct K-Rust KORE SHA-256 is `c50e97cb9c8ad176c85e4d951c1c170984f6de990e345030b66c4cbee136bdcc`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 118 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 67 — KMIR transparent-wrapper pointer casts — complete; port incomplete
+
+KMIR now retains source-shaped singleton `typeInfoStructType` metadata, including `AdtDef`, singleton `Tys`, and `someLayoutShape(layoutShape(fieldsShapeArbitrary(mk(machineSize(0) .MachineSizes)), ...))`.
+The local `String` token surface carries the ignored struct name.
+KRS independent expansion now preserves declared token-sort constructor fields as symbolic terms over concrete token newtypes instead of rendering a nonexistent algebraic `StringSort` trait.
+
+The pointer-cast resolver follows pinned KMIR's source-first transparent-wrapper rules.
+Source structs append `projectionElemField(fieldIdx(0), FIELD)`, target structs append `projectionElemWrapStruct`, and the exact array-to-wrapper case takes priority over ordinary source-array unwrapping.
+Only `projectionElemWrapStruct` followed by its field projection cancels at runtime, preserving the valid cancellation direction documented by pinned `rt/data.md`.
+
+Wrapper projection traversal materializes `Aggregate(variantIdx(0), ListItem(VALUE) .List)` and records `CtxWrapStruct`.
+Persistent writes first rebuild the selected singleton aggregate and then remove the synthetic wrapper context before updating the underlying field value.
+
+Four new K-Rust executions qualify wrapper-to-field dereference reads, field-to-wrapper dereference reads, moved roundtrip cancellation, and persistent writes through a wrapper pointer.
+The native corpus passes 122 executions with behavior SHA-256 `73f684bb61ca48defa2b3824151a20a5988a707cd18c60c8f039b28d94c893c4`.
+The definition contains 102 equations, 145 machine rules, and one claim across 746 descriptors, and its direct K-Rust KORE SHA-256 is `7d9b5a519f5241edd98157b9a360afd5afdd06e55abc688d0e8177239dbfeb5d`.
+The shared KRS reference projection changed without a descriptor protocol or Definition IR schema change, and its full compiler test suite passes.
+No K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 122 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 68 — KMIR raw-pointer/reference type metadata — complete; port incomplete
+
+KMIR now retains the source `typeInfoRefType(pointee)` constructor alongside `typeInfoPtrType(pointee)`.
+Reference outer types are non-zero-sized and require no metadata of their own, matching the pinned type helpers.
+
+Raw `PtrLocal` values now support all four raw-pointer/reference source and target type combinations for `PtrToPtr`.
+Equal pointees preserve the complete pointer and metadata, while unequal pointees enter the existing source-first projection and target-metadata conversion route.
+This retains the source distinction between value representation and type metadata: the runtime value remains a raw pointer even when its source or target type entry is a reference type.
+
+Three new K-Rust executions qualify reference-to-pointer same-pointee preservation, raw-pointer-slice to reference-element conversion followed by dereference, and reference-element to reference-slice conversion.
+The native corpus passes 125 executions with behavior SHA-256 `3e1d3af09a6e90ecdbaf99fe5003de8f58c5259d6647ddbe0f6d1fd7dba730e9`.
+The definition contains 104 equations, 151 machine rules, and one claim across 756 descriptors, and its direct K-Rust KORE SHA-256 is `77513d66e89786445701127ae7b7659403e883dfea92440e07c6348134b635eb`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 125 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 69 — KMIR allocation-reference reads — complete; port incomplete
+
+KMIR now retains source-shaped `allocId(Int)` allocation identities and `AllocRef(AllocId, ProjectionElems, Metadata)` values.
+The concrete configuration adds an allocation-memory `Map` keyed by `AllocId`, matching the selected concrete lookup role of pinned KMIR's `<memory>` cell without introducing a local-address adapter.
+
+Read-only dereference of an allocation reference restarts shared projection traversal from the selected allocation value, discards obsolete local reconstruction contexts, replays the allocation reference's retained projections, applies its static, dynamic, or absent metadata truncation, and then continues with the operand projections.
+The stored pointer offset is intentionally ignored, matching pinned `rt/data.md` and its existing FIXME.
+The rule is restricted to read actions, so this tranche does not silently enable mutation or move invalidation of typically read-only allocated constants.
+
+Three new K-Rust executions qualify direct scalar allocation lookup, retained allocation-field projection, and dynamic allocation-slice truncation.
+Pinned `alloc.md`, `rt/value.md`, `rt/configuration.md`, and `rt/data.md` provide direct authority for the identity, value, configuration, and traversal shapes.
+The native corpus passes 128 executions with behavior SHA-256 `5654ab148767886e23b905f9921a993345863716744763f3c931d29a1598abe9`.
+The definition contains 104 equations, 152 machine rules, and one claim across 764 descriptors, and its direct K-Rust KORE SHA-256 is `483a2f1646502b7531b7547c641422ebf99afabc814b1c9cfb38f6ee408c3ce3`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 128 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 70 — KMIR allocation-reference pointer metadata — complete; port incomplete
+
+Allocation references now participate in pinned KMIR's selected fat-pointer operations.
+`PointerCoercion::Unsize` converts the current `staticSize` to `dynamicSize` while preserving the `AllocId`, retained projections, pointer offset, and origin metadata exactly.
+`unOpPtrMetadata` extracts a dynamic allocation-reference size as an unsigned 64-bit `Integer`, matching the existing local pointer/reference result shape.
+
+Two new K-Rust executions qualify source-preserving allocation-reference unsizing and subsequent dynamic metadata extraction.
+The native corpus passes 130 executions with behavior SHA-256 `929c4e6b42cb2e9fd4ef60ca0ef076ad707941240c0e0185a150ef76d94a8947`.
+The definition contains 104 equations, 154 machine rules, and one claim across 766 descriptors, and its direct K-Rust KORE SHA-256 is `247a27618b38b9dbde194576a9adebac0e94147981a362d5f7853d180b09c30a`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 130 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 71 — KMIR same-representation pointer transmutation — complete; port incomplete
+
+KMIR now retains the source `castKindTransmute` boundary for local references, raw pointers, and allocation references.
+Whole-local copy or move operands resolve the source local type and target type through the concrete `<types>` map.
+The complete value is preserved only when both type keys resolve to equal `TypeInfo`, matching pinned KMIR's supported identity case without guessing byte-layout compatibility.
+Move operands continue to use ordinary source invalidation.
+
+Three new K-Rust executions qualify allocation-reference copy transmutation, local-reference copy transmutation, and raw-pointer move transmutation across distinct type keys with equal representations.
+The native corpus passes 133 executions with behavior SHA-256 `98f068c183c27eb6a68e26f90f6ddface578c48662b591dc4aad04ae258f3120`.
+The definition contains 104 equations, 159 machine rules, and one claim across 775 descriptors, and its direct K-Rust KORE SHA-256 is `2dde940d8d31c677bdc5e0901a9c54f7630d788ff6e405b8ba56f7882280c272`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 133 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 72 — KMIR traversal-based reference creation — complete; port incomplete
+
+KMIR `rvalueRef` no longer constructs a same-frame `Reference` directly from a syntactic place.
+It now enters the shared projection traversal with a reference-creation action, derives initial metadata from the local type and selected projections, and completes according to the resolved local, saved-stack, or allocation target.
+
+Projection reconstruction now retains each field's `Ty` and distinguishes pointer-offset contexts from ordinary subslices.
+The source-shaped `#projectionsFor` route freezes dynamic indices as front-relative constant indices and reconstructs field, subslice, pointer-offset, and transparent-wrapper projections in source order.
+Dynamic metadata placeholders are replaced by the final concrete `Range` view length.
+Dereferencing an allocation reference during reference creation restarts traversal from the allocation-memory value and completes as `AllocRef`, so allocation reborrowing is an operational path rather than preloaded constructor data.
+
+Two new K-Rust executions qualify allocation-element reborrowing with a frozen projected identity and dynamic allocation-slice reborrowing with recomputed metadata.
+The existing direct and dynamically indexed local-reference cases remain unchanged under the new traversal route.
+The native corpus passes 135 executions with behavior SHA-256 `85b7a9f71879a3ff2cfba1fe068cbb57a49e8646b0e5a158271688f2e4b7a52a`.
+The definition contains 122 equations, 163 machine rules, and one claim across 811 descriptors, and its direct K-Rust KORE SHA-256 is `f300a7a4685a952225e1cfca92f25f3239af9b599f99cea0c94c2bade4aebef1`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 135 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 73 — KMIR allocated-reference constants — complete; port incomplete
+
+KMIR now retains the full source `operandConstant(constOperand(span, noUserTypeAnnotationIndex, mirConst(constantKindAllocated(allocation), ty, mirConstId)))` boundary for allocated reference constants.
+The allocation retains its bytes, alignment, mutability, and singleton `provenanceMapEntry(offset, AllocId)` rather than accepting a predecoded `AllocRef` adapter.
+
+Evaluation resolves the target `TypeInfo` and referenced allocation through the concrete `<types>` and `<memory>` maps.
+A missing target type, pointee type, or allocation therefore remains undefined through the same partial lookup boundary as pinned KMIR.
+An eight-byte reference derives thin metadata from the pointee type, while a sixteen-byte reference decodes the final eight bytes as an unsigned little-endian dynamic size and uses that value for both current and origin metadata.
+
+Two new K-Rust executions qualify a thin allocated constant followed by scalar dereference and a fat allocated constant followed by both allocation-view truncation and dynamic metadata extraction.
+The native corpus passes 137 executions with behavior SHA-256 `cebdcfc1125c999e2b22bed416cee35bbac4831847e5fda2667a7e3fc3f4afec`.
+The definition contains 124 equations, 164 machine rules, and one claim across 820 descriptors, and its direct K-Rust KORE SHA-256 is `2e877f647f3031cf59e72176db3642dd2b90a65245d6ba8035a85ecbe3f0d898`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 137 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 74 — KMIR allocated scalar constants — complete; port incomplete
+
+KMIR now decodes source-shaped allocated constants with empty provenance into Boolean and integer runtime values.
+The selected `PrimitiveType` surface retains `primTypeBool`, every stable MIR signed integer kind from `isize` through `i128`, and every unsigned kind from `usize` through `u128`.
+The pinned 64-bit target fixes `isize` and `usize` at 64 bits.
+
+Decoding requires the allocation byte length to equal the target width, reads the bytes little-endian, and applies the existing signed or unsigned width truncation before constructing `Integer(value, width, signed)`.
+Boolean decoding accepts only the one-byte encodings zero and one.
+Missing type entries, invalid Boolean bytes, and mismatched integer byte lengths remain undefined rather than producing adapted values.
+
+Three new K-Rust executions qualify source Boolean decoding followed by unary negation, negative `i16` decoding followed by addition, and `u128` decoding followed by multiplication.
+The native corpus passes 140 executions with behavior SHA-256 `89fc0600509ac2aaf15842a9baf3d4f9bd38a9dd9d074f8359a3704c60dd64c8`.
+The definition contains 140 equations, 165 machine rules, and one claim across 876 descriptors, and its direct K-Rust KORE SHA-256 is `eb1c23bb1cfc9bb19e48c33dcd30f73c4a11727f5a1686aadf0ee9bab11c6ad6`.
+No shared KRS protocol or Definition IR change was required, and no K-Rust bug or missing feature was encountered.
+The complete default KMIR gate passes at descriptor protocol 33 with 140 K-Rust executions.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 75 — KMIR aggregate allocation decoding — complete; port incomplete
+
+KMIR now decodes source-shaped allocated fixed arrays, dynamic slices, and arbitrary-layout structs through the pinned `rt/decoding.md` contracts.
+The fixed-array route decodes its element count from the existing allocation-backed `TyConst`, computes element sizes recursively, and succeeds only when exactly that many elements consume the allocation bytes.
+The dynamic-slice route requires a positive element size and exact divisibility before using the same recursive element decoder.
+The struct route retains declared field order while selecting each field's half-open byte interval from its machine-size offset and recursively computed field size.
+Its allocation extent is the maximum offset-plus-size boundary, so reordered and padded layouts do not collapse into a packed adapter.
+
+This tranche extends the shared typed Bytes surface with half-open `BYTES.substr` in descriptor protocol 34 and Definition IR schema 26.
+The source emitter and reference expander use `substrBytes(BYTES, START, END)`, while the K-Rust adapter targets the pinned `substrBytes(_,_,_)_BYTES-HOOKED_Bytes_Bytes_Int_Int` identity.
+Focused registry, arity, emitter, expansion, and native-adapter tests pass, and the complete Rust workspace suite passes with the externally pinned Z3 4.12.5 profile.
+
+The independent expanded-source gate exposed one source-level constructor-order defect before qualification.
+`DecodeAllocatedValue` declared its Rust fields in a different order from its authored syntax, so named readable construction was correct while expanded positional construction inferred one binding at both `Map` and `Bytes` sorts.
+Aligning declaration order with syntax order restores exact independent expansion without changing emitted K, K-Rust KORE, or behavior.
+This is a KRS source-authoring invariant, not a K-Rust backend defect.
+
+Four new K-Rust executions qualify fixed `u16` array decoding followed by indexed projection, dynamic signed-integer slice decoding followed by indexed projection, reordered and padded struct decoding followed by field projection, and nested fixed-array decoding inside a struct followed by field and index projection.
+The native corpus passes 144 executions with behavior SHA-256 `65a4ea10bef509f594ca874fe71743b859da0f6541120dc7ec3fd33638f688b8`.
+The definition contains 158 equations, 165 machine rules, and one claim across 908 descriptors, and its direct K-Rust KORE SHA-256 is `7cf90d35642ce920677d83837ac1a976631342bbfbb856e43c00f496478a8a07`.
+The complete default KMIR gate passes at descriptor protocol 34.
+
+Because the serialized builtin-operation catalog changed, the compatibility refresh regenerated protocol/schema metadata and ran both complete downstream K-Rust gates.
+KEVM passes 1,100 descriptors and 240 executions, and KWasm passes 60 descriptors and 32 executions, both at descriptor protocol 34.
+Their emitted K, native KORE, and behavior pins remain unchanged.
+No K-Rust bug or missing feature was encountered, so `K_RUST_UPSTREAM.toml` requires no Phase 75 entry.
+No Java or Haskell backend was run; all final reference comparisons and proofs remain deferred to the optional `--java-reference` gates.
+
+### Phase 76 — KMIR tuple allocation decoding — complete; port incomplete
+
+KMIR now retains source-shaped `typeInfoTupleType(fields, layout)` metadata.
+An empty tuple materializes `Aggregate(variantIdx(0), .List)` only from a zero-byte allocation, including the source `noLayoutShape` representation.
+Nonempty tuples require an explicit arbitrary-field layout and reuse the qualified offset-based decoder, so physical field order and padding remain independent of declaration order.
+Explicit-layout tuples also report their layout size through the recursive element-size boundary, allowing later aggregate decoders to contain tuples without a packed-layout assumption.
+
+Two new K-Rust executions qualify zero-byte empty-tuple materialization followed by a whole-local copy and a padded, reordered tuple followed by field projection.
+The native corpus passes 146 executions with behavior SHA-256 `50870e129b67dc27724aa8c7e7c7814c26d93e57b631a68896b7482d030bb190`.
+The definition contains 162 equations, 165 machine rules, and one claim across 914 descriptors, and its direct K-Rust KORE SHA-256 is `de8c19c8ddabca7034c112e08f8766594a734979dc866fa6da248f583e209d2d`.
+The independently expanded source also passes collection at all 914 descriptors.
+The complete default KMIR gate passes at descriptor protocol 34.
+
+This tranche changes no shared KRS source, descriptor schema, or Definition IR schema.
+After refreshing only the shared coverage-ledger hash, the KEVM and KWasm preflights pass without regenerating or executing their semantic artifacts.
+No K-Rust bug or missing feature was encountered, and `K_RUST_UPSTREAM.toml` requires no Phase 76 entry.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 77 — KMIR fieldless enum allocation decoding — complete; port incomplete
+
+KMIR now retains source-shaped fieldless enum `TypeInfo`, per-variant `Tyss`, and discriminant-list surfaces.
+The decoder proves that every variant field list is empty, reads the allocation bytes as one unsigned little-endian tag, and returns the index of the exact matching declared discriminant.
+Nonconsecutive discriminants therefore preserve their declared variant indices, while an invalid tag remains undefined rather than selecting a fallback variant.
+
+One new K-Rust execution decodes byte `0x09` against discriminants `5` and `9`, then qualifies the resulting `Aggregate(variantIdx(1), .List)` through whole-local copy and return.
+The native corpus passes 147 executions with behavior SHA-256 `2b6f0a0d622b9954e556e2430e2aab6eb0b2b57db195adabc6398449fcc4eaea`.
+The definition contains 169 equations, 165 machine rules, and one claim across 942 descriptors, and its direct K-Rust KORE SHA-256 is `2bda60eb10843794083c44ca812a93fcc38e0008d108c34d768213c2754d0c26`.
+The independently expanded source passes collection at all 942 descriptors, and the complete default KMIR gate passes at descriptor protocol 34.
+
+This tranche changes no shared KRS source, descriptor schema, or Definition IR schema.
+After refreshing only the shared coverage-ledger hash, the KEVM and KWasm preflights pass without regenerating or executing their semantic artifacts.
+No K-Rust bug or missing feature was encountered, and `K_RUST_UPSTREAM.toml` requires no Phase 77 entry.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 78 — KMIR direct-tag enum field decoding — complete; port incomplete
+
+KMIR now retains the source `variantsShapeMultiple`, initialized integer scalar, direct tag encoding, integer-length, wrapping-range, and per-variant `LayoutShapes` surfaces.
+The allocation decoder reads only the declared tag-width prefix as an unsigned little-endian integer, selects the exact declared discriminant, indexes the corresponding field-type list and variant layout, and decodes the selected fields from arbitrary machine-size offsets in declaration order.
+Invalid tags, insufficient tag bytes, absent variant entries, and non-arbitrary selected layouts remain undefined through the existing partial allocation-decoding boundary.
+
+Five new K-Rust executions qualify every supported integer tag width from I8 through I128.
+They include signed and unsigned tag metadata, nonconsecutive and high-byte discriminants, per-variant field offsets, a three-variant layout selecting index two, and an I128 discriminant whose significant byte is at the far end of the 16-byte tag prefix.
+The native corpus passes 152 executions with behavior SHA-256 `b0423a06bbc25ec390eddc2a19ebe0a8850412beb14f6032a8d6892eadec6bb5`.
+The definition contains 181 equations, 165 machine rules, and one claim across 1,005 descriptors, and its direct K-Rust KORE SHA-256 is `c3728278320e165e23053afdada9e9d4acfa8ee3b9f1392359d0e69b2dfb543e`.
+The independently expanded source passes collection and emission at all 1,005 descriptors, and the complete default KMIR gate passes at descriptor protocol 34.
+
+Descriptor collection rejected two initial source-authoring name collisions: the new integer-length constructors duplicated existing integer-type constructor identities, and both initialized-scalar layers initially shared one identity.
+Distinct Rust constructor identities with unchanged authored KMIR syntax resolved both collisions before semantic qualification.
+These were KRS authoring defects caught by the existing graph checker, not K-Rust backend defects.
+
+This tranche changes no shared KRS source, descriptor schema, or Definition IR schema.
+After refreshing only the shared coverage-ledger hash, the KEVM and KWasm preflights pass without regenerating or executing their semantic artifacts.
+No K-Rust bug or missing feature was encountered, and `K_RUST_UPSTREAM.toml` requires no Phase 78 entry.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 79 — KMIR niche-pointer None allocation decoding — complete; port incomplete
+
+KMIR now retains the source pointer primitive, address space, niche tag encoding, wrapping range, and two-variant Option field-list layout required by pinned `rt/decoding.md`.
+Exactly all-zero allocation bytes decode to `Aggregate(variantIdx(0), .List)` for the selected niche-pointer Option representation.
+Nonzero pointer and reference payloads remain undefined because pinned KMIR explicitly states that they require a different encoding and supports only `None` at this boundary.
+
+One new K-Rust execution qualifies the pinned eight-byte all-zero `Option<&u8>` representation through allocated-constant evaluation, whole-local copy, and return.
+The native corpus passes 153 executions with behavior SHA-256 `37d7a4d00221aed7edc84d0cba5d09751d66eea089b20047432962dd7c3180a6`.
+The definition contains 182 equations, 165 machine rules, and one claim across 1,013 descriptors, and its direct K-Rust KORE SHA-256 is `f053acfd96b4316c05758f9dfbed0548a79344d45e1c4388d1b7309ec44f1639`.
+The independently expanded source passes collection and emission at all 1,013 descriptors, and the complete default KMIR gate passes at descriptor protocol 34.
+
+This tranche changes no shared KRS source, descriptor schema, or Definition IR schema.
+After refreshing only the shared coverage-ledger hash, the KEVM and KWasm preflights pass without regenerating or executing their semantic artifacts.
+No K-Rust bug or missing feature was encountered, and `K_RUST_UPSTREAM.toml` requires no Phase 79 entry.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 80 — KMIR zero-sized constant materialization — complete; port incomplete
+
+KMIR ordinary operands now retain the source `operandConstant(constOperand(span, mirConst(constantKindZeroSized, Ty, MirConstId)))` boundary in addition to the existing zero-sized function call target.
+The decoder resolves the operand type through the concrete type map and implements all four pinned `rt/data.md` materializations.
+Structs, tuples, and function items become `Aggregate(variantIdx(0), .List)`, while fixed zero-length arrays become `Range(.List)`.
+The new `typeInfoFunType` value metadata remains distinct from function-table identity used during call setup.
+
+Four new K-Rust executions qualify zero-sized struct, tuple, fixed zero-length array, and function-item constants through assignment and return.
+The native corpus passes 157 executions with behavior SHA-256 `ce8c8b07ee4e65e54226d2230d2ed8986c63fbe82697b04cc0d513eb547a30e4`.
+The definition contains 186 equations, 166 machine rules, and one claim across 1,024 descriptors, and its direct K-Rust KORE SHA-256 is `c028d6bd519ba2bf23a404ed52b53a803779c84ce178d9764f720aa87e4da18d`.
+The independently expanded source passes collection and emission at all 1,024 descriptors, and the complete default KMIR gate passes at descriptor protocol 34.
+
+This tranche changes no shared KRS source, descriptor schema, or Definition IR schema.
+After refreshing only the shared coverage-ledger hash, the KEVM and KWasm preflights pass without regenerating or executing their semantic artifacts.
+No K-Rust bug or missing feature was encountered, and `K_RUST_UPSTREAM.toml` requires no Phase 80 entry.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 81 — KMIR ordinary aggregate construction — complete; port incomplete
+
+KMIR now retains the source `Rvalue::Aggregate` boundary for the complete ordinary ADT, array, tuple, and closure group from pinned `rt/data.md`.
+Source-shaped aggregate kinds retain ADT definitions, nonzero variant indices, generic arguments, optional user-type annotations and union-field markers, array element types, and closure definitions.
+Only ADTs with `noFieldIdx` enter the ordinary materializer; union-field and raw-pointer aggregate semantics remain separate as required by the authority.
+
+Operand evaluation is staged left to right through the existing `EvalOperand` and `Continue` machinery and accumulates exact values in a builtin `List`.
+ADT construction preserves the selected variant, array construction produces `Range`, and tuple and closure construction produce variant-zero `Aggregate` values.
+The new executions jointly qualify order, copy preservation, whole-local move invalidation, an allocated constant inside `.Operands`, empty and nonempty nonzero ADT variants, array materialization, tuple materialization, closure captures, all three generic-argument constructors, and optional user-type annotation syntax.
+
+Five new K-Rust executions extend the native corpus to 162 executions with behavior SHA-256 `32baec67c3e4d43043c29436e1178d9ca12937d2a63d40776c652b1a59d52a95`.
+The definition contains 190 equations, 170 machine rules, and one claim across 1,072 descriptors, and its direct K-Rust KORE SHA-256 is `325ca37f4a84b3117bb96728173f1da72f5d6fe6916245d636dfe5adcb284ec8`.
+The independently expanded source passes collection and emission at all 1,072 descriptors, and the complete default KMIR gate passes at descriptor protocol 34.
+
+This tranche changes no shared KRS source, descriptor schema, or Definition IR schema.
+After refreshing only the shared coverage-ledger hash, the KEVM and KWasm preflights pass without regenerating or executing their semantic artifacts.
+No K-Rust bug or missing feature was encountered, and `K_RUST_UPSTREAM.toml` requires no Phase 81 entry.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 82 — KMIR array Repeat and Len rvalues — complete; port incomplete
+
+KMIR now implements the complete array-rvalue pair from pinned `rt/data.md`.
+`Rvalue::Repeat` evaluates its element through the existing operand machinery, reads the allocation-backed `TyConst` length as little-endian bytes, and constructs the exact `Range` through K's standard `LIST.make` hook.
+`Rvalue::Len` copies an arbitrary whole or projected place through the existing traversal machinery and returns the selected `Range` length as an unsigned 64-bit `Integer`, matching the authority's `usize` representation.
+
+The shared closed List catalog now exposes the already published `LIST.make` operation in descriptor protocol 35 and Definition IR schema 27.
+Readable K emits `makeList(length, value)`, and the native adapter targets the pinned frontend's synthesized `makeList(_,_)_LIST_List_Int_KItem` production.
+The pinned K-Rust backend already implements the hook; focused registry, wire-shape, adapter, and prelude-label tests pass without changing the dedicated k-rust checkout.
+
+Five new K-Rust executions extend the native corpus to 167 executions with behavior SHA-256 `ec797f9afa443c8f61f60ab379bff57081414ca8300d60024627135b275b16d8`.
+The cases qualify allocated, copied, and moved repeated elements; zero, two, and three-element lengths; copy preservation; move invalidation; whole-local length; and projected nested-range length.
+The definition contains 190 equations, 174 machine rules, and one claim across 1,084 descriptors, and its direct K-Rust KORE SHA-256 is `7b2733bfca5d448764b18ef6d01ae7e109db10ad02b010007c538db538f07c01`.
+The independently expanded source passes collection and emission at all 1,084 descriptors, and the complete default KMIR gate passes at descriptor protocol 35.
+
+The shared feature is qualified through the root Rust suite and all three semantic gates.
+Final root qualification also reconciled stale protocol/schema expectations and closed-registry fixtures exposed by the protocol-35 cutover, and the active Rust 1.98 warnings-denied Clippy gate passes.
+The resulting semantic artifact refresh changed only the metadata-bearing Definition IR, descriptor-bundle, semantic-IR, and source-ledger JSON identities; all three emitted `definition.k` files, symbol catalogs, and `.krs-artifacts` markers remained byte-identical.
+No K-Rust bug or missing feature was encountered, and `K_RUST_UPSTREAM.toml` requires no Phase 82 entry.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 83 — KMIR CopyForDeref and whole-local Discriminant rvalues — complete; port incomplete
+
+KMIR now implements the selected remaining place-rvalue pair from pinned `rt/data.md`.
+`Rvalue::CopyForDeref` reuses the complete ordinary copy traversal over arbitrary selected projections and does not invalidate the source.
+`Rvalue::Discriminant` copies a whole enum local, resolves its exact `TypeInfo` through the local type and `<types>` map, and recursively selects the declared discriminant at the aggregate variant index.
+The result is the authority-shaped flexible-width unsigned `Integer(discriminant, 0, false)`, including nonconsecutive user discriminants.
+Projected discriminant type derivation remains deferred until the complete upstream `getTyOf` boundary is selected.
+
+Three new K-Rust executions extend the native corpus to 170 executions with behavior SHA-256 `a722a8940b3d858e1bdfb4229a62c2138d7d66784213e049a678d23bfe94cecb`.
+The cases qualify projected `CopyForDeref` without source mutation and whole-local enum discriminants at the first and third variants, including the nonconsecutive user discriminant `9090`.
+The definition contains 193 equations, 177 machine rules, and one claim across 1,097 descriptors, and its direct K-Rust KORE SHA-256 is `4f8e4e7ffb21db226d8f906006be7d02601516fee51bf741eaedeb1fad7ddcdf`.
+The independently expanded source passes collection and emission at all 1,097 descriptors, and the complete default KMIR gate passes at descriptor protocol 35.
+
+This tranche changes no shared KRS source, descriptor schema, or Definition IR schema.
+After refreshing only KMIR sources and the shared coverage-ledger hash, the KEVM and KWasm preflights pass without regenerating or executing their semantic artifacts.
+No K-Rust bug or missing feature was encountered, and `K_RUST_UPSTREAM.toml` requires no Phase 83 entry.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 84 — KMIR projected type derivation and typed rvalues — complete; port incomplete
+
+KMIR now retains the pinned `getTyOf` boundary for typed projected places without a port-local adapter.
+`Ty` is a source-shaped subsort of `MaybeTy`, `TyUnknown` represents an absent type lookup, and total `pointeeTy`, `elemTy`, `getTyOf`, and `#lookupMaybeTy` functions traverse dereference, field, dynamic-index, constant-index, subslice, and downcast projections.
+Projected `Discriminant` derives the selected enum type before resolving the exact declared discriminant.
+Projected copy and move operands now preserve type-directed `PtrToPtr` casts and same-representation `Transmute` operations across the same traversal boundary, including move invalidation.
+
+Five new K-Rust executions extend the native corpus to 175 executions with behavior SHA-256 `5ed9a35931cb55aa536d3dacb5d56a80666a5ce7011a8bc05279aca6b86e2864`.
+The cases qualify projected discriminants through downcast and field, dynamic index, reference dereference, subslice and constant index, plus projected pointer casts and transmutation with move invalidation.
+The definition contains 209 equations, 177 machine rules, and one claim across 1,124 descriptors, and its direct K-Rust KORE SHA-256 is `0fba375bd27d84f706ee9699f5a6745281ab1061899d82c3dc0db47aae4d8bec`.
+The independently expanded source passes collection and emission at all 1,124 descriptors, rust-analyzer reports zero diagnostics with all six definition and hover probes resolved, and the complete default KMIR gate passes at descriptor protocol 35.
+
+This tranche changes no shared KRS source, descriptor schema, or Definition IR schema.
+All three KMIR, KEVM, and KWasm pin-ledger preflights pass without regenerating or executing the unchanged KEVM and KWasm semantic artifacts.
+No K-Rust bug or missing feature was encountered, and `K_RUST_UPSTREAM.toml` requires no Phase 84 entry.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 85 — KMIR nullary size, alignment, and UB-check operations — complete; port incomplete
+
+KMIR now implements the selected nullary-operation group from pinned `rt/data.md` and `rt/types.md` without a wrapper adapter.
+`nullOpUbChecks` returns the pinned disabled value `BoolVal(false)`.
+`nullOpSizeOf` and `nullOpAlignOf` return 64-bit unsigned `usize` values for signed and unsigned integers, F16/F32/F64/F128, Boolean, character, string, enum, struct, union, tuple, fixed and dynamic array, thin and fat pointer, and reference types.
+Aggregate sizes and alignments retain the source `LayoutShape`, while fixed-array size uses the allocation-backed little-endian `TyConst` length already selected by KMIR.
+Explicit void size and alignment queries remain undefined at the rvalue boundary, matching the pinned operational rule guard, and `nullOpOffsetOf` remains deferred.
+
+Four new K-Rust executions extend the native corpus to 179 executions with behavior SHA-256 `35481020b29393b7c13299d78ebdb15e05a9f5ca13be70d01afb0d4883031b85`.
+The cases qualify disabled UB checks, primitive size and alignment, aggregate-layout size and alignment, and array plus pointer/reference size and alignment.
+The definition contains 250 equations, 180 machine rules, and one claim across 1,210 descriptors, and its direct K-Rust KORE SHA-256 is `eb284f6bcaa10519c722ce3cf3ed7251b3f341c56d75f7e2b84c0867bbc162b8`.
+The independently expanded source passes collection and emission at all 1,210 descriptors, rust-analyzer reports zero diagnostics with all six definition and hover probes resolved, and the complete default KMIR gate passes at descriptor protocol 35.
+
+This tranche changes no shared KRS source, descriptor schema, or Definition IR schema.
+All three KMIR, KEVM, and KWasm pin-ledger preflights pass without regenerating or executing the unchanged KEVM and KWasm semantic artifacts.
+No K-Rust bug or missing feature was encountered, and `K_RUST_UPSTREAM.toml` requires no Phase 85 entry.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 86 — KMIR active-field union construction and projection — complete; port incomplete
+
+Pinned KMIR declares `nullOpOffsetOf` syntax but provides no operational rule beyond a bare heading, so KRS does not invent that behavior.
+The next authority-backed ordinary-rvalue tranche instead retains source-shaped union ADT construction through `aggregateKindAdt(..., someFieldIdx(fieldIdx(FIELD)))` with exactly one evaluated operand.
+The result is `Union(fieldIdx(FIELD), VALUE)`, distinct from ordinary `Aggregate` values as in pinned `rt/data.md`.
+Same-active-field projection retains the source `CtxFieldUnion` reconstruction context for reads, persistent writes, projected moves, and reference creation.
+Pinned KMIR marks cross-field reinterpretation as a TODO and supplies no rule, so requests for a different union field remain deliberately undefined.
+
+Three new K-Rust executions extend the native corpus to 182 executions with behavior SHA-256 `76d83db16083e694e5d52101254782cabaf5b3ade3cded5fe886821b8f86e588`.
+The cases qualify union construction followed by a same-field read, same-field persistent write plus projected move invalidation, and a mutable-reference write through a frozen union-field projection.
+The definition contains 254 equations, 181 machine rules, and one claim across 1,219 descriptors, and its direct K-Rust KORE SHA-256 is `de02901cd6721bc582134c5a1b9e4f346aac03d5b76745d5a739c9a6bca2044f`.
+The independently expanded source passes collection and emission at all 1,219 descriptors, rust-analyzer reports zero diagnostics with all six definition and hover probes resolved, and the complete default KMIR gate passes at descriptor protocol 35.
+
+This tranche changes no shared KRS source, descriptor schema, or Definition IR schema.
+All three KMIR, KEVM, and KWasm pin-ledger preflights pass without regenerating or executing the unchanged KEVM and KWasm semantic artifacts.
+No K-Rust bug or missing feature was encountered, and `K_RUST_UPSTREAM.toml` requires no Phase 86 entry.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 87 — KMIR raw-pointer aggregate construction — complete; port incomplete
+
+KMIR now retains the pinned `aggregateKindRawPtr(TY, MUTABILITY)` ordinary-rvalue boundary with ordered operand evaluation.
+A local pointer followed by an unsigned 64-bit length produces a fat pointer with `dynamicSize(LENGTH)` and removes only a trailing zero `ConstantIndex` through the source `removeIndexTail` function.
+A local pointer followed by an empty aggregate unit produces a thin pointer with `noMetadataSize` and retains its complete place.
+Both forms apply the aggregate's requested mutability while preserving frame height, pointer offset, and origin size.
+Pinned KMIR leaves the length, origin-size, slice-type, and index-tail validity guards commented out, so KRS does not invent stronger guards at this boundary.
+
+Two new K-Rust executions extend the native corpus to 184 executions with behavior SHA-256 `e4bae64f34415d319cf2ac153f2972a8788cfefee66a7ece17e2e84b28ad36f9`.
+The cases qualify fat-pointer construction with trailing zero-index removal and thin-pointer construction with absent size metadata, requested mutability, preserved provenance, copy preservation, and move invalidation.
+The definition contains 259 equations, 181 machine rules, and one claim across 1,228 descriptors, and its direct K-Rust KORE SHA-256 is `58b4971b8b0cb21aeddef634d3c814ca326568645df8dbd7acdf5da75dbc36bb`.
+The independently expanded source passes collection and emission at all 1,228 descriptors, rust-analyzer reports zero diagnostics with all six definition and hover probes resolved, and the complete default KMIR gate passes at descriptor protocol 35.
+
+This tranche changes no shared KRS source, descriptor schema, or Definition IR schema.
+All three KMIR, KEVM, and KWasm pin-ledger preflights pass without regenerating or executing the unchanged KEVM and KWasm semantic artifacts.
+No K-Rust bug or missing feature was encountered, and `K_RUST_UPSTREAM.toml` requires no Phase 87 entry.
+No Java or Haskell backend was run; the final reference comparison and proof remain deferred to the optional `--java-reference` gate.
+
+### Phase 88 — freeze and qualify the recovered native baseline — complete
+
+Feature development is frozen at the Phase 87 boundary while the accumulated recovered work is committed.
+This phase adds no semantic descriptor, equation, machine rule, execution case, proof, protocol revision, or Definition IR revision.
+
+The complete locked Rust workspace suite passes with the externally pinned Z3 4.12.5 library path, including all 24 `krs-k-rust` adapter tests.
+The active-toolchain all-target Clippy gate passes with warnings denied.
+Rust formatting, changed TOML and JSON parsing, Python harness compilation, and `git diff --check` pass.
+
+The complete default native semantic gates pass without Java or Haskell execution:
+
+- KEVM: 1,100 descriptors and 240 K-Rust executions, with eight Java reference proofs deferred;
+- KMIR: 1,228 descriptors and 184 K-Rust executions, with one Java reference proof deferred;
+- KWasm: 60 descriptors and 32 K-Rust executions, with one Java reference proof deferred.
+
+The KEVM rust-analyzer probe remained CPU-active beyond its former 180-second diagnostic deadline and then completed with zero diagnostics and all six definition/hover probes resolved when given the same 240-second diagnostic budget already used by KMIR.
+The gate now retains that four-minute inner deadline while allowing the outer subprocess enough time for cache priming plus diagnostics.
+Both changes remain fail-closed and are included in the KEVM source ledger.
+
+`K_RUST_MORE_SEMANTICS_REQUESTS.toml` records the K-Rust work that may be forwarded upstream without making those requests part of the KRS commit boundary.
+The KRS-local adapter, external-solver policy, persistent runners, and current workarounds remain explicitly local.
+
 The normative formatter target remains:
 
 - `draft/readability/spec/imp.rs` first;
@@ -1057,8 +2246,8 @@ implementation authority.
 | Finish `draft/readability/spec` | Normative `imp.rs`, deterministic `imp.expanded.rs`, implemented `decisions.md`, deliberately unresolved `open-questions.md`, and M4.2–M4.4 | complete; the trailing-comment policy, `{ .. }`, and no-k-head spelling remain explicitly open rather than silently resolved |
 | Make KRS work on IMP | Complete M4.1–M4.8 gate at protocol 20 and IR schema 13, including exact source projection, 1,206/1,206 native KORE parity, behavior hash `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, all proofs, and compatibility hash `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6` | complete |
 | Complete the KRS KWasm port | `semantics/coverage.toml`, canonical `semantics/kwasm`, and the fail-closed KWasm gate | incomplete: 8 equations and 8 machine rules qualify the arithmetic baseline against an 884-rule source inventory; recursive instruction and value-stack boundaries and deferred semantic surfaces remain |
-| Complete the KRS KEVM port | `semantics/coverage.toml`, canonical `semantics/kevm`, and the fail-closed KEVM gate | incomplete: 141 equations and 130 machine rules qualify the Bytes-backed Shanghai control-flow baseline against a 3,440-rule source inventory; the program adapter is removed, while environmental and stateful semantic surfaces remain |
-| Complete the KRS KMIR port | `semantics/coverage.toml`, canonical `semantics/kmir`, and the fail-closed KMIR gate | incomplete: 22 machine rules qualify the block-execution baseline against a 787-rule source inventory; the block-program adapter is removed, while untyped locals and deferred semantic surfaces remain |
+| Complete the KRS KEVM port | `semantics/coverage.toml`, canonical `semantics/kevm`, and the fail-closed KEVM gate | incomplete: 321 equations and 280 machine rules qualify the Bytes-backed Shanghai load/copy, storage, account-query, log, SHA3, PUSH0, EXTCODEHASH, empty/absent and nonempty-code STATICCALL return/rollback, and address-1 ECREC/address-2 SHA-256/address-3 RIPEMD-160/address-4 identity/address-5 MODEXP/address-6 ECADD/address-7 ECMUL/address-8 ECPAIRING precompiles against a 3,440-rule source inventory; full repeated-account snapshots, other calls, creation, remaining account lifecycle, transactions, schedules, cryptographic hooks outside the selected precompile surface, and symbolic surfaces remain |
+| Complete the KRS KMIR port | `semantics/coverage.toml`, canonical `semantics/kmir`, and the fail-closed KMIR gate | incomplete: 259 equations and 181 machine rules qualify block execution, typed local-list state, source-shaped allocated Boolean and all signed/unsigned integer constants, recursive fixed-array and dynamic-slice allocation decoding, arbitrary-layout struct and tuple allocation decoding, zero-byte empty-tuple materialization, exact-discriminant fieldless enum allocation decoding and direct-tag enum field decoding across I8/I16/I32/I64/I128 tag widths with per-variant arbitrary-offset layouts, all-zero niche-pointer Option None decoding, zero-sized struct/tuple/array/function-item constant materialization, ordinary ADT/array/tuple/closure, active-field union, and thin/fat raw-pointer aggregate construction with ordered operands, allocation-backed repeated arrays, whole or projected range lengths, projected `CopyForDeref` without source invalidation, whole-local and projected exact enum discriminants, source-shaped typed-place derivation through dereference, field, dynamic-index, constant-index, subslice, and downcast projections, nullary UB-check, size, and alignment queries across retained primitive, aggregate-layout, array, pointer, and reference types, shared read/write/move/reference projection traversal, aggregate field, same-active union field, and downcast plus dynamic, constant-index, subslice, pointer-offset, metadata-truncated range behavior, recursive array-cast SingletonArray projection, transparent-wrapper Field/WrapStruct projection with persistent reconstruction, source-shaped thin and fat allocated-reference constants, allocation-backed scalar, projected, and dynamically truncated reads plus reborrowing, unsizing, pointer-metadata extraction, and same-representation Transmute identity across local references, raw pointers, and allocation references, type-directed local/stack/allocation reference creation, same-frame raw-pointer creation, dereferencing, identity comparison, dynamic metadata extraction, bounded offset arithmetic, static-to-dynamic pointer/reference unsizing, concrete raw-pointer/reference type lookup, same-pointee and projected `PtrToPtr` across every raw-pointer/reference outer-type combination, projected `Transmute` across copy and move operands, source-first nested slice/array-to-element pointer conversion, allocation-backed fixed-array lengths with slice/static-array metadata conversion, material/void-ZST pointer projection with inverse cancellation, and singleton transparent-wrapper pointer conversion, width-aware ordinary/checked/unchecked integer arithmetic, checked-arithmetic assertions, Drop/Unreachable control, shifts and unary operations, integer/Boolean comparisons and bitwise operations, ordered `SwitchInt`, regular constant-target function calls with nested frames and constant/copy/move arguments, and stack-aware cross-frame reference/pointer transfer, nested read/write/move, and return behavior across 1,228 descriptors and 184 K-Rust executions against a 787-rule source inventory; `nullOpOffsetOf`, cross-field union reinterpretation, allocation mutation and remaining memory operations, indirect calls, intrinsics, and other semantic surfaces remain |
 | Preserve recovery boundaries | `krs.RECOVERY_PROVENANCE.md` and `../recovery/` remain unchanged; all reconstructed work is committed only in the live KRS repository | complete |
 
 Representative acceptance slices are evidence-backed baselines, not substitutes for the explicit full-port completion contract.
@@ -1081,15 +2270,15 @@ A port may be marked complete only when its pinned syntax, configuration, execut
 - Do not resume raw-disk searching unless genuinely new media or session
   payloads appear.
 
-## Immediate next action
+## Frozen continuation policy
 
-Resume full KEVM coverage next against the pinned `evm-semantics` inventory and its upstream behavior and proof suites.
-Select each next implementation tranche from an uncovered upstream syntax, configuration, executable-rule, behavior, or proof requirement; do not optimize further for already removed adapters or recovered intermediate state.
-After the Shanghai control-flow milestone, select the next coherent opcode family from explicit upstream syntax, rule, behavior, and proof evidence; do not widen by byte adjacency alone.
-After KEVM satisfies the completion contract, complete KMIR against the pinned `mir-semantics` inventory, beginning with its remaining typed-local and projection boundary only insofar as the selected upstream corpus requires it.
-Prefer shared KRS authoring features when the same source construct is required by multiple ports, but qualify every feature through the active port before broadening it.
-Preserve all three semantic gates and the complete IMP M4 gate at each coherent signed milestone.
-Return to any remaining KWasm inventory after KEVM and KMIR so the active three-port goal closes without deferred adapters or unrecorded source coverage.
+Do not grow the supported semantic or authoring feature set until the Phase 88 baseline is committed and the user explicitly resumes feature development.
+Treat the incomplete KEVM, KMIR, and KWasm inventory entries above as backlog rather than immediate work.
+Do not add adapters, bypasses, relaxed pins, disabled checks, or temporary dependency changes to make the frozen baseline appear green.
+
+Preserve the locked Rust workspace suite, warnings-denied Clippy gate, and all three native semantic gates while preparing commits.
+The Java/Haskell reference paths remain deferred final validation and are not routine commit prerequisites for the native baseline.
+Forward general K-Rust defects through `K_RUST_MORE_SEMANTICS_REQUESTS.toml`; do not repoint KRS to an unqualified shared checkout.
 Do not reopen recovery forensics unless genuinely new evidence or media appears.
 
 ## Audit hygiene

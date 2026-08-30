@@ -228,10 +228,11 @@ impl Parse for ContextAliasAttribute {
     }
 }
 
-/// Optional explicit emitted label of `#[k::rule(label = "...")]`.
+/// Typed metadata of `#[k::rule(label = "...", owise)]`.
 #[derive(Clone, Debug, Default)]
 pub struct RuleAttribute {
     label: Option<LitStr>,
+    owise: Option<Ident>,
 }
 
 /// Explicit reachability modality of a Rust-authored claim.
@@ -373,20 +374,34 @@ impl RuleAttribute {
         self.label.as_ref()
     }
 
+    /// Whether this transition is an ordered fallback (`[owise]` in K).
+    #[must_use]
+    pub const fn is_owise(&self) -> bool {
+        self.owise.is_some()
+    }
+
     /// Returns the exact explicit-label provenance anchor.
     ///
     /// # Errors
     ///
     /// Returns an endpoint error only if the parsed literal emits no tokens.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        self.label
-            .as_ref()
-            .map(|label| {
-                TokenRange::for_tokens(label)
-                    .map(|range| vec![ProvenanceAnchor::new(ProvenanceRole::RuleLabel, 0, range)])
-            })
-            .transpose()
-            .map(Option::unwrap_or_default)
+        let mut anchors = Vec::with_capacity(2);
+        if let Some(label) = &self.label {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleLabel,
+                0,
+                TokenRange::for_tokens(label)?,
+            ));
+        }
+        if let Some(owise) = &self.owise {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleOwise,
+                0,
+                TokenRange::for_tokens(owise)?,
+            ));
+        }
+        Ok(anchors)
     }
 }
 
@@ -592,11 +607,14 @@ impl ConfigurationAttribute {
     }
 }
 
-/// Classified payload of `#[k::cell(name = "...", color = "...")]`.
+/// Classified payload of `#[k::cell(...)]`.
 #[derive(Clone, Debug, Default)]
 pub struct CellAttributePayload {
     name: Option<LitStr>,
     color: Option<LitStr>,
+    multiplicity: Option<LitStr>,
+    cell_type: Option<LitStr>,
+    nested: bool,
 }
 
 impl CellAttributePayload {
@@ -612,13 +630,31 @@ impl CellAttributePayload {
         self.color.as_ref()
     }
 
-    /// Returns exact value anchors in stable name-then-color order.
+    /// Optional K cell multiplicity.
+    #[must_use]
+    pub const fn multiplicity(&self) -> Option<&LitStr> {
+        self.multiplicity.as_ref()
+    }
+
+    /// Optional collection type for a repeated cell.
+    #[must_use]
+    pub const fn cell_type(&self) -> Option<&LitStr> {
+        self.cell_type.as_ref()
+    }
+
+    /// Whether this helper explicitly classifies a plain path as a nested declaration.
+    #[must_use]
+    pub const fn is_nested(&self) -> bool {
+        self.nested
+    }
+
+    /// Returns exact value anchors in stable name, color, multiplicity, type order.
     ///
     /// # Errors
     ///
     /// Returns an endpoint error only if an authored literal has no leaves.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::with_capacity(2);
+        let mut anchors = Vec::with_capacity(4);
         if let Some(name) = &self.name {
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::ConfigurationCellName,
@@ -631,6 +667,20 @@ impl CellAttributePayload {
                 ProvenanceRole::ConfigurationCellColor,
                 0,
                 TokenRange::for_tokens(color)?,
+            ));
+        }
+        if let Some(multiplicity) = &self.multiplicity {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::ConfigurationCellMultiplicity,
+                0,
+                TokenRange::for_tokens(multiplicity)?,
+            ));
+        }
+        if let Some(cell_type) = &self.cell_type {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::ConfigurationCellType,
+                0,
+                TokenRange::for_tokens(cell_type)?,
             ));
         }
         Ok(anchors)
@@ -680,6 +730,7 @@ pub struct ConstructorAttribute {
 pub struct FunctionAttribute {
     constructor: ConstructorAttribute,
     totality: FunctionTotality,
+    hook: Option<Path>,
 }
 
 /// Explicit K function definedness.
@@ -704,6 +755,12 @@ impl FunctionAttribute {
         matches!(self.totality, FunctionTotality::Total(_))
     }
 
+    /// Optional closed hook selector path.
+    #[must_use]
+    pub const fn hook(&self) -> Option<&Path> {
+        self.hook.as_ref()
+    }
+
     /// Returns complete production and totality provenance.
     ///
     /// # Errors
@@ -721,6 +778,13 @@ impl FunctionAttribute {
             0,
             TokenRange::for_tokens(marker)?,
         ));
+        if let Some(hook) = &self.hook {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::FunctionHook,
+                0,
+                TokenRange::for_tokens(hook)?,
+            ));
+        }
         Ok(anchors)
     }
 }
@@ -1777,6 +1841,7 @@ fn parse_function_stream(
     let mut totality = None;
     let mut sort = None;
     let mut syntax = None;
+    let mut hook = None;
 
     while !input.is_empty() {
         let key: Ident = input.parse()?;
@@ -1805,13 +1870,22 @@ fn parse_function_stream(
                 )
                 .into());
             }
-            "sort" | "syntax" => {
+            "hook" if hook.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "hook" },
+                    key.span(),
+                )
+                .into());
+            }
+            "sort" | "syntax" | "hook" => {
                 input.parse::<Token![=]>()?;
                 let value: Expr = input.parse()?;
                 if key_name == "sort" {
                     sort = Some(parse_sort_value(value)?);
-                } else {
+                } else if key_name == "syntax" {
                     syntax = Some(parse_syntax_value(value)?);
+                } else {
+                    hook = Some(parse_sort_value(value)?);
                 }
             }
             _ => {
@@ -1862,11 +1936,13 @@ fn parse_function_stream(
             avoid_literal: None,
         },
         totality,
+        hook,
     })
 }
 
 fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseConstructorError> {
     let mut label = None;
+    let mut owise = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         let key_name = key.to_string();
@@ -1878,7 +1954,19 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseConst
                 )
                 .into());
             }
-            "label" => {}
+            "label" => {
+                input.parse::<Token![=]>()?;
+                let value: Expr = input.parse()?;
+                label = Some(parse_rule_label_value(value)?);
+            }
+            "owise" if owise.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "owise" },
+                    key.span(),
+                )
+                .into());
+            }
+            "owise" => owise = Some(key),
             _ => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnknownArgument { name: key_name },
@@ -1887,9 +1975,6 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseConst
                 .into());
             }
         }
-        input.parse::<Token![=]>()?;
-        let value: Expr = input.parse()?;
-        label = Some(parse_rule_label_value(value)?);
         if input.is_empty() {
             break;
         }
@@ -1898,7 +1983,7 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseConst
             break;
         }
     }
-    Ok(RuleAttribute { label })
+    Ok(RuleAttribute { label, owise })
 }
 
 fn parse_constructors_stream(
@@ -2135,17 +2220,38 @@ fn parse_configuration_stream(
     Ok(ConfigurationAttribute { root })
 }
 
+#[allow(clippy::too_many_lines)] // Keeps the closed cell-attribute grammar in one ordered parser.
 fn parse_cell_stream(
     input: ParseStream<'_>,
 ) -> Result<CellAttributePayload, ParseConstructorError> {
     let mut name = None;
     let mut color = None;
+    let mut multiplicity = None;
+    let mut cell_type = None;
+    let mut nested = false;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         let key_name = key.to_string();
-        let slot = match key_name.as_str() {
-            "name" => &mut name,
-            "color" => &mut color,
+        if key_name == "nested" {
+            if nested {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "nested" },
+                    key.span(),
+                )
+                .into());
+            }
+            nested = true;
+            if input.is_empty() {
+                break;
+            }
+            input.parse::<Token![,]>()?;
+            continue;
+        }
+        let (slot, argument_name) = match key_name.as_str() {
+            "name" => (&mut name, "name"),
+            "color" => (&mut color, "color"),
+            "multiplicity" => (&mut multiplicity, "multiplicity"),
+            "cell_type" => (&mut cell_type, "cell_type"),
             _ => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnknownArgument { name: key_name },
@@ -2157,7 +2263,7 @@ fn parse_cell_stream(
         if slot.is_some() {
             return Err(SyntaxError::new(
                 SyntaxErrorKind::DuplicateArgument {
-                    name: if key == "name" { "name" } else { "color" },
+                    name: argument_name,
                 },
                 key.span(),
             )
@@ -2165,11 +2271,11 @@ fn parse_cell_stream(
         }
         input.parse::<Token![=]>()?;
         let value: Expr = input.parse()?;
-        let literal = parse_string_value(if key == "name" { "name" } else { "color" }, value)?;
+        let literal = parse_string_value(argument_name, value)?;
         if literal.value().trim().is_empty() {
             return Err(SyntaxError::new(
                 SyntaxErrorKind::InvalidCellAttribute {
-                    reason: "cell names and colors must be nonempty strings",
+                    reason: "cell metadata values must be nonempty strings",
                 },
                 literal.span(),
             )
@@ -2181,7 +2287,46 @@ fn parse_cell_stream(
         }
         input.parse::<Token![,]>()?;
     }
-    Ok(CellAttributePayload { name, color })
+    if let Some(value) = &multiplicity
+        && value.value() != "*"
+    {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidCellAttribute {
+                reason: "KRS currently supports only repeated-cell multiplicity `*`",
+            },
+            value.span(),
+        )
+        .into());
+    }
+    if let Some(value) = &cell_type
+        && multiplicity.is_none()
+    {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidCellAttribute {
+                reason: "`cell_type` requires `multiplicity = \"*\"`",
+            },
+            value.span(),
+        )
+        .into());
+    }
+    if let Some(value) = &cell_type
+        && !matches!(value.value().as_str(), "Bag" | "List" | "Map" | "Set")
+    {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidCellAttribute {
+                reason: "repeated-cell `cell_type` must be Bag, List, Map, or Set",
+            },
+            value.span(),
+        )
+        .into());
+    }
+    Ok(CellAttributePayload {
+        name,
+        color,
+        multiplicity,
+        cell_type,
+        nested,
+    })
 }
 
 fn parse_string_value(name: &'static str, value: Expr) -> Result<LitStr, ParseConstructorError> {

@@ -10,8 +10,8 @@ use krs_ir::{
     FixedCellPattern, FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell,
     FixedInitializerContent, FormatFragment, GrammarProductionItemKind, GroupAssociativity,
     LabelIdentity, ListOperation, MapOperation, ProductionAttribute, ProductionGroupId,
-    ProductionSentence, RuleSentence, SemanticId, SentenceKind, SourceMapKey, StrictnessKind,
-    SymbolId, SymbolIdentity, SymbolKind,
+    ProductionSentence, RuleSentence, SemanticId, SentenceKind, SetOperation, SourceMapKey,
+    StrictnessKind, SymbolId, SymbolIdentity, SymbolKind,
 };
 
 use crate::sidecar::SidecarError;
@@ -128,6 +128,7 @@ struct EmitContext<'a> {
     groups: BTreeMap<ProductionGroupId, &'a str>,
     non_associative_groups: BTreeSet<ProductionGroupId>,
     cells: BTreeMap<SymbolId, &'a str>,
+    repeated_ancestors: BTreeMap<SymbolId, SymbolId>,
     context_aliases: BTreeMap<krs_ir::StableItemId, String>,
 }
 
@@ -138,6 +139,7 @@ impl<'a> EmitContext<'a> {
         let mut groups = BTreeMap::new();
         let mut non_associative_groups = BTreeSet::new();
         let mut cells = BTreeMap::new();
+        let mut repeated_ancestors = BTreeMap::new();
         let mut context_aliases = BTreeMap::new();
         for module in definition.modules() {
             for group in module.production_groups() {
@@ -153,7 +155,12 @@ impl<'a> EmitContext<'a> {
                     configuration,
                 )) = sentence
                 {
-                    collect_emit_cells(configuration.cells(), &mut cells);
+                    collect_emit_cells(
+                        configuration.cells(),
+                        &mut cells,
+                        &mut repeated_ancestors,
+                        None,
+                    );
                 }
                 if let DefinitionSentence::ContextAlias(alias) = sentence {
                     context_aliases.insert(alias.id().clone(), k_label_name(alias.name()));
@@ -181,6 +188,7 @@ impl<'a> EmitContext<'a> {
             groups,
             non_associative_groups,
             cells,
+            repeated_ancestors,
             context_aliases,
         }
     }
@@ -204,6 +212,7 @@ impl<'a> EmitContext<'a> {
             DefinitionSortRef::Builtin(BuiltinSort::Map) => Ok("Map"),
             DefinitionSortRef::Builtin(BuiltinSort::Bytes) => Ok("Bytes"),
             DefinitionSortRef::Builtin(BuiltinSort::List) => Ok("List"),
+            DefinitionSortRef::Builtin(BuiltinSort::Set) => Ok("Set"),
         }
     }
 
@@ -225,6 +234,10 @@ impl<'a> EmitContext<'a> {
         })
     }
 
+    fn repeated_ancestor(&self, id: &SymbolId) -> Option<&SymbolId> {
+        self.repeated_ancestors.get(id)
+    }
+
     fn context_alias_name(&self, id: &krs_ir::StableItemId) -> Result<&str, EmitError> {
         self.context_aliases
             .get(id)
@@ -240,11 +253,24 @@ impl<'a> EmitContext<'a> {
 fn collect_emit_cells<'a>(
     cells: &'a [FixedCell<DefinitionSortRef, SymbolId>],
     output: &mut BTreeMap<SymbolId, &'a str>,
+    repeated_ancestors: &mut BTreeMap<SymbolId, SymbolId>,
+    repeated_ancestor: Option<&SymbolId>,
 ) {
     for cell in cells {
         output.insert(cell.id().clone(), cell.name());
+        let repeated_ancestor = if cell
+            .attributes()
+            .iter()
+            .any(|attribute| matches!(attribute, CellAttribute::Multiplicity { .. }))
+        {
+            Some(cell.id())
+        } else {
+            repeated_ancestor
+        };
         if let FixedCellContent::Children { children } = cell.content() {
-            collect_emit_cells(children, output);
+            collect_emit_cells(children, output, repeated_ancestors, repeated_ancestor);
+        } else if let Some(ancestor) = repeated_ancestor {
+            repeated_ancestors.insert(cell.id().clone(), ancestor.clone());
         }
     }
 }
@@ -368,9 +394,20 @@ impl BuiltinRequirements {
                     self.term(argument);
                 }
             }
+            DefinitionTermKind::Set { arguments, .. } => {
+                self.sorts.insert(BuiltinSort::Set);
+                for argument in arguments {
+                    self.term(argument);
+                }
+            }
             DefinitionTermKind::Rewrite { from, to } => {
                 self.term(from);
                 self.term(to);
+            }
+            DefinitionTermKind::Cell { children, .. } => {
+                for child in children {
+                    self.term(child);
+                }
             }
         }
     }
@@ -495,6 +532,7 @@ fn builtin_import(
         BuiltinSort::Id => Some("ID-SYNTAX"),
         BuiltinSort::Bytes => Some("BYTES"),
         BuiltinSort::List => Some("LIST"),
+        BuiltinSort::Set => Some("SET"),
     }
 }
 
@@ -619,6 +657,21 @@ fn emit_production_attribute(
         ProductionAttribute::Documentation { .. } => {}
         ProductionAttribute::Function { .. } => writer.push("function"),
         ProductionAttribute::Total { .. } => writer.push("total"),
+        ProductionAttribute::Hook { operation, .. } => {
+            writer.push("hook(");
+            writer.push(match operation {
+                krs_ir::HookOperation::KryptoKeccak256Raw => "KRYPTO.keccak256raw",
+                krs_ir::HookOperation::KryptoSha256Raw => "KRYPTO.sha256raw",
+                krs_ir::HookOperation::KryptoRipemd160Raw => "KRYPTO.ripemd160raw",
+                krs_ir::HookOperation::KryptoEcdsaRecover => "KRYPTO.ecdsaRecover",
+                krs_ir::HookOperation::KryptoBn128Valid => "KRYPTO.bn128valid",
+                krs_ir::HookOperation::KryptoBn128Add => "KRYPTO.bn128add",
+                krs_ir::HookOperation::KryptoBn128Mul => "KRYPTO.bn128mul",
+                krs_ir::HookOperation::KryptoBn128G2Valid => "KRYPTO.bn128g2valid",
+                krs_ir::HookOperation::KryptoBn128Ate => "KRYPTO.bn128ate",
+            });
+            writer.push(")");
+        }
         ProductionAttribute::Alias { .. } => writer.push("alias"),
         ProductionAttribute::Token {
             lexical_precedence, ..
@@ -892,6 +945,18 @@ fn emit_fixed_cell(
                 writer.push(&quoted(value.as_str()));
                 writer.record(origin.key(), attribute_start, writer.source.len())?;
             }
+            CellAttribute::Multiplicity { origin, value } => {
+                let attribute_start = writer.source.len();
+                writer.push(" multiplicity=");
+                writer.push(&quoted(value.as_str()));
+                writer.record(origin.key(), attribute_start, writer.source.len())?;
+            }
+            CellAttribute::CollectionType { origin, value } => {
+                let attribute_start = writer.source.len();
+                writer.push(" type=");
+                writer.push(&quoted(value.as_str()));
+                writer.record(origin.key(), attribute_start, writer.source.len())?;
+            }
         }
     }
     writer.push(">");
@@ -990,9 +1055,30 @@ fn emit_rule(
         }
         emit_label(sentence.label(), writer);
         writer.push("]:");
+        let mut emitted_repeated = BTreeSet::new();
         for clause in body.clauses() {
-            writer.push("\n");
-            emit_cell_clause(clause, sentence, context, writer)?;
+            let Some(ancestor) = context.repeated_ancestor(clause.cell()) else {
+                writer.push("\n");
+                emit_cell_clause(clause, sentence, context, 4, writer)?;
+                continue;
+            };
+            if !emitted_repeated.insert(ancestor.clone()) {
+                continue;
+            }
+            writer.push("\n    <");
+            writer.push(context.cell_name(ancestor)?);
+            writer.push(">");
+            for nested in body
+                .clauses()
+                .iter()
+                .filter(|candidate| context.repeated_ancestor(candidate.cell()) == Some(ancestor))
+            {
+                writer.push("\n");
+                emit_cell_clause(nested, sentence, context, 8, writer)?;
+            }
+            writer.push("\n        ...\n    </");
+            writer.push(context.cell_name(ancestor)?);
+            writer.push(">");
         }
         emit_requires(sentence, context, writer)?;
         emit_ensures(sentence, context, writer)?;
@@ -1179,11 +1265,13 @@ fn emit_cell_clause(
     clause: &krs_ir::FixedCellClause<SymbolId, DefinitionTerm>,
     sentence: &RuleSentence,
     context: &EmitContext<'_>,
+    indent: usize,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
     let start = writer.source.len();
     let name = context.cell_name(clause.cell())?;
-    writer.push("    <");
+    writer.push(&" ".repeat(indent));
+    writer.push("<");
     writer.push(name);
     writer.push("> ");
     writer.append_rendered(render_rule_term(clause.before(), sentence, context, false)?)?;
@@ -1535,7 +1623,14 @@ fn render_term_with_binders(
         DefinitionTermKind::Map {
             operation,
             arguments,
-        } => render_map(*operation, arguments, context, existentials, &mut output)?,
+        } => render_map(
+            term.sort(),
+            *operation,
+            arguments,
+            context,
+            existentials,
+            &mut output,
+        )?,
         DefinitionTermKind::List {
             operation,
             arguments,
@@ -1547,6 +1642,36 @@ fn render_term_with_binders(
             existentials,
             &mut output,
         )?,
+        DefinitionTermKind::Set {
+            operation,
+            arguments,
+        } => render_set(*operation, arguments, context, existentials, &mut output)?,
+        DefinitionTermKind::Cell { cell, children } => {
+            let name = context.cell_name(cell)?;
+            output.push("<");
+            output.push(name);
+            output.push(">");
+            if !children.is_empty() {
+                output.push(" ");
+            }
+            for (index, child) in children.iter().enumerate() {
+                if index != 0 {
+                    output.push(" ");
+                }
+                output.append(render_term_with_binders(
+                    child,
+                    context,
+                    false,
+                    existentials,
+                )?);
+            }
+            if !children.is_empty() {
+                output.push(" ");
+            }
+            output.push("</");
+            output.push(name);
+            output.push(">");
+        }
         DefinitionTermKind::Rewrite { from, to } => {
             if !root_rewrite {
                 output.push("(");
@@ -1607,6 +1732,7 @@ fn production_group(production: &ProductionSentence) -> Option<&ProductionGroupI
         })
 }
 
+#[allow(clippy::too_many_lines)] // Exhaustively renders the closed builtin-operation catalog.
 fn render_builtin_application(
     operation: BuiltinOperation,
     arguments: &[DefinitionTerm],
@@ -1614,6 +1740,16 @@ fn render_builtin_application(
     existentials: &[DefinitionClaimBinder],
     output: &mut Rendered,
 ) -> Result<(), EmitError> {
+    if operation == BuiltinOperation::BytesEmpty {
+        if !arguments.is_empty() {
+            return Err(EmitError::InvalidReference(format!(
+                "builtin operation {operation:?} has invalid arity {}",
+                arguments.len()
+            )));
+        }
+        output.push(".Bytes");
+        return Ok(());
+    }
     if operation == BuiltinOperation::BytesLength {
         if arguments.len() != 1 {
             return Err(EmitError::InvalidReference(format!(
@@ -1650,6 +1786,77 @@ fn render_builtin_application(
             existentials,
         )?);
         output.push(" ]");
+        return Ok(());
+    }
+    if operation == BuiltinOperation::BytesUpdate {
+        if arguments.len() != 3 {
+            return Err(EmitError::InvalidReference(format!(
+                "builtin operation {operation:?} has invalid arity {}",
+                arguments.len()
+            )));
+        }
+        output.append(render_builtin_argument(
+            &arguments[0],
+            context,
+            existentials,
+        )?);
+        output.push(" [ ");
+        output.append(render_builtin_argument(
+            &arguments[1],
+            context,
+            existentials,
+        )?);
+        output.push(" <- ");
+        output.append(render_builtin_argument(
+            &arguments[2],
+            context,
+            existentials,
+        )?);
+        output.push(" ]");
+        return Ok(());
+    }
+    if operation == BuiltinOperation::BytesPadRight {
+        if arguments.len() != 3 {
+            return Err(EmitError::InvalidReference(format!(
+                "builtin operation {operation:?} has invalid arity {}",
+                arguments.len()
+            )));
+        }
+        output.push("padRightBytes(");
+        for (index, argument) in arguments.iter().enumerate() {
+            if index > 0 {
+                output.push(", ");
+            }
+            output.append(render_term_with_binders(
+                argument,
+                context,
+                false,
+                existentials,
+            )?);
+        }
+        output.push(")");
+        return Ok(());
+    }
+    if operation == BuiltinOperation::BytesSubstring {
+        if arguments.len() != 3 {
+            return Err(EmitError::InvalidReference(format!(
+                "builtin operation {operation:?} has invalid arity {}",
+                arguments.len()
+            )));
+        }
+        output.push("substrBytes(");
+        for (index, argument) in arguments.iter().enumerate() {
+            if index > 0 {
+                output.push(", ");
+            }
+            output.append(render_term_with_binders(
+                argument,
+                context,
+                false,
+                existentials,
+            )?);
+        }
+        output.push(")");
         return Ok(());
     }
     if operation == BuiltinOperation::IntPowMod {
@@ -1721,6 +1928,10 @@ fn render_builtin_application(
         BuiltinOperation::BoolOr => (None, Some("orBool"), 2),
         BuiltinOperation::BytesLength => unreachable!("Bytes length is rendered above"),
         BuiltinOperation::BytesGet => unreachable!("byte lookup is rendered above"),
+        BuiltinOperation::BytesEmpty => unreachable!("empty Bytes is rendered above"),
+        BuiltinOperation::BytesUpdate => unreachable!("byte update is rendered above"),
+        BuiltinOperation::BytesPadRight => unreachable!("Bytes padding is rendered above"),
+        BuiltinOperation::BytesSubstring => unreachable!("Bytes substring is rendered above"),
     };
     if arguments.len() != expected {
         return Err(EmitError::InvalidReference(format!(
@@ -1783,6 +1994,7 @@ fn render_builtin_argument(
 }
 
 fn render_map(
+    result_sort: &DefinitionSortRef,
     operation: MapOperation,
     arguments: &[DefinitionTerm],
     context: &EmitContext<'_>,
@@ -1834,9 +2046,80 @@ fn render_map(
             )?);
             output.push(" ]");
         }
+        MapOperation::Get if arguments.len() == 2 => {
+            output.push("{");
+            output.append(render_term_with_binders(
+                &arguments[0],
+                context,
+                false,
+                existentials,
+            )?);
+            output.push(" [ ");
+            output.append(render_term_with_binders(
+                &arguments[1],
+                context,
+                false,
+                existentials,
+            )?);
+            output.push(" ]}:>");
+            output.push(context.sort_name_ref(result_sort)?);
+        }
+        MapOperation::InKeys if arguments.len() == 2 => {
+            output.append(render_term_with_binders(
+                &arguments[0],
+                context,
+                false,
+                existentials,
+            )?);
+            output.push(" in_keys(");
+            output.append(render_term_with_binders(
+                &arguments[1],
+                context,
+                false,
+                existentials,
+            )?);
+            output.push(")");
+        }
         _ => {
             return Err(EmitError::InvalidReference(format!(
                 "Map operation {operation:?} has invalid arity {}",
+                arguments.len()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn render_set(
+    operation: SetOperation,
+    arguments: &[DefinitionTerm],
+    context: &EmitContext<'_>,
+    existentials: &[DefinitionClaimBinder],
+    output: &mut Rendered,
+) -> Result<(), EmitError> {
+    let render = |argument: &DefinitionTerm| {
+        render_term_with_binders(argument, context, false, existentials)
+    };
+    match operation {
+        SetOperation::Empty if arguments.is_empty() => output.push(".Set"),
+        SetOperation::Item if arguments.len() == 1 => {
+            output.push("SetItem(");
+            output.append(render(&arguments[0])?);
+            output.push(")");
+        }
+        SetOperation::Concat if arguments.len() == 2 => {
+            output.append(render(&arguments[0])?);
+            output.push(" ");
+            output.append(render(&arguments[1])?);
+        }
+        SetOperation::Contains if arguments.len() == 2 => {
+            output.append(render(&arguments[0])?);
+            output.push(" in ");
+            output.append(render(&arguments[1])?);
+        }
+        _ => {
+            return Err(EmitError::InvalidReference(format!(
+                "Set operation {operation:?} has invalid arity {}",
                 arguments.len()
             )));
         }
@@ -1886,6 +2169,31 @@ fn render_list(
         ListOperation::Size if arguments.len() == 1 => {
             output.push("size(");
             output.append(render(&arguments[0])?);
+            output.push(")");
+        }
+        ListOperation::Make if arguments.len() == 2 => {
+            output.push("makeList(");
+            output.append(render(&arguments[0])?);
+            output.push(", ");
+            output.append(render(&arguments[1])?);
+            output.push(")");
+        }
+        ListOperation::Range if arguments.len() == 3 => {
+            output.push("range(");
+            output.append(render(&arguments[0])?);
+            output.push(", ");
+            output.append(render(&arguments[1])?);
+            output.push(", ");
+            output.append(render(&arguments[2])?);
+            output.push(")");
+        }
+        ListOperation::UpdateAll if arguments.len() == 3 => {
+            output.push("updateList(");
+            output.append(render(&arguments[0])?);
+            output.push(", ");
+            output.append(render(&arguments[1])?);
+            output.push(", ");
+            output.append(render(&arguments[2])?);
             output.push(")");
         }
         _ => {
@@ -1974,7 +2282,8 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use krs_ir::{
-        DefinitionSortRef, DefinitionTerm, ListOperation, NodeOrigin, OriginStack, PackageId,
+        BuiltinOperation, DefinitionApplicationRef, DefinitionSortRef, DefinitionTerm,
+        ListOperation, MapOperation, NodeOrigin, OriginStack, PackageId, SetOperation,
         Sha256Digest, SourceFileId, SourceMapKey, SourceRange,
     };
 
@@ -2001,6 +2310,7 @@ mod tests {
             groups: BTreeMap::new(),
             non_associative_groups: BTreeSet::new(),
             cells: BTreeMap::new(),
+            repeated_ancestors: BTreeMap::new(),
             context_aliases: BTreeMap::new(),
         }
     }
@@ -2078,6 +2388,155 @@ mod tests {
                     vec![empty("list.size.base")],
                 ),
                 "size(.List)",
+            ),
+            (
+                DefinitionTerm::list(
+                    node("list.range"),
+                    DefinitionSortRef::list(),
+                    ListOperation::Range,
+                    vec![
+                        empty("list.range.base"),
+                        int("list.range.front", "1"),
+                        int("list.range.back", "2"),
+                    ],
+                ),
+                "range(.List, 1, 2)",
+            ),
+            (
+                DefinitionTerm::list(
+                    node("list.update-all"),
+                    DefinitionSortRef::list(),
+                    ListOperation::UpdateAll,
+                    vec![
+                        empty("list.update-all.base"),
+                        int("list.update-all.index", "1"),
+                        empty("list.update-all.replacement"),
+                    ],
+                ),
+                "updateList(.List, 1, .List)",
+            ),
+        ];
+        let context = context();
+        for (term, expected) in terms {
+            assert_eq!(render_term(&term, &context, false).unwrap().text, expected);
+        }
+    }
+
+    #[test]
+    fn builtin_bytes_operations_have_exact_canonical_k_source() {
+        let empty = || {
+            DefinitionTerm::application(
+                node("bytes.empty"),
+                DefinitionSortRef::bytes(),
+                DefinitionApplicationRef::Builtin(BuiltinOperation::BytesEmpty),
+                vec![],
+            )
+        };
+        let terms = [
+            (empty(), ".Bytes"),
+            (
+                DefinitionTerm::application(
+                    node("bytes.update"),
+                    DefinitionSortRef::bytes(),
+                    DefinitionApplicationRef::Builtin(BuiltinOperation::BytesUpdate),
+                    vec![
+                        empty(),
+                        int("bytes.update.index", "0"),
+                        int("bytes.update.value", "255"),
+                    ],
+                ),
+                "(.Bytes) [ 0 <- 255 ]",
+            ),
+            (
+                DefinitionTerm::application(
+                    node("bytes.pad-right"),
+                    DefinitionSortRef::bytes(),
+                    DefinitionApplicationRef::Builtin(BuiltinOperation::BytesPadRight),
+                    vec![
+                        empty(),
+                        int("bytes.pad-right.length", "32"),
+                        int("bytes.pad-right.value", "0"),
+                    ],
+                ),
+                "padRightBytes(.Bytes, 32, 0)",
+            ),
+            (
+                DefinitionTerm::application(
+                    node("bytes.substring"),
+                    DefinitionSortRef::bytes(),
+                    DefinitionApplicationRef::Builtin(BuiltinOperation::BytesSubstring),
+                    vec![
+                        empty(),
+                        int("bytes.substring.start", "1"),
+                        int("bytes.substring.end", "3"),
+                    ],
+                ),
+                "substrBytes(.Bytes, 1, 3)",
+            ),
+        ];
+        let context = context();
+        for (term, expected) in terms {
+            assert_eq!(render_term(&term, &context, false).unwrap().text, expected);
+        }
+    }
+
+    #[test]
+    fn builtin_map_lookup_and_set_operations_have_exact_canonical_k_source() {
+        let map = || DefinitionTerm::map(node("map.empty"), MapOperation::Empty, vec![]);
+        let set = || {
+            DefinitionTerm::set(
+                node("set.empty"),
+                DefinitionSortRef::set(),
+                SetOperation::Empty,
+                vec![],
+            )
+        };
+        let terms = [
+            (
+                DefinitionTerm::typed_map(
+                    node("map.get"),
+                    DefinitionSortRef::int(),
+                    MapOperation::Get,
+                    vec![map(), int("map.get.key", "1")],
+                ),
+                "{.Map [ 1 ]}:>Int",
+            ),
+            (
+                DefinitionTerm::typed_map(
+                    node("map.in-keys"),
+                    DefinitionSortRef::bool(),
+                    MapOperation::InKeys,
+                    vec![int("map.in-keys.key", "1"), map()],
+                ),
+                "1 in_keys(.Map)",
+            ),
+            (set(), ".Set"),
+            (
+                DefinitionTerm::set(
+                    node("set.item"),
+                    DefinitionSortRef::set(),
+                    SetOperation::Item,
+                    vec![int("set.item.value", "1")],
+                ),
+                "SetItem(1)",
+            ),
+            (
+                DefinitionTerm::set(
+                    node("set.concat"),
+                    DefinitionSortRef::set(),
+                    SetOperation::Concat,
+                    vec![set(), set()],
+                ),
+                ".Set .Set",
+            ),
+            (
+                DefinitionTerm::set(
+                    node("set.contains"),
+                    DefinitionSortRef::bool(),
+                    SetOperation::Contains,
+                    vec![int("set.contains.value", "1"), set()],
+                ),
+                "1 in .Set",
             ),
         ];
         let context = context();

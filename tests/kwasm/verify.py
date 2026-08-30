@@ -56,6 +56,8 @@ SOURCE_LEDGER_PATHS = (
     "crates/krs-ir/src/semantic.rs",
     "crates/krs-ir/src/state.rs",
     "crates/krs-k-rust/src/lib.rs",
+    "crates/krs-k-rust/src/bin/krs-native-compile.rs",
+    "crates/krs-k-rust/src/bin/krs-native-runner.rs",
     "crates/krs-macros/src/expand.rs",
     "crates/krs-macros/src/lib.rs",
     "crates/krs-syntax/src/provenance.rs",
@@ -67,6 +69,7 @@ SOURCE_LEDGER_PATHS = (
     "draft/readability/kwasm/README.md",
     "tests/kwasm/corpus.toml",
     "tests/kwasm/lsp_probe.py",
+    "tests/kwasm/native.py",
     "semantics/Cargo.lock",
     "semantics/Cargo.toml",
     "semantics/README.md",
@@ -251,7 +254,7 @@ def split_claims(source: str) -> tuple[str, list[str]]:
     return value, claims
 
 
-def preflight(pins: Mapping[str, Any], corpus: Mapping[str, Any]) -> tuple[Path, dict[str, str]]:
+def preflight(pins: Mapping[str, Any], corpus: Mapping[str, Any]) -> dict[str, str]:
     if pins.get("schema") != 1 or corpus.get("schema") != 1:
         raise GateError("KWasm gate schema differs from 1")
     if sha256(CORPUS_PATH) != pins.get("corpus_sha256"):
@@ -295,10 +298,6 @@ def preflight(pins: Mapping[str, Any], corpus: Mapping[str, Any]) -> tuple[Path,
         if sha256(KWASM / relative) != expected_external[relative]:
             raise GateError(f"external KWasm evidence differs: {relative}")
 
-    k_bin = find_k_bin(str(k_pin["version"]), str(k_pin["commit"]))
-    observed_version = run([k_bin / "kompile", "--version"], timeout=30)
-    if f"v{k_pin['version']}" not in observed_version.stdout + observed_version.stderr:
-        raise GateError("K executable version differs")
     z3 = find_z3_lib()
     environment = {
         "LIBRARY_PATH": os.pathsep.join(
@@ -309,10 +308,10 @@ def preflight(pins: Mapping[str, Any], corpus: Mapping[str, Any]) -> tuple[Path,
         ).rstrip(os.pathsep),
         "CARGO_NET_OFFLINE": "true",
     }
-    return k_bin, environment
+    return environment
 
 
-def rust_gate(workspace: Path, environment: Mapping[str, str]) -> Path:
+def rust_gate(workspace: Path, environment: Mapping[str, str]) -> tuple[Path, Path, Path]:
     root_target = Path(
         os.environ.get("KRS_KWASM_ROOT_TARGET", "/var/tmp/krs-kwasm-gate-root-target")
     )
@@ -322,6 +321,11 @@ def rust_gate(workspace: Path, environment: Mapping[str, str]) -> Path:
     run(
         ["cargo", "build", "--locked", "--offline", "-p", "krs-cli", "--bin", "krs"],
         environment={**environment, "CARGO_TARGET_DIR": os.fspath(root_target)},
+    )
+    run(
+        ["cargo", "build", "--locked", "--offline", "--release", "-p", "krs-k-rust", "--bins"],
+        environment={**environment, "CARGO_TARGET_DIR": os.fspath(root_target)},
+        timeout=900,
     )
     common = ["--manifest-path", MANIFEST, "--locked", "--offline"]
     fixture_env = {**environment, "CARGO_TARGET_DIR": os.fspath(fixture_target)}
@@ -355,7 +359,11 @@ def rust_gate(workspace: Path, environment: Mapping[str, str]) -> Path:
         "PATH": os.pathsep.join([os.fspath(analyzer.parent), os.environ["PATH"]]),
     }
     run([sys.executable, HERE / "lsp_probe.py"], environment=lsp_env, timeout=240)
-    return root_target / "debug/krs"
+    return (
+        root_target / "debug/krs",
+        root_target / "release/krs-native-compile",
+        root_target / "release/krs-native-runner",
+    )
 
 
 def artifact_gate(
@@ -442,7 +450,47 @@ def artifact_gate(
     return outputs[0]
 
 
-def native_gate(
+def compile_native_definition(
+    workspace: Path,
+    artifacts: Path,
+    compiler: Path,
+    pins: Mapping[str, Any],
+    environment: Mapping[str, str],
+) -> Path:
+    definition = workspace / "native-definition.kore"
+    run(
+        [compiler, artifacts / "definition-ir.json", definition],
+        environment=environment,
+        timeout=900,
+    )
+    kore_hash = sha256(definition)
+    if kore_hash != pins.get("native_definition_kore_sha256"):
+        raise GateError(f"native K-Rust definition.kore hash differs: {kore_hash}")
+    return definition
+
+
+def k_rust_gate(
+    runner: Path,
+    definition: Path,
+    pins: Mapping[str, Any],
+    corpus: Mapping[str, Any],
+    environment: Mapping[str, str],
+) -> int:
+    behavior = corpus.get("behavior")
+    if not isinstance(behavior, list) or not behavior:
+        raise GateError("behavior corpus is empty")
+    result = run(
+        [sys.executable, HERE / "native.py", runner, definition, MODULE, CORPUS_PATH],
+        environment=environment,
+        timeout=900,
+    )
+    expected = f"PASS native KWasm behavior: {len(behavior)} executions; sha256={pins.get('behavior_sha256')}"
+    if result.stdout.strip() != expected:
+        raise GateError(f"K-Rust behavior evidence differs: {result.stdout.strip()}")
+    return len(behavior)
+
+
+def java_reference_gate(
     workspace: Path,
     artifacts: Path,
     k_bin: Path,
@@ -575,23 +623,44 @@ def native_gate(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--show-observed", action="store_true")
+    parser.add_argument(
+        "--java-reference",
+        action="store_true",
+        help="run the deferred K toolchain behavior comparison and proof",
+    )
     arguments = parser.parse_args()
     pins = tomllib.loads(PINS_PATH.read_text(encoding="utf-8"))
     corpus = tomllib.loads(CORPUS_PATH.read_text(encoding="utf-8"))
-    k_bin, environment = preflight(pins, corpus)
+    environment = preflight(pins, corpus)
     with tempfile.TemporaryDirectory(prefix="krs-kwasm-gate-", dir="/var/tmp") as temporary:
         workspace = Path(temporary)
-        krs = rust_gate(workspace, environment)
+        krs, compiler, runner = rust_gate(workspace, environment)
         artifacts = artifact_gate(workspace, krs, pins, environment)
-        behavior_count, proof_count = native_gate(
-            workspace, artifacts, k_bin, pins, corpus
+        definition = compile_native_definition(
+            workspace, artifacts, compiler, pins, environment
         )
+        behavior_count = k_rust_gate(runner, definition, pins, corpus, environment)
+        proof_count = 0
+        if arguments.java_reference:
+            k_pin = mapping(pins.get("k"), "pins.k")
+            k_bin = find_k_bin(str(k_pin["version"]), str(k_pin["commit"]))
+            observed_version = run([k_bin / "kompile", "--version"], timeout=30)
+            if f"v{k_pin['version']}" not in observed_version.stdout + observed_version.stderr:
+                raise GateError("K executable version differs")
+            reference_behavior, proof_count = java_reference_gate(
+                workspace, artifacts, k_bin, pins, corpus
+            )
+            if reference_behavior != behavior_count:
+                raise GateError("K-Rust and reference execution counts differ")
     if arguments.show_observed:
         print("all observed values matched their pins")
+    proof_status = (
+        f"{proof_count} reference proof" if arguments.java_reference else "1 reference proof deferred to --java-reference"
+    )
     print(
         "PASS readable KWasm integer slice: "
-        f"60 descriptors; {behavior_count} executions; {proof_count} native proof; "
-        f"protocol {pins['schemas']['descriptor_protocol']}; K {pins['k']['version']}"
+        f"60 descriptors; {behavior_count} K-Rust executions; {proof_status}; "
+        f"protocol {pins['schemas']['descriptor_protocol']}"
     )
     return 0
 

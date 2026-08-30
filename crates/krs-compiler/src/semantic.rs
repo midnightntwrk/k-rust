@@ -3,14 +3,15 @@ use std::error::Error;
 use std::fmt;
 
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, CellAttribute, CellContentFrame, CellPost,
-    ConfigurationRoot, Descriptor, DescriptorApplicationRef, DescriptorBundle,
-    DescriptorCellDeclaration, DescriptorCellField, DescriptorCellIdentity, DescriptorDeclaration,
-    DescriptorFixedConfiguration, DescriptorInitializerCell, DescriptorInitializerStateTerm,
-    DescriptorPayload, DescriptorProduction, DescriptorProductionAttribute,
-    DescriptorProductionItem, DescriptorProductionOwner, DescriptorRuleCells, DescriptorRuleLabel,
-    DescriptorSortRef, DescriptorTerm, DescriptorTermArgument, FixedCell, FixedCellClause,
-    FixedCellPattern, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
+    ApplicationRef, BuiltinOperation, BuiltinSort, CellAttribute, CellCollectionType,
+    CellContentFrame, CellMultiplicity, CellPost, ConfigurationRoot, Descriptor,
+    DescriptorApplicationRef, DescriptorBundle, DescriptorCellDeclaration, DescriptorCellField,
+    DescriptorCellIdentity, DescriptorDeclaration, DescriptorFixedConfiguration,
+    DescriptorInitializerCell, DescriptorInitializerStateTerm, DescriptorPayload,
+    DescriptorProduction, DescriptorProductionAttribute, DescriptorProductionItem,
+    DescriptorProductionOwner, DescriptorRuleCells, DescriptorRuleLabel, DescriptorSortRef,
+    DescriptorTerm, DescriptorTermArgument, FixedCell, FixedCellClause, FixedCellPattern,
+    FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, GeneratedProductionKind, GrammarDescriptor,
     GroupAssociativitySentence, IrIdentityError, ItemKind, ListOperation, MapOperation, ModuleId,
     NodeOrigin, OriginFrame, PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
@@ -21,7 +22,7 @@ use krs_ir::{
     SemanticProductionItem, SemanticRule, SemanticRuleCondition, SemanticRuleLabel,
     SemanticRulePriority, SemanticSimplification, SemanticSimplificationPriority, SemanticSort,
     SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticValidationError,
-    SemanticVariable, SourceMapKey, StableItemId, StructuredRuleDescriptor,
+    SemanticVariable, SetOperation, SourceMapKey, StableItemId, StructuredRuleDescriptor,
     TransformationOriginKind, generated_production_id,
 };
 use krs_syntax::{ProvenanceRole, parse_term_expression_source};
@@ -299,7 +300,7 @@ impl fmt::Display for DescriptorLoweringError {
             }
             Self::OverlappingRules { first, second } => write!(
                 formatter,
-                "readable rules {first:?} and {second:?} have overlapping left-hand patterns; refine a pattern or add disjoint `where` sorts"
+                "readable rules {first:?} and {second:?} have overlapping left-hand patterns at the same priority; refine a pattern, add disjoint `where` sorts, or mark the fallback `#[k::rule(owise)]`"
             ),
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
             Self::InvalidSemanticTheory(error) => error.fmt(formatter),
@@ -1270,6 +1271,12 @@ fn lower_grammar_production(
                 DescriptorProductionAttribute::Total { key } => ProductionAttribute::Total {
                     origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
                 },
+                DescriptorProductionAttribute::Hook { key, operation } => {
+                    ProductionAttribute::Hook {
+                        origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+                        operation: *operation,
+                    }
+                }
                 DescriptorProductionAttribute::Alias { key } => ProductionAttribute::Alias {
                     origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
                 },
@@ -1872,6 +1879,9 @@ fn referenced_packages(descriptors: &[&Descriptor]) -> BTreeSet<PackageId> {
                         }
                     }
                 }
+                if let Some(requires) = &rule.requires {
+                    collect_term_packages(&requires.term, &mut packages);
+                }
             }
             DescriptorPayload::ContextAlias(alias) => {
                 insert(&alias.configuration.configuration);
@@ -2113,16 +2123,33 @@ fn lower_cell_declaration(
             .emitted_name
             .as_ref()
             .map_or_else(|| field.rust_field.clone(), |name| name.value.clone());
-        let attributes = field
-            .color
-            .iter()
-            .map(|color| {
-                Ok(CellAttribute::color(
-                    semantic_origin(descriptor, color.key.clone(), "cell-color")?,
-                    color.value.clone(),
-                )?)
-            })
-            .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
+        let mut attributes = Vec::with_capacity(3);
+        if let Some(color) = &field.color {
+            attributes.push(CellAttribute::color(
+                semantic_origin(descriptor, color.key.clone(), "cell-color")?,
+                color.value.clone(),
+            )?);
+        }
+        if let Some(multiplicity) = &field.multiplicity {
+            debug_assert_eq!(multiplicity.value, "*");
+            attributes.push(CellAttribute::multiplicity(
+                semantic_origin(descriptor, multiplicity.key.clone(), "cell-multiplicity")?,
+                CellMultiplicity::Star,
+            ));
+        }
+        if let Some(cell_type) = &field.cell_type {
+            let value = match cell_type.value.as_str() {
+                "Bag" => CellCollectionType::Bag,
+                "List" => CellCollectionType::List,
+                "Map" => CellCollectionType::Map,
+                "Set" => CellCollectionType::Set,
+                _ => unreachable!("protocol validation rejects unsupported cell types"),
+            };
+            attributes.push(CellAttribute::collection_type(
+                semantic_origin(descriptor, cell_type.key.clone(), "cell-type")?,
+                value,
+            ));
+        }
         let origin = semantic_origin(
             descriptor,
             field.reference.key.clone(),
@@ -2350,6 +2377,8 @@ fn lower_initializer_term(
     let mut builder = StructuredTermBuilder {
         descriptor,
         catalog,
+        declarations: None,
+        k_item_sort: None,
         sort_parents,
         binding_names: &binding_names,
         pattern_key: None,
@@ -2368,6 +2397,7 @@ fn lower_rule_descriptor_term(
     descriptor: &Descriptor,
     term: &DescriptorTerm,
     expected_sort: Option<&SemanticSortRef>,
+    declarations: &BTreeMap<StableItemId, &Descriptor>,
     sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     binding_sorts: &BTreeMap<String, SemanticSortRef>,
@@ -2379,6 +2409,8 @@ fn lower_rule_descriptor_term(
     let mut builder = StructuredTermBuilder {
         descriptor,
         catalog,
+        declarations: Some(declarations),
+        k_item_sort: Some(framework_k_item_sort(declarations)?),
         sort_parents,
         binding_names: &binding_names,
         pattern_key: None,
@@ -2465,6 +2497,31 @@ fn semantic_cell_id(
     identity: &DescriptorCellIdentity,
 ) -> Result<SemanticId, DescriptorLoweringError> {
     generated_semantic_id("cell", &identity.owner, Some(&identity.field))
+}
+
+fn framework_k_item_sort(
+    declarations: &BTreeMap<StableItemId, &Descriptor>,
+) -> Result<SemanticSortRef, DescriptorLoweringError> {
+    let mut matches = declarations.keys().filter(|id| {
+        id.item_kind() == ItemKind::Sort
+            && id.item_name() == "KItem"
+            && id.package().k_namespace() == "KRS-FRAMEWORK"
+            && id.package().cargo_name() == "krs"
+            && id.package().cargo_source() == "framework"
+    });
+    let first = matches
+        .next()
+        .ok_or_else(|| DescriptorLoweringError::UnsupportedShape {
+            node: "complete cell term",
+            detail: "fragment! requires the selected framework KItem sort".into(),
+        })?;
+    if matches.next().is_some() {
+        return Err(DescriptorLoweringError::UnsupportedShape {
+            node: "complete cell term",
+            detail: "fragment! found more than one selected framework KItem sort".into(),
+        });
+    }
+    Ok(SemanticSortRef::Declared(first.clone()))
 }
 
 #[allow(clippy::too_many_lines)]
@@ -2555,18 +2612,24 @@ fn lower_head_rule_descriptor(
                 .or_insert_with(|| value_sort.clone());
         }
         if let krs_ir::ProtocolHeadRuleExtra::UpdateMap { base_binding, .. } = extra {
+            let cell_sort = cell_sorts.get(&cell.cell).ok_or_else(|| {
+                DescriptorLoweringError::UnsupportedShape {
+                    node: "head-anchored rule extra",
+                    detail: format!("updated cell {:?} is not a fixed leaf", cell.cell.field),
+                }
+            })?;
             match binding_sorts.get(base_binding) {
-                Some(sort) if sort != &SemanticSortRef::map() => {
+                Some(sort) if sort != cell_sort => {
                     return Err(DescriptorLoweringError::InvalidTerm {
                         id: Box::new(descriptor.id.clone()),
                         detail: format!(
-                            "map-cell binding {base_binding:?} has a non-Map refinement"
+                            "updated-cell binding {base_binding:?} has a refinement other than {cell_sort:?}"
                         ),
                     });
                 }
                 Some(_) => {}
                 None => {
-                    binding_sorts.insert(base_binding.clone(), SemanticSortRef::map());
+                    binding_sorts.insert(base_binding.clone(), cell_sort.clone());
                 }
             }
         }
@@ -2575,6 +2638,8 @@ fn lower_head_rule_descriptor(
     let mut builder = StructuredTermBuilder {
         descriptor,
         catalog,
+        declarations: Some(declarations),
+        k_item_sort: Some(framework_k_item_sort(declarations)?),
         sort_parents,
         binding_names: &binding_names,
         pattern_key: Some(&rule.pattern_key),
@@ -2612,12 +2677,17 @@ fn lower_head_rule_descriptor(
                 base_binding,
                 update,
             } => {
-                let expected = map_argument_sorts.get(&cell.cell);
-                builder.infer_map_update(
+                let expected = cell_sorts.get(&cell.cell).ok_or_else(|| {
+                    DescriptorLoweringError::UnsupportedShape {
+                        node: "head-anchored rule extra",
+                        detail: format!("updated cell {:?} is not a fixed leaf", cell.cell.field),
+                    }
+                })?;
+                builder.infer_collection_update(
                     update,
                     base_binding,
-                    expected.map(|(key_sort, _)| key_sort),
-                    expected.map(|(_, value_sort)| value_sort),
+                    expected,
+                    map_argument_sorts.get(&cell.cell),
                 )?;
             }
             krs_ir::ProtocolHeadRuleExtra::RewriteCell {
@@ -2636,6 +2706,10 @@ fn lower_head_rule_descriptor(
                 builder.infer(after, Some(expected), false)?;
             }
         }
+    }
+    let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
+    if let Some(requires) = &rule.requires {
+        builder.infer(&requires.term, Some(&bool_sort), false)?;
     }
     builder.resolve_binding_sorts()?;
     for binding in &rule.bindings {
@@ -2759,24 +2833,34 @@ fn lower_head_rule_descriptor(
                 update,
             } => {
                 if *wrapper != krs_ir::CellWrapper::Cell
-                    || sort.sort != DescriptorSortRef::Builtin(BuiltinSort::Map)
+                    || !matches!(
+                        sort.sort,
+                        DescriptorSortRef::Builtin(BuiltinSort::Map | BuiltinSort::List)
+                    )
                 {
                     return Err(DescriptorLoweringError::UnsupportedShape {
                         node: "head-anchored rule extra",
                         detail: format!(
-                            "extra cell {:?} is not a Map cell",
+                            "updated cell {:?} is not a Map or List cell",
                             cell_reference.cell.field
                         ),
                     });
                 }
+                let expected = semantic_sort_ref(&sort.sort);
+                let (before_role, write_role) =
+                    if sort.sort == DescriptorSortRef::Builtin(BuiltinSort::Map) {
+                        ("map-update-before", "completed-map-write")
+                    } else {
+                        ("list-update-before", "completed-list-write")
+                    };
                 let before = SemanticTerm::variable(
-                    semantic_origin(descriptor, cell.key.clone(), "map-update-before")?,
-                    SemanticSortRef::map(),
+                    semantic_origin(descriptor, cell.key.clone(), before_role)?,
+                    expected.clone(),
                     SemanticId::new(base_binding.clone())?,
                 );
-                let after = builder.lower(update, Some(&SemanticSortRef::map()), false)?;
+                let after = builder.lower(update, Some(&expected), false)?;
                 clauses.push(FixedCellClause::new(
-                    semantic_origin(descriptor, cell.key.clone(), "completed-map-write")?,
+                    semantic_origin(descriptor, cell.key.clone(), write_role)?,
                     semantic_cell_id(&cell.cell)?,
                     before,
                     CellPost::Replace { term: after },
@@ -2838,6 +2922,26 @@ fn lower_head_rule_descriptor(
         clauses,
         omitted_siblings,
     )?;
+    let requires = rule
+        .requires
+        .as_ref()
+        .map(|condition| -> Result<_, DescriptorLoweringError> {
+            Ok(SemanticRuleCondition::new(
+                semantic_origin(descriptor, condition.key.clone(), "rule-requires")?,
+                builder.lower(&condition.term, Some(&bool_sort), false)?,
+            ))
+        })
+        .transpose()?;
+    let priority = rule
+        .priority
+        .as_ref()
+        .map(|priority| -> Result<_, DescriptorLoweringError> {
+            Ok(SemanticRulePriority::new(
+                semantic_origin(descriptor, priority.key.clone(), "rule-owise")?,
+                priority.value,
+            ))
+        })
+        .transpose()?;
     let mut variables = rule
         .bindings
         .iter()
@@ -2864,7 +2968,9 @@ fn lower_head_rule_descriptor(
         variables,
         body,
     )?
-    .with_label(lower_rule_label(descriptor, rule.label.as_ref())?))
+    .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
+    .with_priority(priority)?
+    .with_requires(requires)?)
 }
 
 #[allow(clippy::too_many_lines)]
@@ -2972,6 +3078,7 @@ fn lower_configuration_rule_descriptor(
             &subject.value,
             &declared_sort,
             &subject.field.key,
+            declarations,
             sort_parents,
             catalog,
             &binding_sorts,
@@ -2987,6 +3094,7 @@ fn lower_configuration_rule_descriptor(
                 &result.value,
                 &declared_sort,
                 &result.field.key,
+                declarations,
                 sort_parents,
                 catalog,
                 &result_binding_sorts,
@@ -3067,6 +3175,7 @@ fn lower_configuration_rule_descriptor(
                     descriptor,
                     &condition.term,
                     Some(&bool_sort),
+                    declarations,
                     sort_parents,
                     catalog,
                     &binding_sorts,
@@ -3074,6 +3183,16 @@ fn lower_configuration_rule_descriptor(
                     &mut wildcard_ordinal,
                     &mut variables,
                 )?,
+            ))
+        })
+        .transpose()?;
+    let priority = rule
+        .priority
+        .as_ref()
+        .map(|priority| -> Result<_, DescriptorLoweringError> {
+            Ok(SemanticRulePriority::new(
+                semantic_origin(descriptor, priority.key.clone(), "rule-owise")?,
+                priority.value,
             ))
         })
         .transpose()?;
@@ -3125,6 +3244,7 @@ fn lower_configuration_rule_descriptor(
                             descriptor,
                             &condition.term,
                             Some(&bool_sort),
+                            declarations,
                             sort_parents,
                             catalog,
                             &result_binding_sorts,
@@ -3168,6 +3288,7 @@ fn lower_configuration_rule_descriptor(
         body,
     )?
     .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
+    .with_priority(priority)?
     .with_requires(requires)?
     .with_claim(claim))
 }
@@ -3244,6 +3365,7 @@ fn lower_context_alias_descriptor(
             &pattern.value,
             &semantic_sort_ref(&sort.sort),
             &pattern.field.key,
+            declarations,
             sort_parents,
             catalog,
             &binding_sorts,
@@ -3311,6 +3433,7 @@ fn lower_rule_state_term(
     state: &ProtocolRuleStateTerm<DescriptorTerm>,
     declared_sort: &SemanticSortRef,
     fallback_key: &ProvenanceKey,
+    declarations: &BTreeMap<StableItemId, &Descriptor>,
     sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     binding_sorts: &BTreeMap<String, SemanticSortRef>,
@@ -3323,6 +3446,7 @@ fn lower_rule_state_term(
             descriptor,
             term,
             Some(declared_sort),
+            declarations,
             sort_parents,
             catalog,
             binding_sorts,
@@ -3345,6 +3469,7 @@ fn lower_rule_state_term(
                         descriptor,
                         &item.value,
                         None,
+                        declarations,
                         sort_parents,
                         catalog,
                         binding_sorts,
@@ -3383,6 +3508,7 @@ fn lower_rule_state_term(
                             descriptor,
                             &item.key,
                             None,
+                            declarations,
                             sort_parents,
                             catalog,
                             binding_sorts,
@@ -3394,6 +3520,7 @@ fn lower_rule_state_term(
                             descriptor,
                             &item.value,
                             None,
+                            declarations,
                             sort_parents,
                             catalog,
                             binding_sorts,
@@ -3413,6 +3540,7 @@ fn lower_rule_state_term(
                             descriptor,
                             base,
                             Some(&SemanticSortRef::map()),
+                            declarations,
                             sort_parents,
                             catalog,
                             binding_sorts,
@@ -3424,6 +3552,7 @@ fn lower_rule_state_term(
                             descriptor,
                             key,
                             None,
+                            declarations,
                             sort_parents,
                             catalog,
                             binding_sorts,
@@ -3435,6 +3564,7 @@ fn lower_rule_state_term(
                             descriptor,
                             value,
                             None,
+                            declarations,
                             sort_parents,
                             catalog,
                             binding_sorts,
@@ -3710,6 +3840,32 @@ fn semantic_terms_equivalent(left: &SemanticTerm, right: &SemanticTerm) -> bool 
                 && semantic_term_slices_equivalent(left_arguments, right_arguments)
         }
         (
+            krs_ir::SemanticTermKind::List {
+                operation: left_operation,
+                arguments: left_arguments,
+            },
+            krs_ir::SemanticTermKind::List {
+                operation: right_operation,
+                arguments: right_arguments,
+            },
+        ) => {
+            left_operation == right_operation
+                && semantic_term_slices_equivalent(left_arguments, right_arguments)
+        }
+        (
+            krs_ir::SemanticTermKind::Set {
+                operation: left_operation,
+                arguments: left_arguments,
+            },
+            krs_ir::SemanticTermKind::Set {
+                operation: right_operation,
+                arguments: right_arguments,
+            },
+        ) => {
+            left_operation == right_operation
+                && semantic_term_slices_equivalent(left_arguments, right_arguments)
+        }
+        (
             krs_ir::SemanticTermKind::Rewrite {
                 from: left_from,
                 to: left_to,
@@ -3906,6 +4062,8 @@ fn lower_structured_rule_descriptor(
     let mut builder = StructuredTermBuilder {
         descriptor,
         catalog,
+        declarations: None,
+        k_item_sort: None,
         sort_parents,
         binding_names: &binding_names,
         pattern_key: Some(&rule.pattern_key),
@@ -3940,7 +4098,15 @@ fn lower_structured_rule_descriptor(
         .as_ref()
         .map(|priority| -> Result<_, DescriptorLoweringError> {
             Ok(SemanticRulePriority::new(
-                semantic_origin(descriptor, priority.key.clone(), "equation-priority")?,
+                semantic_origin(
+                    descriptor,
+                    priority.key.clone(),
+                    if rule.sentence_kind == krs_ir::SentenceKind::Transition {
+                        "rule-owise"
+                    } else {
+                        "equation-priority"
+                    },
+                )?,
                 priority.value,
             ))
         })
@@ -4010,6 +4176,8 @@ fn lower_structured_rule_descriptor(
 struct StructuredTermBuilder<'a> {
     descriptor: &'a Descriptor,
     catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
+    declarations: Option<&'a BTreeMap<StableItemId, &'a Descriptor>>,
+    k_item_sort: Option<SemanticSortRef>,
     sort_parents: &'a BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
     binding_names: &'a BTreeSet<String>,
     pattern_key: Option<&'a ProvenanceKey>,
@@ -4081,23 +4249,15 @@ impl StructuredTermBuilder<'_> {
                         builtin_production_signature(*operation)
                     }
                     DescriptorApplicationRef::Map(operation) => {
-                        let map_sort = SemanticSortRef::map();
-                        if let Some(expected) = expected_sort
-                            && !semantic_is_subsort(&map_sort, expected, self.sort_parents)
-                        {
-                            return Err(self.invalid_term(format!(
-                                "Map operation result is not admissible at sort {expected:?}"
-                            )));
-                        }
-                        let [base, key, value] = ordinary_map_arguments(*operation, arguments)
-                            .map_err(|detail| self.invalid_term(detail))?;
-                        self.infer(base, Some(&map_sort), subject)?;
-                        self.infer(key, None, subject)?;
-                        self.infer(value, None, subject)?;
+                        self.infer_map_operation(*operation, arguments, expected_sort, subject)?;
                         return Ok(());
                     }
                     DescriptorApplicationRef::List(operation) => {
                         self.infer_list_operation(*operation, arguments, expected_sort, subject)?;
+                        return Ok(());
+                    }
+                    DescriptorApplicationRef::Set(operation) => {
+                        self.infer_set_operation(*operation, arguments, expected_sort, subject)?;
                         return Ok(());
                     }
                 };
@@ -4150,16 +4310,112 @@ impl StructuredTermBuilder<'_> {
                     self.infer(argument, Some(&bool_sort), subject)?;
                 }
             }
+            DescriptorTerm::Cell {
+                declaration,
+                fields,
+                ..
+            } => {
+                let k_item = self.cell_k_item_sort()?;
+                if let Some(expected) = expected_sort
+                    && !semantic_is_subsort(&k_item, expected, self.sort_parents)
+                {
+                    return Err(self.invalid_term(
+                        "complete cell term is not admissible at the expected sort",
+                    ));
+                }
+                self.infer_cell_fields(declaration, fields, subject)?;
+            }
         }
         Ok(())
     }
 
-    fn infer_map_update(
+    fn infer_map_operation(
+        &mut self,
+        operation: MapOperation,
+        arguments: &[DescriptorTermArgument],
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        let arguments = ordinary_map_arguments(operation, arguments)
+            .map_err(|detail| self.invalid_term(detail))?;
+        let map_sort = SemanticSortRef::Builtin(BuiltinSort::Map);
+        let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
+        let result_sort = match operation {
+            MapOperation::Get => expected_sort
+                .cloned()
+                .ok_or_else(|| self.invalid_term("map::get requires an expected result sort"))?,
+            MapOperation::InKeys => bool_sort.clone(),
+            MapOperation::Update => map_sort.clone(),
+            MapOperation::Empty | MapOperation::Item => {
+                return Err(self.invalid_term("structural Map operation used as an application"));
+            }
+        };
+        if let Some(expected) = expected_sort
+            && !semantic_is_subsort(&result_sort, expected, self.sort_parents)
+        {
+            return Err(self.invalid_term(format!(
+                "Map operation result sort {result_sort:?} is not admissible at sort {expected:?}"
+            )));
+        }
+        let operand_sorts: Vec<Option<&SemanticSortRef>> = match operation {
+            MapOperation::Update => vec![Some(&map_sort), None, None],
+            MapOperation::Get => vec![Some(&map_sort), None],
+            MapOperation::InKeys => vec![None, Some(&map_sort)],
+            MapOperation::Empty | MapOperation::Item => unreachable!("checked above"),
+        };
+        for (argument, expected) in arguments.into_iter().zip(operand_sorts) {
+            self.infer(argument, expected, subject)?;
+        }
+        Ok(())
+    }
+
+    fn lower_map_operation(
+        &mut self,
+        reference: &krs_ir::DescriptorApplicationReference,
+        operation: MapOperation,
+        arguments: &[DescriptorTermArgument],
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let arguments = ordinary_map_arguments(operation, arguments)
+            .map_err(|detail| self.invalid_term(detail))?;
+        let map_sort = SemanticSortRef::Builtin(BuiltinSort::Map);
+        let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
+        let result_sort = match operation {
+            MapOperation::Get => expected_sort
+                .cloned()
+                .ok_or_else(|| self.invalid_term("map::get requires an expected result sort"))?,
+            MapOperation::InKeys => bool_sort,
+            MapOperation::Update => map_sort.clone(),
+            MapOperation::Empty | MapOperation::Item => {
+                return Err(self.invalid_term("structural Map operation used as an application"));
+            }
+        };
+        let operand_sorts: Vec<Option<&SemanticSortRef>> = match operation {
+            MapOperation::Update => vec![Some(&map_sort), None, None],
+            MapOperation::Get => vec![Some(&map_sort), None],
+            MapOperation::InKeys => vec![None, Some(&map_sort)],
+            MapOperation::Empty | MapOperation::Item => unreachable!("checked above"),
+        };
+        let lowered = arguments
+            .into_iter()
+            .zip(operand_sorts)
+            .map(|(argument, expected)| self.lower(argument, expected, subject))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(SemanticTerm::typed_map(
+            semantic_origin(self.descriptor, reference.key.clone(), "term-map-operation")?,
+            result_sort,
+            operation,
+            lowered,
+        ))
+    }
+
+    fn infer_collection_update(
         &mut self,
         update: &DescriptorTerm,
         base_binding: &str,
-        key_sort: Option<&SemanticSortRef>,
-        value_sort: Option<&SemanticSortRef>,
+        cell_sort: &SemanticSortRef,
+        map_sorts: Option<&(SemanticSortRef, SemanticSortRef)>,
     ) -> Result<(), DescriptorLoweringError> {
         let DescriptorTerm::Application {
             head_class,
@@ -4168,30 +4424,54 @@ impl StructuredTermBuilder<'_> {
             ..
         } = update
         else {
-            return Err(self.invalid_term("map-cell replacement is not an application"));
+            return Err(self.invalid_term("updated-cell replacement is not an application"));
         };
-        if *head_class != krs_ir::DescriptorApplicationHeadClass::Applied
-            || reference.application != DescriptorApplicationRef::Map(MapOperation::Update)
-        {
-            return Err(self.invalid_term(
-                "map-cell replacement does not resolve to the registered map::update operation",
-            ));
+        if *head_class != krs_ir::DescriptorApplicationHeadClass::Applied {
+            return Err(self.invalid_term("updated-cell replacement head is not applied"));
         }
-        let [base, key, value] = ordinary_map_arguments(MapOperation::Update, arguments)
-            .map_err(|detail| self.invalid_term(detail))?;
+        let ordered = match (&reference.application, cell_sort) {
+            (
+                DescriptorApplicationRef::Map(MapOperation::Update),
+                SemanticSortRef::Builtin(BuiltinSort::Map),
+            ) => ordinary_map_arguments(MapOperation::Update, arguments)
+                .map_err(|detail| self.invalid_term(detail))?,
+            (
+                DescriptorApplicationRef::List(ListOperation::Update),
+                SemanticSortRef::Builtin(BuiltinSort::List),
+            ) => ordinary_list_arguments(ListOperation::Update, arguments)
+                .map_err(|detail| self.invalid_term(detail))?,
+            _ => {
+                return Err(self.invalid_term(
+                    "updated-cell replacement does not resolve to the registered update operation for its collection sort",
+                ));
+            }
+        };
+        let [base, key, value] = ordered.as_slice() else {
+            unreachable!("collection update arity is checked")
+        };
         let DescriptorTerm::Variable { name, .. } = base else {
             return Err(
-                self.invalid_term("map-cell update base is not the matched whole-map binding")
+                self.invalid_term("updated-cell base is not the matched whole-collection binding")
             );
         };
         if name != base_binding {
             return Err(self.invalid_term(format!(
-                "map-cell update base {name:?} does not match {base_binding:?}"
+                "updated-cell base {name:?} does not match {base_binding:?}"
             )));
         }
-        self.infer(base, Some(&SemanticSortRef::map()), false)?;
-        self.infer(key, key_sort, false)?;
-        self.infer(value, value_sort, false)
+        self.infer(base, Some(cell_sort), false)?;
+        let int_sort = SemanticSortRef::Builtin(BuiltinSort::Int);
+        match cell_sort {
+            SemanticSortRef::Builtin(BuiltinSort::Map) => {
+                self.infer(key, map_sorts.map(|(key_sort, _)| key_sort), false)?;
+                self.infer(value, map_sorts.map(|(_, value_sort)| value_sort), false)
+            }
+            SemanticSortRef::Builtin(BuiltinSort::List) => {
+                self.infer(key, Some(&int_sort), false)?;
+                self.infer(value, None, false)
+            }
+            _ => Err(self.invalid_term("only Map and List cells support readable updates")),
+        }
     }
 
     fn infer_list_operation(
@@ -4213,7 +4493,10 @@ impl StructuredTermBuilder<'_> {
             ListOperation::Empty
             | ListOperation::Item
             | ListOperation::Concat
-            | ListOperation::Update => list_sort.clone(),
+            | ListOperation::Update
+            | ListOperation::Make
+            | ListOperation::Range
+            | ListOperation::UpdateAll => list_sort.clone(),
         };
         if let Some(expected) = expected_sort
             && !semantic_is_subsort(&result_sort, expected, self.sort_parents)
@@ -4229,6 +4512,11 @@ impl StructuredTermBuilder<'_> {
             ListOperation::Get => vec![Some(&list_sort), Some(&int_sort)],
             ListOperation::Update => vec![Some(&list_sort), Some(&int_sort), None],
             ListOperation::Size => vec![Some(&list_sort)],
+            ListOperation::Make => vec![Some(&int_sort), None],
+            ListOperation::Range => vec![Some(&list_sort), Some(&int_sort), Some(&int_sort)],
+            ListOperation::UpdateAll => {
+                vec![Some(&list_sort), Some(&int_sort), Some(&list_sort)]
+            }
         };
         for (argument, expected) in arguments.into_iter().zip(operand_sorts) {
             self.infer(argument, expected, subject)?;
@@ -4256,7 +4544,10 @@ impl StructuredTermBuilder<'_> {
             ListOperation::Empty
             | ListOperation::Item
             | ListOperation::Concat
-            | ListOperation::Update => list_sort.clone(),
+            | ListOperation::Update
+            | ListOperation::Make
+            | ListOperation::Range
+            | ListOperation::UpdateAll => list_sort.clone(),
         };
         let operand_sorts: Vec<Option<&SemanticSortRef>> = match operation {
             ListOperation::Empty => vec![],
@@ -4265,6 +4556,11 @@ impl StructuredTermBuilder<'_> {
             ListOperation::Get => vec![Some(&list_sort), Some(&int_sort)],
             ListOperation::Update => vec![Some(&list_sort), Some(&int_sort), None],
             ListOperation::Size => vec![Some(&list_sort)],
+            ListOperation::Make => vec![Some(&int_sort), None],
+            ListOperation::Range => vec![Some(&list_sort), Some(&int_sort), Some(&int_sort)],
+            ListOperation::UpdateAll => {
+                vec![Some(&list_sort), Some(&int_sort), Some(&list_sort)]
+            }
         };
         let lowered = arguments
             .into_iter()
@@ -4277,6 +4573,75 @@ impl StructuredTermBuilder<'_> {
                 reference.key.clone(),
                 "term-list-operation",
             )?,
+            result_sort,
+            operation,
+            lowered,
+        ))
+    }
+
+    fn infer_set_operation(
+        &mut self,
+        operation: SetOperation,
+        arguments: &[DescriptorTermArgument],
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        let arguments = ordinary_set_arguments(operation, arguments)
+            .map_err(|detail| self.invalid_term(detail))?;
+        let set_sort = SemanticSortRef::Builtin(BuiltinSort::Set);
+        let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
+        let result_sort = match operation {
+            SetOperation::Contains => bool_sort.clone(),
+            SetOperation::Empty | SetOperation::Item | SetOperation::Concat => set_sort.clone(),
+        };
+        if let Some(expected) = expected_sort
+            && !semantic_is_subsort(&result_sort, expected, self.sort_parents)
+        {
+            return Err(self.invalid_term(format!(
+                "Set operation result sort {result_sort:?} is not admissible at sort {expected:?}"
+            )));
+        }
+        let operand_sorts: Vec<Option<&SemanticSortRef>> = match operation {
+            SetOperation::Empty => vec![],
+            SetOperation::Item => vec![None],
+            SetOperation::Concat => vec![Some(&set_sort), Some(&set_sort)],
+            SetOperation::Contains => vec![None, Some(&set_sort)],
+        };
+        for (argument, expected) in arguments.into_iter().zip(operand_sorts) {
+            self.infer(argument, expected, subject)?;
+        }
+        Ok(())
+    }
+
+    fn lower_set_operation(
+        &mut self,
+        reference: &krs_ir::DescriptorApplicationReference,
+        operation: SetOperation,
+        arguments: &[DescriptorTermArgument],
+        _expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let arguments = ordinary_set_arguments(operation, arguments)
+            .map_err(|detail| self.invalid_term(detail))?;
+        let set_sort = SemanticSortRef::Builtin(BuiltinSort::Set);
+        let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
+        let result_sort = match operation {
+            SetOperation::Contains => bool_sort,
+            SetOperation::Empty | SetOperation::Item | SetOperation::Concat => set_sort.clone(),
+        };
+        let operand_sorts: Vec<Option<&SemanticSortRef>> = match operation {
+            SetOperation::Empty => vec![],
+            SetOperation::Item => vec![None],
+            SetOperation::Concat => vec![Some(&set_sort), Some(&set_sort)],
+            SetOperation::Contains => vec![None, Some(&set_sort)],
+        };
+        let lowered = arguments
+            .into_iter()
+            .zip(operand_sorts)
+            .map(|(argument, expected)| self.lower(argument, expected, subject))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(SemanticTerm::set(
+            semantic_origin(self.descriptor, reference.key.clone(), "term-set-operation")?,
             result_sort,
             operation,
             lowered,
@@ -4388,26 +4753,25 @@ impl StructuredTermBuilder<'_> {
                         builtin_production_signature(*operation),
                     ),
                     DescriptorApplicationRef::Map(operation) => {
-                        let [base, key, value] = ordinary_map_arguments(*operation, arguments)
-                            .map_err(|detail| self.invalid_term(detail))?;
-                        let map_sort = SemanticSortRef::map();
-                        let lowered = vec![
-                            self.lower(base, Some(&map_sort), subject)?,
-                            self.lower(key, None, subject)?,
-                            self.lower(value, None, subject)?,
-                        ];
-                        return Ok(SemanticTerm::map(
-                            semantic_origin(
-                                self.descriptor,
-                                reference.key.clone(),
-                                "term-map-operation",
-                            )?,
+                        return self.lower_map_operation(
+                            reference,
                             *operation,
-                            lowered,
-                        ));
+                            arguments,
+                            expected_sort,
+                            subject,
+                        );
                     }
                     DescriptorApplicationRef::List(operation) => {
                         return self.lower_list_operation(
+                            reference,
+                            *operation,
+                            arguments,
+                            expected_sort,
+                            subject,
+                        );
+                    }
+                    DescriptorApplicationRef::Set(operation) => {
+                        return self.lower_set_operation(
                             reference,
                             *operation,
                             arguments,
@@ -4476,7 +4840,172 @@ impl StructuredTermBuilder<'_> {
                 }
                 Ok(value)
             }
+            DescriptorTerm::Cell {
+                key,
+                declaration,
+                fields,
+            } => self.lower_cell_term(key, declaration, fields, subject),
         }
+    }
+
+    fn cell_k_item_sort(&self) -> Result<SemanticSortRef, DescriptorLoweringError> {
+        self.k_item_sort.clone().ok_or_else(|| {
+            self.invalid_term("fragment! requires one selected framework KItem sort")
+        })
+    }
+
+    fn cell_declaration(
+        &self,
+        owner: &StableItemId,
+    ) -> Result<&krs_ir::DescriptorCellDeclaration, DescriptorLoweringError> {
+        let declarations = self.declarations.ok_or_else(|| {
+            self.invalid_term("fragment! is supported only where cell declarations are available")
+        })?;
+        let descriptor = require_descriptor(owner, ItemKind::Cell, declarations)?;
+        let DescriptorPayload::Cell(declaration) = &descriptor.payload else {
+            unreachable!("kind-checked cell descriptor has cell payload")
+        };
+        Ok(declaration)
+    }
+
+    fn infer_cell_fields(
+        &mut self,
+        owner: &StableItemId,
+        fields: &[krs_ir::DescriptorCellTermField],
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        let declaration = self.cell_declaration(owner)?.clone();
+        let supplied = fields
+            .iter()
+            .map(|field| (field.field.clone(), field))
+            .collect::<BTreeMap<_, _>>();
+        if supplied.len() != fields.len() || supplied.len() != declaration.fields.len() {
+            return Err(self.invalid_term(format!(
+                "fragment! for {:?} must provide every child field exactly once",
+                owner.item_name()
+            )));
+        }
+        for declared in &declaration.fields {
+            let field = supplied
+                .get(&ProductionFieldId::new(&declared.rust_field)?)
+                .ok_or_else(|| {
+                    self.invalid_term(format!(
+                        "fragment! for {:?} is missing child field {:?}",
+                        owner.item_name(),
+                        declared.rust_field
+                    ))
+                })?;
+            match &declared.content {
+                ProtocolCellContent::Leaf { sort, .. } => {
+                    self.infer(&field.value, Some(&semantic_sort_ref(&sort.sort)), subject)?;
+                }
+                ProtocolCellContent::Nested {
+                    declaration: nested,
+                } => {
+                    let DescriptorTerm::Cell { declaration, .. } = field.value.as_ref() else {
+                        return Err(self.invalid_term(format!(
+                            "nested child {:?} must be authored with fragment!",
+                            declared.rust_field
+                        )));
+                    };
+                    if declaration != &nested.declaration {
+                        return Err(self.invalid_term(format!(
+                            "nested child {:?} uses the wrong cell declaration",
+                            declared.rust_field
+                        )));
+                    }
+                    self.infer(&field.value, Some(&self.cell_k_item_sort()?), subject)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn lower_cell_term(
+        &mut self,
+        key: &ProvenanceKey,
+        owner: &StableItemId,
+        fields: &[krs_ir::DescriptorCellTermField],
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let declaration = self.cell_declaration(owner)?.clone();
+        let supplied = fields
+            .iter()
+            .map(|field| (field.field.clone(), field))
+            .collect::<BTreeMap<_, _>>();
+        let mut children = Vec::with_capacity(declaration.fields.len());
+        for declared in &declaration.fields {
+            let field_id = ProductionFieldId::new(&declared.rust_field)?;
+            let field = supplied.get(&field_id).ok_or_else(|| {
+                self.invalid_term(format!(
+                    "fragment! is missing child field {:?}",
+                    declared.rust_field
+                ))
+            })?;
+            let child = match &declared.content {
+                ProtocolCellContent::Leaf { sort, .. } => {
+                    let content_sort = semantic_sort_ref(&sort.sort);
+                    let content = self.lower(&field.value, Some(&content_sort), subject)?;
+                    SemanticTerm::cell(
+                        semantic_origin(self.descriptor, field.key.clone(), "cell-term-child")?,
+                        self.cell_k_item_sort()?,
+                        semantic_cell_id(&declared.reference.cell)?,
+                        vec![content],
+                    )
+                }
+                ProtocolCellContent::Nested { .. } => {
+                    self.lower(&field.value, Some(&self.cell_k_item_sort()?), subject)?
+                }
+            };
+            children.push(child);
+        }
+        let identity = self.cell_identity_for_declaration(owner)?;
+        Ok(SemanticTerm::cell(
+            semantic_origin(self.descriptor, key.clone(), "cell-term")?,
+            self.cell_k_item_sort()?,
+            semantic_cell_id(identity)?,
+            children,
+        ))
+    }
+
+    fn cell_identity_for_declaration(
+        &self,
+        owner: &StableItemId,
+    ) -> Result<&krs_ir::DescriptorCellIdentity, DescriptorLoweringError> {
+        let declarations = self
+            .declarations
+            .ok_or_else(|| self.invalid_term("fragment! has no cell-declaration catalog"))?;
+        let mut matches = declarations
+            .values()
+            .flat_map(|descriptor| {
+                let declaration = match &descriptor.payload {
+                    DescriptorPayload::Cell(value) => Some(value.as_ref()),
+                    DescriptorPayload::FixedConfiguration(value) => Some(&value.declaration),
+                    _ => None,
+                };
+                declaration
+                    .into_iter()
+                    .flat_map(|declaration| declaration.fields.iter())
+            })
+            .filter(|field| {
+                matches!(
+                    &field.content,
+                    ProtocolCellContent::Nested { declaration } if &declaration.declaration == owner
+                )
+            });
+        let first = matches.next().ok_or_else(|| {
+            self.invalid_term(format!(
+                "cell declaration {:?} is not attached to the fixed configuration",
+                owner.item_name()
+            ))
+        })?;
+        if matches.next().is_some() {
+            return Err(self.invalid_term(format!(
+                "cell declaration {:?} is attached more than once",
+                owner.item_name()
+            )));
+        }
+        Ok(&first.reference.cell)
     }
 
     fn lower_record_rest_wildcard(
@@ -4576,23 +5105,26 @@ fn builtin_production_signature(operation: BuiltinOperation) -> ProductionSignat
 fn ordinary_map_arguments(
     operation: MapOperation,
     arguments: &[DescriptorTermArgument],
-) -> Result<[&DescriptorTerm; 3], String> {
-    if operation != MapOperation::Update {
+) -> Result<Vec<&DescriptorTerm>, String> {
+    let expected = match operation {
+        MapOperation::Update => 3,
+        MapOperation::Get | MapOperation::InKeys => 2,
+        MapOperation::Empty | MapOperation::Item => {
+            return Err(format!(
+                "Map operation {operation:?} is not available as an ordinary term application"
+            ));
+        }
+    };
+    if arguments.len() != expected {
         return Err(format!(
-            "Map operation {operation:?} is not available as an ordinary term application"
-        ));
-    }
-    let [base, key, value] = arguments else {
-        return Err(format!(
-            "map::update expects 3 positional arguments but received {}",
+            "Map operation {operation:?} expects {expected} positional arguments but received {}",
             arguments.len()
         ));
-    };
-    Ok([
-        ordinary_map_positional_argument(base)?,
-        ordinary_map_positional_argument(key)?,
-        ordinary_map_positional_argument(value)?,
-    ])
+    }
+    arguments
+        .iter()
+        .map(ordinary_map_positional_argument)
+        .collect()
 }
 
 fn ordinary_map_positional_argument(
@@ -4601,9 +5133,30 @@ fn ordinary_map_positional_argument(
     match argument {
         DescriptorTermArgument::Positional { value } => Ok(value),
         DescriptorTermArgument::Named { .. } => {
-            Err("map::update accepts positional arguments only".to_owned())
+            Err("builtin collection operations accept positional arguments only".to_owned())
         }
     }
+}
+
+fn ordinary_set_arguments(
+    operation: SetOperation,
+    arguments: &[DescriptorTermArgument],
+) -> Result<Vec<&DescriptorTerm>, String> {
+    let expected = match operation {
+        SetOperation::Empty => 0,
+        SetOperation::Item => 1,
+        SetOperation::Concat | SetOperation::Contains => 2,
+    };
+    if arguments.len() != expected {
+        return Err(format!(
+            "Set operation {operation:?} expects {expected} positional arguments but received {}",
+            arguments.len()
+        ));
+    }
+    arguments
+        .iter()
+        .map(ordinary_map_positional_argument)
+        .collect()
 }
 
 fn ordinary_list_arguments(
@@ -4613,8 +5166,8 @@ fn ordinary_list_arguments(
     let expected = match operation {
         ListOperation::Empty => 0,
         ListOperation::Item | ListOperation::Size => 1,
-        ListOperation::Concat | ListOperation::Get => 2,
-        ListOperation::Update => 3,
+        ListOperation::Concat | ListOperation::Get | ListOperation::Make => 2,
+        ListOperation::Update | ListOperation::Range | ListOperation::UpdateAll => 3,
     };
     if arguments.len() != expected {
         return Err(format!(

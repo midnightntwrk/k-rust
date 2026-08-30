@@ -108,7 +108,7 @@ fn positional_docs_labels_and_raw_identities_are_retained() {
         use StmtSyntax::*;
 
         /// Unfold the loop.
-        #[k::rule(label = "while-step")]
+        #[k::rule(owise, label = "while-step")]
         r#while: While(c, s) => IfThen(c, s) where c: Bool;
         "#,
     )
@@ -116,6 +116,7 @@ fn positional_docs_labels_and_raw_identities_are_retained() {
     let clause = &block.clauses()[0];
     assert_eq!(clause.rule().item().sig.ident.to_string(), "r#while");
     assert_eq!(clause.attribute().label().unwrap().value(), "while-step");
+    assert!(clause.attribute().is_owise());
     assert!(
         clause
             .rule()

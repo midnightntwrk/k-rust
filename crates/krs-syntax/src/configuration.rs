@@ -241,9 +241,7 @@ impl ConfigurationDeclaration {
             cells.push(parsed);
         }
         if cells.iter().any(FixedCellField::has_inferred_wrapper)
-            && let Some(field) = cells
-                .iter()
-                .find(|field| !field.has_inferred_wrapper() || !field.cell_helper_present)
+            && let Some(field) = cells.iter().find(|field| !field.cell_helper_present)
         {
             return Err(unsupported_field(
                 "wrapper-free configurations require `#[k::cell]` on every plain field",
@@ -308,6 +306,20 @@ impl ConfigurationDeclaration {
                     ProvenanceRole::ConfigurationCellColor,
                     ordinal,
                     TokenRange::for_tokens(color)?,
+                ));
+            }
+            if let Some(multiplicity) = cell.attribute.multiplicity() {
+                anchors.push(ProvenanceAnchor::new(
+                    ProvenanceRole::ConfigurationCellMultiplicity,
+                    ordinal,
+                    TokenRange::for_tokens(multiplicity)?,
+                ));
+            }
+            if let Some(cell_type) = cell.attribute.cell_type() {
+                anchors.push(ProvenanceAnchor::new(
+                    ProvenanceRole::ConfigurationCellType,
+                    ordinal,
+                    TokenRange::for_tokens(cell_type)?,
                 ));
             }
             match &cell.content {
@@ -437,7 +449,10 @@ fn parse_cell_field(field: Field, infer_plain_leaf: bool) -> Result<FixedCellFie
     let emitted_name = attribute
         .name()
         .map_or_else(|| unraw(&name), syn::LitStr::value);
-    let content = parse_cell_type(&field.ty, cell_helper_present && infer_plain_leaf)?;
+    let content = parse_cell_type(
+        &field.ty,
+        cell_helper_present && infer_plain_leaf && !attribute.is_nested(),
+    )?;
     Ok(FixedCellField {
         field,
         name,

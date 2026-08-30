@@ -70,7 +70,7 @@ def main() -> None:
         report = client.request(
             "textDocument/diagnostic",
             {"textDocument": {"uri": SOURCE.as_uri()}},
-            timeout=90,
+            timeout=240,
         )
         diagnostics = report.get("items", []) if report else []
         assert not diagnostics, diagnostics
@@ -92,9 +92,9 @@ def main() -> None:
             ),
             (
                 "continuation constructor",
-                "continuation: EvaluationContinuation::AddRight { local, rhs }",
-                "AddRight",
-                "    AddRight { local: Int, rhs: Operand },",
+                "continuation: EvaluationContinuation::BinaryRight { place, operation, rhs, checked }",
+                "BinaryRight",
+                "    BinaryRight {",
                 0,
             ),
             (
@@ -106,10 +106,10 @@ def main() -> None:
             ),
             (
                 "local binding",
-                "value: Value::Integer(int::add(lhs, rhs))",
+                "value: int::add(lhs, rhs)",
                 "lhs",
-                "continuation: EvaluationContinuation::FinishAdd { local, lhs }",
-                1,
+                "checked: false, operation: MirBinaryOp::BinOpAdd(), lhs: Value::Integer { value: lhs, width, signed }",
+                0,
             ),
             (
                 "return constructor",

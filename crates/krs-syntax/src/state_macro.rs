@@ -293,6 +293,7 @@ pub enum StateTerm {
 #[derive(Clone, Debug)]
 pub struct CellsEntry {
     name: Ident,
+    owner: Option<Path>,
     wrapper: Path,
     value: StateTerm,
 }
@@ -302,6 +303,16 @@ impl CellsEntry {
     #[must_use]
     pub const fn name(&self) -> &Ident {
         &self.name
+    }
+
+    /// Returns an explicit nested declaration owner, when the field was
+    /// written as an owner-qualified path such as `Account::storage`.
+    ///
+    /// Unqualified authored fields continue to resolve against the rule's
+    /// top-level configuration.
+    #[must_use]
+    pub const fn owner(&self) -> Option<&Path> {
+        self.owner.as_ref()
     }
 
     /// Returns the authored `Cell`/`KCell` wrapper path.
@@ -837,11 +848,34 @@ fn parse_cells(
                 }
                 break;
             }
-            let name: Ident = input.parse().map_err(SyntaxError::from)?;
-            if !names.insert(name.to_string()) {
+            let mut field: Path = input.parse().map_err(SyntaxError::from)?;
+            if !is_plain_path(&field) {
                 return Err(state_error(
                     "cells",
-                    "a cell field occurs more than once",
+                    "cell fields must be plain Rust paths",
+                    field.span(),
+                ));
+            }
+            let name = field
+                .segments
+                .pop()
+                .expect("a plain cell field path is nonempty")
+                .into_value()
+                .ident;
+            field.segments.pop_punct();
+            let owner = if field.segments.is_empty() {
+                None
+            } else {
+                Some(field)
+            };
+            let identity = owner.as_ref().map_or_else(
+                || name.to_string(),
+                |owner| format!("{}::{name}", path_spelling(owner)),
+            );
+            if !names.insert(identity) {
+                return Err(state_error(
+                    "cells",
+                    "an owner-qualified cell field occurs more than once",
                     name.span(),
                 ));
             }
@@ -874,6 +908,7 @@ fn parse_cells(
             };
             entries.push(CellsEntry {
                 name,
+                owner,
                 wrapper,
                 value,
             });

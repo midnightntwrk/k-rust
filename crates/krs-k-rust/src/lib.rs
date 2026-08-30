@@ -15,7 +15,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     error::Error,
-    fmt,
+    fmt::{self, Write as _},
 };
 
 use k_rust::{
@@ -47,7 +47,7 @@ use krs_ir::{
     FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, FormatFragment,
     GrammarProductionItemKind, GroupAssociativity, ListOperation, MapOperation, NodeOrigin,
     OriginFrame, ProductionGroupId, ProductionSentence, RuleSentence, SemanticId, SentenceKind,
-    SourceMapKey, StableItemId, StrictnessKind, SymbolId,
+    SetOperation, SourceMapKey, StableItemId, StrictnessKind, SymbolId,
 };
 use serde_json::json;
 
@@ -136,21 +136,16 @@ pub const FRONTEND_CAPABILITIES: FrontendCapabilities = FrontendCapabilities {
     structured_definition_preparation: CapabilityAvailability::Available,
 };
 
-/// Import policy of the portable provisional M2 preparation route.
-///
-/// The route does not synthesize the Java frontend's implicit public `MAP`
-/// import. Consequently local M2 source sentences can agree while the full
-/// imported source/KORE closure remains different (the observed oracle counts
-/// are 251 reference sentences versus 130 portable-native sentences).
+/// Import policy of the provisional M2 preparation route.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PortablePreludePolicy {
-    /// Preserve only imports present in Definition IR.
-    ExplicitImportsOnly,
+    /// Resolve structured IR against the pinned native builtin closure.
+    PinnedBuiltinClosure,
 }
 
 /// Prelude policy used by [`compile_definition_provisional_oracle`].
 pub const PORTABLE_PRELUDE_POLICY: PortablePreludePolicy =
-    PortablePreludePolicy::ExplicitImportsOnly;
+    PortablePreludePolicy::PinnedBuiltinClosure;
 
 /// Stable role occupied by one adapted native node.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -586,6 +581,27 @@ pub fn prepare_definition(
     backend: Backend,
 ) -> Result<LoadedDefinition, String> {
     const BOOTSTRAP_MODULE: &str = "KRS-STRUCTURED-BOOTSTRAP";
+    const DEFAULT_CONFIGURATION_MODULE: &str = "DEFAULT-CONFIGURATION";
+    let local_modules = definition
+        .modules
+        .iter()
+        .map(|module| module.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let bootstrap_imports = definition
+        .modules
+        .iter()
+        .flat_map(|module| module.imports.iter())
+        .filter(|import| !local_modules.contains(import.name.as_str()))
+        .map(|import| import.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let bootstrap_imports =
+        bootstrap_imports
+            .into_iter()
+            .fold(String::new(), |mut source, name| {
+                writeln!(source, "  imports {name}").expect("writing to String cannot fail");
+                source
+            });
+    let bootstrap_source = format!("module {BOOTSTRAP_MODULE}\n{bootstrap_imports}endmodule\n");
     let prelude = builtin::embedded("prelude.md")
         .ok_or_else(|| "pinned compatibility prelude is unavailable".to_owned())?;
     let mut resolver = |_: &str, required: &str| {
@@ -596,10 +612,7 @@ pub fn prepare_definition(
         Backend::Haskell => kompile::CompilationBackend::Rust.excluded_module_attribute(),
     };
     let mut loaded = load_with_options(
-        ResolvedSource::new(
-            "krs-structured-bootstrap.k",
-            format!("module {BOOTSTRAP_MODULE}\nendmodule\n"),
-        ),
+        ResolvedSource::new("krs-structured-bootstrap.k", bootstrap_source),
         BOOTSTRAP_MODULE,
         &mut resolver,
         &NativeLoadOptions {
@@ -610,10 +623,14 @@ pub fn prepare_definition(
     )
     .map_err(|error| error.to_string())?;
 
-    loaded
-        .definition
-        .modules
-        .retain(|module| module.name != BOOTSTRAP_MODULE);
+    loaded.definition.modules.retain(|module| {
+        module.name != BOOTSTRAP_MODULE && module.name != DEFAULT_CONFIGURATION_MODULE
+    });
+    for module in &mut loaded.definition.modules {
+        module
+            .imports
+            .retain(|import| import.name != DEFAULT_CONFIGURATION_MODULE);
+    }
     for module in &definition.modules {
         if loaded
             .definition
@@ -897,9 +914,8 @@ fn native_source_map_key(source: &str) -> Option<&str> {
 /// flat graph, and isolates public-field `LoadedDefinition` assembly here.
 /// Both returned KORE definitions are reparsed before success is reported.
 ///
-/// This route preserves explicit IR imports only. It does not synthesize
-/// `MAP`, so its full KORE closure is not equivalent to a reference route that
-/// implicitly imports the pinned prelude.
+/// This route resolves builtin imports against the same pinned native closure
+/// as the permanent structured compiler.
 ///
 /// # Errors
 ///
@@ -910,7 +926,7 @@ pub fn compile_definition_provisional_oracle(
     options: CompileOptions,
 ) -> Result<CompiledArtifacts, ProvisionalCompileError> {
     let adapted = adapt_definition(ir).map_err(ProvisionalCompileError::Adapter)?;
-    let loaded = prepare_provisional_oracle(&adapted)?;
+    let loaded = prepare_provisional_oracle(&adapted, options.backend)?;
     let artifacts =
         compile_loaded_definition(&loaded, options).map_err(ProvisionalCompileError::Compile)?;
     parse_kore_definition(&artifacts.definition_kore).map_err(|error| {
@@ -1304,6 +1320,20 @@ impl Adapter {
             }
             DefinitionProductionAttribute::Total { .. } => {
                 attributes.insert("total", json!(""));
+            }
+            DefinitionProductionAttribute::Hook { operation, .. } => {
+                let hook = match operation {
+                    krs_ir::HookOperation::KryptoKeccak256Raw => "KRYPTO.keccak256raw",
+                    krs_ir::HookOperation::KryptoSha256Raw => "KRYPTO.sha256raw",
+                    krs_ir::HookOperation::KryptoRipemd160Raw => "KRYPTO.ripemd160raw",
+                    krs_ir::HookOperation::KryptoEcdsaRecover => "KRYPTO.ecdsaRecover",
+                    krs_ir::HookOperation::KryptoBn128Valid => "KRYPTO.bn128valid",
+                    krs_ir::HookOperation::KryptoBn128Add => "KRYPTO.bn128add",
+                    krs_ir::HookOperation::KryptoBn128Mul => "KRYPTO.bn128mul",
+                    krs_ir::HookOperation::KryptoBn128G2Valid => "KRYPTO.bn128g2valid",
+                    krs_ir::HookOperation::KryptoBn128Ate => "KRYPTO.bn128ate",
+                };
+                attributes.insert("hook", json!(hook));
             }
             DefinitionProductionAttribute::Alias { .. } => {
                 attributes.insert("alias", json!(""));
@@ -2030,7 +2060,15 @@ impl Adapter {
                         self.term(argument, module, sentence_index, child_path, context, rule)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                Self::map_term(*operation, arguments, term.origin())
+                let native = Self::map_term(*operation, arguments, term.origin())?;
+                if *operation == MapOperation::Get {
+                    Ok(NativeTerm::apply(
+                        format!("project:{}", self.sort(term.sort(), term.origin())?.name),
+                        vec![native],
+                    ))
+                } else {
+                    Ok(native)
+                }
             }
             DefinitionTermKind::List {
                 operation,
@@ -2048,15 +2086,40 @@ impl Adapter {
                 let native = Self::list_term(*operation, arguments, term.origin())?;
                 if *operation == ListOperation::Get {
                     Ok(NativeTerm::apply(
-                        format!(
-                            "#SemanticCastTo{}",
-                            self.sort(term.sort(), term.origin())?.name
-                        ),
+                        format!("project:{}", self.sort(term.sort(), term.origin())?.name),
                         vec![native],
                     ))
                 } else {
                     Ok(native)
                 }
+            }
+            DefinitionTermKind::Set {
+                operation,
+                arguments,
+            } => {
+                let arguments = arguments
+                    .iter()
+                    .enumerate()
+                    .map(|(index, argument)| {
+                        let mut child_path = path.clone();
+                        child_path.push(u32::try_from(index).unwrap_or(u32::MAX));
+                        self.term(argument, module, sentence_index, child_path, context, rule)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Self::set_term(*operation, arguments, term.origin())
+            }
+            DefinitionTermKind::Cell { cell, children } => {
+                let name = self.cell_name(cell, term.origin())?.to_owned();
+                let arguments = children
+                    .iter()
+                    .enumerate()
+                    .map(|(index, child)| {
+                        let mut child_path = path.clone();
+                        child_path.push(u32::try_from(index).unwrap_or(u32::MAX));
+                        self.term(child, module, sentence_index, child_path, context, rule)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(NativeTerm::apply(format!("<{name}>"), arguments))
             }
             DefinitionTermKind::Rewrite { from, to } => {
                 let mut left_path = path.clone();
@@ -2107,6 +2170,13 @@ impl Adapter {
             MapOperation::Update if arguments.len() == 3 => {
                 Ok(NativeTerm::apply("Map:update", arguments))
             }
+            MapOperation::Get if arguments.len() == 2 => {
+                Ok(NativeTerm::apply("Map:lookup", arguments))
+            }
+            MapOperation::InKeys if arguments.len() == 2 => Ok(NativeTerm::apply(
+                "_in_keys(_)_MAP_Bool_KItem_Map",
+                arguments,
+            )),
             _ => Err(AdapterError::MissingReference {
                 key: origin.key().clone(),
                 kind: "Map operation arity",
@@ -2127,10 +2197,34 @@ impl Adapter {
             (ListOperation::Get, 2) => "List:get",
             (ListOperation::Update, 3) => "List:set",
             (ListOperation::Size, 1) => "sizeList",
+            (ListOperation::Make, 2) => "makeList(_,_)_LIST_List_Int_KItem",
+            (ListOperation::Range, 3) => "List:range",
+            (ListOperation::UpdateAll, 3) => "updateList(_,_,_)_LIST_List_List_Int_List",
             _ => {
                 return Err(AdapterError::MissingReference {
                     key: origin.key().clone(),
                     kind: "List operation arity",
+                    target: format!("{operation:?}/{}", arguments.len()),
+                });
+            }
+        };
+        Ok(NativeTerm::apply(label, arguments))
+    }
+
+    fn set_term(
+        operation: SetOperation,
+        arguments: Vec<NativeTerm>,
+        origin: &NodeOrigin,
+    ) -> Result<NativeTerm, AdapterError> {
+        let label = match (operation, arguments.len()) {
+            (SetOperation::Empty, 0) => ".Set",
+            (SetOperation::Item, 1) => "SetItem",
+            (SetOperation::Concat, 2) => "_Set_",
+            (SetOperation::Contains, 2) => "Set:in",
+            _ => {
+                return Err(AdapterError::MissingReference {
+                    key: origin.key().clone(),
+                    kind: "Set operation arity",
                     target: format!("{operation:?}/{}", arguments.len()),
                 });
             }
@@ -2152,6 +2246,7 @@ impl Adapter {
             DefinitionSortRef::Builtin(BuiltinSort::Id) => "Id",
             DefinitionSortRef::Builtin(BuiltinSort::Bytes) => "Bytes",
             DefinitionSortRef::Builtin(BuiltinSort::List) => "List",
+            DefinitionSortRef::Builtin(BuiltinSort::Set) => "Set",
         }))
     }
 
@@ -2269,6 +2364,9 @@ fn module_builtin_imports(module: &krs_ir::DefinitionModule) -> BTreeSet<String>
                 }
             }
             DefinitionSentence::Configuration(sentence) => {
+                // Configuration expansion lowers external variables through
+                // `Map:lookup`, even when no authored cell has sort Map.
+                sorts.insert(BuiltinSort::Map);
                 if let Some(cell) = sentence.cell() {
                     collect_builtin_sort(cell.content_sort(), &mut sorts);
                 }
@@ -2324,6 +2422,7 @@ fn module_builtin_imports(module: &krs_ir::DefinitionModule) -> BTreeSet<String>
             BuiltinSort::Id => Some("ID-SYNTAX".to_owned()),
             BuiltinSort::Bytes => Some("BYTES".to_owned()),
             BuiltinSort::List => Some("LIST".to_owned()),
+            BuiltinSort::Set => Some("SET".to_owned()),
         })
         .collect()
 }
@@ -2368,9 +2467,20 @@ fn collect_term_builtins(term: &DefinitionTerm, output: &mut BTreeSet<BuiltinSor
                 collect_term_builtins(argument, output);
             }
         }
+        DefinitionTermKind::Set { arguments, .. } => {
+            output.insert(BuiltinSort::Set);
+            for argument in arguments {
+                collect_term_builtins(argument, output);
+            }
+        }
         DefinitionTermKind::Rewrite { from, to } => {
             collect_term_builtins(from, output);
             collect_term_builtins(to, output);
+        }
+        DefinitionTermKind::Cell { children, .. } => {
+            for child in children {
+                collect_term_builtins(child, output);
+            }
         }
     }
 }
@@ -2471,6 +2581,8 @@ fn native_cell_properties(attributes: &[CellAttribute], main: bool) -> NativeTer
         .iter()
         .map(|attribute| match attribute {
             CellAttribute::Color { value, .. } => ("color", value.as_str()),
+            CellAttribute::Multiplicity { value, .. } => ("multiplicity", value.as_str()),
+            CellAttribute::CollectionType { value, .. } => ("type", value.as_str()),
         })
         .collect::<Vec<_>>();
     if main {
@@ -2525,9 +2637,13 @@ fn term_contains_variable(term: &DefinitionTerm, variable: &SemanticId) -> bool 
             items: arguments, ..
         }
         | DefinitionTermKind::Map { arguments, .. }
-        | DefinitionTermKind::List { arguments, .. } => arguments
+        | DefinitionTermKind::List { arguments, .. }
+        | DefinitionTermKind::Set { arguments, .. } => arguments
             .iter()
             .any(|argument| term_contains_variable(argument, variable)),
+        DefinitionTermKind::Cell { children, .. } => children
+            .iter()
+            .any(|child| term_contains_variable(child, variable)),
         DefinitionTermKind::Rewrite { from, to } => {
             term_contains_variable(from, variable) || term_contains_variable(to, variable)
         }
@@ -2588,7 +2704,7 @@ const fn builtin_label(operation: BuiltinOperation) -> &'static str {
         BuiltinOperation::IntTDiv => "_/Int_",
         BuiltinOperation::IntMod => "_modInt_",
         BuiltinOperation::IntPowMod => "_^%Int__",
-        BuiltinOperation::IntLog2 => "log2Int",
+        BuiltinOperation::IntLog2 => "log2Int(_)_INT-COMMON_Int_Int",
         BuiltinOperation::IntShiftRight => "_>>Int_",
         BuiltinOperation::IntShiftLeft => "_<<Int_",
         BuiltinOperation::IntBitAnd => "_&Int_",
@@ -2605,8 +2721,12 @@ const fn builtin_label(operation: BuiltinOperation) -> &'static str {
         BuiltinOperation::BoolNotEqual => "_=/=Bool_",
         BuiltinOperation::BoolAnd => "_andBool_",
         BuiltinOperation::BoolOr => "_orBool_",
-        BuiltinOperation::BytesLength => "lengthBytes",
-        BuiltinOperation::BytesGet => "_[_]",
+        BuiltinOperation::BytesLength => "lengthBytes(_)_BYTES-HOOKED_Int_Bytes",
+        BuiltinOperation::BytesGet => "_[_]_BYTES-HOOKED_Int_Bytes_Int",
+        BuiltinOperation::BytesEmpty => ".Bytes_BYTES-HOOKED_Bytes",
+        BuiltinOperation::BytesUpdate => "_[_<-_]_BYTES-HOOKED_Bytes_Bytes_Int_Int",
+        BuiltinOperation::BytesPadRight => "padRightBytes(_,_,_)_BYTES-HOOKED_Bytes_Bytes_Int_Int",
+        BuiltinOperation::BytesSubstring => "substrBytes(_,_,_)_BYTES-HOOKED_Bytes_Bytes_Int_Int",
     }
 }
 
@@ -2656,22 +2776,14 @@ fn truth() -> NativeTerm {
 
 fn prepare_provisional_oracle(
     adapted: &AdaptedDefinition,
+    backend: Backend,
 ) -> Result<LoadedDefinition, ProvisionalCompileError> {
-    let definition = expand_configurations(&adapted.definition)
-        .map_err(|error| ProvisionalCompileError::Configuration(error.to_string()))?;
+    let loaded = prepare_definition(adapted.definition.clone(), backend)
+        .map_err(ProvisionalCompileError::Configuration)?;
     for initializer in &adapted.initializers {
-        validate_initializer_identity(&definition, initializer)?;
+        validate_initializer_identity(&loaded.definition, initializer)?;
     }
-    let resolved = ResolvedDefinition::resolve(&definition)
-        .map_err(|error| ProvisionalCompileError::Resolution(error.to_string()))?;
-    // This unchecked public-field boundary is deliberately isolated in this
-    // provisional oracle. It must be deleted when k-rust exposes supported
-    // structured preparation.
-    Ok(LoadedDefinition {
-        files: Vec::new(),
-        definition,
-        resolved,
-    })
+    Ok(loaded)
 }
 
 fn validate_initializer_identity(

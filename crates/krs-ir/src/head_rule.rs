@@ -4,9 +4,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 use crate::{
-    DescriptorCellReference, DescriptorRuleLabel, DescriptorSortReference, DescriptorTerm,
-    HostConfigurationReference, HostSortReference, HostTerm, ItemKind, ProtocolV7ShapeError,
-    ProvenanceKey, SentenceKind, StableItemId,
+    DescriptorCellReference, DescriptorRuleCondition, DescriptorRuleLabel, DescriptorRulePriority,
+    DescriptorSortReference, DescriptorTerm, HostConfigurationReference, HostRuleCondition,
+    HostSortReference, HostTerm, ItemKind, ProtocolV7ShapeError, ProvenanceKey, SentenceKind,
+    StableItemId,
 };
 
 /// One readable binding with an optional explicit `where name: Sort` refinement.
@@ -102,6 +103,8 @@ pub struct HostHeadRule {
     pub sentence_kind: SentenceKind,
     /// Optional emitted K label.
     pub label: Option<DescriptorRuleLabel>,
+    /// Optional ordered-fallback priority transported from `#[k::rule(owise)]`.
+    pub priority: Option<DescriptorRulePriority>,
     /// Complete authored head pattern.
     pub pattern_key: ProvenanceKey,
     /// Complete authored right-hand side.
@@ -118,6 +121,8 @@ pub struct HostHeadRule {
     pub subject: HostTerm,
     /// Replacement, splice, or erasure before the implicit preserved tail.
     pub result: HostHeadRuleResult,
+    /// Optional object-language Boolean side condition.
+    pub requires: Option<HostRuleCondition>,
     /// Explicit non-computation-cell reads and writes.
     pub extras: Vec<HostHeadRuleExtra>,
 }
@@ -131,6 +136,9 @@ pub struct DescriptorHeadRule {
     /// Optional emitted K label.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<DescriptorRuleLabel>,
+    /// Optional ordered-fallback priority transported from `#[k::rule(owise)]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<DescriptorRulePriority>,
     /// Complete authored head pattern.
     pub pattern_key: ProvenanceKey,
     /// Complete authored right-hand side.
@@ -148,6 +156,9 @@ pub struct DescriptorHeadRule {
     pub subject: DescriptorTerm,
     /// Replacement, splice, or erasure before the implicit preserved tail.
     pub result: DescriptorHeadRuleResult,
+    /// Optional object-language Boolean side condition.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requires: Option<DescriptorRuleCondition>,
     /// Explicit resolved non-computation-cell reads and writes.
     pub extras: Vec<DescriptorHeadRuleExtra>,
 }
@@ -160,6 +171,23 @@ fn sentence_item_kind(kind: SentenceKind) -> ItemKind {
         SentenceKind::Alias => ItemKind::Alias,
         SentenceKind::Claim => ItemKind::Claim,
     }
+}
+
+fn validate_owise_priority(
+    kind: SentenceKind,
+    priority: Option<&DescriptorRulePriority>,
+) -> Result<(), ProtocolV7ShapeError> {
+    if let Some(priority) = priority
+        && (kind != SentenceKind::Transition
+            || priority.key.role() != "rule_owise"
+            || priority.key.ordinal() != 0
+            || priority.value != 200)
+    {
+        return Err(ProtocolV7ShapeError::InvalidTerm(
+            "head-rule ordered fallback priority",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_bindings<S, I, T>(
@@ -204,6 +232,7 @@ impl HostHeadRule {
                 actual: item_kind,
             });
         }
+        validate_owise_priority(self.sentence_kind, self.priority.as_ref())?;
         if self.pattern_key.role() != "rule_pattern"
             || self.pattern_key.ordinal() != 0
             || self.result_key.role() != "rule_result"
@@ -231,6 +260,13 @@ impl HostHeadRule {
             }
         }
         validate_bindings(&self.bindings, &self.extras)?;
+        if let Some(requires) = &self.requires
+            && (requires.key.role() != "rule_requires" || requires.key.ordinal() != 0)
+        {
+            return Err(ProtocolV7ShapeError::InvalidTerm(
+                "head-rule requires provenance key",
+            ));
+        }
         let mut cells = BTreeSet::new();
         for extra in &self.extras {
             let cell = match extra {
@@ -290,6 +326,7 @@ impl DescriptorHeadRule {
                 actual: item_kind,
             });
         }
+        validate_owise_priority(self.sentence_kind, self.priority.as_ref())?;
         if self.configuration.item_kind() != ItemKind::Configuration {
             return Err(ProtocolV7ShapeError::ItemKind {
                 field: "head-rule configuration",
@@ -301,6 +338,13 @@ impl DescriptorHeadRule {
             return Err(ProtocolV7ShapeError::CellOwnerMismatch);
         }
         validate_bindings(&self.bindings, &self.extras)?;
+        if let Some(requires) = &self.requires
+            && (requires.key.role() != "rule_requires" || requires.key.ordinal() != 0)
+        {
+            return Err(ProtocolV7ShapeError::InvalidTerm(
+                "head-rule requires provenance key",
+            ));
+        }
         let mut cells = BTreeSet::new();
         for extra in &self.extras {
             let cell = match extra {
@@ -308,7 +352,9 @@ impl DescriptorHeadRule {
                 | ProtocolHeadRuleExtra::UpdateMap { cell, .. }
                 | ProtocolHeadRuleExtra::RewriteCell { cell, .. } => cell,
             };
-            if cell.cell.owner != self.configuration {
+            if cell.cell.owner != self.configuration
+                && cell.cell.owner.item_kind() != ItemKind::Cell
+            {
                 return Err(ProtocolV7ShapeError::CellOwnerMismatch);
             }
             if cell.cell == self.computation_cell.cell || !cells.insert(cell.cell.clone()) {

@@ -8,7 +8,7 @@ use krs_ir::{
     BuiltinOperation, BuiltinSort, DescriptorApplicationRef, DescriptorHeadRule, DescriptorPayload,
     DescriptorTerm, DescriptorTermArgument, ListOperation, MapOperation, PackageId,
     ProtocolHeadRuleExtra, ProtocolHeadRuleResult, SemanticRule, SemanticSortRef, SemanticTheory,
-    StableItemId,
+    SetOperation, StableItemId,
 };
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
@@ -327,8 +327,13 @@ fn materialize_reference_variant_fields(
                         field: name.to_string(),
                     }
                 })?;
-                field.ty = syn::parse2(render_reference_term_type(sort, package, module_path)?)
-                    .map_err(ReferenceExpansionError::GeneratedRust)?;
+                field.ty = syn::parse2(render_reference_term_type(
+                    sort,
+                    package,
+                    module_path,
+                    bundle,
+                )?)
+                .map_err(ReferenceExpansionError::GeneratedRust)?;
             }
         }
         syn::Fields::Unnamed(fields) if fields.unnamed.is_empty() => {
@@ -367,6 +372,7 @@ fn render_reference_term_type(
     sort: &krs_ir::DescriptorSortRef,
     package: &PackageId,
     module_path: &[String],
+    bundle: &krs_ir::DescriptorBundle,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     match sort {
         krs_ir::DescriptorSortRef::Builtin(sort) => {
@@ -376,6 +382,9 @@ fn render_reference_term_type(
         krs_ir::DescriptorSortRef::Declared(id)
             if id.package() == package && id.module_path() == module_path =>
         {
+            if is_token_sort(id, bundle) {
+                return render_reference_token_term_type(id, package);
+            }
             let marker = format_ident!("{}Sort", id.item_name());
             Ok(quote!(k::Term<dyn #marker>))
         }
@@ -383,6 +392,30 @@ fn render_reference_term_type(
             ReferenceExpansionError::ExternalReferenceSort(Box::new(id.clone())),
         ),
     }
+}
+
+fn render_reference_token_term_type(
+    id: &StableItemId,
+    package: &PackageId,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    let token = render_declared_path(id, package)?;
+    Ok(quote!(k::Term<#token>))
+}
+
+fn is_token_sort(id: &StableItemId, bundle: &krs_ir::DescriptorBundle) -> bool {
+    bundle.descriptors.iter().any(|descriptor| {
+        let DescriptorPayload::Grammar(grammar) = &descriptor.payload else {
+            return false;
+        };
+        let krs_ir::GrammarDescriptor::Production(production) = grammar.as_ref() else {
+            return false;
+        };
+        matches!(
+            &production.owner,
+            krs_ir::DescriptorProductionOwner::TokenSort { sort }
+                if sort.sort == krs_ir::DescriptorSortRef::Declared(id.clone())
+        )
+    })
 }
 
 fn materialize_reference_strictness(
@@ -891,7 +924,8 @@ fn render_rule(
         parameters.push(quote!(#name: #ty));
     }
 
-    let computation = rust_ident(&rule.computation_cell.cell.field);
+    let computation =
+        render_rule_cell_field(&rule.computation_cell.cell, &rule.configuration, package)?;
     let subject = render_term(&rule.subject, true, package, bundle)?;
     let mut left_cells = vec![quote! {
         #computation: k::configuration::KCell(#subject, #tail @ ..)
@@ -918,7 +952,7 @@ fn render_rule(
                 key,
                 value_binding,
             } => {
-                let cell = rust_ident(&cell.cell.field);
+                let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
                 let key = render_term(key, true, package, bundle)?;
                 let value = rust_ident(value_binding);
                 let rest = fresh_ident(&format!("rest{ordinal}"), &mut reserved);
@@ -931,7 +965,7 @@ fn render_rule(
                 base_binding,
                 update,
             } => {
-                let cell = rust_ident(&cell.cell.field);
+                let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
                 let base = rust_ident(base_binding);
                 let update = render_term(update, false, package, bundle)?;
                 left_cells.push(quote!(#cell: k::configuration::Cell(#base)));
@@ -945,7 +979,7 @@ fn render_rule(
                 after,
                 ..
             } => {
-                let cell = rust_ident(&cell.cell.field);
+                let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
                 let before = render_term(before, true, package, bundle)?;
                 let after = render_term(after, false, package, bundle)?;
                 left_cells.push(quote! {
@@ -970,9 +1004,18 @@ fn render_rule(
         Span::call_site(),
     );
     let attrs = &clause.rule().item().attrs;
+    let rule_attribute = if rule
+        .priority
+        .as_ref()
+        .is_some_and(|priority| priority.key.role() == "rule_owise" && priority.value == 200)
+    {
+        quote!(#[k::rule(owise, label = #label)])
+    } else {
+        quote!(#[k::rule(label = #label)])
+    };
     syn::parse2(quote! {
         #(#attrs)*
-        #[k::rule(label = #label)]
+        #rule_attribute
         pub fn #name(
             #(#parameters,)*
             k::cells! {
@@ -987,6 +1030,19 @@ fn render_rule(
         }
     })
     .map_err(ReferenceExpansionError::GeneratedRust)
+}
+
+fn render_rule_cell_field(
+    cell: &krs_ir::DescriptorCellIdentity,
+    configuration: &StableItemId,
+    package: &PackageId,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    let field = rust_ident(&cell.field);
+    if &cell.owner == configuration {
+        return Ok(quote!(#field));
+    }
+    let owner = render_declared_path(&cell.owner, package)?;
+    Ok(quote!(#owner::#field))
 }
 
 #[allow(clippy::too_many_lines)] // Exhaustive rendering mirrors the closed descriptor term sum.
@@ -1014,6 +1070,7 @@ fn render_term(
                 }
                 DescriptorApplicationRef::Map(operation) => render_map_operation(*operation)?,
                 DescriptorApplicationRef::List(operation) => render_list_operation(*operation),
+                DescriptorApplicationRef::Set(operation) => render_set_operation(*operation),
             };
             if arguments.is_empty()
                 && matches!(
@@ -1115,6 +1172,22 @@ fn render_term(
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(quote!(k::or_bool!(#(#arguments),*)))
         }
+        DescriptorTerm::Cell {
+            declaration,
+            fields,
+            ..
+        } => {
+            let owner = render_declared_path(declaration, package)?;
+            let fields = fields
+                .iter()
+                .map(|field| {
+                    let name = rust_ident(field.field.as_str());
+                    let value = render_term(&field.value, pattern, package, bundle)?;
+                    Ok(quote!(#name: #value))
+                })
+                .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
+            Ok(quote!(k::fragment![#owner { #(#fields),* }]))
+        }
     }
 }
 
@@ -1209,6 +1282,7 @@ fn render_builtin_sort(sort: BuiltinSort) -> TokenStream {
         BuiltinSort::Id => format_ident!("Id"),
         BuiltinSort::Bytes => format_ident!("Bytes"),
         BuiltinSort::List => format_ident!("List"),
+        BuiltinSort::Set => format_ident!("Set"),
     };
     quote!(k::builtin::#name)
 }
@@ -1240,6 +1314,10 @@ fn render_builtin_operation(operation: BuiltinOperation) -> TokenStream {
         BuiltinOperation::BoolOr => (format_ident!("bool"), format_ident!("or")),
         BuiltinOperation::BytesLength => (format_ident!("bytes"), format_ident!("length")),
         BuiltinOperation::BytesGet => (format_ident!("bytes"), format_ident!("get")),
+        BuiltinOperation::BytesEmpty => (format_ident!("bytes"), format_ident!("empty")),
+        BuiltinOperation::BytesUpdate => (format_ident!("bytes"), format_ident!("update")),
+        BuiltinOperation::BytesPadRight => (format_ident!("bytes"), format_ident!("pad_right")),
+        BuiltinOperation::BytesSubstring => (format_ident!("bytes"), format_ident!("substr")),
     };
     quote!(k::builtin::#module::#name)
 }
@@ -1247,10 +1325,22 @@ fn render_builtin_operation(operation: BuiltinOperation) -> TokenStream {
 fn render_map_operation(operation: MapOperation) -> Result<TokenStream, ReferenceExpansionError> {
     match operation {
         MapOperation::Update => Ok(quote!(k::builtin::map::update)),
+        MapOperation::Get => Ok(quote!(k::builtin::map::get)),
+        MapOperation::InKeys => Ok(quote!(k::builtin::map::in_keys)),
         MapOperation::Empty | MapOperation::Item => {
             Err(ReferenceExpansionError::NamedBuiltinApplication)
         }
     }
+}
+
+fn render_set_operation(operation: SetOperation) -> TokenStream {
+    let name = match operation {
+        SetOperation::Empty => format_ident!("empty"),
+        SetOperation::Item => format_ident!("item"),
+        SetOperation::Concat => format_ident!("concat"),
+        SetOperation::Contains => format_ident!("contains"),
+    };
+    quote!(k::builtin::set::#name)
 }
 
 fn render_list_operation(operation: ListOperation) -> TokenStream {
@@ -1261,6 +1351,9 @@ fn render_list_operation(operation: ListOperation) -> TokenStream {
         ListOperation::Get => format_ident!("get"),
         ListOperation::Update => format_ident!("update"),
         ListOperation::Size => format_ident!("size"),
+        ListOperation::Make => format_ident!("make"),
+        ListOperation::Range => format_ident!("range"),
+        ListOperation::UpdateAll => format_ident!("update_all"),
     };
     quote!(k::builtin::list::#name)
 }
@@ -1512,11 +1605,11 @@ impl Error for ReferenceExpansionError {
 
 #[cfg(test)]
 mod tests {
-    use super::{contains_use_tree, render_term};
+    use super::{contains_use_tree, render_reference_token_term_type, render_term};
     use krs_ir::{
         BuiltinSort, DescriptorApplicationHeadClass, DescriptorApplicationRef,
         DescriptorApplicationReference, DescriptorBundle, DescriptorTerm, DescriptorTermArgument,
-        ListOperation, PackageId, ProvenanceKey,
+        ItemKind, ListOperation, PackageId, ProvenanceKey, StableItemId,
     };
     use quote::ToTokens;
 
@@ -1551,6 +1644,24 @@ mod tests {
             .unwrap()
             .to_string();
         assert_eq!(rendered, r#"k :: bytes ! (b"\0A\xFF")"#);
+    }
+
+    #[test]
+    fn declared_token_reference_field_remains_a_symbolic_term() {
+        let package = PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap();
+        let token = StableItemId::new(
+            package.clone(),
+            std::iter::empty::<String>(),
+            "String",
+            ItemKind::Sort,
+            "",
+        )
+        .unwrap();
+        let rendered = render_reference_token_term_type(&token, &package)
+            .unwrap()
+            .to_string();
+
+        assert_eq!(rendered, "k :: Term < crate :: String >");
     }
 
     #[test]

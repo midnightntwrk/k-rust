@@ -26,29 +26,39 @@ use krs_ir::{
     DefinitionRuleCondition, DefinitionSentence, DefinitionSortRef, DefinitionTerm, FixedCell,
     FixedCellPattern, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationVariable,
     FixedInitializerCell, FormatFragment, GroupAssociativity, GroupAssociativitySentence,
-    InitializerDeclaration, ItemKind, LabelId, LabelIdentity, ListOperation, MapOperation,
-    ModuleId, NodeOrigin, OriginStack, PackageId, PrecedenceRelation, ProductionFieldId,
-    ProductionFieldReference, ProductionGroupId, ProductionItem as IrProductionItem,
-    ProductionResultSort, ProductionSentence, RuleSentence, SemanticId, SentenceKind, Sha256Digest,
-    SourceFileId, SourceMapKey, SourceRange, StableItemId, StrictnessKind, SubsortSentence,
-    SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    HookOperation, InitializerDeclaration, ItemKind, LabelId, LabelIdentity, ListOperation,
+    MapOperation, ModuleId, NodeOrigin, OriginStack, PackageId, PrecedenceRelation,
+    ProductionFieldId, ProductionFieldReference, ProductionGroupId,
+    ProductionItem as IrProductionItem, ProductionResultSort, ProductionSentence, RuleSentence,
+    SemanticId, SentenceKind, SetOperation, Sha256Digest, SourceFileId, SourceMapKey, SourceRange,
+    StableItemId, StrictnessKind, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind,
+    SyntaxSortSentence,
 };
 
 use super::{
     Adapter, Backend, CapabilityAvailability, CompileOptions, FRONTEND_CAPABILITIES, FRONTEND_PIN,
     LoadedDefinition, NativeNodeRole, PORTABLE_PRELUDE_POLICY, PortablePreludePolicy, TermContext,
     adapt_definition, compile_definition, compile_definition_provisional_oracle,
-    compile_loaded_definition, module_builtin_imports,
+    compile_loaded_definition, module_builtin_imports, prepare_definition,
 };
 
 const MODULE: &str = "KRS-ADAPTER-TEST";
 
 fn m2_definition() -> DefinitionIr {
-    m2_definition_with(SentenceKind::Transition, "initKCell")
+    m2_definition_with_cell(SentenceKind::Transition, "initKCell", "k")
 }
 
 #[allow(clippy::too_many_lines)]
 fn m2_definition_with(rule_kind: SentenceKind, initializer_name: &str) -> DefinitionIr {
+    m2_definition_with_cell(rule_kind, initializer_name, "k")
+}
+
+#[allow(clippy::too_many_lines)]
+fn m2_definition_with_cell(
+    rule_kind: SentenceKind,
+    initializer_name: &str,
+    cell_name: &str,
+) -> DefinitionIr {
     let k_item = SymbolId::new("sort.kitem").unwrap();
     let k_result = SymbolId::new("sort.kresult").unwrap();
     let value = SymbolId::new("sort.value").unwrap();
@@ -129,7 +139,7 @@ fn m2_definition_with(rule_kind: SentenceKind, initializer_name: &str) -> Defini
         Vec::new(),
         DefinitionTerm::k_sequence(
             node("def.term.init.sequence"),
-            DefinitionSortRef::declared(k_item),
+            DefinitionSortRef::declared(k_item.clone()),
             vec![DefinitionTerm::application(
                 node("def.term.init.foo"),
                 DefinitionSortRef::declared(value.clone()),
@@ -139,16 +149,65 @@ fn m2_definition_with(rule_kind: SentenceKind, initializer_name: &str) -> Defini
         ),
     )
     .unwrap();
-    let configuration = DefinitionSentence::Configuration(ConfigurationSentence::new(
-        node("def.configuration"),
-        CellDeclaration::new(
-            node("def.cell.k"),
-            symbol("cell.k", "k", SymbolKind::Cell),
-            DefinitionSortRef::k_sequence(),
-        )
-        .unwrap(),
-        initializer,
-    ));
+    let configuration = if cell_name == "k" {
+        DefinitionSentence::Configuration(ConfigurationSentence::new(
+            node("def.configuration"),
+            CellDeclaration::new(
+                node("def.cell.k"),
+                symbol("cell.k", cell_name, SymbolKind::Cell),
+                DefinitionSortRef::k_sequence(),
+            )
+            .unwrap(),
+            initializer,
+        ))
+    } else {
+        let cell = SymbolId::new("cell.k").unwrap();
+        let program = semantic_id("program");
+        let initializer_body = DefinitionTerm::k_sequence(
+            node("def.term.init.sequence"),
+            DefinitionSortRef::declared(k_item.clone()),
+            vec![DefinitionTerm::variable(
+                node("def.term.init.program"),
+                DefinitionSortRef::declared(value.clone()),
+                program.clone(),
+            )],
+        );
+        DefinitionSentence::Configuration(ConfigurationSentence::fixed(
+            FixedConfiguration::new(
+                node("def.configuration"),
+                semantic_id("configuration.machine"),
+                ConfigurationRoot::GeneratedTop,
+                vec![
+                    FixedCell::leaf(
+                        node("def.cell.k"),
+                        cell.clone(),
+                        cell_name,
+                        Vec::new(),
+                        DefinitionSortRef::k_sequence(),
+                    )
+                    .unwrap(),
+                ],
+                node("def.initializer"),
+                semantic_id("initializer.machine"),
+                vec![
+                    FixedConfigurationVariable::new(
+                        node("def.initializer.program"),
+                        program,
+                        "PGM",
+                        DefinitionSortRef::declared(value.clone()),
+                        true,
+                    )
+                    .unwrap(),
+                ],
+                vec![FixedInitializerCell::term(
+                    node("def.initializer.cell"),
+                    cell,
+                    initializer_body,
+                )],
+            )
+            .unwrap(),
+        ))
+    };
     let rewrite = DefinitionTerm::rewrite(
         node("def.term.rule.rewrite"),
         DefinitionSortRef::declared(value.clone()),
@@ -216,6 +275,336 @@ fn native_claim_modalities_are_explicit() {
         super::claim_modality_attribute(ClaimModality::AllPaths),
         "all-path"
     );
+}
+
+#[test]
+fn typed_hook_maps_to_the_exact_native_frontend_attribute() {
+    let production = ProductionSentence::new(
+        node("hook.production"),
+        symbol(
+            "production.keccak256raw",
+            "Keccak256raw",
+            SymbolKind::Production,
+        ),
+        DefinitionSortRef::bytes(),
+        vec![
+            IrProductionItem::terminal(node("hook.open"), "Keccak256raw(").unwrap(),
+            IrProductionItem::non_terminal(
+                node("hook.value"),
+                ProductionFieldId::new("value").unwrap(),
+                DefinitionSortRef::bytes(),
+            ),
+            IrProductionItem::terminal(node("hook.close"), ")").unwrap(),
+        ],
+        vec![
+            DefinitionProductionAttribute::Function {
+                origin: node("hook.function"),
+            },
+            DefinitionProductionAttribute::Total {
+                origin: node("hook.total"),
+            },
+            DefinitionProductionAttribute::Hook {
+                origin: node("hook.attribute"),
+                operation: HookOperation::KryptoKeccak256Raw,
+            },
+        ],
+    )
+    .unwrap();
+    let definition = m2_definition();
+    let mut adapter = Adapter::new(&definition);
+    let native = adapter.production(&production, MODULE, 0).unwrap();
+    let Sentence::Production { attributes, .. } = native else {
+        panic!("hooked function must remain a native production")
+    };
+    assert_eq!(attributes.get_str("hook"), Some("KRYPTO.keccak256raw"));
+    assert!(attributes.get("function").is_some());
+    assert!(attributes.get("total").is_some());
+}
+
+#[test]
+fn typed_sha256_hook_maps_to_the_exact_native_frontend_attribute() {
+    let production = ProductionSentence::new(
+        node("hook.sha256.production"),
+        symbol("production.sha256raw", "Sha256raw", SymbolKind::Production),
+        DefinitionSortRef::bytes(),
+        vec![
+            IrProductionItem::terminal(node("hook.sha256.open"), "Sha256raw(").unwrap(),
+            IrProductionItem::non_terminal(
+                node("hook.sha256.value"),
+                ProductionFieldId::new("value").unwrap(),
+                DefinitionSortRef::bytes(),
+            ),
+            IrProductionItem::terminal(node("hook.sha256.close"), ")").unwrap(),
+        ],
+        vec![
+            DefinitionProductionAttribute::Function {
+                origin: node("hook.sha256.function"),
+            },
+            DefinitionProductionAttribute::Total {
+                origin: node("hook.sha256.total"),
+            },
+            DefinitionProductionAttribute::Hook {
+                origin: node("hook.sha256.attribute"),
+                operation: HookOperation::KryptoSha256Raw,
+            },
+        ],
+    )
+    .unwrap();
+    let definition = m2_definition();
+    let mut adapter = Adapter::new(&definition);
+    let native = adapter.production(&production, MODULE, 0).unwrap();
+    let Sentence::Production { attributes, .. } = native else {
+        panic!("hooked function must remain a native production")
+    };
+    assert_eq!(attributes.get_str("hook"), Some("KRYPTO.sha256raw"));
+    assert!(attributes.get("function").is_some());
+    assert!(attributes.get("total").is_some());
+}
+
+#[test]
+fn typed_ripemd160_hook_maps_to_the_exact_native_frontend_attribute() {
+    let production = ProductionSentence::new(
+        node("hook.ripemd160.production"),
+        symbol(
+            "production.ripemd160raw",
+            "Ripemd160raw",
+            SymbolKind::Production,
+        ),
+        DefinitionSortRef::bytes(),
+        vec![
+            IrProductionItem::terminal(node("hook.ripemd160.open"), "Ripemd160raw(").unwrap(),
+            IrProductionItem::non_terminal(
+                node("hook.ripemd160.value"),
+                ProductionFieldId::new("value").unwrap(),
+                DefinitionSortRef::bytes(),
+            ),
+            IrProductionItem::terminal(node("hook.ripemd160.close"), ")").unwrap(),
+        ],
+        vec![
+            DefinitionProductionAttribute::Function {
+                origin: node("hook.ripemd160.function"),
+            },
+            DefinitionProductionAttribute::Total {
+                origin: node("hook.ripemd160.total"),
+            },
+            DefinitionProductionAttribute::Hook {
+                origin: node("hook.ripemd160.attribute"),
+                operation: HookOperation::KryptoRipemd160Raw,
+            },
+        ],
+    )
+    .unwrap();
+    let definition = m2_definition();
+    let mut adapter = Adapter::new(&definition);
+    let native = adapter.production(&production, MODULE, 0).unwrap();
+    let Sentence::Production { attributes, .. } = native else {
+        panic!("hooked function must remain a native production")
+    };
+    assert_eq!(attributes.get_str("hook"), Some("KRYPTO.ripemd160raw"));
+    assert!(attributes.get("function").is_some());
+    assert!(attributes.get("total").is_some());
+}
+
+#[test]
+fn typed_ecdsa_recover_hook_maps_to_the_exact_native_frontend_attribute() {
+    let production = ProductionSentence::new(
+        node("hook.ecdsa-recover.production"),
+        symbol(
+            "production.ecdsa-recover",
+            "EcdsaRecover",
+            SymbolKind::Production,
+        ),
+        DefinitionSortRef::bytes(),
+        vec![
+            IrProductionItem::terminal(node("hook.ecdsa-recover.open"), "EcdsaRecover(").unwrap(),
+            IrProductionItem::non_terminal(
+                node("hook.ecdsa-recover.hash"),
+                ProductionFieldId::new("hash").unwrap(),
+                DefinitionSortRef::bytes(),
+            ),
+            IrProductionItem::terminal(node("hook.ecdsa-recover.comma-1"), ", ").unwrap(),
+            IrProductionItem::non_terminal(
+                node("hook.ecdsa-recover.recovery"),
+                ProductionFieldId::new("recovery").unwrap(),
+                DefinitionSortRef::int(),
+            ),
+            IrProductionItem::terminal(node("hook.ecdsa-recover.comma-2"), ", ").unwrap(),
+            IrProductionItem::non_terminal(
+                node("hook.ecdsa-recover.r"),
+                ProductionFieldId::new("r").unwrap(),
+                DefinitionSortRef::bytes(),
+            ),
+            IrProductionItem::terminal(node("hook.ecdsa-recover.comma-3"), ", ").unwrap(),
+            IrProductionItem::non_terminal(
+                node("hook.ecdsa-recover.s"),
+                ProductionFieldId::new("s").unwrap(),
+                DefinitionSortRef::bytes(),
+            ),
+            IrProductionItem::terminal(node("hook.ecdsa-recover.close"), ")").unwrap(),
+        ],
+        vec![
+            DefinitionProductionAttribute::Function {
+                origin: node("hook.ecdsa-recover.function"),
+            },
+            DefinitionProductionAttribute::Total {
+                origin: node("hook.ecdsa-recover.total"),
+            },
+            DefinitionProductionAttribute::Hook {
+                origin: node("hook.ecdsa-recover.attribute"),
+                operation: HookOperation::KryptoEcdsaRecover,
+            },
+        ],
+    )
+    .unwrap();
+    let definition = m2_definition();
+    let mut adapter = Adapter::new(&definition);
+    let native = adapter.production(&production, MODULE, 0).unwrap();
+    let Sentence::Production { attributes, .. } = native else {
+        panic!("hooked function must remain a native production")
+    };
+    assert_eq!(attributes.get_str("hook"), Some("KRYPTO.ecdsaRecover"));
+    assert!(attributes.get("function").is_some());
+    assert!(attributes.get("total").is_some());
+}
+
+#[test]
+#[allow(clippy::too_many_lines)] // Verifies the complete typed BN128 hook family.
+fn typed_bn128_hooks_map_to_exact_native_frontend_attributes() {
+    let point = DefinitionSortRef::declared(SymbolId::new("sort.value").unwrap());
+    let g2_point = point.clone();
+    let attributes = |operation| {
+        vec![
+            DefinitionProductionAttribute::Function {
+                origin: node("hook.bn128.function"),
+            },
+            DefinitionProductionAttribute::Total {
+                origin: node("hook.bn128.total"),
+            },
+            DefinitionProductionAttribute::Hook {
+                origin: node("hook.bn128.attribute"),
+                operation,
+            },
+        ]
+    };
+    let valid = ProductionSentence::new(
+        node("hook.bn128-valid.production"),
+        symbol(
+            "production.bn128-valid",
+            "Bn128Valid",
+            SymbolKind::Production,
+        ),
+        DefinitionSortRef::bool(),
+        vec![
+            IrProductionItem::terminal(node("hook.bn128-valid.open"), "Bn128Valid(").unwrap(),
+            IrProductionItem::non_terminal(
+                node("hook.bn128-valid.point"),
+                ProductionFieldId::new("point").unwrap(),
+                point.clone(),
+            ),
+            IrProductionItem::terminal(node("hook.bn128-valid.close"), ")").unwrap(),
+        ],
+        attributes(HookOperation::KryptoBn128Valid),
+    )
+    .unwrap();
+    let add = ProductionSentence::new(
+        node("hook.bn128-add.production"),
+        symbol("production.bn128-add", "Bn128Add", SymbolKind::Production),
+        point.clone(),
+        vec![
+            IrProductionItem::terminal(node("hook.bn128-add.open"), "Bn128Add(").unwrap(),
+            IrProductionItem::non_terminal(
+                node("hook.bn128-add.left"),
+                ProductionFieldId::new("left").unwrap(),
+                point.clone(),
+            ),
+            IrProductionItem::terminal(node("hook.bn128-add.comma"), ",").unwrap(),
+            IrProductionItem::non_terminal(
+                node("hook.bn128-add.right"),
+                ProductionFieldId::new("right").unwrap(),
+                point.clone(),
+            ),
+            IrProductionItem::terminal(node("hook.bn128-add.close"), ")").unwrap(),
+        ],
+        attributes(HookOperation::KryptoBn128Add),
+    )
+    .unwrap();
+    let mul = ProductionSentence::new(
+        node("hook.bn128-mul.production"),
+        symbol("production.bn128-mul", "Bn128Mul", SymbolKind::Production),
+        point.clone(),
+        vec![
+            IrProductionItem::terminal(node("hook.bn128-mul.open"), "Bn128Mul(").unwrap(),
+            IrProductionItem::non_terminal(
+                node("hook.bn128-mul.point"),
+                ProductionFieldId::new("point").unwrap(),
+                point.clone(),
+            ),
+            IrProductionItem::terminal(node("hook.bn128-mul.comma"), ",").unwrap(),
+            IrProductionItem::non_terminal(
+                node("hook.bn128-mul.scalar"),
+                ProductionFieldId::new("scalar").unwrap(),
+                DefinitionSortRef::int(),
+            ),
+            IrProductionItem::terminal(node("hook.bn128-mul.close"), ")").unwrap(),
+        ],
+        attributes(HookOperation::KryptoBn128Mul),
+    )
+    .unwrap();
+    let g2_valid = ProductionSentence::new(
+        node("hook.bn128-g2-valid.production"),
+        symbol(
+            "production.bn128-g2-valid",
+            "Bn128G2Valid",
+            SymbolKind::Production,
+        ),
+        DefinitionSortRef::bool(),
+        vec![IrProductionItem::non_terminal(
+            node("hook.bn128-g2-valid.point"),
+            ProductionFieldId::new("point").unwrap(),
+            g2_point,
+        )],
+        attributes(HookOperation::KryptoBn128G2Valid),
+    )
+    .unwrap();
+    let ate = ProductionSentence::new(
+        node("hook.bn128-ate.production"),
+        symbol("production.bn128-ate", "Bn128Ate", SymbolKind::Production),
+        DefinitionSortRef::bool(),
+        vec![
+            IrProductionItem::non_terminal(
+                node("hook.bn128-ate.g1"),
+                ProductionFieldId::new("g1").unwrap(),
+                DefinitionSortRef::list(),
+            ),
+            IrProductionItem::non_terminal(
+                node("hook.bn128-ate.g2"),
+                ProductionFieldId::new("g2").unwrap(),
+                DefinitionSortRef::list(),
+            ),
+        ],
+        attributes(HookOperation::KryptoBn128Ate),
+    )
+    .unwrap();
+    let definition = m2_definition();
+    let mut adapter = Adapter::new(&definition);
+    for (index, (production, expected)) in [
+        (&valid, "KRYPTO.bn128valid"),
+        (&add, "KRYPTO.bn128add"),
+        (&mul, "KRYPTO.bn128mul"),
+        (&g2_valid, "KRYPTO.bn128g2valid"),
+        (&ate, "KRYPTO.bn128ate"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let native = adapter.production(production, MODULE, index).unwrap();
+        let Sentence::Production { attributes, .. } = native else {
+            panic!("hooked function must remain a native production")
+        };
+        assert_eq!(attributes.get_str("hook"), Some(expected));
+        assert!(attributes.get("function").is_some());
+        assert!(attributes.get("total").is_some());
+    }
 }
 
 #[test]
@@ -356,12 +745,13 @@ fn pin_and_portable_capabilities_are_explicit() {
     ));
     assert_eq!(
         PORTABLE_PRELUDE_POLICY,
-        PortablePreludePolicy::ExplicitImportsOnly
+        PortablePreludePolicy::PinnedBuiltinClosure
     );
 }
 
 #[test]
-fn builtin_map_and_list_terms_map_structurally_and_infer_imports() {
+#[allow(clippy::too_many_lines)] // Qualifies all structured builtin families in one definition.
+fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
     let definition = m2_definition();
     let mut adapter = Adapter::new(&definition);
     let int =
@@ -398,6 +788,123 @@ fn builtin_map_and_list_terms_map_structurally_and_infer_imports() {
         .unwrap();
     assert!(matches!(native_addition, Term::Apply { label, arguments }
         if label.name == "_+Int_" && arguments.len() == 2));
+    let empty_bytes = DefinitionTerm::application(
+        node("schema14.term.empty-bytes"),
+        DefinitionSortRef::bytes(),
+        ApplicationRef::Builtin(BuiltinOperation::BytesEmpty),
+        vec![],
+    );
+    let native_empty_bytes = adapter
+        .term(
+            &empty_bytes,
+            MODULE,
+            0,
+            Vec::new(),
+            TermContext::Normal,
+            None,
+        )
+        .unwrap();
+    assert!(
+        matches!(native_empty_bytes, Term::Apply { label, arguments }
+        if label.name == ".Bytes_BYTES-HOOKED_Bytes" && arguments.is_empty())
+    );
+    let bytes_update = DefinitionTerm::application(
+        node("schema15.term.bytes-update"),
+        DefinitionSortRef::bytes(),
+        ApplicationRef::Builtin(BuiltinOperation::BytesUpdate),
+        vec![
+            empty_bytes.clone(),
+            DefinitionTerm::token(
+                node("schema15.term.bytes-update.index"),
+                DefinitionSortRef::int(),
+                "0",
+            )
+            .unwrap(),
+            DefinitionTerm::token(
+                node("schema15.term.bytes-update.value"),
+                DefinitionSortRef::int(),
+                "255",
+            )
+            .unwrap(),
+        ],
+    );
+    let native_bytes_update = adapter
+        .term(
+            &bytes_update,
+            MODULE,
+            0,
+            Vec::new(),
+            TermContext::Normal,
+            None,
+        )
+        .unwrap();
+    assert!(
+        matches!(native_bytes_update, Term::Apply { label, arguments }
+        if label.name == "_[_<-_]_BYTES-HOOKED_Bytes_Bytes_Int_Int" && arguments.len() == 3)
+    );
+    let bytes_pad_right = DefinitionTerm::application(
+        node("schema15.term.bytes-pad-right"),
+        DefinitionSortRef::bytes(),
+        ApplicationRef::Builtin(BuiltinOperation::BytesPadRight),
+        vec![
+            empty_bytes,
+            DefinitionTerm::token(
+                node("schema15.term.bytes-pad-right.length"),
+                DefinitionSortRef::int(),
+                "32",
+            )
+            .unwrap(),
+            DefinitionTerm::token(
+                node("schema15.term.bytes-pad-right.value"),
+                DefinitionSortRef::int(),
+                "0",
+            )
+            .unwrap(),
+        ],
+    );
+    let native_bytes_pad_right = adapter
+        .term(
+            &bytes_pad_right,
+            MODULE,
+            0,
+            Vec::new(),
+            TermContext::Normal,
+            None,
+        )
+        .unwrap();
+    assert!(
+        matches!(native_bytes_pad_right, Term::Apply { label, arguments }
+        if label.name == "padRightBytes(_,_,_)_BYTES-HOOKED_Bytes_Bytes_Int_Int" && arguments.len() == 3)
+    );
+    let bytes_substring = DefinitionTerm::application(
+        node("schema26.term.bytes-substring"),
+        DefinitionSortRef::bytes(),
+        ApplicationRef::Builtin(BuiltinOperation::BytesSubstring),
+        vec![
+            DefinitionTerm::application(
+                node("schema26.term.bytes-substring.value"),
+                DefinitionSortRef::bytes(),
+                ApplicationRef::Builtin(BuiltinOperation::BytesEmpty),
+                vec![],
+            ),
+            int("schema26.term.bytes-substring.start", "1"),
+            int("schema26.term.bytes-substring.end", "3"),
+        ],
+    );
+    let native_bytes_substring = adapter
+        .term(
+            &bytes_substring,
+            MODULE,
+            0,
+            Vec::new(),
+            TermContext::Normal,
+            None,
+        )
+        .unwrap();
+    assert!(
+        matches!(native_bytes_substring, Term::Apply { label, arguments }
+        if label.name == "substrBytes(_,_,_)_BYTES-HOOKED_Bytes_Bytes_Int_Int" && arguments.len() == 3)
+    );
     let native_item = adapter
         .term(&item, MODULE, 0, Vec::new(), TermContext::Normal, None)
         .unwrap();
@@ -412,6 +919,89 @@ fn builtin_map_and_list_terms_map_structurally_and_infer_imports() {
         if label.name == "Map:update"
             && matches!(arguments.first(), Some(Term::Apply { label, arguments })
                 if label.name == ".Map" && arguments.is_empty())));
+    let map_get = DefinitionTerm::typed_map(
+        node("schema16.term.map-get"),
+        DefinitionSortRef::int(),
+        MapOperation::Get,
+        vec![
+            DefinitionTerm::map(node("schema16.term.get-map"), MapOperation::Empty, vec![]),
+            id("schema16.term.get-key", "a"),
+        ],
+    );
+    let native_map_get = adapter
+        .term(&map_get, MODULE, 0, Vec::new(), TermContext::Normal, None)
+        .unwrap();
+    assert!(matches!(native_map_get, Term::Apply { label, arguments }
+        if label.name == "project:Int"
+            && matches!(arguments.as_slice(), [Term::Apply { label, arguments }]
+                if label.name == "Map:lookup" && arguments.len() == 2)));
+    let map_in_keys = DefinitionTerm::typed_map(
+        node("schema16.term.map-in-keys"),
+        DefinitionSortRef::bool(),
+        MapOperation::InKeys,
+        vec![
+            id("schema16.term.in-keys-key", "a"),
+            DefinitionTerm::map(
+                node("schema16.term.in-keys-map"),
+                MapOperation::Empty,
+                vec![],
+            ),
+        ],
+    );
+    let native_map_in_keys = adapter
+        .term(
+            &map_in_keys,
+            MODULE,
+            0,
+            Vec::new(),
+            TermContext::Normal,
+            None,
+        )
+        .unwrap();
+    assert!(
+        matches!(native_map_in_keys, Term::Apply { label, arguments }
+        if label.name == "_in_keys(_)_MAP_Bool_KItem_Map" && arguments.len() == 2)
+    );
+
+    let set_empty = DefinitionTerm::set(
+        node("schema16.term.empty-set"),
+        DefinitionSortRef::set(),
+        SetOperation::Empty,
+        vec![],
+    );
+    let set_item = DefinitionTerm::set(
+        node("schema16.term.set-item"),
+        DefinitionSortRef::set(),
+        SetOperation::Item,
+        vec![int("schema16.term.set-value", "7")],
+    );
+    let set_concat = DefinitionTerm::set(
+        node("schema16.term.set-concat"),
+        DefinitionSortRef::set(),
+        SetOperation::Concat,
+        vec![set_item, set_empty],
+    );
+    let set_contains = DefinitionTerm::set(
+        node("schema16.term.set-contains"),
+        DefinitionSortRef::bool(),
+        SetOperation::Contains,
+        vec![int("schema16.term.set-member", "7"), set_concat],
+    );
+    let native_set_contains = adapter
+        .term(
+            &set_contains,
+            MODULE,
+            0,
+            Vec::new(),
+            TermContext::Normal,
+            None,
+        )
+        .unwrap();
+    assert!(
+        matches!(native_set_contains, Term::Apply { label, arguments }
+        if label.name == "Set:in"
+            && matches!(arguments.get(1), Some(Term::Apply { label, .. }) if label.name == "_Set_"))
+    );
 
     let list_empty = DefinitionTerm::list(
         node("schema11.term.empty-list"),
@@ -453,11 +1043,40 @@ fn builtin_map_and_list_terms_map_structurally_and_infer_imports() {
         ListOperation::Size,
         vec![list_concat],
     );
+    let list_make = DefinitionTerm::list(
+        node("schema27.term.list-make"),
+        DefinitionSortRef::list(),
+        ListOperation::Make,
+        vec![
+            int("schema27.term.list-make-length", "3"),
+            int("schema27.term.list-make-value", "7"),
+        ],
+    );
+    let list_range = DefinitionTerm::list(
+        node("schema25.term.list-range"),
+        DefinitionSortRef::list(),
+        ListOperation::Range,
+        vec![
+            list_empty.clone(),
+            int("schema25.term.list-range-front", "1"),
+            int("schema25.term.list-range-back", "2"),
+        ],
+    );
+    let list_update_all = DefinitionTerm::list(
+        node("schema25.term.list-update-all"),
+        DefinitionSortRef::list(),
+        ListOperation::UpdateAll,
+        vec![
+            list_empty.clone(),
+            int("schema25.term.list-update-all-index", "1"),
+            list_empty,
+        ],
+    );
     let native_list_get = adapter
         .term(&list_get, MODULE, 0, Vec::new(), TermContext::Normal, None)
         .unwrap();
     assert!(matches!(native_list_get, Term::Apply { label, arguments }
-        if label.name == "#SemanticCastToInt"
+        if label.name == "project:Int"
             && matches!(arguments.as_slice(), [Term::Apply { label, arguments }]
                 if label.name == "List:get"
                     && matches!(arguments.first(), Some(Term::Apply { label, .. })
@@ -481,6 +1100,38 @@ fn builtin_map_and_list_terms_map_structurally_and_infer_imports() {
         .unwrap();
     assert!(matches!(native_list_size, Term::Apply { label, arguments }
         if label.name == "sizeList" && arguments.len() == 1));
+    let native_list_make = adapter
+        .term(&list_make, MODULE, 0, Vec::new(), TermContext::Normal, None)
+        .unwrap();
+    assert!(matches!(native_list_make, Term::Apply { label, arguments }
+        if label.name == "makeList(_,_)_LIST_List_Int_KItem" && arguments.len() == 2));
+    let native_list_range = adapter
+        .term(
+            &list_range,
+            MODULE,
+            0,
+            Vec::new(),
+            TermContext::Normal,
+            None,
+        )
+        .unwrap();
+    assert!(matches!(native_list_range, Term::Apply { label, arguments }
+        if label.name == "List:range" && arguments.len() == 3));
+    let native_list_update_all = adapter
+        .term(
+            &list_update_all,
+            MODULE,
+            0,
+            Vec::new(),
+            TermContext::Normal,
+            None,
+        )
+        .unwrap();
+    assert!(
+        matches!(native_list_update_all, Term::Apply { label, arguments }
+        if label.name == "updateList(_,_,_)_LIST_List_List_Int_List"
+            && arguments.len() == 3)
+    );
 
     let rewrite = DefinitionTerm::rewrite(
         node("schema9.term.map-rewrite"),
@@ -524,6 +1175,56 @@ fn builtin_map_and_list_terms_map_structurally_and_infer_imports() {
             .into_iter()
             .map(str::to_owned)
             .collect()
+    );
+}
+
+#[test]
+fn pinned_native_prelude_exposes_the_collection_labels_used_by_the_adapter() {
+    let adapted = adapt_definition(&m2_definition()).unwrap();
+    let loaded = prepare_definition(adapted.definition, Backend::Llvm).unwrap();
+    let labels = loaded
+        .definition
+        .modules
+        .iter()
+        .flat_map(|module| module.local_sentences.iter())
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label), ..
+            } => Some(label.name.as_str()),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    for expected in [
+        "Map:lookup",
+        "_in_keys(_)_MAP_Bool_KItem_Map",
+        ".Set",
+        "SetItem",
+        "_Set_",
+        "Set:in",
+        "makeList(_,_)_LIST_List_Int_KItem",
+    ] {
+        assert!(
+            labels.contains(expected),
+            "missing native prelude label {expected}"
+        );
+    }
+    let update_all_labels = loaded
+        .definition
+        .modules
+        .iter()
+        .flat_map(|module| module.local_sentences.iter())
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } if attributes.get_str("hook") == Some("LIST.updateAll") => Some(label.name.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        update_all_labels,
+        ["updateList(_,_,_)_LIST_List_List_Int_List"]
     );
 }
 
@@ -958,9 +1659,17 @@ fn definition_ir_maps_structurally_without_frontend_metadata() {
         .iter()
         .find(|module| module.name == "SMOKE")
         .unwrap();
-    assert_eq!(main.imports.len(), 1);
-    assert_eq!(main.imports[0].name, "SMOKE-SYNTAX");
-    assert!(main.imports[0].public);
+    assert_eq!(main.imports.len(), 2);
+    assert!(
+        main.imports
+            .iter()
+            .any(|import| import.name == "MAP" && import.public)
+    );
+    assert!(
+        main.imports
+            .iter()
+            .any(|import| import.name == "SMOKE-SYNTAX" && import.public)
+    );
     assert_eq!(
         main.attributes.source(),
         Some("src/lib.rs#krs-source-map=def.module.main"),
@@ -1073,6 +1782,31 @@ fn permanent_structured_compile_uses_the_pinned_compatibility_layer() {
         .expect("permanent compilation uses public pinned preparation primitives");
     assert!(!artifacts.definition_kore.is_empty());
     assert!(!artifacts.syntax_definition_kore.is_empty());
+}
+
+#[test]
+fn permanent_structured_compile_replaces_the_bootstrap_default_configuration() {
+    let definition = m2_definition_with_cell(SentenceKind::Transition, "initInstrsCell", "instrs");
+    let adapted = adapt_definition(&definition).unwrap();
+    let loaded = prepare_definition(adapted.definition, Backend::Llvm).unwrap();
+    assert!(
+        loaded
+            .definition
+            .modules
+            .iter()
+            .all(|module| module.name != "DEFAULT-CONFIGURATION")
+    );
+    assert!(loaded.definition.modules.iter().all(|module| {
+        module
+            .imports
+            .iter()
+            .all(|import| import.name != "DEFAULT-CONFIGURATION")
+    }));
+
+    let artifacts = compile_definition(&definition, CompileOptions::default())
+        .expect("the authored <instrs> configuration must replace the bootstrap <k> configuration");
+    assert!(artifacts.definition_kore.contains("instrs"));
+    assert!(!artifacts.definition_kore.contains("Lbl'-LT-'k'-GT-'"));
 }
 
 #[test]

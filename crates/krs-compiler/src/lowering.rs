@@ -823,6 +823,14 @@ fn lower_cell_attributes(
                 value.as_str(),
             )
             .map_err(state_shape_error),
+            CellAttribute::Multiplicity { origin, value } => Ok(CellAttribute::multiplicity(
+                origins.lower(origin, "cell-attribute", None, Some(value.as_str()))?,
+                *value,
+            )),
+            CellAttribute::CollectionType { origin, value } => Ok(CellAttribute::collection_type(
+                origins.lower(origin, "cell-attribute", None, Some(value.as_str()))?,
+                *value,
+            )),
         })
         .collect()
 }
@@ -1264,6 +1272,10 @@ fn lower_production_attributes(
                 }
                 ProductionAttribute::Function { .. } => ProductionAttribute::Function { origin },
                 ProductionAttribute::Total { .. } => ProductionAttribute::Total { origin },
+                ProductionAttribute::Hook { operation, .. } => ProductionAttribute::Hook {
+                    origin,
+                    operation: *operation,
+                },
                 ProductionAttribute::Alias { .. } => ProductionAttribute::Alias { origin },
                 ProductionAttribute::Token {
                     lexical_precedence, ..
@@ -1385,8 +1397,9 @@ fn lower_term(
         SemanticTermKind::Map {
             operation,
             arguments,
-        } => Ok(DefinitionTerm::map(
+        } => Ok(DefinitionTerm::typed_map(
             origin,
+            lower_sort_ref(term.sort(), names)?,
             *operation,
             arguments
                 .iter()
@@ -1403,6 +1416,27 @@ fn lower_term(
             arguments
                 .iter()
                 .map(|argument| lower_term(argument, names, origins))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+        SemanticTermKind::Set {
+            operation,
+            arguments,
+        } => Ok(DefinitionTerm::set(
+            origin,
+            lower_sort_ref(term.sort(), names)?,
+            *operation,
+            arguments
+                .iter()
+                .map(|argument| lower_term(argument, names, origins))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+        SemanticTermKind::Cell { cell, children } => Ok(DefinitionTerm::cell(
+            origin,
+            lower_sort_ref(term.sort(), names)?,
+            lower_cell_id(cell, names)?,
+            children
+                .iter()
+                .map(|child| lower_term(child, names, origins))
                 .collect::<Result<Vec<_>, _>>()?,
         )),
     }

@@ -3,13 +3,13 @@
 use krs_compiler::{emit_k, lower_semantic_theory};
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity,
-    GroupAssociativitySentence, ItemKind, ModuleId, NodeOrigin, OriginStack, PackageId,
-    PrecedenceRelation, ProductionAttribute, ProductionFieldId, ProductionFieldReference,
-    ProductionGroupId, ProductionResultSort, SemanticCell, SemanticConfiguration, SemanticId,
-    SemanticInitializer, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
-    SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticVariable,
-    SentenceKind, Sha256Digest, SourceFileId, SourceMapKey, SourceRange, StableItemId,
-    StrictnessKind,
+    GroupAssociativitySentence, HookOperation, ItemKind, ModuleId, NodeOrigin, OriginStack,
+    PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
+    ProductionFieldReference, ProductionGroupId, ProductionResultSort, SemanticCell,
+    SemanticConfiguration, SemanticId, SemanticInitializer, SemanticModule, SemanticProduction,
+    SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort,
+    SemanticTerm, SemanticTheory, SemanticVariable, SentenceKind, Sha256Digest, SourceFileId,
+    SourceMapKey, SourceRange, StableItemId, StrictnessKind,
 };
 
 fn package() -> PackageId {
@@ -42,6 +42,10 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
     let plus = item("Plus", ItemKind::Constructor);
     let bracket = item("ExprBracket", ItemKind::Constructor);
     let token = item("IdToken", ItemKind::Constructor);
+    let keccak = item("Keccak256Raw", ItemKind::Constructor);
+    let bn128_valid = item("Bn128Valid", ItemKind::Constructor);
+    let bn128_add = item("Bn128Add", ItemKind::Constructor);
+    let bn128_mul = item("Bn128Mul", ItemKind::Constructor);
     let unary = ProductionGroupId::new("unary").unwrap();
     let additive = ProductionGroupId::new("additive").unwrap();
 
@@ -166,6 +170,126 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
         }],
     )
     .unwrap();
+    let hook_production = SemanticProduction::new(
+        origin("production.keccak"),
+        keccak,
+        SemanticSortRef::Builtin(BuiltinSort::Bytes),
+        vec![
+            SemanticProductionItem::terminal(origin("keccak.open"), "Keccak256raw(").unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("keccak.value"),
+                ProductionFieldId::new("value").unwrap(),
+                SemanticSortRef::Builtin(BuiltinSort::Bytes),
+            ),
+            SemanticProductionItem::terminal(origin("keccak.close"), ")").unwrap(),
+        ],
+        vec![
+            ProductionAttribute::Function {
+                origin: origin("keccak.function"),
+            },
+            ProductionAttribute::Total {
+                origin: origin("keccak.total"),
+            },
+            ProductionAttribute::Hook {
+                origin: origin("keccak.hook"),
+                operation: HookOperation::KryptoKeccak256Raw,
+            },
+        ],
+    )
+    .unwrap();
+    let bn128_valid_production = SemanticProduction::new(
+        origin("production.bn128-valid"),
+        bn128_valid,
+        SemanticSortRef::Builtin(BuiltinSort::Bool),
+        vec![
+            SemanticProductionItem::terminal(origin("bn128-valid.open"), "Bn128Valid(").unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("bn128-valid.point"),
+                ProductionFieldId::new("point").unwrap(),
+                SemanticSortRef::Declared(expr.clone()),
+            ),
+            SemanticProductionItem::terminal(origin("bn128-valid.close"), ")").unwrap(),
+        ],
+        vec![
+            ProductionAttribute::Function {
+                origin: origin("bn128-valid.function"),
+            },
+            ProductionAttribute::Total {
+                origin: origin("bn128-valid.total"),
+            },
+            ProductionAttribute::Hook {
+                origin: origin("bn128-valid.hook"),
+                operation: HookOperation::KryptoBn128Valid,
+            },
+        ],
+    )
+    .unwrap();
+    let bn128_add_production = SemanticProduction::new(
+        origin("production.bn128-add"),
+        bn128_add,
+        SemanticSortRef::Declared(expr.clone()),
+        vec![
+            SemanticProductionItem::terminal(origin("bn128-add.open"), "Bn128Add(").unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("bn128-add.left"),
+                ProductionFieldId::new("left").unwrap(),
+                SemanticSortRef::Declared(expr.clone()),
+            ),
+            SemanticProductionItem::terminal(origin("bn128-add.comma"), ",").unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("bn128-add.right"),
+                ProductionFieldId::new("right").unwrap(),
+                SemanticSortRef::Declared(expr.clone()),
+            ),
+            SemanticProductionItem::terminal(origin("bn128-add.close"), ")").unwrap(),
+        ],
+        vec![
+            ProductionAttribute::Function {
+                origin: origin("bn128-add.function"),
+            },
+            ProductionAttribute::Total {
+                origin: origin("bn128-add.total"),
+            },
+            ProductionAttribute::Hook {
+                origin: origin("bn128-add.hook"),
+                operation: HookOperation::KryptoBn128Add,
+            },
+        ],
+    )
+    .unwrap();
+    let bn128_mul_production = SemanticProduction::new(
+        origin("production.bn128-mul"),
+        bn128_mul,
+        SemanticSortRef::Declared(expr.clone()),
+        vec![
+            SemanticProductionItem::terminal(origin("bn128-mul.open"), "Bn128Mul(").unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("bn128-mul.point"),
+                ProductionFieldId::new("point").unwrap(),
+                SemanticSortRef::Declared(expr.clone()),
+            ),
+            SemanticProductionItem::terminal(origin("bn128-mul.comma"), ",").unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("bn128-mul.scalar"),
+                ProductionFieldId::new("scalar").unwrap(),
+                SemanticSortRef::Builtin(BuiltinSort::Int),
+            ),
+            SemanticProductionItem::terminal(origin("bn128-mul.close"), ")").unwrap(),
+        ],
+        vec![
+            ProductionAttribute::Function {
+                origin: origin("bn128-mul.function"),
+            },
+            ProductionAttribute::Total {
+                origin: origin("bn128-mul.total"),
+            },
+            ProductionAttribute::Hook {
+                origin: origin("bn128-mul.hook"),
+                operation: HookOperation::KryptoBn128Mul,
+            },
+        ],
+    )
+    .unwrap();
 
     let pgm = SemanticId::new("PGM").unwrap();
     let lhs = SemanticTerm::application(
@@ -259,6 +383,10 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
             plus_production,
             bracket_production,
             token_production,
+            hook_production,
+            bn128_valid_production,
+            bn128_add_production,
+            bn128_mul_production,
         ],
         vec![
             PrecedenceRelation::new(origin("precedence"), vec![unary], vec![additive.clone()])
@@ -287,6 +415,10 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
     assert!(source.contains("format(%1 %2%%%n%i%d)"));
     assert!(source.contains("strict, result(Int)"));
     assert!(source.contains("seqstrict, result(Int)"));
+    assert!(source.contains(", function, total, hook(KRYPTO.keccak256raw)]"));
+    assert!(source.contains(", function, total, hook(KRYPTO.bn128valid)]"));
+    assert!(source.contains(", function, total, hook(KRYPTO.bn128add)]"));
+    assert!(source.contains(", function, total, hook(KRYPTO.bn128mul)]"));
     assert!(source.contains("+Int 1"));
     let configuration = source
         .lines()

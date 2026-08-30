@@ -14,9 +14,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::host::{HostItemId, HostTypeKey, HostTypeReference};
 use crate::{
-    BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity, ItemKind, ListOperation,
-    MapOperation, ProductionFieldId, ProductionGroupId, ProvenanceKey, SentenceKind, StableItemId,
-    StrictnessKind,
+    BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity, HookOperation, ItemKind,
+    ListOperation, MapOperation, ProductionFieldId, ProductionGroupId, ProvenanceKey, SentenceKind,
+    SetOperation, StableItemId, StrictnessKind,
 };
 
 /// Versioned stable-ID disambiguator prefix for enum constructor variants.
@@ -90,6 +90,8 @@ pub enum DescriptorApplicationRef {
     Map(MapOperation),
     /// A compiler-provided List-theory term operation.
     List(ListOperation),
+    /// A compiler-provided Set-theory term operation.
+    Set(SetOperation),
 }
 
 /// One stable application reference and its exact authored head location.
@@ -366,6 +368,15 @@ pub struct HostListOperationRegistration {
     pub target: HostTypeKey,
 }
 
+/// One ordinary Set operation marker registered by the author-facing facade.
+#[derive(Clone, Copy, Debug)]
+pub struct HostSetOperationRegistration {
+    /// Target-neutral Set operation identity.
+    pub operation: SetOperation,
+    /// Function producing the marker type's build-local identity.
+    pub target: HostTypeKey,
+}
+
 /// Complete host-only builtin catalog used for exact `TypeId` joins.
 ///
 /// It is intentionally not serializable. A collector turns references into
@@ -380,6 +391,8 @@ pub struct HostBuiltinRegistry {
     pub map_operations: Vec<HostMapOperationRegistration>,
     /// Registered ordinary List operation markers.
     pub list_operations: Vec<HostListOperationRegistration>,
+    /// Registered ordinary Set operation markers.
+    pub set_operations: Vec<HostSetOperationRegistration>,
 }
 
 impl HostBuiltinRegistry {
@@ -395,6 +408,7 @@ impl HostBuiltinRegistry {
         let mut operation_ids = BTreeSet::new();
         let mut map_operation_ids = BTreeSet::new();
         let mut list_operation_ids = BTreeSet::new();
+        let mut set_operation_ids = BTreeSet::new();
         let mut rust_ids = BTreeSet::new();
         for registration in &self.sorts {
             if !sort_ids.insert(registration.sort) {
@@ -444,6 +458,21 @@ impl HostBuiltinRegistry {
                 return Err(HostBuiltinRegistryError::ReusedRustType);
             }
         }
+        for registration in &self.set_operations {
+            if !SetOperation::TERM_APPLICATIONS.contains(&registration.operation) {
+                return Err(HostBuiltinRegistryError::UnsupportedSetOperation(
+                    registration.operation,
+                ));
+            }
+            if !set_operation_ids.insert(registration.operation) {
+                return Err(HostBuiltinRegistryError::DuplicateSetOperation(
+                    registration.operation,
+                ));
+            }
+            if !rust_ids.insert(registration.target.resolve()) {
+                return Err(HostBuiltinRegistryError::ReusedRustType);
+            }
+        }
         for sort in BuiltinSort::PROTOCOL_V7 {
             if !sort_ids.contains(&sort) {
                 return Err(HostBuiltinRegistryError::MissingSort(sort));
@@ -462,6 +491,11 @@ impl HostBuiltinRegistry {
         for operation in ListOperation::TERM_APPLICATIONS {
             if !list_operation_ids.contains(&operation) {
                 return Err(HostBuiltinRegistryError::MissingListOperation(operation));
+            }
+        }
+        for operation in SetOperation::TERM_APPLICATIONS {
+            if !set_operation_ids.contains(&operation) {
+                return Err(HostBuiltinRegistryError::MissingSetOperation(operation));
             }
         }
         Ok(())
@@ -502,6 +536,15 @@ impl HostBuiltinRegistry {
             .find(|registration| registration.target.resolve() == target)
             .map(|registration| registration.operation)
     }
+
+    /// Resolves one build-local type as an ordinary Set operation.
+    #[must_use]
+    pub fn resolve_set_operation(&self, target: TypeId) -> Option<SetOperation> {
+        self.set_operations
+            .iter()
+            .find(|registration| registration.target.resolve() == target)
+            .map(|registration| registration.operation)
+    }
 }
 
 /// Invalid host builtin catalog.
@@ -527,6 +570,12 @@ pub enum HostBuiltinRegistryError {
     MissingListOperation(ListOperation),
     /// A structural-only List operation was registered as an ordinary term head.
     UnsupportedListOperation(ListOperation),
+    /// A Set operation identity occurred more than once.
+    DuplicateSetOperation(SetOperation),
+    /// A required ordinary Set operation was absent.
+    MissingSetOperation(SetOperation),
+    /// A structural-only Set operation was registered as an ordinary term head.
+    UnsupportedSetOperation(SetOperation),
     /// One Rust marker type was assigned two meanings.
     ReusedRustType,
 }
@@ -564,6 +613,18 @@ impl fmt::Display for HostBuiltinRegistryError {
                 write!(
                     formatter,
                     "List operation {operation:?} is not an ordinary term application"
+                )
+            }
+            Self::DuplicateSetOperation(operation) => {
+                write!(formatter, "duplicate Set operation {operation:?}")
+            }
+            Self::MissingSetOperation(operation) => {
+                write!(formatter, "missing Set operation {operation:?}")
+            }
+            Self::UnsupportedSetOperation(operation) => {
+                write!(
+                    formatter,
+                    "Set operation {operation:?} is not an ordinary term application"
                 )
             }
             Self::ReusedRustType => {
@@ -733,6 +794,13 @@ pub enum DescriptorProductionAttribute {
         /// Totality-marker provenance.
         key: ProvenanceKey,
     },
+    /// Selects one closed backend hook identity.
+    Hook {
+        /// Hook-selector provenance.
+        key: ProvenanceKey,
+        /// Closed hook identity.
+        operation: HookOperation,
+    },
     /// Marks a constructor production as a reversible static alias.
     Alias {
         /// Alias-marker provenance.
@@ -803,6 +871,13 @@ pub enum HostProductionAttribute {
     Total {
         /// Totality-marker provenance.
         key: ProvenanceKey,
+    },
+    /// Selects one closed backend hook identity.
+    Hook {
+        /// Hook-selector provenance.
+        key: ProvenanceKey,
+        /// Closed hook identity.
+        operation: HookOperation,
     },
     /// Marks a constructor production as a reversible static alias.
     Alias {
@@ -1099,6 +1174,29 @@ pub enum HostTermArgument {
     },
 }
 
+/// One named child of a compiler-owned complete cell term.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorCellTermField {
+    /// Exact authored child-field provenance.
+    pub key: ProvenanceKey,
+    /// Stable Rust field identity within the nominal cell declaration.
+    pub field: ProductionFieldId,
+    /// Structured child value, before the generated child-cell wrapper.
+    pub value: Box<DescriptorTerm>,
+}
+
+/// Host counterpart of [`DescriptorCellTermField`].
+#[derive(Clone, Debug)]
+pub struct HostCellTermField {
+    /// Exact authored child-field provenance.
+    pub key: ProvenanceKey,
+    /// Stable Rust field identity within the nominal cell declaration.
+    pub field: ProductionFieldId,
+    /// Structured child value.
+    pub value: Box<HostTerm>,
+}
+
 /// A fully structured rule term after stable reference resolution.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(tag = "term_kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -1162,6 +1260,15 @@ pub enum DescriptorTerm {
         /// Ordered operands, at least two.
         arguments: Vec<DescriptorTerm>,
     },
+    /// Complete nominal parent-cell term constructed by `fragment!`.
+    Cell {
+        /// Complete macro-shell provenance.
+        key: ProvenanceKey,
+        /// Stable `#[k::cell]` declaration identity.
+        declaration: StableItemId,
+        /// Authored child values; semantic lowering validates completeness and order.
+        fields: Vec<DescriptorCellTermField>,
+    },
 }
 
 /// Host term whose application heads still carry build-local Rust identities.
@@ -1224,6 +1331,15 @@ pub enum HostTerm {
         /// Ordered operands, at least two.
         arguments: Vec<HostTerm>,
     },
+    /// Host counterpart of a complete nominal parent-cell term.
+    Cell {
+        /// Complete macro-shell provenance.
+        key: ProvenanceKey,
+        /// Rust-resolved nominal `#[k::cell]` owner.
+        declaration: HostTypeReference,
+        /// Authored child values.
+        fields: Vec<HostCellTermField>,
+    },
 }
 
 /// Optional explicit K rule label and its authored literal provenance.
@@ -1255,13 +1371,13 @@ pub struct HostRuleCondition {
     pub term: HostTerm,
 }
 
-/// One explicit equation priority with exact literal provenance.
+/// One explicit K rule priority with exact authoring provenance.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DescriptorRulePriority {
     /// Priority-literal provenance.
     pub key: ProvenanceKey,
-    /// Authored K rule priority.
+    /// Effective K rule priority.
     pub value: u32,
 }
 
@@ -1306,7 +1422,7 @@ pub struct StructuredRuleDescriptor {
     /// Optional object-language Boolean applicability condition.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requires: Option<DescriptorRuleCondition>,
-    /// Optional explicit equation priority.
+    /// Optional explicit equation or ordered-fallback priority.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<DescriptorRulePriority>,
     /// Simplifier classification and optional hint.
@@ -1337,7 +1453,7 @@ pub struct HostStructuredRuleDescriptor {
     pub label: Option<DescriptorRuleLabel>,
     /// Optional object-language Boolean applicability condition.
     pub requires: Option<HostRuleCondition>,
-    /// Optional explicit equation priority.
+    /// Optional explicit equation or ordered-fallback priority.
     pub priority: Option<DescriptorRulePriority>,
     /// Simplifier classification and optional hint.
     pub simplification: Option<DescriptorSimplification>,
@@ -1502,6 +1618,13 @@ impl DescriptorApplicationRef {
                 "structural-only List operation used as an application head",
             ));
         }
+        if let Self::Set(operation) = self
+            && !SetOperation::TERM_APPLICATIONS.contains(operation)
+        {
+            return Err(ProtocolV6ShapeError::InvalidApplication(
+                "structural-only Set operation used as an application head",
+            ));
+        }
         Ok(())
     }
 }
@@ -1533,9 +1656,14 @@ fn validate_map_application_shape(
             "a Map operation must be an applied term head",
         ));
     }
-    if *operation != MapOperation::Update || arguments.len() != 3 {
+    let expected = match operation {
+        MapOperation::Update => 3,
+        MapOperation::Get | MapOperation::InKeys => 2,
+        MapOperation::Empty | MapOperation::Item => unreachable!("validated application catalog"),
+    };
+    if arguments.len() != expected {
         return Err(ProtocolV6ShapeError::InvalidApplication(
-            "map::update requires exactly three arguments",
+            "Map operation has invalid arity",
         ));
     }
     if arguments
@@ -1543,7 +1671,41 @@ fn validate_map_application_shape(
         .any(|argument| !matches!(argument, DescriptorTermArgument::Positional { .. }))
     {
         return Err(ProtocolV6ShapeError::InvalidApplication(
-            "map::update accepts positional arguments only",
+            "Map operations accept positional arguments only",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_set_application_shape(
+    head_class: DescriptorApplicationHeadClass,
+    application: &DescriptorApplicationRef,
+    arguments: &[DescriptorTermArgument],
+) -> Result<(), ProtocolV6ShapeError> {
+    let DescriptorApplicationRef::Set(operation) = application else {
+        return Ok(());
+    };
+    if head_class != DescriptorApplicationHeadClass::Applied {
+        return Err(ProtocolV6ShapeError::InvalidApplication(
+            "a Set operation must be an applied term head",
+        ));
+    }
+    let expected = match operation {
+        SetOperation::Empty => 0,
+        SetOperation::Item => 1,
+        SetOperation::Concat | SetOperation::Contains => 2,
+    };
+    if arguments.len() != expected {
+        return Err(ProtocolV6ShapeError::InvalidApplication(
+            "Set operation has invalid arity",
+        ));
+    }
+    if arguments
+        .iter()
+        .any(|argument| !matches!(argument, DescriptorTermArgument::Positional { .. }))
+    {
+        return Err(ProtocolV6ShapeError::InvalidApplication(
+            "Set operations accept positional arguments only",
         ));
     }
     Ok(())
@@ -1565,8 +1727,8 @@ fn validate_list_application_shape(
     let expected = match operation {
         ListOperation::Empty => 0,
         ListOperation::Item | ListOperation::Size => 1,
-        ListOperation::Concat | ListOperation::Get => 2,
-        ListOperation::Update => 3,
+        ListOperation::Concat | ListOperation::Get | ListOperation::Make => 2,
+        ListOperation::Update | ListOperation::Range | ListOperation::UpdateAll => 3,
     };
     if arguments.len() != expected {
         return Err(ProtocolV6ShapeError::InvalidApplication(
@@ -1629,6 +1791,7 @@ impl DescriptorTerm {
                 }
                 validate_map_application_shape(*head_class, &reference.application, arguments)?;
                 validate_list_application_shape(*head_class, &reference.application, arguments)?;
+                validate_set_application_shape(*head_class, &reference.application, arguments)?;
                 let named = arguments.first().is_some_and(|argument| {
                     matches!(argument, DescriptorTermArgument::Named { .. })
                 });
@@ -1683,6 +1846,11 @@ impl DescriptorTerm {
                     "claim-only term used outside a whole-configuration claim",
                 ));
             }
+            Self::Cell { .. } => {
+                return Err(ProtocolV6ShapeError::InvalidTerm(
+                    "complete cell terms require protocol v7 configuration rules",
+                ));
+            }
         }
         Ok(())
     }
@@ -1731,9 +1899,14 @@ impl StructuredRuleDescriptor {
         }
         if let Some(priority) = &self.priority {
             require_key(&priority.key, provenance)?;
-            if self.sentence_kind != SentenceKind::Equation {
+            let valid_equation = self.sentence_kind == SentenceKind::Equation
+                && priority.key.role() == "equation_priority";
+            let valid_owise = self.sentence_kind == SentenceKind::Transition
+                && priority.key.role() == "rule_owise"
+                && priority.value == 200;
+            if !(valid_equation || valid_owise) {
                 return Err(ProtocolV6ShapeError::InvalidTerm(
-                    "priority is supported only on equations",
+                    "priority must be an equation priority or transition ordered fallback",
                 ));
             }
         }
@@ -1958,6 +2131,10 @@ impl DescriptorProduction {
                     require_key(key, provenance)?;
                     "total"
                 }
+                DescriptorProductionAttribute::Hook { key, .. } => {
+                    require_key(key, provenance)?;
+                    "hook"
+                }
                 DescriptorProductionAttribute::Alias { key } => {
                     require_key(key, provenance)?;
                     "alias"
@@ -2024,6 +2201,13 @@ impl DescriptorProduction {
         if families.contains("total") && !families.contains("function") {
             return Err(ProtocolV6ShapeError::InvalidProduction(
                 "total metadata requires function metadata",
+            ));
+        }
+        if families.contains("hook")
+            && !(families.contains("function") && families.contains("total"))
+        {
+            return Err(ProtocolV6ShapeError::InvalidProduction(
+                "hook metadata requires a total function production",
             ));
         }
         if families.contains("alias") && families.contains("function") {
@@ -2470,6 +2654,9 @@ impl DescriptorProduction {
                 DescriptorProductionAttribute::Total { key } => {
                     insert_exact(keys, key, "function_total", 0)?;
                 }
+                DescriptorProductionAttribute::Hook { key, .. } => {
+                    insert_exact(keys, key, "function_hook", 0)?;
+                }
                 DescriptorProductionAttribute::Alias { key } => {
                     insert_exact(keys, key, "alias_production", 0)?;
                 }
@@ -2505,7 +2692,12 @@ impl StructuredRuleDescriptor {
             insert_exact(&mut keys, &requires.key, "rule_requires", 0)?;
         }
         if let Some(priority) = &self.priority {
-            insert_exact(&mut keys, &priority.key, "equation_priority", 0)?;
+            let role = if self.sentence_kind == SentenceKind::Transition {
+                "rule_owise"
+            } else {
+                "equation_priority"
+            };
+            insert_exact(&mut keys, &priority.key, role, 0)?;
         }
         if let Some(simplification) = &self.simplification {
             insert_exact(&mut keys, &simplification.key, "simplification_marker", 0)?;
@@ -2682,6 +2874,11 @@ impl DescriptorTerm {
             Self::BuiltinToken { .. } | Self::Anonymous { .. } | Self::OrBool { .. } => {
                 return Err(ProtocolV6ShapeError::InvalidTerm(
                     "claim-only term used outside a whole-configuration claim",
+                ));
+            }
+            Self::Cell { .. } => {
+                return Err(ProtocolV6ShapeError::InvalidTerm(
+                    "complete cell terms require protocol v7 configuration rules",
                 ));
             }
         }

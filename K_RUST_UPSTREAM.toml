@@ -1,0 +1,123 @@
+schema = 1
+k_rust_commit = "3cce7a47941c4dc0664e6e870d4e0529d74753c6"
+k_release = "7.1.337"
+
+[[issue]]
+id = "persistent-api-deep-result"
+status = "locally-fixed"
+area = "crates/k-rust/src/backend.rs"
+summary = "Backend::execute rejects a successfully executed result deeper than serde_json's default recursion limit"
+reproduction = "Execute the KRS KEVM stack-overflow boundary with a 1,024-word WordStack through Backend::execute; encode_pattern returns `could not encode KORE JSON: recursion limit exceeded` around column 8276."
+impact = "The public persistent API cannot return valid deeply nested KORE even though the backend has executed it."
+local_fix = "Construct a serde_json::Deserializer in encode_pattern, call disable_recursion_limit, and deserialize Value through it."
+upstream_action = "Add a regression test with a KORE application nested beyond 128 levels and apply the local fix."
+
+[[issue]]
+id = "kevm-structured-frontend-rejection"
+status = "local-workaround"
+area = "crates/k-rust/src/kompile/passes/resolve_semantic_casts.rs"
+summary = "A semantic cast of a builtin List:get result is erased without materializing the required sort projection"
+reproduction = "Compile an equation whose left side is an Int-returning function and whose right side is `#SemanticCastToInt(List:get(L, I))` through compile_loaded_definition at k-rust commit 3cce7a47941c4dc0664e6e870d4e0529d74753c6."
+observed = "resolve_semantic_casts removes the cast and records Int only as application metadata; sort injection still types List:get as KItem, injects the Int function left side to KItem, and module_to_kore then reports `ordinary semantic rules must rewrite GeneratedTopCell, found KItem`."
+impact = "The native frontend cannot compile otherwise valid function equations that project a heterogeneous collection element to a concrete result sort."
+local_fix = "The KRS structural adapter lowers typed List.get directly to the generated `project:<Sort>` function; K-Rust then inserts the required KItem-to-K sequence wrapper and emits the same projection shape used by the Java frontend."
+upstream_action = "Make resolve_semantic_casts materialize `project:<Sort>` for non-variable casts whose operand does not already have the cast sort, and add a frontend-to-KORE regression covering an Int-returning function equation over List:get."
+
+[[issue]]
+id = "deep-functional-simplification-budget"
+status = "local-workaround"
+area = "Backend::execute simplification options"
+summary = "The default 100-iteration simplification budget makes a concrete 1,024-element recursive function evaluation pathologically slow"
+reproduction = "Execute the KRS KEVM `duplicate-stack-overflow` case through Backend::execute with ExecuteRequest::default(); the condition evaluates `#kevmStackSize` over a concrete 1,024-word WordStack."
+observed = "A debug runner exceeded 600 seconds and an optimized runner remained active beyond five minutes. Setting max_simplification_iterations to 4,096 made the complete 103-case corpus pass in 2.09 seconds with behavior SHA-256 a3e2c4910a24ac98d11424e15016c06f0f6b83ae18c0669c9eddf35aabfb2991."
+impact = "A valid deep concrete term can appear to be an interpreter performance problem when the backend is repeatedly exhausting its default simplification budget."
+local_fix = "The KRS persistent runner sets max_simplification_iterations to 4,096, with an optional per-request override."
+upstream_action = "Add a benchmark with a recursive concrete function deeper than the default budget, determine whether exhausted partial simplification repeats work, and consider an adaptive budget or a diagnostic that exposes budget exhaustion."
+
+[[issue]]
+id = "parameterized-repeated-cell-initializer-concretization"
+status = "locally-fixed"
+area = "crates/k-rust/src/kompile/passes/concretize_cells.rs"
+summary = "Cell concretization does not classify a generated initializer whose result is a repeated cell's collection sort"
+reproduction = "Compile a configuration containing `<accounts><account multiplicity=\"*\" type=\"Map\"><id> $ID:Int </id></account></accounts>` through `krust kcompile`; configuration expansion generates `initAccountCell(Init:Map):AccountCellMap`, and concretization rejects that term under `<accounts>`. The failure reproduces through K-Rust's CLI independently of the KRS Definition IR adapter."
+observed = "K-Rust reports `InvalidCellConcretization: Unexpected term initAccountCell(Init:Map) in parent cell <accounts> during child ordering`. The model recognizes collection concatenation and unit labels as the repeated AccountCell child but omits initializer labels returning the same collection sort."
+impact = "Any parameterized repeated cell needed by a real configuration, including KEVM's account map, prevents native frontend compilation before semantic rules can run."
+local_fix = "Teach CellModel to associate initializer productions returning a generated cell-collection sort with that collection's repeated member cell. The dedicated KRS checkout carries a focused regression for a Map-typed repeated account initialized from a KConfigVar."
+upstream_action = "Adopt the collection-initializer classification and regression test in the upstream concretize-cells suite; also add coverage for parameterized Bag, Set, and List repeated-cell initializers."
+
+[[issue]]
+id = "krypto-hook-namespace-not-emitted"
+status = "locally-fixed"
+area = "crates/k-rust/src/kompile/module_to_kore.rs"
+summary = "The frontend omits backend hook metadata for the implemented KRYPTO namespace"
+reproduction = "Compile a total Bytes-to-Bytes function production carrying `hook(KRYPTO.keccak256raw)` through K-Rust's structured frontend. The backend already dispatches `KRYPTO.*`, including `KRYPTO.keccak256raw`, in crates/k-rust-backend/src/builtin.rs and builtin/krypto.rs."
+observed = "The frontend's `is_real_hook` namespace allowlist omits `KRYPTO`, so ModuleToKORE emits an ordinary `symbol` without the `hook` attribute. Concrete applications remain uninterpreted even though the backend implements the selected hook."
+impact = "KRS cannot execute KEVM SHA3 or any other KRYPTO-backed function through the native frontend/backend path. The typed hook survives KRS IR correctly but is discarded during K-Rust KORE generation."
+local_fix = "Add `KRYPTO` to `HOOK_NAMESPACES` in the dedicated k-rust-krs checkout and cover `KRYPTO.keccak256raw` with a focused ModuleToKORE classification regression."
+upstream_action = "Add KRYPTO to the frontend hook namespace catalog, audit the catalog against every namespace dispatched by k-rust-backend, and add an end-to-end KORE/backend test for `KRYPTO.keccak256raw`."
+
+[[issue]]
+id = "implicit-default-configuration-survives-structured-replacement"
+status = "local-workaround"
+area = "crates/k-rust/src/outer/loader.rs and whole-definition compilation passes"
+summary = "The public loader retains DEFAULT-CONFIGURATION when a structured definition replaces an empty bootstrap after loading"
+reproduction = "Load the embedded prelude with an empty bootstrap module, replace that module with an already-structured definition whose main computation cell is `<instrs>`, then compile the resulting definition."
+observed = "The loader imports and retains DEFAULT-CONFIGURATION because the empty bootstrap has no visible configuration. Later whole-definition passes process its unreachable generated `<k>` initializer beside the authored `<instrs>` configuration and report `KLabel \"<k>\" expects 1 arguments but received 3`."
+impact = "A consumer of the public structured frontend primitives cannot bootstrap the embedded builtin closure and then compile a definition whose computation cell is not named `<k>`."
+local_fix = "The KRS structured adapter removes KRS-STRUCTURED-BOOTSTRAP and DEFAULT-CONFIGURATION, including dangling imports of the latter, before inserting and expanding the complete authored Definition IR. A focused regression compiles a fixed configuration whose main cell is `<instrs>`."
+upstream_action = "Expose a public structured-definition loading path that establishes builtin and graph invariants without adding an implicit default configuration, or make unreachable implicit configuration modules removable before whole-definition transforms."
+
+[[issue]]
+id = "complete-nested-cell-concretization"
+status = "locally-fixed"
+area = "crates/k-rust/src/kompile/passes/concretize_cells.rs"
+summary = "Cell concretization rejects already-complete fixed-arity cell applications as malformed parser-style incomplete cells"
+reproduction = "Compile the KRS KEVM STATICCALL rules containing a complete CallState cell with its 15 declared child-cell arguments on both call-stack push and restoration through K-Rust's structured frontend."
+observed = "K-Rust emits two InvalidCellConcretization diagnostics stating `Expected incomplete cell with 3 arguments, found 15`. The concretizer unconditionally interprets every recognized cell application as the three-argument `#dots, body, #noDots` parser representation."
+impact = "Compiler-owned complete nested cell terms cannot pass through the structured frontend, which blocks KEVM call-frame save and restoration even though their fixed-arity shape already matches the expanded cell production."
+local_fix = "The dedicated k-rust-krs checkout recognizes a complete leaf by its single body argument and a complete parent only when its arity and ordered child sorts match the expanded cell production. It recursively closes those arguments while retaining the existing incomplete-cell path. The focused regression exercises a complete two-child parent and its complete leaf children inside a semantic rule."
+upstream_action = "Accept and recursively process already-complete leaf and parent cell applications when their arguments match the expanded cell production, and add a regression containing a complete nested parent cell in a semantic rule."
+
+[[issue]]
+id = "krypto-sha256raw-not-implemented"
+status = "locally-fixed"
+area = "crates/k-rust-backend/src/builtin/krypto.rs"
+summary = "The backend dispatches KRYPTO.sha256 but omits the pinned KRYPTO.sha256raw hook"
+reproduction = "Evaluate `KRYPTO.sha256raw` over the empty Bytes token through k-rust-backend at commit 3cce7a47941c4dc0664e6e870d4e0529d74753c6; the pinned K 7.1.337 KRYPTO module declares the hook and KEVM serialization.md uses its byte-returning wrapper."
+observed = "The KRYPTO dispatcher returns NotApplicable even though the same module already imports Sha256, implements generic raw-digest evaluation, and supports KRYPTO.sha256 as a hexadecimal String."
+impact = "The native K-Rust route cannot execute KEVM's byte-exact SHA-256 precompile boundary or any other semantics that selects Sha256raw."
+local_fix = "Dispatch KRYPTO.sha256raw through hash_raw::<Sha256> in the dedicated k-rust-krs checkout. The focused raw_hash_hooks_return_bytes regression pins the standard 32-byte empty-input vector alongside SHA-512/256 raw behavior."
+upstream_action = "Add KRYPTO.sha256raw to the backend dispatcher, retain the byte-returning standard-vector regression, and audit the pinned KRYPTO raw-hook inventory for similar dispatcher omissions."
+
+[[issue]]
+id = "krypto-ripemd160raw-not-implemented"
+status = "locally-fixed"
+area = "crates/k-rust-backend/src/builtin/krypto.rs"
+summary = "The backend implements RIPEMD-160 and generic raw digests but omits the pinned KRYPTO.ripemd160raw hook"
+reproduction = "Evaluate `KRYPTO.ripemd160raw` over the empty Bytes token through k-rust-backend at commit 3cce7a47941c4dc0664e6e870d4e0529d74753c6; the pinned KRYPTO inventory declares the raw hook and KEVM's address-3 precompile requires the byte digest before 32-byte left padding."
+observed = "The KRYPTO dispatcher returns NotApplicable even though the same module imports Ripemd160, dispatches its hexadecimal form, and implements generic raw-digest evaluation."
+impact = "The native K-Rust route cannot execute KEVM's byte-exact RIPEMD-160 precompile boundary without an unnecessary hexadecimal String conversion layer."
+local_fix = "Dispatch KRYPTO.ripemd160raw through hash_raw::<Ripemd160> in the dedicated k-rust-krs checkout. The raw_hash_hooks_return_bytes regression pins the standard 20-byte empty-input vector."
+upstream_action = "Add KRYPTO.ripemd160raw to the backend dispatcher, retain the byte-returning standard-vector regression, and audit all raw-hook declarations against the backend dispatcher."
+
+[[issue]]
+id = "krypto-ecdsa-recover-invalid-signature-is-bottom"
+status = "locally-fixed"
+area = "crates/k-rust-backend/src/builtin/krypto.rs"
+summary = "KRYPTO.ecdsaRecover maps invalid recovery inputs to Bottom instead of the pinned hook's empty Bytes result"
+reproduction = "Evaluate KRYPTO.ecdsaRecover with recovery id 29 or a zero r scalar through k-rust-backend at commit 3cce7a47941c4dc0664e6e870d4e0529d74753c6; compare the result with K 7.1.337's KRYPTO.ecdsaRecover contract and KEVM's address-1 precompile behavior."
+observed = "The backend returns BuiltinResult::Bottom for an out-of-range recovery id, an invalid scalar or signature, failed public-key recovery, and other invalid concrete recovery inputs."
+impact = "KEVM requires an invalid ECREC signature to complete the precompile call successfully with empty returndata; Bottom instead makes the hooked application undefined and can make concrete execution stuck or unsatisfiable."
+local_fix = "Return a concrete empty Bytes domain value for invalid concrete recovery inputs while retaining NotApplicable for non-concrete arguments. Focused regressions cover recovery id 29, a zero r scalar, and the deterministic valid key-1 vector used by the KRS KEVM corpus."
+upstream_action = "Adopt the empty-Bytes result for invalid concrete recovery, retain both invalid-input regressions, and add an end-to-end KEVM ECREC compatibility vector."
+
+[[issue]]
+id = "krypto-bn128-hooks-not-implemented"
+status = "locally-fixed"
+area = "crates/k-rust-backend/src/builtin/krypto.rs"
+summary = "The backend does not implement the pinned KRYPTO BN128 G1/G2 point-validity, addition, multiplication, or pairing hooks"
+reproduction = "Evaluate the K 7.1.337 hooks KRYPTO.bn128valid, KRYPTO.bn128add, KRYPTO.bn128mul, or KRYPTO.bn128ate through k-rust-backend at commit 3cce7a47941c4dc0664e6e870d4e0529d74753c6. The KRYPTO dispatcher recognizes hashes and secp256k1 recovery but has no BN128 branch."
+observed = "Each concrete BN128 application returns BuiltinResult::NotApplicable even though the hooks are declared by the pinned K prelude and are required by KEVM precompile addresses 6 through 8."
+impact = "The native K-Rust route cannot execute KEVM ECADD, ECMUL, or ECPAIRING and therefore cannot complete the precompile surface above MODEXP."
+local_fix = "The dedicated k-rust-krs checkout implements KRYPTO.bn128valid, KRYPTO.bn128add, KRYPTO.bn128mul, KRYPTO.bn128g2valid, and KRYPTO.bn128ate with substrate-bn 0.6.0. Backend regressions pin G1/G2 infinity, field and curve rejection, G2 subgroup validation, scalar multiplication, empty and non-identity pairing products, a cancelling pairing product, injected concrete List elements, mismatched lists, invalid points, and opaque lists. The shared upstream checkout remains clean."
+upstream_action = "Implement the complete pinned BN128 hook family with Ethereum-compatible infinity, field-bound, invalid-point, scalar, and pairing behavior; retain backend vectors for valid addition, invalid coordinates, infinity, multiplication, empty pairing, and malformed pairing inputs."

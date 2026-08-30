@@ -594,7 +594,7 @@ fn readable_sort_marker_path(facade: &Path, path: &Path) -> syn::Result<Path> {
 pub(crate) fn constructor(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
     let attribute =
         parse_constructor_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    constructor_like(attribute, item, None)
+    constructor_like(attribute, item, None, None)
 }
 
 pub(crate) fn function(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
@@ -611,10 +611,74 @@ pub(crate) fn function(attributes: TokenStream, item: TokenStream) -> syn::Resul
             )
         })
         .expect("a parsed function retains its totality marker");
+    let hook = function
+        .hook()
+        .map(|path| -> syn::Result<(ProvenanceAnchor, TokenStream)> {
+            let segments = path
+                .segments
+                .iter()
+                .map(|segment| segment.ident.to_string())
+                .collect::<Vec<_>>();
+            let operation = match segments.as_slice() {
+                [module, name] if module == "krypto" && name == "keccak256_raw" => {
+                    let facade = facade_path()?;
+                    quote!(#facade::HookOperation::KryptoKeccak256Raw)
+                }
+                [module, name] if module == "krypto" && name == "sha256_raw" => {
+                    let facade = facade_path()?;
+                    quote!(#facade::HookOperation::KryptoSha256Raw)
+                }
+                [module, name] if module == "krypto" && name == "ripemd160_raw" => {
+                    let facade = facade_path()?;
+                    quote!(#facade::HookOperation::KryptoRipemd160Raw)
+                }
+                [module, name] if module == "krypto" && name == "ecdsa_recover" => {
+                    let facade = facade_path()?;
+                    quote!(#facade::HookOperation::KryptoEcdsaRecover)
+                }
+                [module, name] if module == "krypto" && name == "bn128_valid" => {
+                    let facade = facade_path()?;
+                    quote!(#facade::HookOperation::KryptoBn128Valid)
+                }
+                [module, name] if module == "krypto" && name == "bn128_add" => {
+                    let facade = facade_path()?;
+                    quote!(#facade::HookOperation::KryptoBn128Add)
+                }
+                [module, name] if module == "krypto" && name == "bn128_mul" => {
+                    let facade = facade_path()?;
+                    quote!(#facade::HookOperation::KryptoBn128Mul)
+                }
+                [module, name] if module == "krypto" && name == "bn128_g2_valid" => {
+                    let facade = facade_path()?;
+                    quote!(#facade::HookOperation::KryptoBn128G2Valid)
+                }
+                [module, name] if module == "krypto" && name == "bn128_ate" => {
+                    let facade = facade_path()?;
+                    quote!(#facade::HookOperation::KryptoBn128Ate)
+                }
+                _ => {
+                    return Err(syn::Error::new(
+                        path.span(),
+                        "unknown KRS hook; expected `krypto::keccak256_raw`, `krypto::sha256_raw`, `krypto::ripemd160_raw`, `krypto::ecdsa_recover`, `krypto::bn128_valid`, `krypto::bn128_add`, `krypto::bn128_mul`, `krypto::bn128_g2_valid`, or `krypto::bn128_ate`",
+                    ));
+                }
+            };
+            Ok((
+                ProvenanceAnchor::new(
+                    ProvenanceRole::FunctionHook,
+                    0,
+                    TokenRange::for_tokens(path)
+                        .map_err(krs_syntax::SyntaxError::into_syn_error)?,
+                ),
+                operation,
+            ))
+        })
+        .transpose()?;
     constructor_like(
         function.production().clone(),
         item,
         Some((totality_anchor, function.is_total())),
+        hook,
     )
 }
 
@@ -623,6 +687,7 @@ fn constructor_like(
     attribute: krs_syntax::ConstructorAttribute,
     item: TokenStream,
     totality: Option<(ProvenanceAnchor, bool)>,
+    hook: Option<(ProvenanceAnchor, TokenStream)>,
 ) -> syn::Result<TokenStream> {
     let functional = totality.is_some();
     let total = totality.as_ref().is_some_and(|(_, total)| *total);
@@ -715,6 +780,9 @@ fn constructor_like(
                 .0
                 .clone(),
         );
+    }
+    if let Some((anchor, _)) = &hook {
+        grammar_anchors.push(anchor.clone());
     }
     if let Some(strictness) = &strictness {
         grammar_anchors.extend(
@@ -816,6 +884,7 @@ fn constructor_like(
         "",
         functional,
         total,
+        hook.as_ref().map(|(_, operation)| operation),
         alias.is_some(),
     )?;
 
@@ -1173,6 +1242,34 @@ fn configuration_fields(
                 }
             },
         );
+        let multiplicity = field.attribute().multiplicity().map_or_else(
+            || quote!(::core::option::Option::None),
+            |multiplicity| {
+                let value = multiplicity.value();
+                quote! {
+                    ::core::option::Option::Some(#facade::DescriptorCellMultiplicity {
+                        key: #facade::ProvenanceKey::new(
+                            "configuration_cell_multiplicity", #ordinal,
+                        ).expect("KRS parser roles are nonempty"),
+                        value: #value.to_owned(),
+                    })
+                }
+            },
+        );
+        let cell_type = field.attribute().cell_type().map_or_else(
+            || quote!(::core::option::Option::None),
+            |cell_type| {
+                let value = cell_type.value();
+                quote! {
+                    ::core::option::Option::Some(#facade::DescriptorCellType {
+                        key: #facade::ProvenanceKey::new(
+                            "configuration_cell_type", #ordinal,
+                        ).expect("KRS parser roles are nonempty"),
+                        value: #value.to_owned(),
+                    })
+                }
+            },
+        );
         let content = match field.cell_content() {
             ConfigurationCellContent::Leaf {
                 sort,
@@ -1283,6 +1380,8 @@ fn configuration_fields(
                 rust_field: #rust_field.to_owned(),
                 emitted_name: #emitted_name,
                 color: #color,
+                multiplicity: #multiplicity,
+                cell_type: #cell_type,
                 content: #content,
             }
         });
@@ -1811,6 +1910,10 @@ impl<'a> InitializerBuilder<'a> {
                 Span::call_site(),
                 "claim-only terms cannot occur in initializers",
             )),
+            TermTree::Cell(cell) => Err(syn::Error::new(
+                cell.owner().span(),
+                "fragment! is not an initializer term; construct nested initializer cells directly",
+            )),
         }
     }
 }
@@ -1879,6 +1982,18 @@ fn rule_label_tokens(facade: &Path, attribute: &krs_syntax::RuleAttribute) -> To
             }
         },
     )
+}
+
+fn rule_owise_tokens(facade: &Path, attribute: &krs_syntax::RuleAttribute) -> TokenStream {
+    if attribute.is_owise() {
+        quote!(::core::option::Option::Some(#facade::DescriptorRulePriority {
+            key: #facade::ProvenanceKey::new("rule_owise", 0)
+                .expect("KRS parser roles are nonempty"),
+            value: 200,
+        }))
+    } else {
+        quote!(::core::option::Option::None)
+    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -2343,6 +2458,18 @@ fn expand_head_rule(
     }
     let mut extras = have_extras;
     extras.extend(update_extras);
+    builder.reset_side();
+    let requires = if let Some(condition) = rule.requires() {
+        let term = builder.expand(condition.term().tree(), TermSide::Requires)?;
+        quote! {
+            ::core::option::Option::Some(#facade::HostRuleCondition {
+                key: #facade::ProvenanceKey::new("rule_requires", 0).unwrap(),
+                term: #term,
+            })
+        }
+    } else {
+        quote!(::core::option::Option::None)
+    };
     let key_functions = builder.key_functions;
     let tooling_binding_references = builder.tooling_binding_references;
 
@@ -2405,6 +2532,7 @@ fn expand_head_rule(
         },
         |_| rule_label_tokens(&facade, clause.attribute()),
     );
+    let priority = rule_owise_tokens(&facade, clause.attribute());
     let original = rule.item();
     let attrs = &original.attrs;
     let visibility = &original.vis;
@@ -2469,12 +2597,14 @@ fn expand_head_rule(
                     #facade::HostHeadRule {
                         sentence_kind: #facade::SentenceKind::Transition,
                         label: #label,
+                        priority: #priority,
                         pattern_key: #facade::ProvenanceKey::new("rule_pattern", 0).unwrap(),
                         result_key: #facade::ProvenanceKey::new("rule_result", 0).unwrap(),
                         #header
                         bindings: ::std::vec![#(#bindings),*],
                         subject: #subject,
                         result: #result,
+                        requires: #requires,
                         extras: ::std::vec![#(#extras),*],
                     }
                 )),
@@ -2626,17 +2756,21 @@ fn expand_ordinary_rule(
         quote!(::core::option::Option::None)
     };
     let term_key_functions = term_builder.key_functions;
-    let priority = priority.map_or_else(
-        || quote!(::core::option::Option::None),
-        |priority| {
-            let value = priority.value();
-            quote!(::core::option::Option::Some(#facade::DescriptorRulePriority {
-                key: #facade::ProvenanceKey::new("equation_priority", 0)
-                    .expect("KRS parser roles are nonempty"),
-                value: #value,
-            }))
-        },
-    );
+    let priority = if attribute.is_owise() {
+        rule_owise_tokens(&facade, attribute)
+    } else {
+        priority.map_or_else(
+            || quote!(::core::option::Option::None),
+            |priority| {
+                let value = priority.value();
+                quote!(::core::option::Option::Some(#facade::DescriptorRulePriority {
+                    key: #facade::ProvenanceKey::new("equation_priority", 0)
+                        .expect("KRS parser roles are nonempty"),
+                    value: #value,
+                }))
+            },
+        )
+    };
     let simplification = simplification.map_or_else(
         || quote!(::core::option::Option::None),
         |simplification| {
@@ -2874,6 +3008,7 @@ fn configuration_rule(
         .take(original.sig.inputs.len() - 1);
     let name = name_ident.to_string();
     let label = rule_label_tokens(&facade, attribute);
+    let priority = rule_owise_tokens(&facade, attribute);
     let mut wrapper_checks = Vec::new();
     for candidate in rule
         .reference_candidates()
@@ -2930,6 +3065,7 @@ fn configuration_rule(
                     ::std::boxed::Box::new(#facade::HostConfigurationRule {
                         sentence_kind: #facade::SentenceKind::Transition,
                         label: #label,
+                        priority: #priority,
                         requires: #requires,
                         claim: ::core::option::Option::None,
                         pattern_key: #facade::ProvenanceKey::new("rule_pattern", 0)
@@ -3184,6 +3320,7 @@ fn configuration_claim(
                 payload: #facade::HostDescriptorPayload::ConfigurationRule(Box::new(#facade::HostConfigurationRule {
                     sentence_kind: #facade::SentenceKind::Claim,
                     label: Some(#facade::DescriptorRuleLabel { key: #facade::ProvenanceKey::new("claim_label", 0).unwrap(), name: #label_name.to_owned() }),
+                    priority: None,
                     requires: #requires,
                     claim: Some(#facade::HostClaim { declaration_key: #facade::ProvenanceKey::new("claim_declaration", 0).unwrap(), modality_key: #facade::ProvenanceKey::new("claim_modality", 0).unwrap(), modality: #modality, circularity_key: #circularity, universals: vec![#(#universal_metadata),*], existentials: vec![#(#existential_metadata),*], ensures: #ensures, or_bool_keys: vec![#(#or_bool_keys),*] }),
                     pattern_key: #facade::ProvenanceKey::new("rule_pattern", 0).unwrap(),
@@ -3290,6 +3427,7 @@ impl<'a> StateRuleBuilder<'a> {
             let field_key = self.key("cells_field", field_ordinal);
             let wrapper_key = self.key("cells_wrapper", wrapper_ordinal);
             let marker = cell_marker_function(entry.name());
+            let cell_owner = entry.owner().unwrap_or(owner);
             let computation = entry
                 .wrapper()
                 .segments
@@ -3312,8 +3450,8 @@ impl<'a> StateRuleBuilder<'a> {
                     field: #facade::HostCellReference {
                         key: #field_key,
                         cell: #facade::HostCellIdentity {
-                            owner: #facade::HostTypeKey(#owner::__krs_configuration_type_key),
-                            field: #facade::HostTypeKey(#owner::#marker),
+                            owner: #facade::HostTypeKey(#cell_owner::__krs_configuration_type_key),
+                            field: #facade::HostTypeKey(#cell_owner::#marker),
                         },
                     },
                     wrapper_key: #wrapper_key,
@@ -3611,6 +3749,28 @@ impl<'a> StateRuleBuilder<'a> {
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(quote!(#facade::HostTerm::OrBool { key: #key, arguments: vec![#(#values),*] }))
             }
+            TermTree::Cell(cell) => {
+                let ordinal = take_counter(&mut self.counters.application)?;
+                let key = self.key("application_head", ordinal);
+                let declaration = self.terms.cell_declaration_target(cell.owner())?;
+                let mut fields = Vec::new();
+                for field in cell.fields() {
+                    let ordinal = take_counter(&mut self.counters.record_field)?;
+                    let field_key = self.key("record_field_name", ordinal);
+                    let name = field.name().to_string();
+                    let value = self.expand_term(field.value())?;
+                    fields.push(quote!(#facade::HostCellTermField {
+                        key: #field_key,
+                        field: #facade::ProductionFieldId::new(#name)
+                            .expect("Rust fields are valid cell-field identities"),
+                        value: ::std::boxed::Box::new(#value),
+                    }));
+                }
+                Ok(quote!(#facade::HostTerm::Cell {
+                    key: #key, declaration: #declaration,
+                    fields: ::std::vec![#(#fields),*],
+                }))
+            }
         }
     }
 }
@@ -3696,6 +3856,28 @@ pub(crate) fn cells(input: TokenStream) -> syn::Result<TokenStream> {
             #(let _ = #expressions;)*
         };
         ::core::panic!("`cells!` has no runtime value in KRS")
+    }})
+}
+
+pub(crate) fn fragment(input: &TokenStream) -> syn::Result<TokenStream> {
+    let facade = facade_path()?;
+    let record: syn::ExprStruct = syn::parse2(input.clone())?;
+    let parsed = parse_term_expression(quote!(#facade::fragment![#input]))
+        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let TermTree::Cell(cell) = parsed.tree() else {
+        return Err(syn::Error::new(
+            Span::call_site(),
+            "fragment! requires `Parent { field: value, ... }`",
+        ));
+    };
+    let owner = call_site_path(cell.owner())?;
+    let expressions = record.fields.iter().map(|field| &field.expr);
+    Ok(quote! {{
+        let _krs_typecheck_fragment = || {
+            let _ = ::core::any::TypeId::of::<#owner>();
+            #(let _ = #expressions;)*
+        };
+        ::core::panic!("fragment! has no runtime value in KRS")
     }})
 }
 
@@ -3988,7 +4170,56 @@ impl<'a> TermBuilder<'a> {
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(quote!(#facade::HostTerm::OrBool { key: #key, arguments: vec![#(#values),*] }))
             }
+            TermTree::Cell(cell) => {
+                let path_ordinal = take_counter(&mut self.counters.path)?;
+                let application_ordinal = take_counter(&mut self.counters.application)?;
+                let _path_key = provenance_key(facade, side.role("path"), path_ordinal);
+                let key = provenance_key(facade, side.role("application"), application_ordinal);
+                let declaration = self.cell_declaration_target(cell.owner())?;
+                let mut fields = Vec::new();
+                for field in cell.fields() {
+                    let ordinal = take_counter(&mut self.counters.field)?;
+                    let field_key = provenance_key(facade, side.role("field"), ordinal);
+                    let name = field.name().to_string();
+                    let value = self.expand(field.value(), side)?;
+                    fields.push(quote!(#facade::HostCellTermField {
+                        key: #field_key,
+                        field: #facade::ProductionFieldId::new(#name)
+                            .expect("Rust fields are valid cell-field identities"),
+                        value: ::std::boxed::Box::new(#value),
+                    }));
+                }
+                Ok(quote!(#facade::HostTerm::Cell {
+                    key: #key, declaration: #declaration,
+                    fields: ::std::vec![#(#fields),*],
+                }))
+            }
         }
+    }
+
+    fn cell_declaration_target(&mut self, authored: &Path) -> syn::Result<TokenStream> {
+        let generated = call_site_path(authored)?;
+        let authored_spelling = spelling(authored);
+        let key_fn = format_ident!("__krs_rule_cell_{:016x}_{}", self.nonce, self.next_key);
+        self.next_key += 1;
+        let cfg = self.cfg;
+        self.key_functions.push(quote! {
+            #(#cfg)*
+            #[doc(hidden)]
+            fn #key_fn() -> ::core::any::TypeId {
+                ::core::any::TypeId::of::<#generated>()
+            }
+        });
+        let key_reference = if self.associated_keys {
+            quote!(Self::#key_fn)
+        } else {
+            quote!(#key_fn)
+        };
+        let facade = self.facade;
+        Ok(quote!(#facade::HostTypeReference {
+            key: #facade::HostTypeKey(#key_reference),
+            authored_path: #authored_spelling.to_owned(),
+        }))
     }
 
     fn application_target(&mut self, authored: &Path) -> syn::Result<TokenStream> {
@@ -5703,6 +5934,7 @@ fn constructor_grammar(
     disambiguator: &str,
     functional: bool,
     total: bool,
+    hook: Option<&TokenStream>,
     alias: bool,
 ) -> syn::Result<TokenStream> {
     let name = declaration.name().to_string();
@@ -5777,6 +6009,19 @@ fn constructor_grammar(
                 },
             );
         }
+    }
+    if let Some(operation) = hook {
+        let position = if total { 2 } else { 1 };
+        attributes.insert(
+            position,
+            quote! {
+                #facade::HostProductionAttribute::Hook {
+                    key: #facade::ProvenanceKey::new("function_hook", 0)
+                        .expect("KRS parser roles are nonempty"),
+                    operation: #operation,
+                }
+            },
+        );
     }
     if alias {
         attributes.insert(

@@ -16,15 +16,15 @@ use krs_ir::{
     DescriptorTerm, DescriptorTermArgument, HostBuiltinOperationRegistration, HostBuiltinRegistry,
     HostBuiltinRegistryError, HostBuiltinSortRegistration, HostCellIdentity, HostCellReference,
     HostConfigurationReference, HostConfigurationRule, HostListOperationRegistration,
-    HostMapOperationRegistration, HostRuleCells, HostSortReference, HostTerm, HostTypeKey,
-    HostTypeReference, ItemKind, ListOperation, MapOperation, OriginStack, PackageId,
-    ProtocolCellContent, ProtocolContextAliasBinding, ProtocolContextAliasBindingKind,
+    HostMapOperationRegistration, HostRuleCells, HostSetOperationRegistration, HostSortReference,
+    HostTerm, HostTypeKey, HostTypeReference, ItemKind, ListOperation, MapOperation, OriginStack,
+    PackageId, ProtocolCellContent, ProtocolContextAliasBinding, ProtocolContextAliasBindingKind,
     ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolInitializerTerm,
     ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolRuleBinding,
     ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleFrame, ProtocolRuleKSequence,
     ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem,
-    ProtocolRuleStateTerm, ProtocolV7ShapeError, ProvenanceKey, SentenceKind, Sha256Digest,
-    SourceFileId, SourceRange, StableItemId,
+    ProtocolRuleStateTerm, ProtocolV7ShapeError, ProvenanceKey, SentenceKind, SetOperation,
+    Sha256Digest, SourceFileId, SourceRange, StableItemId,
 };
 
 fn package() -> PackageId {
@@ -64,6 +64,8 @@ fn cell_field(
         rust_field: name.into(),
         emitted_name: None,
         color: None,
+        multiplicity: None,
+        cell_type: None,
         content: ProtocolCellContent::Leaf {
             wrapper_key: key("configuration_cell_wrapper", ordinal),
             wrapper,
@@ -254,6 +256,7 @@ fn marker<const N: usize>() -> TypeId {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // Exhaustively constructs and rejects the incomplete registry.
 fn v7_builtin_registry_requires_map_and_id() {
     let sorts = BuiltinSort::ALL
         .into_iter()
@@ -267,7 +270,8 @@ fn v7_builtin_registry_requires_map_and_id() {
                 3 => HostTypeKey(marker::<3>),
                 4 => HostTypeKey(marker::<4>),
                 5 => HostTypeKey(marker::<5>),
-                _ => HostTypeKey(marker::<6>),
+                6 => HostTypeKey(marker::<6>),
+                _ => HostTypeKey(marker::<42>),
             },
         })
         .collect();
@@ -301,14 +305,26 @@ fn v7_builtin_registry_requires_map_and_id() {
                 21 => HostTypeKey(marker::<28>),
                 22 => HostTypeKey(marker::<29>),
                 23 => HostTypeKey(marker::<30>),
-                _ => HostTypeKey(marker::<31>),
+                24 => HostTypeKey(marker::<31>),
+                25 => HostTypeKey(marker::<39>),
+                26 => HostTypeKey(marker::<40>),
+                27 => HostTypeKey(marker::<41>),
+                _ => HostTypeKey(marker::<51>),
             },
         })
         .collect();
-    let map_operations = vec![HostMapOperationRegistration {
-        operation: MapOperation::Update,
-        target: HostTypeKey(marker::<32>),
-    }];
+    let map_operations = MapOperation::TERM_APPLICATIONS
+        .into_iter()
+        .enumerate()
+        .map(|(index, operation)| HostMapOperationRegistration {
+            operation,
+            target: match index {
+                0 => HostTypeKey(marker::<32>),
+                1 => HostTypeKey(marker::<43>),
+                _ => HostTypeKey(marker::<44>),
+            },
+        })
+        .collect();
     let list_operations = ListOperation::TERM_APPLICATIONS
         .into_iter()
         .enumerate()
@@ -320,7 +336,23 @@ fn v7_builtin_registry_requires_map_and_id() {
                 2 => HostTypeKey(marker::<35>),
                 3 => HostTypeKey(marker::<36>),
                 4 => HostTypeKey(marker::<37>),
-                _ => HostTypeKey(marker::<38>),
+                5 => HostTypeKey(marker::<38>),
+                6 => HostTypeKey(marker::<49>),
+                7 => HostTypeKey(marker::<50>),
+                _ => HostTypeKey(marker::<52>),
+            },
+        })
+        .collect();
+    let set_operations = SetOperation::TERM_APPLICATIONS
+        .into_iter()
+        .enumerate()
+        .map(|(index, operation)| HostSetOperationRegistration {
+            operation,
+            target: match index {
+                0 => HostTypeKey(marker::<45>),
+                1 => HostTypeKey(marker::<46>),
+                2 => HostTypeKey(marker::<47>),
+                _ => HostTypeKey(marker::<48>),
             },
         })
         .collect();
@@ -329,6 +361,7 @@ fn v7_builtin_registry_requires_map_and_id() {
         operations,
         map_operations,
         list_operations,
+        set_operations,
     };
     registry.validate_v7().unwrap();
 
@@ -590,6 +623,7 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
         DescriptorConfigurationRule {
             sentence_kind: SentenceKind::Transition,
             label: None,
+            priority: None,
             requires: None,
             claim: None,
             pattern_key: key("rule_pattern", 0),
@@ -663,7 +697,7 @@ fn configuration_rule_round_trips_with_exact_side_specific_provenance() {
         payload: DescriptorPayload::ConfigurationRule(Box::new(rule)),
     }]);
     let json = bundle.to_canonical_json().unwrap();
-    assert!(json.contains("\"protocol_version\": 20"));
+    assert!(json.contains("\"protocol_version\": 35"));
     assert!(json.contains("\"configuration_rule\""));
     let decoded: DescriptorBundle = serde_json::from_str(&json).unwrap();
     assert_eq!(decoded, bundle);
@@ -859,6 +893,7 @@ fn wildcard_configuration_rule() -> DescriptorConfigurationRule {
     DescriptorConfigurationRule {
         sentence_kind: SentenceKind::Transition,
         label: None,
+        priority: None,
         requires: None,
         claim: None,
         pattern_key: key("rule_pattern", 0),
@@ -968,6 +1003,7 @@ fn host_wildcard_configuration_rule() -> HostConfigurationRule {
     HostConfigurationRule {
         sentence_kind: SentenceKind::Transition,
         label: None,
+        priority: None,
         requires: None,
         claim: None,
         pattern_key: key("rule_pattern", 0),
@@ -1125,5 +1161,5 @@ fn protocol_seven_is_rejected_after_v9_cutover() {
         r#"{"protocol_version":7,"descriptors":[],"declarations":[]}"#,
     )
     .unwrap_err();
-    assert!(error.to_string().contains("expected 20"));
+    assert!(error.to_string().contains("expected 35"));
 }

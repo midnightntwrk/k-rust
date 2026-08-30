@@ -130,6 +130,26 @@ pub struct DescriptorCellColor {
     pub value: String,
 }
 
+/// Optional classified repeated-cell multiplicity.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorCellMultiplicity {
+    /// Exact string-literal provenance.
+    pub key: ProvenanceKey,
+    /// Exact supported K multiplicity spelling.
+    pub value: String,
+}
+
+/// Optional classified repeated-cell collection type.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorCellType {
+    /// Exact string-literal provenance.
+    pub key: ProvenanceKey,
+    /// Exact supported K collection type spelling.
+    pub value: String,
+}
+
 /// Leaf or nominally nested content of one fixed cell declaration field.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(
@@ -173,6 +193,10 @@ pub struct ProtocolCellField<I, S, N> {
     pub emitted_name: Option<DescriptorCellName>,
     /// Optional classified color.
     pub color: Option<DescriptorCellColor>,
+    /// Optional repeated-cell multiplicity.
+    pub multiplicity: Option<DescriptorCellMultiplicity>,
+    /// Optional repeated-cell collection type.
+    pub cell_type: Option<DescriptorCellType>,
     /// Typed leaf or nested content.
     pub content: ProtocolCellContent<S, N>,
 }
@@ -914,6 +938,32 @@ fn validate_cell_metadata<I, S, N>(
     if let Some(color) = &field.color {
         validate_nonblank("cell color", &color.value)?;
         insert_exact(keys, &color.key, "configuration_cell_color", ordinal)?;
+    }
+    if let Some(multiplicity) = &field.multiplicity {
+        if multiplicity.value != "*" {
+            return Err(ProtocolV7ShapeError::InvalidTerm(
+                "unsupported cell multiplicity",
+            ));
+        }
+        insert_exact(
+            keys,
+            &multiplicity.key,
+            "configuration_cell_multiplicity",
+            ordinal,
+        )?;
+    }
+    if let Some(cell_type) = &field.cell_type {
+        if field.multiplicity.is_none() {
+            return Err(ProtocolV7ShapeError::InvalidTerm(
+                "cell type requires repeated multiplicity",
+            ));
+        }
+        if !matches!(cell_type.value.as_str(), "Bag" | "List" | "Map" | "Set") {
+            return Err(ProtocolV7ShapeError::InvalidTerm(
+                "unsupported repeated-cell collection type",
+            ));
+        }
+        insert_exact(keys, &cell_type.key, "configuration_cell_type", ordinal)?;
     }
     Ok(emitted)
 }
@@ -1800,6 +1850,9 @@ fn validate_descriptor_term_node(
         | DescriptorTerm::OrBool { .. } => Err(ProtocolV7ShapeError::InvalidTerm(
             "claim-only terms are not allowed in initializers",
         )),
+        DescriptorTerm::Cell { .. } => Err(ProtocolV7ShapeError::InvalidTerm(
+            "fragment! terms are not allowed in initializers",
+        )),
     }
 }
 
@@ -1902,6 +1955,9 @@ fn validate_host_term_node(
                 "claim-only terms are not allowed in initializers",
             ))
         }
+        HostTerm::Cell { .. } => Err(ProtocolV7ShapeError::InvalidTerm(
+            "fragment! terms are not allowed in initializers",
+        )),
     }
 }
 

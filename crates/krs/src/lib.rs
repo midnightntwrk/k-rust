@@ -27,16 +27,17 @@ use std::marker::PhantomData;
 
 pub use krs_ir::{
     AnchorPrecision, BuiltinOperation, BuiltinSort, ConfigurationCellDescriptor,
-    ConfigurationDescriptorError, HostAuthoredAnchor, HostBuiltinOperationRegistration,
-    HostBuiltinRegistry, HostBuiltinRegistryError, HostBuiltinSortRegistration,
-    HostConfigurationDescriptor, HostConfigurationInitializerDescriptor,
-    HostConfigurationVariableDescriptor, HostConstructorDescriptor, HostConstructorFieldDescriptor,
-    HostDeclarationIdentity, HostDescriptor, HostDescriptorPayload, HostDescriptorReference,
-    HostIdentityError, HostItemId, HostListOperationRegistration, HostMapOperationRegistration,
-    HostPackageKey, HostProvenance, HostProvenanceError, HostRuleDescriptor,
-    HostRuleParameterDescriptor, HostSortDescriptor, HostSourceAnchor, HostSourcePosition,
+    ConfigurationDescriptorError, HookOperation, HostAuthoredAnchor,
+    HostBuiltinOperationRegistration, HostBuiltinRegistry, HostBuiltinRegistryError,
+    HostBuiltinSortRegistration, HostConfigurationDescriptor,
+    HostConfigurationInitializerDescriptor, HostConfigurationVariableDescriptor,
+    HostConstructorDescriptor, HostConstructorFieldDescriptor, HostDeclarationIdentity,
+    HostDescriptor, HostDescriptorPayload, HostDescriptorReference, HostIdentityError, HostItemId,
+    HostListOperationRegistration, HostMapOperationRegistration, HostPackageKey, HostProvenance,
+    HostProvenanceError, HostRuleDescriptor, HostRuleParameterDescriptor,
+    HostSetOperationRegistration, HostSortDescriptor, HostSourceAnchor, HostSourcePosition,
     HostTypeKey, HostTypeReference, ItemKind, ListOperation, MapOperation, ProtocolVersion,
-    ProvenanceKey, RuleBindingError, SentenceKind,
+    ProvenanceKey, RuleBindingError, SentenceKind, SetOperation,
 };
 pub use krs_ir::{
     DescriptorApplicationHeadClass, DescriptorAssociativitySentence, DescriptorFieldReference,
@@ -44,30 +45,31 @@ pub use krs_ir::{
     DescriptorLiteral, DescriptorPrecedenceChain, DescriptorRuleCondition, DescriptorRuleLabel,
     DescriptorRulePriority, DescriptorSimplification, DescriptorSimplificationPriority,
     FormatFragment, GroupAssociativity, HostApplicationIdentity, HostApplicationReference,
-    HostApplicationTarget, HostContextAliasReference, HostEnumVariantKey, HostEnumVariantReference,
-    HostEnumVariantReferenceError, HostGrammarDescriptor, HostProduction, HostProductionAttribute,
-    HostProductionItem, HostProductionOwner, HostRuleCondition, HostSortReference,
-    HostStructuredRuleDescriptor, HostTerm, HostTermArgument, ProductionFieldId, ProductionGroupId,
-    ProtocolV6ShapeError, StrictnessKind, enum_variant_disambiguator,
+    HostApplicationTarget, HostCellTermField, HostContextAliasReference, HostEnumVariantKey,
+    HostEnumVariantReference, HostEnumVariantReferenceError, HostGrammarDescriptor, HostProduction,
+    HostProductionAttribute, HostProductionItem, HostProductionOwner, HostRuleCondition,
+    HostSortReference, HostStructuredRuleDescriptor, HostTerm, HostTermArgument, ProductionFieldId,
+    ProductionGroupId, ProtocolV6ShapeError, StrictnessKind, enum_variant_disambiguator,
 };
 // These protocol-v7 host contracts are reexported because downstream proc
 // macro expansions must name them through the actual (possibly renamed) KRS
 // facade dependency. Stable descriptor counterparts remain in `krs-ir`.
 pub use krs_ir::protocol_v7::{
-    CellWrapper, ClaimModality, DescriptorCellColor, DescriptorCellName,
-    DescriptorConfigurationRoot, DescriptorKSequenceNotation, HostCellDeclaration,
-    HostCellDeclarationReference, HostCellField, HostCellIdentity, HostCellReference, HostClaim,
-    HostClaimBinder, HostConfigurationDeclaration, HostConfigurationInitializer,
-    HostConfigurationReference, HostConfigurationRule, HostConfigurationVariable, HostContextAlias,
-    HostFixedConfiguration, HostInitializerCell, HostInitializerStateTerm, HostRuleBinding,
-    HostRuleCells, ProtocolCellContent, ProtocolCellDeclaration, ProtocolCellField,
-    ProtocolConfigurationInitializer, ProtocolConfigurationVariable, ProtocolContextAliasBinding,
-    ProtocolContextAliasBindingKind, ProtocolInitializerCell, ProtocolInitializerCellContent,
-    ProtocolInitializerStateTerm, ProtocolInitializerTerm, ProtocolKSequence,
-    ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolMapItem, ProtocolRuleBinding,
-    ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleCells, ProtocolRuleFrame,
-    ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody,
-    ProtocolRuleMapItem, ProtocolRuleStateTerm, ProtocolV7ShapeError,
+    CellWrapper, ClaimModality, DescriptorCellColor, DescriptorCellMultiplicity,
+    DescriptorCellName, DescriptorCellType, DescriptorConfigurationRoot,
+    DescriptorKSequenceNotation, HostCellDeclaration, HostCellDeclarationReference, HostCellField,
+    HostCellIdentity, HostCellReference, HostClaim, HostClaimBinder, HostConfigurationDeclaration,
+    HostConfigurationInitializer, HostConfigurationReference, HostConfigurationRule,
+    HostConfigurationVariable, HostContextAlias, HostFixedConfiguration, HostInitializerCell,
+    HostInitializerStateTerm, HostRuleBinding, HostRuleCells, ProtocolCellContent,
+    ProtocolCellDeclaration, ProtocolCellField, ProtocolConfigurationInitializer,
+    ProtocolConfigurationVariable, ProtocolContextAliasBinding, ProtocolContextAliasBindingKind,
+    ProtocolInitializerCell, ProtocolInitializerCellContent, ProtocolInitializerStateTerm,
+    ProtocolInitializerTerm, ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap,
+    ProtocolMapBody, ProtocolMapItem, ProtocolRuleBinding, ProtocolRuleBindingKind,
+    ProtocolRuleCell, ProtocolRuleCells, ProtocolRuleFrame, ProtocolRuleKSequence,
+    ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem,
+    ProtocolRuleStateTerm, ProtocolV7ShapeError,
 };
 pub use krs_ir::{
     DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleExtra,
@@ -77,9 +79,9 @@ pub use krs_ir::{
 };
 pub use krs_macros::{
     alias, anonymous, associativity, bracket, bytes, cell, cells, claim, configuration,
-    constructor, constructors, context_alias, ensures, equation, exists, function, id, init, k,
-    map, or_bool, precedence, priority, requires, rule, rules, seqstrict, simplification, sort,
-    sorts, strict, subsort, symbol, term, token,
+    constructor, constructors, context_alias, ensures, equation, exists, fragment, function, id,
+    init, k, map, or_bool, precedence, priority, requires, rule, rules, seqstrict, simplification,
+    sort, sorts, strict, subsort, symbol, term, token,
 };
 
 /// Rust-resolved metadata for an unqualified constructor application in a
@@ -220,6 +222,16 @@ pub mod builtin {
         #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub struct Update<K = Id, V = ()>(pub Map<K, V>, pub K, pub V);
 
+        /// Partial lookup of one typed map entry.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Get<K = Id, V = ()>(pub Map<K, V>, pub K);
+
+        /// Boolean key-membership test.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct InKeys<K = Id, V = ()>(pub K, pub Map<K, V>);
+
+        pub use Get as get;
+        pub use InKeys as in_keys;
         /// Readable function-shaped spelling of a persistent update.
         ///
         /// Re-exporting the tuple struct, instead of defining a wrapper
@@ -291,12 +303,70 @@ pub mod builtin {
         #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub struct Size<T = ()>(pub List<T>);
 
+        /// Marker for `makeList(length, value)`.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Make<T = ()>(pub Int, pub T);
+
+        /// Marker for `range(List, fromFront, fromBack)`.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Range<T = ()>(pub List<T>, pub Int, pub Int);
+
+        /// Marker for `updateList(List, index, replacement)`.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct UpdateAll<T = ()>(pub List<T>, pub Int, pub List<T>);
+
         pub use Concat as concat;
         pub use Empty as empty;
         pub use Get as get;
         pub use Item as item;
+        pub use Make as make;
+        pub use Range as range;
         pub use Size as size;
         pub use Update as update;
+        pub use UpdateAll as update_all;
+    }
+
+    /// Type-shaped marker for K's associative builtin-set sort.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Set<T = ()> {
+        marker: std::marker::PhantomData<fn() -> T>,
+    }
+
+    impl<T> Set<T> {
+        /// Constructs the zero-sized authoring shell.
+        #[doc(hidden)]
+        #[must_use]
+        pub const fn __new() -> Self {
+            Self {
+                marker: std::marker::PhantomData,
+            }
+        }
+    }
+
+    /// Ordinary operations from K's pinned `SET` module.
+    pub mod set {
+        use super::Set;
+
+        /// Marker for `.Set`.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Empty;
+
+        /// Marker for `SetItem(K)`.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Item<T = ()>(pub T);
+
+        /// Marker for associative set concatenation.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Concat<T = ()>(pub Set<T>, pub Set<T>);
+
+        /// Marker for set membership.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Contains<T = ()>(pub T, pub Set<T>);
+
+        pub use Concat as concat;
+        pub use Contains as contains;
+        pub use Empty as empty;
+        pub use Item as item;
     }
 
     /// Builtin operations and sort marker from K's pinned `INT` domain.
@@ -459,8 +529,28 @@ pub mod builtin {
         #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub struct Get(pub Bytes, pub Int);
 
+        /// Marker for `.Bytes`.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Empty;
+
+        /// Marker for byte update.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Update(pub Bytes, pub Int, pub Int);
+
+        /// Marker for right padding.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct PadRight(pub Bytes, pub Int, pub Int);
+
+        /// Marker for byte substring extraction over a half-open range.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Substr(pub Bytes, pub Int, pub Int);
+
+        pub use Empty as empty;
         pub use Get as get;
         pub use Length as length;
+        pub use PadRight as pad_right;
+        pub use Substr as substr;
+        pub use Update as update;
     }
 
     /// Convenient root spelling of the builtin Boolean sort marker.
@@ -510,6 +600,10 @@ fn list_builtin_key() -> TypeId {
     TypeId::of::<builtin::List>()
 }
 
+fn set_builtin_key() -> TypeId {
+    TypeId::of::<builtin::Set>()
+}
+
 macro_rules! builtin_operation_keys {
     ($(($function:ident, $marker:path)),+ $(,)?) => {
         $(
@@ -546,10 +640,22 @@ builtin_operation_keys! {
     (bool_or_builtin_key, builtin::bool::or),
     (bytes_length_builtin_key, builtin::bytes::length),
     (bytes_get_builtin_key, builtin::bytes::get),
+    (bytes_empty_builtin_key, builtin::bytes::empty),
+    (bytes_update_builtin_key, builtin::bytes::update),
+    (bytes_pad_right_builtin_key, builtin::bytes::pad_right),
+    (bytes_substr_builtin_key, builtin::bytes::substr),
 }
 
 fn map_update_builtin_key() -> TypeId {
     TypeId::of::<builtin::map::update>()
+}
+
+fn map_get_builtin_key() -> TypeId {
+    TypeId::of::<builtin::map::get>()
+}
+
+fn map_in_keys_builtin_key() -> TypeId {
+    TypeId::of::<builtin::map::in_keys>()
 }
 
 macro_rules! list_operation_keys {
@@ -569,6 +675,16 @@ list_operation_keys! {
     (list_get_builtin_key, builtin::list::get),
     (list_update_builtin_key, builtin::list::update),
     (list_size_builtin_key, builtin::list::size),
+    (list_make_builtin_key, builtin::list::make),
+    (list_range_builtin_key, builtin::list::range),
+    (list_update_all_builtin_key, builtin::list::update_all),
+}
+
+list_operation_keys! {
+    (set_empty_builtin_key, builtin::set::empty),
+    (set_item_builtin_key, builtin::set::item),
+    (set_concat_builtin_key, builtin::set::concat),
+    (set_contains_builtin_key, builtin::set::contains),
 }
 
 /// Constructs the complete process-local registry of builtin Rust markers.
@@ -581,6 +697,7 @@ list_operation_keys! {
 /// The returned registry has one entry for every [`BuiltinSort::ALL`] and
 /// [`BuiltinOperation::ALL`] member and passes [`HostBuiltinRegistry::validate`].
 #[must_use]
+#[allow(clippy::too_many_lines)] // Declares the complete closed facade registry in stable order.
 pub fn builtin_registry() -> HostBuiltinRegistry {
     let sorts = [
         (
@@ -593,6 +710,7 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
         (BuiltinSort::Id, id_builtin_key as fn() -> TypeId),
         (BuiltinSort::Bytes, bytes_builtin_key as fn() -> TypeId),
         (BuiltinSort::List, list_builtin_key as fn() -> TypeId),
+        (BuiltinSort::Set, set_builtin_key as fn() -> TypeId),
     ]
     .into_iter()
     .map(|(sort, key)| HostBuiltinSortRegistration {
@@ -630,6 +748,10 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
         (BuiltinOperation::BoolOr, bool_or_builtin_key),
         (BuiltinOperation::BytesLength, bytes_length_builtin_key),
         (BuiltinOperation::BytesGet, bytes_get_builtin_key),
+        (BuiltinOperation::BytesEmpty, bytes_empty_builtin_key),
+        (BuiltinOperation::BytesUpdate, bytes_update_builtin_key),
+        (BuiltinOperation::BytesPadRight, bytes_pad_right_builtin_key),
+        (BuiltinOperation::BytesSubstring, bytes_substr_builtin_key),
     ]
     .into_iter()
     .map(|(operation, key)| HostBuiltinOperationRegistration {
@@ -638,10 +760,20 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
     })
     .collect();
 
-    let map_operations = vec![HostMapOperationRegistration {
-        operation: MapOperation::Update,
-        target: HostTypeKey(map_update_builtin_key),
-    }];
+    let map_operations = [
+        (
+            MapOperation::Update,
+            map_update_builtin_key as fn() -> TypeId,
+        ),
+        (MapOperation::Get, map_get_builtin_key),
+        (MapOperation::InKeys, map_in_keys_builtin_key),
+    ]
+    .into_iter()
+    .map(|(operation, key)| HostMapOperationRegistration {
+        operation,
+        target: HostTypeKey(key),
+    })
+    .collect();
 
     let list_operations = [
         (
@@ -653,9 +785,25 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
         (ListOperation::Get, list_get_builtin_key),
         (ListOperation::Update, list_update_builtin_key),
         (ListOperation::Size, list_size_builtin_key),
+        (ListOperation::Make, list_make_builtin_key),
+        (ListOperation::Range, list_range_builtin_key),
+        (ListOperation::UpdateAll, list_update_all_builtin_key),
     ]
     .into_iter()
     .map(|(operation, key)| HostListOperationRegistration {
+        operation,
+        target: HostTypeKey(key),
+    })
+    .collect();
+
+    let set_operations = [
+        (SetOperation::Empty, set_empty_builtin_key as fn() -> TypeId),
+        (SetOperation::Item, set_item_builtin_key),
+        (SetOperation::Concat, set_concat_builtin_key),
+        (SetOperation::Contains, set_contains_builtin_key),
+    ]
+    .into_iter()
+    .map(|(operation, key)| HostSetOperationRegistration {
         operation,
         target: HostTypeKey(key),
     })
@@ -666,6 +814,7 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
         operations,
         map_operations,
         list_operations,
+        set_operations,
     }
 }
 
@@ -732,6 +881,26 @@ pub mod configuration {
         /// Wraps one checked computation-sequence authoring expression.
         #[must_use]
         pub const fn new(_contents: KSequence) -> Self {
+            Self {
+                marker: PhantomData,
+            }
+        }
+    }
+
+    /// Opaque authoring type for a compiler-owned nested-cell term.
+    ///
+    /// Values are created only by [`crate::fragment!`]. The host type carries
+    /// the nominal parent for rustc while KRS validates the actual child set
+    /// against the collected fixed-configuration declaration.
+    pub struct CellFragment<Parent> {
+        marker: PhantomData<fn() -> Parent>,
+    }
+
+    impl<Parent> CellFragment<Parent> {
+        /// Constructs the zero-sized result of a checked macro expansion.
+        #[doc(hidden)]
+        #[must_use]
+        pub const fn __new() -> Self {
             Self {
                 marker: PhantomData,
             }
@@ -998,6 +1167,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)] // Exhaustively verifies every facade registry identity.
     fn builtin_registry_is_complete_and_exact() {
         let registry = builtin_registry();
         registry.validate().expect("facade catalog is valid");
@@ -1040,6 +1210,7 @@ mod tests {
             (TypeId::of::<builtin::Id>(), BuiltinSort::Id),
             (TypeId::of::<builtin::Bytes>(), BuiltinSort::Bytes),
             (TypeId::of::<builtin::List>(), BuiltinSort::List),
+            (TypeId::of::<builtin::Set>(), BuiltinSort::Set),
         ];
         for (marker, expected) in exact_sorts {
             assert_eq!(registry.resolve_sort(marker), Some(expected));
@@ -1118,19 +1289,43 @@ mod tests {
                 BuiltinOperation::BoolAnd,
             ),
             (TypeId::of::<builtin::bool::or>(), BuiltinOperation::BoolOr),
+            (
+                TypeId::of::<builtin::bytes::length>(),
+                BuiltinOperation::BytesLength,
+            ),
+            (
+                TypeId::of::<builtin::bytes::get>(),
+                BuiltinOperation::BytesGet,
+            ),
+            (
+                TypeId::of::<builtin::bytes::empty>(),
+                BuiltinOperation::BytesEmpty,
+            ),
+            (
+                TypeId::of::<builtin::bytes::update>(),
+                BuiltinOperation::BytesUpdate,
+            ),
+            (
+                TypeId::of::<builtin::bytes::pad_right>(),
+                BuiltinOperation::BytesPadRight,
+            ),
+            (
+                TypeId::of::<builtin::bytes::substr>(),
+                BuiltinOperation::BytesSubstring,
+            ),
         ];
         for (marker, expected) in exact_operations {
             assert_eq!(registry.resolve_operation(marker), Some(expected));
             assert_eq!(registry.resolve_sort(marker), None);
         }
-        assert_eq!(
-            registry.resolve_map_operation(TypeId::of::<builtin::map::update>()),
-            Some(MapOperation::Update)
-        );
-        assert_eq!(
-            registry.resolve_operation(TypeId::of::<builtin::map::update>()),
-            None
-        );
+        for (marker, expected) in [
+            (TypeId::of::<builtin::map::update>(), MapOperation::Update),
+            (TypeId::of::<builtin::map::get>(), MapOperation::Get),
+            (TypeId::of::<builtin::map::in_keys>(), MapOperation::InKeys),
+        ] {
+            assert_eq!(registry.resolve_map_operation(marker), Some(expected));
+            assert_eq!(registry.resolve_operation(marker), None);
+        }
         let exact_list_operations = [
             (TypeId::of::<builtin::list::empty>(), ListOperation::Empty),
             (TypeId::of::<builtin::list::item>(), ListOperation::Item),
@@ -1138,12 +1333,34 @@ mod tests {
             (TypeId::of::<builtin::list::get>(), ListOperation::Get),
             (TypeId::of::<builtin::list::update>(), ListOperation::Update),
             (TypeId::of::<builtin::list::size>(), ListOperation::Size),
+            (TypeId::of::<builtin::list::make>(), ListOperation::Make),
+            (TypeId::of::<builtin::list::range>(), ListOperation::Range),
+            (
+                TypeId::of::<builtin::list::update_all>(),
+                ListOperation::UpdateAll,
+            ),
         ];
         for (marker, expected) in exact_list_operations {
             assert_eq!(registry.resolve_list_operation(marker), Some(expected));
             assert_eq!(registry.resolve_sort(marker), None);
             assert_eq!(registry.resolve_operation(marker), None);
             assert_eq!(registry.resolve_map_operation(marker), None);
+        }
+        let exact_set_operations = [
+            (TypeId::of::<builtin::set::empty>(), SetOperation::Empty),
+            (TypeId::of::<builtin::set::item>(), SetOperation::Item),
+            (TypeId::of::<builtin::set::concat>(), SetOperation::Concat),
+            (
+                TypeId::of::<builtin::set::contains>(),
+                SetOperation::Contains,
+            ),
+        ];
+        for (marker, expected) in exact_set_operations {
+            assert_eq!(registry.resolve_set_operation(marker), Some(expected));
+            assert_eq!(registry.resolve_sort(marker), None);
+            assert_eq!(registry.resolve_operation(marker), None);
+            assert_eq!(registry.resolve_map_operation(marker), None);
+            assert_eq!(registry.resolve_list_operation(marker), None);
         }
     }
 

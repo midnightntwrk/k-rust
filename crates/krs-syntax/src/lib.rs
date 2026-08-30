@@ -103,8 +103,8 @@ pub use state_rule::{
     parse_state_context_alias_item_source, parse_state_rule_item, parse_state_rule_item_source,
 };
 pub use term::{
-    TermApplication, TermArguments, TermExpression, TermLiteral, TermNamedArgument, TermNode,
-    TermRootKind, TermSymbol, TermSymbolKind, TermTree, parse_term_expression,
+    CellTerm, TermApplication, TermArguments, TermExpression, TermLiteral, TermNamedArgument,
+    TermNode, TermRootKind, TermSymbol, TermSymbolKind, TermTree, parse_term_expression,
     parse_term_expression_source,
 };
 pub use trivia::{

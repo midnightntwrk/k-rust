@@ -1,7 +1,7 @@
 //! Target-neutral fixed-configuration and state-rewrite contracts.
 //!
-//! These types describe declaration-led fixed cell trees. Optional and
-//! repeated cells deliberately remain outside this schema slice.
+//! These types describe declaration-led cell trees, including repeated
+//! collection cells. Optional cells deliberately remain outside this schema slice.
 
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -105,6 +105,65 @@ pub enum CellAttribute {
         /// Validated target-neutral color value.
         value: CellColor,
     },
+    /// Repeated-cell multiplicity.
+    Multiplicity {
+        /// Provenance for the authored attribute value.
+        origin: NodeOrigin,
+        /// Validated multiplicity value.
+        value: CellMultiplicity,
+    },
+    /// Collection type for a repeated cell.
+    CollectionType {
+        /// Provenance for the authored attribute value.
+        origin: NodeOrigin,
+        /// Validated collection type.
+        value: CellCollectionType,
+    },
+}
+
+/// Supported K cell multiplicities.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CellMultiplicity {
+    /// Zero or more cells.
+    Star,
+}
+
+impl CellMultiplicity {
+    /// Returns the exact K attribute spelling.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Star => "*",
+        }
+    }
+}
+
+/// Supported collection types for repeated cells.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CellCollectionType {
+    /// Commutative bag collection.
+    Bag,
+    /// Ordered list collection.
+    List,
+    /// Keyed map collection.
+    Map,
+    /// Commutative set collection.
+    Set,
+}
+
+impl CellCollectionType {
+    /// Returns the exact K attribute spelling.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Bag => "Bag",
+            Self::List => "List",
+            Self::Map => "Map",
+            Self::Set => "Set",
+        }
+    }
 }
 
 impl CellAttribute {
@@ -120,11 +179,25 @@ impl CellAttribute {
         })
     }
 
+    /// Creates repeated-cell multiplicity metadata.
+    #[must_use]
+    pub const fn multiplicity(origin: NodeOrigin, value: CellMultiplicity) -> Self {
+        Self::Multiplicity { origin, value }
+    }
+
+    /// Creates repeated-cell collection-type metadata.
+    #[must_use]
+    pub const fn collection_type(origin: NodeOrigin, value: CellCollectionType) -> Self {
+        Self::CollectionType { origin, value }
+    }
+
     /// Returns provenance for this metadata value.
     #[must_use]
     pub const fn origin(&self) -> &NodeOrigin {
         match self {
-            Self::Color { origin, .. } => origin,
+            Self::Color { origin, .. }
+            | Self::Multiplicity { origin, .. }
+            | Self::CollectionType { origin, .. } => origin,
         }
     }
 }
@@ -811,6 +884,10 @@ pub enum MapOperation {
     Item,
     /// Functional map update.
     Update,
+    /// Partial lookup of the value associated with a key (`M [ K ]`).
+    Get,
+    /// Boolean key membership (`K in_keys(M)`).
+    InKeys,
 }
 
 impl MapOperation {
@@ -819,7 +896,7 @@ impl MapOperation {
     /// Empty maps and map items retain their dedicated `map!` structural
     /// syntax. Persistent update is the one function-shaped operation and is
     /// therefore resolved through the ordinary application-head registry.
-    pub const TERM_APPLICATIONS: [Self; 1] = [Self::Update];
+    pub const TERM_APPLICATIONS: [Self; 3] = [Self::Update, Self::Get, Self::InKeys];
 }
 
 /// Exact builtin-list operations selected from pinned module `LIST`.
@@ -841,18 +918,50 @@ pub enum ListOperation {
     Update,
     /// List length (`size(L)`).
     Size,
+    /// Repetition with a fixed length (`makeList(N, K)`).
+    Make,
+    /// Contiguous sublist after trimming a prefix and suffix (`range(L, I, J)`).
+    Range,
+    /// Persistent replacement of a contiguous region (`updateList(L, I, R)`).
+    UpdateAll,
 }
 
 impl ListOperation {
     /// Complete ordinary application catalog in stable semantic order.
-    pub const TERM_APPLICATIONS: [Self; 6] = [
+    pub const TERM_APPLICATIONS: [Self; 9] = [
         Self::Empty,
         Self::Item,
         Self::Concat,
         Self::Get,
         Self::Update,
         Self::Size,
+        Self::Make,
+        Self::Range,
+        Self::UpdateAll,
     ];
+}
+
+/// Exact builtin-Set operations selected from pinned module `SET`.
+///
+/// Set elements deliberately retain their authored sorts. The K frontend
+/// injects them into `KItem` at item and membership boundaries.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SetOperation {
+    /// Empty set unit (`.Set`).
+    Empty,
+    /// Singleton set element (`SetItem(K)`).
+    Item,
+    /// Associative, commutative, idempotent union (`S1 S2`).
+    Concat,
+    /// Boolean membership (`K in S`).
+    Contains,
+}
+
+impl SetOperation {
+    /// Complete ordinary application catalog in stable semantic order.
+    pub const TERM_APPLICATIONS: [Self; 4] =
+        [Self::Empty, Self::Item, Self::Concat, Self::Contains];
 }
 
 /// Locally invalid fixed-state structure.

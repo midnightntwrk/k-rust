@@ -42,12 +42,12 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     let descriptor_bundle = fs::read_to_string(emitted.join("descriptor-bundle.json")).unwrap();
     assert_ne!(descriptor_bundle, expanded);
     let descriptor: serde_json::Value = serde_json::from_str(&descriptor_bundle).unwrap();
-    assert_eq!(descriptor["protocol_version"], 20);
+    assert_eq!(descriptor["protocol_version"], 35);
     assert!(descriptor_bundle.contains("\"item_name\": \"Machine\""));
     for name in ["semantic-ir.json", "definition-ir.json"] {
         let document: serde_json::Value =
             serde_json::from_slice(&fs::read(emitted.join(name)).unwrap()).unwrap();
-        assert_eq!(document["schema_version"], 13);
+        assert_eq!(document["schema_version"], 27);
     }
     assert!(
         fs::read_to_string(emitted.join("definition.k"))

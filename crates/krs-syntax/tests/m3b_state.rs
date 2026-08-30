@@ -21,9 +21,15 @@ fn generated_and_named_roots_and_cell_payloads_are_closed() {
     let named = parse_configuration_attribute_source(r#"root = "machine""#).unwrap();
     assert_eq!(named.optional_root().unwrap().value(), "machine");
 
-    let cell = parse_cell_attribute_source(r#"color = "green", name = "currentFrame""#).unwrap();
+    let cell = parse_cell_attribute_source(
+        r#"color = "green", name = "currentFrame", multiplicity = "*", cell_type = "Map", nested"#,
+    )
+    .unwrap();
     assert_eq!(cell.name().unwrap().value(), "currentFrame");
     assert_eq!(cell.color().unwrap().value(), "green");
+    assert_eq!(cell.multiplicity().unwrap().value(), "*");
+    assert_eq!(cell.cell_type().unwrap().value(), "Map");
+    assert!(cell.is_nested());
     assert_eq!(
         cell.provenance()
             .unwrap()
@@ -33,6 +39,8 @@ fn generated_and_named_roots_and_cell_payloads_are_closed() {
         [
             ProvenanceRole::ConfigurationCellName,
             ProvenanceRole::ConfigurationCellColor,
+            ProvenanceRole::ConfigurationCellMultiplicity,
+            ProvenanceRole::ConfigurationCellType,
         ]
     );
 
@@ -41,6 +49,9 @@ fn generated_and_named_roots_and_cell_payloads_are_closed() {
         r#"name = """#,
         r#"stream = "stdin""#,
         "color = green",
+        r#"multiplicity = "?""#,
+        r#"cell_type = "Map""#,
+        r#"multiplicity = "*", cell_type = "Queue""#,
     ] {
         assert!(parse_cell_attribute_source(source).is_err(), "{source}");
     }
@@ -233,6 +244,26 @@ fn cells_pattern_and_expression_validate_context_duplicates_and_nested_islands()
         matches!(pattern.remainder(), StateMacroRemainder::Bind { binding, .. } if binding == "state")
     );
 
+    let qualified = parse_cells_pattern_source(
+        "crate::model::Account::storage: Cell(S), Account::storage: Cell(T)",
+    )
+    .unwrap();
+    assert_eq!(qualified.entries()[0].name(), "storage");
+    assert_eq!(
+        qualified.entries()[0]
+            .owner()
+            .map(krs_syntax::state_path_spelling)
+            .as_deref(),
+        Some("crate :: model :: Account")
+    );
+    assert_eq!(
+        qualified.entries()[1]
+            .owner()
+            .map(krs_syntax::state_path_spelling)
+            .as_deref(),
+        Some("Account")
+    );
+
     let expression =
         parse_cells_expression_source("k: KCell(.K), env: Cell(map![E [ X <- V ]]), ..state")
             .unwrap();
@@ -246,6 +277,7 @@ fn cells_pattern_and_expression_validate_context_duplicates_and_nested_islands()
         "k: KCell(.K), k: KCell(.K)",
         "k: Other(.K)",
         "k: KCell(.K), ..state, env: Cell(E)",
+        "Account::storage: Cell(S), Account::storage: Cell(T)",
     ] {
         assert!(parse_cells_expression_source(source).is_err(), "{source}");
     }

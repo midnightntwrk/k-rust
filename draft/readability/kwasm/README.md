@@ -141,10 +141,9 @@ following:
   results, and modulo application;
 - stable identities and deterministic expansion are pinned, and the expanded
   Rust compiles independently;
-- emitted K parses and compiles under the KRS-pinned K toolchain;
+- Definition IR compiles directly through the pinned K-Rust frontend;
 - a matrix covering i32/i64 constants, operand order, add/sub/mul/div_u, nesting, zero, maximum values, wraparound, truncation, and divide-by-zero traps agrees with the pinned KWasm source;
-- the relevant simple-arithmetic claim shape is reproduced or explicitly
-  shown equivalent by the native proof route;
+- the relevant simple-arithmetic claim remains available for an explicit final reference run;
 - the complete IMP M4 behavior, proof, native, and compatibility evidence remains unchanged and the gate is green after the authoring extension.
 
 Only gaps demonstrated by this evidence may change the normative readable
@@ -158,22 +157,23 @@ The fail-closed qualification entry point is `python3 tests/kwasm/verify.py`.
 
 ## Qualification result
 
-The complete gate passes with KRS descriptor protocol 20, Definition IR schema 13, K 7.1.337, and the qualified rust-analyzer 1.97.1:
+The default gate passes with KRS descriptor protocol 26, Definition IR schema 18, the pinned K-Rust frontend/backend, and the qualified rust-analyzer 1.97.1:
 
 ```text
-PASS readable KWasm integer slice: 60 descriptors; 32 executions; 1 native proof; protocol 20; K 7.1.337
+PASS readable KWasm integer slice: 60 descriptors; 32 K-Rust executions; 1 reference proof deferred to --java-reference; protocol 26
 ```
 
 The 32 native executions cover both integer widths, zero, maxima, negative constants, operand order, nesting, every selected add/sub/mul wraparound form, exact and truncated unsigned division, high-bit unsigned values, and divide-by-zero traps.
-The checked-in all-path simple-addition claim closes with `#Top` through `kprove`.
+The checked-in all-path simple-addition claim remains pinned but is not run during routine development.
+`python3 tests/kwasm/verify.py --java-reference` performs the deliberate final K toolchain comparison and proof.
 Six focused definition/hover probes pass with zero rust-analyzer diagnostics, including the new trap constructor.
 
-The native `definition.kore` pin normalizes only the temporary absolute `semantics.k` path and K-generated alpha names in the standard `isSort` membership axioms.
-Repeated compilations converge to normalized SHA-256 `d85e22389012617a27323d2cdece0340c8e5bc45364a1d499118a50f2972f4bb`.
+Definition IR compiles directly to KORE through K-Rust with SHA-256 `35835f531a224c68f5ab63892448d2a2f60a6f0c268be521189a8f4df04245d1`.
 The structured value-versus-trap behavior SHA-256 is `4a3b6107cb23fa451a392d0a0ef1d42203d5eb64cda8cbcda025e75d2458afd5`.
 
-The acceptance contract is emitted K compilation, execution, and proof.
-An optional direct structured `k-rust` compilation experiment reaches an unrelated no-map embedded-prelude `Map:lookup` failure and is deliberately outside this slice's gate.
+K-Rust is the routine correctness authority for compilation and concrete execution.
+The adapter removes the bootstrap `DEFAULT-CONFIGURATION` before structured preparation, so KWasm's authored `<instrs>` computation cell cannot conflict with the prelude's fallback `<k>` cell.
+Java/K toolchain comparison and proof are final-reference evidence only.
 
 Descriptor protocol 19 and Definition IR schema 12 add K's selected `INT.mod` identity for the source-faithful KEVM arithmetic tranche.
 KWasm behavior, emitted K, and native proof evidence remain unchanged because this baseline does not yet consume that shared operation directly.

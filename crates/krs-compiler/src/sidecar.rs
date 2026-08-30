@@ -715,7 +715,9 @@ fn insert_fixed_configuration(
             insert_origin(entries, cell.origin(), SourceMapNodeKind::Cell)?;
             for attribute in cell.attributes() {
                 match attribute {
-                    CellAttribute::Color { origin, .. } => {
+                    CellAttribute::Color { origin, .. }
+                    | CellAttribute::Multiplicity { origin, .. }
+                    | CellAttribute::CollectionType { origin, .. } => {
                         insert_origin(entries, origin, SourceMapNodeKind::CellAttribute)?;
                     }
                 }
@@ -818,8 +820,13 @@ fn insert_term(
         DefinitionTermKind::Application { arguments, .. }
         | DefinitionTermKind::Map { arguments, .. }
         | DefinitionTermKind::List { arguments, .. }
+        | DefinitionTermKind::Set { arguments, .. }
         | DefinitionTermKind::KSequence {
             items: arguments, ..
+        }
+        | DefinitionTermKind::Cell {
+            children: arguments,
+            ..
         } => {
             for argument in arguments {
                 insert_term(entries, argument)?;

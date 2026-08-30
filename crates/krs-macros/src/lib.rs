@@ -268,6 +268,12 @@ pub fn or_bool(_input: TokenStream) -> TokenStream {
     quote::quote!(::core::panic!("or_bool! has no runtime value")).into()
 }
 
+/// Checks a compiler-owned complete nested-cell term.
+#[proc_macro]
+pub fn fragment(input: TokenStream) -> TokenStream {
+    finish(expand::fragment(&input.into()))
+}
+
 /// Checks a complete computation-sequence expression without evaluating it.
 #[proc_macro]
 pub fn k(input: TokenStream) -> TokenStream {

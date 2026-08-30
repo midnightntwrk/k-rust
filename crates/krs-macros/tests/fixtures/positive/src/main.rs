@@ -120,7 +120,7 @@ mod readable_imp_grammar {
 
         /// Evaluate integer negation after strictness has produced a value.
         eval_neg:     Neg { value }           => int::sub(0, value);
-        #[language_host::rule(label = "eval-not")]
+        #[language_host::rule(owise, label = "eval-not")]
         eval_not:     Not { value }           => bool::not(value);
 
         eval_add:     Add { lhs, rhs }        => int::add(lhs, rhs);
@@ -458,6 +458,49 @@ pub struct Increment {
     pub value: Term<language_host::builtin::int::Int>,
 }
 
+#[language_host::function(
+    total,
+    sort = language_host::builtin::Bytes,
+    syntax = "Keccak256raw({value})",
+    hook = krypto::keccak256_raw,
+)]
+pub struct Keccak256Raw {
+    pub value: Term<language_host::builtin::Bytes>,
+}
+
+#[language_host::function(
+    total,
+    sort = language_host::builtin::Bytes,
+    syntax = "Sha256raw({value})",
+    hook = krypto::sha256_raw,
+)]
+pub struct Sha256Raw {
+    pub value: Term<language_host::builtin::Bytes>,
+}
+
+#[language_host::function(
+    total,
+    sort = language_host::builtin::Bytes,
+    syntax = "Ripemd160raw({value})",
+    hook = krypto::ripemd160_raw,
+)]
+pub struct Ripemd160Raw {
+    pub value: Term<language_host::builtin::Bytes>,
+}
+
+#[language_host::function(
+    total,
+    sort = language_host::builtin::Bytes,
+    syntax = "EcdsaRecover({hash}, {recovery}, {r}, {s})",
+    hook = krypto::ecdsa_recover,
+)]
+pub struct EcdsaRecover {
+    pub hash: Term<language_host::builtin::Bytes>,
+    pub recovery: Term<language_host::builtin::int::Int>,
+    pub r: Term<language_host::builtin::Bytes>,
+    pub s: Term<language_host::builtin::Bytes>,
+}
+
 #[language_host::equation]
 fn increment(
     language_host::term![Increment(value)]: Term<language_host::builtin::int::Int>,
@@ -710,6 +753,22 @@ pub fn whole_state_var(
 }
 
 #[rule]
+pub fn nested_state_var(
+    x: Term<language_host::builtin::Id>,
+    value: Term<dyn Value>,
+    cells! {
+        k: KCell(x, tail @ ..),
+        Store::env: Cell(map![x -> value, rest @ ..]),
+        state @ ..
+    }: NestedMachine,
+) -> NestedMachine {
+    cells! {
+        k: KCell(value, ..tail),
+        ..state
+    }
+}
+
+#[rule]
 #[language_host::requires(language_host::builtin::int::gt(value, 0))]
 pub fn guarded_state(
     value: Term<language_host::builtin::int::Int>,
@@ -786,16 +845,21 @@ fn main() {
     let _: fn() -> NestedMachine = NestedMachine::init;
     let _: fn(Term<language_host::builtin::Id>, Term<dyn Value>, Machine) -> Machine =
         whole_state_var;
+    let _: fn(
+        Term<language_host::builtin::Id>,
+        Term<dyn Value>,
+        NestedMachine,
+    ) -> NestedMachine = nested_state_var;
     let _: fn(Term<language_host::builtin::int::Int>, Machine) -> Machine = guarded_state;
     let _: fn(Term<dyn Expr>, Machine) -> Machine = whole_state_wildcard;
 
     let mut descriptors = language_host::host_descriptors().collect::<Vec<_>>();
     descriptors.sort_by(|left, right| left.id.cmp(&right.id));
-    assert_eq!(descriptors.len(), 151);
+    assert_eq!(descriptors.len(), 160);
     assert_eq!(kind_count(&descriptors, ItemKind::Sort), 15);
-    assert_eq!(kind_count(&descriptors, ItemKind::Constructor), 31);
-    assert_eq!(kind_count(&descriptors, ItemKind::Grammar), 46);
-    assert_eq!(kind_count(&descriptors, ItemKind::Rule), 49);
+    assert_eq!(kind_count(&descriptors, ItemKind::Constructor), 35);
+    assert_eq!(kind_count(&descriptors, ItemKind::Grammar), 50);
+    assert_eq!(kind_count(&descriptors, ItemKind::Rule), 50);
     assert_eq!(kind_count(&descriptors, ItemKind::Equation), 1);
     assert_eq!(
         descriptors
@@ -805,7 +869,7 @@ fn main() {
         8
     );
     assert_eq!(kind_count(&descriptors, ItemKind::Cell), 1);
-    assert_eq!(ProtocolVersion::CURRENT, ProtocolVersion(20));
+    assert_eq!(ProtocolVersion::CURRENT, ProtocolVersion(35));
     assert!(
         descriptors
             .iter()
@@ -1058,6 +1122,90 @@ fn main() {
         bundle.to_canonical_json().unwrap(),
         reversed_bundle.to_canonical_json().unwrap()
     );
+    let serialized_hook = bundle
+        .descriptors
+        .iter()
+        .find(|descriptor| descriptor.id.item_name() == "__krs_grammar_Keccak256Raw")
+        .expect("hooked grammar survives host collection");
+    let krs_ir::DescriptorPayload::Grammar(serialized_hook) = &serialized_hook.payload else {
+        panic!("collected hooked descriptor must remain grammar")
+    };
+    let krs_ir::GrammarDescriptor::Production(serialized_hook) = serialized_hook.as_ref() else {
+        panic!("collected hooked grammar must remain a production")
+    };
+    assert!(serialized_hook.attributes.iter().any(|attribute| matches!(
+        attribute,
+        krs_ir::DescriptorProductionAttribute::Hook {
+            operation: krs_ir::HookOperation::KryptoKeccak256Raw,
+            ..
+        }
+    )));
+    let serialized_sha256_hook = bundle
+        .descriptors
+        .iter()
+        .find(|descriptor| descriptor.id.item_name() == "__krs_grammar_Sha256Raw")
+        .expect("SHA-256 hook survives host collection");
+    let krs_ir::DescriptorPayload::Grammar(serialized_sha256_hook) =
+        &serialized_sha256_hook.payload
+    else {
+        panic!("collected SHA-256 hook descriptor must remain grammar")
+    };
+    let krs_ir::GrammarDescriptor::Production(serialized_sha256_hook) =
+        serialized_sha256_hook.as_ref()
+    else {
+        panic!("collected SHA-256 hook grammar must remain a production")
+    };
+    assert!(serialized_sha256_hook.attributes.iter().any(|attribute| matches!(
+        attribute,
+        krs_ir::DescriptorProductionAttribute::Hook {
+            operation: krs_ir::HookOperation::KryptoSha256Raw,
+            ..
+        }
+    )));
+    let serialized_ripemd160_hook = bundle
+        .descriptors
+        .iter()
+        .find(|descriptor| descriptor.id.item_name() == "__krs_grammar_Ripemd160Raw")
+        .expect("RIPEMD-160 hook survives host collection");
+    let krs_ir::DescriptorPayload::Grammar(serialized_ripemd160_hook) =
+        &serialized_ripemd160_hook.payload
+    else {
+        panic!("collected RIPEMD-160 hook descriptor must remain grammar")
+    };
+    let krs_ir::GrammarDescriptor::Production(serialized_ripemd160_hook) =
+        serialized_ripemd160_hook.as_ref()
+    else {
+        panic!("collected RIPEMD-160 hook grammar must remain a production")
+    };
+    assert!(serialized_ripemd160_hook.attributes.iter().any(|attribute| matches!(
+        attribute,
+        krs_ir::DescriptorProductionAttribute::Hook {
+            operation: krs_ir::HookOperation::KryptoRipemd160Raw,
+            ..
+        }
+    )));
+    let serialized_ecdsa_recover_hook = bundle
+        .descriptors
+        .iter()
+        .find(|descriptor| descriptor.id.item_name() == "__krs_grammar_EcdsaRecover")
+        .expect("ECDSA recovery hook survives host collection");
+    let krs_ir::DescriptorPayload::Grammar(serialized_ecdsa_recover_hook) =
+        &serialized_ecdsa_recover_hook.payload
+    else {
+        panic!("collected ECDSA recovery hook descriptor must remain grammar")
+    };
+    let krs_ir::GrammarDescriptor::Production(serialized_ecdsa_recover_hook) =
+        serialized_ecdsa_recover_hook.as_ref()
+    else {
+        panic!("collected ECDSA recovery hook grammar must remain a production")
+    };
+    assert!(serialized_ecdsa_recover_hook.attributes.iter().any(|attribute| matches!(
+        attribute,
+        krs_ir::DescriptorProductionAttribute::Hook {
+            operation: krs_ir::HookOperation::KryptoEcdsaRecover,
+            ..
+        }
+    )));
     assert_eq!(
         bundle.descriptors.len(),
         descriptors.len() - head_rules.len()
@@ -1086,6 +1234,58 @@ fn main() {
     )
     .unwrap();
     let semantic = krs_compiler::lower_descriptor_bundle(&readable_bundle).unwrap();
+    let semantic_hook = semantic
+        .modules()
+        .iter()
+        .flat_map(krs_ir::SemanticModule::productions)
+        .find(|production| production.id().item_name() == "Keccak256Raw")
+        .expect("hooked production survives Semantic IR lowering");
+    assert!(semantic_hook.attributes().iter().any(|attribute| matches!(
+        attribute,
+        krs_ir::ProductionAttribute::Hook {
+            operation: krs_ir::HookOperation::KryptoKeccak256Raw,
+            ..
+        }
+    )));
+    let semantic_sha256_hook = semantic
+        .modules()
+        .iter()
+        .flat_map(krs_ir::SemanticModule::productions)
+        .find(|production| production.id().item_name() == "Sha256Raw")
+        .expect("SHA-256 hook survives Semantic IR lowering");
+    assert!(semantic_sha256_hook.attributes().iter().any(|attribute| matches!(
+        attribute,
+        krs_ir::ProductionAttribute::Hook {
+            operation: krs_ir::HookOperation::KryptoSha256Raw,
+            ..
+        }
+    )));
+    let semantic_ripemd160_hook = semantic
+        .modules()
+        .iter()
+        .flat_map(krs_ir::SemanticModule::productions)
+        .find(|production| production.id().item_name() == "Ripemd160Raw")
+        .expect("RIPEMD-160 hook survives Semantic IR lowering");
+    assert!(semantic_ripemd160_hook.attributes().iter().any(|attribute| matches!(
+        attribute,
+        krs_ir::ProductionAttribute::Hook {
+            operation: krs_ir::HookOperation::KryptoRipemd160Raw,
+            ..
+        }
+    )));
+    let semantic_ecdsa_recover_hook = semantic
+        .modules()
+        .iter()
+        .flat_map(krs_ir::SemanticModule::productions)
+        .find(|production| production.id().item_name() == "EcdsaRecover")
+        .expect("ECDSA recovery hook survives Semantic IR lowering");
+    assert!(semantic_ecdsa_recover_hook.attributes().iter().any(|attribute| matches!(
+        attribute,
+        krs_ir::ProductionAttribute::Hook {
+            operation: krs_ir::HookOperation::KryptoEcdsaRecover,
+            ..
+        }
+    )));
     let expression_rules = semantic
         .modules()
         .iter()
@@ -1166,6 +1366,7 @@ fn main() {
         semantic_rule("eval_not").label().unwrap().name(),
         "eval-not"
     );
+    assert_eq!(semantic_rule("eval_not").priority().unwrap().value(), 200);
     let analysis = krs_compiler::analyze_open_sorts(&bundle).unwrap();
     assert_semantic_configuration_equivalent(&bundle);
     let diamond_id = bundle
@@ -1327,6 +1528,17 @@ fn main() {
         panic!("Store must be a nominal cell descriptor")
     };
     assert_eq!(store.fields.len(), 1);
+
+    let nested_rule = descriptor(&descriptors, "nested_state_var", ItemKind::Rule);
+    nested_rule.validate_v7_ownership().unwrap();
+    let HostDescriptorPayload::ConfigurationRule(nested_rule) = &nested_rule.payload else {
+        panic!("nested_state_var must be a configuration rule")
+    };
+    assert_eq!(nested_rule.subject.cells.len(), 2);
+    assert_eq!(
+        nested_rule.subject.cells[1].field.cell.owner.resolve(),
+        std::any::TypeId::of::<Store>()
+    );
 
     let whole = descriptor(&descriptors, "whole_state_var", ItemKind::Rule);
     whole.validate_v7_ownership().unwrap();
@@ -1568,6 +1780,23 @@ fn main() {
             .iter()
             .any(|attribute| matches!(attribute, HostProductionAttribute::Total { .. }))
     );
+    let hooked_descriptor = descriptor(&descriptors, "__krs_grammar_Keccak256Raw", ItemKind::Grammar);
+    assert!(hooked_descriptor.provenance.authored().iter().any(|anchor| {
+        anchor.key().role() == "function_hook" && anchor.key().ordinal() == 0
+    }));
+    let HostDescriptorPayload::Grammar(hooked_grammar) = &hooked_descriptor.payload else {
+        panic!("Keccak256Raw grammar descriptor has the wrong payload")
+    };
+    let HostGrammarDescriptor::Production(hooked_production) = hooked_grammar.as_ref() else {
+        panic!("Keccak256Raw grammar must be a production")
+    };
+    assert!(hooked_production.attributes.iter().any(|attribute| matches!(
+        attribute,
+        HostProductionAttribute::Hook {
+            operation: language_host::HookOperation::KryptoKeccak256Raw,
+            ..
+        }
+    )));
     let equation = descriptor(&descriptors, "increment", ItemKind::Equation);
     let HostDescriptorPayload::StructuredRule(equation) = &equation.payload else {
         panic!("increment must be a structured equation descriptor")
@@ -1766,6 +1995,13 @@ fn main() {
     assert!(eval_not.provenance.authored().iter().any(|anchor| {
         anchor.key().role() == "rule_label" && anchor.key().ordinal() == 0
     }));
+    assert!(eval_not.provenance.authored().iter().any(|anchor| {
+        anchor.key().role() == "rule_owise" && anchor.key().ordinal() == 0
+    }));
+    let HostDescriptorPayload::HeadRule(eval_not) = &eval_not.payload else {
+        panic!("readable eval_not must be a head-anchored rule")
+    };
+    assert_eq!(eval_not.priority.as_ref().unwrap().value, 200);
     let and_false = descriptor(&descriptors, "and_false", ItemKind::Rule);
     let HostDescriptorPayload::HeadRule(and_false) = &and_false.payload else {
         panic!("readable and_false must be a head-anchored rule")

@@ -42,6 +42,7 @@ fn variable(key: &str, id: &str, sort: DefinitionSortRef) -> DefinitionTerm {
 }
 
 #[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)] // Each flag independently corrupts one validation invariant.
 struct Variants {
     include_id_subsort: bool,
     matching_target: bool,

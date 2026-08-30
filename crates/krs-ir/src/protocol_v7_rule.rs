@@ -681,6 +681,10 @@ fn count_here_in_term(term: &DescriptorTerm, here: &str) -> usize {
             .iter()
             .map(|argument| count_here_in_term(argument, here))
             .sum(),
+        DescriptorTerm::Cell { fields, .. } => fields
+            .iter()
+            .map(|field| count_here_in_term(&field.value, here))
+            .sum(),
     }
 }
 
@@ -804,6 +808,13 @@ fn collect_term_keys(term: &DescriptorTerm, keys: &mut BTreeSet<ProvenanceKey>) 
                 collect_term_keys(argument, keys);
             }
         }
+        DescriptorTerm::Cell { key, fields, .. } => {
+            keys.insert(key.clone());
+            for field in fields {
+                keys.insert(field.key.clone());
+                collect_term_keys(&field.value, keys);
+            }
+        }
     }
 }
 
@@ -816,6 +827,9 @@ pub struct DescriptorConfigurationRule {
     /// Optional explicit emitted K label.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<DescriptorRuleLabel>,
+    /// Optional ordered-fallback priority transported from `#[k::rule(owise)]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<crate::DescriptorRulePriority>,
     /// Optional object-language Boolean applicability condition.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requires: Option<DescriptorRuleCondition>,
@@ -845,6 +859,8 @@ pub struct HostConfigurationRule {
     pub sentence_kind: SentenceKind,
     /// Optional explicit emitted K label.
     pub label: Option<DescriptorRuleLabel>,
+    /// Optional ordered-fallback priority transported from `#[k::rule(owise)]`.
+    pub priority: Option<crate::DescriptorRulePriority>,
     /// Optional object-language Boolean applicability condition.
     pub requires: Option<HostRuleCondition>,
     /// Required claim-only metadata, present iff this is a claim.
@@ -1049,6 +1065,14 @@ impl DescriptorConfigurationRule {
                 return Err(ProtocolV7ShapeError::InvalidText("rule label"));
             }
         }
+        if let Some(priority) = &self.priority {
+            insert_rule_exact(keys, &priority.key, "rule_owise", 0)?;
+            if self.sentence_kind != SentenceKind::Transition || priority.value != 200 {
+                return Err(ProtocolV7ShapeError::InvalidTerm(
+                    "configuration-rule ordered fallback priority",
+                ));
+            }
+        }
         self.subject_configuration.validate()?;
         self.result_configuration.validate()?;
         if self.subject_configuration.configuration != self.result_configuration.configuration {
@@ -1165,6 +1189,7 @@ impl HostConfigurationRule {
                 "claim metadata is valid only on claims",
             ));
         }
+        let mut keys = BTreeSet::new();
         if let Some(label) = &self.label {
             let mut label_keys = BTreeSet::new();
             let role = if self.sentence_kind == SentenceKind::Claim {
@@ -1177,6 +1202,14 @@ impl HostConfigurationRule {
                 return Err(ProtocolV7ShapeError::InvalidText("rule label"));
             }
         }
+        if let Some(priority) = &self.priority {
+            insert_rule_exact(&mut keys, &priority.key, "rule_owise", 0)?;
+            if self.sentence_kind != SentenceKind::Transition || priority.value != 200 {
+                return Err(ProtocolV7ShapeError::InvalidTerm(
+                    "configuration-rule ordered fallback priority",
+                ));
+            }
+        }
         if self.subject_configuration.configuration.key.resolve()
             != self.result_configuration.configuration.key.resolve()
         {
@@ -1184,7 +1217,6 @@ impl HostConfigurationRule {
                 "rule subject and result configurations differ",
             ));
         }
-        let mut keys = BTreeSet::new();
         insert_rule_exact(&mut keys, &self.pattern_key, "rule_pattern", 0)?;
         insert_rule_exact(&mut keys, &self.subject_configuration.key, "rule_type", 0)?;
         insert_rule_exact(&mut keys, &self.result_key, "rule_result", 0)?;
@@ -1451,7 +1483,7 @@ fn validate_descriptor_cells(
     let mut selected = BTreeSet::new();
     for cell in &cells.cells {
         cell.field.cell.validate()?;
-        if &cell.field.cell.owner != owner {
+        if &cell.field.cell.owner != owner && cell.field.cell.owner.item_kind() != ItemKind::Cell {
             return Err(ProtocolV7ShapeError::CellOwnerMismatch);
         }
         if !selected.insert(cell.field.cell.clone()) {
@@ -1491,7 +1523,7 @@ fn validate_descriptor_cells(
 #[allow(clippy::too_many_arguments)]
 fn validate_host_cells(
     cells: &HostRuleCells,
-    owner: crate::HostTypeKey,
+    _owner: crate::HostTypeKey,
     side: RuleSide,
     bindings: &[HostRuleBinding],
     discovered: &mut Vec<String>,
@@ -1501,9 +1533,6 @@ fn validate_host_cells(
     insert_side_exact(keys, &cells.key, side, "cells_payload", 0)?;
     let mut selected = BTreeSet::new();
     for cell in &cells.cells {
-        if cell.field.cell.owner.resolve() != owner.resolve() {
-            return Err(ProtocolV7ShapeError::CellOwnerMismatch);
-        }
         if !selected.insert(cell.field.cell.resolve()) {
             return Err(ProtocolV7ShapeError::DuplicateValue("selected rule cells"));
         }
@@ -1968,6 +1997,37 @@ fn validate_descriptor_term(
             }
             Ok(())
         }
+        DescriptorTerm::Cell {
+            key,
+            declaration,
+            fields,
+        } => {
+            if declaration.item_kind() != ItemKind::Cell || fields.is_empty() {
+                return Err(ProtocolV7ShapeError::InvalidTerm(
+                    "fragment! requires a nonempty nominal cell declaration",
+                ));
+            }
+            insert_side_exact(keys, key, side, "application_head", counters.application)?;
+            counters.application = rule_increment(counters.application)?;
+            let mut names = BTreeSet::new();
+            for field in fields {
+                if !names.insert(field.field.clone()) {
+                    return Err(ProtocolV7ShapeError::InvalidTerm(
+                        "fragment! child field occurs more than once",
+                    ));
+                }
+                insert_side_exact(
+                    keys,
+                    &field.key,
+                    side,
+                    "record_field_name",
+                    counters.record_field,
+                )?;
+                counters.record_field = rule_increment(counters.record_field)?;
+                validate_descriptor_term(&field.value, side, bindings, discovered, counters, keys)?;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -2135,6 +2195,33 @@ fn validate_host_term(
             keys.insert(key.clone());
             for argument in arguments {
                 validate_host_term(argument, side, bindings, discovered, counters, keys)?;
+            }
+            Ok(())
+        }
+        HostTerm::Cell { key, fields, .. } => {
+            if fields.is_empty() {
+                return Err(ProtocolV7ShapeError::InvalidTerm(
+                    "fragment! requires at least one child field",
+                ));
+            }
+            insert_side_exact(keys, key, side, "application_head", counters.application)?;
+            counters.application = rule_increment(counters.application)?;
+            let mut names = BTreeSet::new();
+            for field in fields {
+                if !names.insert(field.field.clone()) {
+                    return Err(ProtocolV7ShapeError::InvalidTerm(
+                        "fragment! child field occurs more than once",
+                    ));
+                }
+                insert_side_exact(
+                    keys,
+                    &field.key,
+                    side,
+                    "record_field_name",
+                    counters.record_field,
+                )?;
+                counters.record_field = rule_increment(counters.record_field)?;
+                validate_host_term(&field.value, side, bindings, discovered, counters, keys)?;
             }
             Ok(())
         }

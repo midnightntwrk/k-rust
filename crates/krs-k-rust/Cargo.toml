@@ -9,6 +9,7 @@ description = "Versioned KRS adapter for the pinned k-rust frontend"
 [dependencies]
 k-rust = { version = "=0.4.0", path = "../../../inspirations/midnightntwrk/k-rust-krs/crates/k-rust", default-features = false, features = ["z3-inference"] }
 krs-ir = { path = "../krs-ir" }
+serde.workspace = true
 serde_json.workspace = true
 
 [lints]

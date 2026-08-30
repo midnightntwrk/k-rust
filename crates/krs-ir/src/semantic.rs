@@ -15,10 +15,10 @@ use crate::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellContentFrame, CellPost, FixedCell,
     FixedCellClause, FixedCellContent, FixedConfiguration, FixedConfigurationPattern,
     FixedConfigurationRewrite, FixedInitializerCell, FixedInitializerContent, FormatFragment,
-    GrammarProductionItem, GrammarProductionItemKind, GroupAssociativitySentence, IrSchemaVersion,
-    ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin, PrecedenceRelation,
-    ProductionAttribute, ProductionFieldId, ProductionGroupId, SemanticId, SentenceKind,
-    SourceMapKey, StableItemId,
+    GrammarProductionItem, GrammarProductionItemKind, GroupAssociativitySentence, HookOperation,
+    IrSchemaVersion, ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin,
+    PrecedenceRelation, ProductionAttribute, ProductionFieldId, ProductionGroupId, SemanticId,
+    SentenceKind, SetOperation, SourceMapKey, StableItemId,
 };
 
 /// Authored or compiler-provided semantic application reference.
@@ -81,6 +81,12 @@ impl SemanticSortRef {
     #[must_use]
     pub const fn list() -> Self {
         Self::Builtin(BuiltinSort::List)
+    }
+
+    /// Stable associative-set sort from `SET`.
+    #[must_use]
+    pub const fn set() -> Self {
+        Self::Builtin(BuiltinSort::Set)
     }
 }
 
@@ -208,6 +214,7 @@ impl SemanticTheory {
                 insert_node(&mut node_keys, production.origin.key())?;
                 validate_semantic_production_shape(
                     &production.id,
+                    &production.result_sort,
                     &production.items,
                     &production.attributes,
                 )?;
@@ -706,7 +713,7 @@ impl SemanticProduction {
         items: Vec<SemanticProductionItem>,
         attributes: Vec<SemanticProductionAttribute>,
     ) -> Result<Self, SemanticValidationError> {
-        validate_semantic_production_shape(&id, &items, &attributes)?;
+        validate_semantic_production_shape(&id, &result_sort, &items, &attributes)?;
         Ok(Self {
             origin,
             id,
@@ -731,7 +738,7 @@ impl SemanticProduction {
         visibility: crate::RustVisibility,
         explicit_symbol: Option<crate::ExplicitSymbol>,
     ) -> Result<Self, SemanticValidationError> {
-        validate_semantic_production_shape(&id, &items, &attributes)?;
+        validate_semantic_production_shape(&id, &result_sort, &items, &attributes)?;
         Ok(Self {
             origin,
             id,
@@ -1135,7 +1142,7 @@ impl SemanticClaim {
     }
 }
 
-/// One explicit equation priority.
+/// One explicit equation or transition-rule priority.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SemanticRulePriority {
@@ -1467,17 +1474,19 @@ impl SemanticRule {
     pub const fn kind(&self) -> SentenceKind {
         self.kind
     }
-    /// Attaches an explicit equation priority.
+    /// Attaches an explicit equation or transition-rule priority.
     ///
     /// # Errors
     ///
     /// Returns [`SemanticValidationError::InvalidRulePriority`] when priority
-    /// metadata is attached to anything other than an equation.
+    /// metadata is attached to anything other than an equation or transition.
     pub fn with_priority(
         mut self,
         priority: Option<SemanticRulePriority>,
     ) -> Result<Self, SemanticValidationError> {
-        if priority.is_some() && self.kind != SentenceKind::Equation {
+        if priority.is_some()
+            && !matches!(self.kind, SentenceKind::Equation | SentenceKind::Transition)
+        {
             return Err(SemanticValidationError::InvalidRulePriority(Box::new(
                 self.id.clone(),
             )));
@@ -1670,6 +1679,23 @@ impl SemanticTerm {
             },
         }
     }
+    /// Creates one typed Map-theory operation with a non-Map result sort.
+    #[must_use]
+    pub const fn typed_map(
+        origin: NodeOrigin,
+        sort: SemanticSortRef,
+        operation: MapOperation,
+        arguments: Vec<Self>,
+    ) -> Self {
+        Self {
+            origin,
+            sort,
+            kind: SemanticTermKind::Map {
+                operation,
+                arguments,
+            },
+        }
+    }
     /// Creates one typed builtin-List operation.
     #[must_use]
     pub const fn list(
@@ -1685,6 +1711,37 @@ impl SemanticTerm {
                 operation,
                 arguments,
             },
+        }
+    }
+    /// Creates one typed builtin-Set operation.
+    #[must_use]
+    pub const fn set(
+        origin: NodeOrigin,
+        sort: SemanticSortRef,
+        operation: SetOperation,
+        arguments: Vec<Self>,
+    ) -> Self {
+        Self {
+            origin,
+            sort,
+            kind: SemanticTermKind::Set {
+                operation,
+                arguments,
+            },
+        }
+    }
+    /// Creates one complete generated configuration-cell term.
+    #[must_use]
+    pub const fn cell(
+        origin: NodeOrigin,
+        sort: SemanticSortRef,
+        cell: SemanticId,
+        children: Vec<Self>,
+    ) -> Self {
+        Self {
+            origin,
+            sort,
+            kind: SemanticTermKind::Cell { cell, children },
         }
     }
     /// Returns node provenance.
@@ -1746,6 +1803,20 @@ pub enum SemanticTermKind {
         /// Ordered structured operands.
         arguments: Vec<SemanticTerm>,
     },
+    /// Structured builtin-Set operation with KItem-like operands.
+    Set {
+        /// Exact compiler-known Set operation.
+        operation: SetOperation,
+        /// Ordered structured operands.
+        arguments: Vec<SemanticTerm>,
+    },
+    /// Complete generated configuration-cell application.
+    Cell {
+        /// Stable fixed-cell identity.
+        cell: SemanticId,
+        /// Leaf content or ordered nested child-cell terms.
+        children: Vec<SemanticTerm>,
+    },
     /// Relational pre/post rewrite.
     Rewrite {
         /// Pre-pattern.
@@ -1800,6 +1871,8 @@ pub enum SemanticValidationError {
     InvalidBracketProduction,
     /// Total metadata occurred without function metadata.
     InvalidFunctionProduction,
+    /// A typed hook's declared result or argument sorts did not match its catalog signature.
+    InvalidHookSignature(HookOperation),
     /// Alias and function metadata occurred on the same production.
     InvalidAliasProduction,
     /// A precedence or associativity sentence referenced no production group.
@@ -1840,7 +1913,7 @@ pub enum SemanticValidationError {
     InvalidSimplificationRoot(Box<StableItemId>),
     /// Simplification metadata disagrees with the sentence kind.
     InvalidSimplificationMetadata(Box<StableItemId>),
-    /// Equation priority metadata occurred on another sentence kind.
+    /// Rule priority metadata occurred on an unsupported sentence kind.
     InvalidRulePriority(Box<StableItemId>),
     /// Claim metadata presence disagrees with the sentence kind.
     InvalidClaimMetadata(Box<StableItemId>),
@@ -1872,6 +1945,8 @@ pub enum SemanticValidationError {
     MapOperationSignature(MapOperation),
     /// A List operation had the wrong result sort, arity, or operand sorts.
     ListOperationSignature(ListOperation),
+    /// A Set term has a locally invalid result sort or operand signature.
+    SetOperationSignature(SetOperation),
     /// A configuration rule exists without a general fixed configuration.
     ConfigurationRuleWithoutFixedConfiguration(Box<StableItemId>),
     /// A configuration rule names a different fixed configuration.
@@ -1994,7 +2069,7 @@ impl fmt::Display for SemanticValidationError {
             ),
             Self::InvalidRulePriority(id) => write!(
                 formatter,
-                "equation priority cannot occur on {:?} sentence `{}`",
+                "rule priority cannot occur on {:?} sentence `{}`",
                 id.item_kind(),
                 id.item_name()
             ),
@@ -2037,6 +2112,12 @@ impl fmt::Display for SemanticValidationError {
             Self::InvalidFunctionProduction => {
                 formatter.write_str("total metadata requires function metadata")
             }
+            Self::InvalidHookSignature(operation) => {
+                write!(
+                    formatter,
+                    "hook has invalid production signature {operation:?}"
+                )
+            }
             Self::InvalidAliasProduction => {
                 formatter.write_str("alias metadata cannot be combined with function metadata")
             }
@@ -2063,6 +2144,12 @@ impl fmt::Display for SemanticValidationError {
                 write!(
                     formatter,
                     "List operation has invalid signature {operation:?}"
+                )
+            }
+            Self::SetOperationSignature(operation) => {
+                write!(
+                    formatter,
+                    "invalid builtin Set operation signature: {operation:?}"
                 )
             }
             Self::ConfigurationRuleWithoutFixedConfiguration(id) => write!(
@@ -2189,7 +2276,8 @@ fn require_semantic_sort(
             | BuiltinSort::Map
             | BuiltinSort::Id
             | BuiltinSort::Bytes
-            | BuiltinSort::List,
+            | BuiltinSort::List
+            | BuiltinSort::Set,
         ) => Ok(()),
     }
 }
@@ -2649,7 +2737,7 @@ fn validate_rule(
         ));
     }
     if let Some(priority) = &rule.priority {
-        if rule.kind != SentenceKind::Equation {
+        if !matches!(rule.kind, SentenceKind::Equation | SentenceKind::Transition) {
             return Err(SemanticValidationError::InvalidRulePriority(Box::new(
                 rule.id.clone(),
             )));
@@ -2808,7 +2896,8 @@ fn collect_term_variables(term: &SemanticTerm, used: &mut BTreeSet<SemanticId>) 
         }
         SemanticTermKind::Application { arguments, .. }
         | SemanticTermKind::Map { arguments, .. }
-        | SemanticTermKind::List { arguments, .. } => {
+        | SemanticTermKind::List { arguments, .. }
+        | SemanticTermKind::Set { arguments, .. } => {
             for argument in arguments {
                 collect_term_variables(argument, used);
             }
@@ -2821,6 +2910,11 @@ fn collect_term_variables(term: &SemanticTerm, used: &mut BTreeSet<SemanticId>) 
         SemanticTermKind::Rewrite { from, to } => {
             collect_term_variables(from, used);
             collect_term_variables(to, used);
+        }
+        SemanticTermKind::Cell { children, .. } => {
+            for child in children {
+                collect_term_variables(child, used);
+            }
         }
         SemanticTermKind::Token { .. } => {}
     }
@@ -2920,15 +3014,21 @@ fn validate_term(
             operation,
             arguments,
         } => {
-            if term.sort != SemanticSortRef::Builtin(BuiltinSort::Map) {
-                return Err(SemanticValidationError::MapSortMismatch);
-            }
+            let map_sort = SemanticSortRef::Builtin(BuiltinSort::Map);
+            let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
             let valid_arity = match operation {
-                MapOperation::Empty => arguments.is_empty(),
-                MapOperation::Item => !arguments.is_empty() && arguments.len().is_multiple_of(2),
+                MapOperation::Empty => term.sort == map_sort && arguments.is_empty(),
+                MapOperation::Item => {
+                    term.sort == map_sort
+                        && !arguments.is_empty()
+                        && arguments.len().is_multiple_of(2)
+                }
                 MapOperation::Update => {
-                    arguments.len() == 3
-                        && arguments[0].sort == SemanticSortRef::Builtin(BuiltinSort::Map)
+                    term.sort == map_sort && arguments.len() == 3 && arguments[0].sort == map_sort
+                }
+                MapOperation::Get => arguments.len() == 2 && arguments[0].sort == map_sort,
+                MapOperation::InKeys => {
+                    term.sort == bool_sort && arguments.len() == 2 && arguments[1].sort == map_sort
                 }
             };
             if !valid_arity {
@@ -2973,6 +3073,23 @@ fn validate_term(
                 ListOperation::Size => {
                     term.sort == int_sort && arguments.len() == 1 && arguments[0].sort == list_sort
                 }
+                ListOperation::Make => {
+                    term.sort == list_sort && arguments.len() == 2 && arguments[0].sort == int_sort
+                }
+                ListOperation::Range => {
+                    term.sort == list_sort
+                        && arguments.len() == 3
+                        && arguments[0].sort == list_sort
+                        && arguments[1].sort == int_sort
+                        && arguments[2].sort == int_sort
+                }
+                ListOperation::UpdateAll => {
+                    term.sort == list_sort
+                        && arguments.len() == 3
+                        && arguments[0].sort == list_sort
+                        && arguments[1].sort == int_sort
+                        && arguments[2].sort == list_sort
+                }
             };
             if !valid {
                 return Err(SemanticValidationError::ListOperationSignature(*operation));
@@ -2988,6 +3105,46 @@ fn validate_term(
                 )?;
             }
         }
+        SemanticTermKind::Set {
+            operation,
+            arguments,
+        } => {
+            let set_sort = SemanticSortRef::Builtin(BuiltinSort::Set);
+            let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
+            let valid = match operation {
+                SetOperation::Empty => term.sort == set_sort && arguments.is_empty(),
+                SetOperation::Item => term.sort == set_sort && arguments.len() == 1,
+                SetOperation::Concat => {
+                    term.sort == set_sort
+                        && arguments.len() == 2
+                        && arguments.iter().all(|argument| argument.sort == set_sort)
+                }
+                SetOperation::Contains => {
+                    term.sort == bool_sort && arguments.len() == 2 && arguments[1].sort == set_sort
+                }
+            };
+            if !valid {
+                return Err(SemanticValidationError::SetOperationSignature(*operation));
+            }
+            for argument in arguments {
+                validate_term(
+                    argument,
+                    scope,
+                    declarations,
+                    signatures,
+                    sort_parents,
+                    nodes,
+                )?;
+            }
+        }
+        SemanticTermKind::Cell { children, .. } => {
+            if children.is_empty() {
+                return Err(SemanticValidationError::InvalidCellFraming);
+            }
+            for child in children {
+                validate_term(child, scope, declarations, signatures, sort_parents, nodes)?;
+            }
+        }
         SemanticTermKind::Rewrite { from, to } => {
             validate_term(from, scope, declarations, signatures, sort_parents, nodes)?;
             validate_term(to, scope, declarations, signatures, sort_parents, nodes)?;
@@ -3001,8 +3158,10 @@ fn validate_term(
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)] // Mirrors definition production validation at this IR boundary.
 fn validate_semantic_production_shape(
     id: &StableItemId,
+    result_sort: &SemanticSortRef,
     items: &[SemanticProductionItem],
     attributes: &[SemanticProductionAttribute],
 ) -> Result<(), SemanticValidationError> {
@@ -3029,6 +3188,7 @@ fn validate_semantic_production_shape(
     let mut token = false;
     let mut function = false;
     let mut total = false;
+    let mut hook = None;
     let mut alias = false;
     let mut group = false;
     let mut bracket = false;
@@ -3040,6 +3200,7 @@ fn validate_semantic_production_shape(
             ProductionAttribute::Documentation { .. } => continue,
             ProductionAttribute::Function { .. } => std::mem::replace(&mut function, true),
             ProductionAttribute::Total { .. } => std::mem::replace(&mut total, true),
+            ProductionAttribute::Hook { operation, .. } => hook.replace(*operation).is_some(),
             ProductionAttribute::Alias { .. } => std::mem::replace(&mut alias, true),
             ProductionAttribute::Token { .. } => std::mem::replace(&mut token, true),
             ProductionAttribute::Group { .. } => std::mem::replace(&mut group, true),
@@ -3077,6 +3238,7 @@ fn validate_semantic_production_shape(
             ProductionAttribute::Documentation { .. }
             | ProductionAttribute::Function { .. }
             | ProductionAttribute::Total { .. }
+            | ProductionAttribute::Hook { .. }
             | ProductionAttribute::Alias { .. }
             | ProductionAttribute::Token { .. }
             | ProductionAttribute::Group { .. }
@@ -3086,6 +3248,58 @@ fn validate_semantic_production_shape(
     }
     if total && !function {
         return Err(SemanticValidationError::InvalidFunctionProduction);
+    }
+    if hook.is_some() && !(function && total) {
+        return Err(SemanticValidationError::InvalidFunctionProduction);
+    }
+    if let Some(operation) = hook {
+        let argument_sorts = items
+            .iter()
+            .filter_map(|item| match item.kind() {
+                GrammarProductionItemKind::NonTerminal { sort, .. } => Some(sort),
+                GrammarProductionItemKind::Terminal { .. }
+                | GrammarProductionItemKind::RegexTerminal { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        let valid_signature =
+            if let Some((expected_result, expected_arguments)) = operation.builtin_signature() {
+                result_sort == &SemanticSortRef::Builtin(expected_result)
+                    && argument_sorts
+                        == expected_arguments
+                            .iter()
+                            .copied()
+                            .map(SemanticSortRef::Builtin)
+                            .collect::<Vec<_>>()
+                            .iter()
+                            .collect::<Vec<_>>()
+            } else {
+                match operation {
+                    HookOperation::KryptoBn128Valid | HookOperation::KryptoBn128G2Valid => {
+                        result_sort == &SemanticSortRef::Builtin(BuiltinSort::Bool)
+                            && matches!(argument_sorts.as_slice(), [SemanticSortRef::Declared(_)])
+                    }
+                    HookOperation::KryptoBn128Add => {
+                        matches!(result_sort, SemanticSortRef::Declared(_))
+                            && argument_sorts.as_slice() == [result_sort, result_sort]
+                    }
+                    HookOperation::KryptoBn128Mul => {
+                        matches!(result_sort, SemanticSortRef::Declared(_))
+                            && argument_sorts.len() == 2
+                            && argument_sorts[0] == result_sort
+                            && argument_sorts[1] == &SemanticSortRef::Builtin(BuiltinSort::Int)
+                    }
+                    HookOperation::KryptoKeccak256Raw
+                    | HookOperation::KryptoSha256Raw
+                    | HookOperation::KryptoRipemd160Raw
+                    | HookOperation::KryptoEcdsaRecover
+                    | HookOperation::KryptoBn128Ate => {
+                        unreachable!("builtin-signature hooks are handled above")
+                    }
+                }
+            };
+        if !valid_signature {
+            return Err(SemanticValidationError::InvalidHookSignature(operation));
+        }
     }
     if alias && function {
         return Err(SemanticValidationError::InvalidAliasProduction);
@@ -3152,6 +3366,7 @@ fn validate_precedence_order(modules: &[SemanticModule]) -> Result<(), SemanticV
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)] // Subsort helpers remain adjacent to their validation pass.
 mod tests {
     use super::*;
     use crate::{ClaimModality, OriginStack, PackageId, Sha256Digest, SourceFileId, SourceRange};

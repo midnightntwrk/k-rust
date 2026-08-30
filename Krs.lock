@@ -1,12 +1,12 @@
 schema = 1
 
 [schemas]
-descriptor_protocol = 20
-definition_ir = 13
+descriptor_protocol = 34
+definition_ir = 26
 kast_json = 4
 
 [cargo]
-lock_sha256 = "95bb513588c314f07e3b4298036037537c46a371a9e2515a619d97bcae12d7c6"
+lock_sha256 = "8280e903546e9d60827c127ec89ee6733c0e8962e1eac217ce23cd0a14f42786"
 msrv = "1.88.0"
 
 [k]
@@ -20,15 +20,15 @@ pyk_source_sha256 = "2b6ebc05e7c110927d2cab7d1bd08e0a1f80c9090a621ee541e82665147
 [k_rust]
 version = "0.4.0"
 commit = "3cce7a47941c4dc0664e6e870d4e0529d74753c6"
-tracked_crate_sha256 = "90585786b420471f1876f6a6d22fb9c13bab89e0420b579c94d690f1834b5535"
+tracked_crate_sha256 = "b8b6b6ced6e8e3203109a7d8baf2c7e012b9260795db3b0db618561f3a8511a7"
 backend_version = "0.3.0"
-tracked_backend_sha256 = "539816715fdca02419b9d8632075c0e324e900706ca2cd7f321e9c04ba505fef"
+tracked_backend_sha256 = "ce0371bda1af696567bfce8418e4519607ed42b44a482f38f527b5f2d42842e4"
 kore_version = "0.3.0"
 tracked_kore_sha256 = "64e8e0088d13f76b266cff9237378fba100347a13c30e700cd85bf38130b7be7"
 
 [builtin_registry]
-source_sha256 = "39569777f5766d94f1881124b1a1176eba3baad0c4d369c065c160ff15b71674"
-sorts = ["KSequence", "Int", "Bool", "Map", "Id", "Bytes"]
+source_sha256 = "7076fb0bcf4667b8e819445995b1055d55b10d9fc4f7a5b8e037189556c2910a"
+sorts = ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "List", "Set"]
 
 [solver]
 profile = "z3-inference"

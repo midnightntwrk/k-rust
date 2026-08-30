@@ -18,7 +18,9 @@ fn empty_marker_attributes_are_accepted() {
     assert!(sort.parents().is_empty());
     parse_equation_attribute_source("").unwrap();
     parse_alias_attribute_source("").unwrap();
-    assert!(parse_rule_attribute_source("").unwrap().label().is_none());
+    let rule = parse_rule_attribute_source("").unwrap();
+    assert!(rule.label().is_none());
+    assert!(!rule.is_owise());
 }
 
 #[test]
@@ -243,10 +245,11 @@ fn simplification_rejects_unknown_duplicate_and_invalid_hints() {
 }
 
 #[test]
-fn total_function_requires_and_anchors_total_sort_and_syntax() {
-    let parsed =
-        parse_function_attribute_source(r##"syntax = "#next({value})", total, sort = crate::Int"##)
-            .unwrap();
+fn total_function_requires_and_anchors_total_sort_syntax_and_hook() {
+    let parsed = parse_function_attribute_source(
+        r##"syntax = "#next({value})", total, hook = krypto::keccak256_raw, sort = crate::Int"##,
+    )
+    .unwrap();
     assert_eq!(
         parsed.production().sort.segments.last().unwrap().ident,
         "Int"
@@ -261,6 +264,17 @@ fn total_function_requires_and_anchors_total_sort_and_syntax() {
             .iter()
             .any(|anchor| anchor.role() == ProvenanceRole::FunctionTotal)
     );
+    let hook = parsed.hook().expect("hook path is retained");
+    assert_eq!(
+        hook.to_token_stream().to_string(),
+        "krypto :: keccak256_raw"
+    );
+    let hook_anchor = anchors
+        .iter()
+        .find(|anchor| anchor.role() == ProvenanceRole::FunctionHook)
+        .expect("hook provenance is retained");
+    assert_eq!(hook_anchor.key().unwrap().role(), "function_hook");
+    assert_eq!(hook_anchor.key().unwrap().ordinal(), 0);
 }
 
 #[test]
@@ -271,6 +285,7 @@ fn function_accepts_partial_and_rejects_missing_or_duplicate_totality() {
     for source in [
         r#"sort = Int, syntax = "f({value})""#,
         r#"total, partial, sort = Int, syntax = "f({value})""#,
+        r#"total, sort = Int, syntax = "f({value})", hook = krypto::keccak256_raw, hook = krypto::keccak256_raw"#,
         r"total, sort = Int",
     ] {
         assert!(
@@ -282,12 +297,15 @@ fn function_accepts_partial_and_rejects_missing_or_duplicate_totality() {
 
 #[test]
 fn rule_accepts_an_exact_k_label_and_anchors_its_literal() {
-    let attribute = parse_rule_attribute_source(r#"label = "if-true""#).unwrap();
+    let attribute = parse_rule_attribute_source(r#"owise, label = "if-true""#).unwrap();
     assert_eq!(attribute.label().unwrap().value(), "if-true");
+    assert!(attribute.is_owise());
     let anchors = attribute.provenance().unwrap();
-    assert_eq!(anchors.len(), 1);
+    assert_eq!(anchors.len(), 2);
     assert_eq!(anchors[0].role(), ProvenanceRole::RuleLabel);
     assert_eq!(anchors[0].key().unwrap().role(), "rule_label");
+    assert_eq!(anchors[1].role(), ProvenanceRole::RuleOwise);
+    assert_eq!(anchors[1].key().unwrap().role(), "rule_owise");
 }
 
 #[test]
@@ -295,6 +313,7 @@ fn rule_rejects_unknown_duplicate_non_string_and_invalid_labels() {
     let cases = [
         "unknown = \"x\"",
         "label = \"first\", label = \"second\"",
+        "owise, owise",
         "label = identifier",
         "label = \"\"",
         "label = \"1starts-with-digit\"",

@@ -8,7 +8,9 @@ KRS uses k-rust `0.4.0` from the dedicated worktree at `../inspirations/midnight
 That worktree is detached at upstream commit `3cce7a47941c4dc0664e6e870d4e0529d74753c6`.
 KRS must not depend on the shared `../inspirations/midnightntwrk/k-rust` main worktree.
 
-The dedicated worktree carries one intentional local change in its root `Cargo.toml`:
+The dedicated worktree carries the external-solver policy plus six intentional functional changes.
+
+Its root `Cargo.toml` selects the external solver policy:
 
 ```toml
 z3 = "0.20.2"
@@ -18,15 +20,45 @@ Upstream currently enables `features = ["gh-release"]` at that location.
 KRS disables that acquisition feature because its compatibility unit pins the externally supplied Z3 `4.12.5` library through Nix.
 The `gh-release` path would otherwise select a different solver release at build time without a KRS-controlled artifact hash.
 
-The shared k-rust main checkout may therefore be restored to upstream-clean state.
-Its manifest and lockfile are no longer KRS inputs.
-Do not apply KRS-specific Z3 policy changes to the shared checkout.
+The dedicated worktree's `crates/k-rust/src/backend.rs` disables serde_json's recursion limit while converting successfully executed KORE results to JSON.
+This is required for the KEVM 1,024-word stack boundary.
+Without it, `Backend::execute` fails after execution with `could not encode KORE JSON: recursion limit exceeded`.
+The precise reproducer and upstream action are recorded in `K_RUST_UPSTREAM.toml`.
+
+The dedicated worktree's `crates/k-rust/src/kompile/passes/concretize_cells.rs`
+classifies generated initializer productions returning a repeated cell's
+collection sort as that repeated child. Without this fix, K-Rust's own CLI
+rejects `initAccountCell(Init:Map)` under `<accounts>` before compiling any
+KEVM storage rule. A focused regression lives in
+`crates/k-rust/tests/kompile_passes.rs`; the standalone reproducer and upstream
+action are recorded in `K_RUST_UPSTREAM.toml`.
+
+The same concretization pass now distinguishes already-complete fixed-arity cell applications from parser-style three-argument incomplete cells.
+Without this fix, the KEVM `STATICCALL` call-frame push and restoration each fail with `Expected incomplete cell with 3 arguments, found 15` for the complete nested `<callState>` term.
+The local path accepts a complete leaf cell by its single body argument and accepts a complete parent only when its ordered arguments match every declared child sort.
+The `preserves_already_complete_nested_cells` regression qualifies the complete-cell path while the existing concretization suite continues to qualify incomplete-cell syntax.
+The exact defect and requested upstream action are recorded in `K_RUST_UPSTREAM.toml`.
+
+The dedicated worktree's `crates/k-rust/src/kompile/module_to_kore.rs` includes `KRYPTO` in the frontend hook-namespace allowlist.
+Without this fix, the frontend silently emits `KRYPTO.keccak256raw` as an ordinary symbol even though the backend implements the hook, leaving `SHA3` execution stuck at the unresolved application.
+A focused `krypto_hooks_are_emitted_as_backend_hooks` regression qualifies the fix; the exact defect and requested upstream action are recorded in `K_RUST_UPSTREAM.toml`.
+
+The dedicated worktree's `crates/k-rust-backend/src/builtin/krypto.rs` implements the pinned `KRYPTO.sha256raw`, `KRYPTO.ripemd160raw`, `KRYPTO.bn128valid`, `KRYPTO.bn128add`, `KRYPTO.bn128mul`, `KRYPTO.bn128g2valid`, and `KRYPTO.bn128ate` hooks and corrects invalid concrete `KRYPTO.ecdsaRecover` results.
+The BN128 implementation uses `substrate-bn` 0.6.0, preserves Ethereum's point-at-infinity encoding, rejects invalid field, curve, and G2 subgroup inputs, and preserves the exact K constructor shapes expected by KEVM.
+Focused regressions cover standard raw digest and ECDSA vectors plus the selected ECADD, ECMUL, and ECPAIRING validity and evaluation boundaries.
+The complete upstream follow-up is recorded in `K_RUST_UPSTREAM.toml`.
+
+The shared k-rust main checkout is upstream-clean.
+Its manifest and lockfile are not KRS inputs.
+Do not apply KRS-specific Z3 policy or backend changes to the shared checkout.
 
 ## KRS integration
 
 The active dependency paths are owned by:
 
 - `crates/krs-k-rust/Cargo.toml`;
+- `crates/krs-k-rust/src/bin/krs-native-runner.rs`;
+- `tests/kevm/native.py` and `tests/kevm/verify.py`;
 - `tests/m4/native/Cargo.toml`;
 - `tests/m4/oracle/artifact-probe/Cargo.toml`;
 - `tests/m4/verify.py` and `tests/m4/pins.json`.
@@ -40,17 +72,17 @@ KRS claims carry explicit modalities, so the adapter sets `default_claims_to_all
 [k_rust]
 version = "0.4.0"
 commit = "3cce7a47941c4dc0664e6e870d4e0529d74753c6"
-tracked_crate_sha256 = "90585786b420471f1876f6a6d22fb9c13bab89e0420b579c94d690f1834b5535"
+tracked_crate_sha256 = "b8b6b6ced6e8e3203109a7d8baf2c7e012b9260795db3b0db618561f3a8511a7"
 backend_version = "0.3.0"
-tracked_backend_sha256 = "539816715fdca02419b9d8632075c0e324e900706ca2cd7f321e9c04ba505fef"
+tracked_backend_sha256 = "ce0371bda1af696567bfce8418e4519607ed42b44a482f38f527b5f2d42842e4"
 kore_version = "0.3.0"
 tracked_kore_sha256 = "64e8e0088d13f76b266cff9237378fba100347a13c30e700cd85bf38130b7be7"
 ```
 
 ## Qualification evidence
 
-The k-rust 0.4 migration passes all 17 `krs-k-rust` adapter tests.
-The complete IMP M4.1-M4.8 gate passes at descriptor protocol 20 and Definition IR schema 13.
+The k-rust 0.4 migration passes all 24 `krs-k-rust` adapter tests.
+The complete IMP M4.1-M4.8 gate last passed at descriptor protocol 20 and Definition IR schema 13 before the later Bytes and collection-catalog extensions.
 Native frontend parity remains 1,206/1,206 KORE sentences.
 The behavior evidence remains `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`.
 All 21 proof specifications and 20 unique native claims pass.
@@ -60,13 +92,72 @@ The dependency-path isolation was subsequently qualified by rerunning the comple
 The final KEVM, KWasm, and KMIR gates also pass against the isolated setup.
 These semantic preservation gates remain the authority for any later source change.
 
+The KEVM development gate now compiles both the frontend and runner in release mode and executes all 240 behavior cases through persistent K-Rust backend workers.
+The Definition IR compiles directly through the KRS adapter, K-Rust frontend, and K-Rust backend without invoking Java.
+The complete corpus, including builtin-List `BLOCKHASH`, the selected memory/copy family, Shanghai current-account `SLOAD`/`SSTORE`, account queries through `EXTCODEHASH`, `SHA3`, `LOG0` through `LOG4`, absent/present-empty `STATICCALL`, successful/reverted/exceptional nonempty-code `STATICCALL`, and address-1 ECREC/address-2 SHA-256/address-3 RIPEMD-160/address-4 identity/address-5 MODEXP/address-6 ECADD/address-7 ECMUL/address-8 ECPAIRING-precompile `STATICCALL`, passes with behavior hash `7d7fd9dac9d3088682fa3ea27686c2a431219ded26f8a13400d2f4025f024673`.
+The runner uses a bounded 4,096-iteration simplification budget because K-Rust's default budget of 100 causes repeated partial work on the 1,024-word recursive stack-size boundary.
+The normal gate retains the full corpus and defers the pinned Java behavior and eight-proof authority run to the explicit `tests/kevm/verify.py --java-reference` mode.
+
+KMIR and KWasm now follow the same policy.
+Their default gates compile Definition IR directly through K-Rust, execute 11 and 32 concrete cases through persistent workers, and defer their reference proof to `--java-reference`.
+The KRS adapter removes the loader-added `DEFAULT-CONFIGURATION` module before structured preparation so KWasm's `<instrs>` computation cell does not collide with the fallback `<k>` configuration.
+The direct KWasm and KMIR KORE hashes are `35835f531a224c68f5ab63892448d2a2f60a6f0c268be521189a8f4df04245d1` and `33e12b776065b81010aa8e9eca0b3b68bb8cd9bc5775332eeffcc68064321b67`.
+
+K-Rust currently erases a semantic cast around builtin `List:get` without materializing the required sort projection.
+KRS avoids carrying a third dedicated-checkout patch by lowering its typed List lookup directly to K-Rust's generated `project:<Sort>` function.
+The exact defect, reproducer, impact, local workaround, and requested upstream regression are recorded in `K_RUST_UPSTREAM.toml`.
+
+Descriptor protocol 23 and Definition IR schema 16 add typed Map lookup/key membership and builtin Set terms.
+Focused KRS tests verify registry identity, IR/source rendering, native term adaptation, and the exact Map/Set labels exposed by the pinned K-Rust prelude.
+This qualification invokes neither Java nor a filesystem-backed K frontend.
+
+Descriptor protocol 24 and Definition IR schema 17 add repeated-cell multiplicity/type properties, nested ancestry-aware rule emission, and readable head-rule `requires` transport.
+The canonical and native routes preserve the repeated account boundary.
+
+Descriptor protocol 25 adds typed ordered-fallback rules through `#[k::rule(owise)]`, emitted as effective priority 200.
+The KEVM account-query tranche uses that surface for absent-account fallback.
+The subsequent LOG0-LOG4 tranche passes with native KORE hash `74f7aa3682f9763a9108c850307b0b063431927bc8c950da23b11104fed59f7a`.
+
+Descriptor protocol 26 and Definition IR schema 18 add the closed typed function-hook boundary used by `SHA3`.
+The subsequent `EXTCODEHASH` tranche adds the upstream nonce-backed account-emptiness distinction without changing the shared K-Rust checkout.
+The current 201-case definition passes with native KORE hash `6d8eb6a9c9598b1e7886f40a41e838f1623ac6b32d67845e735945ee6fede191`.
+
+Descriptor protocol 27 and Definition IR schema 19 add `krypto::sha256_raw` to the closed hook boundary for the KEVM address-2 precompile.
+The dedicated K-Rust checkout dispatches the pinned `KRYPTO.sha256raw` hook through its existing raw SHA-256 implementation and pins the standard empty-input byte vector.
+The exact backend omission and requested upstream action are recorded in `K_RUST_UPSTREAM.toml`.
+
+Descriptor protocol 28 and Definition IR schema 20 add `krypto::ripemd160_raw` for the KEVM address-3 precompile.
+The dedicated K-Rust checkout dispatches `KRYPTO.ripemd160raw` through its existing generic raw-digest implementation and pins the standard empty-input 20-byte vector.
+KRS applies the precompile's required 12-byte left padding at the semantic boundary.
+
+Descriptor protocol 29 and Definition IR schema 21 add `krypto::ecdsa_recover` for the KEVM address-1 precompile.
+The dedicated K-Rust checkout returns empty Bytes for invalid concrete recovery inputs, matching the pinned hook contract, and retains focused invalid-input and deterministic valid key-1 regressions.
+`K_RUST_UPSTREAM.toml` records the prior Bottom result as an upstream correctness defect.
+
+Descriptor protocol 30 and Definition IR schema 22 add declared-sort `krypto::bn128_valid` and `krypto::bn128_add` hooks for the KEVM address-6 precompile.
+The dedicated K-Rust checkout evaluates both hooks concretely and the KRS type boundary enforces `G1Point -> Bool` and `G1Point * G1Point -> G1Point`.
+The 230-case native gate pins the standard addition vector, point-at-infinity behavior, invalid-point failure, and the 149/150 forwarded-gas boundary.
+
+Descriptor protocol 31 and Definition IR schema 23 add declared-sort `krypto::bn128_mul` for the KEVM address-7 precompile.
+The dedicated K-Rust checkout reduces the complete 256-bit scalar through `substrate-bn` and the KRS type boundary enforces `G1Point * Int -> G1Point`.
+The 234-case native gate pins generator multiplication by two, zero-scalar infinity, invalid-point failure, and the 5,999/6,000 forwarded-gas boundary.
+
+Descriptor protocol 32 and Definition IR schema 24 add declared-sort `krypto::bn128_g2_valid` and builtin-List `krypto::bn128_ate` for the KEVM address-8 precompile.
+The dedicated K-Rust checkout uses `substrate-bn` for G2 field, curve, and subgroup validation and for pairing-product evaluation.
+Focused backend regressions pin infinity, off-curve and out-of-field rejection, empty-product identity, a non-identity generator product, a cancelling product, injected List elements, mismatched lists, invalid points, and opaque lists.
+The 240-case native gate pins empty input, a generator product, malformed input length, invalid G1 and G2 points, and the 78,999/79,000 forwarded-gas boundary.
+
+The KEVM address-5 MODEXP precompile reuses K-Rust's existing `INT.powmod` and `INT.log2` hooks without a new K-Rust patch.
+KRS totalizes modulus zero at the KEVM semantic boundary before invoking the partial raw hook, matching the pinned upstream `powmod` wrapper.
+Focused K-Rust cases pin the 200-gas EIP-2565 floor, a 216-gas long-exponent vector, exact modulus-width output, modulus zero, zero output width, and forwarded-gas failure.
+
 ## Upstream follow-up policy
 
-No k-rust functional bug was found during this migration.
 The upstream design opportunity is to make Z3 acquisition selectable without editing the workspace dependency declaration:
 
 - ordinary CLI builds may default to `gh-release` for installation convenience;
 - reproducible consumers such as KRS must be able to select an externally pinned solver;
 - reproducible downloadable-solver builds should use an exact checksummed artifact or exact source-built Z3.
 
-Any future k-rust missing feature or defect found by KRS should be recorded with the exact revision, a minimal reproducer, expected and observed behavior, affected gate, and workaround status before it is passed upstream.
+Current k-rust missing features, defects, and performance findings are recorded in `K_RUST_UPSTREAM.toml` with the exact revision, reproducer, impact, workaround status, and requested upstream action.
+Future findings must follow the same structured record before they are passed upstream.

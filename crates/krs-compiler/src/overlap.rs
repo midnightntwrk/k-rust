@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use krs_ir::{
     BuiltinSort, FixedConfigurationRewrite, ListOperation, MapOperation, SemanticApplicationRef,
     SemanticId, SemanticModule, SemanticRule, SemanticRuleBody, SemanticSortRef, SemanticTerm,
-    SemanticTermKind, StableItemId,
+    SemanticTermKind, SetOperation, StableItemId,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -43,6 +43,16 @@ enum Pattern {
         operation: ListOperation,
         arguments: Vec<Self>,
     },
+    Set {
+        sort: SemanticSortRef,
+        operation: SetOperation,
+        arguments: Vec<Self>,
+    },
+    Cell {
+        sort: SemanticSortRef,
+        cell: SemanticId,
+        children: Vec<Self>,
+    },
 }
 
 impl Pattern {
@@ -53,7 +63,9 @@ impl Pattern {
             | Self::Token { sort, .. }
             | Self::KSequence { sort, .. }
             | Self::Map { sort, .. }
-            | Self::List { sort, .. } => sort,
+            | Self::List { sort, .. }
+            | Self::Set { sort, .. }
+            | Self::Cell { sort, .. } => sort,
         }
     }
 }
@@ -152,6 +164,7 @@ impl<'graph> Unifier<'graph> {
         }
     }
 
+    #[allow(clippy::too_many_lines)] // Keeps the symmetric unification cases in one exhaustive match.
     fn unify(&mut self, left: Pattern, right: Pattern) -> bool {
         let left = self.resolve(left);
         let right = self.resolve(right);
@@ -248,6 +261,38 @@ impl<'graph> Unifier<'graph> {
                 self.graph.compatible(&left_sort, &right_sort)
                     && left_operation == right_operation
                     && self.unify_arguments(left_arguments, right_arguments)
+            }
+            (
+                Pattern::Set {
+                    sort: left_sort,
+                    operation: left_operation,
+                    arguments: left_arguments,
+                },
+                Pattern::Set {
+                    sort: right_sort,
+                    operation: right_operation,
+                    arguments: right_arguments,
+                },
+            ) => {
+                self.graph.compatible(&left_sort, &right_sort)
+                    && left_operation == right_operation
+                    && self.unify_arguments(left_arguments, right_arguments)
+            }
+            (
+                Pattern::Cell {
+                    sort: left_sort,
+                    cell: left_cell,
+                    children: left_children,
+                },
+                Pattern::Cell {
+                    sort: right_sort,
+                    cell: right_cell,
+                    children: right_children,
+                },
+            ) => {
+                left_cell == right_cell
+                    && self.graph.compatible(&left_sort, &right_sort)
+                    && self.unify_arguments(left_children, right_children)
             }
             _ => false,
         }
@@ -356,7 +401,11 @@ impl<'graph> Unifier<'graph> {
                 items: arguments, ..
             }
             | Pattern::Map { arguments, .. }
-            | Pattern::List { arguments, .. } => arguments
+            | Pattern::List { arguments, .. }
+            | Pattern::Set { arguments, .. } => arguments
+                .iter()
+                .any(|term| self.occurs(needle, term, visited)),
+            Pattern::Cell { children, .. } => children
                 .iter()
                 .any(|term| self.occurs(needle, term, visited)),
             Pattern::Token { .. } => false,
@@ -422,6 +471,25 @@ fn pattern(term: &SemanticTerm, rule: usize, catalog: &mut VariableCatalog) -> P
                 .map(|argument| pattern(argument, rule, catalog))
                 .collect(),
         },
+        SemanticTermKind::Set {
+            operation,
+            arguments,
+        } => Pattern::Set {
+            sort: term.sort().clone(),
+            operation: *operation,
+            arguments: arguments
+                .iter()
+                .map(|argument| pattern(argument, rule, catalog))
+                .collect(),
+        },
+        SemanticTermKind::Cell { cell, children } => Pattern::Cell {
+            sort: term.sort().clone(),
+            cell: cell.clone(),
+            children: children
+                .iter()
+                .map(|child| pattern(child, rule, catalog))
+                .collect(),
+        },
         SemanticTermKind::Rewrite { .. } => {
             unreachable!("configuration clause pre-patterns are never rewrites")
         }
@@ -480,6 +548,15 @@ pub(crate) fn first_head_rule_overlap(
     rules.sort_by(|left, right| left.id().cmp(right.id()));
     for (index, left) in rules.iter().enumerate() {
         for right in &rules[index + 1..] {
+            let left_priority = left
+                .priority()
+                .map_or(50, krs_ir::SemanticRulePriority::value);
+            let right_priority = right
+                .priority()
+                .map_or(50, krs_ir::SemanticRulePriority::value);
+            if left_priority != right_priority {
+                continue;
+            }
             if rules_overlap(left, right, &graph) {
                 return Some((left.id().clone(), right.id().clone()));
             }

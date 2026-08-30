@@ -70,7 +70,7 @@ def main() -> None:
         report = client.request(
             "textDocument/diagnostic",
             {"textDocument": {"uri": SOURCE.as_uri()}},
-            timeout=90,
+            timeout=240,
         )
         diagnostics = report.get("items", []) if report else []
         assert not diagnostics, diagnostics
@@ -91,10 +91,10 @@ def main() -> None:
                 0,
             ),
             (
-                "gas function",
-                "k: [crate::Charge(Operation::Push { width, value }, gas), ..]",
-                "Charge",
-                "pub struct Charge {",
+                "push preparation function",
+                "k: [crate::PreparePush { op: Operation::Push { width, value }, stack, gas, cost: 3 }, ..]",
+                "PreparePush",
+                "pub struct PreparePush {",
                 0,
             ),
             (

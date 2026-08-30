@@ -16,10 +16,11 @@ use krs_ir::{
     HostBuiltinRegistry, HostBuiltinRegistryError, HostBuiltinSortRegistration,
     HostDeclarationIdentity, HostEnumVariantKey, HostEnumVariantReference,
     HostEnumVariantReferenceError, HostListOperationRegistration, HostMapOperationRegistration,
-    HostTypeKey, HostTypeReference, ItemKind, ListOperation, MapOperation, OriginStack, PackageId,
-    ProductionFieldId, ProductionGroupId, ProtocolV6ShapeError, ProvenanceKey, SentenceKind,
-    Sha256Digest, SourceFileId, SourceRange, StableItemId, StrictnessKind,
-    StructuredRuleDescriptor, enum_variant_disambiguator,
+    HostSetOperationRegistration, HostTypeKey, HostTypeReference, ItemKind, ListOperation,
+    MapOperation, OriginStack, PackageId, ProductionFieldId, ProductionGroupId,
+    ProtocolV6ShapeError, ProvenanceKey, SentenceKind, SetOperation, Sha256Digest, SourceFileId,
+    SourceRange, StableItemId, StrictnessKind, StructuredRuleDescriptor,
+    enum_variant_disambiguator,
 };
 
 type IntAlias = u16;
@@ -327,7 +328,7 @@ fn expression_grammar_and_rule_round_trip_deterministically() {
         .to_canonical_json()
         .unwrap();
     assert_eq!(forward, reverse);
-    assert!(forward.contains("\"protocol_version\": 20"));
+    assert!(forward.contains("\"protocol_version\": 35"));
     assert!(forward.contains("\"attribute_kind\": \"documentation\""));
     assert!(forward.contains("Adds two values."));
     assert!(forward.contains("\"structured_rule\""));
@@ -335,7 +336,7 @@ fn expression_grammar_and_rule_round_trip_deterministically() {
     assert!(!forward.contains("TypeId"));
     assert!(!forward.contains("_+Int_"));
     let decoded: DescriptorBundle = serde_json::from_str(&forward).unwrap();
-    assert_eq!(decoded.protocol_version().0, 20);
+    assert_eq!(decoded.protocol_version().0, 35);
 }
 
 #[test]
@@ -639,7 +640,7 @@ fn builtin_references_are_typed_and_raw_labels_are_unrepresentable() {
 }
 
 #[test]
-fn ordinary_map_update_reference_has_a_closed_wire_shape() {
+fn ordinary_map_references_have_closed_wire_shapes() {
     let variable = |name: &str| DescriptorTerm::Variable {
         key: key("rule_right_reference", 0),
         path_key: key("rule_right_path", 0),
@@ -670,6 +671,27 @@ fn ordinary_map_update_reference_has_a_closed_wire_shape() {
         .collect();
     term.validate(|_| true, &bindings, &mut BTreeSet::new(), false)
         .unwrap();
+    for (operation, names) in [
+        (MapOperation::Get, ["map", "key"]),
+        (MapOperation::InKeys, ["key", "map"]),
+    ] {
+        let term = DescriptorTerm::Application {
+            head_class: DescriptorApplicationHeadClass::Applied,
+            reference: DescriptorApplicationReference {
+                key: key("rule_right_application_head", 0),
+                application: DescriptorApplicationRef::Map(operation),
+            },
+            path_key: key("rule_right_path", 0),
+            arguments: names
+                .into_iter()
+                .map(|name| DescriptorTermArgument::Positional {
+                    value: Box::new(variable(name)),
+                })
+                .collect(),
+        };
+        term.validate(|_| true, &bindings, &mut BTreeSet::new(), false)
+            .unwrap();
+    }
 
     let mut wrong_arity = term.clone();
     let DescriptorTerm::Application { arguments, .. } = &mut wrong_arity else {
@@ -679,7 +701,7 @@ fn ordinary_map_update_reference_has_a_closed_wire_shape() {
     assert!(matches!(
         wrong_arity.validate(|_| true, &bindings, &mut BTreeSet::default(), false),
         Err(ProtocolV6ShapeError::InvalidApplication(
-            "map::update requires exactly three arguments"
+            "Map operation has invalid arity"
         ))
     ));
 
@@ -689,6 +711,49 @@ fn ordinary_map_update_reference_has_a_closed_wire_shape() {
             "structural-only Map operation used as an application head"
         ))
     ));
+}
+
+#[test]
+fn ordinary_set_references_have_closed_wire_shapes_and_exact_arities() {
+    let variable = |name: &str| DescriptorTerm::Variable {
+        key: key("rule_right_reference", 0),
+        path_key: key("rule_right_path", 0),
+        name: name.to_owned(),
+    };
+    let bindings = ["set", "value"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+    let cases = [
+        (SetOperation::Empty, Vec::<&str>::new()),
+        (SetOperation::Item, vec!["value"]),
+        (SetOperation::Concat, vec!["set", "set"]),
+        (SetOperation::Contains, vec!["value", "set"]),
+    ];
+    for (operation, arguments) in cases {
+        let reference = DescriptorApplicationReference {
+            key: key("rule_right_application_head", 0),
+            application: DescriptorApplicationRef::Set(operation),
+        };
+        assert!(
+            serde_json::to_string(&reference)
+                .unwrap()
+                .contains(r#""application_source":"set""#)
+        );
+        let term = DescriptorTerm::Application {
+            head_class: DescriptorApplicationHeadClass::Applied,
+            reference,
+            path_key: key("rule_right_path", 0),
+            arguments: arguments
+                .into_iter()
+                .map(|name| DescriptorTermArgument::Positional {
+                    value: Box::new(variable(name)),
+                })
+                .collect(),
+        };
+        term.validate(|_| true, &bindings, &mut BTreeSet::new(), false)
+            .unwrap();
+    }
 }
 
 #[test]
@@ -709,6 +774,9 @@ fn ordinary_list_references_have_closed_wire_shapes_and_exact_arities() {
         (ListOperation::Get, vec!["list", "index"]),
         (ListOperation::Update, vec!["list", "index", "value"]),
         (ListOperation::Size, vec!["list"]),
+        (ListOperation::Make, vec!["index", "value"]),
+        (ListOperation::Range, vec!["list", "index", "index"]),
+        (ListOperation::UpdateAll, vec!["list", "index", "list"]),
     ];
     for (operation, arguments) in cases {
         let reference = DescriptorApplicationReference {
@@ -1056,6 +1124,7 @@ type_keys! {
     id_key => i16,
     bytes_key => i32,
     list_key => i64,
+    set_key => i128,
     int_add_key => (u8, u8),
     int_sub_key => (u8, u16),
     int_mul_key => (u8, u32),
@@ -1081,13 +1150,26 @@ type_keys! {
     bool_or_key => (u64, u32),
     bytes_length_key => (i64, u8),
     bytes_get_key => (i64, u16),
+    bytes_empty_key => (i64, u32),
+    bytes_update_key => (i64, u64),
+    bytes_pad_right_key => (i128, u8),
+    bytes_substring_key => (i128, u16),
     map_update_key => (u64, u64),
+    map_get_key => (u64, i8),
+    map_in_keys_key => (u64, i16),
     list_empty_key => (i8, u8),
     list_item_key => (i8, u16),
     list_concat_key => (i8, u32),
     list_get_key => (i8, u64),
     list_update_key => (i16, u8),
     list_size_key => (i16, u16),
+    list_make_key => (i16, i32),
+    list_range_key => (i16, u32),
+    list_update_all_key => (i16, u64),
+    set_empty_key => (i32, u8),
+    set_item_key => (i32, u16),
+    set_concat_key => (i32, u32),
+    set_contains_key => (i32, u64),
 }
 
 fn registry() -> HostBuiltinRegistry {
@@ -1099,6 +1181,7 @@ fn registry() -> HostBuiltinRegistry {
         (BuiltinSort::Id, id_key),
         (BuiltinSort::Bytes, bytes_key),
         (BuiltinSort::List, list_key),
+        (BuiltinSort::Set, set_key),
     ]
     .into_iter()
     .map(|(sort, key)| HostBuiltinSortRegistration {
@@ -1132,6 +1215,10 @@ fn registry() -> HostBuiltinRegistry {
         (BuiltinOperation::BoolOr, bool_or_key),
         (BuiltinOperation::BytesLength, bytes_length_key),
         (BuiltinOperation::BytesGet, bytes_get_key),
+        (BuiltinOperation::BytesEmpty, bytes_empty_key),
+        (BuiltinOperation::BytesUpdate, bytes_update_key),
+        (BuiltinOperation::BytesPadRight, bytes_pad_right_key),
+        (BuiltinOperation::BytesSubstring, bytes_substring_key),
     ]
     .into_iter()
     .map(|(operation, key)| HostBuiltinOperationRegistration {
@@ -1139,10 +1226,17 @@ fn registry() -> HostBuiltinRegistry {
         target: HostTypeKey(key),
     })
     .collect();
-    let map_operations = vec![HostMapOperationRegistration {
-        operation: MapOperation::Update,
-        target: HostTypeKey(map_update_key),
-    }];
+    let map_operations = [
+        (MapOperation::Update, map_update_key as fn() -> TypeId),
+        (MapOperation::Get, map_get_key),
+        (MapOperation::InKeys, map_in_keys_key),
+    ]
+    .into_iter()
+    .map(|(operation, key)| HostMapOperationRegistration {
+        operation,
+        target: HostTypeKey(key),
+    })
+    .collect();
     let list_operations = [
         (ListOperation::Empty, list_empty_key as fn() -> TypeId),
         (ListOperation::Item, list_item_key),
@@ -1150,9 +1244,24 @@ fn registry() -> HostBuiltinRegistry {
         (ListOperation::Get, list_get_key),
         (ListOperation::Update, list_update_key),
         (ListOperation::Size, list_size_key),
+        (ListOperation::Make, list_make_key),
+        (ListOperation::Range, list_range_key),
+        (ListOperation::UpdateAll, list_update_all_key),
     ]
     .into_iter()
     .map(|(operation, key)| HostListOperationRegistration {
+        operation,
+        target: HostTypeKey(key),
+    })
+    .collect();
+    let set_operations = [
+        (SetOperation::Empty, set_empty_key as fn() -> TypeId),
+        (SetOperation::Item, set_item_key),
+        (SetOperation::Concat, set_concat_key),
+        (SetOperation::Contains, set_contains_key),
+    ]
+    .into_iter()
+    .map(|(operation, key)| HostSetOperationRegistration {
         operation,
         target: HostTypeKey(key),
     })
@@ -1162,10 +1271,12 @@ fn registry() -> HostBuiltinRegistry {
         operations,
         map_operations,
         list_operations,
+        set_operations,
     }
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // Exhaustively verifies the closed builtin registry.
 fn builtin_registry_is_complete_exact_and_alias_safe() {
     let registry = registry();
     registry.validate().unwrap();
@@ -1205,13 +1316,25 @@ fn builtin_registry_is_complete_exact_and_alias_safe() {
         registry.resolve_list_operation(list_get_key()),
         Some(ListOperation::Get)
     );
+    assert_eq!(
+        registry.resolve_list_operation(list_make_key()),
+        Some(ListOperation::Make)
+    );
+    assert_eq!(
+        registry.resolve_list_operation(list_range_key()),
+        Some(ListOperation::Range)
+    );
+    assert_eq!(
+        registry.resolve_list_operation(list_update_all_key()),
+        Some(ListOperation::UpdateAll)
+    );
 
     let mut incomplete = registry.clone();
     incomplete.operations.pop();
     assert_eq!(
         incomplete.validate(),
         Err(HostBuiltinRegistryError::MissingOperation(
-            BuiltinOperation::BytesGet
+            BuiltinOperation::BytesSubstring
         ))
     );
     let mut missing_map = registry.clone();
@@ -1256,7 +1379,7 @@ fn builtin_registry_is_complete_exact_and_alias_safe() {
     assert_eq!(
         missing_list.validate(),
         Err(HostBuiltinRegistryError::MissingListOperation(
-            ListOperation::Size
+            ListOperation::UpdateAll
         ))
     );
     let mut duplicate_list = registry.clone();
@@ -1480,7 +1603,7 @@ fn protocol_five_is_rejected_without_compatibility_guessing() {
         r#"{"protocol_version":5,"descriptors":[],"declarations":[]}"#,
     )
     .unwrap_err();
-    assert!(error.to_string().contains("expected 20"));
+    assert!(error.to_string().contains("expected 35"));
 }
 
 fn first_object_with_key_mut<'a>(

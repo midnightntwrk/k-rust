@@ -46,8 +46,9 @@ pub use generated::{GeneratedProductionIdError, GeneratedProductionKind, generat
 pub use grammar::{
     ApplicationRef, BuiltinOperation, FormatFragment, GrammarProductionItem,
     GrammarProductionItemKind, GrammarShapeError, GroupAssociativity, GroupAssociativitySentence,
-    PrecedenceRelation, ProductionAttribute, ProductionContextAliasReference, ProductionFieldId,
-    ProductionFieldReference, ProductionGroupId, ProductionResultSort, StrictnessKind,
+    HookOperation, PrecedenceRelation, ProductionAttribute, ProductionContextAliasReference,
+    ProductionFieldId, ProductionFieldReference, ProductionGroupId, ProductionResultSort,
+    StrictnessKind,
 };
 pub use head_rule::{
     DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleExtra,
@@ -73,43 +74,45 @@ pub use ir::{
 };
 pub use protocol_v6::{
     DescriptorApplicationHeadClass, DescriptorApplicationRef, DescriptorApplicationReference,
-    DescriptorAssociativitySentence, DescriptorContextAliasReference, DescriptorFieldReference,
-    DescriptorFormatFragment, DescriptorGroupReference, DescriptorLexicalPrecedence,
-    DescriptorLiteral, DescriptorPrecedenceChain, DescriptorProduction,
-    DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
-    DescriptorRuleCondition, DescriptorRuleLabel, DescriptorRulePriority, DescriptorSimplification,
-    DescriptorSimplificationPriority, DescriptorSortRef, DescriptorSortReference, DescriptorTerm,
-    DescriptorTermArgument, ENUM_VARIANT_DISAMBIGUATOR_PREFIX, GrammarDescriptor,
-    HostApplicationIdentity, HostApplicationReference, HostApplicationTarget,
-    HostBuiltinOperationRegistration, HostBuiltinRegistry, HostBuiltinRegistryError,
-    HostBuiltinSortRegistration, HostContextAliasReference, HostDeclarationIdentity,
-    HostEnumVariantKey, HostEnumVariantReference, HostEnumVariantReferenceError,
-    HostGrammarDescriptor, HostListOperationRegistration, HostMapOperationRegistration,
-    HostProduction, HostProductionAttribute, HostProductionItem, HostProductionOwner,
-    HostRuleCondition, HostSortReference, HostStructuredRuleDescriptor, HostTerm, HostTermArgument,
-    ProtocolV6ShapeError, StructuredRuleDescriptor, enum_variant_disambiguator,
+    DescriptorAssociativitySentence, DescriptorCellTermField, DescriptorContextAliasReference,
+    DescriptorFieldReference, DescriptorFormatFragment, DescriptorGroupReference,
+    DescriptorLexicalPrecedence, DescriptorLiteral, DescriptorPrecedenceChain,
+    DescriptorProduction, DescriptorProductionAttribute, DescriptorProductionItem,
+    DescriptorProductionOwner, DescriptorRuleCondition, DescriptorRuleLabel,
+    DescriptorRulePriority, DescriptorSimplification, DescriptorSimplificationPriority,
+    DescriptorSortRef, DescriptorSortReference, DescriptorTerm, DescriptorTermArgument,
+    ENUM_VARIANT_DISAMBIGUATOR_PREFIX, GrammarDescriptor, HostApplicationIdentity,
+    HostApplicationReference, HostApplicationTarget, HostBuiltinOperationRegistration,
+    HostBuiltinRegistry, HostBuiltinRegistryError, HostBuiltinSortRegistration, HostCellTermField,
+    HostContextAliasReference, HostDeclarationIdentity, HostEnumVariantKey,
+    HostEnumVariantReference, HostEnumVariantReferenceError, HostGrammarDescriptor,
+    HostListOperationRegistration, HostMapOperationRegistration, HostProduction,
+    HostProductionAttribute, HostProductionItem, HostProductionOwner, HostRuleCondition,
+    HostSetOperationRegistration, HostSortReference, HostStructuredRuleDescriptor, HostTerm,
+    HostTermArgument, ProtocolV6ShapeError, StructuredRuleDescriptor, enum_variant_disambiguator,
 };
 pub use protocol_v7::{
     CellWrapper, ClaimModality, DescriptorCellColor, DescriptorCellDeclaration,
     DescriptorCellDeclarationReference, DescriptorCellField, DescriptorCellIdentity,
-    DescriptorCellName, DescriptorCellReference, DescriptorClaim, DescriptorClaimBinder,
-    DescriptorConfigurationDeclaration, DescriptorConfigurationInitializer,
-    DescriptorConfigurationReference, DescriptorConfigurationRoot, DescriptorConfigurationRule,
-    DescriptorConfigurationVariable, DescriptorContextAlias, DescriptorFixedConfiguration,
-    DescriptorInitializerCell, DescriptorInitializerStateTerm, DescriptorKSequenceNotation,
-    DescriptorRuleBinding, DescriptorRuleCells, HostCellDeclaration, HostCellDeclarationReference,
-    HostCellField, HostCellIdentity, HostCellReference, HostClaim, HostClaimBinder,
-    HostConfigurationDeclaration, HostConfigurationInitializer, HostConfigurationReference,
-    HostConfigurationRule, HostConfigurationVariable, HostContextAlias, HostFixedConfiguration,
-    HostInitializerCell, HostInitializerStateTerm, HostRuleBinding, HostRuleCells,
-    ProtocolCellContent, ProtocolCellDeclaration, ProtocolCellField,
-    ProtocolConfigurationInitializer, ProtocolConfigurationVariable, ProtocolContextAliasBinding,
-    ProtocolContextAliasBindingKind, ProtocolInitializerCell, ProtocolInitializerCellContent,
-    ProtocolInitializerStateTerm, ProtocolInitializerTerm, ProtocolKSequence,
-    ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolMapItem, ProtocolRuleBinding,
-    ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleCells, ProtocolRuleFrame,
-    ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody,
-    ProtocolRuleMapItem, ProtocolRuleStateTerm, ProtocolV7ShapeError,
+    DescriptorCellMultiplicity, DescriptorCellName, DescriptorCellReference, DescriptorCellType,
+    DescriptorClaim, DescriptorClaimBinder, DescriptorConfigurationDeclaration,
+    DescriptorConfigurationInitializer, DescriptorConfigurationReference,
+    DescriptorConfigurationRoot, DescriptorConfigurationRule, DescriptorConfigurationVariable,
+    DescriptorContextAlias, DescriptorFixedConfiguration, DescriptorInitializerCell,
+    DescriptorInitializerStateTerm, DescriptorKSequenceNotation, DescriptorRuleBinding,
+    DescriptorRuleCells, HostCellDeclaration, HostCellDeclarationReference, HostCellField,
+    HostCellIdentity, HostCellReference, HostClaim, HostClaimBinder, HostConfigurationDeclaration,
+    HostConfigurationInitializer, HostConfigurationReference, HostConfigurationRule,
+    HostConfigurationVariable, HostContextAlias, HostFixedConfiguration, HostInitializerCell,
+    HostInitializerStateTerm, HostRuleBinding, HostRuleCells, ProtocolCellContent,
+    ProtocolCellDeclaration, ProtocolCellField, ProtocolConfigurationInitializer,
+    ProtocolConfigurationVariable, ProtocolContextAliasBinding, ProtocolContextAliasBindingKind,
+    ProtocolInitializerCell, ProtocolInitializerCellContent, ProtocolInitializerStateTerm,
+    ProtocolInitializerTerm, ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap,
+    ProtocolMapBody, ProtocolMapItem, ProtocolRuleBinding, ProtocolRuleBindingKind,
+    ProtocolRuleCell, ProtocolRuleCells, ProtocolRuleFrame, ProtocolRuleKSequence,
+    ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem,
+    ProtocolRuleStateTerm, ProtocolV7ShapeError,
 };
 pub use provenance::{
     OriginFrame, OriginStack, OriginStackError, RangedOriginKind, SourceRange, SourceRangeError,
@@ -125,10 +128,11 @@ pub use semantic::{
     SemanticVariable,
 };
 pub use state::{
-    CellAttribute, CellColor, CellContentFrame, CellPost, ConfigurationRoot, FixedCell,
-    FixedCellClause, FixedCellContent, FixedCellPattern, FixedConfiguration,
-    FixedConfigurationPattern, FixedConfigurationRewrite, FixedConfigurationVariable,
-    FixedInitializerCell, FixedInitializerContent, ListOperation, MapOperation, StateShapeError,
+    CellAttribute, CellCollectionType, CellColor, CellContentFrame, CellMultiplicity, CellPost,
+    ConfigurationRoot, FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern,
+    FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
+    FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, ListOperation,
+    MapOperation, SetOperation, StateShapeError,
 };
 
 use serde::{Deserialize, Serialize};
@@ -171,7 +175,18 @@ use serde::{Deserialize, Serialize};
 /// item, concatenation, lookup, update, and size operations.
 /// Protocol v19 adds K's builtin Euclidean integer-modulus operation.
 /// Protocol v20 adds K's native modular-power, logarithm, shift, and bitwise
-/// integer operations.
+/// integer operations. Protocol v21 adds empty Bytes. Protocol v22 adds byte
+/// update and right padding. Protocol v23 adds Map lookup/key membership and
+/// Set terms. Protocol v24 adds repeated cells and readable head conditions.
+/// Protocol v25 adds ordered fallback rules. Protocol v26 adds closed typed
+/// production hooks. Protocol v27 adds raw SHA-256 and protocol v28 adds raw
+/// RIPEMD-160 to the closed hook catalog. Protocol v29 adds ECDSA recovery and
+/// protocol v30 adds declared-sort BN128 validity and addition hooks, and
+/// protocol v31 adds declared-sort BN128 multiplication. Protocol v32 adds
+/// BN128 G2 validity and pairing-product hooks. Protocol v33 adds K's native
+/// contiguous List range and multi-element update operations. Protocol v34
+/// adds half-open Bytes substring extraction. Protocol v35 adds native List
+/// repetition through `LIST.make`.
 /// Semantic and Definition IR schema versioning remains independent.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -179,8 +194,18 @@ pub struct ProtocolVersion(pub u32);
 
 impl ProtocolVersion {
     /// The protocol emitted by this release.
-    /// Protocol v20 adds the selected native integer word-operation boundary.
-    pub const CURRENT: Self = Self(20);
+    /// Protocol v22 adds byte update and right-padding operations.
+    /// Protocol v26 adds closed typed production hooks.
+    /// Protocol v27 adds raw SHA-256 to the hook catalog.
+    /// Protocol v28 adds raw RIPEMD-160 to the hook catalog.
+    /// Protocol v29 adds ECDSA recovery to the hook catalog.
+    /// Protocol v30 adds declared-sort BN128 validity and addition hooks.
+    /// Protocol v31 adds declared-sort BN128 multiplication.
+    /// Protocol v32 adds BN128 G2 validity and pairing-product hooks.
+    /// Protocol v33 adds builtin List range and multi-element update operations.
+    /// Protocol v34 adds half-open Bytes substring extraction.
+    /// Protocol v35 adds native List repetition through `LIST.make`.
+    pub const CURRENT: Self = Self(35);
 }
 
 impl Default for ProtocolVersion {

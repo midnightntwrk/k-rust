@@ -678,9 +678,15 @@ fn variable_sorts(term: &SemanticTerm, output: &mut Vec<SemanticSortRef>) {
         }
         SemanticTermKind::Application { arguments, .. }
         | SemanticTermKind::Map { arguments, .. }
-        | SemanticTermKind::List { arguments, .. } => {
+        | SemanticTermKind::List { arguments, .. }
+        | SemanticTermKind::Set { arguments, .. } => {
             for argument in arguments {
                 variable_sorts(argument, output);
+            }
+        }
+        SemanticTermKind::Cell { children, .. } => {
+            for child in children {
+                variable_sorts(child, output);
             }
         }
         SemanticTermKind::Rewrite { from, to } => {

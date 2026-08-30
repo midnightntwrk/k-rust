@@ -274,3 +274,7 @@ path = "src/reversed_symbol.rs"
 [[bin]]
 name = "readable_membership_duplicate"
 path = "src/readable_membership_duplicate.rs"
+
+[[bin]]
+name = "unknown_function_hook"
+path = "src/unknown_function_hook.rs"

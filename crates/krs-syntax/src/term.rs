@@ -175,6 +175,34 @@ pub struct TermApplication {
     pub(crate) arguments: TermArguments,
 }
 
+/// One compiler-owned complete parent-cell term.
+#[derive(Clone, Debug)]
+pub struct CellTerm {
+    pub(crate) range: TokenRange,
+    pub(crate) owner: Path,
+    pub(crate) fields: Vec<TermNamedArgument>,
+}
+
+impl CellTerm {
+    /// Returns the complete `fragment!` invocation range.
+    #[must_use]
+    pub const fn range(&self) -> TokenRange {
+        self.range
+    }
+
+    /// Returns the nominal `#[k::cell]` owner.
+    #[must_use]
+    pub const fn owner(&self) -> &Path {
+        &self.owner
+    }
+
+    /// Returns authored child fields in source order.
+    #[must_use]
+    pub fn fields(&self) -> &[TermNamedArgument] {
+        &self.fields
+    }
+}
+
 impl TermApplication {
     /// Returns the rustc-resolvable application-head path.
     #[must_use]
@@ -227,6 +255,8 @@ pub enum TermTree {
         /// Ordered operands (at least two).
         arguments: Vec<TermTree>,
     },
+    /// `k::fragment![Parent { ... }]` complete nested-cell term.
+    Cell(CellTerm),
 }
 
 impl TermTree {
@@ -241,7 +271,8 @@ impl TermTree {
             | Self::IdToken { .. }
             | Self::BytesToken { .. }
             | Self::Anonymous { .. }
-            | Self::OrBool { .. } => None,
+            | Self::OrBool { .. }
+            | Self::Cell(_) => None,
         }
     }
 
@@ -256,7 +287,8 @@ impl TermTree {
             | Self::IdToken { .. }
             | Self::BytesToken { .. }
             | Self::Anonymous { .. }
-            | Self::OrBool { .. } => None,
+            | Self::OrBool { .. }
+            | Self::Cell(_) => None,
         }
     }
 
@@ -271,7 +303,8 @@ impl TermTree {
             | Self::IdToken { .. }
             | Self::BytesToken { .. }
             | Self::Anonymous { .. }
-            | Self::OrBool { .. } => None,
+            | Self::OrBool { .. }
+            | Self::Cell(_) => None,
         }
     }
 
@@ -286,15 +319,24 @@ impl TermTree {
             | Self::IdToken { .. }
             | Self::BytesToken { .. }
             | Self::Anonymous { .. }
-            | Self::OrBool { .. } => None,
+            | Self::OrBool { .. }
+            | Self::Cell(_) => None,
         }
     }
 
     pub(crate) fn record_field_names_preorder(&self, output: &mut Vec<syn::Ident>) {
-        let Self::Application(application) = self else {
-            return;
+        let arguments = match self {
+            Self::Application(application) => &application.arguments,
+            Self::Cell(cell) => {
+                for argument in &cell.fields {
+                    output.push(argument.name.clone());
+                    argument.value.record_field_names_preorder(output);
+                }
+                return;
+            }
+            _ => return,
         };
-        match &application.arguments {
+        match arguments {
             TermArguments::Positional(arguments) => {
                 for argument in arguments {
                     argument.record_field_names_preorder(output);
@@ -327,6 +369,11 @@ impl TermTree {
             Self::OrBool { arguments, .. } => {
                 for argument in arguments {
                     argument.wildcard_ranges_preorder(output);
+                }
+            }
+            Self::Cell(cell) => {
+                for argument in &cell.fields {
+                    argument.value.wildcard_ranges_preorder(output);
                 }
             }
             Self::Reference(_)
@@ -411,7 +458,7 @@ impl TermExpression {
             Expr::Infer(_) if context == TermExpressionContext::Pattern => TermRootKind::Wildcard,
             Expr::Macro(value) if special_macro_name(&value.mac.path).is_some() => {
                 match special_macro_name(&value.mac.path) {
-                    Some("or_bool") => TermRootKind::Call,
+                    Some("or_bool" | "fragment") => TermRootKind::Call,
                     Some("id" | "bytes" | "anonymous") => TermRootKind::Literal,
                     _ => unreachable!(),
                 }
@@ -657,6 +704,7 @@ fn special_macro_name(path: &Path) -> Option<&'static str> {
         "bytes" => Some("bytes"),
         "anonymous" => Some("anonymous"),
         "or_bool" => Some("or_bool"),
+        "fragment" => Some("fragment"),
         _ => None,
     }
 }
@@ -738,6 +786,7 @@ fn validate_special_macro(
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(TermTree::OrBool { range, arguments })
         }
+        Some("fragment") => validate_cell_term(value, context, symbols, nodes),
         _ => Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
                 reason: "macros are not terms unless they are compiler-owned `id!`, `anonymous!`, or `or_bool!` islands",
@@ -745,6 +794,71 @@ fn validate_special_macro(
             value.span(),
         )),
     }
+}
+
+fn validate_cell_term(
+    value: &ExprMacro,
+    context: TermExpressionContext,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<TermTree, SyntaxError> {
+    let record: ExprStruct = syn::parse2(value.mac.tokens.clone())?;
+    reject_attributes(&record.attrs, record.span())?;
+    if record.qself.is_some() || !is_plain_path(&record.path) {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedPath,
+            record.path.span(),
+        ));
+    }
+    if let Some(rest) = &record.rest {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedTermExpression {
+                reason: "complete cell terms do not admit record update/rest syntax",
+            },
+            rest.span(),
+        ));
+    }
+    symbols.push(TermSymbol {
+        path: record.path.clone(),
+        kind: TermSymbolKind::ApplicationHead,
+    });
+    nodes.push(TermNode::ApplicationHead(record.path.clone()));
+    let mut fields = Vec::with_capacity(record.fields.len());
+    for field in &record.fields {
+        let Member::Named(name) = &field.member else {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::UnsupportedTermExpression {
+                    reason: "complete cell terms require unadorned named fields",
+                },
+                field.span(),
+            ));
+        };
+        if !field.attrs.is_empty() {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::UnsupportedTermExpression {
+                    reason: "complete cell terms require unadorned named fields",
+                },
+                field.span(),
+            ));
+        }
+        fields.push(TermNamedArgument {
+            name: name.clone(),
+            value: validate_expression(&field.expr, context, symbols, nodes)?,
+        });
+    }
+    if fields.is_empty() {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedTermExpression {
+                reason: "complete cell terms require at least one child field",
+            },
+            record.span(),
+        ));
+    }
+    Ok(TermTree::Cell(CellTerm {
+        range: TokenRange::for_tokens(value)?,
+        owner: record.path,
+        fields,
+    }))
 }
 
 fn valid_extended_id(value: &str) -> bool {

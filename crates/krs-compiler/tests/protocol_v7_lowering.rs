@@ -27,6 +27,17 @@ fn id(name: &str, kind: ItemKind) -> StableItemId {
     StableItemId::new(package(), ["calc"], name, kind, "").unwrap()
 }
 
+fn framework_kitem() -> StableItemId {
+    StableItemId::new(
+        PackageId::new("KRS-FRAMEWORK", "krs", "0.1.0", "framework").unwrap(),
+        ["framework"],
+        "KItem",
+        ItemKind::Sort,
+        "",
+    )
+    .unwrap()
+}
+
 fn key(role: &str, ordinal: u32) -> ProvenanceKey {
     ProvenanceKey::new(role, ordinal).unwrap()
 }
@@ -89,6 +100,8 @@ fn cell_field(
         rust_field: name.into(),
         emitted_name: None,
         color: None,
+        multiplicity: None,
+        cell_type: None,
         content: ProtocolCellContent::Leaf {
             wrapper_key: key("configuration_cell_wrapper", ordinal),
             wrapper,
@@ -254,6 +267,7 @@ fn configuration_rule(owner: &StableItemId) -> DescriptorConfigurationRule {
     DescriptorConfigurationRule {
         sentence_kind: SentenceKind::Transition,
         label: None,
+        priority: None,
         requires: None,
         claim: None,
         pattern_key: key("rule_pattern", 0),
@@ -382,6 +396,10 @@ fn bundle() -> DescriptorBundle {
     let rule = configuration_rule(&owner);
     DescriptorBundle::new(vec![
         descriptor(
+            framework_kitem(),
+            DescriptorPayload::Sort(SortDescriptor { parents: vec![] }),
+        ),
+        descriptor(
             id("Value", ItemKind::Sort),
             DescriptorPayload::Sort(SortDescriptor { parents: vec![] }),
         ),
@@ -419,8 +437,13 @@ fn refresh_rule_provenance(bundle: &mut DescriptorBundle) {
 fn fixed_configuration_and_simultaneous_rule_reach_emitted_k_deterministically() {
     let bundle = bundle();
     let semantic = lower_descriptor_bundle(&bundle).unwrap();
+    let module = semantic
+        .modules()
+        .iter()
+        .find(|module| !module.rules().is_empty())
+        .unwrap();
     let krs_ir::semantic::SemanticRuleBody::Configuration(rule) =
-        semantic.modules()[0].rules()[0].relational_body()
+        module.rules()[0].relational_body()
     else {
         panic!("protocol-v7 rule must remain a simultaneous configuration rewrite");
     };
@@ -492,8 +515,13 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
     refresh_rule_provenance(&mut bundle);
 
     let semantic = lower_descriptor_bundle(&bundle).unwrap();
+    let module = semantic
+        .modules()
+        .iter()
+        .find(|module| !module.rules().is_empty())
+        .unwrap();
     let krs_ir::semantic::SemanticRuleBody::Configuration(rewrite) =
-        semantic.modules()[0].rules()[0].relational_body()
+        module.rules()[0].relational_body()
     else {
         panic!("protocol-v7 rule must remain a simultaneous configuration rewrite");
     };
@@ -603,7 +631,13 @@ fn subject_cell_wildcard_keeps_its_rule_side_and_declares_a_fresh_variable() {
     descriptor.provenance = provenance(key("rule_declaration", 0), expected_keys);
 
     let semantic = lower_descriptor_bundle(&bundle).unwrap();
-    let variables = semantic.modules()[0].rules()[0].variables();
+    let variables = semantic
+        .modules()
+        .iter()
+        .find(|module| !module.rules().is_empty())
+        .unwrap()
+        .rules()[0]
+        .variables();
     assert!(
         variables
             .iter()

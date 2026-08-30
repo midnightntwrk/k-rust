@@ -1,5 +1,5 @@
 use std::any::TypeId;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -664,7 +664,9 @@ fn declared_type_table(
             && let HostApplicationIdentity::Nominal(type_id) = resolved
             && (registry.resolve_sort(type_id).is_some()
                 || registry.resolve_operation(type_id).is_some()
-                || registry.resolve_map_operation(type_id).is_some())
+                || registry.resolve_map_operation(type_id).is_some()
+                || registry.resolve_list_operation(type_id).is_some()
+                || registry.resolve_set_operation(type_id).is_some())
         {
             return Err(CollectionError::new(
                 CollectionErrorKind::DeclarationBuiltinCollision,
@@ -742,6 +744,68 @@ struct HeadRuleTarget {
     cells: Vec<HeadRuleCellTarget>,
 }
 
+fn collect_head_rule_cells(
+    declaration: &krs_ir::HostCellDeclaration,
+    declarations: &HashMap<TypeId, &krs_ir::HostCellDeclaration>,
+    cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
+    visiting: &mut HashSet<TypeId>,
+    cells: &mut Vec<HeadRuleCellTarget>,
+) -> Result<(), CollectionError> {
+    for field in &declaration.fields {
+        match &field.content {
+            krs_ir::ProtocolCellContent::Leaf { wrapper, .. } => {
+                let identity = cell_fields
+                    .get(&field.reference.cell.resolve())
+                    .cloned()
+                    .ok_or_else(|| {
+                        CollectionError::new(
+                            CollectionErrorKind::UnresolvedTypeReference,
+                            format!(
+                                "fixed cell `{}` has no stable owner/field identity",
+                                field.rust_field
+                            ),
+                        )
+                    })?;
+                let mut names = vec![field.rust_field.clone()];
+                if let Some(emitted) = &field.emitted_name
+                    && !names.contains(&emitted.value)
+                {
+                    names.push(emitted.value.clone());
+                }
+                cells.push(HeadRuleCellTarget {
+                    identity,
+                    names,
+                    wrapper: *wrapper,
+                });
+            }
+            krs_ir::ProtocolCellContent::Nested { declaration } => {
+                let key = declaration.declaration.key.resolve();
+                if !visiting.insert(key) {
+                    return Err(CollectionError::new(
+                        CollectionErrorKind::InvalidConfiguration,
+                        format!(
+                            "cyclic nested fixed-cell declaration `{}`",
+                            declaration.declaration.authored_path
+                        ),
+                    ));
+                }
+                let nested = declarations.get(&key).ok_or_else(|| {
+                    CollectionError::new(
+                        CollectionErrorKind::UnresolvedTypeReference,
+                        format!(
+                            "nested fixed-cell declaration `{}` was not collected",
+                            declaration.declaration.authored_path
+                        ),
+                    )
+                })?;
+                collect_head_rule_cells(nested, declarations, cell_fields, visiting, cells)?;
+                visiting.remove(&key);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn resolve_head_rule_targets(
     pending: &[PendingDescriptor],
     cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
@@ -761,6 +825,19 @@ fn resolve_head_rule_targets(
             _ => None,
         })
         .collect::<Vec<_>>();
+    let cell_declarations = pending
+        .iter()
+        .filter_map(|descriptor| {
+            let HostDescriptorPayload::Cell(declaration) = &descriptor.host.payload else {
+                return None;
+            };
+            let Some(krs_ir::HostDeclarationIdentity::Nominal(key)) = descriptor.host.declared_type
+            else {
+                return None;
+            };
+            Some((key.resolve(), declaration.as_ref()))
+        })
+        .collect::<HashMap<_, _>>();
     let has_implicit_target = pending.iter().any(|descriptor| {
         matches!(
             &descriptor.host.payload,
@@ -784,34 +861,13 @@ fn resolve_head_rule_targets(
         .into_iter()
         .map(|(descriptor, configuration)| {
             let mut cells = Vec::new();
-            for field in &configuration.declaration.fields {
-                let krs_ir::ProtocolCellContent::Leaf { wrapper, .. } = &field.content else {
-                    continue;
-                };
-                let identity = cell_fields
-                    .get(&field.reference.cell.resolve())
-                    .cloned()
-                    .ok_or_else(|| {
-                        CollectionError::new(
-                            CollectionErrorKind::UnresolvedTypeReference,
-                            format!(
-                                "top-level fixed cell `{}` has no stable owner/field identity",
-                                field.rust_field
-                            ),
-                        )
-                    })?;
-                let mut names = vec![field.rust_field.clone()];
-                if let Some(emitted) = &field.emitted_name
-                    && !names.contains(&emitted.value)
-                {
-                    names.push(emitted.value.clone());
-                }
-                cells.push(HeadRuleCellTarget {
-                    identity,
-                    names,
-                    wrapper: *wrapper,
-                });
-            }
+            collect_head_rule_cells(
+                &configuration.declaration,
+                &cell_declarations,
+                cell_fields,
+                &mut HashSet::new(),
+                &mut cells,
+            )?;
             Ok(HeadRuleTarget {
                 configuration: descriptor.id.clone(),
                 cells,
@@ -908,11 +964,11 @@ fn resolve_head_rule(
         let [resolved] = matches.as_slice() else {
             let detail = match matches.len() {
                 0 => format!(
-                    "readable rule extra names no top-level fixed cell `{}`",
+                    "readable rule extra names no fixed leaf cell `{}`",
                     cell.name
                 ),
                 count => format!(
-                    "readable rule extra cell name `{}` is ambiguous across {count} top-level cells",
+                    "readable rule extra cell name `{}` is ambiguous across {count} fixed leaf cells",
                     cell.name
                 ),
             };
@@ -987,6 +1043,7 @@ fn resolve_head_rule(
     Ok(krs_ir::DescriptorHeadRule {
         sentence_kind: rule.sentence_kind,
         label: rule.label.clone(),
+        priority: rule.priority.clone(),
         pattern_key: rule.pattern_key.clone(),
         result_key: rule.result_key.clone(),
         head_sort: rule
@@ -1015,6 +1072,16 @@ fn resolve_head_rule(
             .collect::<Result<Vec<_>, CollectionError>>()?,
         subject: resolve_term(&rule.subject, declarations, builtins)?,
         result,
+        requires: rule
+            .requires
+            .as_ref()
+            .map(|condition| {
+                Ok(krs_ir::DescriptorRuleCondition {
+                    key: condition.key.clone(),
+                    term: resolve_term(&condition.term, declarations, builtins)?,
+                })
+            })
+            .transpose()?,
         extras,
     })
 }
@@ -1310,6 +1377,8 @@ fn resolve_cell_declaration(
                     rust_field: field.rust_field.clone(),
                     emitted_name: field.emitted_name.clone(),
                     color: field.color.clone(),
+                    multiplicity: field.multiplicity.clone(),
+                    cell_type: field.cell_type.clone(),
                     content,
                 })
             })
@@ -1616,6 +1685,7 @@ fn resolve_configuration_rule(
     Ok(krs_ir::DescriptorConfigurationRule {
         sentence_kind: rule.sentence_kind,
         label: rule.label.clone(),
+        priority: rule.priority.clone(),
         requires: rule
             .requires
             .as_ref()
@@ -1873,6 +1943,10 @@ fn resolve_application_reference(
             builtins.and_then(|registry| registry.resolve_list_operation(type_id))
         {
             DescriptorApplicationRef::List(operation)
+        } else if let Some(operation) =
+            builtins.and_then(|registry| registry.resolve_set_operation(type_id))
+        {
+            DescriptorApplicationRef::Set(operation)
         } else {
             return Err(CollectionError::new(
                 CollectionErrorKind::UnresolvedTypeReference,
@@ -1980,6 +2054,12 @@ fn resolve_grammar(
                         }
                         HostProductionAttribute::Total { key } => {
                             DescriptorProductionAttribute::Total { key: key.clone() }
+                        }
+                        HostProductionAttribute::Hook { key, operation } => {
+                            DescriptorProductionAttribute::Hook {
+                                key: key.clone(),
+                                operation: *operation,
+                            }
                         }
                         HostProductionAttribute::Alias { key } => {
                             DescriptorProductionAttribute::Alias { key: key.clone() }
@@ -2182,6 +2262,29 @@ fn resolve_term(
                 .iter()
                 .map(|argument| resolve_term(argument, declarations, builtins))
                 .collect::<Result<Vec<_>, _>>()?,
+        },
+        HostTerm::Cell {
+            key,
+            declaration,
+            fields,
+        } => DescriptorTerm::Cell {
+            key: key.clone(),
+            declaration: resolve_declared_identity(
+                HostApplicationIdentity::Nominal(declaration.key.resolve()),
+                &declaration.authored_path,
+                ItemKind::Cell,
+                declarations,
+            )?,
+            fields: fields
+                .iter()
+                .map(|field| {
+                    Ok(krs_ir::DescriptorCellTermField {
+                        key: field.key.clone(),
+                        field: field.field.clone(),
+                        value: Box::new(resolve_term(&field.value, declarations, builtins)?),
+                    })
+                })
+                .collect::<Result<Vec<_>, CollectionError>>()?,
         },
     })
 }
@@ -4258,8 +4361,8 @@ mod protocol_v6_tests {
     use krs_ir::{
         BuiltinSort, HostApplicationReference, HostApplicationTarget,
         HostBuiltinOperationRegistration, HostBuiltinSortRegistration, HostEnumVariantReference,
-        HostListOperationRegistration, HostMapOperationRegistration, HostTypeKey, ListOperation,
-        MapOperation,
+        HostListOperationRegistration, HostMapOperationRegistration, HostSetOperationRegistration,
+        HostTypeKey, ListOperation, MapOperation, SetOperation,
     };
 
     struct Boolean;
@@ -4272,6 +4375,7 @@ mod protocol_v6_tests {
     struct SortId;
     struct SortBytes;
     struct SortList;
+    struct SortSet;
     struct Op0;
     struct Op1;
     struct Op2;
@@ -4297,13 +4401,26 @@ mod protocol_v6_tests {
     struct Op22;
     struct Op23;
     struct Op24;
+    struct Op25;
+    struct Op26;
+    struct Op27;
+    struct Op28;
     struct MapUpdateOp;
+    struct MapGetOp;
+    struct MapInKeysOp;
     struct ListOp0;
     struct ListOp1;
     struct ListOp2;
     struct ListOp3;
     struct ListOp4;
     struct ListOp5;
+    struct ListOp6;
+    struct ListOp7;
+    struct ListOp8;
+    struct SetOp0;
+    struct SetOp1;
+    struct SetOp2;
+    struct SetOp3;
 
     fn marker_key<T: 'static>() -> TypeId {
         TypeId::of::<T>()
@@ -4318,6 +4435,7 @@ mod protocol_v6_tests {
             HostTypeKey(marker_key::<SortId>),
             HostTypeKey(marker_key::<SortBytes>),
             HostTypeKey(marker_key::<SortList>),
+            HostTypeKey(marker_key::<SortSet>),
         ];
         let operation_keys = [
             HostTypeKey(marker_key::<Op0>),
@@ -4345,6 +4463,10 @@ mod protocol_v6_tests {
             HostTypeKey(marker_key::<Op22>),
             HostTypeKey(marker_key::<Op23>),
             HostTypeKey(marker_key::<Op24>),
+            HostTypeKey(marker_key::<Op25>),
+            HostTypeKey(marker_key::<Op26>),
+            HostTypeKey(marker_key::<Op27>),
+            HostTypeKey(marker_key::<Op28>),
         ];
         HostBuiltinRegistry {
             sorts: BuiltinSort::ALL
@@ -4357,10 +4479,15 @@ mod protocol_v6_tests {
                 .zip(operation_keys)
                 .map(|(operation, target)| HostBuiltinOperationRegistration { operation, target })
                 .collect(),
-            map_operations: vec![HostMapOperationRegistration {
-                operation: MapOperation::Update,
-                target: HostTypeKey(marker_key::<MapUpdateOp>),
-            }],
+            map_operations: MapOperation::TERM_APPLICATIONS
+                .into_iter()
+                .zip([
+                    HostTypeKey(marker_key::<MapUpdateOp>),
+                    HostTypeKey(marker_key::<MapGetOp>),
+                    HostTypeKey(marker_key::<MapInKeysOp>),
+                ])
+                .map(|(operation, target)| HostMapOperationRegistration { operation, target })
+                .collect(),
             list_operations: ListOperation::TERM_APPLICATIONS
                 .into_iter()
                 .zip([
@@ -4370,8 +4497,21 @@ mod protocol_v6_tests {
                     HostTypeKey(marker_key::<ListOp3>),
                     HostTypeKey(marker_key::<ListOp4>),
                     HostTypeKey(marker_key::<ListOp5>),
+                    HostTypeKey(marker_key::<ListOp6>),
+                    HostTypeKey(marker_key::<ListOp7>),
+                    HostTypeKey(marker_key::<ListOp8>),
                 ])
                 .map(|(operation, target)| HostListOperationRegistration { operation, target })
+                .collect(),
+            set_operations: SetOperation::TERM_APPLICATIONS
+                .into_iter()
+                .zip([
+                    HostTypeKey(marker_key::<SetOp0>),
+                    HostTypeKey(marker_key::<SetOp1>),
+                    HostTypeKey(marker_key::<SetOp2>),
+                    HostTypeKey(marker_key::<SetOp3>),
+                ])
+                .map(|(operation, target)| HostSetOperationRegistration { operation, target })
                 .collect(),
         }
     }
@@ -4454,6 +4594,7 @@ mod protocol_v6_tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)] // Exhaustively verifies sort and operation alias identity.
     fn complete_builtin_registry_joins_aliases_by_exact_type_identity() {
         let registry = registry();
         registry.validate().unwrap();

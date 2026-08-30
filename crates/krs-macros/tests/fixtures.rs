@@ -259,6 +259,10 @@ fn rejected_surface_reports_local_failures() {
             "#[k::symbol] must appear before the symbol-bearing KRS declaration attribute",
         ),
         (
+            "unknown_function_hook",
+            "unknown KRS hook; expected `krypto::keccak256_raw`, `krypto::sha256_raw`, `krypto::ripemd160_raw`, `krypto::ecdsa_recover`, `krypto::bn128_valid`, `krypto::bn128_add`, `krypto::bn128_mul`, `krypto::bn128_g2_valid`, or `krypto::bn128_ate`",
+        ),
+        (
             "claim_orphan_exists",
             "`#[k::exists]` is a claim helper; place `#[k::claim(...)]` before it",
         ),

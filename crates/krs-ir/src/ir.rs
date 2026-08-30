@@ -29,15 +29,25 @@ use crate::OriginStack;
 /// `Bytes` sort and its selected operation identities. Schema v11 adds K's
 /// builtin associative `List` sort and selected operations. Schema v12 adds
 /// K's builtin Euclidean integer-modulus operation. Schema v13 adds K's native
-/// modular-power, logarithm, shift, and bitwise integer operations.
+/// modular-power, logarithm, shift, and bitwise integer operations. Schema v14
+/// adds the empty-Bytes identity. Schema v15 adds byte update and right-padding
+/// operations. Schema v16 adds typed Map lookup/key-membership and builtin Set
+/// terms. Schema v17 adds repeated-cell metadata, readable rule conditions,
+/// and ordered fallbacks. Schema v18 adds closed typed production hooks.
+/// Schema v19 adds raw SHA-256 and schema v20 adds raw RIPEMD-160 to the closed
+/// hook catalog. Schema v21 adds ECDSA recovery. Schema v22 adds declared-sort
+/// BN128 validity and addition hooks. Schema v23 adds declared-sort BN128
+/// multiplication. Schema v24 adds BN128 G2 validity and pairing-product
+/// hooks. Schema v25 adds builtin List range and multi-element update operations.
+/// Schema v26 adds half-open Bytes substring extraction.
+/// Schema v27 adds native List repetition through `LIST.make`.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct IrSchemaVersion(pub u32);
 
 impl IrSchemaVersion {
     /// Schema written by this release.
-    /// Schema v13 adds the selected native integer word-operation boundary.
-    pub const CURRENT: Self = Self(13);
+    pub const CURRENT: Self = Self(27);
 }
 
 impl Default for IrSchemaVersion {
@@ -65,11 +75,13 @@ pub enum BuiltinSort {
     Bytes,
     /// Associative finite sequence domain from pinned module `LIST`.
     List,
+    /// Associative, commutative finite set domain from pinned module `SET`.
+    Set,
 }
 
 impl BuiltinSort {
     /// Complete IR catalog in stable semantic order.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::KSequence,
         Self::Int,
         Self::Bool,
@@ -77,6 +89,7 @@ impl BuiltinSort {
         Self::Id,
         Self::Bytes,
         Self::List,
+        Self::Set,
     ];
 
     /// Sort catalog frozen into descriptor protocol v6.
@@ -86,7 +99,7 @@ impl BuiltinSort {
     pub const PROTOCOL_V6: [Self; 3] = [Self::KSequence, Self::Int, Self::Bool];
 
     /// Complete sort catalog required by descriptor protocol v7.
-    pub(crate) const PROTOCOL_V7: [Self; 7] = Self::ALL;
+    pub(crate) const PROTOCOL_V7: [Self; 8] = Self::ALL;
 }
 
 /// Stable, path-free key used by source-map sidecars.

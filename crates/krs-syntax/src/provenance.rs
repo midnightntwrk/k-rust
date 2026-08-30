@@ -52,12 +52,16 @@ pub enum ProvenanceRole {
     FunctionTotal,
     /// Bare `partial` marker on a function declaration.
     FunctionPartial,
+    /// Closed backend-hook selector on a function declaration.
+    FunctionHook,
     /// Static alias marker on a constructor production.
     AliasProduction,
     /// Restricted alias clause, anchored to its function identifier.
     AliasClause,
     /// Explicit equation-priority integer.
     EquationPriority,
+    /// Bare ordered-fallback marker on a transition rule.
+    RuleOwise,
     /// Simplification marker, anchored to the attributed function identifier.
     SimplificationMarker,
     /// Optional simplification-priority integer.
@@ -110,6 +114,10 @@ pub enum ProvenanceRole {
     ConfigurationCellName,
     /// Classified color literal on a fixed cell field.
     ConfigurationCellColor,
+    /// Classified multiplicity literal on a fixed cell field.
+    ConfigurationCellMultiplicity,
+    /// Classified collection-type literal on a repeated cell field.
+    ConfigurationCellType,
     /// Name of an attributed initializer associated function.
     InitializerDeclaration,
     /// Initializer return type.
@@ -343,9 +351,11 @@ impl ProvenanceRole {
             Self::FunctionDeclaration => "function_declaration",
             Self::FunctionTotal => "function_total",
             Self::FunctionPartial => "function_partial",
+            Self::FunctionHook => "function_hook",
             Self::AliasProduction => "alias_production",
             Self::AliasClause => "alias_clause",
             Self::EquationPriority => "equation_priority",
+            Self::RuleOwise => "rule_owise",
             Self::SimplificationMarker => "simplification_marker",
             Self::SimplificationPriority => "simplification_priority",
             Self::TokenDeclaration => "token_declaration",
@@ -372,6 +382,8 @@ impl ProvenanceRole {
             Self::ConfigurationCellContentArgument => "configuration_cell_content_argument",
             Self::ConfigurationCellName => "configuration_cell_name",
             Self::ConfigurationCellColor => "configuration_cell_color",
+            Self::ConfigurationCellMultiplicity => "configuration_cell_multiplicity",
+            Self::ConfigurationCellType => "configuration_cell_type",
             Self::InitializerDeclaration => "initializer_declaration",
             Self::InitializerResultType => "initializer_result_type",
             Self::ConfigurationVariable => "configuration_variable",
