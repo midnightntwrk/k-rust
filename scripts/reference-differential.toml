@@ -817,7 +817,7 @@ name = "ecdsa-invalid-execution"
 section = "execution"
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/ecdsa-invalid.crypto"
 disposition = "local-gate"
-local-gate = "cargo test -p k-rust --test cli krun_executes_invalid_ecdsa_recovery_to_empty_bytes -- --exact"
+local_gate = "cargo test -p k-rust --test cli krun_executes_invalid_ecdsa_recovery_to_empty_bytes -- --exact"
 reason = "The pinned Haskell backend crashes in Kore.Builtin.Krypto.encodePoint for bad recovery ids instead of returning a value, so it cannot serve as an oracle for k-rust's empty-Bytes invalid-input contract."
 
 [[excluded]]
@@ -825,7 +825,7 @@ name = "fresh-constants-execution"
 section = "execution"
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/fresh-constants.k"
 disposition = "comparison-impossible"
-local-gate = "cargo test -p k-rust --test cli krun_executes_fresh_constant_fixture_to_pinned_kore_result -- --exact"
+local_gate = "cargo test -p k-rust --test cli krun_executes_fresh_constant_fixture_to_pinned_kore_result -- --exact"
 reason = "Backend-generated fresh identities and counters are intentionally implementation-specific, so exact terminal KORE is not a portable cross-backend contract; the local gate pins k-rust's deterministic behavior."
 
 [[excluded]]
@@ -857,7 +857,7 @@ name = "proof-counterexample-artifact"
 section = "proof"
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/mini-spec.k"
 disposition = "alternative-oracle"
-local-gate = "K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-proof-differential.sh mini-proof"
+local_gate = "K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-proof-differential.sh mini-proof"
 reason = "The pinned prover emits a concrete generatedCounter cell containing a fresh Int variable, while k-rust reports an unconstrained generatedCounter cell variable; both identify the same stuck k cell, but exact KORE comparison would pin backend-internal framing. Verdicts are compared per claim instead."
 
 [[proof]]
