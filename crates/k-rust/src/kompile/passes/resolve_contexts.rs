@@ -11,6 +11,10 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
+    provenance::{
+        GeneratingPass, record_generated_origins, seed_generated_sentence_origin,
+        sentence_origin_links,
+    },
 };
 
 use super::rebase_local_metadata;
@@ -38,6 +42,11 @@ impl std::error::Error for ResolveContextsError {}
 /// and cool rules. Imported modules remain unchanged, matching the reference definition-level
 /// transformer.
 pub fn resolve_contexts(definition: &Definition) -> Result<Definition, ResolveContextsError> {
+    resolve_contexts_inner(definition)
+        .map(|output| record_generated_origins(definition, output, GeneratingPass::ResolveContexts))
+}
+
+fn resolve_contexts_inner(definition: &Definition) -> Result<Definition, ResolveContextsError> {
     let resolved =
         ResolvedDefinition::resolve(definition).map_err(|error| ResolveContextsError {
             diagnostics: vec![plain_error(error.to_string())],
@@ -200,7 +209,7 @@ fn resolve_context(
         left: Box::new(heated_and_frozen),
         right: Box::new(cooled),
     };
-    Ok(vec![
+    let mut generated = vec![
         freezer,
         Sentence::Rule {
             body: insert(body.clone(), heat_rewrite, productions).0,
@@ -214,7 +223,12 @@ fn resolve_context(
             ensures: bool_token(true),
             attributes: cool_attributes,
         },
-    ])
+    ];
+    let origins = sentence_origin_links(context);
+    for sentence in &mut generated {
+        seed_generated_sentence_origin(sentence, GeneratingPass::ResolveContexts, origins.clone());
+    }
+    Ok(generated)
 }
 
 struct HeatScan<'a, 'definition> {

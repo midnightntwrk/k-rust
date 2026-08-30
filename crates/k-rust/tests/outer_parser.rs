@@ -1,4 +1,5 @@
 use indoc::indoc;
+use k_rust::definition::{SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE};
 use k_rust::outer::{
     Sentence, check_brackets, check_list_declarations, extract_fenced_k_code, lower, parse,
 };
@@ -73,6 +74,41 @@ fn lowering_preserves_bubble_content_offsets() {
     assert_eq!(
         content_start_offset("offsets.md", &extracted),
         extracted.find("md => value").unwrap(),
+    );
+}
+
+#[test]
+fn lowering_preserves_exact_sentence_byte_offsets() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | Exp "+" Exp [seqstrict, symbol(_+_)]
+        endmodule
+    "#};
+    let strict_text = r#"Exp "+" Exp [seqstrict, symbol(_+_)]"#;
+    let start = source.find(strict_text).unwrap();
+    let lowered = lower(&parse("offsets.k", source).unwrap(), "MAIN").unwrap();
+    let strict = lowered
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find(|sentence| sentence.attributes().get("seqstrict").is_some())
+        .unwrap();
+
+    assert_eq!(
+        strict
+            .attributes()
+            .get(SENTENCE_START_OFFSET_ATTRIBUTE)
+            .and_then(serde_json::Value::as_u64),
+        Some(start as u64),
+    );
+    assert_eq!(
+        strict
+            .attributes()
+            .get(SENTENCE_END_OFFSET_ATTRIBUTE)
+            .and_then(serde_json::Value::as_u64),
+        Some((start + strict_text.len()) as u64),
     );
 }
 
@@ -248,6 +284,17 @@ fn comments_and_escaped_literals_are_lexed_without_losing_spans() {
 fn pinned_outer_corpus_families_parse_and_lower() {
     let source = include_str!("fixtures/outer/record-and-list.k");
     let parsed = parse("record-and-list.k", source).unwrap();
+    let mut lowered = lower(&parsed, "OUTER-CORPUS").unwrap();
+    for module in &mut lowered.modules {
+        for sentence in &mut module.local_sentences {
+            sentence
+                .attributes_mut()
+                .remove(SENTENCE_START_OFFSET_ATTRIBUTE);
+            sentence
+                .attributes_mut()
+                .remove(SENTENCE_END_OFFSET_ATTRIBUTE);
+        }
+    }
 
     insta::with_settings!({
         description => format!("K source:\n\n{source}"),
@@ -263,7 +310,7 @@ fn pinned_outer_corpus_families_parse_and_lower() {
     }, {
         insta::assert_debug_snapshot!(
             "pinned_outer_lowering",
-            lower(&parsed, "OUTER-CORPUS").unwrap()
+            lowered
         );
     });
 }

@@ -9,7 +9,9 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    definition::{Definition, Sentence},
+    definition::{
+        Definition, SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE, Sentence,
+    },
     kast::{Term, TermMetadata, TermSpan},
 };
 
@@ -243,6 +245,9 @@ pub fn record_generated_origins(
                 .map(sentence_origin_links)
                 .unwrap_or_default();
             if origins.is_empty() {
+                origins = stored_sentence_origin_links(sentence);
+            }
+            if origins.is_empty() {
                 origins = sentence_source_links(sentence);
             }
             if origins.is_empty() {
@@ -349,20 +354,97 @@ fn sentence_kind(sentence: &Sentence) -> &'static str {
     }
 }
 
-fn sentence_source_links(sentence: &Sentence) -> Vec<ProvenanceLink> {
+pub(crate) fn sentence_source_links(sentence: &Sentence) -> Vec<ProvenanceLink> {
     let mut links = Vec::new();
     for_each_term(sentence, &mut |term| collect_source_links(term, &mut links));
     links
 }
 
-fn sentence_origin_links(sentence: &Sentence) -> Vec<ProvenanceLink> {
-    if let Some(unique_id) = sentence.attributes().get_str("UNIQUE_ID") {
+pub(crate) fn sentence_origin_links(sentence: &Sentence) -> Vec<ProvenanceLink> {
+    let stored = stored_sentence_origin_links(sentence);
+    if !stored.is_empty() {
+        stored
+    } else if let Some(unique_id) = sentence.attributes().get_str("UNIQUE_ID") {
         vec![ProvenanceLink::Sentence {
             unique_id: unique_id.into(),
         }]
+    } else if sentence_is_termless(sentence)
+        && let Some(span) = sentence_source_span(sentence)
+    {
+        vec![ProvenanceLink::Source { span }]
     } else {
         sentence_source_links(sentence)
     }
+}
+
+fn sentence_is_termless(sentence: &Sentence) -> bool {
+    matches!(
+        sentence,
+        Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::Bubble { .. }
+    )
+}
+
+fn sentence_source_span(sentence: &Sentence) -> Option<TermSpan> {
+    let attributes = sentence.attributes();
+    let start = attributes
+        .get(SENTENCE_START_OFFSET_ATTRIBUTE)?
+        .as_u64()
+        .and_then(|value| usize::try_from(value).ok())?;
+    let end = attributes
+        .get(SENTENCE_END_OFFSET_ATTRIBUTE)?
+        .as_u64()
+        .and_then(|value| usize::try_from(value).ok())?;
+    (start <= end).then_some(TermSpan {
+        source: attributes.source_id()?,
+        start,
+        end,
+    })
+}
+
+fn stored_sentence_origin_links(sentence: &Sentence) -> Vec<ProvenanceLink> {
+    sentence
+        .attributes()
+        .get(ORIGIN_ATTRIBUTE)
+        .and_then(|record| record.get("origins"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|link| match link.get("kind").and_then(Value::as_str) {
+            Some("source") => Some(ProvenanceLink::Source {
+                span: TermSpan {
+                    source: SourceId(usize::try_from(link.get("source")?.as_u64()?).ok()?),
+                    start: usize::try_from(link.get("start")?.as_u64()?).ok()?,
+                    end: usize::try_from(link.get("end")?.as_u64()?).ok()?,
+                },
+            }),
+            Some("sentence") => Some(ProvenanceLink::Sentence {
+                unique_id: link.get("uniqueId")?.as_str()?.into(),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+pub(crate) fn seed_generated_sentence_origin(
+    sentence: &mut Sentence,
+    pass: GeneratingPass,
+    origins: Vec<ProvenanceLink>,
+) {
+    sentence.attributes_mut().insert(
+        ORIGIN_ATTRIBUTE,
+        OriginRecord {
+            pass,
+            origins,
+            destination: None,
+        }
+        .to_value(),
+    );
 }
 
 fn module_origin_links(before_sentences: &[Sentence], pass: GeneratingPass) -> Vec<ProvenanceLink> {

@@ -10,6 +10,10 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term, parser::parse_sort},
+    provenance::{
+        GeneratingPass, record_generated_origins, seed_generated_sentence_origin,
+        sentence_origin_links,
+    },
 };
 
 const BOOL_MODULE: &str = "BOOL";
@@ -40,6 +44,11 @@ struct Alias {
 
 /// Apply Java's `ResolveStrict` definition transformation.
 pub fn resolve_strict(definition: &Definition) -> Result<Definition, ResolveStrictError> {
+    resolve_strict_inner(definition)
+        .map(|output| record_generated_origins(definition, output, GeneratingPass::ResolveStrict))
+}
+
+fn resolve_strict_inner(definition: &Definition) -> Result<Definition, ResolveStrictError> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(|error| ResolveStrictError {
         diagnostics: vec![plain_error(error.to_string())],
     })?;
@@ -253,6 +262,10 @@ fn resolve_production(
         }
     }
 
+    let origins = sentence_origin_links(production);
+    for sentence in &mut generated {
+        seed_generated_sentence_origin(sentence, GeneratingPass::ResolveStrict, origins.clone());
+    }
     Ok(generated)
 }
 

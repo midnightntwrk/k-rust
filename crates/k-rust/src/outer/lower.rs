@@ -5,8 +5,9 @@ use serde_json::{Value, json};
 use crate::{
     definition::{
         Associativity as FlatAssociativity, Attributes, Definition, FlatImport, FlatModule,
-        LOCATION_ATTRIBUTE, ProductionItem as FlatProductionItem, SOURCE_ATTRIBUTE,
-        SOURCE_ID_ATTRIBUTE, Sentence as FlatSentence,
+        LOCATION_ATTRIBUTE, ProductionItem as FlatProductionItem, SENTENCE_END_OFFSET_ATTRIBUTE,
+        SENTENCE_START_OFFSET_ATTRIBUTE, SOURCE_ATTRIBUTE, SOURCE_ID_ATTRIBUTE,
+        Sentence as FlatSentence,
     },
     kast::{Label, Sort},
 };
@@ -120,7 +121,7 @@ fn lower_sentence(
             SyntaxBody::Sort(attributes) => output.push(FlatSentence::SyntaxSort {
                 parameters: syntax.parameters.clone(),
                 sort: syntax.sort.clone(),
-                attributes: source_attributes(file, syntax.span, attributes),
+                attributes: sentence_source_attributes(file, syntax.span, attributes),
             }),
             SyntaxBody::Synonym {
                 old_sort,
@@ -128,7 +129,7 @@ fn lower_sentence(
             } => output.push(FlatSentence::SortSynonym {
                 new_sort: syntax.sort.clone(),
                 old_sort: old_sort.clone(),
-                attributes: source_attributes(file, syntax.span, attributes),
+                attributes: sentence_source_attributes(file, syntax.span, attributes),
             }),
             SyntaxBody::Productions(blocks) => {
                 if blocks.len() > 1 {
@@ -137,7 +138,7 @@ fn lower_sentence(
                             .iter()
                             .map(|block| block_tags(module, &syntax.sort, block))
                             .collect(),
-                        attributes: source_attributes(file, syntax.span, &[]),
+                        attributes: sentence_source_attributes(file, syntax.span, &[]),
                     });
                 }
                 for block in blocks {
@@ -146,7 +147,7 @@ fn lower_sentence(
                         output.push(FlatSentence::SyntaxAssociativity {
                             associativity: lower_associativity(block.associativity),
                             tags,
-                            attributes: source_attributes(file, block.span, &[]),
+                            attributes: sentence_source_attributes(file, block.span, &[]),
                         });
                     }
                     for production in &block.productions {
@@ -168,19 +169,19 @@ fn lower_sentence(
                 .iter()
                 .map(|group| resolve_tags(group, tag_index))
                 .collect(),
-            attributes: source_attributes(file, priority.span, &[]),
+            attributes: sentence_source_attributes(file, priority.span, &[]),
         }),
         Sentence::Associativity(associativity) => {
             output.push(FlatSentence::SyntaxAssociativity {
                 associativity: lower_associativity(associativity.associativity),
                 tags: resolve_tags(&associativity.tags, tag_index),
-                attributes: source_attributes(file, associativity.span, &[]),
+                attributes: sentence_source_attributes(file, associativity.span, &[]),
             });
         }
         Sentence::Lexical(lexical) => output.push(FlatSentence::SyntaxLexical {
             name: lexical.name.clone(),
             regex: lexical.regex.clone(),
-            attributes: source_attributes(file, lexical.span, &lexical.attributes),
+            attributes: sentence_source_attributes(file, lexical.span, &lexical.attributes),
         }),
         Sentence::Bubble(bubble) => output.push(lower_bubble(file, module, bubble)),
     }
@@ -217,7 +218,7 @@ fn lower_production(
     }
 
     let label = effective_label(module, result_sort, production, false);
-    let mut attributes = source_attributes(file, production.span, &production.attributes);
+    let mut attributes = sentence_source_attributes(file, production.span, &production.attributes);
     if has_attribute(&production.attributes, "bracket") {
         let bracket_label = prefix_label(module, result_sort, production, true);
         attributes.insert("bracketLabel", json!(bracket_label));
@@ -241,7 +242,7 @@ fn lower_production(
             output.push(FlatSentence::SyntaxAssociativity {
                 associativity,
                 tags: vec![tag],
-                attributes: source_attributes(file, production.span, &[]),
+                attributes: sentence_source_attributes(file, production.span, &[]),
             });
         }
     }
@@ -261,7 +262,8 @@ fn lower_user_list(
 ) {
     let recursive_label = effective_label(module, result_sort, production, false)
         .unwrap_or_else(|| prefix_label(module, result_sort, production, true));
-    let mut recursive_attributes = source_attributes(file, production.span, &production.attributes);
+    let mut recursive_attributes =
+        sentence_source_attributes(file, production.span, &production.attributes);
     recursive_attributes.insert("userList", json!(if non_empty { "+" } else { "*" }));
     output.push(FlatSentence::Production {
         label: Some(Label::with_parameters(
@@ -319,7 +321,7 @@ fn lower_user_list(
         |label| label.replace(' ', ""),
     );
     let mut terminator_attributes =
-        source_attributes(file, production.span, &production.attributes);
+        sentence_source_attributes(file, production.span, &production.attributes);
     for key in ["format", "strict", "terminator-symbol"] {
         terminator_attributes = without_attribute(terminator_attributes, key);
     }
@@ -350,7 +352,7 @@ fn lower_item(item: &ProductionItem) -> FlatProductionItem {
 }
 
 fn lower_bubble(file: &SourceFile, module: &Module, bubble: &Bubble) -> FlatSentence {
-    let mut attributes = source_attributes(file, bubble.span, &bubble.attributes);
+    let mut attributes = sentence_source_attributes(file, bubble.span, &bubble.attributes);
     attributes.insert(
         "contentStartOffset",
         json!(bubble.content_span.start.offset),
@@ -591,6 +593,17 @@ fn source_attributes(file: &SourceFile, span: Span, attributes: &[Attribute]) ->
             span.end.column
         ]),
     );
+    result
+}
+
+fn sentence_source_attributes(
+    file: &SourceFile,
+    span: Span,
+    attributes: &[Attribute],
+) -> Attributes {
+    let mut result = source_attributes(file, span, attributes);
+    result.insert(SENTENCE_START_OFFSET_ATTRIBUTE, json!(span.start.offset));
+    result.insert(SENTENCE_END_OFFSET_ATTRIBUTE, json!(span.end.offset));
     result
 }
 

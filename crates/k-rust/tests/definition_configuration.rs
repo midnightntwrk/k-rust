@@ -23,6 +23,8 @@ fn attributes(attributes: &Attributes) -> String {
                 "org.kframework.attributes.Source"
                     | "org.kframework.attributes.SourceId"
                     | "org.krust.provenance.Origin"
+                    | "org.krust.provenance.SentenceStartOffset"
+                    | "org.krust.provenance.SentenceEndOffset"
                     | "org.kframework.attributes.Location"
                     | "contentStartLine"
                     | "contentStartColumn"

@@ -2,9 +2,10 @@ use indoc::indoc;
 use k_rust::{
     definition::{
         Attributes, Definition, FlatImport, FlatModule, LabelHead, ProductionId, ProductionItem,
-        ResolvedDefinition, Sentence, checks::check_definition,
+        ResolvedDefinition, SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE,
+        Sentence, checks::check_definition,
     },
-    kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, printer::Printer},
+    kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan, printer::Printer},
     kompile::{
         add_cool_like_attributes, add_implicit_computation_cell, add_semantics_module,
         add_sort_injections_to_definition, check_simplification_rules, concretize_cells,
@@ -17,6 +18,7 @@ use k_rust::{
         resolve_semantic_casts, resolve_strict, subsort_kitem,
     },
     outer::{ResolvedSource, load},
+    provenance::{GeneratingPass, ORIGIN_ATTRIBUTE, ProvenanceLink, SourceId},
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -30,6 +32,24 @@ fn parsed(source: &str) -> k_rust::definition::Definition {
     )
     .unwrap()
     .definition
+}
+
+fn snapshot_attributes(attributes: &Attributes) -> BTreeMap<String, Value> {
+    attributes
+        .entries()
+        .iter()
+        .filter(|(key, _)| {
+            !matches!(
+                key.as_str(),
+                "contentStartOffset"
+                    | "org.kframework.attributes.SourceId"
+                    | ORIGIN_ATTRIBUTE
+                    | SENTENCE_START_OFFSET_ATTRIBUTE
+                    | SENTENCE_END_OFFSET_ATTRIBUTE
+            )
+        })
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
 }
 
 #[test]
@@ -52,7 +72,7 @@ fn duplicates_commutative_simplification_rules_and_removes_rule_comm() {
             else {
                 return None;
             };
-            Some((printer.print_term(body), attributes.entries()))
+            Some((printer.print_term(body), snapshot_attributes(attributes)))
         })
         .collect::<Vec<_>>();
 
@@ -2818,7 +2838,10 @@ fn marks_variable_headed_main_cell_sequences_as_cool_like() {
         .filter_map(|sentence| match sentence {
             Sentence::Rule {
                 body, attributes, ..
-            } => Some((Printer::new().print_term(body), attributes.entries())),
+            } => Some((
+                Printer::new().print_term(body),
+                snapshot_attributes(attributes),
+            )),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -2881,6 +2904,52 @@ fn generates_left_to_right_seqstrict_contexts_and_imports_bool() {
     }, {
         insta::assert_debug_snapshot!(contexts);
     });
+}
+
+#[test]
+fn strictness_contexts_link_to_their_source_production() {
+    let source = indoc! {r#"
+        module BOOL
+        endmodule
+
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | Exp "+" Exp [seqstrict, symbol(_+_)]
+        endmodule
+    "#};
+    let strict_text = r#"Exp "+" Exp [seqstrict, symbol(_+_)]"#;
+    let strict_start = source.find(strict_text).unwrap();
+    let strict_span = TermSpan {
+        source: SourceId(0),
+        start: strict_start,
+        end: strict_start + strict_text.len(),
+    };
+
+    let transformed = resolve_strict(&parsed(source)).unwrap();
+    let contexts = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter(|sentence| matches!(sentence, Sentence::Context { .. }))
+        .collect::<Vec<_>>();
+    assert_eq!(contexts.len(), 2);
+    for context in contexts {
+        let receipt = context
+            .attributes()
+            .get(ORIGIN_ATTRIBUTE)
+            .expect("strictness context has an origin");
+        assert_eq!(receipt["pass"], GeneratingPass::ResolveStrict.as_str());
+        assert_eq!(
+            receipt["origins"],
+            serde_json::json!([{
+                "kind": "source",
+                "source": strict_span.source.0,
+                "start": strict_span.start,
+                "end": strict_span.end,
+            }]),
+        );
+    }
 }
 
 #[test]
@@ -3088,6 +3157,98 @@ fn lowers_contexts_to_freezer_heat_and_cool_rules() {
     }, {
         insta::assert_debug_snapshot!(generated);
     });
+}
+
+#[test]
+fn heat_and_cool_rules_carry_their_exact_context_origins() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "f(" Exp ")" [symbol(f)]
+                       | "g(" Exp ")" [symbol(g)]
+          context f(HOLE) [label(first)]
+          context g(HOLE) [label(second)]
+        endmodule
+    "#};
+    let source_span = |text: &str| {
+        let start = source.find(text).unwrap();
+        TermSpan {
+            source: SourceId(0),
+            start,
+            end: start + text.len(),
+        }
+    };
+    let first_span = source_span("f(HOLE)");
+    let second_span = source_span("g(HOLE)");
+    let transformed = resolve_contexts(&resolve_anon_vars(&parsed(source))).unwrap();
+    let main = transformed.main_module().unwrap();
+    let generated = main
+        .local_sentences
+        .iter()
+        .enumerate()
+        .filter(|(_, sentence)| match sentence {
+            Sentence::Production {
+                label: Some(label), ..
+            } => label.name.starts_with("#freezer"),
+            Sentence::Rule { attributes, .. } => {
+                attributes.get("heat").is_some() || attributes.get("cool").is_some()
+            }
+            _ => false,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(generated.len(), 6);
+    for (group, expected_span, unrelated_span) in [
+        (&generated[..3], first_span, second_span),
+        (&generated[3..], second_span, first_span),
+    ] {
+        for (sentence_index, sentence) in group {
+            let receipt = sentence
+                .attributes()
+                .get(ORIGIN_ATTRIBUTE)
+                .expect("generated context sentence has an origin");
+            assert_eq!(receipt["pass"], GeneratingPass::ResolveContexts.as_str());
+            let links = receipt["origins"].as_array().unwrap();
+            let expected = serde_json::json!({
+                "kind": "source",
+                "source": expected_span.source.0,
+                "start": expected_span.start,
+                "end": expected_span.end,
+            });
+            let unrelated = serde_json::json!({
+                "kind": "source",
+                "source": unrelated_span.source.0,
+                "start": unrelated_span.start,
+                "end": unrelated_span.end,
+            });
+            assert!(links.contains(&expected), "{receipt}");
+            assert!(!links.contains(&unrelated), "{receipt}");
+            assert_eq!(receipt["destination"]["sentenceIndex"], *sentence_index);
+
+            if let Sentence::Rule { body, .. } = sentence {
+                let origin = body
+                    .metadata()
+                    .and_then(|metadata| metadata.origin.as_deref())
+                    .expect("generated heat/cool body has an origin");
+                assert_eq!(origin.pass, GeneratingPass::ResolveContexts);
+                assert!(
+                    origin.origins.contains(&ProvenanceLink::Source {
+                        span: expected_span,
+                    }),
+                    "{origin:?}",
+                );
+                assert!(!origin.origins.contains(&ProvenanceLink::Source {
+                    span: unrelated_span,
+                }));
+                let destination = origin.destination.as_ref().unwrap();
+                assert_eq!(
+                    destination.sentence_index,
+                    u32::try_from(*sentence_index).unwrap()
+                );
+                assert_eq!(destination.path, [0]);
+            }
+        }
+    }
 }
 
 #[test]

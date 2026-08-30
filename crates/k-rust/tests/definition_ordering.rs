@@ -2,8 +2,9 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use k_rust::definition::{
-    Associativity, Attributes, OrderingError, ProductionItem, Sentence, compare_attributes,
-    compare_sentences, compare_terms, sentence_equivalent, sort_sentences,
+    Associativity, Attributes, OrderingError, ProductionItem, SENTENCE_END_OFFSET_ATTRIBUTE,
+    SENTENCE_START_OFFSET_ATTRIBUTE, Sentence, compare_attributes, compare_sentences,
+    compare_terms, sentence_equivalent, sort_sentences,
 };
 use k_rust::kast::{Label, Sort, Term};
 use k_rust::provenance::ORIGIN_ATTRIBUTE;
@@ -248,6 +249,12 @@ fn provenance_attributes_do_not_change_semantic_equality_or_ordering() {
         ORIGIN_ATTRIBUTE,
         json!({"pass": "macro-expansion", "origins": [], "destination": null}),
     );
+    generated
+        .attributes_mut()
+        .insert(SENTENCE_START_OFFSET_ATTRIBUTE, json!(10));
+    generated
+        .attributes_mut()
+        .insert(SENTENCE_END_OFFSET_ATTRIBUTE, json!(20));
 
     assert!(sentence_equivalent(&ordinary, &generated));
     assert_eq!(
