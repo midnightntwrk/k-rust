@@ -927,17 +927,15 @@ pub fn search_pattern_paths_with_solver(
             }
         };
 
+        if requested_bound.is_some_and(|bound| matches.len() >= bound) {
+            incomplete.push(IncompleteSearch::ResultBound);
+            break;
+        }
         matches.push(PathSearchMatch {
             substitution: found.substitution,
             constraints: found.constraints,
             witness,
         });
-        if requested_bound.is_some_and(|bound| matches.len() >= bound) {
-            if remaining.len() > 0 {
-                incomplete.push(IncompleteSearch::ResultBound);
-            }
-            break;
-        }
     }
 
     PatternPathSearchResult {
@@ -1749,6 +1747,31 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    #[test]
+    fn exact_pattern_path_bound_ignores_later_nonmatches() {
+        let definition = diamond_definition(false);
+        let target = Pattern {
+            term: Term::variable(result_variable()),
+            constraints: vec![Predicate::Not(Box::new(Predicate::Equals(
+                pattern(&definition, "merged{}()").term,
+                Term::variable(result_variable()),
+            )))],
+        };
+        let result = search_pattern_paths(
+            &definition,
+            initial(&definition),
+            &target,
+            SearchOptions {
+                search_type: SearchType::Plus,
+                max_results: Some(2),
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(result.matches.len(), 2);
+        assert!(result.incomplete.is_empty());
     }
 
     #[test]
