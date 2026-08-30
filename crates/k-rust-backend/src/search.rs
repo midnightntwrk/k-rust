@@ -147,6 +147,30 @@ impl SearchResult {
     }
 }
 
+/// One acyclic execution path selected by a path-sensitive search.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PathWitness {
+    /// Ordered semantic transition identities from the initial state to `pattern`.
+    pub id: Vec<TransitionId>,
+    pub pattern: Pattern,
+    pub depth: u64,
+    /// The path's rewrite, remainder, and shared simplification trace entries.
+    pub trace: Vec<TraceEntry>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PathSearchResult {
+    pub witnesses: Vec<PathWitness>,
+    pub effects: Vec<BuiltinEffect>,
+    pub incomplete: Vec<IncompleteSearch>,
+}
+
+impl PathSearchResult {
+    pub const fn modality(&self) -> ResultModality {
+        ResultModality::PathSet
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchMatch {
     pub substitution: Substitution,
@@ -436,6 +460,265 @@ pub fn search_graph_with_solver_and_observer(
         effects,
         incomplete,
     }
+}
+
+/// Search for one witness per distinct acyclic semantic path.
+///
+/// Unlike [`search_graph`], this modality does not deduplicate converging result patterns.
+/// `max_results` therefore counts witnesses rather than unique states.
+pub fn search_paths(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: SearchOptions,
+) -> PathSearchResult {
+    search_paths_with_solver(definition, initial, options, &NoSolver)
+}
+
+/// Search for acyclic path witnesses using the supplied SMT solver.
+pub fn search_paths_with_solver(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+) -> PathSearchResult {
+    let mut pending = VecDeque::from([PathSearchState {
+        state: SearchState {
+            pattern: initial,
+            depth: 0,
+            trace: Vec::new(),
+        },
+        id: Vec::new(),
+        visited: BTreeSet::new(),
+    }]);
+    let mut witnesses = Vec::new();
+    let mut effects = Vec::new();
+    let mut incomplete = Vec::new();
+    let mut fresh_counter = 0;
+
+    if options.max_breadth == Some(0) {
+        incomplete.push(IncompleteSearch::BreadthBound(
+            pending.drain(..).map(|state| state.state).collect(),
+        ));
+        return PathSearchResult {
+            witnesses,
+            effects,
+            incomplete,
+        };
+    }
+
+    if options.max_results == Some(0) {
+        incomplete.push(IncompleteSearch::ResultBound);
+        return PathSearchResult {
+            witnesses,
+            effects,
+            incomplete,
+        };
+    }
+
+    while let Some(mut path) = pending.pop_front() {
+        match simplify_predicates_with_solver(
+            definition,
+            &path.state.pattern.constraints,
+            &[],
+            simplification_options(options),
+            solver,
+        ) {
+            Ok(constraints) => path.state.pattern.constraints = constraints,
+            Err(error) => {
+                incomplete.push(simplification_incomplete(path.state, error));
+                continue;
+            }
+        }
+        match simplify_with_solver(
+            definition,
+            &path.state.pattern.term,
+            &path.state.pattern.constraints,
+            simplification_options(options),
+            solver,
+        ) {
+            Ok(simplified) => {
+                path.state.pattern.term = simplified.term;
+                path.state
+                    .pattern
+                    .constraints
+                    .extend(simplified.constraints);
+                effects.extend(simplified.effects);
+                path.state
+                    .trace
+                    .extend(
+                        simplified
+                            .applied_rules
+                            .into_iter()
+                            .map(|unique_id| TraceEntry {
+                                depth: path.state.depth,
+                                kind: TraceKind::Simplification,
+                                label: None,
+                                unique_id,
+                            }),
+                    );
+            }
+            Err(error) => {
+                incomplete.push(simplification_incomplete(path.state, error));
+                continue;
+            }
+        }
+
+        if !path.visited.insert(PatternDigest::of(&path.state.pattern)) {
+            continue;
+        }
+
+        if selects_reachable_state(options.search_type, path.state.depth)
+            && push_witness(&mut witnesses, &path, options.max_results)
+        {
+            if !pending.is_empty()
+                || state_may_expand(definition, &path.state, options, &mut fresh_counter, solver)
+            {
+                incomplete.push(IncompleteSearch::ResultBound);
+            }
+            break;
+        }
+        if options.search_type == SearchType::One && path.state.depth == 1 {
+            continue;
+        }
+        let at_depth_bound = path.state.depth >= options.max_depth;
+        if at_depth_bound && options.search_type != SearchType::Final {
+            incomplete.push(IncompleteSearch::DepthBound(path.state));
+            continue;
+        }
+
+        let rewrite = rewrite_step_with_options(
+            definition,
+            &path.state.pattern,
+            &mut fresh_counter,
+            simplification_options(options),
+            solver,
+        );
+        if at_depth_bound {
+            match rewrite {
+                RewriteResult::Stuck(pattern) => {
+                    path.state.pattern = pattern;
+                    if push_witness(&mut witnesses, &path, options.max_results) {
+                        if !pending.is_empty() {
+                            incomplete.push(IncompleteSearch::ResultBound);
+                        }
+                        break;
+                    }
+                }
+                RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
+                RewriteResult::Indeterminate { pattern, reason } => {
+                    path.state.pattern = pattern;
+                    incomplete.push(rewrite_incomplete(path.state, reason));
+                }
+                RewriteResult::Finished(_) | RewriteResult::Branch { .. } => {
+                    incomplete.push(IncompleteSearch::DepthBound(path.state));
+                }
+            }
+            continue;
+        }
+
+        match rewrite {
+            RewriteResult::Stuck(pattern) => {
+                path.state.pattern = pattern;
+                if options.search_type == SearchType::Final
+                    && push_witness(&mut witnesses, &path, options.max_results)
+                {
+                    if !pending.is_empty() {
+                        incomplete.push(IncompleteSearch::ResultBound);
+                    }
+                    break;
+                }
+            }
+            RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
+            RewriteResult::Indeterminate { pattern, reason } => {
+                path.state.pattern = pattern;
+                incomplete.push(rewrite_incomplete(path.state, reason));
+            }
+            RewriteResult::Finished(applied) => {
+                effects.extend(applied.effects.iter().cloned());
+                pending.push_back(next_path_state(path, applied));
+                if path_search_breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth)
+                {
+                    break;
+                }
+            }
+            RewriteResult::Branch {
+                branches,
+                remainder,
+                ..
+            } => {
+                for applied in branches {
+                    effects.extend(applied.effects.iter().cloned());
+                    pending.push_back(next_path_state(path.clone(), applied));
+                }
+                if let Some(remainder) = remainder {
+                    pending.push_back(remaining_path_state(path, remainder));
+                }
+                if path_search_breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth)
+                {
+                    break;
+                }
+            }
+        }
+    }
+
+    PathSearchResult {
+        witnesses,
+        effects,
+        incomplete,
+    }
+}
+
+#[derive(Clone)]
+struct PathSearchState {
+    state: SearchState,
+    id: Vec<TransitionId>,
+    visited: BTreeSet<PatternDigest>,
+}
+
+fn push_witness(
+    witnesses: &mut Vec<PathWitness>,
+    path: &PathSearchState,
+    max_results: Option<usize>,
+) -> bool {
+    witnesses.push(PathWitness {
+        id: path.id.clone(),
+        pattern: path.state.pattern.clone(),
+        depth: path.state.depth,
+        trace: path.state.trace.clone(),
+    });
+    max_results.is_some_and(|limit| witnesses.len() >= limit)
+}
+
+fn next_path_state(mut path: PathSearchState, applied: AppliedRule) -> PathSearchState {
+    path.id.push(TransitionId {
+        rule: applied.unique_id.clone(),
+        target: PatternDigest::of(&applied.pattern),
+    });
+    path.state = next_state(path.state.depth, path.state.trace, applied);
+    path
+}
+
+fn remaining_path_state(mut path: PathSearchState, remainder: RemainderBranch) -> PathSearchState {
+    path.id.push(TransitionId {
+        rule: format!("remainder:{}", remainder.rule_ids.join(",")),
+        target: PatternDigest::of(&remainder.pattern),
+    });
+    path.state = remaining_state(path.state.depth, path.state.trace, remainder);
+    path
+}
+
+fn path_search_breadth_exceeded(
+    pending: &mut VecDeque<PathSearchState>,
+    incomplete: &mut Vec<IncompleteSearch>,
+    max_breadth: Option<usize>,
+) -> bool {
+    if !max_breadth.is_some_and(|bound| pending.len() > bound) {
+        return false;
+    }
+    incomplete.push(IncompleteSearch::BreadthBound(
+        pending.drain(..).map(|path| path.state).collect(),
+    ));
+    true
 }
 
 fn search_breadth_exceeded(
@@ -883,6 +1166,49 @@ mod tests {
             .expect("converging search definition should internalize")
     }
 
+    fn diamond_definition(cyclic: bool) -> BackendDefinition {
+        let cycle = if cyclic {
+            r#"
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(merged{}(), \top{SortS{}}()),
+                    initial{}()
+                ) [label{}("merged-initial")]
+            "#
+        } else {
+            ""
+        };
+        let syntax = parse_definition(&format!(
+            r#"[]
+            module DIAMOND
+                sort SortS{{}} []
+                symbol initial{{}}() : SortS{{}} [constructor{{}}()]
+                symbol left{{}}() : SortS{{}} [constructor{{}}()]
+                symbol right{{}}() : SortS{{}} [constructor{{}}()]
+                symbol merged{{}}() : SortS{{}} [constructor{{}}()]
+                axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(initial{{}}(), \top{{SortS{{}}}}()),
+                    left{{}}()
+                ) [label{{}}("initial-left")]
+                axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(initial{{}}(), \top{{SortS{{}}}}()),
+                    right{{}}()
+                ) [label{{}}("initial-right")]
+                axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(left{{}}(), \top{{SortS{{}}}}()),
+                    merged{{}}()
+                ) [label{{}}("left-merged")]
+                axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(right{{}}(), \top{{SortS{{}}}}()),
+                    merged{{}}()
+                ) [label{{}}("right-merged")]
+                {cycle}
+            endmodule []"#
+        ))
+        .expect("diamond definition should parse");
+        BackendDefinition::internalize(&syntax, "DIAMOND")
+            .expect("diamond definition should internalize")
+    }
+
     fn rewrite_simplification_failure_definition() -> BackendDefinition {
         let syntax = parse_definition(
             r#"[]
@@ -1188,6 +1514,86 @@ mod tests {
             1
         );
         assert_eq!(result.modality(), ResultModality::StateSet);
+    }
+
+    #[test]
+    fn path_search_returns_a_witness_per_distinct_path() {
+        let definition = diamond_definition(false);
+        let result = search_paths(&definition, initial(&definition), SearchOptions::default());
+
+        assert_eq!(result.modality(), ResultModality::PathSet);
+        assert_eq!(result.witnesses.len(), 2);
+        assert_eq!(
+            result
+                .witnesses
+                .iter()
+                .map(|witness| witness
+                    .id
+                    .iter()
+                    .map(|transition| transition.rule.as_str())
+                    .collect::<Vec<_>>())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([
+                vec!["initial-left", "left-merged"],
+                vec!["initial-right", "right-merged"],
+            ])
+        );
+    }
+
+    #[test]
+    fn path_witness_identities_are_deterministic_across_replays() {
+        let search = || {
+            let definition = diamond_definition(false);
+            search_paths(&definition, initial(&definition), SearchOptions::default())
+                .witnesses
+                .into_iter()
+                .map(|witness| witness.id)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(search(), search());
+    }
+
+    #[test]
+    fn cycle_control_terminates_path_search_without_duplicate_witnesses() {
+        let definition = diamond_definition(true);
+        let result = search_paths(
+            &definition,
+            initial(&definition),
+            SearchOptions {
+                search_type: SearchType::Star,
+                ..SearchOptions::default()
+            },
+        );
+        let ids = result
+            .witnesses
+            .iter()
+            .map(|witness| witness.id.clone())
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(ids.len(), result.witnesses.len());
+        assert_eq!(result.witnesses.len(), 5);
+        assert_eq!(
+            result.witnesses.iter().map(|witness| witness.depth).max(),
+            Some(2)
+        );
+        assert!(result.incomplete.is_empty());
+    }
+
+    #[test]
+    fn result_bound_truncates_witnesses_and_reports_incompleteness() {
+        let definition = diamond_definition(false);
+        let result = search_paths(
+            &definition,
+            initial(&definition),
+            SearchOptions {
+                max_results: Some(1),
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(result.witnesses.len(), 1);
+        assert!(result.incomplete.contains(&IncompleteSearch::ResultBound));
     }
 
     #[test]
