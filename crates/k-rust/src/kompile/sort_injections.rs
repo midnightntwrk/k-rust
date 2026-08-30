@@ -38,6 +38,13 @@ pub enum SortInjectionError {
         module: String,
         message: String,
     },
+    Sentence {
+        module: String,
+        sentence: usize,
+        source: Option<String>,
+        line: Option<u32>,
+        error: Box<SortInjectionError>,
+    },
     InvalidArity {
         label: String,
         expected: usize,
@@ -91,6 +98,24 @@ impl fmt::Display for SortInjectionError {
                 formatter,
                 "cannot rebase production metadata from module {module:?}: {message}"
             ),
+            Self::Sentence {
+                module,
+                sentence,
+                source,
+                line,
+                error,
+            } => {
+                if let Some(source) = source {
+                    write!(formatter, "{source}")?;
+                    if let Some(line) = line {
+                        write!(formatter, ":{line}")?;
+                    }
+                    write!(formatter, ": ")?;
+                } else {
+                    write!(formatter, "sentence {sentence} of module {module:?}: ")?;
+                }
+                error.fmt(formatter)
+            }
             Self::InvalidArity {
                 label,
                 expected,
@@ -962,7 +987,7 @@ fn add_sort_injections_to_definition_inner(
             continue;
         }
         let source_catalog = resolved.production_catalog(module_id);
-        for sentence in &mut module.local_sentences {
+        for (sentence_index, sentence) in module.local_sentences.iter_mut().enumerate() {
             let mut input = sentence.clone();
             if module_id != target && target_modules.contains(&module_id) {
                 super::passes::rebase_sentence(
@@ -978,7 +1003,18 @@ fn add_sort_injections_to_definition_inner(
                     }
                 })?;
             }
-            let mut injected = target_injector.inject_sentence(&input)?;
+            let mut injected = target_injector.inject_sentence(&input).map_err(|error| {
+                SortInjectionError::Sentence {
+                    module: module.name.clone(),
+                    sentence: sentence_index,
+                    source: sentence.attributes().source().map(str::to_owned),
+                    line: sentence
+                        .attributes()
+                        .location()
+                        .map(|location| location.start_line),
+                    error: Box::new(error),
+                }
+            })?;
             if module_id != target && target_modules.contains(&module_id) {
                 localize_sentence_metadata(
                     &mut injected,
