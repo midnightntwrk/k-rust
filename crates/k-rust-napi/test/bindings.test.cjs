@@ -131,6 +131,49 @@ test('runs the complete persistent native backend API', () => {
   assert.equal(printKore(addedExecution.leaves[0].state), 'a{}()')
 })
 
+test('searches and observes the persistent native backend graph', () => {
+  const backend = createBackend({ definitionKore: backendDefinition, moduleName: 'MAIN' })
+  const a = parseKore('a{}()').kore
+  const c = parseKore('c{}()').kore
+
+  assert.equal(backend.capabilities.search, true)
+  assert.equal(backend.capabilities.observation, true)
+
+  const states = backend.search({ state: a, searchType: 'final' })
+  assert.equal(states.schemaVersion, 1)
+  assert.equal(states.modality, 'state-set')
+  assert.equal(states.states.length, 1)
+  assert.equal(printKore(states.states[0].state), 'c{}()')
+
+  const paths = backend.searchPaths({ state: a, searchType: 'final' })
+  assert.equal(paths.modality, 'path-set')
+  assert.deepEqual(
+    paths.witnesses[0].id.map(({ rule }) => rule),
+    ['a-to-b', 'b-to-c'],
+  )
+
+  const pattern = backend.searchPattern({ state: a, pattern: c })
+  assert.equal(pattern.matches.length, 1)
+  assert.equal(pattern.modality, 'state-set')
+  const patternPaths = backend.searchPatternPaths({ state: a, pattern: c })
+  assert.equal(patternPaths.matches.length, 1)
+  assert.equal(patternPaths.modality, 'path-set')
+
+  const observed = backend.searchObserved(
+    { state: a },
+    { rules: ['a-to-b'] },
+  )
+  assert.equal(observed.states[0].branch.length, 2)
+  assert.deepEqual(
+    observed.states[0].observations.map(({ id }) => id.rule),
+    ['a-to-b'],
+  )
+  assert.equal(backend.executeObserved({ state: a }).leaves[0].observations.length, 2)
+
+  assert.throws(() => backend.search({ state: a, schemaVersion: 99 }), /schema version 99/)
+  assert.throws(() => backend.search({ state: a, maxDeph: 1 }), /unknown field.*maxDeph/i)
+})
+
 test('compileBackend compiles and creates a native session', () => {
   const backend = compileBackend({
     definition: `module MAIN
