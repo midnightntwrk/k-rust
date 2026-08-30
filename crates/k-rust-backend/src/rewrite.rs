@@ -636,6 +636,10 @@ pub fn execute_with_solver_and_observer(
                         });
                         continue;
                     }
+                    // A branch point is reported as a single leaf for the parent state. When
+                    // any successor fails to simplify, the failure is likewise recorded at the
+                    // parent: a leaf for one successor would silently discard its siblings and
+                    // the remainder, which are all still reachable from the parent.
                     let mut simplified_branches = Vec::with_capacity(branches.len());
                     let mut failed_branch = None;
                     for mut applied in branches {
@@ -656,15 +660,15 @@ pub fn execute_with_solver_and_observer(
                                 }
                             }
                             Err(error) => {
-                                failed_branch = Some((applied.pattern, error));
+                                failed_branch = Some(error);
                                 break;
                             }
                         }
                     }
-                    if let Some((pattern, error)) = failed_branch {
+                    if let Some(error) = failed_branch {
                         leaves.push(ExecutionLeaf {
-                            pattern,
-                            depth: state.depth + 1,
+                            pattern: original,
+                            depth: state.depth,
                             trace: state.trace,
                             halt_reason: HaltReason::Simplification(error),
                         });
@@ -685,7 +689,7 @@ pub fn execute_with_solver_and_observer(
                             Ok(pattern) => pattern,
                             Err(error) => {
                                 leaves.push(ExecutionLeaf {
-                                    pattern: candidate.pattern.clone(),
+                                    pattern: original,
                                     depth: state.depth,
                                     trace: state.trace,
                                     halt_reason: HaltReason::Simplification(error),
@@ -6085,6 +6089,57 @@ mod tests {
                 result.leaves
             );
         };
+        assert_iteration_limit(&leaf.halt_reason);
+    }
+
+    #[test]
+    fn stopped_branch_simplification_failure_is_recorded_at_the_branch_point() {
+        let definition = definition(
+            r#"
+            symbol expand{}(SortS{}) : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    expand{}(X:SortS{}),
+                    \and{SortS{}}(
+                        expand{}(expand{}(X:SortS{})),
+                        \top{SortS{}}()
+                    )
+                )
+            ) [label{}("expand"), simplification{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \dv{SortS{}}("left")
+            ) [label{}("left")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                expand{}(X:SortS{})
+            ) [label{}("middle")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \dv{SortS{}}("right")
+            ) [label{}("right")]
+            "#,
+        );
+        let initial = subject(&definition, "value");
+
+        let result = execute(
+            &definition,
+            initial.clone(),
+            ExecutionOptions {
+                branch_mode: ExecutionBranchMode::StopAtBranch,
+                max_simplification_iterations: 1,
+                ..ExecutionOptions::default()
+            },
+        );
+
+        // The failure belongs to the branch point itself: a leaf for the failing successor
+        // alone would lose the `left` and `right` successors that remain reachable.
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one branch-point leaf, found {:?}", result.leaves);
+        };
+        assert_eq!(leaf.depth, 0);
+        assert_eq!(leaf.pattern, initial);
         assert_iteration_limit(&leaf.halt_reason);
     }
 
