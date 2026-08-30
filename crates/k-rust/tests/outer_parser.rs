@@ -123,6 +123,51 @@ fn preserves_edge_spaces_in_unquoted_attribute_values() {
     assert_eq!(attributes[1].value.as_deref(), Some("x "));
 }
 
+#[test]
+fn generated_list_terminator_symbols_include_the_syntax_module() {
+    let source = "module LIST-SYNTAX\nsyntax Items ::= List{Item, \"\"}\nendmodule\n";
+    let definition = lower(&parse("list-symbol.k", source).unwrap(), "LIST-SYNTAX").unwrap();
+    let symbol = definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            k_rust::definition::Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } if label.name.starts_with(".List") => attributes.get_str("symbol"),
+            _ => None,
+        })
+        .unwrap();
+
+    assert_eq!(symbol, ".List{\"___LIST-SYNTAX\"}");
+}
+
+#[test]
+fn generated_list_terminator_symbols_follow_explicit_list_symbols() {
+    let source =
+        "module LIST-SYNTAX\nsyntax Items ::= List{Item, \"\"} [symbol(items)]\nendmodule\n";
+    let definition = lower(&parse("list-symbol.k", source).unwrap(), "LIST-SYNTAX").unwrap();
+    let symbol = definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            k_rust::definition::Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } if label.name.starts_with(".List") => attributes.get_str("symbol"),
+            _ => None,
+        })
+        .unwrap();
+
+    assert_eq!(symbol, ".List{\"items\"}");
+}
+
 outer_snapshot!(
     bubble_attributes_ignore_commented_brackets,
     indoc! {r#"
