@@ -1047,6 +1047,54 @@ pub fn search_pattern_with_solver(
     options: SearchOptions,
     solver: &dyn SmtSolver,
 ) -> PatternSearchResult {
+    search_pattern_using(definition, initial, target, options, solver, None)
+}
+
+/// Search selected states for a pattern with structured transition observation enabled.
+pub fn search_pattern_observed(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    target: &Pattern,
+    options: SearchOptions,
+    observation: &ObservationOptions,
+) -> PatternSearchResult {
+    search_pattern_observed_with_solver(
+        definition,
+        initial,
+        target,
+        options,
+        &NoSolver,
+        observation,
+    )
+}
+
+/// Search selected states for a pattern with observation and the supplied SMT solver.
+pub fn search_pattern_observed_with_solver(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    target: &Pattern,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+    observation: &ObservationOptions,
+) -> PatternSearchResult {
+    search_pattern_using(
+        definition,
+        initial,
+        target,
+        options,
+        solver,
+        Some(observation),
+    )
+}
+
+fn search_pattern_using(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    target: &Pattern,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+    observation: Option<&ObservationOptions>,
+) -> PatternSearchResult {
     let requested_bound = options.max_results;
     if requested_bound == Some(0) {
         return PatternSearchResult {
@@ -1055,15 +1103,20 @@ pub fn search_pattern_with_solver(
             incomplete: vec![IncompleteSearch::ResultBound],
         };
     }
-    let graph = search_graph_with_solver(
-        definition,
-        initial,
-        SearchOptions {
-            max_results: None,
-            ..options
-        },
-        solver,
-    );
+    let graph_options = SearchOptions {
+        max_results: None,
+        ..options
+    };
+    let graph = match observation {
+        Some(observation) => search_graph_observed_with_solver(
+            definition,
+            initial,
+            graph_options,
+            solver,
+            observation,
+        ),
+        None => search_graph_with_solver(definition, initial, graph_options, solver),
+    };
     let mut matches = Vec::new();
     let mut incomplete = graph.incomplete;
     let output_variables = pattern_variables(target);
@@ -1146,6 +1199,54 @@ pub fn search_pattern_paths_with_solver(
     options: SearchOptions,
     solver: &dyn SmtSolver,
 ) -> PatternPathSearchResult {
+    search_pattern_paths_using(definition, initial, target, options, solver, None)
+}
+
+/// Search selected path witnesses for a pattern with structured observation enabled.
+pub fn search_pattern_paths_observed(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    target: &Pattern,
+    options: SearchOptions,
+    observation: &ObservationOptions,
+) -> PatternPathSearchResult {
+    search_pattern_paths_observed_with_solver(
+        definition,
+        initial,
+        target,
+        options,
+        &NoSolver,
+        observation,
+    )
+}
+
+/// Search observed path witnesses for a pattern using the supplied SMT solver.
+pub fn search_pattern_paths_observed_with_solver(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    target: &Pattern,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+    observation: &ObservationOptions,
+) -> PatternPathSearchResult {
+    search_pattern_paths_using(
+        definition,
+        initial,
+        target,
+        options,
+        solver,
+        Some(observation),
+    )
+}
+
+fn search_pattern_paths_using(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    target: &Pattern,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+    observation: Option<&ObservationOptions>,
+) -> PatternPathSearchResult {
     let requested_bound = options.max_results;
     if requested_bound == Some(0) {
         return PatternPathSearchResult {
@@ -1154,15 +1255,20 @@ pub fn search_pattern_paths_with_solver(
             incomplete: vec![IncompleteSearch::ResultBound],
         };
     }
-    let graph = search_paths_with_solver(
-        definition,
-        initial,
-        SearchOptions {
-            max_results: None,
-            ..options
-        },
-        solver,
-    );
+    let graph_options = SearchOptions {
+        max_results: None,
+        ..options
+    };
+    let graph = match observation {
+        Some(observation) => search_paths_observed_with_solver(
+            definition,
+            initial,
+            graph_options,
+            solver,
+            observation,
+        ),
+        None => search_paths_with_solver(definition, initial, graph_options, solver),
+    };
     let mut matches = Vec::new();
     let mut incomplete = graph.incomplete;
     let output_variables = pattern_variables(target);
@@ -2118,6 +2224,27 @@ mod tests {
             witness.observations.clear();
         }
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn observed_pattern_path_search_preserves_witness_streams() {
+        let definition = diamond_definition(false);
+        let target = pattern(&definition, "merged{}()");
+        let result = search_pattern_paths_observed(
+            &definition,
+            initial(&definition),
+            &target,
+            SearchOptions::default(),
+            &ObservationOptions::all(),
+        );
+
+        assert_eq!(result.matches.len(), 2);
+        assert!(
+            result
+                .matches
+                .iter()
+                .all(|found| found.witness.observations.len() == 2)
+        );
     }
 
     #[test]
