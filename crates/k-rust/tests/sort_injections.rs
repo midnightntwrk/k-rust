@@ -464,3 +464,42 @@ fn definition_injection_uses_the_selected_modules_visible_syntax() {
         "consumerOnly(.KList)=>consumerOnly(.KList)"
     );
 }
+
+#[test]
+fn definition_injection_ignores_modules_outside_the_main_import_closure() {
+    let truth = Term::Token {
+        token: "true".into(),
+        sort: Sort::new("Bool"),
+    };
+    let unrelated_module = FlatModule {
+        name: "UNRELATED".into(),
+        imports: vec![],
+        local_sentences: vec![Sentence::Rule {
+            body: Term::Rewrite {
+                left: Box::new(Term::apply("unrelated", vec![])),
+                right: Box::new(Term::apply("unrelated", vec![])),
+            },
+            requires: truth.clone(),
+            ensures: truth,
+            attributes: Attributes::default(),
+        }],
+        attributes: Attributes::default(),
+    };
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![
+            FlatModule {
+                name: "MAIN".into(),
+                imports: vec![],
+                local_sentences: vec![],
+                attributes: Attributes::default(),
+            },
+            unrelated_module.clone(),
+        ],
+        attributes: Attributes::default(),
+    };
+
+    let injected = add_sort_injections_to_definition(&definition).unwrap();
+
+    assert_eq!(injected.modules[1], unrelated_module);
+}

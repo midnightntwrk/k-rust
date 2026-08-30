@@ -931,7 +931,7 @@ pub fn add_sort_injections(
     add_sort_injections_from_resolved(&resolved, module, term)
 }
 
-/// Materialize sort injections across every rule and claim before final KORE lowering.
+/// Materialize sort injections across the compiled main module and its imports.
 pub fn add_sort_injections_to_definition(
     definition: &Definition,
 ) -> Result<Definition, SortInjectionError> {
@@ -949,13 +949,9 @@ pub fn add_sort_injections_to_definition(
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let local_injector;
-        let injector = if target_modules.contains(&module_id) {
-            &target_injector
-        } else {
-            local_injector = SortInjector::new(&resolved, &module.name)?;
-            &local_injector
-        };
+        if !target_modules.contains(&module_id) {
+            continue;
+        }
         let source_catalog = resolved.production_catalog(module_id);
         for sentence in &mut module.local_sentences {
             let mut input = sentence.clone();
@@ -973,7 +969,7 @@ pub fn add_sort_injections_to_definition(
                     }
                 })?;
             }
-            let mut injected = injector.inject_sentence(&input)?;
+            let mut injected = target_injector.inject_sentence(&input)?;
             if module_id != target && target_modules.contains(&module_id) {
                 localize_sentence_metadata(
                     &mut injected,
