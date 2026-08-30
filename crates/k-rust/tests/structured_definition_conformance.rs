@@ -84,6 +84,7 @@ fn assert_compiles_on_both_backends(
     let resolved = ResolvedDefinition::resolve(&definition).unwrap();
     let loaded = LoadedDefinition {
         files: Vec::new(),
+        source_table: Default::default(),
         definition,
         resolved,
     };

@@ -307,6 +307,7 @@ fn compile_definition(options: &str) -> Result<String, String> {
             implicit_sources: Vec::new(),
             excluded_module_attributes: vec![backend.excluded_module_attribute().to_owned()],
             configuration_module: None,
+            project_root: None,
         },
     )
     .map_err(display_error)?;
@@ -354,6 +355,7 @@ fn parse_program(options: &str) -> Result<String, String> {
             implicit_sources: Vec::new(),
             excluded_module_attributes: Vec::new(),
             configuration_module: None,
+            project_root: None,
         },
     )
     .map_err(display_error)?;
