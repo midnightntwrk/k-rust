@@ -1,11 +1,151 @@
 //! Priority and associativity filtering over production-bearing parse trees.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
+use super::parametric::substitute_sort;
 use super::{Grammar, Item, ParseError, ParsedTerm, Production, lower_term};
-use crate::kast::{Term, string};
+use crate::kast::{Sort, Term, string};
 
 impl Grammar {
+    /// Prefer an ambiguous rewrite operand whose declared result exactly matches its concrete
+    /// sibling. The polymorphic rewrite grammar otherwise widens both operands to `K`, retaining
+    /// unrelated productions with identical surface syntax (for example Bytes and WordStack
+    /// updates) after inference.
+    pub(super) fn prefer_exact_rewrite_sibling_sorts(&self, term: ParsedTerm) -> ParsedTerm {
+        let rebuilt = match term {
+            ParsedTerm::Term(_) => return term,
+            ParsedTerm::Ambiguity(alternatives) => ParsedTerm::Ambiguity(
+                alternatives
+                    .into_iter()
+                    .map(|alternative| self.prefer_exact_rewrite_sibling_sorts(alternative))
+                    .collect(),
+            ),
+            ParsedTerm::Production {
+                production,
+                children,
+                metadata,
+            } => ParsedTerm::Production {
+                production,
+                children: children
+                    .into_iter()
+                    .map(|child| self.prefer_exact_rewrite_sibling_sorts(child))
+                    .collect(),
+                metadata,
+            },
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            } => ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children: children
+                    .into_iter()
+                    .map(|child| self.prefer_exact_rewrite_sibling_sorts(child))
+                    .collect(),
+                metadata,
+            },
+        };
+        let (production, children) = match &rebuilt {
+            ParsedTerm::Production {
+                production,
+                children,
+                ..
+            }
+            | ParsedTerm::InstantiatedProduction {
+                production,
+                children,
+                ..
+            } => (*production, children),
+            ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => return rebuilt,
+        };
+        if self.productions[production]
+            .label
+            .as_ref()
+            .is_none_or(|label| label.name != "#KRewrite")
+            || children.len() != 2
+        {
+            return rebuilt;
+        }
+        let left_sort = self.declared_term_sort(&children[0]);
+        let right_sort = self.declared_term_sort(&children[1]);
+        let mut rebuilt = rebuilt;
+        let children = match &mut rebuilt {
+            ParsedTerm::Production { children, .. }
+            | ParsedTerm::InstantiatedProduction { children, .. } => children,
+            ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => unreachable!(),
+        };
+        if let Some(sort) = right_sort {
+            children[0] = self.prefer_ambiguity_result_sort(children[0].clone(), &sort);
+        }
+        if let Some(sort) = left_sort {
+            children[1] = self.prefer_ambiguity_result_sort(children[1].clone(), &sort);
+        }
+        rebuilt
+    }
+
+    fn prefer_ambiguity_result_sort(&self, term: ParsedTerm, expected: &Sort) -> ParsedTerm {
+        let ParsedTerm::Ambiguity(alternatives) = term else {
+            return term;
+        };
+        let subsorts = crate::definition::PartialOrder::new(self.subsort_relations.iter().cloned())
+            .expect("the grammar rejected semantic subsort cycles during construction");
+        if alternatives.iter().any(|alternative| {
+            self.declared_term_sort(alternative).is_some_and(|sort| {
+                sort != *expected
+                    && (subsorts.less_than_eq(&sort, expected)
+                        || subsorts.less_than_eq(expected, &sort))
+            })
+        }) {
+            // Let whole-sentence inference choose between related result sorts. Constraints from
+            // a rule condition can legitimately select a super-sort even when the rewrite's other
+            // side has the exact subsort (for example an overloaded Gas function rewriting to 0).
+            return ParsedTerm::Ambiguity(alternatives);
+        }
+        let matching = alternatives
+            .iter()
+            .filter(|alternative| self.declared_term_sort(alternative).as_ref() == Some(expected))
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        if matching.is_empty() {
+            ParsedTerm::Ambiguity(alternatives)
+        } else if matching.len() == 1 {
+            matching.into_iter().next().expect("one alternative exists")
+        } else {
+            ParsedTerm::Ambiguity(matching)
+        }
+    }
+
+    fn declared_term_sort(&self, term: &ParsedTerm) -> Option<Sort> {
+        match term {
+            ParsedTerm::Production { production, .. } => {
+                Some(self.productions[*production].result.clone())
+            }
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                ..
+            } => {
+                let production = &self.productions[*production];
+                let origin = production.parametric_origin.as_ref()?;
+                let substitution = origin
+                    .parameters
+                    .iter()
+                    .cloned()
+                    .zip(parameters.iter().cloned())
+                    .collect::<BTreeMap<_, _>>();
+                Some(substitute_sort(&production.result, &substitution))
+            }
+            ParsedTerm::Term(term) => match term.unannotated() {
+                Term::Variable { sort, .. } => sort.clone(),
+                Term::Token { sort, .. } => Some(sort.clone()),
+                _ => term.metadata().and_then(|metadata| metadata.sort.clone()),
+            },
+            ParsedTerm::Ambiguity(_) => None,
+        }
+    }
+
     /// Apply priority and associativity to every packed ambiguity branch.
     ///
     /// Java's `SetsTransformerWithErrors` removes only the invalid alternatives beneath an

@@ -187,6 +187,72 @@ fn prunes_nested_rewrites_while_parsing_a_long_recursive_chain() {
     resolve_rule_bubbles(&lowered(source)).unwrap();
 }
 
+#[cfg(feature = "z3-inference")]
+#[test]
+fn rule_conditions_can_select_an_overloaded_rewrite_super_sort() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Gas ::= Int
+          syntax Gas ::= cap(Gas) [symbol(capGas), overload(cap)]
+          syntax Int ::= cap(Int) [symbol(capInt), overload(cap)]
+          syntax Bool ::= Gas "<Gas" Gas [symbol(ltGas)]
+
+          rule cap(GCAP) => 0 requires GCAP <Gas 0
+        endmodule
+    "#};
+    let resolved = resolve_rule_bubbles(&lowered(source)).unwrap();
+    let Sentence::Rule { body, requires, .. } = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find(|sentence| matches!(sentence, Sentence::Rule { .. }))
+        .unwrap()
+    else {
+        unreachable!()
+    };
+
+    assert!(body.to_string().contains("capGas"), "{body}");
+    assert!(!body.to_string().contains("capInt"), "{body}");
+    assert!(requires.to_string().contains("GCAP"), "{requires}");
+}
+
+#[test]
+fn chooses_the_rewrite_overload_matching_the_rhs_sort() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bytes ::= ".Bytes" [symbol(.Bytes)]
+          syntax WordStack ::= ".WordStack" [symbol(.WordStack)]
+          syntax Bytes ::= Bytes "[" Int ":=" Bytes "]" [symbol(mapWriteRange)]
+          syntax WordStack ::= WordStack "[" Int ":=" Int "]" [symbol(setWordStack)]
+
+          rule _ [ START := _ ] => .Bytes
+        endmodule
+    "#};
+    let resolved = resolve_rule_bubbles(&lowered(source)).unwrap();
+    let body = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .unwrap();
+
+    assert!(
+        body.contains("mapWriteRange"),
+        "unexpected overload: {body}"
+    );
+    assert!(
+        !body.contains("setWordStack"),
+        "unexpected overload: {body}"
+    );
+}
+
 #[test]
 fn parses_rule_claim_context_and_alias_bubbles() {
     let source = indoc! {r#"
