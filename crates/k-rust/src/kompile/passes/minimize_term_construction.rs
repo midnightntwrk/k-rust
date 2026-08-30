@@ -5,12 +5,21 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     definition::{Definition, LabelHead, ProductionCatalog, ResolvedDefinition, Sentence},
     kast::{Sort, Term},
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 use super::super::{TermConversionError, TermConverter};
 
 /// Apply Java's final `MinimizeTermConstruction` transformation before KORE emission.
 pub fn minimize_term_construction(
+    definition: &Definition,
+) -> Result<Definition, TermConversionError> {
+    minimize_term_construction_inner(definition).map(|output| {
+        record_generated_origins(definition, output, GeneratingPass::MinimizeTermConstruction)
+    })
+}
+
+fn minimize_term_construction_inner(
     definition: &Definition,
 ) -> Result<Definition, TermConversionError> {
     let resolved =

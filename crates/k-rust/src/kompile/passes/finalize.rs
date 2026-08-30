@@ -9,6 +9,7 @@ use crate::{
         Attributes, Definition, FlatImport, FlatModule, LabelHead, ResolvedDefinition, Sentence,
     },
     kast::{Sort, Term},
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 const LANGUAGE_PARSING: &str = "LANGUAGE-PARSING";
@@ -150,7 +151,11 @@ pub fn generate_sort_predicate_rules(definition: &Definition) -> Definition {
             }
         }
     }
-    output
+    record_generated_origins(
+        definition,
+        output,
+        GeneratingPass::GenerateSortPredicateRules,
+    )
 }
 
 fn sort_from_json(value: &Value) -> Option<Sort> {

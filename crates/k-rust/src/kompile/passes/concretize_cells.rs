@@ -12,6 +12,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -33,6 +34,11 @@ impl std::error::Error for ConcretizeCellsError {}
 
 /// Apply Java's `ConcretizeCells` definition transformation.
 pub fn concretize_cells(definition: &Definition) -> Result<Definition, ConcretizeCellsError> {
+    concretize_cells_inner(definition)
+        .map(|output| record_generated_origins(definition, output, GeneratingPass::ConcretizeCells))
+}
+
+fn concretize_cells_inner(definition: &Definition) -> Result<Definition, ConcretizeCellsError> {
     let resolved =
         ResolvedDefinition::resolve(definition).map_err(|error| ConcretizeCellsError {
             diagnostics: vec![plain_error(error.to_string())],

@@ -11,6 +11,7 @@ use crate::definition::{
     ResolvedDefinition, Sentence, SortCatalog, SortHead, sentence_equivalent,
 };
 use crate::kast::{Label, Sort, Term};
+use crate::provenance::{GeneratingPass, record_generated_origins};
 
 const K_SORT: &str = "K";
 const K_ITEM_SORT: &str = "KItem";
@@ -933,6 +934,14 @@ pub fn add_sort_injections(
 
 /// Materialize sort injections across the compiled main module and its imports.
 pub fn add_sort_injections_to_definition(
+    definition: &Definition,
+) -> Result<Definition, SortInjectionError> {
+    add_sort_injections_to_definition_inner(definition).map(|output| {
+        record_generated_origins(definition, output, GeneratingPass::AddSortInjections)
+    })
+}
+
+fn add_sort_injections_to_definition_inner(
     definition: &Definition,
 ) -> Result<Definition, SortInjectionError> {
     let resolved =

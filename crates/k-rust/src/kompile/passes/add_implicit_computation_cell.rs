@@ -7,6 +7,7 @@ use crate::{
         Definition, LabelHead, ProductionCatalog, ProductionId, ResolvedDefinition, Sentence,
     },
     kast::{Label, Sort, Term},
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 const GENERATED_COUNTER_CELL: &str = "<generatedCounter>";
@@ -14,6 +15,16 @@ const MACRO_ATTRIBUTES: &[&str] = &["macro", "macro-rec", "alias", "alias-rec"];
 
 /// Apply Java's `AddImplicitComputationCell` definition transformation.
 pub fn add_implicit_computation_cell(definition: &Definition) -> Result<Definition, String> {
+    add_implicit_computation_cell_inner(definition).map(|output| {
+        record_generated_origins(
+            definition,
+            output,
+            GeneratingPass::AddImplicitComputationCell,
+        )
+    })
+}
+
+fn add_implicit_computation_cell_inner(definition: &Definition) -> Result<Definition, String> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(|error| error.to_string())?;
     let mut output = definition.clone();
     // Java derives configuration and label information once from the definition's main-module
