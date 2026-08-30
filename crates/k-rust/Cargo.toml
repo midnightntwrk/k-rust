@@ -38,7 +38,12 @@ proptest.workspace = true
 toml.workspace = true
 
 [features]
-default = ["cli"]
+default = ["cli", "z3-inference-gh-release"]
 cli = ["dep:clap", "mpfr-folding", "z3-inference"]
 mpfr-folding = ["dep:gmp-mpfr-sys", "dep:rug"]
 z3-inference = ["dep:z3", "k-rust-backend/z3"]
+z3-inference-gh-release = [
+  "z3-inference",
+  "z3/gh-release",
+  "k-rust-backend/z3-gh-release",
+]

@@ -28,7 +28,7 @@ sha2 = "0.11.0"
 sha3 = "0.12.0"
 toml = "0.8.23"
 wasm-bindgen = "0.2.127"
-z3 = { version = "0.20.2", features = ["gh-release"] }
+z3 = { version = "0.20.2", default-features = false }
 
 # The profile that 'dist' will build with
 [profile.dist]
