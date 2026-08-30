@@ -758,6 +758,28 @@ rule_snapshot!(
 );
 
 rule_snapshot!(
+    resolves_an_explicit_kast_token_over_a_generic_application,
+    r##"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= "use" "(" Int ")" [symbol(use)]
+          rule use(#token("1", "Int")) => use(1)
+        endmodule
+    "##
+);
+
+rule_snapshot!(
+    parses_an_explicit_kast_label,
+    r##"
+        module MAIN
+          syntax KItem ::= "hold" "(" KItem ")" [symbol(hold)]
+                         | "foo" [symbol(foo)]
+          rule hold(#klabel(foo)) => hold(foo)
+        endmodule
+    "##
+);
+
+rule_snapshot!(
     infers_the_tightest_shared_variable_sort,
     r#"
         module MAIN

@@ -1535,6 +1535,16 @@ fn lower_term(production: &Production, children: &[Term]) -> Term {
         label = Label::new(format!("project:{}", production.result));
     }
     match (label.name.as_str(), children) {
+        ("#KToken", [value, sort])
+            if let (Some(value), Some(sort)) = (kstring_token(value), kstring_token(sort))
+                && let (Ok(value), Ok(sort)) = (
+                    crate::kast::string::unquote(value),
+                    crate::kast::string::unquote(sort),
+                )
+                && let Ok(sort) = crate::kast::parser::parse_sort_text(&sort) =>
+        {
+            Term::Token { token: value, sort }
+        }
         ("#EmptyK", []) => Term::Sequence(Vec::new()),
         ("#KSequence", items) => Term::sequence(items.iter().cloned()),
         ("#KRewrite", [left, right]) => Term::Rewrite {
@@ -1549,6 +1559,13 @@ fn lower_term(production: &Production, children: &[Term]) -> Term {
             label,
             arguments: children.to_vec(),
         },
+    }
+}
+
+fn kstring_token(term: &Term) -> Option<&str> {
+    match term.unannotated() {
+        Term::Token { token, sort } if sort.name == "KString" => Some(token),
+        _ => None,
     }
 }
 
