@@ -6,7 +6,7 @@ use crate::definition::{PartialOrder, ProductionItem};
 use crate::kast::{Sort, Term};
 
 use super::parametric::substitute_sort;
-use super::{Grammar, Item, ParseError, ParsedTerm, ParserRole};
+use super::{Grammar, Item, ParseError, ParsedTerm, ParserRole, ProductionOptions};
 
 #[derive(Clone, Debug)]
 pub(super) struct UserList {
@@ -70,21 +70,34 @@ impl Grammar {
             );
         }
 
-        // A program grammar parses the empty list as the empty string. When the
-        // separator is also empty, `X sep Xs` with an empty tail already derives every
-        // lone element, so the singleton injection would make each one parse twice
-        // (as `X` and as `[X]`). Lists with a real separator still need it: their
-        // recursive production would otherwise demand a trailing separator.
-        let injections = lists
-            .iter()
-            .filter(|(_, list)| {
-                let terminator = &self.productions[list.terminator_production];
-                let separator = &self.productions[list.list_production];
-                !(terminator.items.is_empty() && !has_visible_terminal(separator))
-            })
-            .map(|(sort, list)| (sort.clone(), list.child_sort.clone()))
-            .collect::<Vec<_>>();
+        // A program grammar parses the empty list as the empty string. K's program grammar
+        // then splits each list with a visible separator into K's own shape,
+        //
+        //     Xs ::= Ne#Xs | ""        Ne#Xs ::= X sep Ne#Xs | X
+        //
+        // so the empty list is only ever the whole list, never the tail after a separator
+        // (`1,2,` does not parse). The `Ne#Xs` productions are parse-time only: their forest
+        // nodes carry the source list production's identity, exactly like the temporary
+        // concrete variants of parametric productions.
+        //
+        // When the separator is also empty, `X sep Xs` with an empty tail already derives
+        // every lone element, so neither the split nor the singleton injection is needed;
+        // both would make each element parse twice (as `X` and as `[X]`).
+        let mut injections = Vec::new();
+        let mut splits = Vec::new();
+        for (sort, list) in &lists {
+            let terminator = &self.productions[list.terminator_production];
+            let recursive = &self.productions[list.list_production];
+            if !terminator.items.is_empty() {
+                injections.push((sort.clone(), list.child_sort.clone()));
+            } else if has_visible_terminal(recursive) {
+                splits.push((sort.clone(), list.clone()));
+            }
+        }
         self.user_lists = lists;
+        for (sort, list) in splits {
+            self.split_program_list(&sort, &list)?;
+        }
         for (sort, child_sort) in injections {
             let exists = self.productions.iter().any(|production| {
                 production.result == sort
@@ -108,6 +121,69 @@ impl Grammar {
             }
         }
         Ok(())
+    }
+
+    /// Replace a program-grammar list with a visible separator by K's non-empty split.
+    fn split_program_list(&mut self, sort: &Sort, list: &UserList) -> Result<(), ParseError> {
+        let nonempty = Sort::new(format!("Ne#{sort}"));
+        let recursive = &self.productions[list.list_production];
+        let label = recursive.label.clone();
+        let source_production = recursive.source_production;
+        let items = recursive
+            .items
+            .iter()
+            .map(|item| match item {
+                Item::NonTerminal(child) if child == sort => Ok(ProductionItem::NonTerminal {
+                    sort: nonempty.clone(),
+                    name: None,
+                }),
+                Item::NonTerminal(child) => Ok(ProductionItem::NonTerminal {
+                    sort: child.clone(),
+                    name: None,
+                }),
+                Item::Terminal(text) => Ok(ProductionItem::Terminal(text.clone())),
+                Item::Regex { .. } => Err(list_error(format!(
+                    "user list sort {sort} has a regular-expression separator"
+                ))),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // The source production no longer parses directly; only its `Ne#` variant does.
+        if let Some(indices) = self.by_result.get_mut(sort) {
+            indices.retain(|index| *index != list.list_production);
+        }
+        let split = self.productions.len();
+        self.add_production_with_lexical(
+            nonempty.clone(),
+            &items,
+            label,
+            ProductionOptions {
+                source_production,
+                ..ProductionOptions::default()
+            },
+            &BTreeMap::new(),
+        )?;
+        self.productions[split].term_production = Some(list.list_production);
+        self.add(
+            nonempty.clone(),
+            vec![ProductionItem::NonTerminal {
+                sort: list.child_sort.clone(),
+                name: None,
+            }],
+            None,
+            false,
+            true,
+        )?;
+        self.add(
+            sort.clone(),
+            vec![ProductionItem::NonTerminal {
+                sort: nonempty,
+                name: None,
+            }],
+            None,
+            false,
+            true,
+        )
     }
 
     /// Reconstruct real list nodes after inference has consumed the temporary

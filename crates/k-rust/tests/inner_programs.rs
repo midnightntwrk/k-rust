@@ -232,6 +232,38 @@ fn rejects_an_empty_nonempty_user_list() {
 }
 
 #[test]
+fn rejects_a_trailing_separator_in_a_program_user_list() {
+    // K's program grammar is `Ints ::= Ne#Ints | ""` with `Ne#Ints ::= Int "," Ne#Ints | Int`,
+    // so the empty list is only the whole list, never the tail after a separator.
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Exp ::= Int "[" Ints "]" [symbol(index)]
+              syntax Ints ::= List{Int, ","} [symbol(ints)]
+              syntax Int ::= r"[0-9]+" [token]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parser = ProgramParser::new(&definition, "MAIN").unwrap();
+
+    for source in ["0[]", "0[1]", "0[1,2]"] {
+        let term = parser
+            .parse(&Sort::new("Exp"), source)
+            .unwrap_or_else(|error| panic!("{source}: {error}"));
+        let rendered = term.to_string();
+        assert!(rendered.contains("ints"), "{source}: {rendered}");
+    }
+    for source in ["0[1,]", "0[1,2,]", "0[,]"] {
+        let error = parser.parse(&Sort::new("Exp"), source).unwrap_err();
+        assert!(
+            matches!(*error.error, ParseError::NoParse { .. }),
+            "{source}: {error:?}"
+        );
+    }
+}
+
+#[test]
 fn parses_empty_and_singleton_overloaded_user_lists() {
     let definition = lowered(
         indoc! {r#"
