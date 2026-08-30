@@ -245,7 +245,11 @@ pub fn resolve_config_var(definition: &Definition) -> Definition {
             }
         }
     }
-    output
+    record_generated_origins(
+        definition,
+        output,
+        GeneratingPass::ResolveFunctionWithConfig,
+    )
 }
 
 fn compute_with_config_functions(

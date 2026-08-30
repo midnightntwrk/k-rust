@@ -966,13 +966,18 @@ fn aliases_a_rewritten_top_cell_when_configuration_is_used() {
             _ => None,
         })
         .unwrap();
-    assert!(matches!(
-        body.unannotated(),
-        Term::Rewrite { left, .. }
-            if matches!(left.unannotated(), Term::As { alias, .. }
-                if matches!(alias.unannotated(), Term::Variable { name, .. }
-                    if name == "#Configuration"))
-    ));
+    let Term::Rewrite { left, .. } = body.unannotated() else {
+        panic!("configuration rule should remain a rewrite")
+    };
+    assert!(matches!(left.unannotated(), Term::As { alias, .. }
+        if matches!(alias.unannotated(), Term::Variable { name, .. }
+            if name == "#Configuration")));
+    let origin = left
+        .metadata()
+        .and_then(|metadata| metadata.origin.as_deref())
+        .expect("the generated configuration alias should have an origin");
+    assert_eq!(origin.pass, GeneratingPass::ResolveFunctionWithConfig);
+    assert_eq!(origin.destination.as_ref().unwrap().path, [0, 0]);
 }
 
 #[test]

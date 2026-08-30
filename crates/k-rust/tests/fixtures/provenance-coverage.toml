@@ -1,0 +1,227 @@
+# Provenance coverage for the host-independent definition pipeline.
+# Every call that consumes the current definition in transform_loaded_definition must occur once in this table, with its exact source occurrence count.
+version = 1
+origin_free_node_kinds = ["primitive-token", "structural-dot", "truth-value"]
+
+[[pipeline]]
+call = "expand_configurations"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["configuration-expansion"]
+reason = "Configuration expansion creates cell syntax, initializers, and helper rules."
+
+[[pipeline]]
+call = "resolve"
+occurrences = 1
+behavior = "validation"
+reason = "Resolution builds catalogs without changing the current definition."
+
+[[pipeline]]
+call = "check_definition_with_options"
+occurrences = 1
+behavior = "validation"
+reason = "Structural checks report diagnostics without changing the current definition."
+
+[[pipeline]]
+call = "resolve_comm"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["resolve-comm"]
+reason = "Commutative-rule resolution duplicates rule forms."
+
+[[pipeline]]
+call = "resolve_io"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["resolve-io"]
+reason = "I/O resolution creates stream rules and templates."
+
+[[pipeline]]
+call = "resolve_fun"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["resolve-fun"]
+reason = "Local-function resolution creates lambda-family syntax and rules."
+
+[[pipeline]]
+call = "resolve_function_with_config"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["resolve-function-with-config"]
+reason = "Function configuration resolution creates wrappers, arguments, and syntax."
+
+[[pipeline]]
+call = "resolve_strict"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["resolve-strict"]
+reason = "Strictness resolution creates context sentences and side conditions."
+
+[[pipeline]]
+call = "resolve_anon_vars"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["resolve-anonymous-variables"]
+reason = "Anonymous-variable resolution creates deterministic generated variables."
+
+[[pipeline]]
+call = "resolve_contexts"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["resolve-contexts"]
+reason = "Context resolution creates freezer syntax and heat/cool rules."
+
+[[pipeline]]
+call = "number_sentences"
+occurrences = 2
+behavior = "metadata-only"
+reason = "Sentence numbering adds stable UNIQUE_ID attributes without creating semantic nodes."
+
+[[pipeline]]
+call = "resolve_heat_cool_attributes"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["resolve-heat-cool"]
+reason = "Heat/cool resolution creates executable side conditions."
+
+[[pipeline]]
+call = "resolve_semantic_casts"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["semantic-casts"]
+reason = "Semantic-cast resolution rebuilds cast applications."
+
+[[pipeline]]
+call = "subsort_kitem"
+occurrences = 2
+behavior = "generating"
+generating_passes = ["subsort-kitem"]
+reason = "KItem subsort resolution creates subsort productions and rules."
+
+[[pipeline]]
+call = "constant_fold"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["constant-folding"]
+reason = "Constant folding replaces evaluable applications with computed terms."
+
+[[pipeline]]
+call = "propagate_macro_attributes"
+occurrences = 1
+behavior = "metadata-only"
+reason = "Macro propagation copies classification attributes onto existing rules."
+
+[[pipeline]]
+call = "guard_or_patterns"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["guard-or-patterns"]
+reason = "Or-pattern guarding creates aliases and side conditions."
+
+[[pipeline]]
+call = "resolve_fresh_config_constants"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["resolve-fresh-config-constants"]
+reason = "Fresh configuration resolution creates deterministic constants."
+
+[[pipeline]]
+call = "generate_sort_predicate_syntax"
+occurrences = 2
+behavior = "generating"
+generating_passes = ["generate-sort-predicate-syntax"]
+reason = "Sort-predicate syntax generation creates predicate productions."
+
+[[pipeline]]
+call = "generate_sort_projections"
+occurrences = 2
+behavior = "generating"
+generating_passes = ["generate-sort-projections"]
+reason = "Sort-projection generation creates projection productions and rules."
+
+[[pipeline]]
+call = "expand_macros"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["macro-expansion"]
+reason = "Macro expansion substitutes generated terms at call sites."
+
+[[pipeline]]
+call = "add_implicit_computation_cell"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["add-implicit-computation-cell"]
+reason = "Implicit-cell insertion creates computation-cell wrappers."
+
+[[pipeline]]
+call = "resolve_fresh_constants"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["resolve-fresh-constants"]
+reason = "Fresh-constant resolution creates generator machinery and terms."
+
+[[pipeline]]
+call = "check_simplification_rules"
+occurrences = 1
+behavior = "validation"
+reason = "Simplification checks report diagnostics without changing accepted definitions."
+
+[[pipeline]]
+call = "concretize_cells"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["concretize-cells"]
+reason = "Cell concretization creates parent cells, defaults, and fragments."
+
+[[pipeline]]
+call = "add_semantics_module"
+occurrences = 1
+behavior = "structural-origin-free"
+reason = "The synthetic LANGUAGE-PARSING module contains imports but no sentences or terms that can carry an origin."
+
+[[pipeline]]
+call = "resolve_config_var"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["resolve-function-with-config"]
+reason = "Late configuration-variable resolution creates an alias wrapper and configuration variable."
+
+[[pipeline]]
+call = "add_cool_like_attributes"
+occurrences = 1
+behavior = "metadata-only"
+reason = "Cool-like classification adds an attribute to existing sentences."
+
+[[pipeline]]
+call = "generate_sort_predicate_rules"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["generate-sort-predicate-rules"]
+reason = "Final sort-predicate generation creates positive and negative rules."
+
+[[pipeline]]
+call = "add_sort_injections_to_definition"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["add-sort-injections"]
+reason = "Sort-injection resolution creates injection and collection wrappers."
+
+[[pipeline]]
+call = "remove_unit"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["remove-unit"]
+reason = "Unit removal rebuilds applications after removing unit children."
+
+[[pipeline]]
+call = "minimize_term_construction"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["minimize-term-construction"]
+reason = "Term-construction minimization creates aliases and replacement terms."
+
+[[boundary_generator]]
+call = "generate_map_ceil_rules"
+generating_pass = "module-to-kore-map-ceil"
+boundary = "k-to-kore"
+reason = "Map-ceil rules are the last generated K sentences and receive receipts immediately before KORE lowering."
