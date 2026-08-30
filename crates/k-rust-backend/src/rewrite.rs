@@ -495,6 +495,8 @@ fn execute_using(
                 record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
                 if let Some(rule) = selected_stop_rule(&applied, &options.cut_point_rules) {
                     let mut applied = applied;
+                    state.observation =
+                        observation_log.append_applied(state.observation, &applied, observation);
                     applied.pattern = match simplify_result_pattern(
                         definition,
                         &applied.pattern,
@@ -504,6 +506,9 @@ fn execute_using(
                         &mut state.trace,
                         &mut effects,
                         &mut observe,
+                        Some(&mut state.observation),
+                        &mut observation_log,
+                        observation,
                     ) {
                         Ok(pattern) => pattern,
                         Err(error) => {
@@ -552,6 +557,9 @@ fn execute_using(
                         &mut next.trace,
                         &mut effects,
                         &mut observe,
+                        Some(&mut next.observation),
+                        &mut observation_log,
+                        observation,
                     ) {
                         Ok(pattern) => pattern,
                         Err(error) => {
@@ -623,6 +631,9 @@ fn execute_using(
                         &mut state.trace,
                         &mut effects,
                         &mut observe,
+                        Some(&mut state.observation),
+                        &mut observation_log,
+                        observation,
                     ) {
                         Ok(pattern) => pattern,
                         Err(error) => {
@@ -662,6 +673,9 @@ fn execute_using(
                             &mut state.trace,
                             &mut effects,
                             &mut observe,
+                            None,
+                            &mut observation_log,
+                            observation,
                         ) {
                             Ok(pattern) => {
                                 applied.pattern = pattern;
@@ -703,6 +717,9 @@ fn execute_using(
                             &mut state.trace,
                             &mut effects,
                             &mut observe,
+                            None,
+                            &mut observation_log,
+                            observation,
                         ) {
                             Ok(pattern) => pattern,
                             Err(error) => {
@@ -935,7 +952,11 @@ fn simplify_result_pattern(
     trace: &mut Vec<TraceEntry>,
     effects: &mut Vec<BuiltinEffect>,
     observe: &mut impl FnMut(&BuiltinEffect),
+    observation: Option<&mut ObservationHead>,
+    observation_log: &mut ObservationLog,
+    observation_options: Option<&ObservationOptions>,
 ) -> Result<Pattern, SimplificationError> {
+    let before = pattern.clone();
     let PatternSimplification {
         pattern,
         applied_rules,
@@ -946,6 +967,17 @@ fn simplify_result_pattern(
         SimplificationOptions { max_iterations },
         solver,
     )?;
+    if let Some(observation) = observation {
+        *observation = observation_log.append_simplification(
+            *observation,
+            definition,
+            before,
+            &pattern,
+            &applied_rules,
+            &simplified_effects,
+            observation_options,
+        );
+    }
     trace.extend(applied_rules.into_iter().map(|unique_id| TraceEntry {
         depth,
         kind: TraceKind::Simplification,
@@ -4842,7 +4874,6 @@ mod tests {
         ));
     }
 
-    #[cfg(feature = "z3")]
     fn symbolic_remainder_definition(rules: &str) -> BackendDefinition {
         let source = r#"[]
             module MAIN
@@ -4860,7 +4891,6 @@ mod tests {
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
     }
 
-    #[cfg(feature = "z3")]
     fn symbolic_subject(definition: &BackendDefinition) -> Pattern {
         Pattern {
             term: definition
@@ -6709,6 +6739,160 @@ mod tests {
                 .collect::<Vec<_>>(),
             [TransitionClass::FunctionEquation, TransitionClass::Rewrite]
         );
+    }
+
+    #[test]
+    fn terminal_result_simplification_is_observed_in_order() {
+        let definition = definition(
+            r#"
+            symbol identity{}(SortS{}) : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    identity{}(X:SortS{}),
+                    \and{SortS{}}(X:SortS{}, \top{SortS{}}())
+                )
+            ) [label{}("identity"), simplification{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                identity{}(\dv{SortS{}}("done"))
+            ) [label{}("stop")]
+            "#,
+        );
+        let result = execute_observed(
+            &definition,
+            subject(&definition, "value"),
+            ExecutionOptions {
+                terminal_rules: BTreeSet::from(["stop".into()]),
+                ..ExecutionOptions::default()
+            },
+            &ObservationOptions::all(),
+        );
+
+        assert_eq!(
+            result.leaves[0]
+                .observations
+                .iter()
+                .map(|event| match event {
+                    ObservationEvent::Transition(observation) => {
+                        (observation.id.rule.as_str(), observation.class)
+                    }
+                    ObservationEvent::Uncommitted(_) => panic!("unexpected rollback"),
+                })
+                .collect::<Vec<_>>(),
+            [
+                ("stop", TransitionClass::Rewrite),
+                ("identity", TransitionClass::Simplification),
+            ]
+        );
+    }
+
+    #[test]
+    fn builtin_observation_owns_its_user_log_effect() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortString{} [hasDomainValues{}()]
+                sort SortK{} []
+                symbol dotk{}() : SortK{} [constructor{}()]
+                symbol log{}(SortString{}) : SortK{}
+                    [function{}(), total{}(), hook{}("IO.logString")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let initial = definition
+            .internalize_pattern(
+                &parse_pattern(r#"log{}(\dv{SortString{}}("one line"))"#).unwrap(),
+                &[],
+            )
+            .unwrap();
+        let result = execute_observed(
+            &definition,
+            initial.clone(),
+            ExecutionOptions::default(),
+            &ObservationOptions::all(),
+        );
+
+        let [ObservationEvent::Transition(observation)] = result.leaves[0].observations.as_slice()
+        else {
+            panic!("expected one builtin observation");
+        };
+        assert_eq!(observation.id.rule, "builtin:IO.logString");
+        assert_eq!(observation.class, TransitionClass::Builtin);
+        assert_eq!(observation.before, initial);
+        assert_eq!(observation.after, result.leaves[0].pattern);
+        assert_eq!(
+            observation.effects,
+            [BuiltinEffect::UserLog("one line".into())]
+        );
+        assert_eq!(observation.effects, result.effects);
+    }
+
+    #[test]
+    fn symbolic_remainder_emits_a_distinct_observation_class() {
+        struct IndeterminateSatSolver;
+
+        impl SmtSolver for IndeterminateSatSolver {
+            fn is_sat(
+                &self,
+                _predicates: &[Predicate],
+                _substitution: &Substitution,
+            ) -> Result<Satisfiability, SmtError> {
+                Ok(Satisfiability::Sat)
+            }
+
+            fn check_predicates(
+                &self,
+                _known: &[Predicate],
+                _substitution: &Substitution,
+                _checked: &[Predicate],
+            ) -> Result<Validity, SmtError> {
+                Ok(Validity::Indeterminate)
+            }
+        }
+
+        let definition = symbolic_remainder_definition(
+            r#"
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(
+                    wrap{}(X:SortInt{}),
+                    \equals{SortBool{}, SortInt{}}(
+                        lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                \dv{SortInt{}}("negative")
+            ) [label{}("negative")]
+            "#,
+        );
+        let result = execute_observed_with_solver(
+            &definition,
+            symbolic_subject(&definition),
+            ExecutionOptions::default(),
+            &IndeterminateSatSolver,
+            &ObservationOptions::all(),
+        );
+
+        let remainder = result
+            .leaves
+            .iter()
+            .flat_map(|leaf| &leaf.observations)
+            .find_map(|event| match event {
+                ObservationEvent::Transition(observation)
+                    if observation.class == TransitionClass::Remainder =>
+                {
+                    Some(observation)
+                }
+                ObservationEvent::Transition(_) | ObservationEvent::Uncommitted(_) => None,
+            })
+            .expect("expected one retained symbolic remainder");
+        assert_eq!(remainder.id.rule, "remainder:negative");
+        assert_eq!(remainder.before, symbolic_subject(&definition));
+        assert!(matches!(
+            remainder.after.constraints.as_slice(),
+            [Predicate::Not(_)]
+        ));
     }
 
     #[test]
