@@ -215,6 +215,29 @@ fn wraps_multiple_top_level_cells_in_generated_top() {
 }
 
 #[test]
+fn configuration_parsing_always_includes_default_layout() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax #Layout [token]
+          configuration
+            <top>
+              <k> .K </k>
+            </top>
+        endmodule
+    "#};
+    let definition = parsed(source);
+
+    assert!(
+        definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .any(|sentence| matches!(sentence, Sentence::Configuration { .. }))
+    );
+}
+
+#[test]
 fn generates_stream_exit_and_builtin_cell_attributes() {
     let source = indoc! {r#"
         module MAIN

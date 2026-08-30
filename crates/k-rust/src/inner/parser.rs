@@ -405,6 +405,7 @@ impl Grammar {
                 erased,
             }),
             ParserRole::Program,
+            false,
         )
     }
 
@@ -412,10 +413,17 @@ impl Grammar {
         sentences: impl IntoIterator<Item = &'a Sentence>,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
-        Self::from_collected_sentences(sentences, None, ParserRole::Rule)
+        Self::from_collected_sentences(sentences, None, ParserRole::Rule, false)
     }
 
-    pub(crate) fn from_sentences_with_catalog<'a>(
+    pub(super) fn from_configuration_sentences<'a>(
+        sentences: impl IntoIterator<Item = &'a Sentence>,
+    ) -> Result<Self, ParseError> {
+        let sentences = sentences.into_iter().collect::<Vec<_>>();
+        Self::from_collected_sentences(sentences, None, ParserRole::Rule, true)
+    }
+
+    pub(super) fn from_rule_sentences<'a>(
         sentences: impl IntoIterator<Item = &'a Sentence>,
         source_catalog: &ProductionCatalog<'_>,
     ) -> Result<Self, ParseError> {
@@ -424,6 +432,7 @@ impl Grammar {
             sentences,
             Some(SourceLinks::catalog(source_catalog)),
             ParserRole::Rule,
+            true,
         )
     }
 
@@ -431,6 +440,7 @@ impl Grammar {
         sentences: Vec<&Sentence>,
         source_links: Option<SourceLinks<'_, '_>>,
         role: ParserRole,
+        include_default_layout: bool,
     ) -> Result<Self, ParseError> {
         let lexical = sentences
             .iter()
@@ -497,7 +507,9 @@ impl Grammar {
             overloads.order().clone()
         };
         let mut grammar = Self {
-            layout: if layout_declared {
+            layout: if include_default_layout {
+                Layout::compile_with_default(&layout_sources)?
+            } else if layout_declared {
                 Layout::compile(&layout_sources)?
             } else {
                 Layout::default()
@@ -1739,8 +1751,7 @@ mod chart_tests {
                 if attributes.get("cell").is_some())
             })
             .collect::<Vec<_>>();
-        let grammar =
-            Grammar::from_sentences_with_catalog(parsing_sentences, &source_catalog).unwrap();
+        let grammar = Grammar::from_rule_sentences(parsing_sentences, &source_catalog).unwrap();
         let source_id = |sort: &str| {
             source_catalog
                 .productions()

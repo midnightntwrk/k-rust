@@ -261,8 +261,9 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
     #[cfg(feature = "z3-inference")]
     add_builtin_rule_sentences(&mut parsing_sentences);
     let source_catalog = resolved.production_catalog(module);
-    let mut grammar =
-        Grammar::from_sentences_with_catalog(parsing_sentences.iter(), &source_catalog)?;
+    // The reference rule grammar imports DEFAULT-LAYOUT explicitly, independently
+    // of the layout used to parse programs in the language being compiled.
+    let mut grammar = Grammar::from_rule_sentences(parsing_sentences.iter(), &source_catalog)?;
     let bracket_sorts = visible
         .iter()
         .filter_map(|sentence| match sentence {

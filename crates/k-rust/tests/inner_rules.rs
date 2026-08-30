@@ -164,6 +164,27 @@ fn preserves_nested_term_spans_and_resolved_productions() {
 }
 
 #[test]
+fn rule_parsing_always_includes_default_layout() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax #Layout [token]
+          syntax Exp ::= "x" [symbol(x)]
+          rule x => x
+        endmodule
+    "#};
+    let definition = resolve_rule_bubbles(&lowered(source)).unwrap();
+
+    assert!(
+        definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .any(|sentence| matches!(sentence, Sentence::Rule { .. }))
+    );
+}
+
+#[test]
 fn prunes_nested_rewrites_while_parsing_a_long_recursive_chain() {
     let source = indoc! {r##"
         module MAIN
