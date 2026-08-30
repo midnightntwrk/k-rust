@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  configuration\n    <top>\n      <callState>\n        <program> 0 </program>\n        <status> 1 </status>\n      </callState>\n    </top>\n  rule <callState> _ => CALLSTATE </callState>\nendmodule\n"
+---
+`<top>`(`<callState>`(_Gen3=>_Gen1,_Gen4=>_Gen2))

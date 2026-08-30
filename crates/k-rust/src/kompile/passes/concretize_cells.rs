@@ -40,10 +40,21 @@ pub fn concretize_cells(definition: &Definition) -> Result<Definition, Concretiz
             diagnostics: vec![plain_error(error.to_string())],
         })?;
     let main_id = resolved.main_module_id();
-    let model = CellModel::new(&resolved, main_id).map_err(|message| ConcretizeCellsError {
-        diagnostics: vec![plain_error(message)],
-    })?;
-    if model.cells.is_empty() {
+    let main_modules = resolved
+        .transitive_imports(main_id)
+        .into_iter()
+        .chain(std::iter::once(main_id))
+        .collect::<BTreeSet<_>>();
+    let main_model =
+        CellModel::new(&resolved, main_id).map_err(|message| ConcretizeCellsError {
+            diagnostics: vec![plain_error(message)],
+        })?;
+    if main_model.cells.is_empty()
+        && resolved.modules().all(|(module_id, _)| {
+            main_modules.contains(&module_id)
+                || CellModel::new(&resolved, module_id).is_ok_and(|model| model.cells.is_empty())
+        })
+    {
         return Ok(definition.clone());
     }
 
@@ -54,9 +65,19 @@ pub fn concretize_cells(definition: &Definition) -> Result<Definition, Concretiz
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
         let productions = resolved.production_catalog(module_id);
+        let local_model;
+        let model = if main_modules.contains(&module_id) {
+            &main_model
+        } else {
+            local_model =
+                CellModel::new(&resolved, module_id).map_err(|message| ConcretizeCellsError {
+                    diagnostics: vec![plain_error(message)],
+                })?;
+            &local_model
+        };
         for sentence in &mut module.local_sentences {
             let original = sentence.clone();
-            match Concretizer::new(&model, &productions).sentence(original) {
+            match Concretizer::new(model, &productions).sentence(original) {
                 Ok(transformed) => *sentence = transformed,
                 Err(message) => diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InvalidCellConcretization,
@@ -464,9 +485,7 @@ impl<'a> Concretizer<'a> {
         if matches!(&sentence, Sentence::Claim { body, .. } if !contains_cell(body, self.model)) {
             return Ok(sentence);
         }
-        if skip_sentence(&sentence) {
-            return Ok(sentence);
-        }
+        let skip_root = skip_sentence(&sentence);
         self.variables.clear();
         self.fragments.clear();
         self.counter = 0;
@@ -484,7 +503,9 @@ impl<'a> Concretizer<'a> {
                 ensures,
                 attributes,
             } => {
-                let body = self.concretize_body(body)?;
+                let body = self.concretize_body(body, skip_root)?;
+                let requires = self.close(requires, false)?;
+                let ensures = self.close(ensures, false)?;
                 self.analyze_fragments([&body, &requires, &ensures])?;
                 Ok(Sentence::Rule {
                     body: self.sort_cells(body)?,
@@ -499,7 +520,9 @@ impl<'a> Concretizer<'a> {
                 ensures,
                 attributes,
             } => {
-                let body = self.concretize_body(body)?;
+                let body = self.concretize_body(body, skip_root)?;
+                let requires = self.close(requires, false)?;
+                let ensures = self.close(ensures, false)?;
                 self.analyze_fragments([&body, &requires, &ensures])?;
                 Ok(Sentence::Claim {
                     body: self.sort_cells(body)?,
@@ -513,9 +536,24 @@ impl<'a> Concretizer<'a> {
                 requires,
                 attributes,
             } => {
-                let body = self.concretize_body(body)?;
+                let body = self.concretize_body(body, skip_root)?;
+                let requires = self.close(requires, false)?;
                 self.analyze_fragments([&body, &requires])?;
                 Ok(Sentence::Context {
+                    body: self.sort_cells(body)?,
+                    requires: self.sort_cells(requires)?,
+                    attributes,
+                })
+            }
+            Sentence::ContextAlias {
+                body,
+                requires,
+                attributes,
+            } => {
+                let body = self.concretize_body(body, skip_root)?;
+                let requires = self.close(requires, false)?;
+                self.analyze_fragments([&body, &requires])?;
+                Ok(Sentence::ContextAlias {
                     body: self.sort_cells(body)?,
                     requires: self.sort_cells(requires)?,
                     attributes,
@@ -525,8 +563,8 @@ impl<'a> Concretizer<'a> {
         }
     }
 
-    fn concretize_body(&mut self, body: Term) -> Result<Term, String> {
-        let body = if is_function(&body, self.productions) {
+    fn concretize_body(&mut self, body: Term, skip_root: bool) -> Result<Term, String> {
+        let body = if skip_root || is_function(&body, self.productions) {
             body
         } else {
             self.add_root(body)?
@@ -1001,8 +1039,8 @@ impl<'a> Concretizer<'a> {
             } else if matches!(item.unannotated(), Term::Variable { .. }) {
                 unknown.push(item);
             } else if let Term::Rewrite { left, right } = item.unannotated() {
-                let left = split_side(left, self.model);
-                let right = split_side(right, self.model);
+                let left = self.split_side(left);
+                let right = self.split_side(right);
                 let sorts = left
                     .keys()
                     .chain(right.keys())
@@ -1095,6 +1133,27 @@ impl<'a> Concretizer<'a> {
             label,
             arguments: result,
         })
+    }
+
+    fn split_side(&self, term: &Term) -> BTreeMap<Sort, Term> {
+        let mut split = BTreeMap::new();
+        for item in flatten_cells(term) {
+            if let Some(sort) = self.model.sort_for_term(item) {
+                split.insert(sort, item.clone());
+                continue;
+            }
+            let Term::Variable { name, sort } = item.unannotated() else {
+                continue;
+            };
+            if let Some(info) = self.fragments.get(name) {
+                split.extend(info.split.clone());
+            } else if let Some(sort) = sort
+                && self.model.cells.contains_key(sort)
+            {
+                split.insert(sort.clone(), item.clone());
+            }
+        }
+        split
     }
 
     fn insert_child(
@@ -1362,13 +1421,6 @@ fn make_body(mut items: Vec<Term>) -> Term {
     }
 }
 
-fn split_side(term: &Term, model: &CellModel) -> BTreeMap<Sort, Term> {
-    flatten_cells(term)
-        .into_iter()
-        .filter_map(|item| model.sort_for_term(item).map(|sort| (sort, item.clone())))
-        .collect()
-}
-
 fn unit(child: &Child) -> Option<Term> {
     match child.multiplicity {
         Multiplicity::One => None,
@@ -1409,7 +1461,8 @@ fn sentence_roots(sentence: &Sentence) -> Vec<&Term> {
             ensures,
             ..
         } => vec![body, requires, ensures],
-        Sentence::Context { body, requires, .. } => vec![body, requires],
+        Sentence::Context { body, requires, .. }
+        | Sentence::ContextAlias { body, requires, .. } => vec![body, requires],
         _ => Vec::new(),
     }
 }

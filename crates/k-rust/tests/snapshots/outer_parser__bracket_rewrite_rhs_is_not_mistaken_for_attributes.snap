@@ -1,0 +1,130 @@
+---
+source: crates/k-rust/tests/outer_parser.rs
+description: "K source:\n\nmodule BRACKET-RHS\n  rule X => [item]\n  rule Y => [other] [simplification]\n  rule Z => PATH[0]\nendmodule\n"
+---
+SourceFile {
+    source: "bracket_rewrite_rhs_is_not_mistaken_for_attributes.k",
+    requires: [],
+    modules: [
+        Module {
+            name: "BRACKET-RHS",
+            attributes: [],
+            imports: [],
+            sentences: [
+                Bubble(
+                    Bubble {
+                        kind: Rule,
+                        content: "X => [item]",
+                        label: None,
+                        attributes: [],
+                        content_span: Span {
+                            start: Position {
+                                offset: 26,
+                                line: 2,
+                                column: 8,
+                            },
+                            end: Position {
+                                offset: 37,
+                                line: 2,
+                                column: 19,
+                            },
+                        },
+                        span: Span {
+                            start: Position {
+                                offset: 21,
+                                line: 2,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 37,
+                                line: 2,
+                                column: 19,
+                            },
+                        },
+                    },
+                ),
+                Bubble(
+                    Bubble {
+                        kind: Rule,
+                        content: "Y => [other]",
+                        label: None,
+                        attributes: [
+                            Attribute {
+                                key: "simplification",
+                                value: None,
+                            },
+                        ],
+                        content_span: Span {
+                            start: Position {
+                                offset: 45,
+                                line: 3,
+                                column: 8,
+                            },
+                            end: Position {
+                                offset: 58,
+                                line: 3,
+                                column: 21,
+                            },
+                        },
+                        span: Span {
+                            start: Position {
+                                offset: 40,
+                                line: 3,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 74,
+                                line: 3,
+                                column: 37,
+                            },
+                        },
+                    },
+                ),
+                Bubble(
+                    Bubble {
+                        kind: Rule,
+                        content: "Z => PATH[0]",
+                        label: None,
+                        attributes: [],
+                        content_span: Span {
+                            start: Position {
+                                offset: 82,
+                                line: 4,
+                                column: 8,
+                            },
+                            end: Position {
+                                offset: 94,
+                                line: 4,
+                                column: 20,
+                            },
+                        },
+                        span: Span {
+                            start: Position {
+                                offset: 77,
+                                line: 4,
+                                column: 3,
+                            },
+                            end: Position {
+                                offset: 94,
+                                line: 4,
+                                column: 20,
+                            },
+                        },
+                    },
+                ),
+            ],
+            span: Span {
+                start: Position {
+                    offset: 0,
+                    line: 1,
+                    column: 1,
+                },
+                end: Position {
+                    offset: 104,
+                    line: 5,
+                    column: 10,
+                },
+            },
+        },
+    ],
+}

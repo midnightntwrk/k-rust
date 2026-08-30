@@ -263,6 +263,7 @@ pub(super) fn add_k_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {
         false,
         false,
     )?;
+    add_casts(grammar, Sort::new("K"), Sort::new("Bag"), Sort::new("Bag"))?;
     add_casts(grammar, Sort::new("K"), Sort::new("K"), Sort::new("K"))?;
     add_casts(
         grammar,
