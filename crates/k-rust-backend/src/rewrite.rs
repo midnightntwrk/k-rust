@@ -6638,6 +6638,105 @@ mod tests {
     }
 
     #[test]
+    fn failed_side_condition_emits_no_committed_observation() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \bottom{SortS{}}()),
+                \dv{SortS{}}("unreachable")
+            ) [label{}("failed")]
+            "#,
+        );
+        let result = execute_observed(
+            &definition,
+            subject(&definition, "value"),
+            ExecutionOptions::default(),
+            &ObservationOptions::all(),
+        );
+
+        assert_eq!(result.leaves.len(), 1);
+        assert!(result.leaves[0].observations.is_empty());
+        assert!(result.leaves[0].branch.is_empty());
+    }
+
+    #[test]
+    fn sibling_branches_own_independent_ordered_streams() {
+        let definition = unconditional_branch_definition();
+        let result = execute_observed(
+            &definition,
+            subject(&definition, "value"),
+            ExecutionOptions::default(),
+            &ObservationOptions::all(),
+        );
+
+        assert_eq!(result.leaves.len(), 2);
+        let streams = result
+            .leaves
+            .iter()
+            .map(|leaf| {
+                leaf.observations
+                    .iter()
+                    .map(|event| match event {
+                        ObservationEvent::Transition(observation) => observation.id.rule.as_str(),
+                        ObservationEvent::Uncommitted(_) => panic!("unexpected rollback"),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(streams, BTreeSet::from([vec!["left"], vec!["right"]]));
+        assert!(result.leaves.iter().all(|leaf| leaf.branch.len() == 1));
+    }
+
+    #[test]
+    fn observation_on_preserves_non_observation_outputs() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \dv{SortS{}}("done")
+            ) [label{}("step")]
+            "#,
+        );
+        let initial = subject(&definition, "value");
+        let expected = execute(&definition, initial.clone(), ExecutionOptions::default());
+        let mut actual = execute_observed(
+            &definition,
+            initial,
+            ExecutionOptions::default(),
+            &ObservationOptions::all(),
+        );
+
+        assert!(!actual.leaves[0].observations.is_empty());
+        for leaf in &mut actual.leaves {
+            leaf.branch.clear();
+            leaf.observations.clear();
+        }
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn valid_observation_filter_suppresses_events_but_preserves_branch_identity() {
+        let definition = unconditional_branch_definition();
+        let options = ObservationOptions::with_rules(&definition, ["left"]).unwrap();
+        let result = execute_observed(
+            &definition,
+            subject(&definition, "value"),
+            ExecutionOptions::default(),
+            &options,
+        );
+
+        assert!(result.leaves.iter().all(|leaf| leaf.branch.len() == 1));
+        assert_eq!(
+            result
+                .leaves
+                .iter()
+                .filter(|leaf| !leaf.observations.is_empty())
+                .count(),
+            1
+        );
+    }
+
+    #[test]
     fn stops_at_a_rewrite_branch_when_requested() {
         let definition = unconditional_branch_definition();
         let initial = subject(&definition, "value");
