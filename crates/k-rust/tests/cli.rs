@@ -1885,3 +1885,80 @@ endmodule
 
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn krun_executes_bn128_fixture_to_pinned_kore_results() {
+    fn g1_result(x: &str, y: &str) -> String {
+        format!(
+            r#"Lbl'-LT-'generatedTop'-GT-'{{}}(
+  Lbl'-LT-'k'-GT-'{{}}(
+    kseq{{}}(
+      inj{{SortG1Point{{}}, SortKItem{{}}}}(
+        Lbl'LParUndsCommUndsRParUnds'BN128-EXECUTION'Unds'G1Point'Unds'Int'Unds'Int{{}}(
+          \dv{{SortInt{{}}}}("{x}"),
+          \dv{{SortInt{{}}}}("{y}")
+        )
+      ),
+      dotk{{}}()
+    )
+  ),
+  Lbl'-LT-'generatedCounter'-GT-'{{}}(\dv{{SortInt{{}}}}("0"))
+)
+"#,
+        )
+    }
+
+    let bool_result = concat!(
+        "Lbl'-LT-'generatedTop'-GT-'{}(\n",
+        "  Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"true\")), dotk{}())),\n",
+        "  Lbl'-LT-'generatedCounter'-GT-'{}(\\dv{SortInt{}}(\"0\"))\n",
+        ")\n",
+    );
+    let doubled = g1_result(
+        "1368015179489954701390400359078579693043519447331113978918064868415326638035",
+        "9918110051302171585080402603319702774565515993150576347155970296011118125764",
+    );
+    let cases = [
+        (
+            "bn128-ecadd.crypto",
+            g1_result(
+                "15497584038690294240042153688304417339506091937513459124271972833238779664131",
+                "21762456842531143558012592863461237297422391564814111359902381816272400009493",
+            ),
+        ),
+        ("bn128-ecmul.crypto", doubled.clone()),
+        ("bn128-ecmul-reduce.crypto", doubled),
+        ("bn128-pairing.crypto", bool_result.to_owned()),
+        ("bn128-valid-infinity.crypto", bool_result.to_owned()),
+    ];
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference");
+    let definition = fixtures.join("bn128-execution.k");
+
+    for (program, expected) in cases {
+        let program_path = fixtures.join(program);
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "BN128-EXECUTION",
+                "--sort",
+                "Input",
+                program_path.to_str().unwrap(),
+                "--depth",
+                "10",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{program}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            expected,
+            "{program}"
+        );
+    }
+}
