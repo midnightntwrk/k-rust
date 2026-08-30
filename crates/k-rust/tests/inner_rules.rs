@@ -1197,3 +1197,83 @@ fn reconstructs_implicit_user_lists_after_sort_inference() {
         insta::assert_debug_snapshot!(bodies);
     });
 }
+
+#[test]
+fn wraps_a_single_user_list_element_on_a_function_rhs() {
+    let source = indoc! {r##"
+        module MAIN
+          syntax Item ::= "i" [symbol(i)]
+          syntax Items ::= List{Item, ""} [symbol(items), terminator-symbol(.Items)]
+          syntax Items ::= "pick" Item [function, symbol(pick)]
+          rule pick i => i
+        endmodule
+    "##};
+    let resolved = resolve_rule_bubbles(&lowered(source)).unwrap();
+    let body = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    let Term::Rewrite { right, .. } = body.unannotated() else {
+        panic!("expected a rewrite, found {body}");
+    };
+
+    assert!(
+        right.to_string().contains(".Items"),
+        "the singleton list should include its terminator: {body}"
+    );
+}
+
+#[test]
+fn infers_empty_user_list_in_a_function_rule() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax TypeKeyWord ::= "param" | "result"
+          syntax ValType ::= "i32"
+          syntax ValTypes ::= List{ValType, ""} [symbol(listValTypes), terminator-symbol(".List{\"listValTypes\"}")]
+          syntax TypeDecl ::= TypeKeyWord ValTypes
+          syntax TypeDecls ::= List{TypeDecl, ""} [symbol(listTypeDecl), terminator-symbol(".List{\"listTypeDecl\"}")]
+          syntax VecType ::= "[" ValTypes "]" [symbol(aVecType)]
+          syntax VecType ::= #gatherTypes(TypeKeyWord, TypeDecls, ValTypes) [function, symbol(gatherTypes)]
+
+          rule #gatherTypes(_, .TypeDecls, TYPES) => [ TYPES ]
+        endmodule
+    "#};
+    let definition = resolve_rule_bubbles(&lowered(source)).unwrap();
+
+    assert!(
+        definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .any(|sentence| matches!(sentence, Sentence::Rule { .. }))
+    );
+}
+
+rule_snapshot!(
+    resolves_an_element_of_an_overloaded_user_list,
+    r##"
+        module MAIN
+          syntax EmptyStmt
+          syntax Instr ::= EmptyStmt
+          syntax Defn ::= EmptyStmt | "d" [symbol(d)]
+          syntax Stmt ::= Instr | Defn
+          syntax EmptyStmts ::= List{EmptyStmt, ""} [overload(listStmt), terminator-symbol(".List{\"listStmt\"}")]
+          syntax Instrs ::= List{Instr, ""} [overload(listStmt)]
+          syntax Defns ::= List{Defn, ""} [overload(listStmt)]
+          syntax Stmts ::= List{Stmt, ""} [overload(listStmt)]
+          syntax Instrs ::= EmptyStmts
+          syntax Defns ::= EmptyStmts
+          syntax Stmts ::= Instrs | Defns
+          syntax TypesInfo ::= "info" [symbol(info)]
+          syntax TypesInfo ::= "#types2indices" "(" Defns "," TypesInfo ")" [function, symbol(types2indices)]
+          rule #types2indices(_D DS, M) => #types2indices(DS, M) [owise]
+        endmodule
+    "##
+);
