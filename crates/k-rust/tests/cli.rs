@@ -1964,6 +1964,58 @@ fn krun_executes_bn128_fixture_to_pinned_kore_results() {
 }
 
 #[test]
+fn krun_executes_evm_optimized_add_fixture_to_pinned_kore_result() {
+    let expected = concat!(
+        "Lbl'-LT-'generatedTop'-GT-'{}(\n",
+        "  Lbl'-LT-'kevm'-GT-'{}(\n",
+        "    Lbl'-LT-'k'-GT-'{}(dotk{}()),\n",
+        "    Lbl'-LT-'schedule'-GT-'{}(LblCANCUN'Unds'EVM-OPTIMIZED-ADD'Unds'Schedule{}()),\n",
+        "    Lbl'-LT-'useGas'-GT-'{}(\\dv{SortBool{}}(\"false\")),\n",
+        "    Lbl'-LT-'ethereum'-GT-'{}(\n",
+        "      Lbl'-LT-'evm'-GT-'{}(\n",
+        "        Lbl'-LT-'callState'-GT-'{}(\n",
+        "          Lbl'-LT-'wordStack'-GT-'{}(\n",
+        "            Lbl'UndsColnUndsUnds'EVM-OPTIMIZED-ADD'Unds'WordStack'Unds'Int'Unds'WordStack{}(\n",
+        "              \\dv{SortInt{}}(\"11\"),\n",
+        "              Lbl'Stop'WordStack'Unds'EVM-OPTIMIZED-ADD'Unds'WordStack{}()\n",
+        "            )\n",
+        "          ),\n",
+        "          Lbl'-LT-'pc'-GT-'{}(\\dv{SortInt{}}(\"1\")),\n",
+        "          Lbl'-LT-'gas'-GT-'{}(\\dv{SortInt{}}(\"99\"))\n",
+        "        )\n",
+        "      )\n",
+        "    )\n",
+        "  ),\n",
+        "  Lbl'-LT-'generatedCounter'-GT-'{}(\\dv{SortInt{}}(\"0\"))\n",
+        ")\n",
+    );
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference");
+    let definition = fixtures.join("evm-optimized-add.k");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "EVM-OPTIMIZED-ADD",
+            "--sort",
+            "Input",
+            "--expression",
+            "optimized-add",
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), expected);
+}
+
+#[test]
 fn krun_executes_invalid_ecdsa_recovery_to_empty_bytes() {
     let expected = concat!(
         "Lbl'-LT-'generatedTop'-GT-'{}(\n",
