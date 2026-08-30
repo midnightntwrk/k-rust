@@ -57,6 +57,26 @@ fn wasm_empty_function_overloaded_lists() -> Definition {
     )
 }
 
+#[cfg(not(feature = "z3-inference"))]
+fn assert_ambiguous_program_requires_z3(definition: &Definition, start_sort: &str, source: &str) {
+    let error = parse_program(definition, "MAIN", &Sort::new(start_sort), source)
+        .expect_err("an ambiguous program should require Z3 inference");
+    assert!(
+        matches!(
+            error,
+            ProgramError::Parse(ref error)
+                if matches!(
+                    *error.error,
+                    ParseError::Z3InferenceRequired {
+                        ambiguity: true,
+                        parametric_sorts: false,
+                    }
+                )
+        ),
+        "{error:?}"
+    );
+}
+
 #[test]
 fn parsed_production_ids_belong_to_the_resolved_definition_catalog() {
     let definition = lowered(
@@ -333,43 +353,58 @@ fn parses_wasm_shaped_adjacent_overloaded_user_lists() {
 #[test]
 fn preserves_outer_list_terminator_after_an_empty_inner_overloaded_list() {
     let definition = wasm_empty_function_overloaded_lists();
-    let rendered = parse_program(&definition, "MAIN", &Sort::new("Module"), "(module (func))")
-        .expect("an empty function should parse uniquely inside its module")
-        .to_string();
+    #[cfg(not(feature = "z3-inference"))]
+    assert_ambiguous_program_requires_z3(&definition, "Module", "(module (func))");
+    #[cfg(feature = "z3-inference")]
+    {
+        let rendered = parse_program(&definition, "MAIN", &Sort::new("Module"), "(module (func))")
+            .expect("an empty function should parse uniquely inside its module")
+            .to_string();
 
-    for label in ["module", "defns", "func"] {
-        assert!(rendered.contains(label), "missing {label}: {rendered}");
+        for label in ["module", "defns", "func"] {
+            assert!(rendered.contains(label), "missing {label}: {rendered}");
+        }
+        assert!(
+            rendered.contains(r#".List{"defns"}"#),
+            "the outer Defns list should retain its own terminator: {rendered}"
+        );
+        assert!(
+            rendered.contains(r#".List{"listStmt"}"#),
+            "the empty inner Instrs list should retain the shared terminator: {rendered}"
+        );
     }
-    assert!(
-        rendered.contains(r#".List{"defns"}"#),
-        "the outer Defns list should retain its own terminator: {rendered}"
-    );
-    assert!(
-        rendered.contains(r#".List{"listStmt"}"#),
-        "the empty inner Instrs list should retain the shared terminator: {rendered}"
-    );
 }
 
 #[test]
 fn reconstructs_a_root_sort_singleton_as_its_most_specific_list() {
     let definition = wasm_shaped_overloaded_lists();
-    let rendered = parse_program(&definition, "MAIN", &Sort::new("Stmts"), "i32.const 1")
-        .expect("a root singleton should be reconstructed as a list")
-        .to_string();
+    #[cfg(not(feature = "z3-inference"))]
+    assert_ambiguous_program_requires_z3(&definition, "Stmts", "i32.const 1");
+    #[cfg(feature = "z3-inference")]
+    {
+        let rendered = parse_program(&definition, "MAIN", &Sort::new("Stmts"), "i32.const 1")
+            .expect("a root singleton should be reconstructed as a list")
+            .to_string();
 
-    assert!(rendered.contains("instrs"), "{rendered}");
-    assert!(!rendered.contains("stmts"), "{rendered}");
-    assert!(rendered.contains(".List"), "{rendered}");
+        assert!(rendered.contains("instrs"), "{rendered}");
+        assert!(!rendered.contains("stmts"), "{rendered}");
+        assert!(rendered.contains(".List"), "{rendered}");
+    }
 }
 
 #[test]
 fn parses_an_empty_program_at_a_root_list_sort() {
     let definition = wasm_shaped_overloaded_lists();
-    let rendered = parse_program(&definition, "MAIN", &Sort::new("Stmts"), "")
-        .expect("the empty list should parse at a root list sort")
-        .to_string();
+    #[cfg(not(feature = "z3-inference"))]
+    assert_ambiguous_program_requires_z3(&definition, "Stmts", "");
+    #[cfg(feature = "z3-inference")]
+    {
+        let rendered = parse_program(&definition, "MAIN", &Sort::new("Stmts"), "")
+            .expect("the empty list should parse at a root list sort")
+            .to_string();
 
-    assert!(rendered.contains(".List"), "{rendered}");
+        assert!(rendered.contains(".List"), "{rendered}");
+    }
 }
 
 #[test]
