@@ -122,6 +122,14 @@ main-module = "STAR-CELL-CONFIG"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
 
 [[compile]]
+name = "overload-constructors"
+requires = ["reference-toolchain"]
+constructs = ["overload-no-confusion"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/overload-constructors.k"
+main-module = "OVERLOAD-CONSTRUCTORS"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
 name = "owise-functions"
 requires = ["reference-toolchain"]
 constructs = ["owise"]
