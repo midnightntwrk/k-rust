@@ -26,7 +26,7 @@ impl Grammar {
                         .cloned()
                         .collect::<BTreeSet<_>>();
                     if !matching.is_empty() {
-                        alternatives = matching;
+                        alternatives = matching.into();
                     }
                 }
                 let mut retained = BTreeSet::new();
@@ -45,7 +45,7 @@ impl Grammar {
                 match retained.len() {
                     0 => Err(first_error.expect("an empty ambiguity had no valid alternative")),
                     1 => Ok(retained.pop_first().expect("length was one")),
-                    _ => Ok(ParsedTerm::Ambiguity(retained)),
+                    _ => Ok(ParsedTerm::Ambiguity(retained.into())),
                 }
             }
             ParsedTerm::Production {
@@ -102,7 +102,7 @@ impl Grammar {
         }
     }
 
-    fn top_parse_label<'a>(&'a self, term: &'a ParsedTerm) -> Option<&'a str> {
+    pub(super) fn top_parse_label<'a>(&'a self, term: &'a ParsedTerm) -> Option<&'a str> {
         let (production, children) = match term {
             ParsedTerm::Production {
                 production,
@@ -153,7 +153,7 @@ impl Grammar {
             return match retained.len() {
                 0 => Err(first_error.expect("an empty ambiguity had no valid alternative")),
                 1 => Ok(retained.pop_first().expect("length was one")),
-                _ => Ok(ParsedTerm::Ambiguity(retained)),
+                _ => Ok(ParsedTerm::Ambiguity(retained.into())),
             };
         }
         if let Some(side) = side
@@ -164,7 +164,7 @@ impl Grammar {
         self.filter_priority(child)
     }
 
-    fn child_violation(
+    pub(super) fn child_violation(
         &self,
         parent: &Production,
         child: &ParsedTerm,
@@ -383,11 +383,26 @@ impl Grammar {
     pub(super) fn resolve_applications(&self, term: ParsedTerm) -> Result<ParsedTerm, ParseError> {
         match term {
             ParsedTerm::Term(_) => Ok(term),
-            ParsedTerm::Ambiguity(alternatives) => alternatives
-                .into_iter()
-                .map(|alternative| self.resolve_applications(alternative))
-                .collect::<Result<BTreeSet<_>, _>>()
-                .map(ParsedTerm::Ambiguity),
+            ParsedTerm::Ambiguity(alternatives) => {
+                let mut retained = BTreeSet::new();
+                let mut first_error = None;
+                for alternative in alternatives {
+                    match self.resolve_applications(alternative) {
+                        Ok(ParsedTerm::Ambiguity(nested)) => retained.extend(nested),
+                        Ok(alternative) => {
+                            retained.insert(alternative);
+                        }
+                        Err(error) => {
+                            first_error.get_or_insert(error);
+                        }
+                    }
+                }
+                match retained.len() {
+                    0 => Err(first_error.expect("an empty ambiguity had no valid alternative")),
+                    1 => Ok(retained.pop_first().expect("length was one")),
+                    _ => Ok(ParsedTerm::Ambiguity(retained.into())),
+                }
+            }
             ParsedTerm::Production {
                 production,
                 children,
@@ -405,7 +420,7 @@ impl Grammar {
                 {
                     return Ok(ParsedTerm::Production {
                         production,
-                        children,
+                        children: children.into(),
                         metadata,
                     });
                 }
@@ -440,7 +455,7 @@ impl Grammar {
                                 .map(|production| crate::kast::ResolvedProductionId(production.0));
                             candidates.insert(ParsedTerm::Production {
                                 production: candidate,
-                                children: arguments.clone(),
+                                children: arguments.clone().into(),
                                 metadata: candidate_metadata,
                             });
                             if candidates.len() > super::MAX_DERIVATIONS_PER_STATE {
@@ -457,7 +472,7 @@ impl Grammar {
                         arity: arities.first().copied().unwrap_or(0),
                     }),
                     1 => Ok(candidates.pop_first().expect("length was one")),
-                    _ => Ok(ParsedTerm::Ambiguity(candidates)),
+                    _ => Ok(ParsedTerm::Ambiguity(candidates.into())),
                 }
             }
             ParsedTerm::InstantiatedProduction { .. } => {
@@ -588,7 +603,7 @@ impl Grammar {
                                 && candidate_children.len() == children.len()
                         )
                     }) {
-                        return ParsedTerm::Ambiguity(alternatives);
+                        return ParsedTerm::Ambiguity(alternatives.into());
                     }
                     let differing = (0..children.len())
                         .filter(|index| {
@@ -605,7 +620,7 @@ impl Grammar {
                         })
                         .collect::<Vec<_>>();
                     let [index] = differing.as_slice() else {
-                        return ParsedTerm::Ambiguity(alternatives);
+                        return ParsedTerm::Ambiguity(alternatives.into());
                     };
                     let mut factored_children = children;
                     let child_alternatives = alternatives
@@ -618,9 +633,9 @@ impl Grammar {
                             };
                             children.remove(*index)
                         })
-                        .collect();
+                        .collect::<BTreeSet<_>>();
                     factored_children[*index] =
-                        self.factor_ambiguities(ParsedTerm::Ambiguity(child_alternatives));
+                        self.factor_ambiguities(ParsedTerm::Ambiguity(child_alternatives.into()));
                     return ParsedTerm::InstantiatedProduction {
                         production,
                         parameters,
@@ -634,7 +649,7 @@ impl Grammar {
                     metadata,
                 }) = alternatives.first()
                 else {
-                    return ParsedTerm::Ambiguity(alternatives);
+                    return ParsedTerm::Ambiguity(alternatives.into());
                 };
                 let production = *production;
                 let children = children.clone();
@@ -649,7 +664,7 @@ impl Grammar {
                         } if *candidate == production && candidate_children.len() == children.len()
                     )
                 }) {
-                    return ParsedTerm::Ambiguity(alternatives);
+                    return ParsedTerm::Ambiguity(alternatives.into());
                 }
                 let differing = (0..children.len())
                     .filter(|index| {
@@ -666,7 +681,7 @@ impl Grammar {
                     })
                     .collect::<Vec<_>>();
                 let [index] = differing.as_slice() else {
-                    return ParsedTerm::Ambiguity(alternatives);
+                    return ParsedTerm::Ambiguity(alternatives.into());
                 };
                 let mut factored_children = children;
                 let child_alternatives = alternatives
@@ -677,9 +692,9 @@ impl Grammar {
                         };
                         children.remove(*index)
                     })
-                    .collect();
+                    .collect::<BTreeSet<_>>();
                 factored_children[*index] =
-                    self.factor_ambiguities(ParsedTerm::Ambiguity(child_alternatives));
+                    self.factor_ambiguities(ParsedTerm::Ambiguity(child_alternatives.into()));
                 ParsedTerm::Production {
                     production,
                     children: factored_children,
@@ -716,14 +731,14 @@ impl Grammar {
                 let Some(source) = current.source_production else {
                     return Ok(ParsedTerm::Production {
                         production,
-                        children,
+                        children: children.into(),
                         metadata,
                     });
                 };
                 if !children.is_empty() || !self.overloads.contains(&source) {
                     return Ok(ParsedTerm::Production {
                         production,
-                        children,
+                        children: children.into(),
                         metadata,
                     });
                 }
@@ -769,7 +784,7 @@ impl Grammar {
                     .expect("a least source production came from a parser production");
                 Ok(ParsedTerm::Production {
                     production: selected,
-                    children,
+                    children: children.into(),
                     metadata,
                 })
             }
@@ -828,7 +843,7 @@ impl Grammar {
                     );
                 }
 
-                alternatives = self.remove_overloads(alternatives);
+                alternatives = self.remove_overloads(alternatives.into_inner()).into();
                 if alternatives.len() == 1 {
                     return self.filter_overloads_prefer_avoid(
                         alternatives.pop_first().expect("length was one"),
@@ -841,7 +856,7 @@ impl Grammar {
                     .cloned()
                     .collect::<BTreeSet<_>>();
                 if !preferred.is_empty() {
-                    alternatives = preferred;
+                    alternatives = preferred.into();
                 } else {
                     let retained = alternatives
                         .iter()
@@ -849,7 +864,7 @@ impl Grammar {
                         .cloned()
                         .collect::<BTreeSet<_>>();
                     if !retained.is_empty() {
-                        alternatives = retained;
+                        alternatives = retained.into();
                     }
                 }
 
@@ -860,7 +875,7 @@ impl Grammar {
                 if alternatives.len() == 1 {
                     return alternatives.into_iter().next().expect("length was one");
                 }
-                let ambiguity = ParsedTerm::Ambiguity(alternatives);
+                let ambiguity = ParsedTerm::Ambiguity(alternatives.into());
                 let factored = self.factor_ambiguities(ambiguity.clone());
                 if factored == ambiguity {
                     ambiguity
@@ -972,11 +987,11 @@ impl Grammar {
                 .into_iter()
                 .map(|alternative| self.push_top_lhs_ambiguity_up(alternative))
                 .flat_map(|alternative| match alternative {
-                    ParsedTerm::Ambiguity(nested) => nested,
+                    ParsedTerm::Ambiguity(nested) => nested.into_inner(),
                     alternative => BTreeSet::from([alternative]),
                 })
-                .collect();
-            return ParsedTerm::Ambiguity(lifted);
+                .collect::<BTreeSet<_>>();
+            return ParsedTerm::Ambiguity(lifted.into());
         }
         let ParsedTerm::Production {
             production,
@@ -1060,13 +1075,13 @@ impl Grammar {
                 .into_iter()
                 .map(|left| ParsedTerm::Production {
                     production,
-                    children: vec![left, right.clone()],
+                    children: vec![left, right.clone()].into(),
                     metadata: metadata.clone(),
                 })
                 .collect(),
             left => BTreeSet::from([ParsedTerm::Production {
                 production,
-                children: vec![left, right],
+                children: vec![left, right].into(),
                 metadata,
             }]),
         }
@@ -1148,7 +1163,7 @@ fn klabel_name(term: &ParsedTerm) -> Option<String> {
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-enum Side {
+pub(super) enum Side {
     Left,
     Right,
     Middle,
@@ -1288,17 +1303,17 @@ mod tests {
         let alternatives = BTreeSet::from([
             ParsedTerm::Production {
                 production: pair,
-                children: vec![variable("A"), variable("C")],
+                children: vec![variable("A"), variable("C")].into(),
                 metadata: Default::default(),
             },
             ParsedTerm::Production {
                 production: pair,
-                children: vec![variable("B"), variable("C")],
+                children: vec![variable("B"), variable("C")].into(),
                 metadata: Default::default(),
             },
         ]);
 
-        let factored = grammar.factor_ambiguities(ParsedTerm::Ambiguity(alternatives));
+        let factored = grammar.factor_ambiguities(ParsedTerm::Ambiguity(alternatives.into()));
         let ParsedTerm::Production { children, .. } = factored else {
             panic!("expected the shared production to be factored")
         };
@@ -1309,10 +1324,13 @@ mod tests {
     #[test]
     fn flattens_nested_ambiguities_while_factoring() {
         let grammar = Grammar::default();
-        let nested = ParsedTerm::Ambiguity(BTreeSet::from([
-            variable("A"),
-            ParsedTerm::Ambiguity(BTreeSet::from([variable("B"), variable("C")])),
-        ]));
+        let nested = ParsedTerm::Ambiguity(
+            BTreeSet::from([
+                variable("A"),
+                ParsedTerm::Ambiguity(BTreeSet::from([variable("B"), variable("C")]).into()),
+            ])
+            .into(),
+        );
 
         let factored = grammar.factor_ambiguities(nested);
 
@@ -1335,11 +1353,13 @@ mod tests {
             children: vec![ParsedTerm::Production {
                 production: rewrite,
                 children: vec![
-                    ParsedTerm::Ambiguity(BTreeSet::from([variable("A"), variable("B")])),
+                    ParsedTerm::Ambiguity(BTreeSet::from([variable("A"), variable("B")]).into()),
                     variable("C"),
-                ],
+                ]
+                .into(),
                 metadata: Default::default(),
-            }],
+            }]
+            .into(),
             metadata: Default::default(),
         };
 
@@ -1360,50 +1380,50 @@ mod tests {
 
         let alternative = |production| ParsedTerm::Production {
             production,
-            children: Vec::new(),
+            children: Vec::new().into(),
             metadata: Default::default(),
         };
-        let selected =
-            grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
+        let selected = grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(
+            BTreeSet::from([
                 alternative(preferred),
                 alternative(ordinary),
                 alternative(avoided),
-            ])));
+            ])
+            .into(),
+        ));
         assert_eq!(selected, alternative(preferred));
 
-        let without_prefer =
-            grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
-                alternative(ordinary),
-                alternative(avoided),
-            ])));
+        let without_prefer = grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(
+            BTreeSet::from([alternative(ordinary), alternative(avoided)]).into(),
+        ));
         assert_eq!(without_prefer, alternative(ordinary));
 
-        let all_avoided =
-            grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
-                alternative(avoided),
-                alternative(also_avoided),
-            ])));
+        let all_avoided = grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(
+            BTreeSet::from([alternative(avoided), alternative(also_avoided)]).into(),
+        ));
         assert!(matches!(all_avoided, ParsedTerm::Ambiguity(ref items) if items.len() == 2));
 
         let wrapper = add_production(&mut grammar, "Exp", &["Exp"], "wrapper");
-        let nested =
-            grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
+        let nested = grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(
+            BTreeSet::from([
                 ParsedTerm::Production {
                     production: wrapper,
-                    children: vec![alternative(preferred)],
+                    children: vec![alternative(preferred)].into(),
                     metadata: Default::default(),
                 },
                 ParsedTerm::Production {
                     production: wrapper,
-                    children: vec![alternative(ordinary)],
+                    children: vec![alternative(ordinary)].into(),
                     metadata: Default::default(),
                 },
-            ])));
+            ])
+            .into(),
+        ));
         assert_eq!(
             nested,
             ParsedTerm::Production {
                 production: wrapper,
-                children: vec![alternative(preferred)],
+                children: vec![alternative(preferred)].into(),
                 metadata: Default::default(),
             }
         );
@@ -1429,14 +1449,12 @@ mod tests {
 
         let alternative = |production| ParsedTerm::Production {
             production,
-            children: Vec::new(),
+            children: Vec::new().into(),
             metadata: Default::default(),
         };
-        let filtered =
-            grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
-                alternative(specific),
-                alternative(general),
-            ])));
+        let filtered = grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(
+            BTreeSet::from([alternative(specific), alternative(general)]).into(),
+        ));
 
         assert_eq!(filtered, alternative(specific));
         assert_eq!(render(&grammar, &filtered), "pick()");
@@ -1468,7 +1486,7 @@ mod tests {
         let resolved = grammar
             .resolve_overloaded_terminators(ParsedTerm::Production {
                 production: source("Large"),
-                children: Vec::new(),
+                children: Vec::new().into(),
                 metadata: Default::default(),
             })
             .unwrap();
@@ -1493,7 +1511,7 @@ mod tests {
         let error = ambiguous
             .resolve_overloaded_terminators(ParsedTerm::Production {
                 production: general,
-                children: Vec::new(),
+                children: Vec::new().into(),
                 metadata: Default::default(),
             })
             .unwrap_err();

@@ -1,0 +1,15 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+description: "K definition:\n\nmodule MAIN\n  syntax StateCell ::= \"<state>\" Bag \"</state>\" [cell]\n  rule <state> ITEMS => .Bag </state>\nendmodule\n"
+---
+[
+    SentenceSummary {
+        kind: "rule",
+        body: "`<state>_</state>_MAIN_StateCell_Bag`(#noDots(.KList),#SemanticCastToBag(ITEMS)=>#cells(.KList),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+]

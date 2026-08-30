@@ -1,6 +1,9 @@
 //! Native Z3-backed sort inference for ambiguous and parametric parse forests.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use z3::ast::{Ast, Bool, Datatype};
 use z3::{DatatypeAccessor, DatatypeBuilder, DatatypeSort, Model, SatResult, Solver};
@@ -26,6 +29,9 @@ struct Encoding<'a> {
     ground_sorts: BTreeSet<Sort>,
     semantic: PartialOrder<Sort>,
     syntactic: PartialOrder<Sort>,
+    ground_values: RefCell<BTreeMap<Sort, Datatype>>,
+    semantic_relation: Vec<(Datatype, Datatype)>,
+    syntactic_relation: Vec<(Datatype, Datatype)>,
     variables: BTreeMap<String, Datatype>,
     parameters: BTreeSet<String>,
     anywhere: bool,
@@ -91,7 +97,7 @@ impl Grammar {
                 z3_error("Z3 produced no well-typed parse after model substitution")
             })),
             1 => Ok(candidates.pop_first().expect("length was one")),
-            _ => Ok(ParsedTerm::Ambiguity(candidates)),
+            _ => Ok(ParsedTerm::Ambiguity(candidates.into())),
         }
     }
 }
@@ -161,7 +167,7 @@ impl<'a> Encoding<'a> {
             builder = builder.variant(&format!("KSort{index}"), fields);
         }
         let datatype = builder.finish();
-        Ok(Self {
+        let mut encoding = Self {
             grammar,
             datatype,
             heads,
@@ -169,10 +175,19 @@ impl<'a> Encoding<'a> {
             ground_sorts,
             semantic,
             syntactic,
+            ground_values: RefCell::new(BTreeMap::new()),
+            semantic_relation: Vec::new(),
+            syntactic_relation: Vec::new(),
             variables: BTreeMap::new(),
             parameters: BTreeSet::new(),
             anywhere,
-        })
+        };
+        for sort in encoding.ground_sorts.iter() {
+            encoding.sort_value(sort, &BTreeMap::new())?;
+        }
+        encoding.semantic_relation = encoding.order_relation(false)?;
+        encoding.syntactic_relation = encoding.order_relation(true)?;
+        Ok(encoding)
     }
 
     fn constraint(
@@ -264,7 +279,15 @@ impl<'a> Encoding<'a> {
                     children.iter().zip(expected_children).enumerate()
                 {
                     let child_path = format!("{path}_c{index}");
-                    let child_expected = if self.anywhere
+                    let function_child_sort =
+                        if index == 0 && descriptor.result.name == "#RuleContent" {
+                            self.grammar.function_lhs(child)
+                        } else {
+                            None
+                        };
+                    let child_expected = if let Some(lhs) = function_child_sort {
+                        self.actual_sort(lhs, &format!("{child_path}_c0"))?
+                    } else if self.anywhere
                         && descriptor
                             .label
                             .as_ref()
@@ -278,8 +301,13 @@ impl<'a> Encoding<'a> {
                     } else {
                         self.sort_value(child_sort, &parameters)?
                     };
+                    let formal_child = descriptor
+                        .parametric_origin
+                        .as_ref()
+                        .is_some_and(|origin| origin.parameters.contains(child_sort));
                     let child_context = match cast_context_for(descriptor) {
-                        CastContext::None if !is_real_ground_sort(child_sort) => {
+                        CastContext::None if function_child_sort.is_some() => CastContext::None,
+                        CastContext::None if !formal_child && !is_real_ground_sort(child_sort) => {
                             CastContext::Parser
                         }
                         context => context,
@@ -368,6 +396,10 @@ impl<'a> Encoding<'a> {
         if let Some(value) = parameters.get(sort) {
             return Ok(value.clone());
         }
+        let cacheable = parameters.is_empty() && self.ground_sorts.contains(sort);
+        if cacheable && let Some(value) = self.ground_values.borrow().get(sort) {
+            return Ok(value.clone());
+        }
         let head = SortHead::from(sort);
         let index =
             self.head_indexes.get(&head).copied().ok_or_else(|| {
@@ -382,11 +414,17 @@ impl<'a> Encoding<'a> {
             .iter()
             .map(|argument| argument as &dyn Ast)
             .collect::<Vec<_>>();
-        self.datatype.variants[index]
+        let value = self.datatype.variants[index]
             .constructor
             .apply(&references)
             .as_datatype()
-            .ok_or_else(|| z3_error(format!("failed to construct Z3 value for sort {sort}")))
+            .ok_or_else(|| z3_error(format!("failed to construct Z3 value for sort {sort}")))?;
+        if cacheable {
+            self.ground_values
+                .borrow_mut()
+                .insert(sort.clone(), value.clone());
+        }
+        Ok(value)
     }
 
     fn less_than_eq(
@@ -395,28 +433,42 @@ impl<'a> Encoding<'a> {
         greater: &Datatype,
         syntactic: bool,
     ) -> Result<Bool, ParseError> {
+        let relation = if syntactic {
+            &self.syntactic_relation
+        } else {
+            &self.semantic_relation
+        };
+        Ok(or_all(
+            &relation
+                .iter()
+                .map(|(left, right)| Bool::and(&[lesser.eq(left), greater.eq(right)]))
+                .collect::<Vec<_>>(),
+        ))
+    }
+
+    fn order_relation(&self, syntactic: bool) -> Result<Vec<(Datatype, Datatype)>, ParseError> {
         let order = if syntactic {
             &self.syntactic
         } else {
             &self.semantic
         };
-        let mut relations = Vec::new();
+        let mut relation = Vec::new();
         for left in &self.ground_sorts {
             if !is_real_ground_sort(left) {
                 continue;
             }
+            let left_value = self.sort_value(left, &BTreeMap::new())?;
             for right in &self.ground_sorts {
                 if !is_real_ground_sort(right) {
                     continue;
                 }
                 if left == right || order.less_than_eq(left, right) {
-                    let left = self.sort_value(left, &BTreeMap::new())?;
-                    let right = self.sort_value(right, &BTreeMap::new())?;
-                    relations.push(Bool::and(&[lesser.eq(&left), greater.eq(&right)]));
+                    let right_value = self.sort_value(right, &BTreeMap::new())?;
+                    relation.push((left_value.clone(), right_value));
                 }
             }
         }
-        Ok(or_all(&relations))
+        Ok(relation)
     }
 
     fn exclude_klabel_parameters(&self, solver: &Solver) -> Result<(), ParseError> {
@@ -657,7 +709,7 @@ impl<'a> Encoding<'a> {
                     0 => Err(first_error
                         .unwrap_or_else(|| z3_error("all ambiguity alternatives were ill-sorted"))),
                     1 => Ok(retained.pop_first().expect("length was one")),
-                    _ => Ok(ParsedTerm::Ambiguity(retained)),
+                    _ => Ok(ParsedTerm::Ambiguity(retained.into())),
                 }
             }
             ParsedTerm::Term(ref leaf) if matches!(leaf.unannotated(), Term::Variable { .. }) => {
@@ -734,12 +786,30 @@ impl<'a> Encoding<'a> {
                             &format!("{path}_c0"),
                         )
                     });
+                let function_body_sort = (descriptor.result.name == "#RuleContent")
+                    .then(|| {
+                        children.first().and_then(|child| {
+                            self.grammar.function_lhs(child).map(|lhs| {
+                                declared_model_sort(
+                                    self.grammar,
+                                    lhs,
+                                    model,
+                                    &format!("{path}_c0_c0"),
+                                )
+                            })
+                        })
+                    })
+                    .flatten();
                 let children = children
                     .into_iter()
                     .zip(expected_children)
                     .enumerate()
                     .map(|(index, (child, child_sort))| {
-                        let child_expected = if index == 1
+                        let child_expected = if index == 0
+                            && let Some(function_sort) = &function_body_sort
+                        {
+                            function_sort.clone()
+                        } else if index == 1
                             && let Some(lhs_sort) = &anywhere_lhs_sort
                         {
                             lhs_sort.clone()
@@ -748,8 +818,17 @@ impl<'a> Encoding<'a> {
                         } else {
                             substitute_sort(child_sort, &parameter_values)
                         };
+                        let formal_child = descriptor
+                            .parametric_origin
+                            .as_ref()
+                            .is_some_and(|origin| origin.parameters.contains(child_sort));
                         let child_context = match cast_context_for(descriptor) {
-                            CastContext::None if !is_real_ground_sort(child_sort) => {
+                            CastContext::None if index == 0 && function_body_sort.is_some() => {
+                                CastContext::None
+                            }
+                            CastContext::None
+                                if !formal_child && !is_real_ground_sort(child_sort) =>
+                            {
                                 CastContext::Parser
                             }
                             context => context,
@@ -783,13 +862,13 @@ impl<'a> Encoding<'a> {
                     ParsedTerm::InstantiatedProduction {
                         production,
                         parameters: inferred_parameters,
-                        children,
+                        children: children.into(),
                         metadata,
                     }
                 } else {
                     ParsedTerm::Production {
                         production,
-                        children,
+                        children: children.into(),
                         metadata,
                     }
                 };
@@ -860,7 +939,7 @@ impl<'a> Encoding<'a> {
             })?;
         Ok(ParsedTerm::Production {
             production,
-            children: vec![term],
+            children: vec![term].into(),
             metadata: super::TermMetadata::default(),
         })
     }

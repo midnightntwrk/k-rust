@@ -371,7 +371,7 @@ impl Grammar {
         };
         let terminator = ParsedTerm::Production {
             production: terminator_production,
-            children: Vec::new(),
+            children: Vec::new().into(),
             metadata: super::TermMetadata::default(),
         };
         let children = if list.left_associative {
@@ -381,7 +381,7 @@ impl Grammar {
         };
         Ok(ParsedTerm::Production {
             production: list.list_production,
-            children,
+            children: children.into(),
             metadata: super::TermMetadata::default(),
         })
     }
@@ -599,7 +599,7 @@ mod tests {
                         .is_some_and(|label| label.name == "atom")
                 })
                 .unwrap(),
-            children: Vec::new(),
+            children: Vec::new().into(),
             metadata: TermMetadata::default(),
         };
         let held_atom = |grammar: &Grammar| ParsedTerm::Production {
@@ -613,7 +613,7 @@ mod tests {
                         .is_some_and(|label| label.name == "holder")
                 })
                 .unwrap(),
-            children: vec![atom_term(grammar)],
+            children: vec![atom_term(grammar)].into(),
             metadata: TermMetadata::default(),
         };
         let list_error = ambiguous_lists

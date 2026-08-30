@@ -37,6 +37,12 @@ pub enum SortInjectionError {
         module: String,
         message: String,
     },
+    InSentence {
+        module: String,
+        source: Option<String>,
+        line: Option<u32>,
+        error: Box<SortInjectionError>,
+    },
     InvalidArity {
         label: String,
         expected: usize,
@@ -90,6 +96,21 @@ impl fmt::Display for SortInjectionError {
                 formatter,
                 "cannot rebase production metadata from module {module:?}: {message}"
             ),
+            Self::InSentence {
+                module,
+                source,
+                line,
+                error,
+            } => {
+                write!(formatter, "in module {module:?}")?;
+                if let Some(source) = source {
+                    write!(formatter, " at {source}")?;
+                    if let Some(line) = line {
+                        write!(formatter, ":{line}")?;
+                    }
+                }
+                write!(formatter, ": {error}")
+            }
             Self::InvalidArity {
                 label,
                 expected,
@@ -866,7 +887,17 @@ pub fn add_sort_injections_to_definition(
                     }
                 })?;
             }
-            let mut injected = injector.inject_sentence(&input)?;
+            let mut injected = injector.inject_sentence(&input).map_err(|error| {
+                SortInjectionError::InSentence {
+                    module: module.name.clone(),
+                    source: input.attributes().source().map(str::to_owned),
+                    line: input
+                        .attributes()
+                        .location()
+                        .map(|location| location.start_line),
+                    error: Box::new(error),
+                }
+            })?;
             if module_id != target && target_modules.contains(&module_id) {
                 localize_sentence_metadata(
                     &mut injected,

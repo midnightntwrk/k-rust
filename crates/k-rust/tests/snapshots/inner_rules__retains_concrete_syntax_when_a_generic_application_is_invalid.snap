@@ -1,0 +1,15 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Stack ::= \".Stack\" [symbol(.Stack)]\n  syntax Int ::= \"#size\" \"(\" Stack \")\" [symbol(#size), function]\n               | \"#size\" \"(\" Stack \",\" Int \")\" [symbol(sizeAux), function]\n  rule #size(.Stack, 0) => 0\nendmodule\n"
+---
+[
+    SentenceSummary {
+        kind: "rule",
+        body: "sizeAux(`.Stack`(.KList),#token(\"0\",\"Int\"))=>#token(\"0\",\"Int\")",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+]

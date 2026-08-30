@@ -231,6 +231,50 @@ fn up_sentence(
 fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Grammar, ParseError> {
     let visible = resolved.sentences(module);
     let concrete_sorts = concrete_sorts(&visible);
+    let has_generated_top_sort = visible.iter().any(|sentence| {
+        matches!(
+            sentence,
+            Sentence::Production {
+                label: None,
+                parameters,
+                sort,
+                items,
+                ..
+            } if sort.name == "KItem"
+                && matches!(items.as_slice(), [ProductionItem::NonTerminal { sort: child, .. }]
+                    if parameters.contains(child))
+        )
+    });
+    let has_generated_bottom_sort = visible.iter().any(|sentence| {
+        matches!(
+            sentence,
+            Sentence::Production {
+                label: None,
+                parameters,
+                sort,
+                items,
+                ..
+            } if parameters.contains(sort)
+                && matches!(items.as_slice(), [ProductionItem::NonTerminal { sort: child, .. }]
+                    if child.name == "KBott")
+        )
+    });
+    let explicit_top_sorts = visible
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: None,
+                parameters,
+                sort,
+                items,
+                ..
+            } if parameters.is_empty() && sort.name == "KItem" => match items.as_slice() {
+                [ProductionItem::NonTerminal { sort: child, .. }] => Some(child.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
     let mut parsing_sentences = visible
         .iter()
         .filter(|sentence| {
@@ -248,6 +292,13 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
         }))
         .then(|| sort_predicate_production(sort))
     }));
+    parsing_sentences.extend(concrete_sorts.iter().filter_map(|sort| {
+        let projection = format!("project:{sort}");
+        (!visible.iter().any(|sentence| {
+            matches!(sentence, Sentence::Production { label: Some(label), .. } if label.name == projection)
+        }))
+        .then(|| sort_projection_production(sort))
+    }));
     if !parsing_sentences
         .iter()
         .any(|sentence| matches!(sentence, Sentence::SyntaxSort { sort, .. } if sort.name == "Bag"))
@@ -263,6 +314,23 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
     let source_catalog = resolved.production_catalog(module);
     let mut grammar =
         Grammar::from_sentences_with_catalog(parsing_sentences.iter(), &source_catalog)?;
+    // Multiplicity-cell collection concatenations have no separator, so retaining every
+    // binary association expands a short sequence into a Catalan-sized parse forest. Their
+    // generated productions are explicitly associative; choosing one association here is
+    // therefore lossless and keeps the rule grammar bounded without affecting user syntax.
+    for sentence in &parsing_sentences {
+        let Sentence::Production {
+            label: Some(label),
+            attributes,
+            ..
+        } = sentence
+        else {
+            continue;
+        };
+        if attributes.get("cellCollection").is_some() && attributes.get("assoc").is_some() {
+            grammar.add_left_associative(label.name.clone());
+        }
+    }
     let bracket_sorts = visible
         .iter()
         .filter_map(|sentence| match sentence {
@@ -304,8 +372,12 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
         #[cfg(not(feature = "z3-inference"))]
         add_rule_sort(&mut grammar, &sort)?;
         if sort.name != "Bool" {
-            add_subsort(&mut grammar, "KItem", sort.clone())?;
-            grammar.add(sort.clone(), vec![nonterminal("KBott")], None, false, true)?;
+            if !has_generated_top_sort && !explicit_top_sorts.contains(&sort) {
+                add_subsort(&mut grammar, "KItem", sort.clone())?;
+            }
+            if !has_generated_bottom_sort {
+                grammar.add(sort.clone(), vec![nonterminal("KBott")], None, false, true)?;
+            }
             add_casts(&mut grammar, Sort::new("K"), sort.clone(), sort.clone())?;
         }
     }
@@ -323,6 +395,29 @@ fn sort_predicate_production(sort: &Sort) -> Sentence {
         label: Some(label.clone()),
         parameters: Vec::new(),
         sort: Sort::new("Bool"),
+        items: vec![
+            ProductionItem::Terminal(label.name),
+            ProductionItem::Terminal("(".into()),
+            ProductionItem::NonTerminal {
+                sort: Sort::new("K"),
+                name: None,
+            },
+            ProductionItem::Terminal(")".into()),
+        ],
+        attributes,
+    }
+}
+
+fn sort_projection_production(sort: &Sort) -> Sentence {
+    let label = Label::new(format!("project:{sort}"));
+    let mut attributes = Attributes::default();
+    attributes.insert("function", serde_json::json!(""));
+    attributes.insert("projection", serde_json::json!(""));
+    attributes.insert("generatedRuleSyntax", serde_json::json!(""));
+    Sentence::Production {
+        label: Some(label.clone()),
+        parameters: Vec::new(),
+        sort: sort.clone(),
         items: vec![
             ProductionItem::Terminal(label.name),
             ProductionItem::Terminal("(".into()),
@@ -425,10 +520,10 @@ fn add_rule_k_syntax(
         false,
         false,
     )?;
-    // `K` and `KItem` are intentionally absent from `concrete_sorts`, but rule bodies still need
-    // their concrete bracket productions. In particular, a parenthesized polymorphic rewrite in
-    // a collection value must retain the KItem interpretation used by sort inference.
-    for sort in [Sort::new("K"), Sort::new("KItem")] {
+    // `K`, `KItem`, and the generated rule-cell `Bag` sort are intentionally absent from
+    // `concrete_sorts`, but rule bodies still need their concrete bracket productions. In
+    // particular, cell-collection deletion commonly parenthesizes a `Bag => Bag` rewrite.
+    for sort in [Sort::new("K"), Sort::new("KItem"), Sort::new("Bag")] {
         grammar.add_bracket(
             sort.clone(),
             vec![
@@ -470,12 +565,14 @@ fn add_rule_k_syntax(
     grammar.add(
         Sort::new("#RuleBody"),
         vec![
-            ProductionItem::Terminal("[[".into()),
+            ProductionItem::Terminal("[".into()),
+            ProductionItem::Terminal("[".into()),
             ProductionItem::NonTerminal {
                 sort: rule_body_sort,
                 name: None,
             },
-            ProductionItem::Terminal("]]".into()),
+            ProductionItem::Terminal("]".into()),
+            ProductionItem::Terminal("]".into()),
             nonterminal("Bag"),
         ],
         Some(Label::new("#withConfig")),

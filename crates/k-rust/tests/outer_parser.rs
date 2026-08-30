@@ -106,6 +106,17 @@ outer_snapshot!(
 "#}
 );
 
+outer_snapshot!(
+    bracket_rewrite_rhs_is_not_mistaken_for_attributes,
+    indoc! {r#"
+    module BRACKET-RHS
+      rule X => [item]
+      rule Y => [other] [simplification]
+      rule Z => PATH[0]
+    endmodule
+"#}
+);
+
 #[test]
 fn list_declaration_checks_match_the_frontend_categories() {
     let source = indoc! {r#"

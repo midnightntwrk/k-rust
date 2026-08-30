@@ -11,6 +11,8 @@ mod z3_inference;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
+use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
 
 use crate::definition::{
     AssociativityRelations, Attributes, PartialOrder, ProductionCatalog, ProductionId,
@@ -296,18 +298,95 @@ struct ProductionOptions<'a> {
 enum ParsedTerm {
     Production {
         production: usize,
-        children: Vec<ParsedTerm>,
+        children: Shared<Vec<ParsedTerm>>,
         metadata: TermMetadata,
     },
     #[cfg_attr(not(feature = "z3-inference"), allow(dead_code))]
     InstantiatedProduction {
         production: usize,
         parameters: Vec<Sort>,
-        children: Vec<ParsedTerm>,
+        children: Shared<Vec<ParsedTerm>>,
         metadata: TermMetadata,
     },
     Term(Term),
-    Ambiguity(BTreeSet<ParsedTerm>),
+    Ambiguity(Shared<BTreeSet<ParsedTerm>>),
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct Shared<T>(Rc<T>);
+
+impl<T> From<T> for Shared<T> {
+    fn from(value: T) -> Self {
+        Self(Rc::new(value))
+    }
+}
+
+impl<T: Clone> Shared<T> {
+    fn into_inner(self) -> T {
+        Rc::unwrap_or_clone(self.0)
+    }
+}
+
+impl<T> Deref for Shared<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: Clone> DerefMut for Shared<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        Rc::make_mut(&mut self.0)
+    }
+}
+
+impl<T: Clone> IntoIterator for Shared<Vec<T>> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.into_inner().into_iter()
+    }
+}
+
+impl<'a, T> IntoIterator for &'a Shared<Vec<T>> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<T: Clone + Ord> IntoIterator for Shared<BTreeSet<T>> {
+    type Item = T;
+    type IntoIter = std::collections::btree_set::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.into_inner().into_iter()
+    }
+}
+
+impl<'a, T: Ord> IntoIterator for &'a Shared<BTreeSet<T>> {
+    type Item = &'a T;
+    type IntoIter = std::collections::btree_set::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<T> FromIterator<T> for Shared<Vec<T>> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        iter.into_iter().collect::<Vec<_>>().into()
+    }
+}
+
+impl<T: Ord> FromIterator<T> for Shared<BTreeSet<T>> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        iter.into_iter().collect::<BTreeSet<_>>().into()
+    }
 }
 
 impl ParsedTerm {
@@ -598,6 +677,11 @@ impl Grammar {
 
                 match production.items.get(state.dot) {
                     Some(Item::NonTerminal(sort)) => {
+                        charts[position]
+                            .waiting
+                            .entry(sort.clone())
+                            .or_default()
+                            .insert(state);
                         for predicted in self.productions_for(sort) {
                             charts[position].add(
                                 State {
@@ -674,25 +758,79 @@ impl Grammar {
                                 }
                             }
                         }
+                        charts[position]
+                            .completed
+                            .entry((production.result.clone(), state.origin))
+                            .or_default()
+                            .insert(state);
                         let callers = charts[state.origin]
-                            .states
-                            .iter()
-                            .filter_map(|(caller, caller_derivations)| {
-                                let caller_production = &self.productions[caller.production];
-                                matches!(
-                                    caller_production.items.get(caller.dot),
-                                    Some(Item::NonTerminal(sort)) if sort == &production.result
-                                )
-                                .then(|| (*caller, caller_derivations.clone()))
-                            })
+                            .waiting
+                            .get(&production.result)
+                            .into_iter()
+                            .flatten()
+                            .map(|caller| (*caller, charts[state.origin].states[caller].clone()))
                             .collect::<Vec<_>>();
                         for (caller, caller_derivations) in callers {
+                            let caller_production = &self.productions[caller.production];
+                            let parent_label = caller_production.parse_label.as_deref();
+                            let side = if caller.dot == 0 {
+                                Some(disambiguation::Side::Left)
+                            } else if caller.dot + 1 == caller_production.items.len() {
+                                Some(disambiguation::Side::Right)
+                            } else {
+                                None
+                            };
+                            let completed = nodes
+                                .iter()
+                                .filter_map(|node| {
+                                    let Some(parent) = parent_label else {
+                                        return Some(node.clone());
+                                    };
+                                    let Some(child) = self.top_parse_label(node) else {
+                                        return Some(node.clone());
+                                    };
+                                    let violation = if matches!(
+                                        side,
+                                        Some(disambiguation::Side::Right)
+                                            if self
+                                                .associativities
+                                                .left
+                                                .contains(&(parent.to_owned(), child.to_owned()))
+                                    ) {
+                                        Some("right")
+                                    } else if matches!(
+                                        side,
+                                        Some(disambiguation::Side::Left)
+                                            if self
+                                                .associativities
+                                                .right
+                                                .contains(&(parent.to_owned(), child.to_owned()))
+                                    ) {
+                                        Some("left")
+                                    } else {
+                                        None
+                                    };
+                                    if let Some(side) = violation {
+                                        first_violation.get_or_insert(ParseError::Associativity {
+                                            parent: parent.to_owned(),
+                                            child: child.to_owned(),
+                                            side,
+                                        });
+                                        None
+                                    } else {
+                                        Some(node.clone())
+                                    }
+                                })
+                                .collect::<BTreeSet<_>>();
+                            if completed.is_empty() {
+                                continue;
+                            }
                             charts[position].add(
                                 State {
                                     dot: caller.dot + 1,
                                     ..caller
                                 },
-                                append_nodes(&caller_derivations, &nodes),
+                                append_nodes(&caller_derivations, &completed),
                             )?;
                         }
                     }
@@ -722,7 +860,7 @@ impl Grammar {
         // preference must therefore run before descending into losing alternatives; filtering
         // each root independently incorrectly rejects inputs whose winning interpretation is a
         // top-level rewrite (for example a rewrite inside a competing map-item parse).
-        let forest = self.collapse_record_productions(ParsedTerm::Ambiguity(parses))?;
+        let forest = self.collapse_record_productions(ParsedTerm::Ambiguity(parses.into()))?;
         let forest = self.filter_priority(forest)?;
         let forest = self.resolve_applications(forest)?;
         let forest = self.push_top_lhs_ambiguity_up(self.factor_ambiguities(forest));
@@ -1110,6 +1248,8 @@ struct State {
 #[derive(Clone, Debug, Default)]
 struct Chart {
     states: BTreeMap<State, BTreeSet<Vec<ParsedTerm>>>,
+    completed: BTreeMap<(Sort, usize), BTreeSet<State>>,
+    waiting: BTreeMap<Sort, BTreeSet<State>>,
     agenda: VecDeque<State>,
 }
 
@@ -1120,9 +1260,18 @@ impl Chart {
         derivations: impl IntoIterator<Item = Vec<ParsedTerm>>,
     ) -> Result<bool, ParseError> {
         let stored = self.states.entry(state).or_default();
-        let old = stored.clone();
+        let mut changed = false;
         for derivation in derivations {
-            stored.insert(derivation);
+            if stored
+                .iter()
+                .any(|existing| derivation_contains(existing, &derivation))
+            {
+                continue;
+            }
+            changed |= stored.insert(derivation);
+        }
+        if !changed {
+            return Ok(false);
         }
         factor_derivations(stored);
         if stored.len() > MAX_DERIVATIONS_PER_STATE {
@@ -1130,43 +1279,85 @@ impl Chart {
                 limit: MAX_DERIVATIONS_PER_STATE,
             });
         }
-        let changed = *stored != old;
-        if changed {
-            self.agenda.push_back(state);
-        }
-        Ok(changed)
+        self.agenda.push_back(state);
+        Ok(true)
     }
 }
 
-/// Pack derivations that differ at only one child position.
+fn derivation_contains(existing: &[ParsedTerm], candidate: &[ParsedTerm]) -> bool {
+    existing.len() == candidate.len()
+        && existing
+            .iter()
+            .zip(candidate)
+            .all(|(existing, candidate)| parsed_term_contains(existing, candidate))
+}
+
+fn parsed_term_contains(existing: &ParsedTerm, candidate: &ParsedTerm) -> bool {
+    if existing == candidate {
+        return true;
+    }
+    match (existing, candidate) {
+        (ParsedTerm::Ambiguity(existing), ParsedTerm::Ambiguity(candidate)) => {
+            candidate.iter().all(|candidate| {
+                existing
+                    .iter()
+                    .any(|existing| parsed_term_contains(existing, candidate))
+            })
+        }
+        (ParsedTerm::Ambiguity(existing), candidate) => existing
+            .iter()
+            .any(|existing| parsed_term_contains(existing, candidate)),
+        _ => false,
+    }
+}
+
+/// Pack derivations that use the same child boundaries.
 ///
-/// Earley completion revisits callers as a completed node gains alternatives. Without replacing
-/// the previously observed subset, a state retains `{a}`, `{a,b}`, `{a,b,c}`, and so on as
-/// distinct derivations. Those sets denote the same choice once the largest set is present. This
-/// fixed-point factoring preserves correlations between children while sharing every choice whose
-/// surrounding children are identical.
+/// For a fixed production and a fixed sequence of child spans, every parse of one child can be
+/// combined independently with every parse of the other children. Keeping those combinations as
+/// separate vectors materializes the Cartesian product that a packed parse forest is meant to
+/// share. Different boundary sequences remain separate because combining those could splice
+/// overlapping parses into a tree the grammar never recognized.
 fn factor_derivations(derivations: &mut BTreeSet<Vec<ParsedTerm>>) {
-    let width = derivations.first().map_or(0, Vec::len);
-    if derivations.len() < 2 || width == 0 {
+    if derivations.len() < 2 {
         return;
     }
 
-    loop {
-        let before = derivations.len();
+    let mut groups = BTreeMap::<Vec<Option<TermSpan>>, Vec<Vec<ParsedTerm>>>::new();
+    for derivation in std::mem::take(derivations) {
+        groups
+            .entry(derivation.iter().map(parsed_term_span).collect())
+            .or_default()
+            .push(derivation);
+    }
+    for (_, group) in groups {
+        let Some(width) = group.first().map(Vec::len) else {
+            continue;
+        };
+        let mut packed = Vec::with_capacity(width);
         for index in 0..width {
-            let mut groups = BTreeMap::<Vec<ParsedTerm>, BTreeSet<ParsedTerm>>::new();
-            for derivation in std::mem::take(derivations) {
-                let mut key = derivation;
-                let node = key.remove(index);
-                groups.entry(key).or_default().insert(node);
-            }
-            for (mut key, nodes) in groups {
-                key.insert(index, pack_alternatives(nodes));
-                derivations.insert(key);
-            }
+            packed.push(pack_alternatives(
+                group
+                    .iter()
+                    .map(|derivation| derivation[index].clone())
+                    .collect(),
+            ));
         }
-        if derivations.len() == before {
-            break;
+        derivations.insert(packed);
+    }
+}
+
+fn parsed_term_span(term: &ParsedTerm) -> Option<TermSpan> {
+    match term {
+        ParsedTerm::Production { metadata, .. }
+        | ParsedTerm::InstantiatedProduction { metadata, .. } => metadata.span,
+        ParsedTerm::Term(term) => term.metadata().and_then(|metadata| metadata.span),
+        ParsedTerm::Ambiguity(alternatives) => {
+            let mut spans = alternatives.iter().map(parsed_term_span);
+            let span = spans.next().flatten()?;
+            spans
+                .all(|candidate| candidate == Some(span))
+                .then_some(span)
         }
     }
 }
@@ -1184,7 +1375,7 @@ fn pack_alternatives(nodes: BTreeSet<ParsedTerm>) -> ParsedTerm {
     if alternatives.len() == 1 {
         alternatives.pop_first().expect("one alternative exists")
     } else {
-        ParsedTerm::Ambiguity(alternatives)
+        ParsedTerm::Ambiguity(alternatives.into())
     }
 }
 
@@ -1218,10 +1409,11 @@ fn completed_nodes(
 ) -> (BTreeSet<ParsedTerm>, Option<ParseError>) {
     let mut nodes = BTreeSet::new();
     let mut first_violation = None;
-    for (state, derivations) in chart.states.iter().filter(|(state, _)| {
-        let production = &grammar.productions[state.production];
-        state.origin == origin && state.dot == production.items.len() && &production.result == sort
-    }) {
+    let Some(states) = chart.completed.get(&(sort.clone(), origin)) else {
+        return (nodes, first_violation);
+    };
+    for state in states {
+        let derivations = &chart.states[state];
         let production = &grammar.productions[state.production];
         for children in derivations {
             let term = build_parsed_term(
@@ -1246,18 +1438,94 @@ fn completed_nodes(
 }
 
 fn filter_or_defer_priority(grammar: &Grammar, term: ParsedTerm) -> Result<ParsedTerm, ParseError> {
-    match grammar.filter_priority(term.clone()) {
-        Ok(term) => Ok(term),
-        // A locally invalid nested rewrite/sequence/let may be the losing view of an ambiguity
-        // whose sibling has that operation at the root. Java retains the packed forest until its
-        // root-preference rule can select the sibling. Other priority and associativity failures
-        // are safe to prune eagerly, which keeps long associative chains bounded.
-        Err(ParseError::Scope { child, .. })
-            if matches!(child.as_str(), "#KRewrite" | "#KSequence" | "#let") =>
-        {
-            Ok(term)
+    let ParsedTerm::Production {
+        production,
+        mut children,
+        metadata,
+    } = term
+    else {
+        return Ok(term);
+    };
+    let descriptor = &grammar.productions[production];
+    if descriptor.record.is_some() || descriptor.syntactic_subsort {
+        return Ok(ParsedTerm::Production {
+            production,
+            children,
+            metadata,
+        });
+    }
+    let checked = descriptor.apply_priority.clone().unwrap_or_else(|| {
+        let mut positions = BTreeSet::new();
+        if matches!(descriptor.items.first(), Some(Item::NonTerminal(_))) {
+            positions.insert(1);
         }
-        Err(error) => Err(error),
+        if matches!(descriptor.items.last(), Some(Item::NonTerminal(_))) {
+            positions.insert(children.len());
+        }
+        positions
+    });
+    let child_count = children.len();
+    for (index, child) in children.iter_mut().enumerate() {
+        let position = index + 1;
+        if !checked.contains(&position) {
+            continue;
+        }
+        let side =
+            if position == 1 && matches!(descriptor.items.first(), Some(Item::NonTerminal(_))) {
+                disambiguation::Side::Left
+            } else if position == child_count
+                && matches!(descriptor.items.last(), Some(Item::NonTerminal(_)))
+            {
+                disambiguation::Side::Right
+            } else {
+                disambiguation::Side::Middle
+            };
+        *child = filter_priority_boundary(grammar, descriptor, child.clone(), side)?;
+    }
+    Ok(ParsedTerm::Production {
+        production,
+        children,
+        metadata,
+    })
+}
+
+fn filter_priority_boundary(
+    grammar: &Grammar,
+    parent: &Production,
+    child: ParsedTerm,
+    side: disambiguation::Side,
+) -> Result<ParsedTerm, ParseError> {
+    if let ParsedTerm::Ambiguity(alternatives) = child {
+        let mut retained = BTreeSet::new();
+        let mut first_error = None;
+        for alternative in alternatives {
+            match filter_priority_boundary(grammar, parent, alternative, side) {
+                Ok(alternative) => {
+                    retained.insert(alternative);
+                }
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                }
+            }
+        }
+        return match retained.len() {
+            0 => Err(first_error.expect("an empty ambiguity had no valid alternative")),
+            1 => Ok(retained.pop_first().expect("length was one")),
+            _ => Ok(ParsedTerm::Ambiguity(retained.into())),
+        };
+    }
+    match grammar.child_violation(parent, &child, side) {
+        // A cast can finish before the surrounding infix production has been packed. Rejecting
+        // that provisional boundary here can discard the valid sibling in a large ambiguous
+        // forest. The complete priority pass performs this check once the tree is fully formed.
+        Some(ParseError::CastPriority { .. }) => Ok(child),
+        Some(ParseError::Scope { child: label, .. })
+            if matches!(label.as_str(), "#KRewrite" | "#KSequence" | "#let") =>
+        {
+            Ok(child)
+        }
+        Some(error) => Err(error),
+        None => Ok(child),
     }
 }
 
@@ -1311,7 +1579,7 @@ fn build_parsed_term(
     }
     ParsedTerm::Production {
         production: production.term_production.unwrap_or(production_index),
-        children: children.to_vec(),
+        children: children.to_vec().into(),
         metadata: term_metadata(production, start, end),
     }
 }
@@ -1360,6 +1628,18 @@ fn lower_term(production: &Production, children: &[Term]) -> Term {
 #[cfg(test)]
 mod chart_tests {
     use super::*;
+
+    fn spanned_node(production: usize, start: usize, end: usize) -> ParsedTerm {
+        ParsedTerm::Production {
+            production,
+            children: Vec::new().into(),
+            metadata: TermMetadata {
+                span: Some(TermSpan { start, end }),
+                production: None,
+                sort: None,
+            },
+        }
+    }
 
     #[test]
     fn external_catalog_overloads_remain_in_source_production_id_space() {
@@ -1478,6 +1758,33 @@ mod chart_tests {
             ParsedTerm::Ambiguity(alternatives)
                 if alternatives.len() == MAX_DERIVATIONS_PER_STATE + 1
         ));
+    }
+
+    #[test]
+    fn packs_independent_child_choices_with_matching_boundaries() {
+        let mut derivations = BTreeSet::from([
+            vec![spanned_node(0, 0, 1), spanned_node(2, 1, 2)],
+            vec![spanned_node(1, 0, 1), spanned_node(3, 1, 2)],
+        ]);
+
+        factor_derivations(&mut derivations);
+
+        let packed = derivations.first().expect("one packed derivation");
+        assert_eq!(derivations.len(), 1);
+        assert!(matches!(&packed[0], ParsedTerm::Ambiguity(items) if items.len() == 2));
+        assert!(matches!(&packed[1], ParsedTerm::Ambiguity(items) if items.len() == 2));
+    }
+
+    #[test]
+    fn keeps_different_child_boundaries_correlated() {
+        let mut derivations = BTreeSet::from([
+            vec![spanned_node(0, 0, 1), spanned_node(1, 1, 3)],
+            vec![spanned_node(2, 0, 2), spanned_node(3, 2, 3)],
+        ]);
+
+        factor_derivations(&mut derivations);
+
+        assert_eq!(derivations.len(), 2);
     }
 
     #[test]

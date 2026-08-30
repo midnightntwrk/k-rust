@@ -194,14 +194,14 @@ impl Grammar {
                 .into_iter()
                 .map(|term| self.collapse_records(term, names, next))
                 .collect::<Result<BTreeSet<_>, _>>()
-                .map(ParsedTerm::Ambiguity),
+                .map(|alternatives| ParsedTerm::Ambiguity(alternatives.into())),
             ParsedTerm::Production {
                 production,
                 children,
                 metadata,
             } if self.productions[production].record.is_some() => {
                 let collapsed =
-                    self.collapse_record(production, children, metadata, names, next)?;
+                    self.collapse_record(production, children.into_inner(), metadata, names, next)?;
                 self.collapse_records(collapsed, names, next)
             }
             ParsedTerm::Production {
@@ -238,7 +238,7 @@ impl Grammar {
         let mut fields = BTreeMap::new();
         let mut iterator = ParsedTerm::Production {
             production,
-            children,
+            children: children.into(),
             metadata: root_metadata.clone(),
         };
 

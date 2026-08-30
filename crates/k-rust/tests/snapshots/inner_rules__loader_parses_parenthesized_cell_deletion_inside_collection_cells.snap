@@ -1,0 +1,51 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  configuration\n    <accounts>\n      <account multiplicity=\"*\" type=\"Map\">\n        <acctID> 0 </acctID>\n      </account>\n    </accounts>\n\n  rule <accounts>\n    ( <account>\n        <acctID> ACCT </acctID>\n        ...\n      </account>\n   => .Bag\n    )\n    ...\n  </accounts>\nendmodule\n"
+---
+[
+    SentenceSummary {
+        kind: "rule",
+        body: "`<accounts>`(#noDots(.KList),`<account>`(#noDots(.KList),`<acctID>`(#noDots(.KList),#SemanticCastToInt(ACCT),#noDots(.KList)),#dots(.KList))=>#cells(.KList),#dots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "`AccountCellMapKey`(`<account>`(#noDots(.KList),Key,#dots(.KList)))=>Key",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "initAccountCell(.KList)=>`<account>`(#noDots(.KList),initAcctIDCell(.KList),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "initAccountsCell(.KList)=>`<accounts>`(#noDots(.KList),#cells(.KList),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "initAcctIDCell(.KList)=>`<acctID>`(#noDots(.KList),#token(\"0\",\"Int\"),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+]
