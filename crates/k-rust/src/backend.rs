@@ -50,7 +50,7 @@ mod wire;
 pub use wire::*;
 
 #[derive(Clone, Copy, Debug, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct BackendOptions {
     pub smt_timeout_ms: u32,
     pub smt_retry_limit: u32,
@@ -81,7 +81,7 @@ pub struct BackendCapabilities {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct ExecuteRequest {
     pub state: Value,
     pub module_name: Option<String>,
@@ -99,6 +99,7 @@ pub struct ExecuteRequest {
     pub step_timeout_ms: Option<u64>,
     pub moving_average_timeout: bool,
     pub assume_state_defined: bool,
+    pub schema_version: u32,
 }
 
 impl Default for ExecuteRequest {
@@ -116,6 +117,7 @@ impl Default for ExecuteRequest {
             step_timeout_ms: None,
             moving_average_timeout: false,
             assume_state_defined: false,
+            schema_version: BACKEND_SCHEMA_VERSION,
         }
     }
 }
@@ -163,20 +165,24 @@ pub struct TraceEntry {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct PatternRequest {
     pub state: Value,
     #[serde(default)]
     pub module_name: Option<String>,
+    #[serde(default = "default_backend_schema_version")]
+    pub schema_version: u32,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ImplicationRequest {
     pub antecedent: Value,
     pub consequent: Value,
     #[serde(default)]
     pub module_name: Option<String>,
+    #[serde(default = "default_backend_schema_version")]
+    pub schema_version: u32,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -200,7 +206,7 @@ pub struct ModelResultOutput {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct ProveRequest {
     pub module_name: Option<String>,
     pub claim: Option<String>,
@@ -215,6 +221,7 @@ pub struct ProveRequest {
     pub stuck_check: bool,
     pub step_timeout_ms: Option<u64>,
     pub moving_average_timeout: bool,
+    pub schema_version: u32,
 }
 
 impl Default for ProveRequest {
@@ -232,6 +239,7 @@ impl Default for ProveRequest {
             stuck_check: true,
             step_timeout_ms: None,
             moving_average_timeout: false,
+            schema_version: BACKEND_SCHEMA_VERSION,
         }
     }
 }
@@ -330,6 +338,7 @@ impl Backend {
         request: ExecuteRequest,
         observation_rules: Option<Option<Vec<String>>>,
     ) -> Result<ExecutionResult, BackendError> {
+        validate_backend_schema_version(request.schema_version)?;
         #[cfg(target_arch = "wasm32")]
         if request.step_timeout_ms.is_some() || request.moving_average_timeout {
             return Err(BackendError(
@@ -558,6 +567,7 @@ impl Backend {
     }
 
     pub fn simplify(&mut self, request: PatternRequest) -> Result<Value, BackendError> {
+        validate_backend_schema_version(request.schema_version)?;
         let syntax = decode_pattern(request.state)?;
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
             let output = match definition.internalize_pattern(&syntax, &[]) {
@@ -600,6 +610,7 @@ impl Backend {
         &mut self,
         request: ImplicationRequest,
     ) -> Result<ImplicationResult, BackendError> {
+        validate_backend_schema_version(request.schema_version)?;
         let antecedent = decode_pattern(request.antecedent)?;
         let consequent = decode_pattern(request.consequent)?;
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
@@ -641,6 +652,7 @@ impl Backend {
         &mut self,
         request: PatternRequest,
     ) -> Result<ModelResultOutput, BackendError> {
+        validate_backend_schema_version(request.schema_version)?;
         #[cfg(not(feature = "z3-inference"))]
         {
             let _ = request;
@@ -691,6 +703,7 @@ impl Backend {
     }
 
     pub fn prove(&mut self, request: ProveRequest) -> Result<ProofResultOutput, BackendError> {
+        validate_backend_schema_version(request.schema_version)?;
         #[cfg(target_arch = "wasm32")]
         if request.step_timeout_ms.is_some() || request.moving_average_timeout {
             return Err(BackendError(
@@ -808,6 +821,14 @@ fn search_options(request: &SearchRequest) -> SearchOptions {
         max_results: request.max_results,
         max_simplification_iterations: request.max_simplification_iterations,
     }
+}
+
+fn default_backend_schema_version() -> u32 {
+    BACKEND_SCHEMA_VERSION
+}
+
+fn validate_backend_schema_version(schema_version: u32) -> Result<(), BackendError> {
+    wire::validate_schema_version(schema_version)
 }
 
 fn pattern_search_options(request: &SearchPatternRequest) -> SearchOptions {
@@ -1227,6 +1248,29 @@ mod tests {
     }
 
     #[test]
+    fn legacy_persistent_requests_reject_unknown_fields() {
+        assert!(serde_json::from_str::<BackendOptions>(r#"{"bogus":1}"#).is_err());
+        assert!(serde_json::from_str::<ExecuteRequest>(r#"{"state":null,"bogus":1}"#).is_err());
+        assert!(serde_json::from_str::<PatternRequest>(r#"{"state":null,"bogus":1}"#).is_err());
+        assert!(
+            serde_json::from_str::<ImplicationRequest>(
+                r#"{"antecedent":null,"consequent":null,"bogus":1}"#,
+            )
+            .is_err()
+        );
+        assert!(serde_json::from_str::<ProveRequest>(r#"{"bogus":1}"#).is_err());
+
+        let error = backend()
+            .execute(ExecuteRequest {
+                state: json("a{}()"),
+                schema_version: 99,
+                ..ExecuteRequest::default()
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("schema version 99"), "{error}");
+    }
+
+    #[test]
     fn encodes_deep_patterns_without_the_default_json_recursion_limit() {
         let mut source = r"\top{SortS{}}()".to_owned();
         for _ in 0..160 {
@@ -1255,6 +1299,7 @@ mod tests {
                 antecedent: json("X:S"),
                 consequent: json("X:S"),
                 module_name: None,
+                schema_version: BACKEND_SCHEMA_VERSION,
             })
             .unwrap();
         assert_eq!(implication.status, "valid");
@@ -1526,6 +1571,7 @@ mod tests {
             .get_model(PatternRequest {
                 state: json("a{}()"),
                 module_name: None,
+                schema_version: BACKEND_SCHEMA_VERSION,
             })
             .unwrap_err();
         assert!(error.to_string().contains("no Z3"));
