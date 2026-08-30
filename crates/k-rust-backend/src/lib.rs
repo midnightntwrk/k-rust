@@ -21,4 +21,5 @@ pub mod smt;
 pub mod substitution;
 pub mod term;
 pub mod timeout;
+pub mod transition;
 pub mod unification;
