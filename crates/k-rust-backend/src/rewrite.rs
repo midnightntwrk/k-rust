@@ -20,9 +20,9 @@ use crate::{
     },
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
     simplify::{
-        PatternSimplification, SimplificationError, SimplificationOptions,
-        simplify_pattern_details_with_solver, simplify_predicates_with_solver,
-        simplify_with_solver,
+        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, PatternSimplification, SimplificationError,
+        SimplificationOptions, simplify_pattern_details_with_solver,
+        simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, extract_substitution, substitute, substitution_binding},
@@ -188,7 +188,7 @@ impl Default for ExecutionOptions {
         Self {
             max_depth: u64::MAX,
             max_breadth: None,
-            max_simplification_iterations: 100,
+            max_simplification_iterations: DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
             mode: ExecutionMode::All,
             branch_mode: ExecutionBranchMode::ExploreAll,
             cut_point_rules: BTreeSet::new(),
