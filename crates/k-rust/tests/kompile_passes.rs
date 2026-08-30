@@ -2502,6 +2502,7 @@ fn splits_fragment_variables_on_both_sides_of_a_parent_cell_rewrite() {
     );
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn lifts_one_sided_repeated_cell_rewrites_through_missing_parents() {
     let source = indoc! {r#"

@@ -1,14 +1,18 @@
 use std::collections::BTreeMap;
 
+#[cfg(feature = "z3-inference")]
 use k_rust::{
     builtin::embedded,
+    outer::{LoadOptions, load_structured},
+};
+use k_rust::{
     definition::{
         Attributes, Definition, FlatModule, ProductionItem, ResolvedDefinition, Sentence,
     },
     kast::{Label, Sort, Term},
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
     kore::parser::parse_definition,
-    outer::{LoadOptions, LoadedDefinition, load_structured},
+    outer::LoadedDefinition,
 };
 use serde_json::json;
 
@@ -38,6 +42,7 @@ fn structured_configuration_compiles_through_the_public_pipeline() {
     });
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn load_structured_compiles_an_authored_instrs_configuration() {
     for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
@@ -106,6 +111,7 @@ fn structured_definition(with_configuration: bool) -> Definition {
     )
 }
 
+#[cfg(feature = "z3-inference")]
 fn structured_definition_with_configuration_cell(cell: &str) -> Definition {
     structured_definition_with_optional_configuration_cell(Some(cell), false)
 }

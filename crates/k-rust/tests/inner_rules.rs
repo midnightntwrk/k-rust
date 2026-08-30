@@ -184,6 +184,7 @@ fn rule_parsing_always_includes_default_layout() {
     );
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn prunes_nested_rewrites_while_parsing_a_long_recursive_chain() {
     let source = indoc! {r##"
@@ -1319,7 +1320,7 @@ rule_snapshot!(
 
 #[cfg(not(feature = "z3-inference"))]
 #[test]
-fn overloaded_generic_applications_require_z3_inference() {
+fn portable_inference_prunes_ill_typed_overloaded_generic_applications() {
     let source = indoc! {r#"
         module MAIN
           syntax A ::= "a" [symbol(a)]
@@ -1329,7 +1330,18 @@ fn overloaded_generic_applications_require_z3_inference() {
           rule pick(a) => a
         endmodule
     "#};
-    assert_parametric_rule_requires_z3(source);
+    let resolved = resolve_rule_bubbles(&lowered(source)).unwrap();
+    let body = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .expect("the portable parser should retain the well-typed rule");
+    assert_eq!(body.to_string(), "pick(a(.KList))=>a(.KList)");
 }
 
 #[test]
@@ -1458,9 +1470,9 @@ fn infers_empty_user_list_in_a_function_rule() {
     );
 }
 
-rule_snapshot!(
-    resolves_an_element_of_an_overloaded_user_list,
-    r##"
+#[test]
+fn resolves_an_element_of_an_overloaded_user_list() {
+    let source = indoc! {r##"
         module MAIN
           syntax EmptyStmt
           syntax Instr ::= EmptyStmt
@@ -1477,5 +1489,9 @@ rule_snapshot!(
           syntax TypesInfo ::= "#types2indices" "(" Defns "," TypesInfo ")" [function, symbol(types2indices)]
           rule #types2indices(_D DS, M) => #types2indices(DS, M) [owise]
         endmodule
-    "##
-);
+    "##};
+    #[cfg(feature = "z3-inference")]
+    assert_rule_resolution_snapshot!(source);
+    #[cfg(not(feature = "z3-inference"))]
+    assert_ambiguity_requires_z3(source);
+}
