@@ -374,6 +374,17 @@ fn resolves_stream_initializers_unblocking_rules_and_builtin_sentences() {
     assert!(main.local_sentences.iter().any(|sentence| {
         matches!(sentence, Sentence::Production { sort, .. } if sort.name == "Stream")
     }));
+    let generated_receipts = main
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| sentence.attributes().get(ORIGIN_ATTRIBUTE))
+        .collect::<Vec<_>>();
+    assert!(!generated_receipts.is_empty());
+    assert!(
+        generated_receipts
+            .iter()
+            .all(|receipt| receipt["pass"] == GeneratingPass::ResolveIo.as_str())
+    );
     let resolved = ResolvedDefinition::resolve(&definition).unwrap();
     let catalog = resolved.production_catalog(resolved.module_id("MAIN").unwrap());
     let consume = main
@@ -513,6 +524,16 @@ fn lowers_local_functions_with_closure_arguments_and_totality() {
         rendered
             .iter()
             .any(|body| { body.contains("`#lambda__`(X,Y)=>plus(X,Y)") })
+    );
+    let receipts = sentences
+        .iter()
+        .filter_map(|sentence| sentence.attributes().get(ORIGIN_ATTRIBUTE))
+        .collect::<Vec<_>>();
+    assert!(!receipts.is_empty());
+    assert!(
+        receipts
+            .iter()
+            .all(|receipt| receipt["pass"] == GeneratingPass::ResolveFun.as_str())
     );
 }
 
@@ -784,6 +805,17 @@ fn threads_configuration_through_transitive_function_calls() {
             .iter()
             .any(|body| body == "plain(.KList)=>caller(#Configuration)"),
         "{rendered:#?}"
+    );
+    let receipts = main
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| sentence.attributes().get(ORIGIN_ATTRIBUTE))
+        .collect::<Vec<_>>();
+    assert!(!receipts.is_empty());
+    assert!(
+        receipts.iter().all(|receipt| {
+            receipt["pass"] == GeneratingPass::ResolveFunctionWithConfig.as_str()
+        })
     );
 }
 

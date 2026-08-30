@@ -9,6 +9,7 @@ use crate::{
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
     kompile::{SortInjectionError, SortInjector},
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 use super::rebase_local_metadata;
@@ -37,6 +38,11 @@ impl std::error::Error for ResolveFunError {}
 /// explicit closure arguments. Generated sentences remain local to the module containing the
 /// expression, exactly as in Java's `ResolveFun` module transformer.
 pub fn resolve_fun(definition: &Definition) -> Result<Definition, ResolveFunError> {
+    resolve_fun_inner(definition)
+        .map(|output| record_generated_origins(definition, output, GeneratingPass::ResolveFun))
+}
+
+fn resolve_fun_inner(definition: &Definition) -> Result<Definition, ResolveFunError> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(|error| ResolveFunError {
         diagnostics: vec![plain_error(error.to_string())],
     })?;

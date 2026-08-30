@@ -11,6 +11,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 use super::rebase_local_metadata_by;
@@ -42,6 +43,18 @@ impl std::error::Error for ResolveFunctionWithConfigError {}
 /// The requirement propagates backwards through calls to functions and non-macro `anywhere`
 /// symbols, so callers receive and forward the same configuration value transitively.
 pub fn resolve_function_with_config(
+    definition: &Definition,
+) -> Result<Definition, ResolveFunctionWithConfigError> {
+    resolve_function_with_config_inner(definition).map(|output| {
+        record_generated_origins(
+            definition,
+            output,
+            GeneratingPass::ResolveFunctionWithConfig,
+        )
+    })
+}
+
+fn resolve_function_with_config_inner(
     definition: &Definition,
 ) -> Result<Definition, ResolveFunctionWithConfigError> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(|error| {
