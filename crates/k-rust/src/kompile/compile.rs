@@ -21,7 +21,7 @@ use super::{
     propagate_macro_attributes, remove_unit, resolve_anon_vars, resolve_comm, resolve_config_var,
     resolve_contexts, resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
     resolve_function_with_config, resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts,
-    resolve_strict, subsort_kitem,
+    resolve_strict, rust_backend_hook_namespaces, subsort_kitem,
 };
 
 /// Backend whose KORE input should be generated.
@@ -34,6 +34,17 @@ pub enum CompilationBackend {
 
 impl CompilationBackend {
     /// Module attribute excluded before compilation for this backend.
+    /// Plugin hook namespaces admitted as hooked symbols when `--hook-namespaces` is not given.
+    ///
+    /// The Rust backend dispatches its plugin hooks natively; other backends match a default
+    /// Java `kompile`, which emits plugin hooks as ordinary symbols unless namespaces are named.
+    pub fn default_hook_namespaces(self) -> Vec<String> {
+        match self {
+            Self::Rust => rust_backend_hook_namespaces(),
+            Self::Llvm => Vec::new(),
+        }
+    }
+
     pub fn excluded_module_attribute(self) -> &'static str {
         match self {
             Self::Llvm => "symbolic",
@@ -76,12 +87,15 @@ impl FromStr for CompilationBackend {
 }
 
 /// Options affecting backend selection and textual KORE rendering.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompileOptions {
     pub backend: CompilationBackend,
     pub kore_width: usize,
     /// Match `kprove` by treating bare claims as all-path reachability claims.
     pub default_claims_to_all_path: bool,
+    /// Plugin hook namespaces to admit as hooked symbols (`kompile --hook-namespaces`); `None`
+    /// uses [`CompilationBackend::default_hook_namespaces`].
+    pub hook_namespaces: Option<Vec<String>>,
 }
 
 impl Default for CompileOptions {
@@ -90,6 +104,7 @@ impl Default for CompileOptions {
             backend: CompilationBackend::Rust,
             kore_width: 100,
             default_claims_to_all_path: false,
+            hook_namespaces: None,
         }
     }
 }
@@ -277,6 +292,10 @@ pub fn compile_loaded_definition(
             ModuleToKoreOptions {
                 generate_map_ceil_axioms: options.backend == CompilationBackend::Rust,
                 default_claims_to_all_path: options.default_claims_to_all_path,
+                hook_namespaces: options
+                    .hook_namespaces
+                    .clone()
+                    .unwrap_or_else(|| options.backend.default_hook_namespaces()),
             },
         ),
     )?;

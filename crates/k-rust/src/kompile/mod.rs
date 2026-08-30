@@ -12,9 +12,10 @@ pub use compile::{
 };
 pub use module_to_kore::{
     DeclarationError, DeclarationModules, ModuleToKoreError, ModuleToKoreOptions,
-    declaration_modules, declaration_modules_from_resolved, encode_kore_identifier,
-    encode_kore_label, encode_kore_sort, module_to_kore, module_to_kore_from_resolved,
-    module_to_kore_from_resolved_with_options, standard_kore_prelude,
+    declaration_modules, declaration_modules_from_resolved,
+    declaration_modules_from_resolved_with_options, encode_kore_identifier, encode_kore_label,
+    encode_kore_sort, module_to_kore, module_to_kore_from_resolved,
+    module_to_kore_from_resolved_with_options, rust_backend_hook_namespaces, standard_kore_prelude,
 };
 pub use passes::{
     CheckSimplificationError, ConcretizeCellsError, ConstantFoldingError, ExpandMacrosError,
