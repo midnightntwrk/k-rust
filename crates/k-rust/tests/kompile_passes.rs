@@ -52,6 +52,22 @@ fn snapshot_attributes(attributes: &Attributes) -> BTreeMap<String, Value> {
         .collect()
 }
 
+fn assert_generated_by(definition: &Definition, pass: GeneratingPass) {
+    let receipts = definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.local_sentences)
+        .filter_map(|sentence| sentence.attributes().get(ORIGIN_ATTRIBUTE))
+        .collect::<Vec<_>>();
+    assert!(!receipts.is_empty(), "{pass:?} produced no receipts");
+    assert!(
+        receipts
+            .iter()
+            .all(|receipt| receipt["pass"] == pass.as_str()),
+        "{receipts:#?}",
+    );
+}
+
 #[test]
 fn duplicates_commutative_simplification_rules_and_removes_rule_comm() {
     let source = indoc! {r#"
@@ -1075,6 +1091,7 @@ fn lowers_heat_and_cool_attributes_to_result_predicates() {
     }, {
         insta::assert_debug_snapshot!(requires);
     });
+    assert_generated_by(&transformed, GeneratingPass::ResolveHeatCool);
 }
 
 #[test]
@@ -1134,6 +1151,7 @@ fn removes_semantic_casts_and_retains_inferred_variable_sorts() {
     }, {
         insta::assert_debug_snapshot!(output);
     });
+    assert_generated_by(&transformed, GeneratingPass::SemanticCasts);
 }
 
 #[test]
@@ -1210,6 +1228,7 @@ fn adds_kitem_subsorts_for_every_non_parser_sort() {
     }, {
         insta::assert_debug_snapshot!(generated);
     });
+    assert_generated_by(&transformed, GeneratingPass::SubsortKItem);
 }
 
 #[test]
@@ -1249,6 +1268,7 @@ fn folds_pure_constants_only_on_rule_right_hand_sides_and_conditions() {
     }, {
         insta::assert_debug_snapshot!(output);
     });
+    assert_generated_by(&transformed, GeneratingPass::ConstantFolding);
 }
 
 #[cfg(feature = "mpfr-folding")]
@@ -3188,6 +3208,7 @@ fn gives_anonymous_variables_collision_free_sentence_local_names() {
     assert!(rendered[0].1.contains("!_Gen3"), "{rendered:#?}");
     assert!(rendered[0].2.contains("@_Gen4"), "{rendered:#?}");
     assert!(rendered[1].0.contains("_Gen0"), "{rendered:#?}");
+    assert_generated_by(&transformed, GeneratingPass::ResolveAnonymousVariables);
 }
 
 #[test]

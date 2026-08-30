@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     definition::{Definition, Sentence},
     kast::{Sort, Term},
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 /// Apply the KORE backend form of Java's `ResolveSemanticCasts` pass.
@@ -19,7 +20,7 @@ pub fn resolve_semantic_casts(definition: &Definition) -> Definition {
             resolve_sentence(sentence);
         }
     }
-    output
+    record_generated_origins(definition, output, GeneratingPass::SemanticCasts)
 }
 
 fn resolve_sentence(sentence: &mut Sentence) {

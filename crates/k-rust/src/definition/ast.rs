@@ -79,7 +79,9 @@ impl Attributes {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.entries
+            .keys()
+            .all(|key| is_provenance_only_attribute(key))
     }
 
     /// Merge attributes using Scala `Att.mergeAttributes` semantics.

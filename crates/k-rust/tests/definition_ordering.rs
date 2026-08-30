@@ -256,6 +256,7 @@ fn provenance_attributes_do_not_change_semantic_equality_or_ordering() {
         .attributes_mut()
         .insert(SENTENCE_END_OFFSET_ATTRIBUTE, json!(20));
 
+    assert!(generated.attributes().is_empty());
     assert!(sentence_equivalent(&ordinary, &generated));
     assert_eq!(
         compare_sentences(&ordinary, &generated).unwrap(),
