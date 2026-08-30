@@ -38,6 +38,7 @@ fn metadata_is_semantically_transparent_but_remains_inspectable() {
         }),
         production: Some(ResolvedProductionId(7)),
         sort: Some(Sort::new("Exp")),
+        origin: None,
     });
 
     assert_eq!(annotated, plain);
@@ -53,6 +54,7 @@ fn metadata_is_semantically_transparent_but_remains_inspectable() {
             }),
             production: Some(ResolvedProductionId(7)),
             sort: Some(Sort::new("Exp")),
+            origin: None,
         })
     );
 }

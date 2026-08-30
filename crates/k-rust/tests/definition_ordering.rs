@@ -6,6 +6,7 @@ use k_rust::definition::{
     compare_sentences, compare_terms, sentence_equivalent, sort_sentences,
 };
 use k_rust::kast::{Label, Sort, Term};
+use k_rust::provenance::ORIGIN_ATTRIBUTE;
 use serde_json::{Value, json};
 
 fn attrs(entries: &[(&str, Value)]) -> Attributes {
@@ -232,6 +233,27 @@ fn attribute_order_uses_scala_class_and_value_strings() {
         json!({"node": "KSort", "name": "B", "params": []}),
     )]);
     assert_eq!(compare_attributes(&sort_a, &sort_b), Ordering::Less);
+}
+
+#[test]
+fn provenance_attributes_do_not_change_semantic_equality_or_ordering() {
+    let ordinary = Sentence::Rule {
+        body: variable("X"),
+        requires: variable("R"),
+        ensures: variable("E"),
+        attributes: empty(),
+    };
+    let mut generated = ordinary.clone();
+    generated.attributes_mut().insert(
+        ORIGIN_ATTRIBUTE,
+        json!({"pass": "macro-expansion", "origins": [], "destination": null}),
+    );
+
+    assert!(sentence_equivalent(&ordinary, &generated));
+    assert_eq!(
+        compare_sentences(&ordinary, &generated).unwrap(),
+        Ordering::Equal,
+    );
 }
 
 #[test]

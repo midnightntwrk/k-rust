@@ -625,6 +625,7 @@ fn is_internal_attribute(key: &str) -> bool {
             | "sortParams"
             | "org.kframework.attributes.Source"
             | "org.kframework.attributes.SourceId"
+            | "org.krust.provenance.Origin"
             | "org.kframework.attributes.Location"
             | "symbol-overload"
             | "syntaxModule"

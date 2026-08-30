@@ -1,8 +1,11 @@
 use indoc::indoc;
 use k_rust::definition::{Attributes, ProductionItem, Sentence, expand_configurations};
 use k_rust::inner::{ConfigError, resolve_configuration_bubbles};
-use k_rust::kast::Term;
+use k_rust::kast::{Term, TermSpan};
 use k_rust::outer::{ResolvedSource, load};
+use k_rust::provenance::{
+    DestinationAnchor, GeneratingPass, ORIGIN_ATTRIBUTE, ProvenanceLink, SourceId,
+};
 
 fn parsed(source: &str) -> k_rust::definition::Definition {
     let parsed = k_rust::outer::parse("configuration.k", source).unwrap();
@@ -19,6 +22,7 @@ fn attributes(attributes: &Attributes) -> String {
                 key.as_str(),
                 "org.kframework.attributes.Source"
                     | "org.kframework.attributes.SourceId"
+                    | "org.krust.provenance.Origin"
                     | "org.kframework.attributes.Location"
                     | "contentStartLine"
                     | "contentStartColumn"
@@ -118,6 +122,98 @@ fn generates_java_cell_fragment_collection_and_initializer_families() {
     assert_configuration_snapshot!(
         source,
         sentence_summary(&expanded.main_module().unwrap().local_sentences)
+    );
+}
+
+#[test]
+fn configuration_expansion_emits_origin_records() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <k> $PGM:Int </k>
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let configuration_start = source.find("$PGM:Int").unwrap();
+    let configuration_span = TermSpan {
+        source: SourceId(0),
+        start: configuration_start,
+        end: configuration_start + "$PGM:Int".len(),
+    };
+    let expanded = expand_configurations(&definition).unwrap();
+    let expanded_sentences = &expanded.main_module().unwrap().local_sentences;
+    let initializers = expanded
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter(|sentence| sentence.attributes().get("initializer").is_some())
+        .collect::<Vec<_>>();
+
+    assert!(!initializers.is_empty());
+    assert!(
+        initializers.iter().all(|sentence| {
+            sentence
+                .attributes()
+                .get(ORIGIN_ATTRIBUTE)
+                .and_then(|origin| origin.get("pass"))
+                .and_then(serde_json::Value::as_str)
+                == Some("configuration-expansion")
+        }),
+        "every generated initializer sentence must name configuration expansion",
+    );
+    let (initializer_index, initializer) = expanded_sentences
+        .iter()
+        .enumerate()
+        .find(|(_, sentence)| {
+            matches!(sentence, Sentence::Rule { .. })
+                && sentence.attributes().get("initializer").is_some()
+        })
+        .expect("configuration expansion emits an initializer rule");
+    let sentence_anchor = format!("rule:{initializer_index}");
+    let sentence_origin = initializer.attributes().get(ORIGIN_ATTRIBUTE).unwrap();
+    assert_eq!(
+        sentence_origin.get("destination"),
+        Some(&serde_json::json!({
+            "module": "MAIN",
+            "sentence": sentence_anchor,
+            "path": [],
+        })),
+    );
+    assert!(
+        sentence_origin["origins"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!({
+                "kind": "source",
+                "source": configuration_span.source.0,
+                "start": configuration_span.start,
+                "end": configuration_span.end,
+            })),
+        "generated sentence links to the exact configuration source span: {sentence_origin}",
+    );
+
+    let Sentence::Rule { body, .. } = initializer else {
+        unreachable!("initializer was selected as a rule");
+    };
+    let origin = body
+        .metadata()
+        .and_then(|metadata| metadata.origin.as_deref())
+        .expect("generated initializer body has an origin");
+    assert_eq!(origin.pass, GeneratingPass::ConfigurationExpansion);
+    assert!(
+        origin.origins.contains(&ProvenanceLink::Source {
+            span: configuration_span,
+        }),
+        "generated term links to the exact configuration source span",
+    );
+    assert_eq!(
+        origin.destination,
+        Some(DestinationAnchor {
+            module: "MAIN".into(),
+            sentence: sentence_anchor,
+            path: vec![0],
+        }),
     );
 }
 

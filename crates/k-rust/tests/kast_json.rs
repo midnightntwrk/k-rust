@@ -25,6 +25,7 @@ fn encoding_ignores_compiler_metadata() {
         }),
         production: Some(ResolvedProductionId(3)),
         sort: Some(Sort::new("Exp")),
+        origin: None,
     });
 
     assert_eq!(

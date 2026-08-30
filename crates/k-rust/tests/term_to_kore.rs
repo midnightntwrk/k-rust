@@ -245,6 +245,7 @@ fn resolved_production_identity_disambiguates_application_sorts() {
         span: None,
         production: Some(ResolvedProductionId(production.0)),
         sort: None,
+        origin: None,
     });
     let term = Term::Rewrite {
         left: Box::new(annotated.clone()),
@@ -277,6 +278,7 @@ fn recovers_a_stale_catalog_identity_for_a_unique_label() {
         span: None,
         production: Some(ResolvedProductionId(stale.0)),
         sort: None,
+        origin: None,
     });
     let term = Term::Rewrite {
         left: Box::new(stale_application),
@@ -314,6 +316,7 @@ fn stale_catalog_identity_uses_metadata_sort_to_disambiguate_a_label() {
         span: None,
         production: Some(ResolvedProductionId(stale.0)),
         sort: Some(Sort::new("A")),
+        origin: None,
     });
     let term = Term::Rewrite {
         left: Box::new(choice),

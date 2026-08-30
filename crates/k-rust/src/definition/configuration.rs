@@ -12,6 +12,7 @@ use super::{
 };
 use crate::kast::string::unquote;
 use crate::kast::{Label, Sort, Term};
+use crate::provenance::{GeneratingPass, record_generated_origins};
 
 const CELL_NAME_SORT: &str = "#CellName";
 const CONFIG_VAR_SORT: &str = "KConfigVar";
@@ -49,6 +50,12 @@ impl std::error::Error for ConfigurationError {}
 /// The generated cells from imported modules are therefore visible while
 /// resolving external-cell declarations in importing modules.
 pub fn expand_configurations(definition: &Definition) -> Result<Definition, ConfigurationError> {
+    expand_configurations_inner(definition).map(|expanded| {
+        record_generated_origins(definition, expanded, GeneratingPass::ConfigurationExpansion)
+    })
+}
+
+fn expand_configurations_inner(definition: &Definition) -> Result<Definition, ConfigurationError> {
     let initial =
         ResolvedDefinition::resolve(definition).map_err(ConfigurationError::Definition)?;
     let module_names = initial

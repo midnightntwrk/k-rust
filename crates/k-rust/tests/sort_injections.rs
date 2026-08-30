@@ -84,6 +84,7 @@ fn recovers_a_stale_catalog_identity_for_a_unique_label() {
         span: None,
         production: Some(ResolvedProductionId(stale.0)),
         sort: None,
+        origin: None,
     });
     let injector = SortInjector::new(&resolved, "MAIN").unwrap();
 
@@ -110,6 +111,7 @@ fn stale_catalog_identity_uses_metadata_sort_to_disambiguate_a_label() {
         span: None,
         production: Some(ResolvedProductionId(stale.0)),
         sort: Some(Sort::new("A")),
+        origin: None,
     });
     let injector = SortInjector::new(&resolved, "MAIN").unwrap();
 

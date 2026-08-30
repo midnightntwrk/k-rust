@@ -274,6 +274,7 @@ fn normalize_definition_value(
                 "digest",
                 "org.kframework.attributes.Source",
                 "org.kframework.attributes.SourceId",
+                "org.krust.provenance.Origin",
                 "org.kframework.attributes.Location",
                 "org.kframework.definition.Production",
                 "contentStartColumn",
