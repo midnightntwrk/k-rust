@@ -2049,6 +2049,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "z3")]
     fn applies_a_partially_matching_claim_and_closes_its_remainder_by_rules() {
         let syntax = parse_definition(
             r#"[]

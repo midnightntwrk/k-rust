@@ -27,3 +27,4 @@ proptest.workspace = true
 
 [features]
 z3 = ["dep:z3"]
+z3-gh-release = ["z3", "z3/gh-release"]
