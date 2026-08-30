@@ -163,6 +163,11 @@ impl GeneratingPass {
             Self::ModuleToKoreMapCeil => "module-to-kore-map-ceil",
         }
     }
+
+    /// Resolve the stable wire name of a generating pass.
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|pass| pass.as_str() == name)
+    }
 }
 
 /// Stable input edge for one generated node.

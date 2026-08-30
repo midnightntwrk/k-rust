@@ -1,0 +1,12 @@
+# Supported attribute subset for KRUST-PROVENANCE version 1.
+# Attribute keys must be unique before they enter the semantic map.
+# Map iteration defines canonical source order; insertion order is not preserved.
+version = 1
+representation = "unique-json-map"
+key_policy = "any-unique-string"
+duplicate_keys = "typed-rejection"
+source_order = "canonical-key-order"
+value_kinds = ["null", "boolean", "number", "string", "array", "object"]
+
+# KAST JSON version 4 has no KContextAlias representation.
+unsupported_sentence_forms = ["context-alias"]
