@@ -39,6 +39,9 @@ use crate::kore::{
     parser::{parse_definition, parse_module},
 };
 
+mod wire;
+pub use wire::*;
+
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct BackendOptions {
@@ -133,8 +136,8 @@ pub struct ExecutionLeaf {
     pub trace: Vec<TraceEntry>,
 }
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct TraceEntry {
     pub depth: u64,
     pub kind: String,
@@ -870,6 +873,81 @@ mod tests {
 
     fn text(value: Value) -> String {
         Printer::compact().print_pattern(&decode_pattern(value).unwrap())
+    }
+
+    #[test]
+    fn search_wire_types_round_trip_every_disposition() {
+        let state = SearchStateOutput {
+            state: json("a{}()"),
+            depth: 1,
+            trace: Vec::new(),
+            branch: Vec::new(),
+            observations: Vec::new(),
+        };
+        let variants = vec![
+            IncompleteSearchOutput::ResultBound,
+            IncompleteSearchOutput::DepthBound {
+                state: state.clone(),
+            },
+            IncompleteSearchOutput::BreadthBound {
+                states: vec![state.clone()],
+            },
+            IncompleteSearchOutput::Indeterminate {
+                state: state.clone(),
+                reason: SearchFailureOutput::Requires {
+                    rule: "rule-id".into(),
+                },
+            },
+            IncompleteSearchOutput::Cancelled {
+                state: state.clone(),
+            },
+            IncompleteSearchOutput::Simplification {
+                state: state.clone(),
+                error: SearchFailureOutput::IterationLimit { limit: 100 },
+            },
+            IncompleteSearchOutput::Match {
+                state: state.clone(),
+                bindings: Vec::new(),
+                remainder: Vec::new(),
+            },
+            IncompleteSearchOutput::Smt {
+                state,
+                error: SmtFailureOutput::Unavailable,
+            },
+        ];
+
+        for expected in variants {
+            let json = serde_json::to_string(&expected).unwrap();
+            let actual = serde_json::from_str::<IncompleteSearchOutput>(&json).unwrap();
+            assert_eq!(actual, expected, "{json}");
+        }
+
+        let effect = EffectOutput::UserLog {
+            message: "hello".into(),
+        };
+        let json = serde_json::to_string(&effect).unwrap();
+        assert_eq!(serde_json::from_str::<EffectOutput>(&json).unwrap(), effect);
+        assert!(serde_json::from_str::<EffectOutput>(r#"{"kind":"future"}"#).is_err());
+        assert!(
+            serde_json::from_str::<EffectOutput>(
+                r#"{"kind":"user-log","message":"hello","future":true}"#,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn search_request_rejects_unknown_fields_and_schemas() {
+        assert!(serde_json::from_str::<SearchRequest>(r#"{"bogus":1}"#).is_err());
+
+        let request = serde_json::from_value::<SearchRequest>(serde_json::json!({
+            "state": json("a{}()"),
+            "schemaVersion": 99,
+        }))
+        .unwrap();
+        let error = request.validate_schema().unwrap_err();
+        assert!(error.to_string().contains("schema version 99"), "{error}");
+        assert!(error.to_string().contains("version 1"), "{error}");
     }
 
     #[test]
