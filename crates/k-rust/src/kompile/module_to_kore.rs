@@ -18,7 +18,9 @@ use crate::kore::ast::{
     Attributes, Definition as KoreDefinition, Module, Pattern, Sentence as KoreSentence,
     Sort as KoreSort, Symbol, Variable, VariableKind,
 };
-use crate::provenance::{GeneratingPass, seed_generated_sentence_origin, sentence_origin_links};
+use crate::provenance::{
+    GeneratingPass, ProvenanceLink, seed_generated_sentence_origin, sentence_origin_links,
+};
 
 use super::passes::number_sentence;
 use super::sort_injections::{SortInjectionError, SortInjector};
@@ -765,6 +767,11 @@ fn generate_map_ceil_rules(
                 message: "MAP.element must have at least one argument".into(),
             });
         }
+        let origins = map_ceil_origin_links([
+            production,
+            productions.production(concat_id),
+            productions.production(element_id),
+        ]);
 
         let sort_parameter = Sort::with_parameters("#SortParam", vec![Sort::new("Q")]);
         let rest = typed_variable("@Rest", map_sort.clone());
@@ -829,14 +836,22 @@ fn generate_map_ceil_rules(
             attributes,
         };
         number_sentence(&mut rule);
-        seed_generated_sentence_origin(
-            &mut rule,
-            GeneratingPass::ModuleToKoreMapCeil,
-            sentence_origin_links(production),
-        );
+        seed_generated_sentence_origin(&mut rule, GeneratingPass::ModuleToKoreMapCeil, origins);
         rules.push(rule);
     }
     Ok(rules)
+}
+
+fn map_ceil_origin_links(productions: [&Sentence; 3]) -> Vec<ProvenanceLink> {
+    productions
+        .into_iter()
+        .flat_map(sentence_origin_links)
+        .fold(Vec::new(), |mut links, link| {
+            if !links.contains(&link) {
+                links.push(link);
+            }
+            links
+        })
 }
 
 fn nonterminal_sorts(items: &[ProductionItem]) -> Vec<Sort> {
@@ -3682,6 +3697,70 @@ mod tests {
                             .is_some_and(|origins| !origins.is_empty())
                 })
         }));
+        let source_link = |sentence: &str| {
+            let start = source.find(sentence).unwrap();
+            json!({
+                "kind": "source",
+                "source": 0,
+                "start": start,
+                "end": start + sentence.len(),
+            })
+        };
+        assert_eq!(
+            rules[0]
+                .attributes()
+                .get(crate::provenance::ORIGIN_ATTRIBUTE)
+                .unwrap()["origins"],
+            json!([
+                source_link("Key \"in_keys\" Map [function, hook(MAP.in_keys), symbol(inKeys)]"),
+                source_link("Map Map [function, hook(MAP.concat), symbol(mapConcat)]"),
+                source_link("Key \"|->\" Value [function, hook(MAP.element), symbol(mapItem)]"),
+            ]),
+        );
+    }
+
+    #[test]
+    fn map_ceil_origin_links_deduplicate_without_reordering() {
+        let source_link = |start, end| ProvenanceLink::Source {
+            span: crate::kast::TermSpan {
+                source: crate::provenance::SourceId(0),
+                start,
+                end,
+            },
+        };
+        let shared = ProvenanceLink::Sentence {
+            unique_id: "shared".into(),
+        };
+        let sentence = |origins| {
+            let mut attributes = KAttributes::default();
+            attributes.insert(
+                crate::provenance::ORIGIN_ATTRIBUTE,
+                crate::provenance::OriginRecord {
+                    pass: GeneratingPass::MacroExpansion,
+                    origins,
+                    destination: None,
+                }
+                .to_value(),
+            );
+            Sentence::SyntaxSort {
+                parameters: Vec::new(),
+                sort: Sort::new("Map"),
+                attributes,
+            }
+        };
+        let in_keys = sentence(vec![source_link(30, 40), shared.clone()]);
+        let concat = sentence(vec![shared.clone(), source_link(20, 30)]);
+        let element = sentence(vec![source_link(30, 40), source_link(10, 20)]);
+
+        assert_eq!(
+            map_ceil_origin_links([&in_keys, &concat, &element]),
+            [
+                source_link(30, 40),
+                shared,
+                source_link(20, 30),
+                source_link(10, 20)
+            ],
+        );
     }
 
     #[test]
