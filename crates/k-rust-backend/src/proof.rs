@@ -17,9 +17,9 @@ use crate::{
     },
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rewrite::{
-        IndeterminateReason, Pattern, RewriteResult, TraceEntry, TraceKind, Truth,
-        predicates_truth, recover_indeterminate_match, rewrite_step_with_solver,
-        substitute_predicates,
+        IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry, TraceKind, Truth,
+        conjunctively_contains_alpha_equivalent, predicates_truth, quantify_introduced_variables,
+        recover_indeterminate_match, rewrite_step_with_solver, substitute_predicates,
     },
     simplify::{
         SimplificationError, SimplificationOptions, simplify_predicates_with_solver,
@@ -27,8 +27,9 @@ use crate::{
     },
     smt::{SmtError, SmtSolver, Validity},
     substitution::{Substitution, substitute},
-    term::Term,
+    term::{Term, TermKind},
     timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
+    unification::{UnificationResult, unify_term_pairs},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -399,7 +400,7 @@ pub fn prove_claim(
                             }
                         });
                     }
-                    transition @ ClaimApplication::Applied(_) => {
+                    transition @ ClaimApplication::Applied { .. } => {
                         claim_transition = Some((candidate, transition));
                         break;
                     }
@@ -407,7 +408,10 @@ pub fn prove_claim(
             }
             if let Some((candidate, transition)) = claim_transition {
                 match transition {
-                    ClaimApplication::Applied(patterns) => {
+                    ClaimApplication::Applied {
+                        patterns,
+                        remainder,
+                    } => {
                         if extend_frontier(
                             &mut pending,
                             patterns.into_iter().map(|pattern| {
@@ -419,6 +423,23 @@ pub fn prove_claim(
                             }),
                             options.breadth_limit,
                         ) {
+                            return Ok(finish_at_breadth_limit(
+                                claim.mode,
+                                leaves,
+                                pending,
+                                explored_states,
+                            ));
+                        }
+                        // The sub-case the claim did not cover stays at the same depth and
+                        // continues through the other claims and the semantics, exactly like
+                        // the remainder of a partially applicable rule.
+                        if let Some(remainder) = remainder
+                            && extend_frontier(
+                                &mut pending,
+                                std::iter::once(state.remaining(remainder)),
+                                options.breadth_limit,
+                            )
+                        {
                             return Ok(finish_at_breadth_limit(
                                 claim.mode,
                                 leaves,
@@ -617,7 +638,12 @@ impl ProofState {
 
 enum ClaimApplication {
     NotApplicable,
-    Applied(Vec<Pattern>),
+    /// The claim's right-hand sides on the covered sub-case, plus the uncovered sub-case when
+    /// the claim matched only under a condition on the subject.
+    Applied {
+        patterns: Vec<Pattern>,
+        remainder: Option<RemainderBranch>,
+    },
     Indeterminate(ClaimIndeterminateReason),
 }
 
@@ -667,26 +693,101 @@ fn apply_claim(
                     substitution,
                     remainder,
                 } => {
-                    return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Match {
-                        substitution,
-                        remainder,
-                    });
+                    // A symbolic subject can still be covered by the claim on the sub-case
+                    // where the unresolved pairs unify. Those equalities become the match
+                    // condition; their complement is the remainder the claim leaves behind.
+                    match unify_term_pairs(definition, substitution, remainder.iter().cloned()) {
+                        UnificationResult::Unified(unified) => {
+                            let mut conditions = recovered.conditions;
+                            extend_unique(&mut conditions, unified.constraints);
+                            (unified.substitution, conditions)
+                        }
+                        UnificationResult::Bottom(_) => return ClaimApplication::NotApplicable,
+                        UnificationResult::Unsupported {
+                            substitution,
+                            remainder,
+                            ..
+                        } => {
+                            return ClaimApplication::Indeterminate(
+                                ClaimIndeterminateReason::Match {
+                                    substitution,
+                                    remainder,
+                                },
+                            );
+                        }
+                    }
                 }
             }
         }
     };
-    let mut requires = match_conditions;
-    extend_unique(
-        &mut requires,
-        substitute_predicates(&claim.lhs.constraints, &substitution),
-    );
+    let (substitution, match_conditions) =
+        bind_subject_variables(definition, &claim, substitution, match_conditions);
+    let simplification = SimplificationOptions {
+        max_iterations: options.max_simplification_iterations,
+    };
+    let match_conditions = match simplify_predicates_with_solver(
+        definition,
+        &match_conditions,
+        &subject.constraints,
+        simplification,
+        solver,
+    ) {
+        Ok(conditions) => conditions,
+        Err(error) => {
+            return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Simplification(
+                error,
+            ));
+        }
+    };
+    if predicates_truth(&match_conditions) == Truth::False {
+        return ClaimApplication::NotApplicable;
+    }
+    // Conditions the path already satisfies do not narrow it; the remaining ones split the
+    // subject into the covered sub-case and its complement.
+    let mut match_conditions = match_conditions
+        .into_iter()
+        .filter(|condition| {
+            predicates_truth(std::slice::from_ref(condition)) == Truth::Unknown
+                && !subject.constraints.contains(condition)
+        })
+        .collect::<Vec<_>>();
+    let mut complement = None;
+    if !match_conditions.is_empty() {
+        match solver.check_predicates(
+            &subject.constraints,
+            &Substitution::new(),
+            &match_conditions,
+        ) {
+            Ok(Validity::Valid) => match_conditions.clear(),
+            Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
+                return ClaimApplication::NotApplicable;
+            }
+            Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(SmtError::Unavailable) => {}
+            Err(error) => {
+                return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Smt(error));
+            }
+        }
+        if !match_conditions.is_empty() {
+            let condition = quantify_introduced_variables(subject, match_conditions.clone());
+            let negated = crate::simplify::normalize_predicate(crate::rule::Predicate::Not(
+                Box::new(condition),
+            ));
+            if conjunctively_contains_alpha_equivalent(&subject.constraints, &negated) {
+                // This subject is the remainder of an earlier application of the same claim.
+                return ClaimApplication::NotApplicable;
+            }
+            complement = Some(negated);
+        }
+    }
+    let mut covered_knowledge = subject.constraints.clone();
+    extend_unique(&mut covered_knowledge, match_conditions);
+
+    let requires = substitute_predicates(&claim.lhs.constraints, &substitution);
     let requires = match simplify_predicates_with_solver(
         definition,
         &requires,
-        &subject.constraints,
-        SimplificationOptions {
-            max_iterations: options.max_simplification_iterations,
-        },
+        &covered_knowledge,
+        simplification,
         solver,
     ) {
         Ok(requires) => requires,
@@ -700,7 +801,7 @@ fn apply_claim(
         Truth::True => {}
         Truth::False => return ClaimApplication::NotApplicable,
         Truth::Unknown => {
-            match solver.check_predicates(&subject.constraints, &Substitution::new(), &requires) {
+            match solver.check_predicates(&covered_knowledge, &Substitution::new(), &requires) {
                 Ok(Validity::Valid) => {}
                 Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
                     return ClaimApplication::NotApplicable;
@@ -717,12 +818,23 @@ fn apply_claim(
         }
     }
 
-    ClaimApplication::Applied(
-        claim
+    let remainder = complement.map(|complement| {
+        let mut constraints = subject.constraints.clone();
+        extend_unique(&mut constraints, vec![complement]);
+        RemainderBranch {
+            pattern: Pattern {
+                term: subject.term.clone(),
+                constraints,
+            },
+            rule_ids: vec![format!("claim:{}", claim.attributes.unique_id)],
+        }
+    });
+    ClaimApplication::Applied {
+        patterns: claim
             .rhs
             .iter()
             .map(|rhs| {
-                let mut constraints = subject.constraints.clone();
+                let mut constraints = covered_knowledge.clone();
                 extend_unique(
                     &mut constraints,
                     substitute_predicates(&rhs.constraints, &substitution),
@@ -733,7 +845,40 @@ fn apply_claim(
                 }
             })
             .collect(),
-    )
+        remainder,
+    }
+}
+
+/// Unification may bind variables of the subject rather than of the claim. Such bindings are
+/// conditions on the subject, not part of the claim's instantiation: keep them as equalities
+/// (with the definedness of the bound value) and drop them from the substitution, as rule
+/// application does for configuration variables.
+fn bind_subject_variables(
+    definition: &BackendDefinition,
+    claim: &ReachabilityClaim,
+    mut substitution: Substitution,
+    mut conditions: Vec<crate::rule::Predicate>,
+) -> (Substitution, Vec<crate::rule::Predicate>) {
+    let claim_variables = &claim.lhs.term.attributes().variables;
+    let bound = substitution
+        .iter()
+        .filter(|(variable, _)| !claim_variables.contains(*variable))
+        .map(|(variable, value)| (variable.clone(), value.clone()))
+        .collect::<Vec<_>>();
+    for (variable, value) in bound {
+        substitution.remove(&variable);
+        extend_unique(
+            &mut conditions,
+            vec![crate::rule::Predicate::Equals(
+                Term::variable(variable),
+                value.clone(),
+            )],
+        );
+        if !matches!(value.kind(), TermKind::Variable(_)) {
+            extend_unique(&mut conditions, ceil_term(definition, &value));
+        }
+    }
+    (substitution, conditions)
 }
 
 fn freshen_claim(
@@ -1901,6 +2046,79 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![TraceKind::Rewrite, TraceKind::Claim]
         );
+    }
+
+    #[test]
+    fn applies_a_partially_matching_claim_and_closes_its_remainder_by_rules() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortV{} []
+                sort SortS{} []
+                symbol va{}() : SortV{} [constructor{}()]
+                symbol vb{}() : SortV{} [constructor{}()]
+                symbol vc{}() : SortV{} [constructor{}()]
+                axiom{} \or{SortV{}}(
+                    va{}(), vb{}(), vc{}(), \bottom{SortV{}}()
+                ) [constructor{}()]
+                symbol init{}(SortV{}) : SortS{} [constructor{}()]
+                symbol start{}(SortV{}) : SortS{} [constructor{}()]
+                symbol done{}() : SortS{} [constructor{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(init{}(X:SortV{}), \top{SortS{}}()),
+                    start{}(X:SortV{})
+                ) [label{}("init")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(start{}(vb{}()), \top{SortS{}}()),
+                    done{}()
+                ) [label{}("b")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(start{}(vc{}()), \top{SortS{}}()),
+                    done{}()
+                ) [label{}("c")]
+                claim{} \implies{SortS{}}(
+                    \and{SortS{}}(init{}(X:SortV{}), \top{SortS{}}()),
+                    weakAlwaysFinally{SortS{}}(done{}())
+                ) [label{}("main")]
+                claim{} \implies{SortS{}}(
+                    \and{SortS{}}(start{}(va{}()), \top{SortS{}}()),
+                    weakAlwaysFinally{SortS{}}(done{}())
+                ) [label{}("a-case"), trusted{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &solver,
+        )
+        .expect("claim should execute");
+
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        let claimed = result
+            .leaves
+            .iter()
+            .find(|leaf| {
+                leaf.trace.iter().any(|entry| {
+                    entry.kind == TraceKind::Claim && entry.label.as_deref() == Some("a-case")
+                })
+            })
+            .expect("the trusted claim covers the `va` sub-case");
+        assert!(claimed.pattern.constraints.iter().any(|predicate| {
+            matches!(predicate, crate::rule::Predicate::Equals(left, _)
+                if matches!(left.kind(), TermKind::Variable(_)))
+        }));
+        assert!(result.leaves.iter().any(|leaf| {
+            leaf.trace.iter().any(|entry| {
+                entry.kind == TraceKind::Remainder && entry.unique_id.starts_with("claim:")
+            })
+        }));
+        assert_eq!(result.unexplored_states, 0);
     }
 
     #[test]
