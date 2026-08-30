@@ -7,14 +7,12 @@ use std::{
 
 use crate::{
     definition::{
-        Definition, LabelHead, ModuleId, ProductionCatalog, ProductionItem, ResolvedDefinition,
-        Sentence,
+        Attributes, Definition, LabelHead, ModuleId, ProductionCatalog, ProductionItem,
+        ResolvedDefinition, Sentence,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
 };
-
-const MACRO_ATTRIBUTES: &[&str] = &["macro", "macro-rec", "alias", "alias-rec"];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConcretizeCellsError {
@@ -464,9 +462,6 @@ impl<'a> Concretizer<'a> {
         if matches!(&sentence, Sentence::Claim { body, .. } if !contains_cell(body, self.model)) {
             return Ok(sentence);
         }
-        if skip_sentence(&sentence) {
-            return Ok(sentence);
-        }
         self.variables.clear();
         self.fragments.clear();
         self.counter = 0;
@@ -484,7 +479,7 @@ impl<'a> Concretizer<'a> {
                 ensures,
                 attributes,
             } => {
-                let body = self.concretize_body(body)?;
+                let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
                 self.analyze_fragments([&body, &requires, &ensures])?;
                 Ok(Sentence::Rule {
                     body: self.sort_cells(body)?,
@@ -499,7 +494,7 @@ impl<'a> Concretizer<'a> {
                 ensures,
                 attributes,
             } => {
-                let body = self.concretize_body(body)?;
+                let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
                 self.analyze_fragments([&body, &requires, &ensures])?;
                 Ok(Sentence::Claim {
                     body: self.sort_cells(body)?,
@@ -513,7 +508,7 @@ impl<'a> Concretizer<'a> {
                 requires,
                 attributes,
             } => {
-                let body = self.concretize_body(body)?;
+                let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
                 self.analyze_fragments([&body, &requires])?;
                 Ok(Sentence::Context {
                     body: self.sort_cells(body)?,
@@ -525,8 +520,8 @@ impl<'a> Concretizer<'a> {
         }
     }
 
-    fn concretize_body(&mut self, body: Term) -> Result<Term, String> {
-        let body = if is_function(&body, self.productions) {
+    fn concretize_body(&mut self, body: Term, skip_root: bool) -> Result<Term, String> {
+        let body = if skip_root || is_function(&body, self.productions) {
             body
         } else {
             self.add_root(body)?
@@ -707,7 +702,27 @@ impl<'a> Concretizer<'a> {
             }
             completion = retained;
         }
-        others.extend(completion);
+        // Java's AddParentCells retains only the deepest remaining completion
+        // level here. Besides being the normal direct-child level, this also
+        // means that a shallower, accidentally nested sibling is discarded when
+        // valid direct children are present. Some real definitions (notably
+        // KMIR) rely on that compatibility quirk.
+        let deepest_remaining = completion
+            .iter()
+            .filter_map(|item| {
+                self.model
+                    .sort_for_term(item)
+                    .and_then(|sort| self.model.levels.get(&sort).copied())
+            })
+            .max();
+        others.extend(completion.into_iter().filter(|item| {
+            deepest_remaining.is_none_or(|deepest| {
+                self.model
+                    .sort_for_term(item)
+                    .and_then(|sort| self.model.levels.get(&sort).copied())
+                    == Some(deepest)
+            })
+        }));
         Ok(Term::Apply {
             label: label.clone(),
             arguments: vec![dot(open_left), make_body(others), dot(open_right)],
@@ -1270,12 +1285,17 @@ fn fragment_predicate(info: &FragmentInfo, model: &CellModel) -> Term {
         })
 }
 
-fn skip_sentence(sentence: &Sentence) -> bool {
-    MACRO_ATTRIBUTES
-        .iter()
-        .any(|attribute| sentence.attributes().get(attribute).is_some())
-        || sentence.attributes().get("anywhere").is_some()
-        || sentence.attributes().get("simplification").is_some()
+fn skip_root_wrapping(attributes: &Attributes) -> bool {
+    [
+        "macro",
+        "macro-rec",
+        "alias",
+        "alias-rec",
+        "anywhere",
+        "simplification",
+    ]
+    .iter()
+    .any(|attribute| attributes.get(attribute).is_some())
 }
 
 fn is_function(term: &Term, productions: &ProductionCatalog<'_>) -> bool {
