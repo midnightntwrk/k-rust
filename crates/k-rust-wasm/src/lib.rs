@@ -4,7 +4,8 @@ use std::{collections::BTreeMap, path::Path};
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, ExecuteRequest, ImplicationRequest, PatternRequest, ProveRequest,
+        Backend, BackendOptions, ExecuteRequest, ImplicationRequest, ObservedRequest,
+        PatternRequest, ProveRequest, SearchPatternRequest, SearchRequest,
     },
     definition::checks::check_definition,
     diagnostic::{Diagnostic, Severity},
@@ -129,6 +130,82 @@ impl WasmBackend {
     pub fn execute(&mut self, options: &str) -> Result<String, JsError> {
         let request = serde_json::from_str::<ExecuteRequest>(options).map_err(js_error)?;
         serialize(&self.inner.execute(request).map_err(js_error)?).map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = executeObserved)]
+    pub fn execute_observed(&mut self, options: &str) -> Result<String, JsError> {
+        let request =
+            serde_json::from_str::<ObservedRequest<ExecuteRequest>>(options).map_err(js_error)?;
+        serialize(&self.inner.execute_observed(request).map_err(js_error)?).map_err(js_error)
+    }
+
+    pub fn search(&mut self, options: &str) -> Result<String, JsError> {
+        let request = serde_json::from_str::<SearchRequest>(options).map_err(js_error)?;
+        serialize(&self.inner.search(request).map_err(js_error)?).map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = searchPaths)]
+    pub fn search_paths(&mut self, options: &str) -> Result<String, JsError> {
+        let request = serde_json::from_str::<SearchRequest>(options).map_err(js_error)?;
+        serialize(&self.inner.search_paths(request).map_err(js_error)?).map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = searchPattern)]
+    pub fn search_pattern(&mut self, options: &str) -> Result<String, JsError> {
+        let request = serde_json::from_str::<SearchPatternRequest>(options).map_err(js_error)?;
+        serialize(&self.inner.search_pattern(request).map_err(js_error)?).map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = searchPatternPaths)]
+    pub fn search_pattern_paths(&mut self, options: &str) -> Result<String, JsError> {
+        let request = serde_json::from_str::<SearchPatternRequest>(options).map_err(js_error)?;
+        serialize(&self.inner.search_pattern_paths(request).map_err(js_error)?).map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = searchObserved)]
+    pub fn search_observed(&mut self, options: &str) -> Result<String, JsError> {
+        let request =
+            serde_json::from_str::<ObservedRequest<SearchRequest>>(options).map_err(js_error)?;
+        serialize(&self.inner.search_observed(request).map_err(js_error)?).map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = searchPathsObserved)]
+    pub fn search_paths_observed(&mut self, options: &str) -> Result<String, JsError> {
+        let request =
+            serde_json::from_str::<ObservedRequest<SearchRequest>>(options).map_err(js_error)?;
+        serialize(
+            &self
+                .inner
+                .search_paths_observed(request)
+                .map_err(js_error)?,
+        )
+        .map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = searchPatternObserved)]
+    pub fn search_pattern_observed(&mut self, options: &str) -> Result<String, JsError> {
+        let request = serde_json::from_str::<ObservedRequest<SearchPatternRequest>>(options)
+            .map_err(js_error)?;
+        serialize(
+            &self
+                .inner
+                .search_pattern_observed(request)
+                .map_err(js_error)?,
+        )
+        .map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = searchPatternPathsObserved)]
+    pub fn search_pattern_paths_observed(&mut self, options: &str) -> Result<String, JsError> {
+        let request = serde_json::from_str::<ObservedRequest<SearchPatternRequest>>(options)
+            .map_err(js_error)?;
+        serialize(
+            &self
+                .inner
+                .search_pattern_paths_observed(request)
+                .map_err(js_error)?,
+        )
+        .map_err(js_error)
     }
 
     pub fn simplify(&mut self, options: &str) -> Result<String, JsError> {
