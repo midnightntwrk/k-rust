@@ -824,7 +824,9 @@ reason = "The pinned Haskell backend crashes in Kore.Builtin.Krypto.encodePoint 
 name = "fresh-constants-execution"
 section = "execution"
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/fresh-constants.k"
-reason = "Exploratory only: backend-generated fresh counters are intentionally implementation-specific, so exact terminal KORE is not a portable differential contract."
+disposition = "comparison-impossible"
+local-gate = "cargo test -p k-rust --test cli krun_executes_fresh_constant_fixture_to_pinned_kore_result -- --exact"
+reason = "Backend-generated fresh identities and counters are intentionally implementation-specific, so exact terminal KORE is not a portable cross-backend contract; the local gate pins k-rust's deterministic behavior."
 
 [[excluded]]
 name = "wasm-execution"
