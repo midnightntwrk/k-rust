@@ -880,6 +880,38 @@ mod tests {
     }
 
     #[test]
+    fn float_root_uses_native_ieee_square_root_only_for_degree_two() {
+        let cases = [
+            ("4.0f", "2.00000000e+00p24x8"),
+            ("2.0", "1.4142135623730951e+00p53x11"),
+            ("-4.0f", "NaNp24x8"),
+            ("NaN", "NaNp53x11"),
+            ("Infinityf", "Infinityp24x8"),
+            ("-Infinity", "NaNp53x11"),
+            ("0.0", "0e+00p53x11"),
+            ("-0.0f", "-0e+00p24x8"),
+        ];
+        for (value, expected) in cases {
+            assert_eq!(
+                evaluate_hook(
+                    "FLOAT.root",
+                    &[float_term(value), int_term(BigInt::from(2))],
+                ),
+                Ok(BuiltinResult::Value(float_term(expected))),
+                "root({value}, 2)"
+            );
+        }
+
+        assert_eq!(
+            evaluate_hook(
+                "FLOAT.root",
+                &[float_term("8.0f"), int_term(BigInt::from(3))],
+            ),
+            Ok(BuiltinResult::NotApplicable)
+        );
+    }
+
+    #[test]
     fn float_min_max_and_comparisons_follow_k_ieee_contracts() {
         let float_cases = [
             ("FLOAT.min", "NaNf", "2.0f", "2.00000000e+00p24x8"),
