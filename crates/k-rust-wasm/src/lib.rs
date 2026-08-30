@@ -333,14 +333,18 @@ fn parse_kore(source: &str, width: Option<u32>) -> Result<String, String> {
     let pattern = parse_pattern(source).map_err(display_error)?;
     serialize(&SerializedKore {
         text: kore_printer(width).print_pattern(&pattern),
-        kore: json_value(kore_json::to_string(&pattern).map_err(display_error)?)?,
+        kore: kore_json::to_value(&pattern).map_err(display_error)?,
     })
 }
 
 /// Convert KORE JSON v1 into canonical textual KORE.
 #[wasm_bindgen(js_name = printKoreWasm)]
 pub fn print_kore_wasm(json: &str, width: Option<u32>) -> Result<String, JsError> {
-    let pattern = kore_json::from_str(json).map_err(js_error)?;
+    print_kore(json, width).map_err(js_error)
+}
+
+fn print_kore(json: &str, width: Option<u32>) -> Result<String, String> {
+    let pattern = kore_json::from_str_unbounded(json).map_err(display_error)?;
     Ok(kore_printer(width).print_pattern(&pattern))
 }
 
@@ -360,7 +364,11 @@ fn serialize(value: &impl Serialize) -> Result<String, String> {
 }
 
 fn json_value(json: String) -> Result<Value, String> {
-    serde_json::from_str(&json).map_err(display_error)
+    let mut deserializer = serde_json::Deserializer::from_str(&json);
+    deserializer.disable_recursion_limit();
+    let value = Value::deserialize(&mut deserializer).map_err(display_error)?;
+    deserializer.end().map_err(display_error)?;
+    Ok(value)
 }
 
 fn display_error(error: impl std::fmt::Display) -> String {
@@ -464,6 +472,35 @@ impl SourceResolver for VirtualResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn deeply_nested_kore_json(depth: usize) -> String {
+        let sort = r#"{"tag":"SortApp","name":"SortK","args":[]}"#;
+        let mut term = format!(r#"{{"tag":"Top","sort":{sort}}}"#);
+        for _ in 0..depth {
+            term = format!(r#"{{"tag":"Not","sort":{sort},"arg":{term}}}"#);
+        }
+        format!(r#"{{"format":"KORE","version":1,"term":{term}}}"#)
+    }
+
+    #[test]
+    fn converts_deep_serialized_values_without_the_default_json_recursion_limit() {
+        let mut json = "null".to_owned();
+        for _ in 0..160 {
+            json = format!("[{json}]");
+        }
+
+        assert!(json_value(json).is_ok());
+    }
+
+    #[test]
+    fn prints_deep_kore_json_without_the_default_recursion_limit() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| assert!(print_kore(&deeply_nested_kore_json(160), None).is_ok()))
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 
     #[test]
     fn serializes_portable_kast_and_kore_results() {

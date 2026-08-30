@@ -295,10 +295,8 @@ fn add_implicit_configuration_imports(
             .ok_or_else(|| LoadError::MissingConfigurationModule(configuration_module.into()))?;
         let has_visible_configuration = resolved
             .sentences(configuration_module_id)
-            .iter()
-            .any(|sentence| {
-            matches!(sentence, Sentence::Bubble { sentence_type, .. } if sentence_type == "config")
-        });
+            .into_iter()
+            .any(is_configuration_sentence);
         if !has_visible_configuration {
             let module = definition
                 .modules
@@ -320,9 +318,8 @@ fn add_implicit_configuration_imports(
 
     if has_map {
         for module in &mut definition.modules {
-            let has_local_configuration = module.local_sentences.iter().any(|sentence| {
-                matches!(sentence, Sentence::Bubble { sentence_type, .. } if sentence_type == "config")
-            });
+            let has_local_configuration =
+                module.local_sentences.iter().any(is_configuration_sentence);
             if has_local_configuration && !module.imports.iter().any(|import| import.name == "MAP")
             {
                 module.imports.push(FlatImport {
@@ -334,6 +331,11 @@ fn add_implicit_configuration_imports(
     }
 
     Ok(definition)
+}
+
+fn is_configuration_sentence(sentence: &Sentence) -> bool {
+    matches!(sentence, Sentence::Configuration { .. })
+        || matches!(sentence, Sentence::Bubble { sentence_type, .. } if sentence_type == "config")
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -422,4 +424,150 @@ fn validate_unique_modules(files: &[SourceFile]) -> Result<(), LoadError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        definition::{Attributes, FlatImport, FlatModule},
+        kast::{Sort, Term},
+    };
+
+    fn configuration_fixture(configuration: Sentence) -> Definition {
+        Definition {
+            main_module: "MAIN".into(),
+            modules: vec![
+                FlatModule {
+                    name: "MAP".into(),
+                    imports: vec![],
+                    local_sentences: vec![],
+                    attributes: Attributes::default(),
+                },
+                FlatModule {
+                    name: "DEFAULT-CONFIGURATION".into(),
+                    imports: vec![],
+                    local_sentences: vec![],
+                    attributes: Attributes::default(),
+                },
+                FlatModule {
+                    name: "MAIN".into(),
+                    imports: vec![],
+                    local_sentences: vec![configuration],
+                    attributes: Attributes::default(),
+                },
+            ],
+            attributes: Attributes::default(),
+        }
+    }
+
+    fn assert_configuration_controls_implicit_imports(configuration: Sentence) {
+        let transformed =
+            add_implicit_configuration_imports(configuration_fixture(configuration.clone()), None)
+                .expect("the fixture is a valid definition");
+        let main = transformed.main_module().expect("MAIN exists");
+
+        assert_eq!(main.local_sentences, [configuration]);
+        assert!(
+            !main
+                .imports
+                .iter()
+                .any(|import| import.name == "DEFAULT-CONFIGURATION"),
+            "a visible configuration must suppress the default configuration"
+        );
+        assert!(
+            main.imports
+                .iter()
+                .any(|import| import.name == "MAP" && import.public),
+            "a local configuration must receive a public MAP import"
+        );
+    }
+
+    #[test]
+    fn structured_configuration_controls_implicit_imports() {
+        assert_configuration_controls_implicit_imports(Sentence::Configuration {
+            body: Term::variable("CONFIG"),
+            ensures: Term::Token {
+                token: "true".into(),
+                sort: Sort::new("Bool"),
+            },
+            attributes: Attributes::default(),
+        });
+    }
+
+    #[test]
+    fn configuration_bubble_controls_implicit_imports() {
+        assert_configuration_controls_implicit_imports(Sentence::Bubble {
+            sentence_type: "config".into(),
+            contents: "<k> $PGM:K </k>".into(),
+            attributes: Attributes::default(),
+        });
+    }
+
+    #[test]
+    fn imported_configurations_suppress_default_but_do_not_import_map() {
+        let configuration = Sentence::Configuration {
+            body: Term::variable("CONFIG"),
+            ensures: Term::Token {
+                token: "true".into(),
+                sort: Sort::new("Bool"),
+            },
+            attributes: Attributes::default(),
+        };
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![
+                FlatModule {
+                    name: "MAP".into(),
+                    imports: vec![],
+                    local_sentences: vec![],
+                    attributes: Attributes::default(),
+                },
+                FlatModule {
+                    name: "DEFAULT-CONFIGURATION".into(),
+                    imports: vec![],
+                    local_sentences: vec![],
+                    attributes: Attributes::default(),
+                },
+                FlatModule {
+                    name: "HELPER".into(),
+                    imports: vec![],
+                    local_sentences: vec![configuration],
+                    attributes: Attributes::default(),
+                },
+                FlatModule {
+                    name: "MAIN".into(),
+                    imports: vec![FlatImport {
+                        name: "HELPER".into(),
+                        public: true,
+                    }],
+                    local_sentences: vec![],
+                    attributes: Attributes::default(),
+                },
+            ],
+            attributes: Attributes::default(),
+        };
+
+        let transformed = add_implicit_configuration_imports(definition, None).unwrap();
+        let main = transformed.main_module().unwrap();
+        // DEFAULT-CONFIGURATION observes transitively visible sentences, whereas MAP is attached
+        // only to the module that locally owns a configuration. This asymmetry is intentional.
+        assert!(
+            !main
+                .imports
+                .iter()
+                .any(|import| { matches!(import.name.as_str(), "DEFAULT-CONFIGURATION" | "MAP") })
+        );
+        let helper = transformed
+            .modules
+            .iter()
+            .find(|module| module.name == "HELPER")
+            .unwrap();
+        assert!(
+            helper
+                .imports
+                .iter()
+                .any(|import| import.name == "MAP" && import.public)
+        );
+    }
 }

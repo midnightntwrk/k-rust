@@ -1,11 +1,14 @@
 use indoc::indoc;
+use k_rust::definition::ResolvedDefinition;
 use k_rust::kompile::{
-    declaration_modules, encode_kore_identifier, encode_kore_label, encode_kore_sort,
-    module_to_kore,
+    declaration_modules, declaration_modules_from_resolved_with_options, encode_kore_identifier,
+    encode_kore_label, encode_kore_sort, module_to_kore,
 };
+use k_rust::kore::ast::{Pattern, Sentence};
 use k_rust::kore::parser::{parse_definition, parse_module, parse_sentence};
 use k_rust::kore::printer::Printer;
-use k_rust::{kast, outer};
+use k_rust::{kast, kast::Label, outer};
+use serde::Deserialize;
 
 fn lowered(source: &str, main_module: &str) -> k_rust::definition::Definition {
     let parsed = outer::parse("declarations.k", source).expect("definition should parse");
@@ -132,6 +135,106 @@ declaration_snapshot!(
     "#,
     "MAIN"
 );
+
+#[test]
+fn omits_syntax_relations_only_from_unlabeled_brackets() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "(" Exp ")" [bracket, color(red)]
+                       | "[" Exp "]" [bracket, symbol(group)]
+        endmodule
+    "#};
+    let declarations =
+        declaration_modules(&lowered(source, "MAIN"), "MAIN").expect("declarations should emit");
+
+    let attribute_names = |label: &str| {
+        let encoded = encode_kore_label(&Label::new(label));
+        declarations
+            .syntax
+            .sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::SymbolDeclaration {
+                    symbol, attributes, ..
+                } if symbol == &encoded => Some(
+                    attributes
+                        .0
+                        .iter()
+                        .filter_map(|attribute| match attribute {
+                            Pattern::Application { symbol, .. } => Some(symbol.name.as_str()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
+            })
+            .expect("bracket symbol should be declared in the syntax module")
+    };
+
+    let unlabeled = attribute_names("(_)_MAIN_Exp_Exp");
+    for retained in ["bracket", "colors", "format", "terminals"] {
+        assert!(
+            unlabeled.contains(&retained),
+            "missing `{retained}` attribute"
+        );
+    }
+    for relation in ["priorities", "left", "right"] {
+        assert!(
+            !unlabeled.contains(&relation),
+            "unlabeled bracket retained `{relation}` attribute"
+        );
+    }
+
+    let labeled = attribute_names("group");
+    for relation in ["priorities", "left", "right"] {
+        assert!(
+            labeled.contains(&relation),
+            "labeled bracket omitted `{relation}` attribute"
+        );
+    }
+}
+
+#[test]
+fn embedded_priority_separator_labels_reach_syntax_relations_intact() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= Exp "|->" Exp [symbol(_|->_)]
+                       | Exp Exp [symbol(_Map_)]
+                       | ".Map" [symbol(.Map)]
+          syntax priority _|->_ > _Map_ .Map
+        endmodule
+    "#};
+    let declarations = declaration_modules(&lowered(source, "MAIN"), "MAIN").unwrap();
+    let source_symbol = encode_kore_label(&Label::new("_|->_"));
+    let priorities = declarations
+        .syntax
+        .sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::SymbolDeclaration {
+                symbol, attributes, ..
+            } if symbol == &source_symbol => attributes.0.iter().find_map(|attribute| {
+                let Pattern::Application { symbol, arguments } = attribute else {
+                    return None;
+                };
+                (symbol.name == "priorities").then_some(arguments)
+            }),
+            _ => None,
+        })
+        .expect("the source symbol should carry a priorities relation");
+    let related = priorities
+        .iter()
+        .filter_map(|pattern| match pattern {
+            Pattern::Application { symbol, .. } => Some(symbol.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(related.len(), 2);
+    for label in ["_Map_", ".Map"] {
+        assert!(related.contains(&encode_kore_label(&Label::new(label))));
+    }
+}
 
 definition_snapshot!(
     wraps_generated_modules_in_the_standard_backend_definition,
@@ -587,6 +690,150 @@ declaration_snapshot!(
     "#,
     "MAIN"
 );
+
+#[test]
+fn backend_dispatched_namespaces_are_emitted_as_real_hooks() {
+    #[derive(Deserialize)]
+    struct Manifest {
+        backend_namespaces: Vec<String>,
+    }
+
+    let manifest: Manifest = toml::from_str(include_str!("fixtures/hook-capabilities.toml"))
+        .expect("hook capability manifest must be valid TOML");
+    let mut source = "module MAIN\n  syntax Value\n".to_owned();
+    for (index, namespace) in manifest.backend_namespaces.iter().enumerate() {
+        source.push_str(&format!(
+            "  syntax Value ::= \"probe{index}\" [function, hook({namespace}.probe), symbol(probe{index})]\n"
+        ));
+    }
+    source.push_str("endmodule\n");
+    let declarations = declaration_modules(&lowered(&source, "MAIN"), "MAIN").unwrap();
+
+    for module in [&declarations.semantics, &declarations.syntax] {
+        for (index, namespace) in manifest.backend_namespaces.iter().enumerate() {
+            let label = format!("probe{index}");
+            let hook = format!("{namespace}.probe");
+            let symbol = encode_kore_label(&Label::new(&label));
+            let (hooked, attributes) = module
+                .sentences
+                .iter()
+                .find_map(|sentence| match sentence {
+                    Sentence::SymbolDeclaration {
+                        hooked,
+                        symbol: declared,
+                        attributes,
+                        ..
+                    } if declared == &symbol => Some((*hooked, attributes)),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("missing declaration for {label}"));
+            assert!(hooked, "{hook} was emitted as an ordinary symbol");
+            assert!(
+                attributes.0.iter().any(|attribute| matches!(
+                    attribute,
+                    Pattern::Application { symbol, arguments }
+                        if symbol.name == "hook"
+                            && arguments == &[Pattern::String(hook.clone())]
+                )),
+                "{label} dropped hook({hook})"
+            );
+        }
+    }
+}
+
+#[test]
+fn plugin_hook_namespaces_are_hooked_only_when_admitted() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Bytes
+          syntax String
+          syntax String ::= "keccak(" Bytes ")"
+            [function, hook(KRYPTO.keccak256), symbol(keccak)]
+          syntax Bytes ::= "concat(" Bytes "," Bytes ")"
+            [function, hook(BYTES.concat), symbol(concat)]
+        endmodule
+    "#};
+    let resolved = ResolvedDefinition::resolve(&lowered(source, "MAIN")).unwrap();
+    let hooked = |namespaces: &[&str], label: &str| {
+        let namespaces = namespaces
+            .iter()
+            .map(|namespace| (*namespace).to_owned())
+            .collect::<Vec<_>>();
+        let declarations =
+            declaration_modules_from_resolved_with_options(&resolved, "MAIN", &namespaces).unwrap();
+        let symbol = encode_kore_label(&Label::new(label));
+        [&declarations.semantics, &declarations.syntax].map(|module| {
+            module
+                .sentences
+                .iter()
+                .find_map(|sentence| match sentence {
+                    Sentence::SymbolDeclaration {
+                        hooked,
+                        symbol: declared,
+                        attributes,
+                        ..
+                    } if declared == &symbol => Some((
+                        *hooked,
+                        attributes.0.iter().any(|attribute| {
+                            matches!(
+                                attribute,
+                                Pattern::Application { symbol, .. } if symbol.name == "hook"
+                            )
+                        }),
+                    )),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("missing declaration for {label}"))
+        })
+    };
+
+    // Java's fixed builtin namespaces are hooked regardless of the plugin allow-list.
+    assert_eq!(hooked(&[], "concat"), [(true, true), (true, true)]);
+    // A plugin namespace is an ordinary symbol until `--hook-namespaces` admits it.
+    assert_eq!(hooked(&[], "keccak"), [(false, false), (false, false)]);
+    assert_eq!(hooked(&["KRYPTO"], "keccak"), [(true, true), (true, true)]);
+    assert_eq!(
+        hooked(&["HASH"], "keccak"),
+        [(false, false), (false, false)]
+    );
+}
+
+#[test]
+fn out_of_catalog_hook_namespaces_are_not_emitted_as_hooked_symbols() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Value
+          syntax Value ::= "probe"
+            [function, hook(NOTANAMESPACE.probe), symbol(probe)]
+        endmodule
+    "#};
+    let declarations = declaration_modules(&lowered(source, "MAIN"), "MAIN").unwrap();
+    let symbol = encode_kore_label(&Label::new("probe"));
+
+    for module in [&declarations.semantics, &declarations.syntax] {
+        let (hooked, attributes) = module
+            .sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::SymbolDeclaration {
+                    hooked,
+                    symbol: declared,
+                    attributes,
+                    ..
+                } if declared == &symbol => Some((*hooked, attributes)),
+                _ => None,
+            })
+            .expect("missing probe declaration");
+        assert!(!hooked, "unknown hook namespace emitted as hooked-symbol");
+        assert!(
+            !attributes.0.iter().any(|attribute| matches!(
+                attribute,
+                Pattern::Application { symbol, .. } if symbol.name == "hook"
+            )),
+            "unknown hook attribute survived ordinary-symbol emission"
+        );
+    }
+}
 
 #[test]
 fn encodes_java_kore_identifier_edge_cases() {

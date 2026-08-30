@@ -524,10 +524,16 @@ impl<'a> Parser<'a> {
 
     fn raw_groups(&mut self, separator: char) -> Result<Vec<Vec<String>>, ParseError> {
         let raw = self.remaining_without_comments()?;
-        Ok(raw
-            .split(separator)
-            .map(|group| group.split_whitespace().map(str::to_owned).collect())
-            .collect())
+        let separator = separator.to_string();
+        let mut groups = vec![Vec::new()];
+        for word in raw.split_whitespace() {
+            if word == separator {
+                groups.push(Vec::new());
+            } else {
+                groups.last_mut().unwrap().push(word.to_owned());
+            }
+        }
+        Ok(groups)
     }
 
     fn raw_words(&mut self) -> Result<Vec<String>, ParseError> {

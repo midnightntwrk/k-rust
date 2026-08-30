@@ -6,7 +6,7 @@ use k_rust::inner::resolve_rule_bubbles;
 use k_rust::kast::{Label, Sort, Term, TermMetadata};
 use k_rust::kompile::{
     SortInjector, add_sort_injections_to_definition, generate_sort_projections,
-    term_to_kore_from_resolved,
+    resolve_semantic_casts, term_to_kore_from_resolved,
 };
 use k_rust::kore::printer::Printer;
 
@@ -80,6 +80,40 @@ injection_snapshot!(
         endmodule
     "#
 );
+
+#[test]
+fn semantic_casts_instantiate_parametric_production_results() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+          syntax C ::= A | B
+          syntax D ::= A | B
+          syntax {S} S ::= "pair(" S "," S ")" [symbol(pair)]
+
+          rule pair(a, b):C => pair(a, b):C
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&lowered(source));
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let rule = definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find(|sentence| matches!(sentence, Sentence::Rule { .. }))
+        .unwrap();
+    let injected = injector.inject_sentence(rule).unwrap();
+    let Sentence::Rule { body, .. } = injected else {
+        unreachable!()
+    };
+    let rendered = body.to_string();
+
+    assert_eq!(rendered.matches("pair{C}").count(), 2, "{rendered}");
+    assert_eq!(rendered.matches("inj{A,C}").count(), 2, "{rendered}");
+    assert_eq!(rendered.matches("inj{B,C}").count(), 2, "{rendered}");
+}
 
 injection_snapshot!(
     injects_sequence_items_through_kitem,

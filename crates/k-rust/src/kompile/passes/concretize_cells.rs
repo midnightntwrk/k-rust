@@ -105,6 +105,8 @@ struct CellModel {
     by_label: BTreeMap<LabelHead, Sort>,
     cell_term_sort: BTreeMap<LabelHead, Sort>,
     collection_member: BTreeMap<LabelHead, Sort>,
+    initializer_sort: BTreeMap<LabelHead, Sort>,
+    collection_members: BTreeMap<Sort, BTreeSet<Sort>>,
     parents: BTreeMap<Sort, Sort>,
     levels: BTreeMap<Sort, usize>,
     root: Sort,
@@ -143,6 +145,8 @@ impl CellModel {
                 by_label: BTreeMap::new(),
                 cell_term_sort: BTreeMap::new(),
                 collection_member: BTreeMap::new(),
+                initializer_sort: BTreeMap::new(),
+                collection_members: BTreeMap::new(),
                 parents: BTreeMap::new(),
                 levels: BTreeMap::new(),
                 root: Sort::new("GeneratedTopCell"),
@@ -173,7 +177,7 @@ impl CellModel {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        let initializers = productions
+        let initializer_productions = productions
             .productions()
             .filter_map(|(_, production)| match production {
                 Sentence::Production {
@@ -182,20 +186,30 @@ impl CellModel {
                     items,
                     attributes,
                     ..
-                } if attributes.get("initializer").is_some()
-                    && items
+                } if attributes.get("initializer").is_some() => Some((
+                    sort.clone(),
+                    label.clone(),
+                    items
                         .iter()
-                        .all(|item| !matches!(item, ProductionItem::NonTerminal { .. })) =>
-                {
-                    Some((sort.clone(), label.clone()))
-                }
+                        .all(|item| !matches!(item, ProductionItem::NonTerminal { .. })),
+                )),
                 _ => None,
             })
+            .collect::<Vec<_>>();
+        let initializers = initializer_productions
+            .iter()
+            .filter(|(_, _, nullary)| *nullary)
+            .map(|(sort, label, _)| (sort.clone(), label.clone()))
             .collect::<BTreeMap<_, _>>();
+        let initializer_sort = initializer_productions
+            .into_iter()
+            .map(|(sort, label, _)| (LabelHead::from(&label), sort))
+            .collect();
 
         let mut cells = BTreeMap::new();
         let mut by_label = BTreeMap::new();
         let mut collection_member = BTreeMap::new();
+        let mut collection_members = BTreeMap::<Sort, BTreeSet<Sort>>::new();
         for (sort, label, items, _attributes) in raw_cells {
             if cells.contains_key(&sort) {
                 return Err(format!("Too many productions for cell sort: {sort}"));
@@ -234,6 +248,10 @@ impl CellModel {
                         .collect::<Vec<_>>();
                     members.sort();
                     for member in members {
+                        collection_members
+                            .entry(collection_sort.clone())
+                            .or_default()
+                            .insert(member.clone());
                         children.push(Child {
                             sort: member.clone(),
                             multiplicity: Multiplicity::Star,
@@ -360,6 +378,8 @@ impl CellModel {
             by_label,
             cell_term_sort,
             collection_member,
+            initializer_sort,
+            collection_members,
             parents,
             levels,
             root,
@@ -379,7 +399,15 @@ impl CellModel {
                 .cell_term_sort
                 .get(&LabelHead::from(label))
                 .or_else(|| self.collection_member.get(&LabelHead::from(label)))
-                .cloned(),
+                .cloned()
+                .or_else(|| {
+                    let result_sort = self.initializer_sort.get(&LabelHead::from(label))?;
+                    if self.cells.contains_key(result_sort) {
+                        return Some(result_sort.clone());
+                    }
+                    let members = self.collection_members.get(result_sort)?;
+                    (members.len() == 1).then(|| members.first().unwrap().clone())
+                }),
             Term::Variable { sort, .. } => sort
                 .clone()
                 .or_else(|| term.metadata().and_then(|metadata| metadata.sort.clone()))

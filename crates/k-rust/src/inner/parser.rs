@@ -336,6 +336,14 @@ pub struct Grammar {
     overloads: PartialOrder<ProductionId>,
     user_lists: BTreeMap<Sort, UserList>,
     productive_unary_cycles: BTreeSet<usize>,
+    role: ParserRole,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum ParserRole {
+    Program,
+    #[default]
+    Rule,
 }
 
 impl Default for Grammar {
@@ -352,6 +360,7 @@ impl Default for Grammar {
             overloads: PartialOrder::new([]).expect("an empty relation is acyclic"),
             user_lists: BTreeMap::new(),
             productive_unary_cycles: BTreeSet::new(),
+            role: ParserRole::Rule,
         }
     }
 }
@@ -362,29 +371,45 @@ impl Grammar {
         source_catalog: &ProductionCatalog<'_>,
     ) -> Result<Self, ParseError> {
         let mut sentences = sentences.into_iter().cloned().collect::<Vec<_>>();
+        // Program grammars parse the empty list as the empty string rather than the
+        // `.Sort` terminator. Record each erased terminator's source production at
+        // the moment of erasure so the link survives the rewrite.
+        let mut erased = Vec::new();
         for sentence in &mut sentences {
-            let Sentence::Production {
-                items, attributes, ..
-            } = sentence
-            else {
+            let is_terminator = matches!(
+                &*sentence,
+                Sentence::Production { items, attributes, .. }
+                    if attributes.get_str("userList") == Some("*")
+                        && !items
+                            .iter()
+                            .any(|item| matches!(item, ProductionItem::NonTerminal { .. }))
+            );
+            if !is_terminator {
                 continue;
-            };
-            if attributes.get_str("userList") == Some("*")
-                && !items
-                    .iter()
-                    .any(|item| matches!(item, ProductionItem::NonTerminal { .. }))
-            {
+            }
+            let source = catalog_production(source_catalog, sentence);
+            if let Sentence::Production { items, .. } = sentence {
                 items.clear();
             }
+            if let Some(source) = source {
+                erased.push((sentence.clone(), source));
+            }
         }
-        Self::from_collected_sentences(sentences.iter().collect(), Some(source_catalog))
+        Self::from_collected_sentences(
+            sentences.iter().collect(),
+            Some(SourceLinks {
+                catalog: source_catalog,
+                erased,
+            }),
+            ParserRole::Program,
+        )
     }
 
     pub fn from_sentences<'a>(
         sentences: impl IntoIterator<Item = &'a Sentence>,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
-        Self::from_collected_sentences(sentences, None)
+        Self::from_collected_sentences(sentences, None, ParserRole::Rule)
     }
 
     pub(crate) fn from_sentences_with_catalog<'a>(
@@ -392,12 +417,17 @@ impl Grammar {
         source_catalog: &ProductionCatalog<'_>,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
-        Self::from_collected_sentences(sentences, Some(source_catalog))
+        Self::from_collected_sentences(
+            sentences,
+            Some(SourceLinks::catalog(source_catalog)),
+            ParserRole::Rule,
+        )
     }
 
     fn from_collected_sentences(
         sentences: Vec<&Sentence>,
-        source_catalog: Option<&ProductionCatalog<'_>>,
+        source_links: Option<SourceLinks<'_, '_>>,
+        role: ParserRole,
     ) -> Result<Self, ParseError> {
         let lexical = sentences
             .iter()
@@ -444,7 +474,25 @@ impl Grammar {
             .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
         let overloads = compute_overloads(sentences.iter().copied(), &semantic_subsorts)
             .map_err(|cycle| ParseError::CircularOverloads { path: cycle.path })?;
-        let source_catalog = source_catalog.unwrap_or_else(|| overloads.catalog());
+        let external = source_links.is_some();
+        let source_links =
+            source_links.unwrap_or_else(|| SourceLinks::catalog(overloads.catalog()));
+        let overload_order = if external {
+            let relations = overloads
+                .order()
+                .direct_relations()
+                .iter()
+                .filter_map(|(lesser, greater)| {
+                    let lesser = source_links.resolve(overloads.catalog().production(*lesser))?;
+                    let greater = source_links.resolve(overloads.catalog().production(*greater))?;
+                    (lesser != greater).then_some((lesser, greater))
+                })
+                .collect::<BTreeSet<_>>();
+            PartialOrder::new(relations)
+                .map_err(|cycle| ParseError::CircularOverloads { path: cycle.path })?
+        } else {
+            overloads.order().clone()
+        };
         let mut grammar = Self {
             layout: if layout_declared {
                 Layout::compile(&layout_sources)?
@@ -453,7 +501,8 @@ impl Grammar {
             },
             priorities,
             associativities,
-            overloads: overloads.order().clone(),
+            overloads: overload_order,
+            role,
             ..Self::default()
         };
         for sentence in &sentences {
@@ -491,14 +540,14 @@ impl Grammar {
                         .any(|key| attributes.get(key).is_some()),
                     prefer: attributes.get("prefer").is_some(),
                     avoid: attributes.get("avoid").is_some(),
-                    source_production: source_production(source_catalog, sentence),
+                    source_production: source_links.resolve(sentence),
                     user_list: attributes.get("userList").is_some(),
                     precedence: attributes.get_str("prec"),
                 },
                 &lexical,
             )?;
         }
-        grammar.add_parametric_productions(&sentences, &lexical, source_catalog)?;
+        grammar.add_parametric_productions(&sentences, &lexical, source_links.catalog)?;
         grammar.initialize_user_lists()?;
         let original_productions = grammar.productions.len();
         for production in 0..original_productions {
@@ -680,12 +729,13 @@ impl Grammar {
         let inferred = self.infer_sorts(forest, start, is_anywhere)?;
         let resolved = self.resolve_overloaded_terminators(inferred)?;
         let filtered = self.filter_overloads_prefer_avoid(resolved);
-        let parses = Grammar::ambiguity_count(&filtered);
+        let listed = self.add_empty_lists(filtered, start)?;
+        let cleaned = self.remove_brackets_and_syntactic_casts(listed);
+        let cleaned = self.factor_ambiguities(cleaned);
+        let parses = Grammar::ambiguity_count(&cleaned);
         if parses > 1 {
             Err(ParseError::Ambiguous { parses })
         } else {
-            let listed = self.add_empty_lists(filtered, start)?;
-            let cleaned = self.remove_brackets_and_syntactic_casts(listed);
             Ok(self.lower(cleaned))
         }
     }
@@ -929,7 +979,34 @@ impl Grammar {
     }
 }
 
-fn source_production(catalog: &ProductionCatalog<'_>, sentence: &Sentence) -> Option<ProductionId> {
+/// Links from grammar sentences back to the source production catalog.
+struct SourceLinks<'c, 'a> {
+    catalog: &'c ProductionCatalog<'a>,
+    /// Sentences rewritten by the program grammar, paired with the source
+    /// production they were derived from.
+    erased: Vec<(Sentence, ProductionId)>,
+}
+
+impl<'c, 'a> SourceLinks<'c, 'a> {
+    fn catalog(catalog: &'c ProductionCatalog<'a>) -> Self {
+        Self {
+            catalog,
+            erased: Vec::new(),
+        }
+    }
+
+    fn resolve(&self, sentence: &Sentence) -> Option<ProductionId> {
+        self.erased
+            .iter()
+            .find_map(|(erased, source)| (erased == sentence).then_some(*source))
+            .or_else(|| catalog_production(self.catalog, sentence))
+    }
+}
+
+fn catalog_production(
+    catalog: &ProductionCatalog<'_>,
+    sentence: &Sentence,
+) -> Option<ProductionId> {
     if matches!(sentence, Sentence::Production { attributes, .. } if attributes.get("generatedRuleSyntax").is_some())
     {
         return None;
@@ -1283,6 +1360,93 @@ fn lower_term(production: &Production, children: &[Term]) -> Term {
 #[cfg(test)]
 mod chart_tests {
     use super::*;
+
+    #[test]
+    fn external_catalog_overloads_remain_in_source_production_id_space() {
+        let production = |sort: &str,
+                          child: Option<&str>,
+                          terminal: Option<&str>,
+                          label: Option<&str>,
+                          attributes: Attributes| {
+            let items = child
+                .map(|child| ProductionItem::NonTerminal {
+                    sort: Sort::new(child),
+                    name: None,
+                })
+                .into_iter()
+                .chain(terminal.map(|terminal| ProductionItem::Terminal(terminal.into())))
+                .collect();
+            Sentence::Production {
+                label: label.map(Label::new),
+                parameters: Vec::new(),
+                sort: Sort::new(sort),
+                items,
+                attributes,
+            }
+        };
+        let mut cell_attributes = Attributes::default();
+        cell_attributes.insert("cell", serde_json::json!(""));
+        let sentences = vec![
+            production("Cell", None, Some("<cell>"), Some("cell"), cell_attributes),
+            production("Big", Some("Small"), None, None, Attributes::default()),
+            production(
+                "Small",
+                None,
+                Some("x"),
+                Some("value"),
+                Attributes::default(),
+            ),
+            production("Big", None, Some("x"), Some("value"), Attributes::default()),
+        ];
+        let source_catalog = ProductionCatalog::from_visible(&sentences);
+        let parsing_sentences = sentences
+            .iter()
+            .filter(|sentence| {
+                !matches!(sentence, Sentence::Production { attributes, .. }
+                if attributes.get("cell").is_some())
+            })
+            .collect::<Vec<_>>();
+        let grammar =
+            Grammar::from_sentences_with_catalog(parsing_sentences, &source_catalog).unwrap();
+        let source_id = |sort: &str| {
+            source_catalog
+                .productions()
+                .find_map(|(id, sentence)| match sentence {
+                    Sentence::Production {
+                        label: Some(label),
+                        sort: result,
+                        ..
+                    } if label.name == "value" && result.name == sort => Some(id),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let small = source_id("Small");
+        let big = source_id("Big");
+
+        assert!(grammar.overloads.less_than(&small, &big));
+        assert!(!grammar.overloads.contains(&ProductionId(0)));
+
+        let parsed = |source| {
+            let production = grammar
+                .productions
+                .iter()
+                .position(|production| production.source_production == Some(source))
+                .unwrap();
+            ParsedTerm::Production {
+                production,
+                children: Vec::new(),
+                metadata: TermMetadata::default(),
+            }
+        };
+        let filtered =
+            grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
+                parsed(small),
+                parsed(big),
+            ])));
+        assert!(matches!(filtered, ParsedTerm::Production { production, .. }
+            if grammar.productions[production].source_production == Some(small)));
+    }
 
     #[test]
     fn packs_growing_completed_node_alternatives_in_one_derivation() {

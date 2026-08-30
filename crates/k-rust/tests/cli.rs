@@ -51,6 +51,25 @@ fn fixture() -> (PathBuf, PathBuf) {
     (root, definition)
 }
 
+fn branching_search_fixture() -> (PathBuf, PathBuf) {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  syntax State ::= "a" | "b" | "c" | "d" | "e"
+  configuration <k> $PGM:State </k>
+  rule a => b
+  rule b => c
+  rule c => d
+  rule c => e
+endmodule
+"#,
+    )
+    .unwrap();
+    (root, definition)
+}
+
 #[test]
 fn kast_parses_a_program_as_text_and_json() {
     let (root, definition) = fixture();
@@ -105,6 +124,263 @@ fn kast_parses_a_program_as_text_and_json() {
     assert_eq!(value["format"], "KAST");
     assert_eq!(value["version"], 4);
     assert_eq!(value["term"]["token"], "42");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kast_parses_and_rejects_a_batch_with_one_frontend_load() {
+    let (root, definition) = fixture();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kast",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--batch-case",
+            "integer",
+            "Exp",
+            "42",
+            "--batch-case",
+            "addition",
+            "Exp",
+            "1 + 2",
+            "--batch-reject-case",
+            "malformed",
+            "Exp",
+            "+",
+            "--output",
+            "json",
+            "--no-prelude",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["integer"]["term"]["token"], "42");
+    assert_eq!(value["addition"]["term"]["node"], "KApply");
+    assert!(value.get("malformed").is_none());
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kast_preserves_and_krun_expands_macros_in_concrete_programs() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  syntax Input ::= Int | "twice" "(" Int ")" [macro]
+  rule twice(I) => I +Int I
+  configuration <k> $PGM:Input </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let binary = env!("CARGO_BIN_EXE_krust");
+
+    let kast = Command::new(binary)
+        .args([
+            "kast",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--sort",
+            "Input",
+            "--expression",
+            "twice(21)",
+            "--output",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        kast.status.success(),
+        "{}",
+        String::from_utf8_lossy(&kast.stderr)
+    );
+    let kast = String::from_utf8(kast.stdout).unwrap();
+    assert!(kast.contains("twice"), "{kast}");
+    assert!(!kast.contains("_+Int_"), "{kast}");
+
+    let krun = Command::new(binary)
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Input",
+            "--expression",
+            "twice(21)",
+            "--depth",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        krun.status.success(),
+        "{}",
+        String::from_utf8_lossy(&krun.stderr)
+    );
+    let krun = String::from_utf8(krun.stdout).unwrap();
+    assert!(!krun.contains("Lbltwice"), "{krun}");
+    assert!(krun.contains(r#"\dv{SortInt{}}("42")"#), "{krun}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kast_omits_inferred_parametric_label_arguments() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  syntax A ::= "a" [symbol(a)]
+  syntax {S} S ::= "pair(" S "," S ")" [symbol(pair)]
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kast",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--batch-case",
+            "pair",
+            "A",
+            "pair(a,a)",
+            "--output",
+            "json",
+            "--no-prelude",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["pair"]["term"]["label"]["name"], "pair");
+    assert_eq!(
+        value["pair"]["term"]["label"]["params"],
+        serde_json::json!([])
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kast_backend_selects_the_matching_module_view() {
+    let source = r#"
+module SYMBOLIC [symbolic]
+  syntax Exp ::= "symbolic" [symbol(symbolicOnly)]
+endmodule
+
+module CONCRETE [concrete]
+  syntax Exp ::= "concrete" [symbol(concreteOnly)]
+endmodule
+
+module MAIN
+  imports SYMBOLIC
+  imports CONCRETE
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let binary = env!("CARGO_BIN_EXE_krust");
+    let kast = |backend: Option<&str>, expression: &str| {
+        let mut command = Command::new(binary);
+        command.args([
+            "kast",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--sort",
+            "Exp",
+            "--expression",
+            expression,
+            "--no-prelude",
+        ]);
+        if let Some(backend) = backend {
+            command.args(["--backend", backend]);
+        }
+        command.output().unwrap()
+    };
+
+    // Without `--backend`, kast parses against the same Rust-backend view that `kcompile` and
+    // `krun` use by default, so the grammar can never disagree with the compiled artifact.
+    assert!(kast(None, "symbolic").status.success());
+    assert!(!kast(None, "concrete").status.success());
+    assert!(kast(Some("rust"), "symbolic").status.success());
+    assert!(!kast(Some("rust"), "concrete").status.success());
+    assert!(kast(Some("llvm"), "concrete").status.success());
+    assert!(!kast(Some("llvm"), "symbolic").status.success());
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_binds_declared_configuration_variables() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  syntax State ::= "a" [symbol(a)]
+  syntax State ::= "b" [symbol(b)]
+  syntax Env ::= "ready" [symbol(ready)]
+  configuration
+    <top>
+      <k> $PGM:State </k>
+      <env> $ENV:Env </env>
+    </top>
+  rule <k> a => b </k> <env> ready </env>
+endmodule
+"#,
+    )
+    .unwrap();
+    let binary = env!("CARGO_BIN_EXE_krust");
+    let output = Command::new(binary)
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+            "-cENV=ready",
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Lblb{}()"), "{stdout}");
+    assert!(stdout.contains("Lblready{}()"), "{stdout}");
+    assert!(
+        !stdout.contains("\\bottom{SortGeneratedTopCell{}}("),
+        "{stdout}"
+    );
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -384,22 +660,8 @@ endmodule
 
 #[test]
 fn krun_search_explores_an_unconditional_branch() {
-    let (root, definition) = fixture();
+    let (root, definition) = branching_search_fixture();
     let search_pattern = root.join("target.kore");
-    fs::write(
-        &definition,
-        r#"
-module MAIN
-  syntax State ::= "a" | "b" | "c" | "d" | "e"
-  configuration <k> $PGM:State </k>
-  rule a => b
-  rule b => c
-  rule c => d
-  rule c => e
-endmodule
-"#,
-    )
-    .unwrap();
     fs::write(&search_pattern, "Result:SortGeneratedTopCell{}").unwrap();
 
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
@@ -434,6 +696,188 @@ endmodule
         !output.contains("Lblc'Unds'MAIN'Unds'State{}()"),
         "{output}"
     );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn default_search_binds_the_reference_result_variable() {
+    let (root, definition) = branching_search_fixture();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+            "--depth",
+            "10",
+            "--search-one-step",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("VarResult:SortGeneratedTopCell{}"),
+        "{stdout}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn search_bound_truncation_is_reported_to_the_user() {
+    let (root, definition) = branching_search_fixture();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+            "--depth",
+            "10",
+            "--search-all",
+            "--search-bound",
+            "1",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("search stopped at the requested result bound"),
+        "{stderr}"
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!stdout.contains("\\or{"), "{stdout}");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+            "--depth",
+            "10",
+            "--search-final",
+            "--search-bound",
+            "2",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(!stderr.contains("result bound"), "{stderr}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("\\or{"), "{stdout}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn undeclared_config_variables_are_rejected_by_name() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  syntax State ::= "a" [symbol(a)]
+  configuration <k> $PGM:State </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+            "-cNOPE=1",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("NOPE"), "{stderr}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn search_flag_combinations_are_validated() {
+    let (root, definition) = fixture();
+    let target = root.join("target.kore");
+    fs::write(&target, "Result:SortExp{}").unwrap();
+    let cases = [
+        (
+            "exclusive search modes",
+            vec!["--search-all", "--search-one-step"],
+            "--search-one-step",
+        ),
+        (
+            "bound requires a mode",
+            vec!["--search-bound", "3"],
+            "--search-bound",
+        ),
+        (
+            "pattern requires a mode",
+            vec!["--search-pattern", target.to_str().unwrap()],
+            "--search-pattern",
+        ),
+    ];
+
+    for (name, extra, expected) in cases {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "MAIN",
+                "--sort",
+                "Exp",
+                "--expression",
+                "1",
+            ])
+            .args(extra)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{name} unexpectedly succeeded");
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains(expected), "{name}: {stderr}");
+    }
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -1271,6 +1715,7 @@ fn kcompile_writes_parseable_kore_outputs() {
             "--output-directory",
             output_directory.to_str().unwrap(),
             "--no-prelude",
+            "--emit-json",
         ])
         .output()
         .unwrap();
@@ -1302,6 +1747,67 @@ fn kcompile_writes_parseable_kore_outputs() {
             .trim()
             .is_empty()
     );
+    let parsed = k_rust::definition::json::from_str(
+        &fs::read_to_string(output_directory.join("parsed.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(parsed.main_module, "MAIN");
+    assert_eq!(parsed.attributes.get_str("syntaxModule"), Some("MAIN"));
+    assert_eq!(
+        parsed
+            .modules
+            .iter()
+            .map(|module| module.name.as_str())
+            .collect::<Vec<_>>(),
+        ["BASE", "MAIN"],
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kcompile_hook_namespaces_default_per_backend() {
+    let source = r#"
+module MAIN
+  syntax Bytes
+  syntax String
+  syntax String ::= "keccak(" Bytes ")" [function, hook(KRYPTO.keccak256), symbol(keccak)]
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+
+    let kompile = |name: &str, extra: &[&str]| {
+        let output_directory = root.join(name);
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--output-directory",
+            output_directory.to_str().unwrap(),
+            "--no-prelude",
+        ]);
+        command.args(extra);
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        fs::read_to_string(output_directory.join("definition.kore")).unwrap()
+    };
+    let hooked = |kore: &str| kore.contains("hooked-symbol Lblkeccak{}");
+
+    // The Rust backend implements KRYPTO natively, so it is admitted without a flag.
+    assert!(hooked(&kompile("rust", &[])));
+    // Other backends match a default Java kompile: plugin hooks need --hook-namespaces.
+    assert!(!hooked(&kompile("llvm", &["--backend", "llvm"])));
+    assert!(hooked(&kompile(
+        "llvm-admitted",
+        &["--backend", "llvm", "--hook-namespaces", "HASH,KRYPTO"]
+    )));
 
     fs::remove_dir_all(root).unwrap();
 }
