@@ -248,6 +248,7 @@ implemented = [
   "HASH.sha256",
   "HASH.sha3_256",
   "KRYPTO.bn128add",
+  "KRYPTO.bn128ate",
   "KRYPTO.bn128g2valid",
   "KRYPTO.bn128mul",
   "KRYPTO.bn128valid",
@@ -322,12 +323,6 @@ hooks = [
 [[crypto.unsupported]]
 reason = "signing and the additional signature schemes are not implemented by the in-process backend"
 hooks = ["KRYPTO.ecdsaSign", "KRYPTO.ed25519verify", "KRYPTO.p256verify"]
-
-[[crypto.unsupported]]
-reason = "BN128 curve operations are tracked as unsupported semantics capabilities"
-hooks = [
-  "KRYPTO.bn128ate",
-]
 
 [[crypto.unsupported]]
 reason = "BLS12-381 curve operations are not implemented by the in-process backend"

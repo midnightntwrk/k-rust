@@ -9,7 +9,7 @@ use num_traits::ToPrimitive;
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256, Sha512_256};
 use sha3::{Keccak256, Sha3_256};
-use substrate_bn::{AffineG1, AffineG2, Fq, Fq2, Fr, G1, G2, Group};
+use substrate_bn::{AffineG1, AffineG2, Fq, Fq2, Fr, G1, G2, Group, Gt, pairing_batch};
 
 use super::{
     BuiltinError, BuiltinResult, bool_term, bytes, check_interrupted, expect_arity, read_int,
@@ -32,6 +32,7 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
         "KRYPTO.bn128g2valid" => bn128_g2_valid(hook, arguments),
         "KRYPTO.bn128add" => bn128_add(hook, arguments),
         "KRYPTO.bn128mul" => bn128_mul(hook, arguments),
+        "KRYPTO.bn128ate" => bn128_ate(hook, arguments),
         _ => Ok(BuiltinResult::NotApplicable),
     }
 }
@@ -253,6 +254,57 @@ fn concrete_g1_term(template: &ConcreteG1, value: G1) -> Term {
     )
 }
 
+fn complete_list(term: &Term) -> Reading<&[Term]> {
+    match term.kind() {
+        TermKind::List {
+            heads, rest: None, ..
+        } => Reading::Concrete(heads),
+        TermKind::List { rest: Some(_), .. } => Reading::Symbolic,
+        _ => unreadable(term),
+    }
+}
+
+fn bn128_ate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity(hook, arguments, 2)?;
+    let g1_terms = match complete_list(&arguments[0]) {
+        Reading::Concrete(terms) => terms,
+        Reading::Invalid => return Ok(BuiltinResult::Bottom),
+        Reading::Symbolic => return Ok(BuiltinResult::NotApplicable),
+    };
+    let g2_terms = match complete_list(&arguments[1]) {
+        Reading::Concrete(terms) => terms,
+        Reading::Invalid => return Ok(BuiltinResult::Bottom),
+        Reading::Symbolic => return Ok(BuiltinResult::NotApplicable),
+    };
+    if g1_terms.len() != g2_terms.len() {
+        return Ok(BuiltinResult::Bottom);
+    }
+
+    check_interrupted()?;
+    let mut pairs = Vec::with_capacity(g1_terms.len());
+    for (g1_term, g2_term) in g1_terms.iter().zip(g2_terms) {
+        check_interrupted()?;
+        let g1 = match concrete_g1(g1_term) {
+            Reading::Concrete(point) => g1_value(&point),
+            Reading::Invalid => return Ok(BuiltinResult::Bottom),
+            Reading::Symbolic => return Ok(BuiltinResult::NotApplicable),
+        };
+        let g2 = match concrete_g2(g2_term) {
+            Reading::Concrete(point) => g2_value(&point),
+            Reading::Invalid => return Ok(BuiltinResult::Bottom),
+            Reading::Symbolic => return Ok(BuiltinResult::NotApplicable),
+        };
+        let Some(pair) = g1.zip(g2) else {
+            return Ok(BuiltinResult::Bottom);
+        };
+        pairs.push(pair);
+    }
+
+    Ok(BuiltinResult::Value(bool_term(
+        pairing_batch(&pairs) == Gt::one(),
+    )))
+}
+
 fn hash_hex<D>(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError>
 where
     D: Digest,
@@ -382,7 +434,7 @@ mod tests {
     use super::*;
     use crate::{
         cancellation::CancellationToken,
-        term::{Symbol, Variable},
+        term::{CollectionSymbols, ListDefinition, Symbol, Variable},
     };
 
     fn string(value: &str) -> BuiltinResult {
@@ -449,6 +501,22 @@ mod tests {
                     "4082367875863433681332203403145435568316851327593401208105741076214120093531",
                 ),
             ],
+        )
+    }
+
+    fn point_list(items: Vec<Term>) -> Term {
+        Term::list(
+            Arc::new(ListDefinition {
+                symbols: CollectionSymbols {
+                    unit: "Lbl'Stop'List".into(),
+                    element: "LblListItem".into(),
+                    concat: "Lbl'Unds'List'Unds'".into(),
+                },
+                element_sort: "SortKItem".into(),
+                list_sort: "SortList".into(),
+            }),
+            items,
+            None,
         )
     }
 
@@ -1150,6 +1218,146 @@ mod tests {
         assert_eq!(
             evaluate("KRYPTO.bn128mul", &[generator, symbolic_scalar]),
             Ok(BuiltinResult::NotApplicable)
+        );
+    }
+
+    #[test]
+    fn evaluates_concrete_bn128_pairing_products() {
+        let g1 = g1_symbol();
+        let g2 = g2_symbol();
+        let generator_g1 = g1_point(&g1, 1.into(), 2.into());
+        let generator_g2 = g2_generator(&g2);
+        let injected_generator_g1 = Term::injection(
+            Sort::simple("SortG1Point"),
+            Sort::simple("SortKItem"),
+            generator_g1.clone(),
+        );
+        let injected_generator_g2 = Term::injection(
+            Sort::simple("SortG2Point"),
+            Sort::simple("SortKItem"),
+            generator_g2.clone(),
+        );
+
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128ate",
+                &[point_list(Vec::new()), point_list(Vec::new())],
+            ),
+            Ok(BuiltinResult::Value(super::super::bool_term(true)))
+        );
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128ate",
+                &[
+                    point_list(vec![injected_generator_g1]),
+                    point_list(vec![injected_generator_g2]),
+                ],
+            ),
+            Ok(BuiltinResult::Value(super::super::bool_term(false)))
+        );
+
+        let negative_generator_g1 = g1_point(
+            &g1,
+            1.into(),
+            decimal(
+                "21888242871839275222246405745257275088696311157297823662689037894645226208581",
+            ),
+        );
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128ate",
+                &[
+                    point_list(vec![generator_g1, negative_generator_g1]),
+                    point_list(vec![generator_g2.clone(), generator_g2]),
+                ],
+            ),
+            Ok(BuiltinResult::Value(super::super::bool_term(true)))
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_concrete_bn128_pairing_arguments() {
+        let g1 = g1_symbol();
+        let g2 = g2_symbol();
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128ate",
+                &[
+                    point_list(vec![g1_point(&g1, 1.into(), 2.into())]),
+                    point_list(Vec::new()),
+                ],
+            ),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128ate",
+                &[
+                    point_list(vec![g1_point(&g1, 1.into(), 3.into())]),
+                    point_list(vec![g2_generator(&g2)]),
+                ],
+            ),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128ate",
+                &[
+                    point_list(vec![Term::domain_value(
+                        Sort::simple("SortKItem"),
+                        "malformed",
+                    )]),
+                    point_list(vec![g2_generator(&g2)]),
+                ],
+            ),
+            Ok(BuiltinResult::Bottom)
+        );
+
+        let definition = match point_list(Vec::new()).kind() {
+            TermKind::List { definition, .. } => definition.clone(),
+            _ => unreachable!(),
+        };
+        let opaque = Term::list(
+            definition,
+            Vec::new(),
+            Some((
+                Term::variable(Variable::new("REST", Sort::simple("SortList"))),
+                Vec::new(),
+            )),
+        );
+        assert_eq!(
+            evaluate("KRYPTO.bn128ate", &[opaque, point_list(Vec::new())]),
+            Ok(BuiltinResult::NotApplicable)
+        );
+
+        let symbolic_element = Term::variable(Variable::new("P", Sort::simple("SortG1Point")));
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128ate",
+                &[
+                    point_list(vec![symbolic_element]),
+                    point_list(vec![g2_generator(&g2)]),
+                ],
+            ),
+            Ok(BuiltinResult::NotApplicable)
+        );
+    }
+
+    #[test]
+    fn interrupted_bn128_pairing_stops_before_the_product() {
+        let g1 = g1_symbol();
+        let g2 = g2_symbol();
+        let token = CancellationToken::new();
+        token.cancel();
+
+        let g1s = point_list(vec![
+            g1_point(&g1, 1.into(), 2.into()),
+            g1_point(&g1, 1.into(), 2.into()),
+        ]);
+        let g2s = point_list(vec![g2_generator(&g2), g2_generator(&g2)]);
+        assert_eq!(
+            token.scope(|| evaluate("KRYPTO.bn128ate", &[g1s, g2s])),
+            Err(BuiltinError::Interrupted)
         );
     }
 }
