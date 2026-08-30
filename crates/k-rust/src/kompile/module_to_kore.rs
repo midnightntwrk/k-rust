@@ -2631,11 +2631,12 @@ fn refresh_variables(
     term: &Term,
     avoid: &BTreeSet<String>,
     counter: &mut usize,
-    renames: &mut BTreeMap<String, String>,
+    renames: &mut BTreeMap<(String, Option<Sort>), String>,
 ) -> Term {
     let refreshed = match term.unannotated() {
         Term::Variable { name, sort } => {
-            let name = renames.entry(name.clone()).or_insert_with(|| {
+            let identity = (name.clone(), sort.clone());
+            let name = renames.entry(identity).or_insert_with(|| {
                 loop {
                     let candidate = format!("_Gen{counter}");
                     *counter += 1;
@@ -3723,5 +3724,39 @@ mod tests {
         assert_eq!(equation.argument_sorts, [from]);
         assert_eq!(equation.result_sort, to);
         assert!(equation.direct);
+    }
+
+    #[test]
+    fn refreshes_same_named_variables_at_distinct_sorts_independently() {
+        let term = Term::apply(
+            "pair",
+            vec![
+                Term::Variable {
+                    name: "X".into(),
+                    sort: Some(Sort::new("A")),
+                },
+                Term::Variable {
+                    name: "X".into(),
+                    sort: Some(Sort::new("B")),
+                },
+            ],
+        );
+        let refreshed = refresh_variables(&term, &BTreeSet::new(), &mut 0, &mut BTreeMap::new());
+        let variables = variable_terms([&refreshed]);
+
+        assert_eq!(
+            variables.keys().cloned().collect::<Vec<_>>(),
+            ["_Gen0", "_Gen1"]
+        );
+        assert_eq!(
+            variables
+                .values()
+                .map(|term| match term.unannotated() {
+                    Term::Variable { sort, .. } => sort.clone().unwrap(),
+                    _ => unreachable!(),
+                })
+                .collect::<Vec<_>>(),
+            [Sort::new("A"), Sort::new("B")]
+        );
     }
 }
