@@ -122,6 +122,8 @@ pub struct PathWitness {
     pub depth: u64,
     /// The path's rewrite, remainder, and arrival-local simplification trace entries.
     pub trace: Vec<TraceEntry>,
+    /// Ordered structured events retained for this witness.
+    pub observations: Vec<ObservationEvent>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -671,6 +673,38 @@ pub fn search_paths_with_solver(
     options: SearchOptions,
     solver: &dyn SmtSolver,
 ) -> PathSearchResult {
+    search_paths_using(definition, initial, options, solver, None)
+}
+
+/// Search for observed acyclic path witnesses.
+pub fn search_paths_observed(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: SearchOptions,
+    observation: &ObservationOptions,
+) -> PathSearchResult {
+    search_paths_observed_with_solver(definition, initial, options, &NoSolver, observation)
+}
+
+/// Search for observed acyclic path witnesses using the supplied SMT solver.
+pub fn search_paths_observed_with_solver(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+    observation: &ObservationOptions,
+) -> PathSearchResult {
+    search_paths_using(definition, initial, options, solver, Some(observation))
+}
+
+fn search_paths_using(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+    observation: Option<&ObservationOptions>,
+) -> PathSearchResult {
+    let mut observation_log = ObservationLog::default();
     let mut pending = VecDeque::from([PathSearchState {
         state: SearchState {
             pattern: initial,
@@ -681,6 +715,7 @@ pub fn search_paths_with_solver(
         },
         id: Vec::new(),
         visited: Vec::new(),
+        observation: None,
     }]);
     let mut witnesses = Vec::new();
     let mut effects = Vec::new();
@@ -689,7 +724,10 @@ pub fn search_paths_with_solver(
 
     if options.max_breadth == Some(0) {
         incomplete.push(IncompleteSearch::BreadthBound(
-            pending.drain(..).map(|state| state.state).collect(),
+            pending
+                .drain(..)
+                .map(|path| path.materialize_state(&observation_log))
+                .collect(),
         ));
         return PathSearchResult {
             witnesses,
@@ -717,10 +755,14 @@ pub fn search_paths_with_solver(
         ) {
             Ok(constraints) => path.state.pattern.constraints = constraints,
             Err(error) => {
-                incomplete.push(simplification_incomplete(path.state, error));
+                incomplete.push(simplification_incomplete(
+                    path.materialize_state(&observation_log),
+                    error,
+                ));
                 continue;
             }
         }
+        let pattern_before_simplification = path.state.pattern.clone();
         match simplify_with_solver(
             definition,
             &path.state.pattern.term,
@@ -734,7 +776,16 @@ pub fn search_paths_with_solver(
                     .pattern
                     .constraints
                     .extend(simplified.constraints);
-                effects.extend(simplified.effects);
+                path.observation = observation_log.append_simplification(
+                    path.observation,
+                    definition,
+                    pattern_before_simplification,
+                    &path.state.pattern,
+                    &simplified.applied_rules,
+                    &simplified.effects,
+                    observation,
+                );
+                effects.extend(simplified.effects.iter().cloned());
                 path.state
                     .trace
                     .extend(
@@ -750,7 +801,10 @@ pub fn search_paths_with_solver(
                     );
             }
             Err(error) => {
-                incomplete.push(simplification_incomplete(path.state, error));
+                incomplete.push(simplification_incomplete(
+                    path.materialize_state(&observation_log),
+                    error,
+                ));
                 continue;
             }
         }
@@ -761,7 +815,7 @@ pub fn search_paths_with_solver(
         path.visited.push(path.state.pattern.clone());
 
         if selects_reachable_state(options.search_type, path.state.depth)
-            && !retain_witness(&mut witnesses, &path, options.max_results)
+            && !retain_witness(&mut witnesses, &path, options.max_results, &observation_log)
         {
             incomplete.push(IncompleteSearch::ResultBound);
             break;
@@ -771,7 +825,9 @@ pub fn search_paths_with_solver(
         }
         let at_depth_bound = path.state.depth >= options.max_depth;
         if at_depth_bound && options.search_type != SearchType::Final {
-            incomplete.push(IncompleteSearch::DepthBound(path.state));
+            incomplete.push(IncompleteSearch::DepthBound(
+                path.materialize_state(&observation_log),
+            ));
             continue;
         }
 
@@ -786,7 +842,8 @@ pub fn search_paths_with_solver(
             match rewrite {
                 RewriteResult::Stuck(pattern) => {
                     path.state.pattern = pattern;
-                    if !retain_witness(&mut witnesses, &path, options.max_results) {
+                    if !retain_witness(&mut witnesses, &path, options.max_results, &observation_log)
+                    {
                         incomplete.push(IncompleteSearch::ResultBound);
                         break;
                     }
@@ -794,10 +851,15 @@ pub fn search_paths_with_solver(
                 RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
                 RewriteResult::Indeterminate { pattern, reason } => {
                     path.state.pattern = pattern;
-                    incomplete.push(rewrite_incomplete(path.state, reason));
+                    incomplete.push(rewrite_incomplete(
+                        path.materialize_state(&observation_log),
+                        reason,
+                    ));
                 }
                 RewriteResult::Finished(_) | RewriteResult::Branch { .. } => {
-                    incomplete.push(IncompleteSearch::DepthBound(path.state));
+                    incomplete.push(IncompleteSearch::DepthBound(
+                        path.materialize_state(&observation_log),
+                    ));
                 }
             }
             continue;
@@ -807,7 +869,7 @@ pub fn search_paths_with_solver(
             RewriteResult::Stuck(pattern) => {
                 path.state.pattern = pattern;
                 if options.search_type == SearchType::Final
-                    && !retain_witness(&mut witnesses, &path, options.max_results)
+                    && !retain_witness(&mut witnesses, &path, options.max_results, &observation_log)
                 {
                     incomplete.push(IncompleteSearch::ResultBound);
                     break;
@@ -816,13 +878,25 @@ pub fn search_paths_with_solver(
             RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
             RewriteResult::Indeterminate { pattern, reason } => {
                 path.state.pattern = pattern;
-                incomplete.push(rewrite_incomplete(path.state, reason));
+                incomplete.push(rewrite_incomplete(
+                    path.materialize_state(&observation_log),
+                    reason,
+                ));
             }
             RewriteResult::Finished(applied) => {
                 effects.extend(applied.effects.iter().cloned());
-                pending.push_back(next_path_state(path, applied));
-                if path_search_breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth)
-                {
+                pending.push_back(next_path_state(
+                    path,
+                    applied,
+                    &mut observation_log,
+                    observation,
+                ));
+                if path_search_breadth_exceeded(
+                    &mut pending,
+                    &mut incomplete,
+                    options.max_breadth,
+                    &observation_log,
+                ) {
                     break;
                 }
             }
@@ -833,13 +907,27 @@ pub fn search_paths_with_solver(
             } => {
                 for applied in branches {
                     effects.extend(applied.effects.iter().cloned());
-                    pending.push_back(next_path_state(path.clone(), applied));
+                    pending.push_back(next_path_state(
+                        path.clone(),
+                        applied,
+                        &mut observation_log,
+                        observation,
+                    ));
                 }
                 if let Some(remainder) = remainder {
-                    pending.push_back(remaining_path_state(path, remainder));
+                    pending.push_back(remaining_path_state(
+                        path,
+                        remainder,
+                        &mut observation_log,
+                        observation,
+                    ));
                 }
-                if path_search_breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth)
-                {
+                if path_search_breadth_exceeded(
+                    &mut pending,
+                    &mut incomplete,
+                    options.max_breadth,
+                    &observation_log,
+                ) {
                     break;
                 }
             }
@@ -858,6 +946,13 @@ struct PathSearchState {
     state: SearchState,
     id: Vec<TransitionId>,
     visited: Vec<Pattern>,
+    observation: ObservationHead,
+}
+
+impl PathSearchState {
+    fn materialize_state(self, observation_log: &ObservationLog) -> SearchState {
+        materialize_search_state(self.state, self.observation, observation_log)
+    }
 }
 
 /// Returns false only when this witness proves that the retained result bound truncates answers.
@@ -865,33 +960,54 @@ fn retain_witness(
     witnesses: &mut Vec<PathWitness>,
     path: &PathSearchState,
     max_results: Option<usize>,
+    observation_log: &ObservationLog,
 ) -> bool {
     if max_results.is_some_and(|limit| witnesses.len() >= limit) {
         return false;
     }
+    let (_, observations) = observation_log.materialize(path.observation);
     witnesses.push(PathWitness {
         id: path.id.clone(),
         pattern: path.state.pattern.clone(),
         depth: path.state.depth,
         trace: path.state.trace.clone(),
+        observations,
     });
     true
 }
 
-fn next_path_state(mut path: PathSearchState, applied: AppliedRule) -> PathSearchState {
+fn next_path_state(
+    mut path: PathSearchState,
+    applied: AppliedRule,
+    observation_log: &mut ObservationLog,
+    observation_options: Option<&ObservationOptions>,
+) -> PathSearchState {
     path.id.push(TransitionId {
         rule: applied.unique_id.clone(),
         target: PatternDigest::of(&applied.pattern),
     });
+    path.observation =
+        observation_log.append_applied(path.observation, &applied, observation_options);
     path.state = next_state(path.state.depth, path.state.trace, applied);
     path
 }
 
-fn remaining_path_state(mut path: PathSearchState, remainder: RemainderBranch) -> PathSearchState {
+fn remaining_path_state(
+    mut path: PathSearchState,
+    remainder: RemainderBranch,
+    observation_log: &mut ObservationLog,
+    observation_options: Option<&ObservationOptions>,
+) -> PathSearchState {
     path.id.push(TransitionId {
         rule: format!("remainder:{}", remainder.rule_ids.join(",")),
         target: PatternDigest::of(&remainder.pattern),
     });
+    path.observation = observation_log.append_remainder(
+        path.observation,
+        path.state.pattern.clone(),
+        &remainder,
+        observation_options,
+    );
     path.state = remaining_state(path.state.depth, path.state.trace, remainder);
     path
 }
@@ -900,12 +1016,16 @@ fn path_search_breadth_exceeded(
     pending: &mut VecDeque<PathSearchState>,
     incomplete: &mut Vec<IncompleteSearch>,
     max_breadth: Option<usize>,
+    observation_log: &ObservationLog,
 ) -> bool {
     if !max_breadth.is_some_and(|bound| pending.len() > bound) {
         return false;
     }
     incomplete.push(IncompleteSearch::BreadthBound(
-        pending.drain(..).map(|path| path.state).collect(),
+        pending
+            .drain(..)
+            .map(|path| path.materialize_state(observation_log))
+            .collect(),
     ));
     true
 }
@@ -1109,8 +1229,8 @@ fn witness_search_state(witness: PathWitness) -> SearchState {
         pattern: witness.pattern,
         depth: witness.depth,
         trace: witness.trace,
-        branch: Vec::new(),
-        observations: Vec::new(),
+        branch: witness.id,
+        observations: witness.observations,
     }
 }
 
@@ -1949,6 +2069,55 @@ mod tests {
                 vec!["initial-right", "right-merged"],
             ])
         );
+    }
+
+    #[test]
+    fn observed_path_search_retains_each_witness_stream() {
+        let definition = diamond_definition(false);
+        let result = search_paths_observed(
+            &definition,
+            initial(&definition),
+            SearchOptions::default(),
+            &ObservationOptions::all(),
+        );
+
+        assert_eq!(result.witnesses.len(), 2);
+        assert!(result.witnesses.iter().all(|witness| {
+            witness
+                .observations
+                .iter()
+                .map(|event| match event {
+                    ObservationEvent::Transition(observation) => &observation.id,
+                    ObservationEvent::Uncommitted(_) => {
+                        panic!("path search cannot retain a rollback")
+                    }
+                })
+                .eq(witness.id.iter())
+        }));
+    }
+
+    #[test]
+    fn observed_path_search_preserves_non_observation_outputs() {
+        let definition = diamond_definition(false);
+        let initial = initial(&definition);
+        let expected = search_paths(&definition, initial.clone(), SearchOptions::default());
+        let mut actual = search_paths_observed(
+            &definition,
+            initial,
+            SearchOptions::default(),
+            &ObservationOptions::all(),
+        );
+
+        assert!(
+            actual
+                .witnesses
+                .iter()
+                .all(|witness| !witness.observations.is_empty())
+        );
+        for witness in &mut actual.witnesses {
+            witness.observations.clear();
+        }
+        assert_eq!(actual, expected);
     }
 
     #[test]
