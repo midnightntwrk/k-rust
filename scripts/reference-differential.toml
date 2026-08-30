@@ -1,5 +1,16 @@
 version = 1
 
+# Manual real-semantics certification protocol (no CI job):
+# Run every command below after a landing that changes frontend, definition, kompile, or KORE emission behavior.
+# The scripts must use the clean manifest-pinned checkouts and matching K release enforced by reference-pins.sh.
+# Record each named case's pass/fail result, wall time, and peak RSS in the landing PR description.
+#
+# scripts/reference-differential.sh wasm mir evm-equivalence
+# scripts/reference-kast-differential.sh wasm mir evm-equivalence
+# scripts/reference-non-imp-execution-differential.sh imp
+# scripts/reference-proof-differential.sh imp
+# scripts/reference-rpc-differential.sh imp
+
 [reference.k]
 revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 version = "v7.1.337"
@@ -56,7 +67,7 @@ comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"
 
 [[compile]]
 name = "evm-equivalence"
-requires = ["reference-toolchain", "semantics-support"]
+requires = ["reference-toolchain"]
 constructs = ["crypto-hook"]
 source = "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/optimizations.md"
 main-module = "EVM-OPTIMIZATIONS"
@@ -155,7 +166,7 @@ comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"
 
 [[compile]]
 name = "mir"
-requires = ["reference-toolchain", "semantics-support"]
+requires = ["reference-toolchain"]
 constructs = []
 source = "${mir}/kmir/src/kmir/kdist/mir-semantics/kmir.md"
 main-module = "KMIR"
@@ -166,7 +177,7 @@ comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"
 
 [[compile]]
 name = "wasm"
-requires = ["reference-toolchain", "semantics-support"]
+requires = ["reference-toolchain"]
 constructs = []
 source = "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md"
 main-module = "WASM-TEST"
@@ -223,7 +234,7 @@ file = "${imp}/examples/sumrec10.imp"
 
 [[kast]]
 name = "wasm"
-requires = ["reference-toolchain", "semantics-support"]
+requires = ["reference-toolchain"]
 constructs = []
 source = "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md"
 main-module = "WASM-TEST"
@@ -281,7 +292,7 @@ expression = "(module (func"
 
 [[kast]]
 name = "evm-equivalence"
-requires = ["reference-toolchain", "semantics-support"]
+requires = ["reference-toolchain"]
 constructs = ["crypto-hook"]
 source = "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/optimizations.md"
 main-module = "EVM-OPTIMIZATIONS"
@@ -310,7 +321,7 @@ expression = "NOT_A_SCHEDULE"
 
 [[kast]]
 name = "mir"
-requires = ["reference-toolchain", "semantics-support"]
+requires = ["reference-toolchain"]
 constructs = []
 source = "${mir}/kmir/src/kmir/kdist/mir-semantics/kmir.md"
 main-module = "KMIR"
