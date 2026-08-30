@@ -155,7 +155,7 @@ fn json_summary(value: &serde_json::Value) -> String {
     let text = json_sort_key(value);
     let mut summary = text.chars().take(400).collect::<String>();
     if summary.len() < text.len() {
-        summary.push_str("…");
+        summary.push('…');
     }
     summary
 }

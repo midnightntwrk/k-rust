@@ -6,7 +6,7 @@ use k_rust::inner::resolve_rule_bubbles;
 use k_rust::kast::{Label, Sort, Term, TermMetadata};
 use k_rust::kompile::{
     SortInjector, add_sort_injections_to_definition, generate_sort_projections,
-    resolve_semantic_casts, term_to_kore_from_resolved,
+    term_to_kore_from_resolved,
 };
 use k_rust::kore::printer::Printer;
 
@@ -81,6 +81,7 @@ injection_snapshot!(
     "#
 );
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn semantic_casts_instantiate_parametric_production_results() {
     let source = indoc! {r#"
@@ -94,7 +95,7 @@ fn semantic_casts_instantiate_parametric_production_results() {
           rule pair(a, b):C => pair(a, b):C
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&lowered(source));
+    let definition = k_rust::kompile::resolve_semantic_casts(&lowered(source));
     let resolved = ResolvedDefinition::resolve(&definition).unwrap();
     let injector = SortInjector::new(&resolved, "MAIN").unwrap();
     let rule = definition

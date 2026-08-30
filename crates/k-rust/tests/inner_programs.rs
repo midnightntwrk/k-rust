@@ -325,6 +325,7 @@ fn parses_adjacent_empty_overloaded_user_lists() {
     }
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reconstructs_a_root_sort_singleton_as_its_most_specific_list() {
     let definition = wasm_shaped_overloaded_lists();
@@ -337,6 +338,7 @@ fn reconstructs_a_root_sort_singleton_as_its_most_specific_list() {
     assert!(rendered.contains(".List"), "{rendered}");
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn parses_an_empty_program_at_a_root_list_sort() {
     let definition = wasm_shaped_overloaded_lists();

@@ -644,19 +644,14 @@ impl RpcService {
         validate_implication_variable_capture(&antecedent, &consequent)?;
         validate_implication_sorts(&antecedent, &consequent)?;
         let sort_variables = super::implication_sort_variables(&antecedent, &consequent);
-        let special_result = special_implication_result(&antecedent, &consequent);
-        if special_result.is_some()
-            && matches!(super::strip_exists(&antecedent), KorePattern::Bottom { .. })
-        {
-            let (_, result_sort) = definition
-                .internalize_predicate(&antecedent, &sort_variables)
-                .map_err(RpcFault::pattern)?;
-            return implication_result(
-                &antecedent,
-                &consequent,
-                &result_sort,
-                special_result.expect("bottom antecedents have a special result"),
-            );
+        let mut special_result = special_implication_result(&antecedent, &consequent);
+        if matches!(super::strip_exists(&antecedent), KorePattern::Bottom { .. }) {
+            if let Some(result) = special_result.take() {
+                let (_, result_sort) = definition
+                    .internalize_predicate(&antecedent, &sort_variables)
+                    .map_err(RpcFault::pattern)?;
+                return implication_result(&antecedent, &consequent, &result_sort, result);
+            }
         }
         let (antecedent_pattern, antecedent_existentials) = definition
             .internalize_implication_pattern(&antecedent, &sort_variables)

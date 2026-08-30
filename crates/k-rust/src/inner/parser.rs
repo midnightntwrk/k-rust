@@ -1715,15 +1715,13 @@ mod chart_tests {
                 .unwrap();
             ParsedTerm::Production {
                 production,
-                children: Vec::new(),
+                children: Vec::new().into(),
                 metadata: TermMetadata::default(),
             }
         };
-        let filtered =
-            grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
-                parsed(small),
-                parsed(big),
-            ])));
+        let filtered = grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(
+            BTreeSet::from([parsed(small), parsed(big)]).into(),
+        ));
         assert!(matches!(filtered, ParsedTerm::Production { production, .. }
             if grammar.productions[production].source_production == Some(small)));
     }
