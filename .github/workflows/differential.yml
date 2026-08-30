@@ -1,0 +1,79 @@
+name: Differential
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: differential-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  K_REVISION: 4a46d1231473b599c699160132fd6e76a5c46406
+  K_VERSION: 7.1.337
+  REFERENCE_DIFFERENTIAL_MEMORY_KIB: 6291456
+  REFERENCE_DIFFERENTIAL_K_OPTS: >-
+    -Xmx2048m -Xss1m -XX:+UseSerialGC
+    -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m
+    -XX:ReservedCodeCacheSize=128m
+
+jobs:
+  local-corpus:
+    name: Pinned local corpus
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Check out pinned K sources
+        uses: actions/checkout@v7
+        with:
+          repository: runtimeverification/k
+          ref: ${{ env.K_REVISION }}
+          path: k
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install pinned K release
+        run: |
+          curl -fsSLo /tmp/kframework.deb \
+            "https://github.com/runtimeverification/k/releases/download/v${K_VERSION}/kframework_${K_VERSION}_amd64_ubuntu_noble.deb"
+          sudo apt-get install -y /tmp/kframework.deb
+
+      - name: Validate manifest and comparison oracles
+        run: cargo test -p k-rust --test differential_manifest --test reference_differential
+
+      - name: Compare compile artifacts
+        run: >-
+          scripts/reference-differential.sh
+          append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite
+          parametric-semantic-cast hooked-namespaces star-cell-config owise-functions owise
+
+      - name: Compare concrete parser behavior
+        run: >-
+          scripts/reference-kast-differential.sh
+          bounded-search-local crypto-local collections-local bytes-local deep-config-local
+          deep-term-local macro-runtime-local hooked-namespaces-local star-cell-config-local
+          owise-functions-local parametric-cast-local mini-proof-local wasm-shaped-lists-local
+
+      - name: Compare execution and search behavior
+        run: >-
+          scripts/reference-non-imp-execution-differential.sh
+          crypto collections bytes-ops deep-config macro-runtime bounded-search deep-term
+
+      - name: Compare proof verdicts
+        run: scripts/reference-proof-differential.sh mini-proof
+
+      - name: Compare JSON-RPC behavior
+        run: scripts/reference-rpc-differential.sh bounded-search

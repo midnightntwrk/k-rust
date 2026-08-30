@@ -72,6 +72,12 @@ pub fn evaluate(term: &Term) -> Result<BuiltinResult, BuiltinError> {
     evaluate_hook_with_sort(hook, arguments, Some(&result_sort))
 }
 
+/// Hook namespaces this backend dispatches beyond K's fixed builtin set.
+///
+/// Java K only treats these plugin namespaces as hooked when `kompile --hook-namespaces` names
+/// them; the Rust backend implements them natively, so KORE emitted for it admits them by default.
+pub const PLUGIN_HOOK_NAMESPACES: [&str; 3] = ["KRYPTO", "HASH", "SECP256K1"];
+
 pub fn evaluate_hook(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     evaluate_hook_with_sort(hook, arguments, None)
 }
@@ -128,9 +134,9 @@ fn evaluate_hook_with_sort(
         hook if hook.starts_with("MAP.") => return map::evaluate(hook, arguments),
         hook if hook.starts_with("SET.") => set::evaluate(hook, arguments),
         hook if hook.starts_with("BYTES.") => return bytes::evaluate(hook, arguments),
-        hook if hook.starts_with("KRYPTO.")
-            || hook.starts_with("HASH.")
-            || hook.starts_with("SECP256K1.") =>
+        hook if hook
+            .split_once('.')
+            .is_some_and(|(namespace, _)| PLUGIN_HOOK_NAMESPACES.contains(&namespace)) =>
         {
             return krypto::evaluate(hook, arguments);
         }
@@ -786,5 +792,38 @@ mod tests {
                 actual: 1,
             })
         );
+    }
+
+    #[test]
+    fn krypto_wrong_arity_is_an_error_not_a_fallthrough() {
+        let dummy = Term::domain_value(Sort::simple("SortBytes"), "");
+        let cases = [
+            ("KRYPTO.keccak256", 1),
+            ("HASH.keccak256", 1),
+            ("KRYPTO.keccak256raw", 1),
+            ("KRYPTO.sha256", 1),
+            ("HASH.sha256", 1),
+            ("KRYPTO.sha3256", 1),
+            ("HASH.sha3_256", 1),
+            ("KRYPTO.sha512_256raw", 1),
+            ("KRYPTO.ripemd160", 1),
+            ("HASH.ripemd160", 1),
+            ("KRYPTO.ecdsaPubKey", 1),
+            ("KRYPTO.ecdsaRecover", 4),
+            ("SECP256K1.ecdsaRecover", 4),
+        ];
+
+        for (hook, expected) in cases {
+            let arguments = vec![dummy.clone(); expected + 1];
+            assert_eq!(
+                evaluate_hook(hook, &arguments),
+                Err(BuiltinError::WrongArity {
+                    hook: hook.into(),
+                    expected,
+                    actual: expected + 1,
+                }),
+                "{hook}"
+            );
+        }
     }
 }

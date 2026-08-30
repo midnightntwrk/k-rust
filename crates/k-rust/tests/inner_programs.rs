@@ -8,6 +8,32 @@ fn lowered(source: &str, main_module: &str) -> Definition {
     k_rust::outer::lower(&parsed, main_module).expect("definition should lower")
 }
 
+fn wasm_shaped_overloaded_lists() -> Definition {
+    lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Type ::= "i32" [symbol(i32)]
+              syntax Result ::= "(" "result" Type ")" [symbol(result)]
+              syntax Instr ::= "i32.const" Int [symbol(const)]
+              syntax Int ::= r"[0-9]+" [token]
+              syntax BodyItem ::= Result | Instr
+              syntax Stmt ::= Instr
+              syntax Results ::= List{Result, ""} [overload(listStmt), symbol(results)]
+              syntax Instrs ::= List{Instr, ""} [overload(listStmt), symbol(instrs)]
+              syntax BodyItems ::= List{BodyItem, ""} [overload(listStmt), symbol(bodyItems)]
+              syntax Stmts ::= List{Stmt, ""} [overload(listStmt), symbol(stmts)]
+              syntax Stmts ::= Instrs
+              syntax Defn ::= "(" "func" Results Instrs ")" [symbol(func)]
+              syntax Item ::= Defn
+              syntax Defns ::= List{Defn, ""} [overload(listModule), symbol(defns)]
+              syntax Items ::= List{Item, ""} [overload(listModule), symbol(items)]
+              syntax Module ::= "(" "module" Defns ")" [symbol(module)]
+            endmodule
+        "#},
+        "MAIN",
+    )
+}
+
 #[test]
 fn parsed_production_ids_belong_to_the_resolved_definition_catalog() {
     let definition = lowered(
@@ -203,6 +229,177 @@ fn rejects_an_empty_nonempty_user_list() {
         ),
         "{error:?}"
     );
+}
+
+#[test]
+fn rejects_a_trailing_separator_in_a_program_user_list() {
+    // K's program grammar is `Ints ::= Ne#Ints | ""` with `Ne#Ints ::= Int "," Ne#Ints | Int`,
+    // so the empty list is only the whole list, never the tail after a separator.
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Exp ::= Int "[" Ints "]" [symbol(index)]
+              syntax Ints ::= List{Int, ","} [symbol(ints)]
+              syntax Int ::= r"[0-9]+" [token]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parser = ProgramParser::new(&definition, "MAIN").unwrap();
+
+    for source in ["0[]", "0[1]", "0[1,2]"] {
+        let term = parser
+            .parse(&Sort::new("Exp"), source)
+            .unwrap_or_else(|error| panic!("{source}: {error}"));
+        let rendered = term.to_string();
+        assert!(rendered.contains("ints"), "{source}: {rendered}");
+    }
+    for source in ["0[1,]", "0[1,2,]", "0[,]"] {
+        let error = parser.parse(&Sort::new("Exp"), source).unwrap_err();
+        assert!(
+            matches!(*error.error, ParseError::NoParse { .. }),
+            "{source}: {error:?}"
+        );
+    }
+}
+
+#[test]
+fn parses_empty_and_singleton_overloaded_user_lists() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Defn ::= "func" [symbol(func)]
+              syntax Item ::= Defn
+              syntax Defns ::= List{Defn, ""} [overload(listStmt), symbol(defns)]
+              syntax Items ::= List{Item, ""} [overload(listStmt), symbol(items)]
+              syntax Module ::= "(" "module" Defns ")" [symbol(module)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parser = ProgramParser::new(&definition, "MAIN").unwrap();
+
+    for source in ["(module)", "(module func)"] {
+        let term = parser
+            .parse(&Sort::new("Module"), source)
+            .unwrap_or_else(|error| panic!("{source}: {error}"));
+        let rendered = term.to_string();
+        assert!(rendered.contains("defns"), "{source}: {rendered}");
+        assert!(!rendered.contains("items"), "{source}: {rendered}");
+    }
+}
+
+#[test]
+fn parses_wasm_shaped_adjacent_overloaded_user_lists() {
+    let definition = wasm_shaped_overloaded_lists();
+    let parsed = parse_program(
+        &definition,
+        "MAIN",
+        &Sort::new("Module"),
+        "(module (func (result i32) i32.const 1))",
+    )
+    .unwrap();
+    let rendered = parsed.to_string();
+
+    for label in ["module", "defns", "func", "results", "instrs"] {
+        assert!(rendered.contains(label), "missing {label}: {rendered}");
+    }
+    assert!(!rendered.contains("bodyItems"), "{rendered}");
+}
+
+#[test]
+fn parses_adjacent_empty_overloaded_user_lists() {
+    let definition = wasm_shaped_overloaded_lists();
+    let rendered = parse_program(&definition, "MAIN", &Sort::new("Module"), "(module (func))")
+        .expect("adjacent empty result and instruction lists should parse uniquely")
+        .to_string();
+
+    for label in ["module", "defns", "func", "results", "instrs"] {
+        assert!(rendered.contains(label), "missing {label}: {rendered}");
+    }
+    for losing_label in ["items", "bodyItems"] {
+        assert!(
+            !rendered.contains(losing_label),
+            "selected losing overload {losing_label}: {rendered}"
+        );
+    }
+}
+
+#[test]
+fn reconstructs_a_root_sort_singleton_as_its_most_specific_list() {
+    let definition = wasm_shaped_overloaded_lists();
+    let rendered = parse_program(&definition, "MAIN", &Sort::new("Stmts"), "i32.const 1")
+        .expect("a root singleton should be reconstructed as a list")
+        .to_string();
+
+    assert!(rendered.contains("instrs"), "{rendered}");
+    assert!(!rendered.contains("stmts"), "{rendered}");
+    assert!(rendered.contains(".List"), "{rendered}");
+}
+
+#[test]
+fn parses_an_empty_program_at_a_root_list_sort() {
+    let definition = wasm_shaped_overloaded_lists();
+    let rendered = parse_program(&definition, "MAIN", &Sort::new("Stmts"), "")
+        .expect("the empty list should parse at a root list sort")
+        .to_string();
+
+    assert!(rendered.contains(".List"), "{rendered}");
+}
+
+#[test]
+fn parses_multiple_defns_with_empty_inner_lists() {
+    let definition = wasm_shaped_overloaded_lists();
+    let rendered = parse_program(
+        &definition,
+        "MAIN",
+        &Sort::new("Module"),
+        "(module (func) (func))",
+    )
+    .expect("an outer list should accept multiple elements with empty inner lists")
+    .to_string();
+
+    assert_eq!(rendered.matches("func(").count(), 2, "{rendered}");
+    assert!(rendered.contains("defns"), "{rendered}");
+    assert!(!rendered.contains("items"), "{rendered}");
+}
+
+#[test]
+fn program_parsing_is_layout_insensitive() {
+    let definition = wasm_shaped_overloaded_lists();
+    let compact = parse_program(
+        &definition,
+        "MAIN",
+        &Sort::new("Module"),
+        "(module (func) (func))",
+    )
+    .expect("compact program should parse")
+    .to_string();
+    let laid_out = parse_program(
+        &definition,
+        "MAIN",
+        &Sort::new("Module"),
+        "( // open\n module // first function\n ( func ) // second function\n ( func ) // close\n )",
+    )
+    .expect("layout and comments should not affect parsing")
+    .to_string();
+
+    assert_eq!(compact, laid_out);
+}
+
+#[test]
+fn rejects_programs_outside_the_grammar() {
+    let definition = wasm_shaped_overloaded_lists();
+    for (name, sort, source) in [
+        ("unbalanced delimiters", "Module", "(module (func"),
+        ("keyword as definition", "Module", "(module module)"),
+        ("missing instruction argument", "Stmts", "i32.const"),
+    ] {
+        assert!(
+            parse_program(&definition, "MAIN", &Sort::new(sort), source).is_err(),
+            "{name} unexpectedly parsed: {source}"
+        );
+    }
 }
 
 #[test]

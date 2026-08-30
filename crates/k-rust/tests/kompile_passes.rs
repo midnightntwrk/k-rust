@@ -2,7 +2,7 @@ use indoc::indoc;
 use k_rust::{
     definition::{
         Attributes, Definition, FlatImport, FlatModule, LabelHead, ProductionId, ProductionItem,
-        ResolvedDefinition, Sentence,
+        ResolvedDefinition, Sentence, checks::check_definition,
     },
     kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, printer::Printer},
     kompile::{
@@ -1993,6 +1993,68 @@ fn concretizes_nested_cells_to_declared_fixed_arities() {
 }
 
 #[test]
+fn complete_cells_are_rejected_with_a_typed_error() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <k> 0 </k>
+              <state> 0 </state>
+              <output> 0 </output>
+            </top>
+          rule <k> 0 => 1 </k>
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let child = || application("<k>", vec![Term::variable("K")]);
+    let cases = [
+        (
+            "one complete child",
+            vec![child()],
+            "Expected incomplete cell with 3 arguments, found 1",
+        ),
+        (
+            "three complete children",
+            vec![child(), child(), child()],
+            "Expected #dots() or #noDots() in incomplete cell",
+        ),
+    ];
+
+    for (name, arguments, expected) in cases {
+        let mut input = definition.clone();
+        let rule = input
+            .modules
+            .iter_mut()
+            .find(|module| module.name == "MAIN")
+            .unwrap()
+            .local_sentences
+            .iter_mut()
+            .find(|sentence| {
+                matches!(sentence, Sentence::Rule { attributes, .. }
+                    if attributes.get("initializer").is_none())
+            })
+            .expect("fixture has an ordinary rule");
+        let Sentence::Rule { body, .. } = rule else {
+            unreachable!()
+        };
+        *body = application("<top>", arguments);
+
+        let error = match concretize_cells(&input) {
+            Err(error) => error,
+            Ok(_) => panic!("{name} unexpectedly concretized"),
+        };
+        assert_eq!(error.diagnostics.len(), 1, "{name}: {error:#?}");
+        assert!(
+            error.diagnostics[0].message.contains(expected),
+            "{name}: {error:#?}"
+        );
+    }
+}
+
+#[test]
 fn fills_absent_optional_and_repeated_cells_with_their_units() {
     let source = indoc! {r#"
         module MAIN
@@ -2039,6 +2101,57 @@ fn fills_absent_optional_and_repeated_cells_with_their_units() {
     }, {
         insta::assert_debug_snapshot!(output);
     });
+}
+
+#[test]
+fn preserves_repeated_cell_initializers_for_every_collection_shape() {
+    for collection in ["Map", "Set", "List"] {
+        for (shape, body, initial) in [
+            ("parameterized", "$PGM:Int", ""),
+            ("nullary", "0", " initial=\"\""),
+        ] {
+            let source = format!(
+                r#"
+                module MAIN
+                  syntax Int ::= r"[0-9]+" [token]
+                  configuration
+                    <top>
+                      <thread multiplicity="*" type="{collection}"{initial}>
+                        <id> {body} </id>
+                      </thread>
+                    </top>
+                endmodule
+                "#
+            );
+            let definition = resolve_semantic_casts(&parsed(&source));
+            let definition = add_implicit_computation_cell(&definition).unwrap();
+            let definition = resolve_fresh_constants(&definition, 0).unwrap();
+            let transformed = concretize_cells(&definition).unwrap_or_else(|error| {
+                panic!("{collection}/{shape} concretization failed: {error:?}")
+            });
+            let top_initializer = transformed
+                .main_module()
+                .unwrap()
+                .local_sentences
+                .iter()
+                .find_map(|sentence| match sentence {
+                    Sentence::Rule {
+                        body, attributes, ..
+                    } if attributes.get("initializer").is_some()
+                        && Printer::new().print_term(body).starts_with("initTopCell") =>
+                    {
+                        Some(Printer::new().print_term(body))
+                    }
+                    _ => None,
+                })
+                .expect("the generated top initializer should remain present");
+
+            assert!(
+                top_initializer.contains("initThreadCell"),
+                "{collection}/{shape} lost its repeated-cell initializer: {top_initializer}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -2698,4 +2811,39 @@ fn preserves_optional_cell_units() {
     let transformed = remove_unit(&definition).unwrap();
     let preserved = transformed.main_module().unwrap().local_sentences[1].clone();
     assert!(matches!(preserved, Sentence::Rule { body: actual, .. } if actual == body));
+}
+
+#[test]
+fn validates_smt_lemmas_after_expanding_aliases() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+                       | "pow256" [alias, symbol(pow256)]
+                       | "chop" "(" Int ")" [function, total, smtlib(chop), symbol(chop)]
+                       | Int "mod" Int [function, total, smt-hook(mod), symbol(mod)]
+          rule pow256 => 256
+          rule chop(I:Int) => I mod pow256 [smt-lemma]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    assert!(
+        check_definition(&resolved).unwrap().iter().all(
+            |diagnostic| diagnostic.code != k_rust::diagnostic::DiagnosticCode::InvalidSmtLemma
+        )
+    );
+
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let transformed = expand_macros(&definition).unwrap();
+    let smt_lemma = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find(|sentence| sentence.attributes().get("smt-lemma").is_some())
+        .unwrap();
+    let Sentence::Rule { body, .. } = smt_lemma else {
+        panic!("expected an SMT lemma rule");
+    };
+    assert!(!Printer::new().print_term(body).contains("pow256"));
 }

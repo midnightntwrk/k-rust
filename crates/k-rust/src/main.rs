@@ -11,16 +11,16 @@ use std::{
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use k_rust::{
-    definition::{Sentence, checks::check_definition},
+    definition::{Sentence, checks::check_definition, json as definition_json},
     diagnostic::{Diagnostic, Severity},
-    inner::ProgramParser,
+    inner::{ProgramParser, prepare_reference_kast},
     kast::{
         Sort as KastSort, Term as KastTerm, json as kast_json, parser::parse_sort,
         printer::Printer as KastPrinter,
     },
     kompile::{
         CompilationBackend, CompileOptions, SortInjector, compile_loaded_definition,
-        encode_kore_sort, term_to_kore_from_resolved,
+        encode_kore_sort, expand_macros_in_term, term_to_kore_from_resolved,
     },
     kore::{
         ast::{
@@ -161,9 +161,22 @@ struct KcompileArgs {
     #[arg(long, value_enum, default_value_t)]
     backend: CompilationBackendArg,
 
+    /// Module whose grammar parses programs (defaults to MAIN-MODULE-SYNTAX when present).
+    #[arg(long, value_name = "MODULE")]
+    syntax_module: Option<String>,
+
+    /// Plugin hook namespaces (for example `KRYPTO`) emitted as hooked symbols. Defaults to the
+    /// namespaces the Rust backend implements, or to none for other backends.
+    #[arg(long, value_name = "NAMESPACE", value_delimiter = ',')]
+    hook_namespaces: Option<Vec<String>>,
+
     /// Directory in which generated KORE files are written.
     #[arg(short = 'o', long, default_value = ".", value_name = "DIR")]
     output_directory: PathBuf,
+
+    /// Also write the parsed outer definition as KAST JSON v4.
+    #[arg(long)]
+    emit_json: bool,
 
     #[command(flatten)]
     source: SourceArgs,
@@ -179,9 +192,42 @@ struct KastArgs {
     #[arg(short = 'm', long, value_name = "MODULE")]
     module: String,
 
+    /// Backend whose module view parses the program (the same default as `kcompile`, so the
+    /// grammar always matches the compiled artifact).
+    #[arg(long, value_enum, default_value_t)]
+    backend: CompilationBackendArg,
+
     /// Start sort for the program parser.
-    #[arg(short = 's', long, value_name = "SORT")]
-    sort: String,
+    #[arg(
+        short = 's',
+        long,
+        value_name = "SORT",
+        required_unless_present_any = ["batch_case", "batch_reject_case"],
+        conflicts_with_all = ["batch_case", "batch_reject_case"]
+    )]
+    sort: Option<String>,
+
+    /// Parse one named case in a shared frontend session; may be repeated.
+    #[arg(
+        long,
+        num_args = 3,
+        value_names = ["NAME", "SORT", "PROGRAM"],
+        action = clap::ArgAction::Append,
+        allow_hyphen_values = true,
+        conflicts_with_all = ["expression", "program_file"]
+    )]
+    batch_case: Vec<String>,
+
+    /// Require one named case to be rejected in the shared frontend session; may be repeated.
+    #[arg(
+        long,
+        num_args = 3,
+        value_names = ["NAME", "SORT", "PROGRAM"],
+        action = clap::ArgAction::Append,
+        allow_hyphen_values = true,
+        conflicts_with_all = ["expression", "program_file"]
+    )]
+    batch_reject_case: Vec<String>,
 
     /// Parse this program text instead of reading a file or standard input.
     #[arg(
@@ -194,7 +240,10 @@ struct KastArgs {
     expression: Option<String>,
 
     /// Program file to parse, or `-` for standard input.
-    #[arg(value_name = "PROGRAM_FILE")]
+    #[arg(
+        value_name = "PROGRAM_FILE",
+        conflicts_with_all = ["batch_case", "batch_reject_case"]
+    )]
     program_file: Option<PathBuf>,
 
     /// KAST output format.
@@ -607,7 +656,10 @@ struct CommonOptions {
 struct KcompileOptions {
     common: CommonOptions,
     backend: CompilationBackend,
+    hook_namespaces: Option<Vec<String>>,
+    syntax_module: Option<String>,
     output_directory: PathBuf,
+    emit_json: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
@@ -653,10 +705,20 @@ impl From<ExecutionStrategyArg> for ExecutionMode {
 #[derive(Debug)]
 struct KastOptions {
     common: CommonOptions,
-    sort: String,
+    backend: CompilationBackend,
+    sort: Option<String>,
+    batch_cases: Vec<KastBatchCase>,
+    batch_reject_cases: Vec<KastBatchCase>,
     expression: Option<String>,
     program_file: Option<PathBuf>,
     output: OutputFormat,
+}
+
+#[derive(Debug)]
+struct KastBatchCase {
+    name: String,
+    sort: String,
+    expression: String,
 }
 
 #[derive(Debug)]
@@ -775,18 +837,36 @@ impl From<KcompileArgs> for KcompileOptions {
                 .source
                 .common(arguments.definition, arguments.module),
             backend: arguments.backend.into(),
+            hook_namespaces: arguments.hook_namespaces,
+            syntax_module: arguments.syntax_module,
             output_directory: arguments.output_directory,
+            emit_json: arguments.emit_json,
         }
     }
 }
 
 impl From<KastArgs> for KastOptions {
     fn from(arguments: KastArgs) -> Self {
+        let collect_cases = |values: Vec<String>| {
+            values
+                .chunks_exact(3)
+                .map(|case| KastBatchCase {
+                    name: case[0].clone(),
+                    sort: case[1].clone(),
+                    expression: case[2].clone(),
+                })
+                .collect()
+        };
+        let batch_cases = collect_cases(arguments.batch_case);
+        let batch_reject_cases = collect_cases(arguments.batch_reject_case);
         Self {
             common: arguments
                 .source
                 .common(arguments.definition, arguments.module),
+            backend: arguments.backend.into(),
             sort: arguments.sort,
+            batch_cases,
+            batch_reject_cases,
             expression: arguments.expression,
             program_file: arguments.program_file,
             output: arguments.output,
@@ -893,6 +973,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
         &loaded,
         CompileOptions {
             backend: options.backend,
+            hook_namespaces: options.hook_namespaces,
             ..CompileOptions::default()
         },
     ) {
@@ -904,6 +985,13 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     };
     emit_diagnostics(&artifacts.diagnostics);
     fs::create_dir_all(&options.output_directory)?;
+    if options.emit_json {
+        let definition = parsed_definition_for_json(&loaded, options.syntax_module.as_deref())?;
+        fs::write(
+            options.output_directory.join("parsed.json"),
+            definition_json::to_string_pretty(&definition)?,
+        )?;
+    }
     fs::write(
         options.output_directory.join("definition.kore"),
         artifacts.definition_kore,
@@ -919,8 +1007,99 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn parsed_definition_for_json(
+    loaded: &k_rust::outer::LoadedDefinition,
+    syntax_module: Option<&str>,
+) -> Result<k_rust::definition::Definition, Box<dyn Error>> {
+    // Match DefinitionParsing.parseDefinitionAndResolveBubbles: retain the semantic and syntax
+    // import closures, the frontend's always-present utility modules, and entry modules whose
+    // visible sentences contained no bubbles before backend-tag filtering.
+    let main = loaded.resolved.main_module();
+    let default_syntax_module = format!("{}-SYNTAX", main.name);
+    let syntax_module = match syntax_module {
+        Some(module) if loaded.resolved.module_id(module).is_none() => {
+            return Err(format!("definition syntax module {module:?} was not found").into());
+        }
+        Some(module) => module,
+        None => loaded
+            .resolved
+            .module_id(&default_syntax_module)
+            .map(|_| default_syntax_module.as_str())
+            .unwrap_or(&main.name),
+    };
+
+    let mut seeds = BTreeSet::from([
+        main.name.clone(),
+        syntax_module.to_owned(),
+        "K-REFLECTION".into(),
+        "STDIN-STREAM".into(),
+        "STDOUT-STREAM".into(),
+        "MAP".into(),
+    ]);
+    let source_modules = loaded
+        .files
+        .iter()
+        .flat_map(|file| &file.modules)
+        .collect::<Vec<_>>();
+    let mut modules_with_visible_bubbles = source_modules
+        .iter()
+        .filter(|module| {
+            module
+                .sentences
+                .iter()
+                .any(|sentence| matches!(sentence, k_rust::outer::Sentence::Bubble(_)))
+        })
+        .map(|module| module.name.as_str())
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+    loop {
+        let before = modules_with_visible_bubbles.len();
+        for module in &source_modules {
+            if module
+                .imports
+                .iter()
+                .any(|import| modules_with_visible_bubbles.contains(&import.module))
+            {
+                modules_with_visible_bubbles.insert(module.name.clone());
+            }
+        }
+        if modules_with_visible_bubbles.len() == before {
+            break;
+        }
+    }
+    for module in source_modules {
+        if !modules_with_visible_bubbles.contains(&module.name) {
+            seeds.insert(module.name.clone());
+        }
+    }
+
+    let mut retained = BTreeSet::new();
+    for seed in seeds {
+        let Some(module) = loaded.resolved.module_id(&seed) else {
+            continue;
+        };
+        retained.insert(loaded.resolved.module(module).name.clone());
+        retained.extend(
+            loaded
+                .resolved
+                .transitive_imports(module)
+                .into_iter()
+                .map(|import| loaded.resolved.module(import).name.clone()),
+        );
+    }
+    let mut definition = loaded.definition.clone();
+    definition
+        .modules
+        .retain(|module| retained.contains(&module.name));
+    definition.attributes.insert(
+        "syntaxModule",
+        serde_json::Value::String(syntax_module.into()),
+    );
+    Ok(definition)
+}
+
 fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
-    let loaded = load_definition(&options.common, None, None)?;
+    let loaded = load_definition(&options.common, Some(options.backend), None)?;
     let diagnostics = check_definition(&loaded.resolved)?;
     emit_diagnostics(&diagnostics);
     if diagnostics
@@ -929,10 +1108,48 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
     {
         return Err("definition checks failed".into());
     }
-    let source = read_program_source(options.expression, options.program_file)?;
-    let sort = parse_sort(&options.sort)?;
     let parser = ProgramParser::from_resolved(&loaded.resolved, &options.common.module)?;
+    let module = loaded
+        .resolved
+        .module_id(&options.common.module)
+        .expect("the program parser resolved this module");
+    let productions = loaded.resolved.production_catalog(module);
+    if !options.batch_cases.is_empty() || !options.batch_reject_cases.is_empty() {
+        if options.output != OutputFormat::Json {
+            return Err("KAST batch mode requires --output json".into());
+        }
+        let mut output = serde_json::Map::new();
+        for case in options.batch_cases {
+            let sort = parse_sort(&case.sort)
+                .map_err(|error| format!("KAST batch case {:?}: {error}", case.name))?;
+            let term = parser
+                .parse(&sort, &case.expression)
+                .map_err(|error| format!("KAST batch case {:?}: {error}", case.name))?;
+            let term = prepare_reference_kast(term, &productions);
+            let encoded: serde_json::Value =
+                serde_json::from_str(&kast_json::to_string_pretty(&term)?)?;
+            if output.insert(case.name.clone(), encoded).is_some() {
+                return Err(format!("duplicate KAST batch case name {:?}", case.name).into());
+            }
+        }
+        for case in options.batch_reject_cases {
+            let sort = parse_sort(&case.sort)
+                .map_err(|error| format!("KAST rejection batch case {:?}: {error}", case.name))?;
+            if parser.parse(&sort, &case.expression).is_ok() {
+                return Err(format!(
+                    "KAST rejection batch case {:?} was unexpectedly accepted",
+                    case.name
+                )
+                .into());
+            }
+        }
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        return Ok(());
+    }
+    let source = read_program_source(options.expression, options.program_file)?;
+    let sort = parse_sort(options.sort.as_deref().expect("clap requires --sort"))?;
     let term = parser.parse(&sort, &source)?;
+    let term = prepare_reference_kast(term, &productions);
     match options.output {
         OutputFormat::Text => println!("{}", KastPrinter::new().print_term(&term)),
         OutputFormat::Json => println!("{}", kast_json::to_string_pretty(&term)?),
@@ -961,6 +1178,7 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
     let start_sort = parse_sort(&options.sort)?;
     let parser = ProgramParser::from_resolved(&loaded.resolved, &options.common.module)?;
     let program = parser.parse(&start_sort, &source)?;
+    let program = expand_macros_in_term(&loaded.definition, &options.common.module, program)?;
     // Parser annotations refer to the source definition's production catalog. Perform
     // production-sensitive conversion there, before crossing into the transformed definition.
     let injector = SortInjector::new(&loaded.resolved, &options.common.module)?;
@@ -1004,7 +1222,10 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
                 )
             }
         })?;
-        let value = parser.parse(sort, source)?;
+        let value = parser.parse(sort, source).map_err(|error| {
+            format!("could not parse configuration variable `${name}` at sort {sort}: {error}")
+        })?;
+        let value = expand_macros_in_term(&loaded.definition, &options.common.module, value)?;
         let value_sort = injector.term_sort(&value, None)?;
         let value = injector.inject_at_top(&value)?;
         let value = term_to_kore_from_resolved(&loaded.resolved, &options.common.module, &value)?;
@@ -1035,6 +1256,7 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
     let initial = top_cell_initializer(program, encode_kore_sort(&program_sort), config_vars);
 
     let syntax = parse_kore_definition(&compiled.definition_kore)?;
+
     let backend = BackendDefinition::internalize(&syntax, &options.common.module)?;
     let initial = backend.internalize_frontend_term(&initial, &[])?;
     let output = run_backend(
@@ -1243,7 +1465,7 @@ fn model_output(
     };
     let mut output = serde_json::json!({ "satisfiable": satisfiable });
     if let Some(substitution) = substitution {
-        output["substitution"] = serde_json::from_str(&kore_json::to_string(&substitution)?)?;
+        output["substitution"] = kore_json::to_value(&substitution)?;
     }
     Ok(serde_json::to_string_pretty(&output)?)
 }
@@ -1503,7 +1725,7 @@ fn implication_substitution(
 }
 
 fn kore_json_value(pattern: &KorePattern) -> Result<serde_json::Value, Box<dyn Error>> {
-    Ok(serde_json::from_str(&kore_json::to_string(pattern)?)?)
+    Ok(kore_json::to_value(pattern)?)
 }
 
 fn reject_non_singleton_implication_pattern(
@@ -1781,10 +2003,7 @@ fn run_backend(
     if let Some(search) = options.search {
         let target = match search.pattern {
             Some(path) => load_backend_pattern(backend, &path, "search")?,
-            None => Pattern {
-                term: Term::variable(Variable::new("Result", initial.term.sort())),
-                constraints: Vec::new(),
-            },
+            None => default_search_pattern(&initial),
         };
         let result = search_pattern_with_solver(
             backend,
@@ -1804,11 +2023,17 @@ fn run_backend(
                 BuiltinEffect::UserLog(message) => eprintln!("{message}"),
             }
         }
-        if let Some(incomplete) = result
-            .incomplete
-            .iter()
-            .find(|incomplete| !matches!(incomplete, IncompleteSearch::DepthBound(_)))
-        {
+        // Depth and result bounds are limits the user asked for, not engine failures: the
+        // states found are still valid answers, so report the truncation and succeed.
+        if result.incomplete.contains(&IncompleteSearch::ResultBound) {
+            eprintln!("search stopped at the requested result bound; further results may exist");
+        }
+        if let Some(incomplete) = result.incomplete.iter().find(|incomplete| {
+            !matches!(
+                incomplete,
+                IncompleteSearch::DepthBound(_) | IncompleteSearch::ResultBound
+            )
+        }) {
             return Err(io::Error::other(format!(
                 "in-process backend search was incomplete: {incomplete:?}"
             ))
@@ -1872,6 +2097,14 @@ fn run_backend(
     })
 }
 
+fn default_search_pattern(initial: &Pattern) -> Pattern {
+    Pattern {
+        // This is already a KORE variable, so use reference krun's mangled K-level spelling.
+        term: Term::variable(Variable::new("VarResult", initial.term.sort())),
+        constraints: Vec::new(),
+    }
+}
+
 fn load_backend_pattern(
     definition: &BackendDefinition,
     path: &Path,
@@ -1919,7 +2152,7 @@ fn decode_backend_pattern(
     let source = std::str::from_utf8(input)
         .map_err(|error| invalid_kore_pattern(path, purpose, "UTF-8", error))?;
     let syntax = if source.trim_start().starts_with('{') {
-        kore_json::from_str(source)
+        kore_json::from_str_unbounded(source)
             .map_err(|error| invalid_kore_pattern(path, purpose, "JSON", error))?
     } else {
         parse_kore_pattern(source)
@@ -2509,6 +2742,106 @@ mod tests {
     use super::*;
 
     #[test]
+    fn default_search_uses_the_reference_kore_variable_name() {
+        let initial = Pattern {
+            term: Term::variable(Variable::new(
+                "Initial",
+                BackendSort::simple("SortGeneratedTopCell"),
+            )),
+            constraints: Vec::new(),
+        };
+        let target = default_search_pattern(&initial);
+        let TermKind::Variable(variable) = target.term.kind() else {
+            panic!("default search target should be a variable");
+        };
+
+        assert_eq!(variable.name.as_ref(), "VarResult");
+    }
+
+    #[test]
+    fn top_initializer_combines_program_and_configuration_bindings() {
+        let initial = top_cell_initializer(
+            KorePattern::DomainValue {
+                sort: kore_sort("SortExp"),
+                value: "program".into(),
+            },
+            kore_sort("SortExp"),
+            vec![(
+                "$ENV".into(),
+                kore_application("Lbl'Dot'Map", Vec::new(), Vec::new()),
+                kore_sort("SortMap"),
+            )],
+        );
+        let rendered = KorePrinter::compact().print_pattern(&initial);
+
+        assert!(rendered.contains("Lbl'Unds'Map'Unds'"), "{rendered}");
+        assert!(rendered.contains("$PGM"), "{rendered}");
+        assert!(rendered.contains("$ENV"), "{rendered}");
+        assert!(
+            rendered.contains("inj{SortMap{}, SortKItem{}}"),
+            "{rendered}"
+        );
+    }
+
+    fn deeply_nested_kore_pattern(depth: usize) -> KorePattern {
+        let sort = KoreSort::Application {
+            name: "SortK".into(),
+            arguments: Vec::new(),
+        };
+        (0..depth).fold(KorePattern::Top { sort: sort.clone() }, |argument, _| {
+            KorePattern::Not {
+                sort: sort.clone(),
+                argument: Box::new(argument),
+            }
+        })
+    }
+
+    #[test]
+    fn converts_deep_kore_output_to_json_values() {
+        assert!(kore_json_value(&deeply_nested_kore_pattern(160)).is_ok());
+    }
+
+    #[test]
+    fn decodes_deep_backend_kore_json_input() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                let syntax = parse_kore_definition(
+                    r#"[]
+                    module MAIN
+                      sort SortK{} []
+                      symbol value{}() : SortK{} [constructor{}()]
+                      symbol wrap{}(SortK{}) : SortK{} [constructor{}()]
+                    endmodule []"#,
+                )
+                .unwrap();
+                let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+                let mut pattern = parse_kore_pattern("value{}()").unwrap();
+                for _ in 0..160 {
+                    pattern = KorePattern::Application {
+                        symbol: KoreSymbol {
+                            name: "wrap".into(),
+                            sort_parameters: Vec::new(),
+                        },
+                        arguments: vec![pattern],
+                    };
+                }
+                let source = kore_json::to_string(&pattern).unwrap();
+
+                decode_backend_pattern(
+                    &definition,
+                    Path::new("state.json"),
+                    "initial",
+                    source.as_bytes(),
+                )
+                .unwrap();
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
     fn decodes_text_json_and_binary_backend_patterns() {
         use k_rust::kore::binary::{ConstrainedPattern, encode_pattern};
 
@@ -2640,9 +2973,81 @@ mod tests {
         assert_eq!(options.common.definition, Path::new("definition.k"));
         assert_eq!(options.common.module, "MAIN");
         assert_eq!(options.common.includes, [PathBuf::from("builtins")]);
-        assert_eq!(options.sort, "Exp");
+        assert_eq!(options.sort.as_deref(), Some("Exp"));
+        assert!(options.batch_cases.is_empty());
+        assert!(options.batch_reject_cases.is_empty());
         assert_eq!(options.expression.as_deref(), Some("1 + 2"));
         assert_eq!(options.output, OutputFormat::Json);
+    }
+
+    #[test]
+    fn parses_kast_batch_cases() {
+        let cli = Cli::try_parse_from([
+            "krust",
+            "kast",
+            "definition.k",
+            "--module",
+            "MAIN",
+            "--batch-case",
+            "one",
+            "Exp",
+            "1",
+            "--batch-case",
+            "sum",
+            "Exp",
+            "1 + 2",
+            "--batch-reject-case",
+            "bad",
+            "Exp",
+            "+",
+            "--output",
+            "json",
+        ])
+        .unwrap();
+        let Command::Kast(options) = cli.command else {
+            panic!("expected kast command");
+        };
+        let options = KastOptions::from(options);
+        assert_eq!(options.sort, None);
+        assert_eq!(options.batch_cases.len(), 2);
+        assert_eq!(options.batch_cases[0].name, "one");
+        assert_eq!(options.batch_cases[0].sort, "Exp");
+        assert_eq!(options.batch_cases[0].expression, "1");
+        assert_eq!(options.batch_cases[1].name, "sum");
+        assert_eq!(options.batch_cases[1].expression, "1 + 2");
+        assert_eq!(options.batch_reject_cases.len(), 1);
+        assert_eq!(options.batch_reject_cases[0].name, "bad");
+        assert_eq!(options.batch_reject_cases[0].expression, "+");
+    }
+
+    #[test]
+    fn kast_defaults_to_the_kcompile_backend() {
+        let parse = |extra: &[&str]| {
+            let mut arguments = vec![
+                "krust",
+                "kast",
+                "definition.k",
+                "--module",
+                "MAIN",
+                "--sort",
+                "Exp",
+                "--expression",
+                "value",
+            ];
+            arguments.extend_from_slice(extra);
+            let cli = Cli::try_parse_from(arguments).unwrap();
+            let Command::Kast(options) = cli.command else {
+                panic!("expected kast command");
+            };
+            KastOptions::from(options).backend
+        };
+
+        assert_eq!(parse(&[]), CompilationBackend::Rust);
+        assert_eq!(
+            parse(&[]),
+            CompilationBackend::from(CompilationBackendArg::default())
+        );
+        assert_eq!(parse(&["--backend", "llvm"]), CompilationBackend::Llvm);
     }
 
     #[test]

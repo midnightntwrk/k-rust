@@ -584,6 +584,10 @@ impl<'a> SortInjector<'a> {
         arguments: &[Term],
         expected: Option<&Sort>,
     ) -> Result<InstantiatedSignature, SortInjectionError> {
+        let expected = term
+            .metadata()
+            .and_then(|metadata| metadata.sort.as_ref())
+            .or(expected);
         let production = self.production(term, label)?;
         let Sentence::Production {
             parameters,

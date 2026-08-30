@@ -8,7 +8,7 @@ use crate::definition::{
 };
 use crate::kast::{Label, Sort};
 
-use super::{Grammar, ParametricOrigin, ParseError, ProductionOptions, source_production};
+use super::{Grammar, ParametricOrigin, ParseError, ProductionOptions, catalog_production};
 
 impl Grammar {
     pub(super) fn add_parametric_productions(
@@ -75,7 +75,7 @@ impl Grammar {
                         attributes,
                         substitution,
                         lexical,
-                        source_production(source_catalog, sentence),
+                        catalog_production(source_catalog, sentence),
                         term_production,
                     )?;
                 }
@@ -104,7 +104,7 @@ impl Grammar {
                         attributes,
                         substitution,
                         lexical,
-                        source_production(source_catalog, sentence),
+                        catalog_production(source_catalog, sentence),
                         term_production,
                     )?;
                 }
@@ -124,7 +124,7 @@ impl Grammar {
                         attributes,
                         substitution,
                         lexical,
-                        source_production(source_catalog, sentence),
+                        catalog_production(source_catalog, sentence),
                         term_production,
                     )?;
                 }
@@ -143,7 +143,7 @@ impl Grammar {
                     attributes,
                     substitution,
                     lexical,
-                    source_production(source_catalog, sentence),
+                    catalog_production(source_catalog, sentence),
                     term_production,
                 )?;
             }

@@ -1,5 +1,5 @@
 use indoc::indoc;
-use k_rust::outer::{check_brackets, check_list_declarations, lower, parse};
+use k_rust::outer::{Sentence, check_brackets, check_list_declarations, lower, parse};
 use proptest::prelude::*;
 
 macro_rules! assert_outer_value_snapshot {
@@ -39,6 +39,30 @@ outer_snapshot!(
     endmodule
 "#}
 );
+
+#[test]
+fn priority_separators_must_be_whole_tokens() {
+    let parsed = parse(
+        "priority.k",
+        indoc! {r#"
+            module PRIORITY
+              syntax priority _|->_ > _Map_ .Map
+            endmodule
+        "#},
+    )
+    .unwrap();
+    let Sentence::Priority(priority) = &parsed.modules[0].sentences[0] else {
+        panic!("expected a syntax priority sentence");
+    };
+
+    assert_eq!(
+        priority.groups,
+        vec![
+            vec!["_|->_".to_owned()],
+            vec!["_Map_".to_owned(), ".Map".to_owned()],
+        ]
+    );
+}
 
 outer_snapshot!(
     syntax_declarations,

@@ -5,7 +5,7 @@ use std::{fmt, str::FromStr};
 use crate::{
     definition::{
         ResolvedDefinition, StructuralCheckBackend, StructuralCheckOptions,
-        checks::check_definition_with_options,
+        checks::check_definition_with_options, expand_configurations,
     },
     diagnostic::{Diagnostic, Severity},
     kore::printer::Printer as KorePrinter,
@@ -21,19 +21,33 @@ use super::{
     propagate_macro_attributes, remove_unit, resolve_anon_vars, resolve_comm, resolve_config_var,
     resolve_contexts, resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
     resolve_function_with_config, resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts,
-    resolve_strict, subsort_kitem,
+    resolve_strict, rust_backend_hook_namespaces, subsort_kitem,
 };
 
 /// Backend whose KORE input should be generated.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum CompilationBackend {
     Llvm,
+    /// The in-process symbolic backend. Its KORE is Java's Haskell-backend dialect (including
+    /// the map definedness axioms `kompile --backend haskell` generates) plus the plugin hook
+    /// namespaces the backend dispatches natively, so `haskell` names the same target.
     #[default]
     Rust,
 }
 
 impl CompilationBackend {
     /// Module attribute excluded before compilation for this backend.
+    /// Plugin hook namespaces admitted as hooked symbols when `--hook-namespaces` is not given.
+    ///
+    /// The Rust backend dispatches its plugin hooks natively; other backends match a default
+    /// Java `kompile`, which emits plugin hooks as ordinary symbols unless namespaces are named.
+    pub fn default_hook_namespaces(self) -> Vec<String> {
+        match self {
+            Self::Rust => rust_backend_hook_namespaces(),
+            Self::Llvm => Vec::new(),
+        }
+    }
+
     pub fn excluded_module_attribute(self) -> &'static str {
         match self {
             Self::Llvm => "symbolic",
@@ -76,12 +90,15 @@ impl FromStr for CompilationBackend {
 }
 
 /// Options affecting backend selection and textual KORE rendering.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompileOptions {
     pub backend: CompilationBackend,
     pub kore_width: usize,
     /// Match `kprove` by treating bare claims as all-path reachability claims.
     pub default_claims_to_all_path: bool,
+    /// Plugin hook namespaces to admit as hooked symbols (`kompile --hook-namespaces`); `None`
+    /// uses [`CompilationBackend::default_hook_namespaces`].
+    pub hook_namespaces: Option<Vec<String>>,
 }
 
 impl Default for CompileOptions {
@@ -90,6 +107,7 @@ impl Default for CompileOptions {
             backend: CompilationBackend::Rust,
             kore_width: 100,
             default_claims_to_all_path: false,
+            hook_namespaces: None,
         }
     }
 }
@@ -166,9 +184,19 @@ pub fn compile_loaded_definition(
     loaded: &LoadedDefinition,
     options: CompileOptions,
 ) -> Result<CompiledKoreArtifacts, CompileError> {
+    // Loader-produced definitions are already expanded, while structured embedders can construct
+    // the public LoadedDefinition fields directly. Normalize both entry paths before checks.
+    let definition = stage(
+        "expand structured configurations",
+        expand_configurations(&loaded.definition),
+    )?;
+    let resolved = stage(
+        "resolve structured configurations",
+        ResolvedDefinition::resolve(&definition),
+    )?;
     let diagnostics = stage(
         "definition checks",
-        check_definition_with_options(&loaded.resolved, options.backend.structural_check_options()),
+        check_definition_with_options(&resolved, options.backend.structural_check_options()),
     )?;
     if diagnostics
         .iter()
@@ -181,10 +209,7 @@ pub fn compile_loaded_definition(
         ));
     }
 
-    let definition = diagnostic_stage!(
-        "resolve commutative rules",
-        resolve_comm(&loaded.definition)
-    );
+    let definition = diagnostic_stage!("resolve commutative rules", resolve_comm(&definition));
     let definition = diagnostic_stage!("resolve I/O streams", resolve_io(&definition));
     let definition = diagnostic_stage!("resolve local functions", resolve_fun(&definition));
     let definition = diagnostic_stage!(
@@ -266,10 +291,14 @@ pub fn compile_loaded_definition(
         "emit KORE",
         module_to_kore_from_resolved_with_options(
             &resolved,
-            &loaded.definition.main_module,
+            &definition.main_module,
             ModuleToKoreOptions {
                 generate_map_ceil_axioms: options.backend == CompilationBackend::Rust,
                 default_claims_to_all_path: options.default_claims_to_all_path,
+                hook_namespaces: options
+                    .hook_namespaces
+                    .clone()
+                    .unwrap_or_else(|| options.backend.default_hook_namespaces()),
             },
         ),
     )?;
@@ -346,6 +375,51 @@ mod tests {
         assert_eq!("rust".parse(), Ok(CompilationBackend::Rust));
         assert_eq!("haskell".parse(), Ok(CompilationBackend::Rust));
         assert!("nope".parse::<CompilationBackend>().is_err());
+        for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
+            assert_eq!(backend.to_string().parse(), Ok(backend));
+        }
+    }
+
+    #[test]
+    fn rust_backend_emits_its_extension_hooks_as_hooked_symbols() {
+        let source = r#"
+            module MAIN
+              syntax Value
+              syntax Value ::= "krypto" [function, hook(KRYPTO.keccak256), symbol(krypto)]
+                             | "hash" [function, hook(HASH.sha256), symbol(hash)]
+                             | "secp256k1" [function, hook(SECP256K1.ecdsaRecover), symbol(secp256k1)]
+            endmodule
+        "#;
+        let mut resolver = |_: &str, required: &str| Err(format!("unexpected require {required}"));
+        let loaded = load(
+            ResolvedSource::new("definition.k", source),
+            "MAIN",
+            &mut resolver,
+        )
+        .unwrap();
+
+        let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+
+        for (symbol, hook) in [
+            ("krypto", "KRYPTO.keccak256"),
+            ("hash", "HASH.sha256"),
+            ("secp256k1", "SECP256K1.ecdsaRecover"),
+        ] {
+            let symbol = crate::kompile::encode_kore_label(&crate::kast::Label::new(symbol)).name;
+            assert!(
+                artifacts
+                    .definition_kore
+                    .contains(&format!("hooked-symbol {symbol}")),
+                "{symbol} was not emitted as a hooked symbol:\n{}",
+                artifacts.definition_kore,
+            );
+            assert!(
+                artifacts
+                    .definition_kore
+                    .contains(&format!(r#"hook{{}}("{hook}")"#)),
+                "{symbol} did not retain its {hook} attribute",
+            );
+        }
     }
 
     #[cfg(feature = "z3-inference")]

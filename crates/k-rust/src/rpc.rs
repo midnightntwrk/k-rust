@@ -387,7 +387,7 @@ impl RpcService {
             _ => Err(RpcFault {
                 code: -32601,
                 message: "Method not found".into(),
-                data: None,
+                data: Some(Value::String(method.into())),
             }),
         };
         if cancellation_requested() {
@@ -644,23 +644,52 @@ impl RpcService {
         validate_implication_variable_capture(&antecedent, &consequent)?;
         validate_implication_sorts(&antecedent, &consequent)?;
         let sort_variables = super::implication_sort_variables(&antecedent, &consequent);
-        if let Some(result) = special_implication_result(&antecedent, &consequent) {
+        let special_result = special_implication_result(&antecedent, &consequent);
+        if special_result.is_some()
+            && matches!(super::strip_exists(&antecedent), KorePattern::Bottom { .. })
+        {
             let (_, result_sort) = definition
                 .internalize_predicate(&antecedent, &sort_variables)
                 .map_err(RpcFault::pattern)?;
-            return implication_result(&antecedent, &consequent, &result_sort, result);
+            return implication_result(
+                &antecedent,
+                &consequent,
+                &result_sort,
+                special_result.expect("bottom antecedents have a special result"),
+            );
         }
         let (antecedent_pattern, antecedent_existentials) = definition
             .internalize_implication_pattern(&antecedent, &sort_variables)
             .map_err(RpcFault::pattern)?;
         let result_sort = antecedent_pattern.term.sort();
+        let solver = solver(&definition, self.smt_options)?;
+        if let Some(result) = special_result {
+            let antecedent = simplified_implication_response_syntax(
+                &definition,
+                &antecedent,
+                &antecedent_pattern,
+                &solver,
+            )?;
+            return implication_result(&antecedent, &consequent, &result_sort, result);
+        }
         if matches!(super::strip_exists(&consequent), KorePattern::Not { .. }) {
             let result = ImplicationResult {
                 status: ImplicationStatus::Invalid,
                 condition: None,
                 failure: None,
             };
-            let antecedent = normalized_implication_syntax(&antecedent, &antecedent_pattern);
+            let antecedent = simplified_implication_response_syntax(
+                &definition,
+                &antecedent,
+                &antecedent_pattern,
+                &solver,
+            )?;
+            let consequent = simplified_not_consequent_response_syntax(
+                &definition,
+                &consequent,
+                &sort_variables,
+                &solver,
+            )?;
             return implication_result(&antecedent, &consequent, &result_sort, result);
         }
         let (consequent_pattern, consequent_existentials) = definition
@@ -669,7 +698,6 @@ impl RpcService {
         if result_sort != consequent_pattern.term.sort() {
             return Err(RpcFault::pattern("antecedent and consequent sorts differ"));
         }
-        let solver = solver(&definition, self.smt_options)?;
         let result = check_implication_with_existentials_complete(
             &definition,
             &antecedent_pattern,
@@ -686,15 +714,23 @@ impl RpcService {
                 condition.predicates.as_slice() == [Predicate::False]
                     && condition.substitution.is_empty()
             });
-        let antecedent = if vacuous_antecedent {
-            antecedent
+        let (antecedent, consequent) = if vacuous_antecedent {
+            (antecedent, consequent)
         } else {
-            normalized_implication_syntax(&antecedent, &antecedent_pattern)
-        };
-        let consequent = if vacuous_antecedent {
-            consequent
-        } else {
-            normalized_implication_syntax(&consequent, &consequent_pattern)
+            (
+                simplified_implication_response_syntax(
+                    &definition,
+                    &antecedent,
+                    &antecedent_pattern,
+                    &solver,
+                )?,
+                simplified_implication_response_syntax(
+                    &definition,
+                    &consequent,
+                    &consequent_pattern,
+                    &solver,
+                )?,
+            )
         };
         implication_result(&antecedent, &consequent, &result_sort, result)
     }
@@ -1160,19 +1196,26 @@ fn special_implication_result(
 }
 
 fn normalized_implication_syntax(original: &KorePattern, pattern: &Pattern) -> KorePattern {
-    fn leaf_count(pattern: &KorePattern) -> usize {
-        match pattern {
-            KorePattern::And { arguments, .. } => arguments.iter().map(leaf_count).sum(),
-            _ => 1,
-        }
+    /// Term leaves are the non-predicate conjuncts of the request pattern; they are kept in
+    /// the caller's syntax while the predicate conjuncts are replaced by the simplified
+    /// constraints.
+    fn is_term_leaf(pattern: &KorePattern) -> bool {
+        matches!(
+            pattern,
+            KorePattern::Application { .. }
+                | KorePattern::AssociativeApplication { .. }
+                | KorePattern::Variable(_)
+                | KorePattern::DomainValue { .. }
+                | KorePattern::String(_)
+        )
     }
 
-    fn take_term_leaves(pattern: &KorePattern, terms_remaining: &mut usize) -> Option<KorePattern> {
+    fn take_term_leaves(pattern: &KorePattern) -> Option<KorePattern> {
         match pattern {
             KorePattern::And { sort, arguments } => {
                 let mut arguments = arguments
                     .iter()
-                    .filter_map(|argument| take_term_leaves(argument, terms_remaining))
+                    .filter_map(take_term_leaves)
                     .collect::<Vec<_>>();
                 match arguments.len() {
                     0 => None,
@@ -1183,10 +1226,7 @@ fn normalized_implication_syntax(original: &KorePattern, pattern: &Pattern) -> K
                     }),
                 }
             }
-            _ if *terms_remaining > 0 => {
-                *terms_remaining -= 1;
-                Some(pattern.clone())
-            }
+            _ if is_term_leaf(pattern) => Some(pattern.clone()),
             _ => None,
         }
     }
@@ -1209,22 +1249,17 @@ fn normalized_implication_syntax(original: &KorePattern, pattern: &Pattern) -> K
 
     fn normalize_body(original: &KorePattern, pattern: &Pattern) -> KorePattern {
         let result_sort = pattern.term.sort();
+        let Some(term) = take_term_leaves(original) else {
+            return externalize::constrained_pattern(pattern);
+        };
         let mut constraints = pattern.constraints.iter().collect::<Vec<_>>();
         constraints.sort();
         let constraints = constraints
             .into_iter()
             .map(|predicate| externalize::predicate_pattern(predicate, &result_sort))
             .collect::<Vec<_>>();
-        let leaves = leaf_count(original);
-        if constraints.is_empty() || constraints.len() >= leaves {
-            return original.clone();
-        }
-        let mut terms_remaining = leaves - constraints.len();
-        let Some(term) = take_term_leaves(original, &mut terms_remaining) else {
-            return original.clone();
-        };
-        if terms_remaining != 0 {
-            return original.clone();
+        if constraints.is_empty() {
+            return term;
         }
         let sort = externalize::sort(&result_sort);
         let predicate = balanced_and(&sort, &constraints);
@@ -1246,6 +1281,85 @@ fn normalized_implication_syntax(original: &KorePattern, pattern: &Pattern) -> K
         },
         _ => normalize_body(original, pattern),
     }
+}
+
+fn simplified_implication_response_syntax(
+    definition: &BackendDefinition,
+    original: &KorePattern,
+    unsimplified: &Pattern,
+    solver: &dyn SmtSolver,
+) -> Result<KorePattern, RpcFault> {
+    // The verdict is already decided; rendering runs the same simplifier the `simplify`
+    // method exposes, so its failures are reported through the same fault instead of
+    // echoing an unsimplified pattern next to a verdict that was computed from the
+    // simplified one.
+    let simplified = simplify_pattern_with_solver(
+        definition,
+        unsimplified,
+        SimplificationOptions::default(),
+        solver,
+    )
+    .map_err(|error| simplify_fault(error, &unsimplified.term.sort()))?;
+    if unsimplified.term == simplified.term {
+        return Ok(normalized_implication_syntax(original, &simplified));
+    }
+
+    let mut result = externalize::constrained_pattern(&simplified);
+    let mut binders = Vec::new();
+    let mut body = original;
+    while let KorePattern::Exists {
+        sort,
+        variable,
+        body: next,
+    } = body
+    {
+        binders.push((sort.clone(), variable.clone()));
+        body = next;
+    }
+    for (sort, variable) in binders.into_iter().rev() {
+        result = KorePattern::Exists {
+            sort,
+            variable,
+            body: Box::new(result),
+        };
+    }
+    Ok(result)
+}
+
+fn simplified_not_consequent_response_syntax(
+    definition: &BackendDefinition,
+    original: &KorePattern,
+    sort_variables: &[super::BackendName],
+    solver: &dyn SmtSolver,
+) -> Result<KorePattern, RpcFault> {
+    Ok(match original {
+        KorePattern::Exists {
+            sort,
+            variable,
+            body,
+        } => KorePattern::Exists {
+            sort: sort.clone(),
+            variable: variable.clone(),
+            body: Box::new(simplified_not_consequent_response_syntax(
+                definition,
+                body,
+                sort_variables,
+                solver,
+            )?),
+        },
+        KorePattern::Not { sort, argument } => {
+            let (pattern, _) = definition
+                .internalize_implication_pattern(argument, sort_variables)
+                .map_err(RpcFault::pattern)?;
+            KorePattern::Not {
+                sort: sort.clone(),
+                argument: Box::new(simplified_implication_response_syntax(
+                    definition, argument, &pattern, solver,
+                )?),
+            }
+        }
+        _ => original.clone(),
+    })
 }
 
 fn validate_implication_variable_capture(
@@ -1463,6 +1577,9 @@ fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
                 "Uncertain about the remainder after applying a rule",
                 rule_ids.first(),
             ),
+            k_rust_backend::rewrite::IndeterminateReason::Simplification { rule_id, .. } => {
+                ("Internal match error", rule_id.as_ref())
+            }
         },
         HaltReason::Simplification(_) => ("Internal match error", None),
         _ => return None,
@@ -2076,6 +2193,9 @@ mod tests {
             [label{}("TEST.step"), UNIQUE'Unds'ID{}("rule-id")]
         endmodule []"#;
 
+    // Accepted matrix gap: backend code 1 and SMT code 5 failures require deterministic fault
+    // injection. Their wire shapes are covered by the reference differential RPC corpus.
+
     fn service() -> RpcService {
         RpcService::new(BackendSession::new(
             parse_definition(DEFINITION).unwrap(),
@@ -2094,6 +2214,82 @@ mod tests {
                 endmodule []"#,
             )
             .unwrap(),
+            "TEST",
+        ))
+    }
+
+    fn simplifying_implication_service() -> RpcService {
+        RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[]
+                module TEST
+                  sort SortState{} []
+                  symbol initial{}() : SortState{} [function{}(), total{}()]
+                  symbol state{}() : SortState{} [constructor{}()]
+                  axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortState{}, R}(
+                      initial{}(),
+                      \and{SortState{}}(state{}(), \top{SortState{}}())
+                    )
+                  ) [label{}("init"), simplification{}()]
+                endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ))
+    }
+
+    fn budget_policy_service() -> RpcService {
+        let mut theory = String::new();
+        for index in 0..=128 {
+            theory.push_str(&format!(
+                "symbol chain{index}{{}}() : SortState{{}} [function{{}}()]\n"
+            ));
+        }
+        for index in 0..128 {
+            let next = index + 1;
+            theory.push_str(&format!(
+                r#"
+                axiom{{R}} \implies{{R}}(
+                    \top{{R}}(),
+                    \equals{{SortState{{}}, R}}(
+                        chain{index}{{}}(),
+                        \and{{SortState{{}}}}(chain{next}{{}}(), \top{{SortState{{}}}}())
+                    )
+                ) [label{{}}("chain-{index}"), simplification{{}}()]
+                "#
+            ));
+        }
+        theory.push_str(
+            r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortState{}, R}(
+                    chain128{}(),
+                    \and{SortState{}}(done{}(), \top{SortState{}}())
+                )
+            ) [label{}("chain-done"), simplification{}()]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(
+                    wrap{}(X:SortState{}),
+                    \equals{SortState{}, SortState{}}(chain0{}(), done{}())
+                ),
+                done{}()
+            ) [label{}("conditional")]
+            "#,
+        );
+        let source = format!(
+            r#"[]
+            module TEST
+                sort SortState{{}} [hasDomainValues{{}}()]
+                symbol wrap{{}}(SortState{{}}) : SortState{{}} [constructor{{}}()]
+                symbol done{{}}() : SortState{{}} [constructor{{}}()]
+                {theory}
+            endmodule []"#
+        );
+        RpcService::new(BackendSession::new(
+            parse_definition(&source).expect("budget definition should parse"),
             "TEST",
         ))
     }
@@ -2218,6 +2414,133 @@ mod tests {
         .unwrap();
         assert_eq!(missing["id"], "request-7");
         assert_eq!(missing["error"]["code"], -32601);
+        assert_eq!(missing["error"]["data"], "missing");
+    }
+
+    /// The fixture is the verbatim line returned by the pinned reference servers
+    /// (`kore-rpc` and `kore-rpc-booster` v0.1.155, K v7.1.337's haskell-backend pin) for
+    /// the `error-unknown` request of the RPC differential matrix, recorded from the
+    /// bounded-search definition. Every field is compared, not only the code.
+    #[test]
+    fn unknown_method_fault_matches_the_recorded_reference_response() {
+        let recorded: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/reference/rpc/error-unknown.json"
+        ))
+        .unwrap();
+        let mut service = service();
+        let actual: Value = serde_json::from_str(
+            &service
+                .handle_line(r#"{"jsonrpc":"2.0","id":"unknown-1","method":"unknown"}"#)
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(actual, recorded);
+    }
+
+    #[test]
+    fn invalid_requests_report_the_reference_error_shape() {
+        let cases = vec![
+            ("empty batch", json!([]), None),
+            ("non-object", json!(42), Some(json!(42))),
+            (
+                "missing version",
+                json!({ "id": 1, "method": "execute" }),
+                Some(json!({ "id": 1, "method": "execute" })),
+            ),
+            (
+                "wrong version",
+                json!({ "jsonrpc": "1.0", "id": 1, "method": "execute" }),
+                Some(json!({ "jsonrpc": "1.0", "id": 1, "method": "execute" })),
+            ),
+            (
+                "missing method",
+                json!({ "jsonrpc": "2.0", "id": 1 }),
+                Some(json!({ "jsonrpc": "2.0", "id": 1 })),
+            ),
+            (
+                "object id",
+                json!({ "jsonrpc": "2.0", "id": {}, "method": "execute" }),
+                Some(json!({ "jsonrpc": "2.0", "id": {}, "method": "execute" })),
+            ),
+            (
+                "array id",
+                json!({ "jsonrpc": "2.0", "id": [], "method": "execute" }),
+                Some(json!({ "jsonrpc": "2.0", "id": [], "method": "execute" })),
+            ),
+        ];
+
+        for (name, message, expected_data) in cases {
+            let mut service = service();
+            let response: Value = serde_json::from_str(
+                &service
+                    .handle_line(&message.to_string())
+                    .unwrap_or_else(|| panic!("{name} must receive an error response")),
+            )
+            .unwrap();
+            assert_eq!(response["jsonrpc"], "2.0", "{name}");
+            assert_eq!(response["id"], Value::Null, "{name}");
+            assert_eq!(response["error"]["code"], -32600, "{name}");
+            assert_eq!(response["error"]["message"], "Invalid Request", "{name}");
+            assert_eq!(
+                response["error"].get("data"),
+                expected_data.as_ref(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_params_report_code_32602_for_every_method() {
+        let state = trivial_model_state();
+        let cases = vec![
+            ("simplify missing state", "simplify", json!({})),
+            ("simplify wrong state", "simplify", json!({ "state": 7 })),
+            (
+                "implies missing consequent",
+                "implies",
+                json!({ "antecedent": state.clone() }),
+            ),
+            (
+                "implies wrong consequent",
+                "implies",
+                json!({ "antecedent": state.clone(), "consequent": 7 }),
+            ),
+            ("add-module missing module", "add-module", json!({})),
+            (
+                "add-module wrong module",
+                "add-module",
+                json!({ "module": 7 }),
+            ),
+            ("get-model missing state", "get-model", json!({})),
+            ("get-model wrong state", "get-model", json!({ "state": 7 })),
+        ];
+
+        for (name, method, params) in cases {
+            let mut service = service();
+            let response = request(&mut service, 17, method, params.clone());
+            assert_eq!(response["id"], 17, "{name}");
+            assert_eq!(response["error"]["code"], -32602, "{name}");
+            assert_eq!(response["error"]["message"], "Invalid params", "{name}");
+            assert_eq!(response["error"]["data"], params, "{name}");
+        }
+    }
+
+    #[test]
+    fn unknown_param_keys_are_accepted_and_ignored() {
+        // This is serde's compatibility disposition and is cross-checked against kore-rpc by the
+        // differential RPC corpus.
+        let mut service = service();
+        let state = encode_kore(&parse_pattern("state{}()").unwrap()).unwrap();
+        let response = request(
+            &mut service,
+            1,
+            "execute",
+            json!({ "state": state, "max-depth": 0, "future-option": true }),
+        );
+
+        assert!(response.get("error").is_none(), "{response:#}");
+        assert_eq!(response["result"]["reason"], "depth-bound");
     }
 
     #[test]
@@ -2493,6 +2816,174 @@ mod tests {
     }
 
     #[test]
+    fn implication_response_simplifies_both_function_terms() {
+        let mut service = simplifying_implication_service();
+        let initial = encode_kore(&parse_pattern("initial{}()").unwrap()).unwrap();
+        let response = request(
+            &mut service,
+            1,
+            "implies",
+            json!({
+                "antecedent": initial,
+                "consequent": initial,
+            }),
+        );
+        let implication = &response["result"]["implication"]["term"];
+
+        assert_eq!(response["result"]["status"], "valid");
+        assert_eq!(implication["first"]["name"], "state");
+        assert_eq!(implication["second"]["name"], "state");
+    }
+
+    #[test]
+    fn special_consequent_responses_still_simplify_non_vacuous_antecedents() {
+        let mut service = simplifying_implication_service();
+        for (consequent, status) in [
+            (r#"\top{SortState{}}()"#, "valid"),
+            (r#"\bottom{SortState{}}()"#, "invalid"),
+        ] {
+            let antecedent = encode_kore(&parse_pattern("initial{}()").unwrap()).unwrap();
+            let consequent = encode_kore(&parse_pattern(consequent).unwrap()).unwrap();
+            let response = request(
+                &mut service,
+                1,
+                "implies",
+                json!({
+                    "antecedent": antecedent,
+                    "consequent": consequent,
+                }),
+            );
+
+            assert_eq!(response["result"]["status"], status, "{response:#}");
+            assert_eq!(
+                response["result"]["implication"]["term"]["first"]["name"],
+                "state"
+            );
+        }
+    }
+
+    #[test]
+    fn implication_simplification_preserves_leading_binder_order() {
+        let mut service = simplifying_implication_service();
+        let source = r#"\exists{SortState{}}(
+            X:SortState{},
+            \exists{SortState{}}(Y:SortState{}, initial{}())
+        )"#;
+        let pattern = encode_kore(&parse_pattern(source).unwrap()).unwrap();
+        let response = request(
+            &mut service,
+            1,
+            "implies",
+            json!({
+                "antecedent": pattern,
+                "consequent": pattern,
+            }),
+        );
+        let antecedent = &response["result"]["implication"]["term"]["first"];
+
+        assert_eq!(response["result"]["status"], "valid", "{response:#}");
+        assert_eq!(antecedent["tag"], "Exists");
+        assert_eq!(antecedent["var"], "X");
+        assert_eq!(antecedent["arg"]["tag"], "Exists");
+        assert_eq!(antecedent["arg"]["var"], "Y");
+        assert_eq!(antecedent["arg"]["arg"]["name"], "state");
+    }
+
+    #[test]
+    fn not_consequent_early_response_still_simplifies_both_patterns() {
+        let mut service = simplifying_implication_service();
+        let antecedent = encode_kore(&parse_pattern("initial{}()").unwrap()).unwrap();
+        let consequent =
+            encode_kore(&parse_pattern(r#"\not{SortState{}}(initial{}())"#).unwrap()).unwrap();
+        let response = request(
+            &mut service,
+            1,
+            "implies",
+            json!({
+                "antecedent": antecedent,
+                "consequent": consequent,
+            }),
+        );
+
+        assert_eq!(response["result"]["status"], "invalid", "{response:#}");
+        assert_eq!(
+            response["result"]["implication"]["term"]["first"]["name"],
+            "state"
+        );
+        assert_eq!(
+            response["result"]["implication"]["term"]["second"]["arg"]["name"],
+            "state"
+        );
+    }
+
+    #[test]
+    fn implication_response_rendering_surfaces_simplification_failure() {
+        let syntax = parse_definition(
+            r#"[]
+            module TEST
+              sort SortState{} []
+              symbol state{}() : SortState{} [constructor{}()]
+              symbol loop{}(SortState{}) : SortState{} [function{}(), total{}()]
+              axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortState{}, R}(
+                  loop{}(X:SortState{}),
+                  \and{SortState{}}(
+                    loop{}(loop{}(X:SortState{})),
+                    \top{SortState{}}()
+                  )
+                )
+              ) [label{}("loop"), simplification{}()]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "TEST").unwrap();
+        let original = parse_pattern("loop{}(state{}())").unwrap();
+        let (pattern, _) = definition
+            .internalize_implication_pattern(&original, &[])
+            .unwrap();
+
+        let fault = simplified_implication_response_syntax(
+            &definition,
+            &original,
+            &pattern,
+            &k_rust_backend::smt::NoSolver,
+        )
+        .expect_err("a diverging simplification rule should fail the request");
+
+        assert!(
+            fault.message.contains("could not simplify pattern"),
+            "{}",
+            fault.message
+        );
+    }
+
+    #[test]
+    fn implication_normalization_drops_constraints_that_simplified_away() {
+        let sort = BackendSort::simple("SortK");
+        let configuration = Term::variable(Variable::new("CONFIG", sort.clone()));
+        let x = Term::variable(Variable::new("X", sort.clone()));
+        let stale = Predicate::Equals(Term::domain_value(sort.clone(), "3"), x);
+        let original = KorePattern::And {
+            sort: externalize::sort(&sort),
+            arguments: vec![
+                externalize::term(&configuration),
+                externalize::predicate_pattern(&stale, &sort),
+            ],
+        };
+
+        let normalized = normalized_implication_syntax(
+            &original,
+            &Pattern {
+                term: configuration.clone(),
+                constraints: Vec::new(),
+            },
+        );
+
+        assert_eq!(normalized, externalize::term(&configuration));
+    }
+
+    #[test]
     fn implication_keeps_nested_consequent_existentials_on_the_left() {
         let sort = BackendSort::simple("SortK");
         let variable = Variable::new("X!exists0", sort.clone());
@@ -2764,6 +3255,38 @@ mod tests {
     }
 
     #[test]
+    fn implication_internalized_sort_mismatch_is_a_pattern_fault() {
+        let definition = parse_definition(
+            r#"[]
+            module TEST
+              sort SortA{} []
+              sort SortB{} []
+              symbol a{}() : SortA{} [constructor{}()]
+              symbol b{}() : SortB{} [constructor{}()]
+            endmodule []"#,
+        )
+        .unwrap();
+        let mut service = RpcService::new(BackendSession::new(definition, "TEST"));
+        let antecedent = encode_kore(&parse_pattern("a{}()").unwrap()).unwrap();
+        let consequent = encode_kore(&parse_pattern("b{}()").unwrap()).unwrap();
+        let response = request(
+            &mut service,
+            1,
+            "implies",
+            json!({ "antecedent": antecedent, "consequent": consequent }),
+        );
+
+        assert_eq!(
+            response["error"],
+            json!({
+                "code": 2,
+                "message": "Could not verify pattern",
+                "data": "antecedent and consequent sorts differ",
+            })
+        );
+    }
+
+    #[test]
     fn protocol_parser_accepts_deep_json_without_serde_recursion_limits() {
         let depth = 300;
         let source = format!("{}null{}", "[".repeat(depth), "]".repeat(depth));
@@ -2803,6 +3326,36 @@ mod tests {
             service.handle_line(r#"[{"jsonrpc":"2.0","method":"cancel"}]"#),
             None
         );
+    }
+
+    #[test]
+    fn mixed_batches_answer_requests_in_order_and_skip_notifications() {
+        let mut service = service();
+        let batch = json!([
+            { "jsonrpc": "2.0", "id": "first", "method": "missing" },
+            { "jsonrpc": "2.0", "method": "missing-notification" },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "get-model",
+                "params": { "state": trivial_model_state() },
+            },
+        ]);
+        let response: Value = serde_json::from_str(
+            &service
+                .handle_line(&batch.to_string())
+                .expect("the requests in a mixed batch need responses"),
+        )
+        .unwrap();
+        let responses = response
+            .as_array()
+            .expect("batch response must be an array");
+
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0]["id"], "first");
+        assert_eq!(responses[0]["error"]["code"], -32601);
+        assert_eq!(responses[1]["id"], 2);
+        assert_eq!(responses[1]["result"]["satisfiable"], "Sat");
     }
 
     #[test]
@@ -2901,24 +3454,106 @@ mod tests {
     }
 
     #[test]
-    fn missing_requested_modules_use_the_reference_error_shape() {
-        let mut service = service();
-        let state = encode_kore(&parse_pattern("state{}()").unwrap()).unwrap();
-        let response = request(
-            &mut service,
-            1,
-            "execute",
-            json!({ "state": state, "module": "MISSING" }),
-        );
+    fn fault_responses_preserve_ids_of_every_scalar_type() {
+        for id in [json!("request-id"), json!(0), Value::Null] {
+            let mut invalid_params_service = service();
+            let invalid_params = request_with_id(
+                &mut invalid_params_service,
+                id.clone(),
+                "simplify",
+                json!({}),
+            );
 
-        assert_eq!(
-            response["error"],
-            json!({
-                "code": 3,
-                "message": "Could not find module",
-                "data": "MISSING",
-            })
-        );
+            let mut pattern_service = service();
+            let invalid_application = encode_kore(
+                &parse_pattern("state{}(next{}())").expect("invalid arity remains valid syntax"),
+            )
+            .unwrap();
+            let pattern = request_with_id(
+                &mut pattern_service,
+                id.clone(),
+                "execute",
+                json!({ "state": invalid_application }),
+            );
+
+            let mut missing_module_service = service();
+            let state = encode_kore(&parse_pattern("state{}()").unwrap()).unwrap();
+            let module = request_with_id(
+                &mut missing_module_service,
+                id.clone(),
+                "execute",
+                json!({ "state": state, "module": "MISSING" }),
+            );
+
+            let mut implication_service = implication_service();
+            let antecedent = encode_kore(&parse_pattern("X:S1{}").unwrap()).unwrap();
+            let consequent =
+                encode_kore(&parse_pattern(r#"\exists{SortK{}}(Y:SortK{}, Y:SortK{})"#).unwrap())
+                    .unwrap();
+            let implication = request_with_id(
+                &mut implication_service,
+                id.clone(),
+                "implies",
+                json!({ "antecedent": antecedent, "consequent": consequent }),
+            );
+
+            let mut invalid_module_service = service();
+            let invalid_module = request_with_id(
+                &mut invalid_module_service,
+                id.clone(),
+                "add-module",
+                json!({ "module": "module EXTRA import MISSING [] endmodule []" }),
+            );
+
+            for (name, response, code) in [
+                ("invalid params", invalid_params, -32602),
+                ("pattern", pattern, 2),
+                ("missing module", module, 3),
+                ("implication", implication, 4),
+                ("invalid module", invalid_module, 8),
+            ] {
+                assert_eq!(response["id"], id, "{name}");
+                assert_eq!(response["error"]["code"], code, "{name}, id {id}");
+            }
+        }
+    }
+
+    #[test]
+    fn missing_module_faults_cover_every_definition_consumer() {
+        let state = encode_kore(&parse_pattern("state{}()").unwrap()).unwrap();
+        let cases = [
+            (
+                "execute",
+                json!({ "state": state.clone(), "module": "MISSING" }),
+            ),
+            (
+                "simplify",
+                json!({ "state": state.clone(), "module": "MISSING" }),
+            ),
+            (
+                "implies",
+                json!({
+                    "antecedent": state.clone(),
+                    "consequent": state.clone(),
+                    "module": "MISSING",
+                }),
+            ),
+            ("get-model", json!({ "state": state, "module": "MISSING" })),
+        ];
+
+        for (method, params) in cases {
+            let mut service = service();
+            let response = request(&mut service, 1, method, params);
+            assert_eq!(
+                response["error"],
+                json!({
+                    "code": 3,
+                    "message": "Could not find module",
+                    "data": "MISSING",
+                }),
+                "{method}"
+            );
+        }
     }
 
     #[test]
@@ -3402,6 +4037,23 @@ mod tests {
     }
 
     #[test]
+    fn simplify_and_execute_budget_asymmetry_is_deliberate() {
+        let mut service = budget_policy_service();
+        let chain = encode_kore(&parse_pattern("chain0{}()").unwrap()).unwrap();
+        let simplify = request(&mut service, 1, "simplify", json!({ "state": chain }));
+
+        // The standalone simplify API is intentionally unbounded for reference parity, while
+        // execution uses the shared finite default and reports exhaustion as an aborted leaf.
+        assert!(simplify.get("error").is_none(), "{simplify:#}");
+        assert!(simplify["result"]["state"].to_string().contains("done"));
+
+        let initial =
+            encode_kore(&parse_pattern(r#"wrap{}(\dv{SortState{}}("value"))"#).unwrap()).unwrap();
+        let execute = request(&mut service, 2, "execute", json!({ "state": initial }));
+        assert_eq!(execute["result"]["reason"], "aborted", "{execute:#}");
+    }
+
+    #[test]
     fn simplify_distinguishes_boolean_terms_from_ml_truth() {
         let mut service = boolean_service();
         let boolean = encode_kore(
@@ -3421,7 +4073,7 @@ mod tests {
     }
 
     #[test]
-    fn serves_multiple_newline_delimited_requests_on_one_socket() {
+    fn standalone_cancel_with_a_scalar_id_is_consumed_without_a_response() {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let address = listener.local_addr().unwrap();
         let service = Arc::new(Mutex::new(service()));
@@ -3433,7 +4085,7 @@ mod tests {
 
         let mut client = TcpStream::connect(address).unwrap();
         let messages = [
-            json!({ "jsonrpc": "2.0", "method": "cancel" }),
+            json!({ "jsonrpc": "2.0", "id": "swallowed-cancel", "method": "cancel" }),
             json!({ "jsonrpc": "2.0", "id": 1, "method": "missing" }),
             json!({
                 "jsonrpc": "2.0",
@@ -3457,7 +4109,7 @@ mod tests {
         assert_eq!(
             responses.len(),
             2,
-            "notifications must not receive a response"
+            "a standalone cancel must not receive a response even when it has an id"
         );
         assert_eq!(responses[0]["error"]["code"], -32601);
         assert_eq!(responses[1]["result"]["satisfiable"], "Sat");
@@ -3574,7 +4226,79 @@ mod tests {
         server.join().unwrap();
     }
 
+    #[test]
+    fn cancelling_a_batch_yields_a_batch_shaped_cancellation_response() {
+        let definition = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                    wrap{}(X:SortS{})
+                ) [label{}("loop"), UNIQUE'Unds'ID{}("loop")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let service = Arc::new(Mutex::new(RpcService::new(BackendSession::new(
+            definition, "MAIN",
+        ))));
+        let server_service = Arc::clone(&service);
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            serve_connection(stream, server_service).unwrap();
+        });
+
+        let mut client = TcpStream::connect(address).unwrap();
+        let mut responses = BufReader::new(client.try_clone().unwrap());
+        let state =
+            encode_kore(&parse_pattern(r#"wrap{}(\dv{SortS{}}("zero"))"#).unwrap()).unwrap();
+        writeln!(
+            client,
+            "{}",
+            json!([{
+                "jsonrpc": "2.0",
+                "id": "slow-batch-request",
+                "method": "execute",
+                "params": { "state": state },
+            }])
+        )
+        .unwrap();
+        thread::sleep(Duration::from_millis(10));
+        writeln!(
+            client,
+            "{}",
+            json!({ "jsonrpc": "2.0", "id": "cancel-command", "method": "cancel" })
+        )
+        .unwrap();
+
+        let mut line = String::new();
+        responses.read_line(&mut line).unwrap();
+        let cancelled: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(
+            cancelled,
+            json!([{
+                "jsonrpc": "2.0",
+                "id": "slow-batch-request",
+                "error": {
+                    "code": -32000,
+                    "message": "Request cancelled",
+                    "data": null,
+                },
+            }])
+        );
+
+        client.shutdown(Shutdown::Write).unwrap();
+        server.join().unwrap();
+    }
+
     fn request(service: &mut RpcService, id: u64, method: &str, params: Value) -> Value {
+        request_with_id(service, Value::from(id), method, params)
+    }
+
+    fn request_with_id(service: &mut RpcService, id: Value, method: &str, params: Value) -> Value {
         let request = json!({
             "jsonrpc": "2.0",
             "id": id,

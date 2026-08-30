@@ -592,10 +592,7 @@ fn decode_pattern(value: Value) -> Result<KorePattern, BackendError> {
 }
 
 fn encode_pattern(pattern: &KorePattern) -> Result<Value, BackendError> {
-    serde_json::from_str(
-        &kore_json::to_string(pattern).map_err(error("could not encode KORE JSON"))?,
-    )
-    .map_err(error("could not encode KORE JSON"))
+    kore_json::to_value(pattern).map_err(error("could not encode KORE JSON"))
 }
 
 fn trace_entry(entry: k_rust_backend::rewrite::TraceEntry) -> TraceEntry {
@@ -871,6 +868,17 @@ mod tests {
     }
 
     #[test]
+    fn encodes_deep_patterns_without_the_default_json_recursion_limit() {
+        let mut source = r"\top{SortS{}}()".to_owned();
+        for _ in 0..160 {
+            source = format!(r"\not{{SortS{{}}}}({source})");
+        }
+
+        let pattern = parse_pattern(&source).unwrap();
+        assert!(encode_pattern(&pattern).is_ok());
+    }
+
+    #[test]
     fn persistent_backend_executes_and_proves() {
         let mut backend = backend();
         let execution = backend
@@ -899,6 +907,79 @@ mod tests {
             })
             .unwrap();
         assert_eq!(proof.status, "proven");
+    }
+
+    #[test]
+    fn prove_request_budget_reaches_the_prover() {
+        let mut chain = String::new();
+        for index in 0..=128 {
+            chain.push_str(&format!(
+                "symbol chain{index}{{}}() : SortS{{}} [function{{}}()]\n"
+            ));
+        }
+        for index in 0..128 {
+            let next = index + 1;
+            chain.push_str(&format!(
+                r#"
+                axiom{{R}} \implies{{R}}(
+                    \top{{R}}(),
+                    \equals{{SortS{{}}, R}}(
+                        chain{index}{{}}(),
+                        \and{{SortS{{}}}}(chain{next}{{}}(), \top{{SortS{{}}}}())
+                    )
+                ) [label{{}}("chain-{index}"), simplification{{}}()]
+                "#
+            ));
+        }
+        chain.push_str(
+            r#"
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortS{}, R}(
+                        chain128{}(),
+                        \and{SortS{}}(a{}(), \top{SortS{}}())
+                    )
+                ) [label{}("chain-done"), simplification{}()]
+            "#,
+        );
+        let definition = format!(
+            r#"[]
+            module MAIN
+                sort SortS{{}} []
+                symbol a{{}}() : SortS{{}} [constructor{{}}()]
+                symbol c{{}}() : SortS{{}} [constructor{{}}()]
+                {chain}
+                axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(
+                        a{{}}(),
+                        \equals{{SortS{{}}, SortS{{}}}}(chain0{{}}(), a{{}}())
+                    ),
+                    c{{}}()
+                ) [label{{}}("conditional")]
+                claim{{}} \implies{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(a{{}}(), \top{{SortS{{}}}}()),
+                    weakAlwaysFinally{{SortS{{}}}}(c{{}}())
+                ) [label{{}}("budgeted-claim")]
+            endmodule []"#
+        );
+        let mut backend = Backend::new(&definition, "MAIN", BackendOptions::default()).unwrap();
+
+        let result = backend
+            .prove(ProveRequest {
+                max_simplification_iterations: 1,
+                ..ProveRequest::default()
+            })
+            .expect("budget exhaustion should be represented as a proof result");
+
+        assert_eq!(result.status, "indeterminate", "{result:#?}");
+        assert!(
+            result
+                .leaves
+                .iter()
+                .any(|leaf| leaf.outcome.contains("Simplification")
+                    && leaf.outcome.contains("IterationLimit")),
+            "{result:#?}"
+        );
     }
 
     #[test]
