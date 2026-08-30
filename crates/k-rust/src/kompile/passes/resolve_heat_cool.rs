@@ -6,6 +6,7 @@ use crate::{
     definition::{Definition, LabelHead, ResolvedDefinition, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode},
     kast::Term,
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -27,6 +28,13 @@ impl std::error::Error for ResolveHeatCoolError {}
 
 /// Apply Java's `ResolveHeatCoolAttribute` transformation.
 pub fn resolve_heat_cool_attributes(
+    definition: &Definition,
+) -> Result<Definition, ResolveHeatCoolError> {
+    resolve_heat_cool_attributes_inner(definition)
+        .map(|output| record_generated_origins(definition, output, GeneratingPass::ResolveHeatCool))
+}
+
+fn resolve_heat_cool_attributes_inner(
     definition: &Definition,
 ) -> Result<Definition, ResolveHeatCoolError> {
     let resolved =

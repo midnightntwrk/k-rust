@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use crate::{
     definition::{Definition, Sentence},
     kast::Term,
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 /// Apply Java's `ResolveAnonVar` transformation to rules, claims, and contexts.
@@ -15,7 +16,11 @@ pub fn resolve_anon_vars(definition: &Definition) -> Definition {
             resolve_sentence(sentence);
         }
     }
-    output
+    record_generated_origins(
+        definition,
+        output,
+        GeneratingPass::ResolveAnonymousVariables,
+    )
 }
 
 fn resolve_sentence(sentence: &mut Sentence) {

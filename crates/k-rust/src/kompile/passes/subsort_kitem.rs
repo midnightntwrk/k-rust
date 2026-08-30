@@ -5,6 +5,7 @@ use std::fmt;
 use crate::{
     definition::{Attributes, Definition, ProductionItem, ResolvedDefinition, Sentence},
     kast::Sort,
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 use super::rebase_local_metadata;
@@ -50,7 +51,12 @@ pub fn subsort_kitem(definition: &Definition) -> Result<Definition, SubsortKItem
             }
         }
     }
-    rebase_local_metadata(definition, output).map_err(SubsortKItemError)
+    let output = rebase_local_metadata(definition, output).map_err(SubsortKItemError)?;
+    Ok(record_generated_origins(
+        definition,
+        output,
+        GeneratingPass::SubsortKItem,
+    ))
 }
 
 fn is_parser_sort(sort: &Sort) -> bool {

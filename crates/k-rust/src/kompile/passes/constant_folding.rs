@@ -12,6 +12,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 #[cfg(feature = "mpfr-folding")]
@@ -37,6 +38,11 @@ impl std::error::Error for ConstantFoldingError {}
 
 /// Apply Java's rewrite-aware `ConstantFolding` transformation to local rules.
 pub fn constant_fold(definition: &Definition) -> Result<Definition, ConstantFoldingError> {
+    constant_fold_inner(definition)
+        .map(|output| record_generated_origins(definition, output, GeneratingPass::ConstantFolding))
+}
+
+fn constant_fold_inner(definition: &Definition) -> Result<Definition, ConstantFoldingError> {
     let resolved =
         ResolvedDefinition::resolve(definition).map_err(|error| ConstantFoldingError {
             diagnostics: vec![Diagnostic {
