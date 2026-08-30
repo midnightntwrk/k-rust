@@ -115,7 +115,7 @@ pub struct PathWitness {
     pub id: Vec<TransitionId>,
     pub pattern: Pattern,
     pub depth: u64,
-    /// The path's rewrite, remainder, and shared simplification trace entries.
+    /// The path's rewrite, remainder, and arrival-local simplification trace entries.
     pub trace: Vec<TraceEntry>,
 }
 
