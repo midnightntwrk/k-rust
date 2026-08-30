@@ -9,6 +9,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -49,6 +50,11 @@ struct MetadataOrigin {
 /// Java, imports selected stream sentences under the user's cell label, and empties the two
 /// template modules after instantiation.
 pub fn resolve_io(definition: &Definition) -> Result<Definition, ResolveIoError> {
+    resolve_io_inner(definition)
+        .map(|output| record_generated_origins(definition, output, GeneratingPass::ResolveIo))
+}
+
+fn resolve_io_inner(definition: &Definition) -> Result<Definition, ResolveIoError> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(|error| ResolveIoError {
         diagnostics: vec![plain_error(error.to_string())],
     })?;
