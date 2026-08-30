@@ -274,6 +274,33 @@ fn chooses_the_rewrite_overload_matching_the_rhs_sort() {
     );
 }
 
+#[cfg(feature = "z3-inference")]
+#[test]
+fn parses_a_semantic_cast_inside_nested_map_and_bytes_lookups() {
+    let source = indoc! {r##"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+                       | "lengthBytes" "(" Bytes ")" [symbol(lengthBytes), function]
+                       | Bytes "[" Int "]" [symbol(bytesLookup), function]
+                       | Int "-Int" Int [symbol(subInt), function]
+          syntax Bytes ::= "bytes" [symbol(bytes)]
+                         | "#range" "(" Bytes "," Int "," Int ")" [symbol(range), function]
+          syntax Map ::= "map" [symbol(map)]
+                       | Map "[" KItem "<-" KItem "]" [symbol(updateMap), function, prefer]
+          syntax KItem ::= Map "[" KItem "]" [symbol(lookupMap), function]
+          syntax KItem ::= Int | MerkleTree
+          syntax MerkleTree ::= "tree" [symbol(tree)]
+                              | "MerkleBranch" "(" Map "," String ")" [symbol(MerkleBranch)]
+                              | "MerkleDelete" "(" MerkleTree "," Bytes ")" [symbol(MerkleDelete), function]
+                              | "MerkleCheck" "(" MerkleTree ")" [symbol(MerkleCheck), function]
+
+          rule MerkleDelete( MerkleBranch( M, V ), PATH )
+            => MerkleCheck( MerkleBranch( M[PATH[0] <- MerkleDelete( {M[PATH[0]]}:>MerkleTree, #range(PATH, 1, lengthBytes(PATH) -Int 1) )], V ) )
+        endmodule
+    "##};
+    resolve_rule_bubbles(&lowered(source)).unwrap();
+}
+
 #[test]
 fn parses_rule_claim_context_and_alias_bubbles() {
     let source = indoc! {r#"
@@ -481,6 +508,49 @@ fn loader_parses_rewrites_between_bags_inside_collection_cells() {
     }, {
         insta::assert_debug_snapshot!(rules);
     });
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn loader_parses_parenthesized_rewrites_between_bags_before_cell_dots() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Stmt ::= insert(Int, Int)
+          configuration
+            <k> $PGM:Stmt </k>
+            <map>
+              <entry multiplicity="*" type="Map">
+                <key> .K </key>
+                <value> .K </value>
+              </entry>
+            </map>
+
+          rule
+            <k> insert(Key, Value) => .K ...</k>
+            <map>
+              ( .Bag => <entry> <key> Key </key> <value> Value </value> </entry> )
+              ...
+            </map>
+        endmodule
+    "#};
+    let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+    let loaded = load(
+        ResolvedSource::new("parenthesized-collection-cells.k", source),
+        "MAIN",
+        &mut resolver,
+    )
+    .unwrap();
+
+    assert!(
+        loaded
+            .definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .any(|sentence| matches!(sentence, Sentence::Rule { .. }))
+    );
 }
 
 #[test]
@@ -969,6 +1039,42 @@ rule_snapshot!(
         endmodule
     "#
 );
+
+rule_snapshot!(
+    infers_an_anonymous_bag_variable,
+    r#"
+        module MAIN
+          syntax Result ::= "clear" "(" Bag ")" [symbol(clear)]
+          rule clear(_) => clear(.Bag)
+        endmodule
+    "#
+);
+
+#[test]
+fn infers_an_anonymous_cell_variable() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Result ::= "clear" "(" Cell ")" [symbol(clear)]
+          rule clear(_) => clear(_)
+        endmodule
+    "#};
+    let resolved = resolve_rule_bubbles(&lowered(source)).unwrap();
+    let body = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .unwrap();
+
+    assert_eq!(
+        body,
+        "clear(#SemanticCastToCell(_))=>clear(#SemanticCastToCell(_))"
+    );
+}
 
 rule_snapshot!(
     collapses_record_productions_and_fills_omitted_fields,

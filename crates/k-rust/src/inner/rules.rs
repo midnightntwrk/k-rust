@@ -474,6 +474,20 @@ fn add_rule_k_syntax(
             ],
         )?;
     }
+    // `Bag` is likewise absent from `concrete_sorts`, but collection cells need a concrete
+    // bracket to finish a parenthesized Bag rewrite immediately before their trailing dots.
+    grammar.add_bracket(
+        Sort::new("Bag"),
+        vec![
+            ProductionItem::Terminal("(".into()),
+            nonterminal("Bag"),
+            ProductionItem::Terminal(")".into()),
+        ],
+    )?;
+    // AUTO-CASTS covers these structural rule sorts even though neither reaches the generic loop.
+    for sort in [Sort::new("Bag"), Sort::new("Cell")] {
+        add_casts(grammar, Sort::new("K"), sort.clone(), sort)?;
+    }
     #[cfg(not(feature = "z3-inference"))]
     add_rule_sort(grammar, &Sort::new("K"))?;
     let rule_body_sort = rule_sort(&Sort::new("K"));
@@ -506,12 +520,16 @@ fn add_rule_k_syntax(
     grammar.add(
         Sort::new("#RuleBody"),
         vec![
-            ProductionItem::Terminal("[[".into()),
+            // Keep the delimiters as four scanner tokens. A `]]` token would shadow two adjacent
+            // lookup closers in inputs such as `{M[PATH[0]]}:>MerkleTree`.
+            ProductionItem::Terminal("[".into()),
+            ProductionItem::Terminal("[".into()),
             ProductionItem::NonTerminal {
                 sort: rule_body_sort,
                 name: None,
             },
-            ProductionItem::Terminal("]]".into()),
+            ProductionItem::Terminal("]".into()),
+            ProductionItem::Terminal("]".into()),
             nonterminal("Bag"),
         ],
         Some(Label::new("#withConfig")),
