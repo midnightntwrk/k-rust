@@ -414,6 +414,41 @@ fn add_rule_k_syntax(
     )?;
     grammar.add_left_associative("#KList");
     grammar.add(
+        Sort::new("KString"),
+        vec![ProductionItem::regex(
+            r#"[\"](([^\"\n\r\\])|([\\][nrtf\"\\])|([\\][x][0-9a-fA-F]{2})|([\\][u][0-9a-fA-F]{4})|([\\][U][0-9a-fA-F]{8}))*[\"]"#,
+        )],
+        None,
+        true,
+        false,
+    )?;
+    grammar.add(
+        Sort::new("KBott"),
+        vec![
+            ProductionItem::Terminal("#token".into()),
+            ProductionItem::Terminal("(".into()),
+            nonterminal("KString"),
+            ProductionItem::Terminal(",".into()),
+            nonterminal("KString"),
+            ProductionItem::Terminal(")".into()),
+        ],
+        Some(Label::new("#KToken")),
+        false,
+        false,
+    )?;
+    grammar.add(
+        Sort::new("KBott"),
+        vec![
+            ProductionItem::Terminal("#klabel".into()),
+            ProductionItem::Terminal("(".into()),
+            nonterminal("KLabel"),
+            ProductionItem::Terminal(")".into()),
+        ],
+        Some(Label::new("#WrappedKLabel")),
+        false,
+        false,
+    )?;
+    grammar.add(
         Sort::new("KBott"),
         vec![
             nonterminal("KLabel"),
