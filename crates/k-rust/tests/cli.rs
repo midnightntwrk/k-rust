@@ -237,6 +237,58 @@ endmodule
 }
 
 #[test]
+fn krun_parses_programs_with_the_selected_syntax_module() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module SELECTED-SYNTAX
+  syntax Input ::= "go" [symbol(selectedGo)]
+endmodule
+
+module ALTERNATE-SYNTAX
+  syntax Input ::= "go" [symbol(alternateGo)]
+endmodule
+
+module MAIN
+  imports SELECTED-SYNTAX
+  imports ALTERNATE-SYNTAX
+  configuration <k> $PGM:Input </k>
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--syntax-module",
+            "SELECTED-SYNTAX",
+            "--sort",
+            "Input",
+            "--expression",
+            "go",
+            "--depth",
+            "0",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("LblselectedGo"), "{stdout}");
+    assert!(!stdout.contains("LblalternateGo"), "{stdout}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kast_omits_inferred_parametric_label_arguments() {
     let (root, definition) = fixture();
     fs::write(
