@@ -1964,6 +1964,40 @@ fn krun_executes_bn128_fixture_to_pinned_kore_results() {
 }
 
 #[test]
+fn krun_executes_invalid_ecdsa_recovery_to_empty_bytes() {
+    let expected = concat!(
+        "Lbl'-LT-'generatedTop'-GT-'{}(\n",
+        "  Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBytes{}, SortKItem{}}(\\dv{SortBytes{}}(\"\")), dotk{}())),\n",
+        "  Lbl'-LT-'generatedCounter'-GT-'{}(\\dv{SortInt{}}(\"0\"))\n",
+        ")\n",
+    );
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference");
+    let definition = fixtures.join("crypto-execution.k");
+    let program = fixtures.join("ecdsa-invalid.crypto");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "CRYPTO-EXECUTION",
+            "--sort",
+            "Input",
+            program.to_str().unwrap(),
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), expected);
+}
+
+#[test]
 fn krun_executes_float_fixture_to_pinned_kore_results() {
     fn scalar_result(sort: &str, value: &str) -> String {
         if sort == "Float" {

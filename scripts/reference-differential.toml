@@ -816,6 +816,8 @@ programs = ["${workspace}/crates/k-rust/tests/fixtures/reference/deep.term"]
 name = "ecdsa-invalid-execution"
 section = "execution"
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/ecdsa-invalid.crypto"
+disposition = "local-gate"
+local-gate = "cargo test -p k-rust --test cli krun_executes_invalid_ecdsa_recovery_to_empty_bytes -- --exact"
 reason = "The pinned Haskell backend crashes in Kore.Builtin.Krypto.encodePoint for bad recovery ids instead of returning a value, so it cannot serve as an oracle for k-rust's empty-Bytes invalid-input contract."
 
 [[excluded]]
