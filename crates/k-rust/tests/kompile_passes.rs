@@ -1562,7 +1562,7 @@ fn expands_nested_macros_child_first_in_priority_order() {
 }
 
 #[test]
-fn validates_smt_lemmas_after_expanding_aliases() {
+fn expands_smt_lemma_aliases_before_backend_validation() {
     let source = indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
