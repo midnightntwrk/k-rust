@@ -1,6 +1,8 @@
 //! Stable source identities and provenance shared by the semantic frontend.
 
 use std::{
+    collections::BTreeMap,
+    ops::Range,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -46,10 +48,128 @@ impl LogicalSourceId {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct SourceId(pub usize);
 
+/// One contiguous run of semantic-source bytes retained from a raw source.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SourceOffsetSegment {
+    pub semantic_start: usize,
+    pub raw_start: usize,
+    pub length: usize,
+}
+
+/// Relates byte ranges in parsed semantic text to their raw source ranges.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SourceOffsetMap {
+    semantic_length: usize,
+    raw_length: usize,
+    segments: Vec<SourceOffsetSegment>,
+}
+
+impl SourceOffsetMap {
+    pub fn identity(length: usize) -> Self {
+        let segments = (length != 0)
+            .then_some(SourceOffsetSegment {
+                semantic_start: 0,
+                raw_start: 0,
+                length,
+            })
+            .into_iter()
+            .collect();
+        Self {
+            semantic_length: length,
+            raw_length: length,
+            segments,
+        }
+    }
+
+    pub fn new(
+        semantic_length: usize,
+        raw_length: usize,
+        segments: Vec<SourceOffsetSegment>,
+    ) -> Result<Self, String> {
+        let mut semantic_end = 0;
+        let mut raw_end = 0;
+        for segment in &segments {
+            if segment.length == 0
+                || segment.semantic_start != semantic_end
+                || segment.raw_start < raw_end
+            {
+                return Err("source offset-map segments are not contiguous and ordered".into());
+            }
+            semantic_end = segment
+                .semantic_start
+                .checked_add(segment.length)
+                .ok_or_else(|| "source offset-map semantic range overflows usize".to_owned())?;
+            raw_end = segment
+                .raw_start
+                .checked_add(segment.length)
+                .ok_or_else(|| "source offset-map raw range overflows usize".to_owned())?;
+            if raw_end > raw_length {
+                return Err("source offset-map segment exceeds the raw source".into());
+            }
+        }
+        if semantic_end != semantic_length {
+            return Err("source offset-map segments do not cover the semantic text".into());
+        }
+        Ok(Self {
+            semantic_length,
+            raw_length,
+            segments,
+        })
+    }
+
+    pub fn semantic_length(&self) -> usize {
+        self.semantic_length
+    }
+
+    pub fn raw_length(&self) -> usize {
+        self.raw_length
+    }
+
+    pub fn segments(&self) -> &[SourceOffsetSegment] {
+        &self.segments
+    }
+
+    /// Map one semantic byte boundary to the next retained raw byte boundary.
+    pub fn raw_offset(&self, semantic_offset: usize) -> Option<usize> {
+        if semantic_offset > self.semantic_length {
+            return None;
+        }
+        if semantic_offset == self.semantic_length {
+            return self.segments.last().map_or(Some(0), |segment| {
+                segment.raw_start.checked_add(segment.length)
+            });
+        }
+        self.segments.iter().find_map(|segment| {
+            let end = segment.semantic_start + segment.length;
+            (semantic_offset >= segment.semantic_start && semantic_offset < end)
+                .then(|| segment.raw_start + semantic_offset - segment.semantic_start)
+        })
+    }
+
+    /// Map a half-open semantic range to the minimal half-open raw range containing it.
+    pub fn raw_range(&self, semantic: Range<usize>) -> Option<Range<usize>> {
+        if semantic.start > semantic.end || semantic.end > self.semantic_length {
+            return None;
+        }
+        let raw_start = self.raw_offset(semantic.start)?;
+        if semantic.is_empty() {
+            return Some(raw_start..raw_start);
+        }
+        let final_byte = semantic.end.checked_sub(1)?;
+        let segment = self.segments.iter().find(|segment| {
+            final_byte >= segment.semantic_start
+                && final_byte < segment.semantic_start + segment.length
+        })?;
+        let raw_end = segment.raw_start + semantic.end - segment.semantic_start;
+        Some(raw_start..raw_end)
+    }
+}
+
 /// Interned logical sources referenced by semantic metadata.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SourceTable {
     sources: Vec<LogicalSourceId>,
+    offset_maps: BTreeMap<SourceId, SourceOffsetMap>,
 }
 
 impl SourceTable {
@@ -76,6 +196,33 @@ impl SourceTable {
 
     pub fn is_empty(&self) -> bool {
         self.sources.is_empty()
+    }
+
+    pub fn set_offset_map(
+        &mut self,
+        source: SourceId,
+        offset_map: SourceOffsetMap,
+    ) -> Result<(), String> {
+        if self.get(source).is_none() {
+            return Err(format!("source id {} is not interned", source.0));
+        }
+        self.offset_maps.insert(source, offset_map);
+        Ok(())
+    }
+
+    pub fn offset_map(&self, source: SourceId) -> Option<&SourceOffsetMap> {
+        self.offset_maps.get(&source)
+    }
+
+    pub fn raw_range(&self, span: TermSpan) -> Option<Range<usize>> {
+        self.get(span.source)?;
+        if span.start > span.end {
+            return None;
+        }
+        self.offset_map(span.source).map_or_else(
+            || Some(span.start..span.end),
+            |map| map.raw_range(span.start..span.end),
+        )
     }
 }
 

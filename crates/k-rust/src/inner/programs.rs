@@ -8,6 +8,7 @@ use crate::definition::{
     Sentence, sentence_equivalent,
 };
 use crate::kast::{Sort, Term};
+use crate::provenance::SourceId;
 
 use super::parser::{Grammar, ParseError};
 
@@ -99,14 +100,60 @@ impl ProgramParser {
         &self.module
     }
 
+    /// Parse a program without claiming that it belongs to a known logical source.
+    ///
+    /// Production and sort metadata remain available, but source spans are omitted.
+    /// Use [`Self::parse_with_provenance`] when the caller owns a [`SourceId`].
     pub fn parse(&self, start_sort: &Sort, source: &str) -> Result<Term, ProgramParseError> {
         self.grammar
             .parse(start_sort, source)
+            .map(without_source_spans)
             .map_err(|error| ProgramParseError {
                 module: self.module.clone(),
                 start_sort: start_sort.clone(),
                 error: Box::new(error),
             })
+    }
+
+    /// Parse a program whose byte zero belongs to `source_id`.
+    pub fn parse_with_provenance(
+        &self,
+        start_sort: &Sort,
+        source: &str,
+        source_id: SourceId,
+    ) -> Result<Term, ProgramParseError> {
+        self.grammar
+            .parse_with_provenance(start_sort, source, source_id, 0)
+            .map_err(|error| ProgramParseError {
+                module: self.module.clone(),
+                start_sort: start_sort.clone(),
+                error: Box::new(error),
+            })
+    }
+}
+
+fn without_source_spans(term: Term) -> Term {
+    match term {
+        Term::Annotated { term, mut metadata } => {
+            metadata.span = None;
+            without_source_spans(*term).with_metadata(metadata)
+        }
+        Term::Rewrite { left, right } => Term::Rewrite {
+            left: Box::new(without_source_spans(*left)),
+            right: Box::new(without_source_spans(*right)),
+        },
+        Term::As { pattern, alias } => Term::As {
+            pattern: Box::new(without_source_spans(*pattern)),
+            alias: Box::new(without_source_spans(*alias)),
+        },
+        Term::Sequence(items) => {
+            Term::Sequence(items.into_iter().map(without_source_spans).collect())
+        }
+        Term::Apply { label, arguments } => Term::Apply {
+            label,
+            arguments: arguments.into_iter().map(without_source_spans).collect(),
+        },
+        term @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => term,
     }
 }
 
@@ -116,10 +163,11 @@ pub fn parse_program(
     module: &str,
     start_sort: &Sort,
     source: &str,
+    source_id: SourceId,
 ) -> Result<Term, ProgramError> {
     let parser = ProgramParser::new(definition, module)?;
     parser
-        .parse(start_sort, source)
+        .parse_with_provenance(start_sort, source, source_id)
         .map_err(ProgramError::Parse)
 }
 

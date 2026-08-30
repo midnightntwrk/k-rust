@@ -17,7 +17,7 @@ use crate::{
     kast::{ResolvedProductionId, Term, TermMetadata, TermSpan},
     provenance::{
         DestinationAnchor, GeneratingPass, LogicalSourceId, ORIGIN_ATTRIBUTE, OriginRecord,
-        ProvenanceLink, SourceId, SourceTable,
+        ProvenanceLink, SourceId, SourceOffsetMap, SourceOffsetSegment, SourceTable,
     },
 };
 
@@ -142,7 +142,7 @@ struct ProvenanceEnvelope {
     format: String,
     version: u32,
     term: JsonDefinition,
-    sources: Vec<JsonLogicalSource>,
+    sources: Vec<JsonSourceRecord>,
     term_metadata: Vec<JsonTermMetadataEntry>,
 }
 
@@ -151,6 +151,31 @@ struct ProvenanceEnvelope {
 struct JsonLogicalSource {
     logical: String,
     content_hash: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct JsonSourceRecord {
+    logical: String,
+    content_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    offset_map: Option<JsonSourceOffsetMap>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct JsonSourceOffsetMap {
+    semantic_length: usize,
+    raw_length: usize,
+    segments: Vec<JsonSourceOffsetSegment>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct JsonSourceOffsetSegment {
+    semantic_start: usize,
+    raw_start: usize,
+    length: usize,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -242,7 +267,17 @@ fn serialize_provenance(
     })?;
     let mut term_metadata = Vec::new();
     collect_definition_metadata(definition, source_table, &mut term_metadata)?;
-    let sources = source_table.iter().map(JsonLogicalSource::from).collect();
+    let sources = source_table
+        .iter()
+        .enumerate()
+        .map(|(index, source)| JsonSourceRecord {
+            logical: source.logical.clone(),
+            content_hash: encode_hash(&source.content_hash),
+            offset_map: source_table
+                .offset_map(SourceId(index))
+                .map(JsonSourceOffsetMap::from),
+        })
+        .collect();
     let envelope = ProvenanceEnvelope {
         format: PROVENANCE_FORMAT.into(),
         version: PROVENANCE_VERSION,
@@ -264,11 +299,22 @@ pub fn from_provenance_str(input: &str) -> Result<ProvenanceDefinition, Error> {
     }
     let mut source_table = SourceTable::default();
     for (index, source) in envelope.sources.into_iter().enumerate() {
-        let id = source_table.intern(source.try_into()?);
+        let id = source_table.intern(
+            JsonLogicalSource {
+                logical: source.logical,
+                content_hash: source.content_hash,
+            }
+            .try_into()?,
+        );
         if id.0 != index {
             return Err(Error::InvalidProvenance(
                 "provenance source table contains a duplicate identity".into(),
             ));
+        }
+        if let Some(offset_map) = source.offset_map {
+            source_table
+                .set_offset_map(id, offset_map.try_into()?)
+                .map_err(Error::InvalidProvenance)?;
         }
     }
     let mut definition: Definition = envelope.term.try_into()?;
@@ -717,6 +763,45 @@ impl TryFrom<JsonLogicalSource> for LogicalSourceId {
             logical: source.logical,
             content_hash: decode_hash(&source.content_hash)?,
         })
+    }
+}
+
+impl From<&SourceOffsetMap> for JsonSourceOffsetMap {
+    fn from(offset_map: &SourceOffsetMap) -> Self {
+        Self {
+            semantic_length: offset_map.semantic_length(),
+            raw_length: offset_map.raw_length(),
+            segments: offset_map
+                .segments()
+                .iter()
+                .map(|segment| JsonSourceOffsetSegment {
+                    semantic_start: segment.semantic_start,
+                    raw_start: segment.raw_start,
+                    length: segment.length,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl TryFrom<JsonSourceOffsetMap> for SourceOffsetMap {
+    type Error = Error;
+
+    fn try_from(offset_map: JsonSourceOffsetMap) -> Result<Self, Self::Error> {
+        SourceOffsetMap::new(
+            offset_map.semantic_length,
+            offset_map.raw_length,
+            offset_map
+                .segments
+                .into_iter()
+                .map(|segment| SourceOffsetSegment {
+                    semantic_start: segment.semantic_start,
+                    raw_start: segment.raw_start,
+                    length: segment.length,
+                })
+                .collect(),
+        )
+        .map_err(Error::InvalidProvenance)
     }
 }
 

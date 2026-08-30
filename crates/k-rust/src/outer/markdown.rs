@@ -2,6 +2,8 @@
 
 use std::{collections::BTreeSet, fmt};
 
+use crate::provenance::{SourceOffsetMap, SourceOffsetSegment};
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MarkdownError {
     pub offset: usize,
@@ -15,6 +17,13 @@ impl fmt::Display for MarkdownError {
 }
 
 impl std::error::Error for MarkdownError {}
+
+/// Selected semantic K text and its byte mapping into the raw Markdown source.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExtractedKCode {
+    pub text: String,
+    pub offset_map: SourceOffsetMap,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Selector {
@@ -39,6 +48,14 @@ impl Selector {
 ///
 /// Non-code text is reduced to its whitespace, preserving source line and column positions.
 pub fn extract_fenced_k_code(input: &str, selector: &str) -> Result<String, MarkdownError> {
+    extract_fenced_k_code_with_map(input, selector).map(|extracted| extracted.text)
+}
+
+/// Extract selected fenced code and retain its raw-Markdown byte mapping.
+pub fn extract_fenced_k_code_with_map(
+    input: &str,
+    selector: &str,
+) -> Result<ExtractedKCode, MarkdownError> {
     let selector = SelectorParser::new(selector).parse()?;
     let mut selected = Vec::<(usize, usize)>::new();
     let mut offset = 0;
@@ -66,6 +83,7 @@ pub fn extract_fenced_k_code(input: &str, selector: &str) -> Result<String, Mark
     }
 
     let mut output = String::new();
+    let mut segments = Vec::<SourceOffsetSegment>::new();
     let mut ranges = selected.into_iter().peekable();
     for (index, character) in input.char_indices() {
         while ranges.peek().is_some_and(|(_, end)| index >= *end) {
@@ -75,10 +93,29 @@ pub fn extract_fenced_k_code(input: &str, selector: &str) -> Result<String, Mark
             .peek()
             .is_some_and(|(start, end)| index >= *start && index < *end);
         if keep || character.is_whitespace() {
+            let semantic_start = output.len();
             output.push(character);
+            let length = character.len_utf8();
+            if let Some(segment) = segments.last_mut()
+                && segment.semantic_start + segment.length == semantic_start
+                && segment.raw_start + segment.length == index
+            {
+                segment.length += length;
+            } else {
+                segments.push(SourceOffsetSegment {
+                    semantic_start,
+                    raw_start: index,
+                    length,
+                });
+            }
         }
     }
-    Ok(output)
+    let offset_map = SourceOffsetMap::new(output.len(), input.len(), segments)
+        .expect("Markdown extraction constructs an ordered complete offset map");
+    Ok(ExtractedKCode {
+        text: output,
+        offset_map,
+    })
 }
 
 fn opening_fence(line: &str) -> Option<(char, usize, usize, &str)> {
