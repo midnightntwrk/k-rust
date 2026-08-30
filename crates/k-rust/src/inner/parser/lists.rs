@@ -70,8 +70,18 @@ impl Grammar {
             );
         }
 
+        // A program grammar parses the empty list as the empty string. When the
+        // separator is also empty, `X sep Xs` with an empty tail already derives every
+        // lone element, so the singleton injection would make each one parse twice
+        // (as `X` and as `[X]`). Lists with a real separator still need it: their
+        // recursive production would otherwise demand a trailing separator.
         let injections = lists
             .iter()
+            .filter(|(_, list)| {
+                let terminator = &self.productions[list.terminator_production];
+                let separator = &self.productions[list.list_production];
+                !(terminator.items.is_empty() && !has_visible_terminal(separator))
+            })
             .map(|(sort, list)| (sort.clone(), list.child_sort.clone()))
             .collect::<Vec<_>>();
         self.user_lists = lists;
@@ -110,87 +120,6 @@ impl Grammar {
         let subsorts = PartialOrder::new(self.subsort_relations.iter().cloned())
             .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
         self.add_empty_lists_with_order(term, expected, &subsorts)
-    }
-
-    pub(super) fn prefer_program_lists(&self, term: ParsedTerm) -> ParsedTerm {
-        match term {
-            ParsedTerm::Ambiguity(alternatives) => {
-                let alternatives = alternatives
-                    .into_iter()
-                    .map(|alternative| self.prefer_program_lists(alternative))
-                    .collect::<BTreeSet<_>>();
-                let singleton_elements = alternatives
-                    .iter()
-                    .filter_map(|alternative| self.program_list_singleton(alternative))
-                    .cloned()
-                    .collect::<BTreeSet<_>>();
-                let retained = alternatives
-                    .into_iter()
-                    .filter(|alternative| !singleton_elements.contains(alternative))
-                    .collect::<BTreeSet<_>>();
-                if retained.len() == 1 {
-                    retained.into_iter().next().unwrap()
-                } else {
-                    ParsedTerm::Ambiguity(retained)
-                }
-            }
-            ParsedTerm::Production {
-                production,
-                children,
-                metadata,
-            } => ParsedTerm::Production {
-                production,
-                children: children
-                    .into_iter()
-                    .map(|child| self.prefer_program_lists(child))
-                    .collect(),
-                metadata,
-            },
-            ParsedTerm::InstantiatedProduction {
-                production,
-                parameters,
-                children,
-                metadata,
-            } => ParsedTerm::InstantiatedProduction {
-                production,
-                parameters,
-                children: children
-                    .into_iter()
-                    .map(|child| self.prefer_program_lists(child))
-                    .collect(),
-                metadata,
-            },
-            ParsedTerm::Term(_) => term,
-        }
-    }
-
-    fn program_list_singleton<'a>(&self, term: &'a ParsedTerm) -> Option<&'a ParsedTerm> {
-        let ParsedTerm::Production {
-            production,
-            children,
-            ..
-        } = term
-        else {
-            return None;
-        };
-        let list = self
-            .user_lists
-            .values()
-            .find(|list| list.list_production == *production)?;
-        let [first, second] = children.as_slice() else {
-            return None;
-        };
-        let is_terminator = |term: &ParsedTerm| {
-            matches!(term, ParsedTerm::Production { production, children, .. }
-                if *production == list.terminator_production && children.is_empty())
-        };
-        if list.left_associative && is_terminator(first) {
-            Some(second)
-        } else if !list.left_associative && is_terminator(second) {
-            Some(first)
-        } else {
-            None
-        }
     }
 
     fn add_empty_lists_with_order(
@@ -380,6 +309,14 @@ impl Grammar {
             metadata: super::TermMetadata::default(),
         })
     }
+}
+
+fn has_visible_terminal(production: &super::Production) -> bool {
+    production.items.iter().any(|item| match item {
+        Item::Terminal(text) => !text.is_empty(),
+        Item::Regex { .. } => true,
+        Item::NonTerminal(_) => false,
+    })
 }
 
 fn nonterminal_sorts(production: &super::Production) -> Vec<&Sort> {
