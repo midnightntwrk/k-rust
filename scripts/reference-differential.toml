@@ -839,7 +839,7 @@ reason = "The pinned prover emits a concrete generatedCounter cell containing a 
 
 [[proof]]
 name = "imp"
-requires = ["reference-toolchain", "semantics-support"]
+requires = ["reference-toolchain"]
 constructs = []
 source = "${imp}/src/kimp/kdist/imp-semantics/imp.k"
 main-module = "IMP"
