@@ -88,33 +88,42 @@ for name in "${selected[@]}"; do
 
   mapfile -t proven_claims < <(jq -r '.claims[]' <<<"$proof")
   failure_claim=$(jq -r '.["failure-claim"]' <<<"$proof")
+  # Reference kprove makes the selected claims available as one proof batch. Keep that batch
+  # intact so dependent claims such as IMP's sum-N can use the preceding sum-loop claim.
+  reference_claims=$(IFS=,; printf '%s' "${proven_claims[*]}")
+  rust_claim_args=()
   for claim in "${proven_claims[@]}"; do
-    echo "[$name:$claim] checking the reference proven verdict"
-    if ! (
-      ulimit -v "$reference_memory_kib"
-      export GHCRTS=${GHCRTS:--N1}
-      export K_OPTS="$reference_k_opts"
-      "$kprove" "$specification"         --definition "$definition"         --spec-module "$spec_module"         --claims "$claim"         --depth "$proof_depth"         --output none         --warnings none         -I "$semantics_dir"
-    ) >"$work/$name-$claim.reference.log" 2>&1; then
-      echo "error: reference kprove did not prove $name:$claim" >&2
-      cat "$work/$name-$claim.reference.log" >&2
-      exit 1
-    fi
+    rust_claim_args+=(--claim "$claim")
+  done
 
-    echo "[$name:$claim] checking the k-rust proven verdict"
-    if ! (
-      ulimit -v "$rust_memory_kib"
-      cargo run --quiet --release --manifest-path "$workspace/Cargo.toml"         -p k-rust --bin krust --         kprove "$specification"         --main-module "$spec_module"         --definition-module "$definition_module"         --claim "$claim"         --depth "$proof_depth"         -I "$semantics_dir"         --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
-    ) >"$work/$name-$claim.rust.log" 2>&1; then
-      echo "error: k-rust did not prove $name:$claim" >&2
-      cat "$work/$name-$claim.rust.log" >&2
-      exit 1
-    fi
-    if ! grep -Fq "claim $claim: proven" "$work/$name-$claim.rust.log"; then
+  echo "[$name] checking the reference proven verdicts"
+  if ! (
+    ulimit -v "$reference_memory_kib"
+    export GHCRTS=${GHCRTS:--N1}
+    export K_OPTS="$reference_k_opts"
+    "$kprove" "$specification"       --definition "$definition"       --spec-module "$spec_module"       --claims "$reference_claims"       --depth "$proof_depth"       --output none       --warnings none       -I "$semantics_dir"
+  ) >"$work/$name-proven.reference.log" 2>&1; then
+    echo "error: reference kprove did not prove every selected claim for $name" >&2
+    cat "$work/$name-proven.reference.log" >&2
+    exit 1
+  fi
+
+  echo "[$name] checking the k-rust proven verdicts"
+  if ! (
+    ulimit -v "$rust_memory_kib"
+    cargo run --quiet --release --manifest-path "$workspace/Cargo.toml"       -p k-rust --bin krust --       kprove "$specification"       --main-module "$spec_module"       --definition-module "$definition_module"       "${rust_claim_args[@]}"       --depth "$proof_depth"       -I "$semantics_dir"       --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
+  ) >"$work/$name-proven.rust.log" 2>&1; then
+    echo "error: k-rust did not prove every selected claim for $name" >&2
+    cat "$work/$name-proven.rust.log" >&2
+    exit 1
+  fi
+  for claim in "${proven_claims[@]}"; do
+    if ! grep -Fq "claim $claim: proven" "$work/$name-proven.rust.log"; then
       echo "error: k-rust did not report the proven verdict for $name:$claim" >&2
-      cat "$work/$name-$claim.rust.log" >&2
+      cat "$work/$name-proven.rust.log" >&2
       exit 1
     fi
+    echo "[$name:$claim] proven by the reference and k-rust"
   done
 
   echo "[$name:$failure_claim] checking the reference refuted verdict"
