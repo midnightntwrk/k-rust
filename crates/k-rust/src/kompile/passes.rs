@@ -8,6 +8,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode},
     kast::{ResolvedProductionId, Term},
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 mod add_implicit_computation_cell;
@@ -212,6 +213,11 @@ impl std::error::Error for ResolveCommError {}
 /// This is Java's first KORE backend pass. The rule-level `comm` attribute is removed because the
 /// backend assigns it a different meaning; the production itself must also carry `comm`.
 pub fn resolve_comm(definition: &Definition) -> Result<Definition, ResolveCommError> {
+    resolve_comm_inner(definition)
+        .map(|output| record_generated_origins(definition, output, GeneratingPass::ResolveComm))
+}
+
+fn resolve_comm_inner(definition: &Definition) -> Result<Definition, ResolveCommError> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(|error| ResolveCommError {
         diagnostics: vec![Diagnostic {
             severity: crate::diagnostic::Severity::Error,

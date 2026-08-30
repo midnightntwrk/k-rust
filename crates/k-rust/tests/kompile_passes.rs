@@ -86,6 +86,53 @@ fn duplicates_commutative_simplification_rules_and_removes_rule_comm() {
 }
 
 #[test]
+fn commutative_rule_copies_carry_their_source_rule_origin() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= Exp "+" Exp [comm, function, symbol(_+_)]
+          rule X:Exp + Y:Exp => Y:Exp + X:Exp [simplification, comm, label(commute)]
+        endmodule
+    "#};
+    let rule_text = "X:Exp + Y:Exp => Y:Exp + X:Exp";
+    let start = source.find(rule_text).unwrap();
+    let source_link = ProvenanceLink::Source {
+        span: TermSpan {
+            source: SourceId(0),
+            start,
+            end: start + rule_text.len(),
+        },
+    };
+    let definition = resolve_comm(&parsed(source)).unwrap();
+    let rules = definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .enumerate()
+        .filter(|(_, sentence)| matches!(sentence, Sentence::Rule { .. }))
+        .collect::<Vec<_>>();
+
+    assert_eq!(rules.len(), 2);
+    for (sentence_index, sentence) in rules {
+        let receipt = sentence.attributes().get(ORIGIN_ATTRIBUTE).unwrap();
+        assert_eq!(receipt["pass"], GeneratingPass::ResolveComm.as_str());
+        assert_eq!(
+            receipt["destination"]["sentenceIndex"],
+            serde_json::json!(sentence_index),
+        );
+        let Sentence::Rule { body, .. } = sentence else {
+            unreachable!();
+        };
+        let origin = body
+            .metadata()
+            .and_then(|metadata| metadata.origin.as_deref())
+            .expect("commutative rule body has an origin");
+        assert_eq!(origin.pass, GeneratingPass::ResolveComm);
+        assert!(origin.origins.contains(&source_link), "{origin:?}");
+    }
+}
+
+#[test]
 fn rejects_rule_comm_when_the_lhs_symbol_is_not_commutative() {
     let source = indoc! {r#"
         module MAIN
