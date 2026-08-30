@@ -53,6 +53,7 @@ implemented = [
   "FLOAT.neg",
   "FLOAT.precision",
   "FLOAT.round",
+  "FLOAT.root",
   "FLOAT.sign",
   "FLOAT.sub",
   "FLOAT.trunc",
@@ -176,13 +177,14 @@ hooks = [
   "BYTES.updateMInt",
 ]
 
+# FLOAT.root evaluates the WASM-required degree 2 for binary32 and binary64.
+# Other degrees remain unevaluated rather than approximated.
 [[unsupported]]
-reason = "WASM-unused arbitrary-precision, transcendental, remainder, root, and exponent hooks are not implemented"
+reason = "WASM-unused arbitrary-precision, transcendental, remainder, and exponent hooks are not implemented"
 hooks = [
   "FLOAT.acos", "FLOAT.asin", "FLOAT.atan", "FLOAT.atan2", "FLOAT.cos",
   "FLOAT.exp", "FLOAT.exponent", "FLOAT.log", "FLOAT.minValue", "FLOAT.pow",
-  "FLOAT.rem", "FLOAT.root",
-  "FLOAT.sin", "FLOAT.tan",
+  "FLOAT.rem", "FLOAT.sin", "FLOAT.tan",
 ]
 
 [[unsupported]]
