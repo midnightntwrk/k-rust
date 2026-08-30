@@ -508,7 +508,7 @@ pub fn search_paths_with_solver(
             trace: Vec::new(),
         },
         id: Vec::new(),
-        visited: BTreeSet::new(),
+        visited: Vec::new(),
     }]);
     let mut witnesses = Vec::new();
     let mut effects = Vec::new();
@@ -583,18 +583,15 @@ pub fn search_paths_with_solver(
             }
         }
 
-        if !path.visited.insert(PatternDigest::of(&path.state.pattern)) {
+        if path.visited.contains(&path.state.pattern) {
             continue;
         }
+        path.visited.push(path.state.pattern.clone());
 
         if selects_reachable_state(options.search_type, path.state.depth)
-            && push_witness(&mut witnesses, &path, options.max_results)
+            && !retain_witness(&mut witnesses, &path, options.max_results)
         {
-            if !pending.is_empty()
-                || state_may_expand(definition, &path.state, options, &mut fresh_counter, solver)
-            {
-                incomplete.push(IncompleteSearch::ResultBound);
-            }
+            incomplete.push(IncompleteSearch::ResultBound);
             break;
         }
         if options.search_type == SearchType::One && path.state.depth == 1 {
@@ -617,10 +614,8 @@ pub fn search_paths_with_solver(
             match rewrite {
                 RewriteResult::Stuck(pattern) => {
                     path.state.pattern = pattern;
-                    if push_witness(&mut witnesses, &path, options.max_results) {
-                        if !pending.is_empty() {
-                            incomplete.push(IncompleteSearch::ResultBound);
-                        }
+                    if !retain_witness(&mut witnesses, &path, options.max_results) {
+                        incomplete.push(IncompleteSearch::ResultBound);
                         break;
                     }
                 }
@@ -640,11 +635,9 @@ pub fn search_paths_with_solver(
             RewriteResult::Stuck(pattern) => {
                 path.state.pattern = pattern;
                 if options.search_type == SearchType::Final
-                    && push_witness(&mut witnesses, &path, options.max_results)
+                    && !retain_witness(&mut witnesses, &path, options.max_results)
                 {
-                    if !pending.is_empty() {
-                        incomplete.push(IncompleteSearch::ResultBound);
-                    }
+                    incomplete.push(IncompleteSearch::ResultBound);
                     break;
                 }
             }
@@ -692,21 +685,25 @@ pub fn search_paths_with_solver(
 struct PathSearchState {
     state: SearchState,
     id: Vec<TransitionId>,
-    visited: BTreeSet<PatternDigest>,
+    visited: Vec<Pattern>,
 }
 
-fn push_witness(
+/// Returns false only when this witness proves that the retained result bound truncates answers.
+fn retain_witness(
     witnesses: &mut Vec<PathWitness>,
     path: &PathSearchState,
     max_results: Option<usize>,
 ) -> bool {
+    if max_results.is_some_and(|limit| witnesses.len() >= limit) {
+        return false;
+    }
     witnesses.push(PathWitness {
         id: path.id.clone(),
         pattern: path.state.pattern.clone(),
         depth: path.state.depth,
         trace: path.state.trace.clone(),
     });
-    max_results.is_some_and(|limit| witnesses.len() >= limit)
+    true
 }
 
 fn next_path_state(mut path: PathSearchState, applied: AppliedRule) -> PathSearchState {
@@ -1614,6 +1611,42 @@ mod tests {
                 prop_assert_eq!(names(&bounded), names(&unbounded));
             }
         }
+
+        #[test]
+        fn complete_result_bounded_path_search_agrees_with_unbounded_search(
+            cyclic in any::<bool>(),
+            search_type in search_types(),
+            max_depth in 0_u64..=4,
+            max_results in 0_usize..=7,
+        ) {
+            let definition = diamond_definition(cyclic);
+            let options = SearchOptions {
+                search_type,
+                max_depth,
+                max_results: Some(max_results),
+                ..SearchOptions::default()
+            };
+            let bounded = search_paths(&definition, initial(&definition), options);
+            if bounded.incomplete.is_empty() {
+                let unbounded = search_paths(
+                    &definition,
+                    initial(&definition),
+                    SearchOptions { max_results: None, ..options },
+                );
+                prop_assert_eq!(
+                    bounded
+                        .witnesses
+                        .into_iter()
+                        .map(|witness| witness.id)
+                        .collect::<BTreeSet<_>>(),
+                    unbounded
+                        .witnesses
+                        .into_iter()
+                        .map(|witness| witness.id)
+                        .collect::<BTreeSet<_>>(),
+                );
+            }
+        }
     }
 
     #[test]
@@ -1758,6 +1791,23 @@ mod tests {
 
         assert_eq!(result.witnesses.len(), 1);
         assert!(result.incomplete.contains(&IncompleteSearch::ResultBound));
+    }
+
+    #[test]
+    fn exact_witness_bound_on_a_cyclic_graph_is_complete() {
+        let definition = diamond_definition(true);
+        let result = search_paths(
+            &definition,
+            initial(&definition),
+            SearchOptions {
+                search_type: SearchType::Star,
+                max_results: Some(5),
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(result.witnesses.len(), 5);
+        assert!(result.incomplete.is_empty());
     }
 
     #[test]
