@@ -12,8 +12,8 @@ use crate::{
     },
     rule::Predicate,
     simplify::{
-        SimplificationError, SimplificationOptions, simplify_predicates_with_solver,
-        simplify_with_solver,
+        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
+        simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver},
     substitution::{Substitution, compose, substitute},
@@ -48,7 +48,7 @@ impl Default for SearchOptions {
             max_depth: u64::MAX,
             max_breadth: None,
             max_results: None,
-            max_simplification_iterations: 100,
+            max_simplification_iterations: DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
         }
     }
 }

@@ -28,6 +28,9 @@ use crate::{
     term::{Term, TermKind},
 };
 
+/// Default equation iterations allowed for each simplification fixed point.
+pub const DEFAULT_MAX_SIMPLIFICATION_ITERATIONS: usize = 100;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SimplificationOptions {
     pub max_iterations: usize,
@@ -36,7 +39,7 @@ pub struct SimplificationOptions {
 impl Default for SimplificationOptions {
     fn default() -> Self {
         Self {
-            max_iterations: 100,
+            max_iterations: DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
         }
     }
 }
@@ -3335,7 +3338,10 @@ mod tests {
 
         assert!(matches!(
             simplify(&definition, &input, SimplificationOptions::default()),
-            Err(SimplificationError::IterationLimit { limit: 100, .. })
+            Err(SimplificationError::IterationLimit {
+                limit: DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
+                ..
+            })
         ));
     }
 
