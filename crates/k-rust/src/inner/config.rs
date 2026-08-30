@@ -7,6 +7,7 @@ use crate::definition::{
     Sentence,
 };
 use crate::kast::{Label, Sort, Term};
+use crate::provenance::SourceId;
 
 use super::parser::{Grammar, ParseError};
 
@@ -83,13 +84,26 @@ pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definiti
                 continue;
             }
             let parsed = grammar
-                .parse(&Sort::new("#RuleContent"), contents)
+                .parse_with_provenance(
+                    &Sort::new("#RuleContent"),
+                    contents,
+                    attributes.source_id().unwrap_or(SourceId(0)),
+                    content_start_offset(attributes),
+                )
                 .map_err(|error| bubble_error(&module.name, attributes, error))?;
             *sentence = up_configuration(&module.name, parsed, attributes.clone())?;
         }
     }
 
     Ok(transformed)
+}
+
+fn content_start_offset(attributes: &Attributes) -> usize {
+    attributes
+        .get("contentStartOffset")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|offset| usize::try_from(offset).ok())
+        .unwrap_or(0)
 }
 
 fn is_configuration_bubble(sentence: &Sentence) -> bool {

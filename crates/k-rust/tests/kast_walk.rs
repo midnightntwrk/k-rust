@@ -31,7 +31,11 @@ fn preorder_walk_visits_every_term_in_source_order() {
 fn metadata_is_semantically_transparent_but_remains_inspectable() {
     let plain = Term::apply("f", vec![Term::variable("X")]);
     let annotated = plain.clone().with_metadata(TermMetadata {
-        span: Some(TermSpan { start: 2, end: 6 }),
+        span: Some(TermSpan {
+            source: k_rust::provenance::SourceId(0),
+            start: 2,
+            end: 6,
+        }),
         production: Some(ResolvedProductionId(7)),
         sort: Some(Sort::new("Exp")),
     });
@@ -42,7 +46,11 @@ fn metadata_is_semantically_transparent_but_remains_inspectable() {
     assert_eq!(
         annotated.metadata(),
         Some(&TermMetadata {
-            span: Some(TermSpan { start: 2, end: 6 }),
+            span: Some(TermSpan {
+                source: k_rust::provenance::SourceId(0),
+                start: 2,
+                end: 6,
+            }),
             production: Some(ResolvedProductionId(7)),
             sort: Some(Sort::new("Exp")),
         })

@@ -4,6 +4,9 @@ description: "K source:\n\nrequires \"domains.md\"\n\nmodule OUTER-CORPUS\n  imp
 ---
 SourceFile {
     source: "record-and-list.k",
+    source_id: SourceId(
+        0,
+    ),
     requires: [
         Require {
             path: "domains.md",

@@ -4,6 +4,9 @@ description: "K source:\n\nrequires \"domains.md\"\n\nmodule COLLECTIONS [main]\
 ---
 SourceFile {
     source: "modules_and_imports.k",
+    source_id: SourceId(
+        0,
+    ),
     requires: [
         Require {
             path: "domains.md",

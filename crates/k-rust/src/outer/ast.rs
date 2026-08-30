@@ -1,4 +1,4 @@
-use crate::kast::Sort;
+use crate::{kast::Sort, provenance::SourceId};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Position {
@@ -22,6 +22,7 @@ pub struct Attribute {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceFile {
     pub source: String,
+    pub source_id: SourceId,
     pub requires: Vec<Require>,
     pub modules: Vec<Module>,
 }

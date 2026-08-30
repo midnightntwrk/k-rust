@@ -474,7 +474,8 @@ impl<R: SourceResolver> Loader<'_, R> {
             .as_deref()
             .and_then(|root| logical_below(root, &source.source))
             .unwrap_or_else(|| source.logical.clone());
-        self.source_table
+        let source_id = self
+            .source_table
             .intern(LogicalSourceId::new(logical, source.text.as_bytes()));
         let text = if source.source.ends_with(".md") {
             extract_fenced_k_code(&source.text, &self.options.markdown_selector).map_err(
@@ -486,10 +487,11 @@ impl<R: SourceResolver> Loader<'_, R> {
         } else {
             source.text
         };
-        let parsed = parse(source.source.clone(), &text).map_err(|error| LoadError::Parse {
+        let mut parsed = parse(source.source.clone(), &text).map_err(|error| LoadError::Parse {
             source: source.source.clone(),
             error,
         })?;
+        parsed.source_id = source_id;
 
         for requirement in &parsed.requires {
             let required = self

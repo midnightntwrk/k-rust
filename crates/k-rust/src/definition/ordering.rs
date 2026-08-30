@@ -631,7 +631,10 @@ fn attribute_class(key: &str) -> &str {
         PRODUCTION_CLASS => PRODUCTION_CLASS,
         SORT_CLASS | "predicate" | "cellOptAbsent" | "cellFragment" | "sortParams" => SORT_CLASS,
         "bracketLabel" => LABEL_CLASS,
-        "contentStartColumn" | "contentStartLine" | "contentStartOffset" => INTEGER_CLASS,
+        "contentStartColumn"
+        | "contentStartLine"
+        | "contentStartOffset"
+        | "org.kframework.attributes.SourceId" => INTEGER_CLASS,
         _ => STRING_CLASS,
     }
 }

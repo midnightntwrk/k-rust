@@ -4,6 +4,9 @@ description: "K source:\n\nmodule RULES\n  rule [identity]: X + 0 => X [simplifi
 ---
 SourceFile {
     source: "bubbles.k",
+    source_id: SourceId(
+        0,
+    ),
     requires: [],
     modules: [
         Module {

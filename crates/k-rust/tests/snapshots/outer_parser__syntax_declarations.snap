@@ -4,6 +4,9 @@ description: "K source:\n\nmodule SYNTAX\n  syntax {S} List{S}\n  syntax NonEmpt
 ---
 SourceFile {
     source: "syntax_declarations.k",
+    source_id: SourceId(
+        0,
+    ),
     requires: [],
     modules: [
         Module {

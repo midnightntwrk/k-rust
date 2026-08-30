@@ -344,10 +344,12 @@ mod tests {
         kore::parser::parse_definition,
         outer::{ResolvedSource, load},
     };
+    #[cfg(feature = "z3-inference")]
     use sha3::{Digest, Sha3_256};
 
     use super::*;
 
+    #[cfg(feature = "z3-inference")]
     fn artifact_digest(text: &str) -> String {
         Sha3_256::digest(text.as_bytes())
             .iter()

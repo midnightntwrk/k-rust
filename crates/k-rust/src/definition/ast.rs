@@ -5,9 +5,11 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 use crate::kast::{Label, Sort, Term};
+use crate::provenance::SourceId;
 
 pub const LOCATION_ATTRIBUTE: &str = "org.kframework.attributes.Location";
 pub const SOURCE_ATTRIBUTE: &str = "org.kframework.attributes.Source";
+pub const SOURCE_ID_ATTRIBUTE: &str = "org.kframework.attributes.SourceId";
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Location {
@@ -81,6 +83,13 @@ impl Attributes {
 
     pub fn source(&self) -> Option<&str> {
         self.get_str(SOURCE_ATTRIBUTE)
+    }
+
+    pub fn source_id(&self) -> Option<SourceId> {
+        self.get(SOURCE_ID_ATTRIBUTE)?
+            .as_u64()
+            .and_then(|value| usize::try_from(value).ok())
+            .map(SourceId)
     }
 
     pub fn location(&self) -> Option<Location> {
