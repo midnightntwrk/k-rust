@@ -962,6 +962,53 @@ rule_snapshot!(
 );
 
 rule_snapshot!(
+    #[cfg(feature = "z3-inference")]
+    collapses_a_record_pattern_before_an_as_pattern,
+    r##"
+        module MAIN
+          syntax Map ::= ".Map" [symbol(dotMap)]
+          syntax Int ::= "0" [symbol(zero)]
+          syntax TypesInfo ::= "#ti" "(" t2i: Map "," count: Int ")" [symbol(ti)]
+          syntax Result ::= "use" "(" TypesInfo ")" [symbol(use)]
+          rule use(#ti(... t2i: M) #as TI) => use(TI)
+        endmodule
+    "##
+);
+
+rule_snapshot!(
+    parses_nested_collection_operations_in_a_record_field,
+    r##"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+                       | Int "+Int" Int [symbol(addInt)]
+          syntax Key ::= "key" [symbol(key)]
+          syntax KItem ::= Int | Key
+          syntax Map ::= ".Map" [symbol(dotMap)]
+                       | Map "[" key: KItem "<-" value: KItem "]" [symbol(updateMap), prefer]
+          syntax KItem ::= Map "[" KItem "]" "orDefault" KItem [symbol(lookupMap)]
+          syntax TypesInfo ::= "#ti" "(" t2i: Map "," count: Int ")" [symbol(ti)]
+          syntax Result ::= "use" "(" TypesInfo ")" [symbol(use)]
+          rule use(#ti(... t2i: M, count: N))
+            => use(#ti(... t2i: M [ key <- (M [ key ] orDefault N) ], count: N +Int 1))
+        endmodule
+    "##
+);
+
+rule_snapshot!(
+    #[cfg(feature = "z3-inference")]
+    collapses_a_record_with_a_rewrite_in_a_field,
+    r##"
+        module MAIN
+          syntax Defn ::= "t" [symbol(t)]
+          syntax Defns ::= List{Defn, ""} [symbol(listDefns), terminator-symbol(".Defns")]
+          syntax ModuleDecl ::= "#module" "(" types: Defns "," funcs: Defns ")" [symbol(aModuleDecl)]
+          syntax Result ::= "#structureModule" "(" Defns "," ModuleDecl ")" [symbol(structureModule)]
+          rule #structureModule((T:Defn DS:Defns => DS), #module(... types: TS => T TS))
+        endmodule
+    "##
+);
+
+rule_snapshot!(
     collapses_single_and_unnamed_record_productions,
     r#"
         module MAIN

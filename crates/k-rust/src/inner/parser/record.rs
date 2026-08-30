@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::definition::ProductionItem;
-use crate::kast::{Sort, Term};
+use crate::kast::{Sort, Term, TermSpan};
 
 use super::{Grammar, Item, ParseError, ParsedTerm, RecordProduction, RecordProductionKind};
 
@@ -179,20 +179,22 @@ impl Grammar {
         let mut names = BTreeSet::new();
         collect_variable_names(&term, &mut names);
         let mut next = 0;
-        self.collapse_records(term, &mut names, &mut next)
+        let mut generated = BTreeMap::new();
+        self.collapse_records(term, &mut names, &mut generated, &mut next)
     }
 
     fn collapse_records(
         &self,
         term: ParsedTerm,
         names: &mut BTreeSet<String>,
+        generated: &mut BTreeMap<(TermSpan, usize, usize), String>,
         next: &mut usize,
     ) -> Result<ParsedTerm, ParseError> {
         match term {
             ParsedTerm::Term(_) => Ok(term),
             ParsedTerm::Ambiguity(alternatives) => alternatives
                 .into_iter()
-                .map(|term| self.collapse_records(term, names, next))
+                .map(|term| self.collapse_records(term, names, generated, next))
                 .collect::<Result<BTreeSet<_>, _>>()
                 .map(ParsedTerm::Ambiguity),
             ParsedTerm::Production {
@@ -201,8 +203,8 @@ impl Grammar {
                 metadata,
             } if self.productions[production].record.is_some() => {
                 let collapsed =
-                    self.collapse_record(production, children, metadata, names, next)?;
-                self.collapse_records(collapsed, names, next)
+                    self.collapse_record(production, children, metadata, names, generated, next)?;
+                self.collapse_records(collapsed, names, generated, next)
             }
             ParsedTerm::Production {
                 production,
@@ -213,7 +215,7 @@ impl Grammar {
                 metadata,
                 children: children
                     .into_iter()
-                    .map(|term| self.collapse_records(term, names, next))
+                    .map(|term| self.collapse_records(term, names, generated, next))
                     .collect::<Result<_, _>>()?,
             }),
             ParsedTerm::InstantiatedProduction { .. } => {
@@ -228,6 +230,7 @@ impl Grammar {
         children: Vec<ParsedTerm>,
         root_metadata: super::TermMetadata,
         names: &mut BTreeSet<String>,
+        generated: &mut BTreeMap<(TermSpan, usize, usize), String>,
         next: &mut usize,
     ) -> Result<ParsedTerm, ParseError> {
         let record = self.productions[production]
@@ -235,79 +238,136 @@ impl Grammar {
             .clone()
             .expect("record production checked by caller");
         let original = record.original;
-        let mut fields = BTreeMap::new();
-        let mut iterator = ParsedTerm::Production {
+        let iterator = ParsedTerm::Production {
             production,
             children,
             metadata: root_metadata.clone(),
         };
+        let mut alternatives = BTreeSet::new();
+        for mut fields in self.collect_record_fields(iterator, original)? {
+            let children = self.productions[original]
+                .field_names
+                .iter()
+                .enumerate()
+                .map(|(index, field)| {
+                    if let Some(value) = field.as_ref().and_then(|field| fields.remove(field)) {
+                        return value;
+                    }
+                    let stem = field.as_deref().unwrap_or("Gen");
+                    let key = root_metadata.span.map(|span| (span, original, index));
+                    if let Some(name) = key.as_ref().and_then(|key| generated.get(key)) {
+                        return ParsedTerm::Term(Term::Variable {
+                            name: name.clone(),
+                            sort: None,
+                        });
+                    }
+                    let name = loop {
+                        let candidate = format!("_{stem}{}", *next);
+                        *next += 1;
+                        if names.insert(candidate.clone()) {
+                            break candidate;
+                        }
+                    };
+                    if let Some(key) = key {
+                        generated.insert(key, name.clone());
+                    }
+                    ParsedTerm::Term(Term::Variable { name, sort: None })
+                })
+                .collect();
+            alternatives.insert(ParsedTerm::Production {
+                production: original,
+                children,
+                metadata: root_metadata.clone(),
+            });
+        }
+        Ok(if alternatives.len() == 1 {
+            alternatives.pop_first().expect("length was one")
+        } else {
+            ParsedTerm::Ambiguity(alternatives)
+        })
+    }
 
-        loop {
-            let ParsedTerm::Production {
-                production,
-                mut children,
-                ..
-            } = iterator
-            else {
-                return Err(record_error("malformed generated record production"));
-            };
-            let metadata = self.productions[production]
-                .record
-                .as_ref()
-                .ok_or_else(|| record_error("malformed generated record production"))?;
-            if metadata.original != original {
-                return Err(record_error("mismatched generated record production"));
+    fn collect_record_fields(
+        &self,
+        term: ParsedTerm,
+        original: usize,
+    ) -> Result<BTreeSet<BTreeMap<String, ParsedTerm>>, ParseError> {
+        if let ParsedTerm::Ambiguity(alternatives) = term {
+            let mut fields = BTreeSet::new();
+            for alternative in alternatives {
+                fields.extend(self.collect_record_fields(alternative, original)?);
             }
-            match &metadata.kind {
-                RecordProductionKind::Zero | RecordProductionKind::Empty => break,
-                RecordProductionKind::Main | RecordProductionKind::Subsort => {
-                    if children.len() != 1 {
-                        return Err(record_error("malformed generated record list"));
-                    }
-                    iterator = children.pop().expect("length was one");
+            return Ok(fields);
+        }
+        let ParsedTerm::Production {
+            production,
+            mut children,
+            ..
+        } = term
+        else {
+            return Err(record_error("malformed generated record production"));
+        };
+        let metadata = self.productions[production]
+            .record
+            .as_ref()
+            .ok_or_else(|| record_error("malformed generated record production"))?;
+        if metadata.original != original {
+            return Err(record_error("mismatched generated record production"));
+        }
+        match &metadata.kind {
+            RecordProductionKind::Zero | RecordProductionKind::Empty => {
+                Ok(BTreeSet::from([BTreeMap::new()]))
+            }
+            RecordProductionKind::Main | RecordProductionKind::Subsort => {
+                if children.len() != 1 {
+                    return Err(record_error("malformed generated record list"));
                 }
-                RecordProductionKind::One(key) | RecordProductionKind::Item(key) => {
-                    if children.len() != 1 {
-                        return Err(record_error("malformed generated record item"));
-                    }
-                    insert_field(&mut fields, key, children.pop().expect("length was one"))?;
-                    break;
+                self.collect_record_fields(children.pop().expect("length was one"), original)
+            }
+            RecordProductionKind::One(key) | RecordProductionKind::Item(key) => {
+                if children.len() != 1 {
+                    return Err(record_error("malformed generated record item"));
                 }
-                RecordProductionKind::Repeat => {
-                    if children.len() != 2 {
-                        return Err(record_error("malformed generated record list"));
-                    }
-                    let item = children.pop().expect("length was two");
-                    let (key, value) = self.record_item(item, original)?;
-                    insert_field(&mut fields, &key, value)?;
-                    iterator = children.pop().expect("one child remains");
+                Ok(BTreeSet::from([BTreeMap::from([(
+                    key.clone(),
+                    children.pop().expect("length was one"),
+                )])]))
+            }
+            RecordProductionKind::Repeat => {
+                if children.len() != 2 {
+                    return Err(record_error("malformed generated record list"));
                 }
+                let item = children.pop().expect("length was two");
+                let items = self.collect_record_items(item, original)?;
+                let prefixes = self
+                    .collect_record_fields(children.pop().expect("one child remains"), original)?;
+                let mut fields = BTreeSet::new();
+                for prefix in prefixes {
+                    for (key, value) in &items {
+                        let mut candidate = prefix.clone();
+                        insert_field(&mut candidate, key, value.clone())?;
+                        fields.insert(candidate);
+                    }
+                }
+                Ok(fields)
             }
         }
+    }
 
-        let children = self.productions[original]
-            .field_names
-            .iter()
-            .map(|field| {
-                if let Some(value) = field.as_ref().and_then(|field| fields.remove(field)) {
-                    return value;
-                }
-                let stem = field.as_deref().unwrap_or("Gen");
-                let name = loop {
-                    let candidate = format!("_{stem}{}", *next);
-                    *next += 1;
-                    if names.insert(candidate.clone()) {
-                        break candidate;
-                    }
-                };
-                ParsedTerm::Term(Term::Variable { name, sort: None })
-            })
-            .collect();
-        Ok(ParsedTerm::Production {
-            production: original,
-            children,
-            metadata: root_metadata,
-        })
+    fn collect_record_items(
+        &self,
+        term: ParsedTerm,
+        original: usize,
+    ) -> Result<BTreeSet<(String, ParsedTerm)>, ParseError> {
+        if let ParsedTerm::Ambiguity(alternatives) = term {
+            let mut items = BTreeSet::new();
+            for alternative in alternatives {
+                items.extend(self.collect_record_items(alternative, original)?);
+            }
+            Ok(items)
+        } else {
+            Ok(BTreeSet::from([self.record_item(term, original)?]))
+        }
     }
 
     fn record_item(
