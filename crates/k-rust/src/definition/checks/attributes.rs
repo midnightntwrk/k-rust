@@ -592,6 +592,7 @@ fn is_internal_attribute(key: &str) -> bool {
             | "concat"
             | "contentStartColumn"
             | "contentStartLine"
+            | "contentStartOffset"
             | "cool-like"
             | "denormal"
             | "digest"

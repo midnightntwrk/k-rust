@@ -351,6 +351,10 @@ fn lower_item(item: &ProductionItem) -> FlatProductionItem {
 
 fn lower_bubble(file: &SourceFile, module: &Module, bubble: &Bubble) -> FlatSentence {
     let mut attributes = source_attributes(file, bubble.span, &bubble.attributes);
+    attributes.insert(
+        "contentStartOffset",
+        json!(bubble.content_span.start.offset),
+    );
     attributes.insert("contentStartLine", json!(bubble.content_span.start.line));
     attributes.insert(
         "contentStartColumn",

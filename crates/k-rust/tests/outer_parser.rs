@@ -1,5 +1,7 @@
 use indoc::indoc;
-use k_rust::outer::{Sentence, check_brackets, check_list_declarations, lower, parse};
+use k_rust::outer::{
+    Sentence, check_brackets, check_list_declarations, extract_fenced_k_code, lower, parse,
+};
 use proptest::prelude::*;
 
 macro_rules! assert_outer_value_snapshot {
@@ -39,6 +41,40 @@ outer_snapshot!(
     endmodule
 "#}
 );
+
+#[test]
+fn lowering_preserves_bubble_content_offsets() {
+    fn content_start_offset(source_name: &str, source: &str) -> usize {
+        let lowered = lower(&parse(source_name, source).unwrap(), "MAIN").unwrap();
+        let k_rust::definition::Sentence::Bubble { attributes, .. } =
+            &lowered.main_module().unwrap().local_sentences[0]
+        else {
+            panic!("expected a lowered bubble");
+        };
+        attributes
+            .get("contentStartOffset")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap() as usize
+    }
+
+    let source = "module MAIN\n  rule nested(a, b) => c\nendmodule\n";
+    assert_eq!(
+        content_start_offset("offsets.k", source),
+        source.find("nested(a, b)").unwrap(),
+    );
+
+    let markdown = "Prose is removed.\n```k\nmodule MAIN\n  rule md => value\nendmodule\n```\n";
+    let extracted = extract_fenced_k_code(markdown, "k").unwrap();
+    assert_ne!(
+        markdown.find("md => value"),
+        extracted.find("md => value"),
+        "markdown establishes the raw/extracted offset distinction",
+    );
+    assert_eq!(
+        content_start_offset("offsets.md", &extracted),
+        extracted.find("md => value").unwrap(),
+    );
+}
 
 #[test]
 fn priority_separators_must_be_whole_tokens() {
