@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, error::Error, fmt};
 
 use crate::{
+    builtin,
     definition::{
         ConfigurationError, Definition, FlatImport, ResolveError, ResolvedDefinition, Sentence,
         apply_sort_synonyms, expand_configurations,
@@ -178,6 +179,8 @@ pub struct LoadedDefinition {
 
 /// Load one entry source, recursively resolve `requires`, lower all files with
 /// one global tag index, and resolve the resulting module-import graph.
+///
+/// If the selected configuration module has no visible configuration, this text-loading route imports `DEFAULT-CONFIGURATION` when that module is present in the loaded graph.
 pub fn load(
     entry: ResolvedSource,
     main_module: impl Into<String>,
@@ -206,9 +209,57 @@ pub fn load_with_options(
 
     let definition =
         lower_files(&loader.files, main_module).map_err(LoadError::SourceDiagnostics)?;
+    finish_load(definition, loader.files, options, false)
+}
+
+/// Prepare an already-structured definition with the embedded builtin source closure.
+///
+/// `implicit_sources` are parsed and lowered before their modules are merged with `definition`; their `requires` paths resolve through [`builtin::embedded`].
+/// `markdown_selector` therefore applies only to those implicit sources, never to the structured definition.
+/// If the authored graph has a visible configuration, the unused `DEFAULT-CONFIGURATION` module and its imports are removed before the shared configuration and rule pipeline runs.
+/// A structured definition without an authored configuration retains the ordinary fallback policy.
+pub fn load_structured(
+    mut definition: Definition,
+    options: &LoadOptions,
+) -> Result<LoadedDefinition, LoadError> {
+    let mut resolver = |_: &str, required: &str| {
+        builtin::embedded(required)
+            .ok_or_else(|| format!("embedded builtin source {required:?} was not found"))
+    };
+    let mut loader = Loader {
+        resolver: &mut resolver,
+        options,
+        states: BTreeMap::new(),
+        files: Vec::new(),
+    };
+    for source in &options.implicit_sources {
+        loader.visit(source.clone())?;
+    }
+    validate_unique_modules(&loader.files)?;
+
+    let mut implicit = lower_files(&loader.files, definition.main_module.clone())
+        .map_err(LoadError::SourceDiagnostics)?;
+    implicit.modules.append(&mut definition.modules);
+    implicit.main_module = definition.main_module;
+    implicit.attributes = definition.attributes;
+    finish_load(implicit, loader.files, options, true)
+}
+
+fn finish_load(
+    definition: Definition,
+    files: Vec<SourceFile>,
+    options: &LoadOptions,
+    remove_unused_default_configuration: bool,
+) -> Result<LoadedDefinition, LoadError> {
     let definition = apply_sort_synonyms(&definition).map_err(LoadError::DefinitionResolution)?;
-    let definition =
+    let mut definition =
         exclude_modules_by_attributes(definition, &options.excluded_module_attributes)?;
+    if remove_unused_default_configuration {
+        definition = without_unused_default_configuration(
+            definition,
+            options.configuration_module.as_deref(),
+        )?;
+    }
     let definition =
         add_implicit_configuration_imports(definition, options.configuration_module.as_deref())?;
     let definition =
@@ -219,10 +270,48 @@ pub fn load_with_options(
     let resolved =
         ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
     Ok(LoadedDefinition {
-        files: loader.files,
+        files,
         definition,
         resolved,
     })
+}
+
+fn without_unused_default_configuration(
+    definition: Definition,
+    configuration_module: Option<&str>,
+) -> Result<Definition, LoadError> {
+    if !definition
+        .modules
+        .iter()
+        .any(|module| module.name == "DEFAULT-CONFIGURATION")
+    {
+        return Ok(definition);
+    }
+
+    let mut without_default = definition.clone();
+    without_default
+        .modules
+        .retain(|module| module.name != "DEFAULT-CONFIGURATION");
+    for module in &mut without_default.modules {
+        module
+            .imports
+            .retain(|import| import.name != "DEFAULT-CONFIGURATION");
+    }
+    let resolved =
+        ResolvedDefinition::resolve(&without_default).map_err(LoadError::DefinitionResolution)?;
+    let configuration_module = configuration_module.unwrap_or(&without_default.main_module);
+    let configuration_module_id = resolved
+        .module_id(configuration_module)
+        .ok_or_else(|| LoadError::MissingConfigurationModule(configuration_module.into()))?;
+    if resolved
+        .sentences(configuration_module_id)
+        .into_iter()
+        .any(is_configuration_sentence)
+    {
+        Ok(without_default)
+    } else {
+        Ok(definition)
+    }
 }
 
 fn exclude_modules_by_attributes(

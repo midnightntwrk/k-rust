@@ -1,13 +1,14 @@
 use std::collections::BTreeMap;
 
 use k_rust::{
+    builtin::embedded,
     definition::{
         Attributes, Definition, FlatModule, ProductionItem, ResolvedDefinition, Sentence,
     },
     kast::{Label, Sort, Term},
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
     kore::parser::parse_definition,
-    outer::LoadedDefinition,
+    outer::{LoadOptions, LoadedDefinition, load_structured},
 };
 use serde_json::json;
 
@@ -35,6 +36,40 @@ fn structured_configuration_compiles_through_the_public_pipeline() {
             artifacts.definition_kore
         );
     });
+}
+
+#[test]
+fn load_structured_compiles_an_authored_instrs_configuration() {
+    for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
+        let loaded = load_structured(
+            structured_definition_with_configuration_cell("instrs"),
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                excluded_module_attributes: vec![backend.excluded_module_attribute().into()],
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("{backend} rejected structured loading: {error}"));
+
+        assert!(loaded.definition.modules.iter().all(|module| {
+            module.name != "DEFAULT-CONFIGURATION"
+                && module
+                    .imports
+                    .iter()
+                    .all(|import| import.name != "DEFAULT-CONFIGURATION")
+        }));
+
+        let artifacts = compile_loaded_definition(
+            &loaded,
+            CompileOptions {
+                backend,
+                ..CompileOptions::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("{backend} rejected structured input: {error:#?}"));
+        assert!(artifacts.definition_kore.contains("instrs"));
+        assert!(!artifacts.definition_kore.contains("Lbl'-LT-'k'-GT-'"));
+    }
 }
 
 fn assert_compiles_on_both_backends(
@@ -65,6 +100,20 @@ fn assert_compiles_on_both_backends(
 }
 
 fn structured_definition(with_configuration: bool) -> Definition {
+    structured_definition_with_optional_configuration_cell(
+        with_configuration.then_some("top"),
+        with_configuration,
+    )
+}
+
+fn structured_definition_with_configuration_cell(cell: &str) -> Definition {
+    structured_definition_with_optional_configuration_cell(Some(cell), false)
+}
+
+fn structured_definition_with_optional_configuration_cell(
+    configuration_cell: Option<&str>,
+    declare_map_lookup: bool,
+) -> Definition {
     let mut local_sentences = vec![
         Sentence::Production {
             label: None,
@@ -84,7 +133,7 @@ fn structured_definition(with_configuration: bool) -> Definition {
             attributes: Attributes::default(),
         },
     ];
-    if with_configuration {
+    if declare_map_lookup {
         // Configuration initializers read their variables from the configuration map. Structured
         // callers currently supply that builtin closure themselves; this minimal declaration is
         // the only prelude contract this fixture needs.
@@ -104,9 +153,11 @@ fn structured_definition(with_configuration: bool) -> Definition {
             ],
             attributes: Attributes::new(BTreeMap::from([("function".into(), json!(""))])),
         });
+    }
+    if let Some(configuration_cell) = configuration_cell {
         local_sentences.push(Sentence::Configuration {
             body: config_cell(
-                "top",
+                configuration_cell,
                 Term::apply(
                     "#SemanticCastToExp",
                     vec![Term::Token {
