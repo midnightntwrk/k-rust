@@ -1062,21 +1062,9 @@ fn generated_axioms(
 
 fn constructor_productions(
     productions: &ProductionCatalog<'_>,
-    overloads: &OverloadOrder<'_>,
+    _overloads: &OverloadOrder<'_>,
     rules: &crate::definition::RuleCatalog<'_>,
 ) -> BTreeSet<ProductionId> {
-    let overloaded_greater = overloads
-        .order()
-        .elements()
-        .flat_map(|lesser| {
-            overloads
-                .order()
-                .relations_from(lesser)
-                .into_iter()
-                .flatten()
-                .copied()
-        })
-        .collect::<BTreeSet<_>>();
     let anywhere_labels = rules
         .rules()
         .filter(|(_, rule)| rule.attributes().get("anywhere").is_some())
@@ -1102,7 +1090,6 @@ fn constructor_productions(
             (attributes.get("function").is_none()
                 && !algebraic
                 && !is_macro
-                && !overloaded_greater.contains(&id)
                 && !anywhere_labels.contains(label)
                 && !is_builtin_label(&label.name))
             .then_some(id)
