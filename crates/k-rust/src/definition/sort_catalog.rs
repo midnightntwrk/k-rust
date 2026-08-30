@@ -92,7 +92,10 @@ impl<'a> SortCatalog<'a> {
                 .into_iter()
                 .flatten()
                 .map(|declaration| declaration.attributes());
-            attributes_by_head.insert(head, Attributes::merge(attributes));
+            attributes_by_head.insert(
+                head,
+                Attributes::merge(attributes).unwrap_or_else(|error| error.merged),
+            );
         }
         let hooks = attributes_by_head
             .iter()
