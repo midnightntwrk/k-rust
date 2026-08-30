@@ -1712,6 +1712,120 @@ fn imported_syntax_rules_use_the_main_modules_computation_cell() {
 }
 
 #[test]
+fn wraps_a_non_function_overload_in_the_computation_cell() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(shared)]
+                       | "f" [function, symbol(shared)]
+                       | "done" [symbol(done)]
+          configuration <k> a </k>
+          rule a => done [label(step)]
+          rule f => a [label(equation)]
+        endmodule
+    "#};
+    let transformed = add_implicit_computation_cell(&parsed(source)).unwrap();
+    let bodies = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } => attributes.get_str("label").map(|label| (label, body)),
+            _ => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    assert!(matches!(
+        bodies["step"].unannotated(),
+        Term::Apply { label, .. } if label.name == "<k>"
+    ));
+    assert!(matches!(
+        bodies["equation"].unannotated(),
+        Term::Rewrite { left, .. }
+            if matches!(left.unannotated(), Term::Apply { label, .. } if label.name == "shared")
+    ));
+}
+
+#[test]
+fn falls_back_safely_when_function_application_metadata_is_stale() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "f" [function, symbol(f)]
+                       | "done" [symbol(done)]
+          configuration <k> a </k>
+          rule a => done [label(step)]
+          rule f => done [label(equation)]
+        endmodule
+    "#};
+    let mut definition = parsed(source);
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let catalog = resolved.production_catalog(resolved.main_module_id());
+    let a = catalog.productions_for(&LabelHead::from(&Label::new("a")))[0];
+    let f = catalog.productions_for(&LabelHead::from(&Label::new("f")))[0];
+
+    let main = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap();
+    for sentence in &mut main.local_sentences {
+        let Sentence::Rule {
+            body, attributes, ..
+        } = sentence
+        else {
+            continue;
+        };
+        let Some(rule_label) = attributes.get_str("label") else {
+            continue;
+        };
+        let Term::Rewrite { left, right } = body.unannotated() else {
+            unreachable!()
+        };
+        let stale = if rule_label == "step" { f } else { a };
+        let annotated = left.as_ref().clone().with_metadata(TermMetadata {
+            production: Some(ResolvedProductionId(stale.0)),
+            ..TermMetadata::default()
+        });
+        let rebuilt = Term::Rewrite {
+            left: Box::new(annotated),
+            right: right.clone(),
+        };
+        *body = if let Some(metadata) = body.metadata().cloned() {
+            rebuilt.with_metadata(metadata)
+        } else {
+            rebuilt
+        };
+    }
+
+    let transformed = add_implicit_computation_cell(&definition).unwrap();
+    let bodies = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } => attributes.get_str("label").map(|label| (label, body)),
+            _ => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    assert!(matches!(
+        bodies["step"].unannotated(),
+        Term::Apply { label, .. } if label.name == "<k>"
+    ));
+    assert!(matches!(
+        bodies["equation"].unannotated(),
+        Term::Rewrite { left, .. }
+            if matches!(left.unannotated(), Term::Apply { label, .. } if label.name == "f")
+    ));
+}
+
+#[test]
 fn implicit_computation_cells_require_a_declared_main_cell_only_when_needed() {
     let definition = Definition {
         main_module: "MAIN".into(),
