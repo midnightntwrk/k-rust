@@ -168,6 +168,10 @@ impl<'a> SortInjector<'a> {
         self.inject_with_position(term, &top, false)
     }
 
+    pub(crate) fn is_user_list_sort(&self, sort: &Sort) -> bool {
+        self.sorts.list_sorts().contains(sort)
+    }
+
     /// Match Java's sentence boundary: rule/claim conditions are always `Bool`.
     pub fn inject_sentence(&self, sentence: &Sentence) -> Result<Sentence, SortInjectionError> {
         self.next_sort_parameter.set(0);

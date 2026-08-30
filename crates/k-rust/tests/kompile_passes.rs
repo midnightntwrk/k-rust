@@ -450,6 +450,122 @@ fn lowers_local_functions_with_closure_arguments_and_totality() {
 }
 
 #[test]
+fn local_function_variable_patterns_adopt_the_argument_sort() {
+    let a = Sort::new("A");
+    let b = Sort::new("B");
+    let local_function = application(
+        "#let",
+        vec![
+            Term::Variable {
+                name: "X".into(),
+                sort: Some(a),
+            },
+            Term::Token {
+                token: "b".into(),
+                sort: b.clone(),
+            },
+            Term::variable("X"),
+        ],
+    );
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: b.clone(),
+                    attributes: Attributes::default(),
+                },
+                rule(local_function, Attributes::default()),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+    let transformed = resolve_fun(&definition).unwrap();
+    let argument_sort = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label),
+                items,
+                ..
+            } if label.name.starts_with("#lambda") => items.iter().find_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => Some(sort),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .unwrap();
+
+    assert_eq!(argument_sort, &b);
+}
+
+#[test]
+fn local_function_singleton_user_list_patterns_are_not_total() {
+    let item = Sort::new("Item");
+    let items = Sort::new("Items");
+    let local_function = application(
+        "#let",
+        vec![
+            Term::Variable {
+                name: "X".into(),
+                sort: Some(item),
+            },
+            Term::Token {
+                token: "items".into(),
+                sort: items.clone(),
+            },
+            Term::variable("X"),
+        ],
+    );
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: items.clone(),
+                    attributes: Attributes::default(),
+                },
+                production(".Items", "Items", attributes(&[("userList", json!(""))])),
+                rule(local_function, Attributes::default()),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+    let transformed = resolve_fun(&definition).unwrap();
+    let (argument_sort, lambda_attributes) = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label),
+                items,
+                attributes,
+                ..
+            } if label.name.starts_with("#lambda") => Some((
+                items.iter().find_map(|item| match item {
+                    ProductionItem::NonTerminal { sort, .. } => Some(sort),
+                    _ => None,
+                })?,
+                attributes,
+            )),
+            _ => None,
+        })
+        .unwrap();
+
+    assert_eq!(argument_sort, &items);
+    assert!(lambda_attributes.get("total").is_none());
+}
+
+#[test]
 fn lowers_k_non_matching_to_a_negated_predicate_with_owise_rule() {
     let pattern = rewrite(
         Term::Variable {
