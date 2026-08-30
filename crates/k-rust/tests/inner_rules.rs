@@ -164,6 +164,30 @@ fn preserves_nested_term_spans_and_resolved_productions() {
 }
 
 #[test]
+fn prunes_nested_rewrites_while_parsing_a_long_recursive_chain() {
+    let source = indoc! {r##"
+        module MAIN
+          syntax Int
+          syntax CallSixOp
+          syntax OpCode ::= CallSixOp | InternalOp
+          syntax KItem ::= OpCode
+          syntax InternalOp ::= "#exec" "[" OpCode "]" [symbol(exec)]
+                              | "#gas" "[" OpCode "," OpCode "]" [symbol(gas)]
+                              | CallSixOp Int Int Int Int Int Int [symbol(callSix)]
+          syntax WordStack ::= ".WordStack" [symbol(dotWordStack)]
+                             | Int ":" WordStack [symbol(consWordStack)]
+          syntax Bytes ::= Int ":" Bytes [symbol(consBytes), function]
+          syntax State ::= "<k>" K "..." "</k>"
+                           "<wordStack>" WordStack "</wordStack>" [symbol(state)]
+
+          rule <k> #exec [ CSO:CallSixOp ] => #gas [ CSO , CSO W0 W1 W2 W3 W4 W5 ] ~> CSO W0 W1 W2 W3 W4 W5 ... </k>
+               <wordStack> W0 : W1 : W2 : W3 : W4 : W5 : WS => WS </wordStack>
+        endmodule
+    "##};
+    resolve_rule_bubbles(&lowered(source)).unwrap();
+}
+
+#[test]
 fn parses_rule_claim_context_and_alias_bubbles() {
     let source = indoc! {r#"
         module MAIN
