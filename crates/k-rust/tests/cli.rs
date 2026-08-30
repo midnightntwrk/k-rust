@@ -1998,6 +1998,40 @@ fn krun_executes_invalid_ecdsa_recovery_to_empty_bytes() {
 }
 
 #[test]
+fn krun_executes_fresh_constant_fixture_to_pinned_kore_result() {
+    let expected = concat!(
+        "Lbl'-LT-'generatedTop'-GT-'{}(\n",
+        "  Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"0\")), dotk{}())),\n",
+        "  Lbl'-LT-'generatedCounter'-GT-'{}(\\dv{SortInt{}}(\"1\"))\n",
+        ")\n",
+    );
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference");
+    let definition = fixtures.join("fresh-constants.k");
+    let program = fixtures.join("fresh.input");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "FRESH-CONSTANTS",
+            "--sort",
+            "Input",
+            program.to_str().unwrap(),
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), expected);
+}
+
+#[test]
 fn krun_executes_float_fixture_to_pinned_kore_results() {
     fn scalar_result(sort: &str, value: &str) -> String {
         if sort == "Float" {
