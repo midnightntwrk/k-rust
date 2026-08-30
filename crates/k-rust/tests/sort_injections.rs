@@ -9,6 +9,7 @@ use k_rust::kompile::{
     term_to_kore_from_resolved,
 };
 use k_rust::kore::printer::Printer;
+use k_rust::provenance::{GeneratingPass, ORIGIN_ATTRIBUTE};
 
 fn lowered(source: &str) -> Definition {
     let parsed = k_rust::outer::parse("injections.k", source).expect("definition should parse");
@@ -345,6 +346,32 @@ fn lifts_nested_rewrites_before_adding_injections() {
         body.to_string(),
         "pair(inj{Int,Exp}(#token(\"1\",\"Int\")),inj{Int,Exp}(#token(\"3\",\"Int\")))=>pair(inj{Int,Exp}(#token(\"2\",\"Int\")),inj{Int,Exp}(#token(\"3\",\"Int\")))"
     );
+}
+
+#[test]
+fn definition_sort_injections_carry_generation_receipts() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= Int
+                       | "pair" "(" Exp "," Exp ")" [symbol(pair)]
+          rule pair(1, 3) => pair(2, 3) [label(injected)]
+        endmodule
+    "#});
+    let injected = add_sort_injections_to_definition(&definition).unwrap();
+    let receipt = injected
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| {
+            (sentence.attributes().get_str("label") == Some("injected"))
+                .then(|| sentence.attributes().get(ORIGIN_ATTRIBUTE))
+                .flatten()
+        })
+        .expect("the injected rule should carry a receipt");
+
+    assert_eq!(receipt["pass"], GeneratingPass::AddSortInjections.as_str());
 }
 
 #[test]

@@ -18,6 +18,7 @@ use crate::kore::ast::{
     Attributes, Definition as KoreDefinition, Module, Pattern, Sentence as KoreSentence,
     Sort as KoreSort, Symbol, Variable, VariableKind,
 };
+use crate::provenance::{GeneratingPass, seed_generated_sentence_origin, sentence_origin_links};
 
 use super::passes::number_sentence;
 use super::sort_injections::{SortInjectionError, SortInjector};
@@ -828,6 +829,11 @@ fn generate_map_ceil_rules(
             attributes,
         };
         number_sentence(&mut rule);
+        seed_generated_sentence_origin(
+            &mut rule,
+            GeneratingPass::ModuleToKoreMapCeil,
+            sentence_origin_links(production),
+        );
         rules.push(rule);
     }
     Ok(rules)
@@ -3652,14 +3658,30 @@ mod tests {
         let module = resolved.module_id("MAIN").unwrap();
         let productions = resolved.production_catalog(module);
         let rules = generate_map_ceil_rules(&productions).expect("MAP rule should generate");
+        let mut snapshot_rules = rules.clone();
+        for rule in &mut snapshot_rules {
+            rule.attributes_mut()
+                .remove(crate::provenance::ORIGIN_ATTRIBUTE);
+        }
 
         insta::with_settings!({
             description => format!("K definition:\n\n{source}"),
             omit_expression => true,
             prepend_module_to_snapshot => true,
         }, {
-            insta::assert_debug_snapshot!(rules);
+            insta::assert_debug_snapshot!(snapshot_rules);
         });
+        assert!(rules.iter().all(|rule| {
+            rule.attributes()
+                .get(crate::provenance::ORIGIN_ATTRIBUTE)
+                .is_some_and(|receipt| {
+                    receipt["pass"]
+                        == crate::provenance::GeneratingPass::ModuleToKoreMapCeil.as_str()
+                        && receipt["origins"]
+                            .as_array()
+                            .is_some_and(|origins| !origins.is_empty())
+                })
+        }));
     }
 
     #[test]

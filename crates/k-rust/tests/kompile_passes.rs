@@ -1985,6 +1985,7 @@ fn wraps_cell_free_rules_and_contexts_in_the_main_computation_cell() {
     }, {
         insta::assert_debug_snapshot!(output);
     });
+    assert_has_generated_by(&transformed, GeneratingPass::AddImplicitComputationCell);
 }
 
 #[test]
@@ -2233,6 +2234,7 @@ fn resolves_fresh_variables_and_generates_the_counter_configuration() {
     }, {
         insta::assert_debug_snapshot!(output);
     });
+    assert_has_generated_by(&transformed, GeneratingPass::ResolveFreshConstants);
 }
 
 #[test]
@@ -2415,6 +2417,7 @@ fn concretizes_nested_cells_to_declared_fixed_arities() {
     }, {
         insta::assert_debug_snapshot!(output);
     });
+    assert_has_generated_by(&transformed, GeneratingPass::ConcretizeCells);
 }
 
 #[test]
@@ -2836,6 +2839,101 @@ fn fills_absent_optional_and_repeated_cells_with_their_units() {
 }
 
 #[test]
+fn equal_concretized_defaults_have_distinct_destination_paths() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <thread multiplicity="*" type="Set">
+                <k> 0 </k>
+              </thread>
+            </top>
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let mut definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let open_thread = incomplete_cell("<thread>", application("#cells", Vec::new()));
+    definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap()
+        .local_sentences
+        .push(rule(
+            rewrite(
+                application(".Bag", Vec::new()),
+                application("#cells", vec![open_thread.clone(), open_thread]),
+            ),
+            attributes(&[("label", json!("equal-defaults"))]),
+        ));
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get_str("label") == Some("equal-defaults") => Some(body),
+            _ => None,
+        })
+        .expect("the repeated-cell insertion rule should remain");
+    type DefaultDestination = (Term, Option<(Vec<u32>, u32)>);
+
+    fn collect_defaults(term: &Term, defaults: &mut Vec<DefaultDestination>) {
+        if matches!(term.unannotated(), Term::Apply { label, arguments }
+            if label.name == "initKCell" && arguments.is_empty())
+        {
+            defaults.push((
+                term.unannotated().clone(),
+                term.metadata()
+                    .and_then(|metadata| metadata.origin.as_deref())
+                    .and_then(|origin| origin.destination.as_ref())
+                    .map(|destination| (destination.path.clone(), destination.sentence_index)),
+            ));
+        }
+        match term.unannotated() {
+            Term::Rewrite { left, right } => {
+                collect_defaults(left, defaults);
+                collect_defaults(right, defaults);
+            }
+            Term::As { pattern, alias } => {
+                collect_defaults(pattern, defaults);
+                collect_defaults(alias, defaults);
+            }
+            Term::Sequence(items)
+            | Term::Apply {
+                arguments: items, ..
+            } => {
+                for item in items {
+                    collect_defaults(item, defaults);
+                }
+            }
+            Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => {}
+            Term::Annotated { .. } => unreachable!(),
+        }
+    }
+    let mut defaults = Vec::new();
+    collect_defaults(body, &mut defaults);
+
+    assert_eq!(defaults.len(), 2, "{body:#?}");
+    assert_eq!(defaults[0].0, defaults[1].0);
+    let first = defaults[0]
+        .1
+        .as_ref()
+        .expect("first default has a destination");
+    let second = defaults[1]
+        .1
+        .as_ref()
+        .expect("second default has a destination");
+    assert_ne!(first.0, second.0);
+    assert_eq!(first.1, second.1);
+}
+
+#[test]
 fn preserves_repeated_cell_initializers_for_every_collection_shape() {
     for collection in ["Map", "Set", "List"] {
         for (shape, body, initial) in [
@@ -2989,6 +3087,7 @@ fn finalizes_language_parsing_and_sort_predicate_rules() {
     }, {
         insta::assert_debug_snapshot!(predicates);
     });
+    assert_has_generated_by(&definition, GeneratingPass::GenerateSortPredicateRules);
 }
 
 #[test]
@@ -3561,6 +3660,7 @@ fn reuses_lhs_subterms_on_rule_right_hand_sides() {
     }, {
         insta::assert_debug_snapshot!(rules);
     });
+    assert_generated_by(&transformed, GeneratingPass::MinimizeTermConstruction);
 }
 
 #[test]
@@ -3659,6 +3759,59 @@ fn removes_associative_units_from_rules_only() {
         Printer::new().print_term(body),
         "`_Items_`(a(.KList),b(.KList))=>`_Items_`(a(.KList),b(.KList))"
     );
+}
+
+#[test]
+fn fabricated_collection_units_replace_spans_with_generation_origins() {
+    let collection_attributes = attributes(&[("assoc", json!("")), ("unit", json!(".Items"))]);
+    let span = TermSpan {
+        source: SourceId(0),
+        start: 10,
+        end: 30,
+    };
+    let body = application(
+        "_Items_",
+        vec![
+            application(".Items", Vec::new()),
+            application(".Items", Vec::new()),
+        ],
+    )
+    .with_metadata(TermMetadata {
+        span: Some(span),
+        ..TermMetadata::default()
+    });
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                production("_Items_", "Items", collection_attributes),
+                production(".Items", "Items", Attributes::default()),
+                rule(body, Attributes::default()),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+
+    let transformed = remove_unit(&definition).unwrap();
+    let body = match &transformed.main_module().unwrap().local_sentences[2] {
+        Sentence::Rule { body, .. } => body,
+        _ => panic!("expected a rule"),
+    };
+    assert!(
+        matches!(body.unannotated(), Term::Apply { label, arguments }
+        if label.name == ".Items" && arguments.is_empty())
+    );
+    let metadata = body
+        .metadata()
+        .expect("fabricated unit should carry provenance");
+    assert_eq!(metadata.span, None);
+    let origin = metadata
+        .origin
+        .as_deref()
+        .expect("fabricated unit has an origin");
+    assert_eq!(origin.pass, GeneratingPass::RemoveUnit);
+    assert_eq!(origin.origins, [ProvenanceLink::Source { span }]);
 }
 
 #[test]

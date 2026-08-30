@@ -3,10 +3,16 @@
 use crate::{
     definition::{Definition, LabelHead, ResolvedDefinition, Sentence},
     kast::Term,
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 /// Apply Java's final `RemoveUnit` transformation to rules.
 pub fn remove_unit(definition: &Definition) -> Result<Definition, String> {
+    remove_unit_inner(definition)
+        .map(|output| record_generated_origins(definition, output, GeneratingPass::RemoveUnit))
+}
+
+fn remove_unit_inner(definition: &Definition) -> Result<Definition, String> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(|error| error.to_string())?;
     let mut output = definition.clone();
     for module in &mut output.modules {
@@ -61,13 +67,13 @@ fn transform(
                 }
                 let mut items = Vec::new();
                 flatten(label, unit, arguments, &mut items);
-                items
-                    .into_iter()
-                    .reduce(|left, right| Term::Apply {
-                        label: label.clone(),
-                        arguments: vec![left, right],
-                    })
-                    .unwrap_or_else(|| Term::apply(unit, vec![]))
+                let Some(transformed) = items.into_iter().reduce(|left, right| Term::Apply {
+                    label: label.clone(),
+                    arguments: vec![left, right],
+                }) else {
+                    return Ok(Term::apply(unit, vec![]));
+                };
+                transformed
             } else {
                 Term::Apply {
                     label: label.clone(),

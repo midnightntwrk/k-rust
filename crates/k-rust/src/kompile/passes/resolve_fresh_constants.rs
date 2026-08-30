@@ -11,6 +11,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 use super::rebase_local_metadata_by;
@@ -40,6 +41,15 @@ impl std::error::Error for ResolveFreshConstantsError {}
 
 /// Apply Java's `ResolveFreshConstants` definition transformation.
 pub fn resolve_fresh_constants(
+    definition: &Definition,
+    initial_fresh: usize,
+) -> Result<Definition, ResolveFreshConstantsError> {
+    resolve_fresh_constants_inner(definition, initial_fresh).map(|output| {
+        record_generated_origins(definition, output, GeneratingPass::ResolveFreshConstants)
+    })
+}
+
+fn resolve_fresh_constants_inner(
     definition: &Definition,
     initial_fresh: usize,
 ) -> Result<Definition, ResolveFreshConstantsError> {
