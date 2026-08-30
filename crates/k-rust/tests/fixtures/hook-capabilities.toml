@@ -252,7 +252,9 @@ implemented = [
   "KRYPTO.keccak256",
   "KRYPTO.keccak256raw",
   "KRYPTO.ripemd160",
+  "KRYPTO.ripemd160raw",
   "KRYPTO.sha256",
+  "KRYPTO.sha256raw",
   "KRYPTO.sha3256",
   "KRYPTO.sha512_256raw",
   "SECP256K1.ecdsaRecover",
@@ -309,7 +311,7 @@ implemented = [
 reason = "the reference plugin's remaining hash algorithms and raw forms have no in-process evaluator"
 hooks = [
   "KRYPTO.blake2b256", "KRYPTO.blake2b256raw", "KRYPTO.blake2compress",
-  "KRYPTO.ripemd160raw", "KRYPTO.sha256raw", "KRYPTO.sha3", "KRYPTO.sha3raw",
+  "KRYPTO.sha3", "KRYPTO.sha3raw",
   "KRYPTO.sha512", "KRYPTO.sha512_256", "KRYPTO.sha512raw",
 ]
 
