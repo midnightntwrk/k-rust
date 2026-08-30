@@ -92,10 +92,18 @@ console.log(backend.capabilities) // includes smt: true
 console.log(backend.prove({ claim: 'reaches-c' }).status) // "proven"
 ```
 
-Use `createBackend({ definitionKore, moduleName })` when KORE has already been compiled. Backend
-methods accept typed KORE JSON from `parseKore` and include `execute`, `simplify`, `implies`,
-`getModel`, `prove`, and `addModule`. `execute` exposes depth/breadth bounds, all/any strategy,
-branch stopping, cut-point and terminal rules, step timeouts, and rewrite traces.
+Use `createBackend({ definitionKore, moduleName })` when KORE has already been compiled.
+Backend methods accept typed KORE JSON from `parseKore` and include `execute`, `simplify`, `implies`, `getModel`, `prove`, `addModule`, and four reachability methods: `search`, `searchPaths`, `searchPattern`, and `searchPatternPaths`.
+The method name declares state-set versus path-set modality; no request flag changes a result's meaning.
+Each search response carries `schemaVersion`, a literal `modality`, accumulated effects, and a closed `incomplete` union that reports every bound or backend uncertainty structurally.
+Set `maxResults` for definitions with many converging paths because path witnesses can grow exponentially and the synchronous response is fully materialized.
+
+`executeObserved` and the four `*Observed` search methods opt into branch-local structured transition events.
+Their optional `rules` allowlist is validated atomically against exact executable rule ids.
+Ordinary calls do not collect observation events.
+The legacy execution-leaf `detail` string remains human-readable diagnostic context for compatibility and must not be parsed as semantic data; use the closed `reason`, `branch`, and `observations` fields instead.
+`execute` exposes depth/breadth bounds, all/any strategy, branch stopping, cut-point and terminal rules, step timeouts, and rewrite traces.
 
 The native addon is synchronous. Call it from a worker thread when parsing untrusted or especially
-large definitions in latency-sensitive Node.js applications.
+large definitions or running long searches in latency-sensitive Node.js applications.
+Search cancellation and streaming/backpressure are not exposed by this synchronous API; use explicit depth, breadth, result, and simplification bounds.

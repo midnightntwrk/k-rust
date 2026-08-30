@@ -344,6 +344,8 @@ overhead.
 `createBackend({ definitionKore, moduleName })` starts from existing KORE. The backend exposes
 execution, simplification, implication checking, model generation, reachability proving, and
 stateful module addition. Native sessions cache Z3 preludes per selected module.
+Persistent reachability is available as separate state-set/path-set and graph/pattern methods, with opt-in observed twins that serialize branch-local transition evidence and effects.
+Search requests negotiate schema version 1, reject unknown fields, and return a closed structural `incomplete` union; bounded synchronous responses are fully materialized and do not yet expose streaming or cancellation.
 
 ## WebAssembly and TypeScript
 
@@ -388,7 +390,7 @@ must be passed explicitly through `sources`.
 
 The WASM facade also exports `compileBackend` and `createBackend` with the same persistent API.
 Concrete execution and proofs work in-process; `capabilities.smt` and `capabilities.stepTimeouts`
-are `false`, and SMT-only model generation or host-clock-dependent timeouts fail explicitly.
+are `false`, while `capabilities.search` and `capabilities.observation` are `true`; SMT-only model generation or host-clock-dependent timeouts fail explicitly.
 
 ## Compatibility evidence
 
