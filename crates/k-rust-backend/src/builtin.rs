@@ -826,4 +826,19 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn raw_hash_hooks_are_evaluated_through_the_public_dispatcher() {
+        let empty = bytes::bytes_term(&[]);
+
+        for hook in ["KRYPTO.sha256raw", "KRYPTO.ripemd160raw"] {
+            assert!(
+                matches!(
+                    evaluate_hook(hook, std::slice::from_ref(&empty)),
+                    Ok(BuiltinResult::Value(_))
+                ),
+                "{hook}"
+            );
+        }
+    }
 }

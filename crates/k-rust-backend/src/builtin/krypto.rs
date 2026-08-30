@@ -15,9 +15,11 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
         "KRYPTO.keccak256" | "HASH.keccak256" => hash_hex::<Keccak256>(hook, arguments),
         "KRYPTO.keccak256raw" => hash_raw::<Keccak256>(hook, arguments),
         "KRYPTO.sha256" | "HASH.sha256" => hash_hex::<Sha256>(hook, arguments),
+        "KRYPTO.sha256raw" => hash_raw::<Sha256>(hook, arguments),
         "KRYPTO.sha3256" | "HASH.sha3_256" => hash_hex::<Sha3_256>(hook, arguments),
         "KRYPTO.sha512_256raw" => hash_raw::<Sha512_256>(hook, arguments),
         "KRYPTO.ripemd160" | "HASH.ripemd160" => hash_hex::<Ripemd160>(hook, arguments),
+        "KRYPTO.ripemd160raw" => hash_raw::<Ripemd160>(hook, arguments),
         "KRYPTO.ecdsaPubKey" => ecdsa_public_key(arguments),
         "KRYPTO.ecdsaRecover" | "SECP256K1.ecdsaRecover" => ecdsa_recover(hook, arguments),
         _ => Ok(BuiltinResult::NotApplicable),
@@ -272,11 +274,13 @@ mod tests {
             "HASH.keccak256",
             "KRYPTO.keccak256raw",
             "KRYPTO.sha256",
+            "KRYPTO.sha256raw",
             "HASH.sha256",
             "KRYPTO.sha3256",
             "HASH.sha3_256",
             "KRYPTO.sha512_256raw",
             "KRYPTO.ripemd160",
+            "KRYPTO.ripemd160raw",
             "HASH.ripemd160",
             "KRYPTO.ecdsaPubKey",
         ] {
@@ -336,16 +340,39 @@ mod tests {
     #[test]
     fn raw_hash_hooks_return_bytes() {
         let empty = bytes::bytes_term(&[]);
-        let expected = [
-            0xc6, 0x72, 0xb8, 0xd1, 0xef, 0x56, 0xed, 0x28, 0xab, 0x87, 0xc3, 0x62, 0x2c, 0x51,
-            0x14, 0x06, 0x9b, 0xdd, 0x3a, 0xd7, 0xb8, 0xf9, 0x73, 0x74, 0x98, 0xd0, 0xc0, 0x1e,
-            0xce, 0xf0, 0x96, 0x7a,
+        let cases = [
+            (
+                "KRYPTO.sha256raw",
+                &[
+                    0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x9a, 0xfb, 0xf4, 0xc8, 0x99,
+                    0x6f, 0xb9, 0x24, 0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c, 0xa4, 0x95,
+                    0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55,
+                ][..],
+            ),
+            (
+                "KRYPTO.ripemd160raw",
+                &[
+                    0x9c, 0x11, 0x85, 0xa5, 0xc5, 0xe9, 0xfc, 0x54, 0x61, 0x28, 0x08, 0x97, 0x7e,
+                    0xe8, 0xf5, 0x48, 0xb2, 0x25, 0x8d, 0x31,
+                ][..],
+            ),
+            (
+                "KRYPTO.sha512_256raw",
+                &[
+                    0xc6, 0x72, 0xb8, 0xd1, 0xef, 0x56, 0xed, 0x28, 0xab, 0x87, 0xc3, 0x62, 0x2c,
+                    0x51, 0x14, 0x06, 0x9b, 0xdd, 0x3a, 0xd7, 0xb8, 0xf9, 0x73, 0x74, 0x98, 0xd0,
+                    0xc0, 0x1e, 0xce, 0xf0, 0x96, 0x7a,
+                ][..],
+            ),
         ];
 
-        assert_eq!(
-            evaluate("KRYPTO.sha512_256raw", &[empty]),
-            Ok(BuiltinResult::Value(bytes::bytes_term(&expected)))
-        );
+        for (hook, expected) in cases {
+            assert_eq!(
+                evaluate(hook, std::slice::from_ref(&empty)),
+                Ok(BuiltinResult::Value(bytes::bytes_term(expected))),
+                "{hook}"
+            );
+        }
     }
 
     #[test]
