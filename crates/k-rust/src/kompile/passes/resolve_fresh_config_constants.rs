@@ -6,6 +6,7 @@ use crate::{
     definition::{Definition, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode},
     kast::{Sort, Term},
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -56,7 +57,14 @@ pub fn resolve_fresh_config_constants(
         }
     }
     if diagnostics.is_empty() {
-        Ok((output, counter))
+        Ok((
+            record_generated_origins(
+                definition,
+                output,
+                GeneratingPass::ResolveFreshConfigConstants,
+            ),
+            counter,
+        ))
     } else {
         diagnostics.sort();
         Err(ResolveFreshConfigConstantsError { diagnostics })

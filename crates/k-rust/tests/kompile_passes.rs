@@ -68,6 +68,18 @@ fn assert_generated_by(definition: &Definition, pass: GeneratingPass) {
     );
 }
 
+fn assert_has_generated_by(definition: &Definition, pass: GeneratingPass) {
+    assert!(
+        definition
+            .modules
+            .iter()
+            .flat_map(|module| &module.local_sentences)
+            .filter_map(|sentence| sentence.attributes().get(ORIGIN_ATTRIBUTE))
+            .any(|receipt| receipt["pass"] == pass.as_str()),
+        "{pass:?} produced no receipts",
+    );
+}
+
 #[test]
 fn duplicates_commutative_simplification_rules_and_removes_rule_comm() {
     let source = indoc! {r#"
@@ -1491,6 +1503,7 @@ fn guards_or_patterns_with_collision_free_typed_aliases() {
     }, {
         insta::assert_debug_snapshot!(output);
     });
+    assert_generated_by(&transformed, GeneratingPass::GuardOrPatterns);
 }
 
 #[test]
@@ -1558,6 +1571,7 @@ fn allocates_shared_and_anonymous_fresh_configuration_constants() {
     }, {
         insta::assert_debug_snapshot!(output);
     });
+    assert_generated_by(&transformed, GeneratingPass::ResolveFreshConfigConstants);
 }
 
 #[test]
@@ -1626,6 +1640,7 @@ fn generates_predicates_for_each_local_sort() {
     }, {
         insta::assert_debug_snapshot!(predicates);
     });
+    assert_generated_by(&transformed, GeneratingPass::GenerateSortPredicateSyntax);
 }
 
 #[test]
@@ -1673,6 +1688,7 @@ fn generates_generic_and_named_field_projections() {
     }, {
         insta::assert_debug_snapshot!(output);
     });
+    assert_has_generated_by(&transformed, GeneratingPass::GenerateSortProjections);
 }
 
 #[test]
@@ -1737,6 +1753,66 @@ fn expands_nested_macros_child_first_in_priority_order() {
     }, {
         insta::assert_debug_snapshot!(output);
     });
+    assert_has_generated_by(&transformed, GeneratingPass::MacroExpansion);
+}
+
+#[test]
+fn macro_expansion_combines_call_site_and_macro_rule_sources() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "b" [symbol(b)]
+                       | "m(" Exp ")" [macro, symbol(m)]
+          rule m(X:Exp) => b
+          rule m(a) [label(subject)]
+        endmodule
+    "#};
+    let span = |text: &str, from: usize| {
+        let start = from + source[from..].find(text).unwrap();
+        ProvenanceLink::Source {
+            span: TermSpan {
+                source: SourceId(0),
+                start,
+                end: start + text.len(),
+            },
+        }
+    };
+    let macro_rule = source.find("rule m(X:Exp) => b").unwrap();
+    let subject = source.find("rule m(a)").unwrap();
+    let call_site = span("m(a)", subject);
+    let macro_rhs = span("b", macro_rule);
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let transformed = expand_macros(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get_str("label") == Some("subject") => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    let origins = &body
+        .metadata()
+        .and_then(|metadata| metadata.origin.as_deref())
+        .unwrap()
+        .origins;
+
+    let macro_rhs_index = origins.iter().position(|link| link == &macro_rhs).unwrap();
+    let call_site_index = origins.iter().position(|link| link == &call_site).unwrap();
+    assert!(macro_rhs_index < call_site_index, "{origins:#?}");
+    assert_eq!(
+        origins
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        origins.len(),
+        "{origins:#?}",
+    );
 }
 
 #[test]

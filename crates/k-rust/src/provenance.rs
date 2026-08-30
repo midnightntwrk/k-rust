@@ -741,28 +741,36 @@ fn term_origin_links(
     after: &Term,
     inherited: &[ProvenanceLink],
 ) -> Vec<ProvenanceLink> {
-    before
-        .and_then(|term| term.metadata())
+    let before_metadata = before.and_then(Term::metadata);
+    let after_metadata = after.metadata();
+    let mut links = Vec::new();
+    for link in before_metadata
         .and_then(|metadata| metadata.origin.as_deref())
-        .or_else(|| {
-            after
-                .metadata()
+        .into_iter()
+        .flat_map(|origin| &origin.origins)
+        .chain(
+            after_metadata
                 .and_then(|metadata| metadata.origin.as_deref())
-        })
-        .map(|origin| origin.origins.clone())
-        .or_else(|| {
-            before
-                .and_then(|term| term.metadata())
-                .and_then(|metadata| metadata.span)
-                .map(|span| vec![ProvenanceLink::Source { span }])
-        })
-        .or_else(|| {
-            after
-                .metadata()
-                .and_then(|metadata| metadata.span)
-                .map(|span| vec![ProvenanceLink::Source { span }])
-        })
-        .unwrap_or_else(|| inherited.to_vec())
+                .into_iter()
+                .flat_map(|origin| &origin.origins),
+        )
+        .cloned()
+    {
+        push_unique(&mut links, link);
+    }
+    for span in [
+        before_metadata.and_then(|metadata| metadata.span),
+        after_metadata.and_then(|metadata| metadata.span),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        push_unique(&mut links, ProvenanceLink::Source { span });
+    }
+    for link in inherited {
+        push_unique(&mut links, link.clone());
+    }
+    links
 }
 
 fn only_child_mut(term: &mut Term) -> Option<&mut Term> {
@@ -960,6 +968,53 @@ mod tests {
                 sentence_index: 0,
                 path: vec![0],
             }),
+        );
+    }
+
+    #[test]
+    fn term_links_combine_prior_spans_and_inherited_origins_in_order() {
+        let sentence = |unique_id: &str| ProvenanceLink::Sentence {
+            unique_id: unique_id.into(),
+        };
+        let before_span = TermSpan {
+            source: SourceId(0),
+            start: 10,
+            end: 20,
+        };
+        let after_span = TermSpan {
+            source: SourceId(0),
+            start: 30,
+            end: 40,
+        };
+        let shared = sentence("shared");
+        let origin = |links| {
+            Arc::new(OriginRecord {
+                pass: GeneratingPass::ConfigurationExpansion,
+                origins: links,
+                destination: None,
+            })
+        };
+        let before = Term::apply("before", Vec::new()).with_metadata(TermMetadata {
+            span: Some(before_span),
+            origin: Some(origin(vec![sentence("before"), shared.clone()])),
+            ..TermMetadata::default()
+        });
+        let after = Term::apply("after", Vec::new()).with_metadata(TermMetadata {
+            span: Some(after_span),
+            origin: Some(origin(vec![sentence("after"), shared.clone()])),
+            ..TermMetadata::default()
+        });
+
+        assert_eq!(
+            term_origin_links(Some(&before), &after, &[shared, sentence("inherited")]),
+            [
+                sentence("before"),
+                sentence("shared"),
+                sentence("after"),
+                ProvenanceLink::Source { span: before_span },
+                ProvenanceLink::Source { span: after_span },
+                sentence("inherited"),
+            ],
         );
     }
 

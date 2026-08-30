@@ -14,6 +14,7 @@ use crate::{
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
     kompile::SortInjector,
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 const MACRO_ATTRIBUTES: &[&str] = &["macro", "macro-rec", "alias", "alias-rec"];
@@ -46,6 +47,11 @@ struct MacroRule {
 
 /// Apply Java's forward `ExpandMacros` sentence transformation.
 pub fn expand_macros(definition: &Definition) -> Result<Definition, ExpandMacrosError> {
+    expand_macros_inner(definition)
+        .map(|output| record_generated_origins(definition, output, GeneratingPass::MacroExpansion))
+}
+
+fn expand_macros_inner(definition: &Definition) -> Result<Definition, ExpandMacrosError> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(|error| ExpandMacrosError {
         diagnostics: vec![plain_error(error.to_string())],
     })?;
@@ -508,7 +514,10 @@ fn macro_rule(
 }
 
 fn rewrite_projection(term: &Term, right: bool) -> Term {
-    match term.unannotated() {
+    match term {
+        Term::Annotated { term, metadata } => {
+            rewrite_projection(term, right).with_metadata(metadata.clone())
+        }
         Term::Rewrite {
             left,
             right: rewrite_right,
@@ -530,7 +539,7 @@ fn rewrite_projection(term: &Term, right: bool) -> Term {
                 .map(|item| rewrite_projection(item, right))
                 .collect(),
         ),
-        _ => term.clone(),
+        Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => term.clone(),
     }
 }
 
