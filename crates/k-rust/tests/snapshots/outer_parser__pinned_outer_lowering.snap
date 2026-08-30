@@ -497,6 +497,7 @@ Definition {
                         entries: {
                             "contentStartColumn": Number(20),
                             "contentStartLine": Number(16),
+                            "contentStartOffset": Number(469),
                             "label": String("OUTER-CORPUS.identity"),
                             "org.kframework.attributes.Location": Array [
                                 Number(16),

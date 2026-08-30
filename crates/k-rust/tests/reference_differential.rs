@@ -277,6 +277,7 @@ fn normalize_definition_value(
                 "org.kframework.definition.Production",
                 "contentStartColumn",
                 "contentStartLine",
+                "contentStartOffset",
                 "temporary-cell-sort-decl",
             ] {
                 object.remove(key);

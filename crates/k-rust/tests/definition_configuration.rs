@@ -21,6 +21,7 @@ fn attributes(attributes: &Attributes) -> String {
                     | "org.kframework.attributes.Location"
                     | "contentStartLine"
                     | "contentStartColumn"
+                    | "contentStartOffset"
             )
         })
         .map(|(key, value)| format!("{key}={value}"))
