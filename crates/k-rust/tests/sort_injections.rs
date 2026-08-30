@@ -1,6 +1,7 @@
 use indoc::indoc;
 use k_rust::definition::{
-    Attributes, Definition, FlatImport, FlatModule, ProductionItem, ResolvedDefinition, Sentence,
+    Attributes, Definition, FlatImport, FlatModule, LOCATION_ATTRIBUTE, ProductionItem,
+    ResolvedDefinition, SOURCE_ATTRIBUTE, Sentence,
 };
 use k_rust::inner::resolve_rule_bubbles;
 use k_rust::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata};
@@ -10,6 +11,7 @@ use k_rust::kompile::{
 };
 use k_rust::kore::printer::Printer;
 use k_rust::provenance::{GeneratingPass, ORIGIN_ATTRIBUTE};
+use serde_json::json;
 
 fn lowered(source: &str) -> Definition {
     let parsed = k_rust::outer::parse("injections.k", source).expect("definition should parse");
@@ -532,4 +534,40 @@ fn definition_injection_ignores_modules_outside_the_main_import_closure() {
     let injected = add_sort_injections_to_definition(&definition).unwrap();
 
     assert_eq!(injected.modules[1], unrelated_module);
+}
+
+#[test]
+fn definition_injection_errors_name_the_source_sentence() {
+    let truth = Term::Token {
+        token: "true".into(),
+        sort: Sort::new("Bool"),
+    };
+    let mut attributes = Attributes::default();
+    attributes.insert(SOURCE_ATTRIBUTE, json!("fixture.k"));
+    attributes.insert(LOCATION_ATTRIBUTE, json!([17, 3, 17, 18]));
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![FlatModule {
+            name: "MAIN".into(),
+            imports: vec![],
+            local_sentences: vec![Sentence::Rule {
+                body: Term::Rewrite {
+                    left: Box::new(Term::apply("missing", vec![])),
+                    right: Box::new(Term::apply("missing", vec![])),
+                },
+                requires: truth.clone(),
+                ensures: truth,
+                attributes,
+            }],
+            attributes: Attributes::default(),
+        }],
+        attributes: Attributes::default(),
+    };
+
+    let error = add_sort_injections_to_definition(&definition).unwrap_err();
+
+    assert_eq!(
+        error.to_string(),
+        "fixture.k:17: cannot find a production for KLabel \"missing\""
+    );
 }
