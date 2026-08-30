@@ -2,7 +2,7 @@ use indoc::indoc;
 use k_rust::{
     definition::{
         Attributes, Definition, FlatImport, FlatModule, LabelHead, ProductionId, ProductionItem,
-        ResolvedDefinition, Sentence,
+        ResolvedDefinition, Sentence, checks::check_definition,
     },
     kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, printer::Printer},
     kompile::{
@@ -2811,4 +2811,39 @@ fn preserves_optional_cell_units() {
     let transformed = remove_unit(&definition).unwrap();
     let preserved = transformed.main_module().unwrap().local_sentences[1].clone();
     assert!(matches!(preserved, Sentence::Rule { body: actual, .. } if actual == body));
+}
+
+#[test]
+fn validates_smt_lemmas_after_expanding_aliases() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+                       | "pow256" [alias, symbol(pow256)]
+                       | "chop" "(" Int ")" [function, total, smtlib(chop), symbol(chop)]
+                       | Int "mod" Int [function, total, smt-hook(mod), symbol(mod)]
+          rule pow256 => 256
+          rule chop(I:Int) => I mod pow256 [smt-lemma]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    assert!(
+        check_definition(&resolved).unwrap().iter().all(
+            |diagnostic| diagnostic.code != k_rust::diagnostic::DiagnosticCode::InvalidSmtLemma
+        )
+    );
+
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let transformed = expand_macros(&definition).unwrap();
+    let smt_lemma = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find(|sentence| sentence.attributes().get("smt-lemma").is_some())
+        .unwrap();
+    let Sentence::Rule { body, .. } = smt_lemma else {
+        panic!("expected an SMT lemma rule");
+    };
+    assert!(!Printer::new().print_term(body).contains("pow256"));
 }
