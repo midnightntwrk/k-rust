@@ -876,4 +876,19 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn bn128_pairing_hook_is_registered_with_the_public_evaluator() {
+        let dummy = Term::domain_value(Sort::simple("SortCapabilityAuditDummy"), "dummy");
+        let arguments = vec![dummy; 3];
+
+        assert_eq!(
+            evaluate_hook("KRYPTO.bn128ate", &arguments),
+            Err(BuiltinError::WrongArity {
+                hook: "KRYPTO.bn128ate".into(),
+                expected: 2,
+                actual: 3,
+            })
+        );
+    }
 }
