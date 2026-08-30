@@ -30,7 +30,7 @@ use crate::{
     timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
     transition::{
         ObservationEvent, ObservationOptions, PatternDigest, TransitionClass, TransitionId,
-        TransitionObservation,
+        TransitionObservation, UncommittedObservation, UncommittedReason,
     },
     unification::{UnificationFailure, UnificationResult, unify_term_pairs},
 };
@@ -262,6 +262,8 @@ pub struct ExecutionLeaf {
 pub struct ExecutionResult {
     pub leaves: Vec<ExecutionLeaf>,
     pub effects: Vec<BuiltinEffect>,
+    /// Attempted transitions discarded before they could belong to a surviving branch.
+    pub discarded: Vec<UncommittedObservation>,
 }
 
 pub fn execute(
@@ -337,6 +339,7 @@ fn execute_using(
     }]);
     let mut leaves = Vec::new();
     let mut effects = Vec::new();
+    let mut discarded = Vec::new();
     let timeout_controller = StepTimeoutController::new(StepTimeoutOptions {
         manual: options.step_timeout,
         moving_average: options.moving_average_timeout,
@@ -348,6 +351,7 @@ fn execute_using(
                 .map(|state| execution_state_at_breadth_bound(state, &observation_log))
                 .collect(),
             effects,
+            discarded,
         };
     }
     while let Some(mut state) = pending.pop_front() {
@@ -645,6 +649,10 @@ fn execute_using(
                     let mut simplified_branches = Vec::with_capacity(branches.len());
                     let mut failed_branch = None;
                     for mut applied in branches {
+                        let attempted_id = TransitionId {
+                            rule: applied.unique_id.clone(),
+                            target: PatternDigest::of(&applied.pattern),
+                        };
                         match simplify_result_pattern(
                             definition,
                             &applied.pattern,
@@ -659,6 +667,15 @@ fn execute_using(
                                 applied.pattern = pattern;
                                 if predicates_truth(&applied.pattern.constraints) != Truth::False {
                                     simplified_branches.push(applied);
+                                } else if observation
+                                    .is_some_and(|options| options.observes(&applied.unique_id))
+                                {
+                                    discarded.push(UncommittedObservation {
+                                        id: attempted_id,
+                                        rule_label: applied.label,
+                                        effects: applied.effects,
+                                        reason: UncommittedReason::RolledBack,
+                                    });
                                 }
                             }
                             Err(error) => {
@@ -802,7 +819,11 @@ fn execute_using(
             }
         }
     }
-    ExecutionResult { leaves, effects }
+    ExecutionResult {
+        leaves,
+        effects,
+        discarded,
+    }
 }
 
 fn expand_stopped_branch_remainder(
@@ -4079,7 +4100,7 @@ mod tests {
     use crate::cancellation::CancellationToken;
     use crate::transition::{
         ObservationEvent, ObservationFilterError, ObservationOptions, PatternDigest,
-        TransitionClass,
+        TransitionClass, UncommittedReason,
     };
 
     #[test]
@@ -7043,6 +7064,78 @@ mod tests {
             leaf.pattern.term,
             internal_term(&definition, r#"\dv{SortS{}}("right")"#)
         );
+    }
+
+    #[test]
+    fn rolled_back_branch_effects_are_classified_without_committing() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortString{} [hasDomainValues{}()]
+                sort SortK{} []
+                symbol initial{}() : SortK{} [constructor{}()]
+                symbol dotk{}() : SortK{} [constructor{}()]
+                symbol log{}(SortString{}) : SortK{}
+                    [function{}(), hook{}("IO.logString")]
+                symbol dead{}(SortK{}) : SortK{} [function{}(), total{}()]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortK{}, R}(
+                        dead{}(X:SortK{}),
+                        \and{SortK{}}(X:SortK{}, \bottom{SortK{}}())
+                    )
+                ) [label{}("dead"), simplification{}()]
+                axiom{} \rewrites{SortK{}}(
+                    \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                    dead{}(log{}(\dv{SortString{}}("rolled back")))
+                ) [label{}("left")]
+                axiom{} \rewrites{SortK{}}(
+                    \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                    dotk{}()
+                ) [label{}("right")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let initial = definition
+            .internalize_pattern(&parse_pattern("initial{}()").unwrap(), &[])
+            .unwrap();
+
+        let result = execute_observed(
+            &definition,
+            initial,
+            ExecutionOptions {
+                branch_mode: ExecutionBranchMode::StopAtBranch,
+                ..ExecutionOptions::default()
+            },
+            &ObservationOptions::all(),
+        );
+
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected the one viable branch to continue");
+        };
+        assert_eq!(leaf.depth, 1);
+        assert_eq!(
+            leaf.observations
+                .iter()
+                .map(|event| match event {
+                    ObservationEvent::Transition(observation) => observation.id.rule.as_str(),
+                    ObservationEvent::Uncommitted(_) => panic!("rollback leaked into leaf"),
+                })
+                .collect::<Vec<_>>(),
+            ["right"]
+        );
+        assert!(result.effects.is_empty());
+        let [discarded] = result.discarded.as_slice() else {
+            panic!("expected one discarded transition: {:?}", result.discarded);
+        };
+        assert_eq!(discarded.id.rule, "left");
+        assert_eq!(discarded.rule_label.as_deref(), Some("left"));
+        assert_eq!(
+            discarded.effects,
+            [BuiltinEffect::UserLog("rolled back".into())]
+        );
+        assert_eq!(discarded.reason, UncommittedReason::RolledBack);
     }
 
     #[test]
