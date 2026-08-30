@@ -1,5 +1,7 @@
 //! Pure-Rust cryptographic hooks implemented by Kore's fallback evaluator.
 
+use std::sync::Arc;
+
 use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
 use k256::elliptic_curve::sec1::ToSec1Point;
 use num_bigint::{BigInt, Sign};
@@ -7,12 +9,12 @@ use num_traits::ToPrimitive;
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256, Sha512_256};
 use sha3::{Keccak256, Sha3_256};
-use substrate_bn::{AffineG1, AffineG2, Fq, Fq2, G1, G2, Group};
+use substrate_bn::{AffineG1, AffineG2, Fq, Fq2, Fr, G1, G2, Group};
 
 use super::{
     BuiltinError, BuiltinResult, bool_term, bytes, check_interrupted, expect_arity, read_int,
 };
-use crate::term::{Sort, Term, TermKind};
+use crate::term::{Sort, Symbol, Term, TermKind};
 
 pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     match hook {
@@ -28,6 +30,8 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
         "KRYPTO.ecdsaRecover" | "SECP256K1.ecdsaRecover" => ecdsa_recover(hook, arguments),
         "KRYPTO.bn128valid" => bn128_valid(hook, arguments),
         "KRYPTO.bn128g2valid" => bn128_g2_valid(hook, arguments),
+        "KRYPTO.bn128add" => bn128_add(hook, arguments),
+        "KRYPTO.bn128mul" => bn128_mul(hook, arguments),
         _ => Ok(BuiltinResult::NotApplicable),
     }
 }
@@ -39,6 +43,8 @@ enum Reading<T> {
 }
 
 struct ConcreteG1 {
+    symbol: Arc<Symbol>,
+    sort_arguments: Vec<Sort>,
     x: BigInt,
     y: BigInt,
 }
@@ -67,7 +73,12 @@ fn unreadable<T>(term: &Term) -> Reading<T> {
 
 fn concrete_g1(term: &Term) -> Reading<ConcreteG1> {
     let term = without_injections(term);
-    let TermKind::Application { arguments, .. } = term.kind() else {
+    let TermKind::Application {
+        symbol,
+        sort_arguments,
+        arguments,
+    } = term.kind()
+    else {
         return unreadable(term);
     };
     let [x, y] = arguments.as_slice() else {
@@ -79,7 +90,12 @@ fn concrete_g1(term: &Term) -> Reading<ConcreteG1> {
     let Some(y) = read_int(y) else {
         return unreadable(term);
     };
-    Reading::Concrete(ConcreteG1 { x, y })
+    Reading::Concrete(ConcreteG1 {
+        symbol: symbol.clone(),
+        sort_arguments: sort_arguments.clone(),
+        x,
+        y,
+    })
 }
 
 fn concrete_g2(term: &Term) -> Reading<ConcreteG2> {
@@ -160,6 +176,81 @@ fn bn128_g2_valid(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, Built
         Reading::Invalid => BuiltinResult::Value(bool_term(false)),
         Reading::Symbolic => BuiltinResult::NotApplicable,
     })
+}
+
+fn bn128_add(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity(hook, arguments, 2)?;
+    let left = match concrete_g1(&arguments[0]) {
+        Reading::Concrete(point) => point,
+        Reading::Invalid => return Ok(BuiltinResult::Bottom),
+        Reading::Symbolic => return Ok(BuiltinResult::NotApplicable),
+    };
+    let right = match concrete_g1(&arguments[1]) {
+        Reading::Concrete(point) => point,
+        Reading::Invalid => return Ok(BuiltinResult::Bottom),
+        Reading::Symbolic => return Ok(BuiltinResult::NotApplicable),
+    };
+    if left.symbol.name != right.symbol.name || left.sort_arguments != right.sort_arguments {
+        return Ok(BuiltinResult::Bottom);
+    }
+    let Some(sum) = g1_value(&left)
+        .zip(g1_value(&right))
+        .map(|(left, right)| left + right)
+    else {
+        return Ok(BuiltinResult::Bottom);
+    };
+    Ok(BuiltinResult::Value(concrete_g1_term(&left, sum)))
+}
+
+fn bn128_mul(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity(hook, arguments, 2)?;
+    let point = match concrete_g1(&arguments[0]) {
+        Reading::Concrete(point) => point,
+        Reading::Invalid => return Ok(BuiltinResult::Bottom),
+        Reading::Symbolic => return Ok(BuiltinResult::NotApplicable),
+    };
+    let Some(scalar) = read_int(&arguments[1]) else {
+        return Ok(if arguments[1].attributes().variables.is_empty() {
+            BuiltinResult::Bottom
+        } else {
+            BuiltinResult::NotApplicable
+        });
+    };
+    let Some((value, scalar)) = g1_value(&point)
+        .zip(coordinate_bytes(&scalar).and_then(|bytes| Fr::from_slice(&bytes).ok()))
+    else {
+        return Ok(BuiltinResult::Bottom);
+    };
+    Ok(BuiltinResult::Value(concrete_g1_term(
+        &point,
+        value * scalar,
+    )))
+}
+
+fn concrete_g1_term(template: &ConcreteG1, value: G1) -> Term {
+    let (x, y) = if let Some(affine) = AffineG1::from_jacobian(value) {
+        let mut x = [0_u8; 32];
+        let mut y = [0_u8; 32];
+        affine
+            .x()
+            .to_big_endian(&mut x)
+            .expect("a fixed-width Fq coordinate encodes into 32 bytes");
+        affine
+            .y()
+            .to_big_endian(&mut y)
+            .expect("a fixed-width Fq coordinate encodes into 32 bytes");
+        (
+            BigInt::from_bytes_be(Sign::Plus, &x),
+            BigInt::from_bytes_be(Sign::Plus, &y),
+        )
+    } else {
+        (BigInt::from(0), BigInt::from(0))
+    };
+    Term::application(
+        template.symbol.clone(),
+        template.sort_arguments.clone(),
+        vec![super::int_term(x), super::int_term(y)],
+    )
 }
 
 fn hash_hex<D>(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError>
@@ -911,6 +1002,154 @@ mod tests {
         assert_eq!(
             evaluate("KRYPTO.bn128g2valid", &[calldata_order]),
             Ok(BuiltinResult::Value(super::super::bool_term(false)))
+        );
+    }
+
+    #[test]
+    fn adds_concrete_bn128_g1_points() {
+        let symbol = g1_symbol();
+        let left = g1_point(
+            &symbol,
+            hex_coordinate("18b18acfb4c2c30276db5411368e7185b311dd124691610c5d3b74034e093dc9"),
+            hex_coordinate("063c909c4720840cb5134cb9f59fa749755796819658d32efc0d288198f37266"),
+        );
+        let right = g1_point(
+            &symbol,
+            hex_coordinate("07c2b7f58a84bd6145f00c9c2bc0bb1a187f20ff2c92963a88019e7c6a014eed"),
+            hex_coordinate("06614e20c147e940f2d70da3f74c9a17df361706a4485c742bd6788478fa17d7"),
+        );
+        let expected = g1_point(
+            &symbol,
+            hex_coordinate("2243525c5efd4b9c3d3c45ac0ca3fe4dd85e830a4ce6b65fa1eeaee202839703"),
+            hex_coordinate("301d1d33be6da8e509df21cc35964723180eed7532537db9ae5e7d48f195c915"),
+        );
+
+        assert_eq!(
+            evaluate("KRYPTO.bn128add", &[left, right]),
+            Ok(BuiltinResult::Value(expected))
+        );
+
+        let infinity = g1_point(&symbol, 0.into(), 0.into());
+        assert_eq!(
+            evaluate("KRYPTO.bn128add", &[infinity.clone(), infinity.clone()]),
+            Ok(BuiltinResult::Value(infinity))
+        );
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128add",
+                &[
+                    g1_point(&symbol, 1.into(), 3.into()),
+                    g1_point(&symbol, 1.into(), 2.into()),
+                ],
+            ),
+            Ok(BuiltinResult::Bottom)
+        );
+
+        let alternate_symbol = Arc::new(Symbol::constructor(
+            "LblalternateG1Point",
+            vec![Sort::simple("SortInt"), Sort::simple("SortInt")],
+            Sort::simple("SortG1Point"),
+        ));
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128add",
+                &[
+                    g1_point(&symbol, 1.into(), 2.into()),
+                    g1_point(&alternate_symbol, 1.into(), 2.into()),
+                ],
+            ),
+            Ok(BuiltinResult::Bottom)
+        );
+
+        let symbolic = Term::variable(Variable::new("P", Sort::simple("SortG1Point")));
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128add",
+                &[symbolic, g1_point(&symbol, 1.into(), 2.into())],
+            ),
+            Ok(BuiltinResult::NotApplicable)
+        );
+    }
+
+    #[test]
+    fn multiplies_concrete_bn128_g1_points_with_reduced_scalars() {
+        let symbol = g1_symbol();
+        let generator = g1_point(&symbol, 1.into(), 2.into());
+        let doubled = g1_point(
+            &symbol,
+            hex_coordinate("030644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd3"),
+            hex_coordinate("15ed738c0e0a7c92e7845f96b2ae9c0a68a6a449e3538fc7ff3ebf7a5a18a2c4"),
+        );
+        let group_order = decimal(
+            "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+        );
+
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128mul",
+                &[generator.clone(), super::super::int_term(2.into())],
+            ),
+            Ok(BuiltinResult::Value(doubled.clone()))
+        );
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128mul",
+                &[generator.clone(), super::super::int_term(0.into())],
+            ),
+            Ok(BuiltinResult::Value(g1_point(&symbol, 0.into(), 0.into())))
+        );
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128mul",
+                &[
+                    g1_point(&symbol, 1.into(), 3.into()),
+                    super::super::int_term(2.into()),
+                ],
+            ),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128mul",
+                &[generator.clone(), super::super::int_term((-1).into()),],
+            ),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128mul",
+                &[
+                    generator.clone(),
+                    super::super::int_term(group_order.clone()),
+                ],
+            ),
+            Ok(BuiltinResult::Value(g1_point(&symbol, 0.into(), 0.into())))
+        );
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128mul",
+                &[generator.clone(), super::super::int_term(&group_order + 2),],
+            ),
+            Ok(BuiltinResult::Value(doubled))
+        );
+
+        let max_scalar = (BigInt::from(1) << 256) - 1;
+        let max_reduced = &max_scalar % &group_order;
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128mul",
+                &[generator.clone(), super::super::int_term(max_scalar),],
+            ),
+            evaluate(
+                "KRYPTO.bn128mul",
+                &[generator.clone(), super::super::int_term(max_reduced)],
+            )
+        );
+
+        let symbolic_scalar = Term::variable(Variable::new("S", Sort::simple("SortInt")));
+        assert_eq!(
+            evaluate("KRYPTO.bn128mul", &[generator, symbolic_scalar]),
+            Ok(BuiltinResult::NotApplicable)
         );
     }
 }

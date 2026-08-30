@@ -858,4 +858,22 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn bn128_arithmetic_hooks_are_registered_with_the_public_evaluator() {
+        let dummy = Term::domain_value(Sort::simple("SortCapabilityAuditDummy"), "dummy");
+
+        for hook in ["KRYPTO.bn128add", "KRYPTO.bn128mul"] {
+            let arguments = vec![dummy.clone(); 3];
+            assert_eq!(
+                evaluate_hook(hook, &arguments),
+                Err(BuiltinError::WrongArity {
+                    hook: hook.into(),
+                    expected: 2,
+                    actual: 3,
+                }),
+                "{hook}"
+            );
+        }
+    }
 }
