@@ -1,6 +1,6 @@
 //! Recursive, host-independent loading of outer-syntax source graphs.
 
-use std::{collections::BTreeMap, error::Error, fmt};
+use std::{collections::BTreeMap, error::Error, fmt, path::Path};
 
 use crate::{
     builtin,
@@ -10,6 +10,7 @@ use crate::{
     },
     diagnostic::Diagnostic,
     inner::{ConfigError, RuleError, resolve_configuration_bubbles, resolve_rule_bubbles},
+    provenance::{LogicalSourceId, SourceTable},
 };
 
 use super::{MarkdownError, extract_fenced_k_code};
@@ -23,15 +24,23 @@ use super::{ParseError, SourceFile, Span, lower::lower_files, parse};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedSource {
     pub source: String,
+    pub logical: String,
     pub text: String,
 }
 
 impl ResolvedSource {
     pub fn new(source: impl Into<String>, text: impl Into<String>) -> Self {
+        let source = source.into();
         Self {
-            source: source.into(),
+            logical: source.clone(),
+            source,
             text: text.into(),
         }
+    }
+
+    pub fn with_logical(mut self, logical: impl Into<String>) -> Self {
+        self.logical = logical.into();
+        self
     }
 }
 
@@ -44,6 +53,8 @@ pub struct LoadOptions {
     pub excluded_module_attributes: Vec<String>,
     /// Module that owns the configuration when it differs from the selected main module.
     pub configuration_module: Option<String>,
+    /// Concrete checkout root stripped from resolver paths to form stable logical names.
+    pub project_root: Option<String>,
 }
 
 impl Default for LoadOptions {
@@ -53,6 +64,7 @@ impl Default for LoadOptions {
             implicit_sources: Vec::new(),
             excluded_module_attributes: Vec::new(),
             configuration_module: None,
+            project_root: None,
         }
     }
 }
@@ -173,6 +185,7 @@ impl Error for LoadError {}
 pub struct LoadedDefinition {
     /// Parsed files in dependency-first `requires` order.
     pub files: Vec<SourceFile>,
+    pub source_table: SourceTable,
     pub definition: Definition,
     pub resolved: ResolvedDefinition,
 }
@@ -200,6 +213,7 @@ pub fn load_with_options(
         options,
         states: BTreeMap::new(),
         files: Vec::new(),
+        source_table: SourceTable::default(),
     };
     for source in &options.implicit_sources {
         loader.visit(source.clone())?;
@@ -209,7 +223,13 @@ pub fn load_with_options(
 
     let definition =
         lower_files(&loader.files, main_module).map_err(LoadError::SourceDiagnostics)?;
-    finish_load(definition, loader.files, options, false)
+    finish_load(
+        definition,
+        loader.files,
+        loader.source_table,
+        options,
+        false,
+    )
 }
 
 /// Prepare an already-structured definition with the embedded builtin source closure.
@@ -231,6 +251,7 @@ pub fn load_structured(
         options,
         states: BTreeMap::new(),
         files: Vec::new(),
+        source_table: SourceTable::default(),
     };
     for source in &options.implicit_sources {
         loader.visit(source.clone())?;
@@ -242,12 +263,13 @@ pub fn load_structured(
     implicit.modules.append(&mut definition.modules);
     implicit.main_module = definition.main_module;
     implicit.attributes = definition.attributes;
-    finish_load(implicit, loader.files, options, true)
+    finish_load(implicit, loader.files, loader.source_table, options, true)
 }
 
 fn finish_load(
     definition: Definition,
     files: Vec<SourceFile>,
+    source_table: SourceTable,
     options: &LoadOptions,
     remove_unused_default_configuration: bool,
 ) -> Result<LoadedDefinition, LoadError> {
@@ -271,6 +293,7 @@ fn finish_load(
         ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
     Ok(LoadedDefinition {
         files,
+        source_table,
         definition,
         resolved,
     })
@@ -433,6 +456,7 @@ struct Loader<'a, R> {
     options: &'a LoadOptions,
     states: BTreeMap<String, VisitState>,
     files: Vec<SourceFile>,
+    source_table: SourceTable,
 }
 
 impl<R: SourceResolver> Loader<'_, R> {
@@ -444,6 +468,14 @@ impl<R: SourceResolver> Loader<'_, R> {
 
         self.states
             .insert(source.source.clone(), VisitState::Visiting);
+        let logical = self
+            .options
+            .project_root
+            .as_deref()
+            .and_then(|root| logical_below(root, &source.source))
+            .unwrap_or_else(|| source.logical.clone());
+        self.source_table
+            .intern(LogicalSourceId::new(logical, source.text.as_bytes()));
         let text = if source.source.ends_with(".md") {
             extract_fenced_k_code(&source.text, &self.options.markdown_selector).map_err(
                 |error| LoadError::Markdown {
@@ -476,6 +508,13 @@ impl<R: SourceResolver> Loader<'_, R> {
         self.files.push(parsed);
         Ok(())
     }
+}
+
+fn logical_below(project_root: &str, source: &str) -> Option<String> {
+    Path::new(source)
+        .strip_prefix(project_root)
+        .ok()
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
 }
 
 fn validate_unique_modules(files: &[SourceFile]) -> Result<(), LoadError> {

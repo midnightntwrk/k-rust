@@ -299,6 +299,7 @@ pub fn compile_definition_native(
             implicit_sources,
             excluded_module_attributes: vec![backend.excluded_module_attribute().to_owned()],
             configuration_module: None,
+            project_root: None,
         },
     )
     .map_err(napi_error)?;
@@ -343,6 +344,7 @@ pub fn parse_program_native(options: NativeParseProgramOptions) -> Result<Native
             implicit_sources,
             excluded_module_attributes: Vec::new(),
             configuration_module: None,
+            project_root: None,
         },
     )
     .map_err(napi_error)?;

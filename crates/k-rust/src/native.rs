@@ -14,6 +14,7 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct FileResolver {
     builtin_directory: Option<PathBuf>,
+    project_root: Option<PathBuf>,
     working_directory: PathBuf,
     lookup_directories: Vec<PathBuf>,
 }
@@ -25,6 +26,7 @@ impl FileResolver {
     ) -> Self {
         Self {
             builtin_directory: None,
+            project_root: None,
             working_directory: working_directory.into(),
             lookup_directories: lookup_directories.into_iter().collect(),
         }
@@ -45,10 +47,28 @@ impl FileResolver {
         self
     }
 
+    pub fn with_project_root(mut self, directory: impl Into<PathBuf>) -> Self {
+        self.project_root = Some(directory.into());
+        self
+    }
+
     fn read(&self, path: &Path) -> io::Result<ResolvedSource> {
         let canonical = fs::canonicalize(path)?;
         let text = fs::read_to_string(&canonical)?;
-        Ok(ResolvedSource::new(canonical.to_string_lossy(), text))
+        let source = ResolvedSource::new(canonical.to_string_lossy(), text);
+        Ok(if let Some(root) = &self.project_root {
+            canonical
+                .strip_prefix(root)
+                .ok()
+                .map(|relative| {
+                    source
+                        .clone()
+                        .with_logical(relative.to_string_lossy().replace('\\', "/"))
+                })
+                .unwrap_or(source)
+        } else {
+            source
+        })
     }
 
     fn candidates(&self, requiring_source: &str, required: &str) -> Vec<PathBuf> {

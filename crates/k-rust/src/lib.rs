@@ -11,3 +11,4 @@ pub use k_rust_kore::kore;
 #[cfg(feature = "cli")]
 pub mod native;
 pub mod outer;
+pub mod provenance;

@@ -146,6 +146,39 @@ fn canonical_source_identity_deduplicates_diamond_leaves() {
 }
 
 #[test]
+fn relocation_preserves_logical_identity() {
+    fn load_at(root: &str) -> k_rust::outer::LoadedDefinition {
+        let source = "module MAIN\n  syntax Value ::= \"value\"\nendmodule\n";
+        let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+        load_with_options(
+            ResolvedSource::new(format!("{root}/src/main.k"), source),
+            "MAIN",
+            &mut resolver,
+            &LoadOptions {
+                project_root: Some(root.into()),
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap()
+    }
+
+    let first = load_at("/checkout/first");
+    let second = load_at("/relocated/second");
+
+    assert_eq!(first.source_table, second.source_table);
+    let identity = first.source_table.iter().next().unwrap();
+    assert_eq!(identity.logical, "src/main.k");
+    assert_eq!(
+        identity.resolve_under("/checkout/first"),
+        std::path::PathBuf::from("/checkout/first/src/main.k"),
+    );
+    assert_eq!(
+        identity.resolve_under("/relocated/second"),
+        std::path::PathBuf::from("/relocated/second/src/main.k"),
+    );
+}
+
+#[test]
 fn applies_imported_sort_synonyms_after_resolving_the_source_graph() {
     let mut resolver = |_: &str, required: &str| match required {
         "base.k" => Ok(ResolvedSource::new(

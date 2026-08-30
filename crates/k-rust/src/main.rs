@@ -992,6 +992,7 @@ fn load_definition(
                 .map(|backend| vec![backend.excluded_module_attribute().into()])
                 .unwrap_or_default(),
             configuration_module: configuration_module.map(str::to_owned),
+            project_root: None,
         },
     )?;
     Ok(loaded)
