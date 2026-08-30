@@ -32,6 +32,13 @@ pub enum SearchType {
     Plus,
 }
 
+/// Whether a result denotes unique states or distinct execution paths.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ResultModality {
+    StateSet,
+    PathSet,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SearchOptions {
     pub search_type: SearchType,
@@ -93,6 +100,12 @@ pub struct SearchResult {
     pub incomplete: Vec<IncompleteSearch>,
 }
 
+impl SearchResult {
+    pub const fn modality(&self) -> ResultModality {
+        ResultModality::StateSet
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchMatch {
     pub substitution: Substitution,
@@ -123,6 +136,12 @@ pub struct PatternSearchResult {
     pub matches: Vec<SearchMatch>,
     pub effects: Vec<BuiltinEffect>,
     pub incomplete: Vec<IncompleteSearch>,
+}
+
+impl PatternSearchResult {
+    pub const fn modality(&self) -> ResultModality {
+        ResultModality::StateSet
+    }
 }
 
 /// Match a constrained pattern against each alternative in a disjunction.
@@ -1094,7 +1113,7 @@ mod tests {
     }
 
     #[test]
-    fn converging_paths_collapse_to_one_state_per_pattern() {
+    fn state_search_deduplicates_converging_paths() {
         let definition = converging_definition();
         let result = search_graph(
             &definition,
@@ -1117,6 +1136,7 @@ mod tests {
                 .count(),
             1
         );
+        assert_eq!(result.modality(), ResultModality::StateSet);
     }
 
     #[test]
