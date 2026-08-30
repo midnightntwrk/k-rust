@@ -186,6 +186,42 @@ impl Grammar {
         )
     }
 
+    /// Keep an empty-separator program list's own terminator when it is the direct tail of that
+    /// list's recursive production. Overload resolution may otherwise replace the tail with the
+    /// shared least terminator, even though K's program parser preserves the enclosing list's
+    /// concrete representation.
+    pub(super) fn program_list_terminator(
+        &self,
+        parent: usize,
+        child_index: usize,
+        child: &ParsedTerm,
+    ) -> Option<ParsedTerm> {
+        if self.role != ParserRole::Program {
+            return None;
+        }
+        let list = self
+            .user_lists
+            .values()
+            .find(|list| list.list_production == parent)?;
+        let tail_index = usize::from(!list.left_associative);
+        if child_index != tail_index {
+            return None;
+        }
+        let terminator = list.terminator_production;
+        let is_terminator = |term: &ParsedTerm| {
+            matches!(term, ParsedTerm::Production { production, children, .. }
+                if *production == terminator && children.is_empty())
+        };
+        match child {
+            ParsedTerm::Ambiguity(alternatives) => alternatives
+                .iter()
+                .find(|term| is_terminator(term))
+                .cloned(),
+            _ if is_terminator(child) => Some(child.clone()),
+            _ => None,
+        }
+    }
+
     /// Reconstruct real list nodes after inference has consumed the temporary
     /// singleton-list subsorts.
     pub(super) fn add_empty_lists(

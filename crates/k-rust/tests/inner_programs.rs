@@ -34,6 +34,29 @@ fn wasm_shaped_overloaded_lists() -> Definition {
     )
 }
 
+fn wasm_empty_function_overloaded_lists() -> Definition {
+    lowered(
+        indoc! {r#"
+            module MAIN
+              syntax EmptyStmt
+              syntax Instr ::= EmptyStmt
+              syntax Defn ::= EmptyStmt
+              syntax Stmt ::= Instr | Defn
+              syntax EmptyStmts ::= List{EmptyStmt, ""} [overload(listStmt), terminator-symbol(".List{\"listStmt\"}")]
+              syntax Instrs ::= List{Instr, ""} [overload(listStmt), symbol(instrs)]
+              syntax Defns ::= List{Defn, ""} [overload(listStmt), symbol(defns)]
+              syntax Stmts ::= List{Stmt, ""} [overload(listStmt), symbol(stmts)]
+              syntax Instrs ::= EmptyStmts
+              syntax Defns ::= EmptyStmts
+              syntax Stmts ::= Instrs | Defns
+              syntax Defn ::= "(" "func" Instrs ")" [symbol(func)]
+              syntax Module ::= "(" "module" Defns ")" [symbol(module)]
+            endmodule
+        "#},
+        "MAIN",
+    )
+}
+
 #[test]
 fn parsed_production_ids_belong_to_the_resolved_definition_catalog() {
     let definition = lowered(
@@ -308,21 +331,23 @@ fn parses_wasm_shaped_adjacent_overloaded_user_lists() {
 }
 
 #[test]
-fn parses_adjacent_empty_overloaded_user_lists() {
-    let definition = wasm_shaped_overloaded_lists();
+fn preserves_outer_list_terminator_after_an_empty_inner_overloaded_list() {
+    let definition = wasm_empty_function_overloaded_lists();
     let rendered = parse_program(&definition, "MAIN", &Sort::new("Module"), "(module (func))")
-        .expect("adjacent empty result and instruction lists should parse uniquely")
+        .expect("an empty function should parse uniquely inside its module")
         .to_string();
 
-    for label in ["module", "defns", "func", "results", "instrs"] {
+    for label in ["module", "defns", "func"] {
         assert!(rendered.contains(label), "missing {label}: {rendered}");
     }
-    for losing_label in ["items", "bodyItems"] {
-        assert!(
-            !rendered.contains(losing_label),
-            "selected losing overload {losing_label}: {rendered}"
-        );
-    }
+    assert!(
+        rendered.contains(r#".List{"defns"}"#),
+        "the outer Defns list should retain its own terminator: {rendered}"
+    );
+    assert!(
+        rendered.contains(r#".List{"listStmt"}"#),
+        "the empty inner Instrs list should retain the shared terminator: {rendered}"
+    );
 }
 
 #[test]
