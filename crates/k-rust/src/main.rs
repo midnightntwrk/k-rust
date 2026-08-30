@@ -343,6 +343,10 @@ struct KrunArgs {
     #[arg(short = 'm', long = "main-module", value_name = "MODULE")]
     module: String,
 
+    /// Module whose grammar should parse the program (defaults to the main module).
+    #[arg(long, value_name = "MODULE")]
+    syntax_module: Option<String>,
+
     /// Start sort for the program parser.
     #[arg(short = 's', long, value_name = "SORT")]
     sort: String,
@@ -736,6 +740,7 @@ struct KastBatchCase {
 #[derive(Debug)]
 struct KrunOptions {
     common: CommonOptions,
+    syntax_module: String,
     sort: String,
     expression: Option<String>,
     program_file: Option<PathBuf>,
@@ -891,10 +896,14 @@ impl From<KastArgs> for KastOptions {
 
 impl From<KrunArgs> for KrunOptions {
     fn from(arguments: KrunArgs) -> Self {
+        let syntax_module = arguments
+            .syntax_module
+            .unwrap_or_else(|| arguments.module.clone());
         Self {
             common: arguments
                 .source
                 .common(arguments.definition, arguments.module),
+            syntax_module,
             sort: arguments.sort,
             expression: arguments.expression,
             program_file: arguments.program_file,
@@ -1197,15 +1206,15 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
 
     let source = read_program_source(options.expression, options.program_file)?;
     let start_sort = parse_sort(&options.sort)?;
-    let parser = ProgramParser::from_resolved(&loaded.resolved, &options.common.module)?;
+    let parser = ProgramParser::from_resolved(&loaded.resolved, &options.syntax_module)?;
     let program = parser.parse(&start_sort, &source)?;
-    let program = expand_macros_in_term(&loaded.definition, &options.common.module, program)?;
+    let program = expand_macros_in_term(&loaded.definition, &options.syntax_module, program)?;
     // Parser annotations refer to the source definition's production catalog. Perform
     // production-sensitive conversion there, before crossing into the transformed definition.
-    let injector = SortInjector::new(&loaded.resolved, &options.common.module)?;
+    let injector = SortInjector::new(&loaded.resolved, &options.syntax_module)?;
     let program_sort = injector.term_sort(&program, None)?;
     let program = injector.inject_at_top(&program)?;
-    let program = term_to_kore_from_resolved(&loaded.resolved, &options.common.module, &program)?;
+    let program = term_to_kore_from_resolved(&loaded.resolved, &options.syntax_module, &program)?;
     let available_config_vars =
         configuration_variable_sorts(&loaded.resolved, &options.common.module)?;
     let mut seen_config_vars = BTreeSet::new();
@@ -1246,10 +1255,10 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
         let value = parser.parse(sort, source).map_err(|error| {
             format!("could not parse configuration variable `${name}` at sort {sort}: {error}")
         })?;
-        let value = expand_macros_in_term(&loaded.definition, &options.common.module, value)?;
+        let value = expand_macros_in_term(&loaded.definition, &options.syntax_module, value)?;
         let value_sort = injector.term_sort(&value, None)?;
         let value = injector.inject_at_top(&value)?;
-        let value = term_to_kore_from_resolved(&loaded.resolved, &options.common.module, &value)?;
+        let value = term_to_kore_from_resolved(&loaded.resolved, &options.syntax_module, &value)?;
         config_vars.push((format!("${name}"), value, encode_kore_sort(&value_sort)));
     }
     let missing_config_vars = available_config_vars
@@ -3104,6 +3113,8 @@ mod tests {
             "definition.k",
             "--main-module",
             "MAIN",
+            "--syntax-module",
+            "GRAMMAR",
             "--sort",
             "Exp",
             "--expression",
@@ -3133,6 +3144,7 @@ mod tests {
 
         assert_eq!(options.common.definition, Path::new("definition.k"));
         assert_eq!(options.common.module, "MAIN");
+        assert_eq!(options.syntax_module, "GRAMMAR");
         assert_eq!(options.sort, "Exp");
         assert_eq!(options.expression.as_deref(), Some("1 + 2"));
         assert_eq!(options.config_vars, ["ENV=.Map"]);
@@ -3484,6 +3496,7 @@ mod tests {
             panic!("expected krun command");
         };
         let krun = KrunOptions::from(krun);
+        assert_eq!(krun.syntax_module, "MAIN");
         assert_eq!(krun.depth, u64::MAX);
         assert_eq!(krun.max_simplification_iterations, 17);
 
