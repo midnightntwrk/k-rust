@@ -112,6 +112,13 @@ impl KFloat {
         }
     }
 
+    fn sqrt(self) -> Self {
+        match self {
+            Self::Binary32(value) => Self::Binary32(value.sqrt()),
+            Self::Binary64(value) => Self::Binary64(value.sqrt()),
+        }
+    }
+
     fn binary(
         self,
         other: Self,
@@ -206,6 +213,7 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
         "FLOAT.floor" => inspect(hook, arguments, |value| float_term(value.floor())),
         "FLOAT.ceil" => inspect(hook, arguments, |value| float_term(value.ceil())),
         "FLOAT.trunc" => inspect(hook, arguments, |value| float_term(value.trunc())),
+        "FLOAT.root" => root(hook, arguments),
         "FLOAT.add" => binary(hook, arguments, BinaryOperation::Add),
         "FLOAT.sub" => binary(hook, arguments, BinaryOperation::Sub),
         "FLOAT.mul" => binary(hook, arguments, BinaryOperation::Mul),
@@ -223,6 +231,20 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
         "FLOAT.maxValue" => maximum_value(hook, arguments),
         _ => Ok(BuiltinResult::NotApplicable),
     }
+}
+
+fn root(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity(hook, arguments, 2)?;
+    let Some(value) = read_float(hook, &arguments[0])? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some(degree) = read_int(&arguments[1]) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    if degree != BigInt::from(2) {
+        return Ok(BuiltinResult::NotApplicable);
+    }
+    Ok(BuiltinResult::Value(float_term(value.sqrt())))
 }
 
 fn round(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
