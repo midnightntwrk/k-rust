@@ -1560,6 +1560,28 @@ endmodule
     assert!(!output.contains("Lblinc"), "{output}");
     assert!(!output.contains("Lblfoo"), "{output}");
 
+    let limited = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Pgm",
+            "--expression",
+            "run(3)",
+            "--depth",
+            "20",
+            "--max-simplification-iterations",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    assert!(!limited.status.success());
+    let stderr = String::from_utf8(limited.stderr).unwrap();
+    assert!(stderr.contains("Simplification"), "{stderr}");
+    assert!(stderr.contains("IterationLimit"), "{stderr}");
+
     fs::remove_dir_all(root).unwrap();
 }
 

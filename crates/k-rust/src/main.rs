@@ -59,8 +59,8 @@ use k_rust_backend::{
     },
     session::BackendSession,
     simplify::{
-        SimplificationOptions, simplify_and_decide_predicate_with_solver,
-        simplify_pattern_with_solver,
+        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationOptions,
+        simplify_and_decide_predicate_with_solver, simplify_pattern_with_solver,
     },
     smt::{ModelResult, SmtError, SmtSolver, Z3Options, Z3Solver},
     substitution::Substitution,
@@ -369,6 +369,10 @@ struct KrunArgs {
     #[arg(long, value_name = "STEPS")]
     depth: Option<u64>,
 
+    /// Maximum simplifier iterations per rewrite step.
+    #[arg(long, value_name = "ITERATIONS")]
+    max_simplification_iterations: Option<usize>,
+
     /// Maximum number of live execution or search branches.
     #[arg(long = "breadth", value_name = "BRANCHES")]
     breadth_limit: Option<usize>,
@@ -423,6 +427,10 @@ struct KoreExecArgs {
     /// Maximum number of semantic rewrite steps per execution branch.
     #[arg(long, value_name = "STEPS")]
     depth: Option<u64>,
+
+    /// Maximum simplifier iterations per rewrite step.
+    #[arg(long, value_name = "ITERATIONS")]
+    max_simplification_iterations: Option<usize>,
 
     /// Write the resulting KORE pattern to this file instead of standard output.
     #[arg(short, long, value_name = "OUTPUT_KORE")]
@@ -595,6 +603,10 @@ struct KproveArgs {
     #[arg(long, value_name = "STEPS")]
     depth: Option<u64>,
 
+    /// Maximum simplifier iterations per proof step.
+    #[arg(long, value_name = "ITERATIONS")]
+    max_simplification_iterations: Option<usize>,
+
     /// Maximum number of live parallel proof branches.
     #[arg(long = "breadth", value_name = "BRANCHES")]
     breadth_limit: Option<usize>,
@@ -729,6 +741,7 @@ struct KrunOptions {
     program_file: Option<PathBuf>,
     config_vars: Vec<String>,
     depth: u64,
+    max_simplification_iterations: usize,
     breadth_limit: Option<usize>,
     execute_to_branch: bool,
     cut_point_rules: BTreeSet<String>,
@@ -750,6 +763,7 @@ struct KrunSearchOptions {
 #[derive(Debug)]
 struct BackendRunOptions {
     depth: u64,
+    max_simplification_iterations: usize,
     breadth_limit: Option<usize>,
     execute_to_branch: bool,
     cut_point_rules: BTreeSet<String>,
@@ -767,6 +781,7 @@ struct KproveOptions {
     definition_module: String,
     claims: Vec<String>,
     depth: u64,
+    max_simplification_iterations: usize,
     breadth_limit: Option<usize>,
     max_counterexamples: usize,
     save_proofs: Option<PathBuf>,
@@ -885,6 +900,9 @@ impl From<KrunArgs> for KrunOptions {
             program_file: arguments.program_file,
             config_vars: arguments.config_vars,
             depth: arguments.depth.unwrap_or(u64::MAX),
+            max_simplification_iterations: arguments
+                .max_simplification_iterations
+                .unwrap_or(DEFAULT_MAX_SIMPLIFICATION_ITERATIONS),
             breadth_limit: arguments.breadth_limit,
             execute_to_branch: arguments.execute_to_branch,
             cut_point_rules: arguments.cut_point_rules.into_iter().collect(),
@@ -911,6 +929,9 @@ impl From<KproveArgs> for KproveOptions {
             definition_module,
             claims: arguments.claims,
             depth: arguments.depth.unwrap_or(u64::MAX),
+            max_simplification_iterations: arguments
+                .max_simplification_iterations
+                .unwrap_or(DEFAULT_MAX_SIMPLIFICATION_ITERATIONS),
             breadth_limit: arguments.breadth_limit,
             max_counterexamples: arguments.max_counterexamples.get(),
             save_proofs: arguments.save_proofs,
@@ -1267,6 +1288,7 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
         },
         BackendRunOptions {
             depth: options.depth,
+            max_simplification_iterations: options.max_simplification_iterations,
             breadth_limit: options.breadth_limit,
             execute_to_branch: options.execute_to_branch,
             cut_point_rules: options.cut_point_rules,
@@ -1314,6 +1336,9 @@ fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
         initial,
         BackendRunOptions {
             depth: options.depth.unwrap_or(u64::MAX),
+            max_simplification_iterations: options
+                .max_simplification_iterations
+                .unwrap_or(DEFAULT_MAX_SIMPLIFICATION_ITERATIONS),
             breadth_limit: options.breadth_limit,
             execute_to_branch: options.execute_to_branch,
             cut_point_rules: options.cut_point_rules.into_iter().collect(),
@@ -2014,7 +2039,7 @@ fn run_backend(
                 max_depth: options.depth,
                 max_breadth: options.breadth_limit,
                 max_results: search.bound,
-                ..SearchOptions::default()
+                max_simplification_iterations: options.max_simplification_iterations,
             },
             &solver,
         );
@@ -2047,6 +2072,7 @@ fn run_backend(
         ExecutionOptions {
             max_depth: options.depth,
             max_breadth: options.breadth_limit,
+            max_simplification_iterations: options.max_simplification_iterations,
             mode: options.strategy,
             branch_mode: if options.execute_to_branch {
                 ExecutionBranchMode::StopAtBranch
@@ -2371,6 +2397,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                 min_depth: options.min_depth,
                 breadth_limit: options.breadth_limit,
                 max_counterexamples: options.max_counterexamples,
+                max_simplification_iterations: options.max_simplification_iterations,
                 allow_vacuous: options.allow_vacuous,
                 search_order: options.graph_search,
                 stuck_check: options.stuck_check,
@@ -3450,12 +3477,16 @@ mod tests {
             "Exp",
             "--expression",
             "0",
+            "--max-simplification-iterations",
+            "17",
         ])
         .unwrap();
         let Command::Krun(krun) = krun.command else {
             panic!("expected krun command");
         };
-        assert_eq!(KrunOptions::from(krun).depth, u64::MAX);
+        let krun = KrunOptions::from(krun);
+        assert_eq!(krun.depth, u64::MAX);
+        assert_eq!(krun.max_simplification_iterations, 17);
 
         let kore_exec = Cli::try_parse_from([
             "krust",
@@ -3465,12 +3496,15 @@ mod tests {
             "MAIN",
             "--pattern",
             "program.kore",
+            "--max-simplification-iterations",
+            "19",
         ])
         .unwrap();
         let Command::KoreExec(kore_exec) = kore_exec.command else {
             panic!("expected kore-exec command");
         };
         assert_eq!(kore_exec.depth, None);
+        assert_eq!(kore_exec.max_simplification_iterations, Some(19));
     }
 
     #[test]
@@ -3516,6 +3550,8 @@ mod tests {
             "second",
             "--depth",
             "42",
+            "--max-simplification-iterations",
+            "23",
             "--breadth",
             "7",
             "--max-counterexamples",
@@ -3545,6 +3581,7 @@ mod tests {
         assert_eq!(options.definition_module, "SEMANTICS");
         assert_eq!(options.claims, ["first", "second"]);
         assert_eq!(options.depth, 42);
+        assert_eq!(options.max_simplification_iterations, 23);
         assert_eq!(options.breadth_limit, Some(7));
         assert_eq!(options.max_counterexamples, 3);
         assert_eq!(

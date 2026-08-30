@@ -34,8 +34,8 @@ use k_rust_backend::{
     rule::{Predicate, RulePatternError},
     session::{BackendSession, SessionError},
     simplify::{
-        SimplificationError, SimplificationOptions, simplify_and_decide_predicate_with_solver,
-        simplify_pattern_with_solver,
+        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
+        simplify_and_decide_predicate_with_solver, simplify_pattern_with_solver,
     },
     smt::{ModelResult, SmtError, SmtSolver, Z3Options, Z3Solver},
     substitution::{Substitution, extract_substitution, substitute},
@@ -125,6 +125,9 @@ struct ExecuteParams {
     state: KoreJson,
     #[serde(default)]
     max_depth: Option<u64>,
+    /// k-rust extension to the upstream kore-rpc execute parameters.
+    #[serde(default)]
+    max_simplification_iterations: Option<usize>,
     #[serde(default)]
     module: Option<String>,
     #[serde(default)]
@@ -150,6 +153,7 @@ struct ExecuteParams {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 struct SimplifyParams {
+    // Standalone simplify deliberately remains unbounded for Kore fallback parity.
     state: KoreJson,
     #[serde(default)]
     module: Option<String>,
@@ -411,6 +415,7 @@ impl RpcService {
         let ExecuteParams {
             state,
             max_depth,
+            max_simplification_iterations,
             module,
             cut_point_rules,
             terminal_rules,
@@ -435,6 +440,8 @@ impl RpcService {
             initial,
             ExecutionOptions {
                 max_depth: max_depth.unwrap_or(u64::MAX),
+                max_simplification_iterations: max_simplification_iterations
+                    .unwrap_or(DEFAULT_MAX_SIMPLIFICATION_ITERATIONS),
                 mode: ExecutionMode::All,
                 branch_mode: ExecutionBranchMode::StopAtBranch,
                 cut_point_rules: cut_point_rules.into_iter().collect(),
@@ -4051,6 +4058,21 @@ mod tests {
             encode_kore(&parse_pattern(r#"wrap{}(\dv{SortState{}}("value"))"#).unwrap()).unwrap();
         let execute = request(&mut service, 2, "execute", json!({ "state": initial }));
         assert_eq!(execute["result"]["reason"], "aborted", "{execute:#}");
+
+        let configured = request(
+            &mut service,
+            3,
+            "execute",
+            json!({
+                "state": initial,
+                "max-simplification-iterations": 256,
+            }),
+        );
+        assert_eq!(configured["result"]["reason"], "stuck", "{configured:#}");
+        assert!(
+            configured["result"]["state"].to_string().contains("done"),
+            "{configured:#}"
+        );
     }
 
     #[test]
