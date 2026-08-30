@@ -39,6 +39,37 @@ pub struct Attributes {
     entries: BTreeMap<String, Value>,
 }
 
+/// One attribute key whose distinct values cannot be represented by the semantic map.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttributeConflict {
+    pub key: String,
+    pub values: Vec<Value>,
+}
+
+/// Typed loss report paired with the Java-compatible merge result.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttributeMergeError {
+    pub merged: Attributes,
+    pub conflicts: Vec<AttributeConflict>,
+}
+
+impl std::fmt::Display for AttributeMergeError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "attribute merge has {} conflicting key(s): {}",
+            self.conflicts.len(),
+            self.conflicts
+                .iter()
+                .map(|conflict| conflict.key.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
+impl std::error::Error for AttributeMergeError {}
+
 impl PartialEq for Attributes {
     fn eq(&self, other: &Self) -> bool {
         self.entries
@@ -88,7 +119,9 @@ impl Attributes {
     ///
     /// Equal key/value entries survive deduplication. If one key has multiple
     /// distinct values, every value for that key is omitted from the result.
-    pub fn merge<'a>(attributes: impl IntoIterator<Item = &'a Self>) -> Self {
+    pub fn merge<'a>(
+        attributes: impl IntoIterator<Item = &'a Self>,
+    ) -> Result<Self, AttributeMergeError> {
         let mut values = BTreeMap::<String, Vec<Value>>::new();
         for attributes in attributes {
             for (key, value) in attributes.entries() {
@@ -98,14 +131,21 @@ impl Attributes {
                 }
             }
         }
-        Self::new(
-            values
-                .into_iter()
-                .filter_map(|(key, mut values)| {
-                    (values.len() == 1).then(|| (key, values.pop().expect("length was one")))
-                })
-                .collect(),
-        )
+        let mut merged = BTreeMap::new();
+        let mut conflicts = Vec::new();
+        for (key, mut values) in values {
+            if values.len() == 1 {
+                merged.insert(key, values.pop().expect("length was one"));
+            } else {
+                conflicts.push(AttributeConflict { key, values });
+            }
+        }
+        let merged = Self::new(merged);
+        if conflicts.is_empty() {
+            Ok(merged)
+        } else {
+            Err(AttributeMergeError { merged, conflicts })
+        }
     }
 
     pub fn source(&self) -> Option<&str> {

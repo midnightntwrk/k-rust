@@ -196,6 +196,14 @@ fn preserves_edge_spaces_in_unquoted_attribute_values() {
 }
 
 #[test]
+fn rejects_duplicate_attribute_keys_before_lowering_loses_them() {
+    let source = "module MAIN\nsyntax Exp ::= \"x\" [symbol(first), symbol(second)]\nendmodule\n";
+    let error = parse("duplicate-attribute.k", source).unwrap_err();
+
+    assert_eq!(error.message, "duplicate attribute key \"symbol\"");
+}
+
+#[test]
 fn generated_list_terminator_symbols_include_the_syntax_module() {
     let source = "module LIST-SYNTAX\nsyntax Items ::= List{Item, \"\"}\nendmodule\n";
     let definition = lower(&parse("list-symbol.k", source).unwrap(), "LIST-SYNTAX").unwrap();

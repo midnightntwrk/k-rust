@@ -15,9 +15,9 @@ pub mod sort_catalog;
 pub mod synonyms;
 
 pub use ast::{
-    Associativity, Attributes, Definition, FlatImport, FlatModule, LOCATION_ATTRIBUTE, Location,
-    ProductionItem, SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE,
-    SOURCE_ATTRIBUTE, SOURCE_ID_ATTRIBUTE, Sentence,
+    Associativity, AttributeConflict, AttributeMergeError, Attributes, Definition, FlatImport,
+    FlatModule, LOCATION_ATTRIBUTE, Location, ProductionItem, SENTENCE_END_OFFSET_ATTRIBUTE,
+    SENTENCE_START_OFFSET_ATTRIBUTE, SOURCE_ATTRIBUTE, SOURCE_ID_ATTRIBUTE, Sentence,
 };
 pub use catalog::{
     FreshGeneratorError, LabelHead, ProductionCatalog, ProductionId, ProductionSignature, SortHead,

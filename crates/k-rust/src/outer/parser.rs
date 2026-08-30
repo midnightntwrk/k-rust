@@ -454,6 +454,12 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
+            if attributes
+                .iter()
+                .any(|attribute: &Attribute| attribute.key == key)
+            {
+                return Err(self.error(format!("duplicate attribute key {key:?}")));
+            }
             attributes.push(Attribute { key, value });
             self.skip_trivia()?;
             if self.consume(",") {

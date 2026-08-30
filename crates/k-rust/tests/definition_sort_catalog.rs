@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::definition::{
-    Attributes, Definition, FlatImport, FlatModule, ProductionItem, ResolvedDefinition, Sentence,
-    SortCatalog, SortHead,
+    AttributeConflict, Attributes, Definition, FlatImport, FlatModule, ProductionItem,
+    ResolvedDefinition, Sentence, SortCatalog, SortHead,
 };
 use k_rust::kast::{Label, Sort};
 use serde_json::{Value, json};
@@ -109,18 +109,26 @@ fn fixture() -> ResolvedDefinition {
 }
 
 #[test]
-fn merge_attributes_keeps_agreement_and_drops_conflicts() {
+fn merge_attributes_reports_conflicts_and_preserves_the_java_result() {
     let first = attrs(&[("same", json!(1)), ("conflict", json!("left"))]);
     let second = attrs(&[
         ("same", json!(1)),
         ("conflict", json!("right")),
         ("unique", json!(true)),
     ]);
-    let merged = Attributes::merge([&first, &second]);
+    let error = Attributes::merge([&first, &second]).unwrap_err();
+    let merged = &error.merged;
 
     assert_eq!(merged.get("same"), Some(&json!(1)));
     assert_eq!(merged.get("unique"), Some(&json!(true)));
     assert_eq!(merged.get("conflict"), None);
+    assert_eq!(
+        error.conflicts,
+        [AttributeConflict {
+            key: "conflict".into(),
+            values: vec![json!("left"), json!("right")],
+        }]
+    );
 }
 
 #[test]

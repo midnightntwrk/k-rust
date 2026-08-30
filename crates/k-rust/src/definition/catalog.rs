@@ -424,7 +424,8 @@ impl<'a> ProductionCatalog<'a> {
         for (head, ids) in &self.by_label {
             self.attributes_by_label.insert(
                 head.clone(),
-                Attributes::merge(ids.iter().map(|id| self.production(*id).attributes())),
+                Attributes::merge(ids.iter().map(|id| self.production(*id).attributes()))
+                    .unwrap_or_else(|error| error.merged),
             );
             let Sentence::Production { sort, .. } = self.production(ids[0]) else {
                 unreachable!()
