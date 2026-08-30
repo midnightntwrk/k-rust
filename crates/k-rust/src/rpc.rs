@@ -669,7 +669,7 @@ impl RpcService {
                 &antecedent,
                 &antecedent_pattern,
                 &solver,
-            );
+            )?;
             return implication_result(&antecedent, &consequent, &result_sort, result);
         }
         if matches!(super::strip_exists(&consequent), KorePattern::Not { .. }) {
@@ -683,13 +683,13 @@ impl RpcService {
                 &antecedent,
                 &antecedent_pattern,
                 &solver,
-            );
+            )?;
             let consequent = simplified_not_consequent_response_syntax(
                 &definition,
                 &consequent,
                 &sort_variables,
                 &solver,
-            );
+            )?;
             return implication_result(&antecedent, &consequent, &result_sort, result);
         }
         let (consequent_pattern, consequent_existentials) = definition
@@ -723,13 +723,13 @@ impl RpcService {
                     &antecedent,
                     &antecedent_pattern,
                     &solver,
-                ),
+                )?,
                 simplified_implication_response_syntax(
                     &definition,
                     &consequent,
                     &consequent_pattern,
                     &solver,
-                ),
+                )?,
             )
         };
         implication_result(&antecedent, &consequent, &result_sort, result)
@@ -1196,19 +1196,26 @@ fn special_implication_result(
 }
 
 fn normalized_implication_syntax(original: &KorePattern, pattern: &Pattern) -> KorePattern {
-    fn leaf_count(pattern: &KorePattern) -> usize {
-        match pattern {
-            KorePattern::And { arguments, .. } => arguments.iter().map(leaf_count).sum(),
-            _ => 1,
-        }
+    /// Term leaves are the non-predicate conjuncts of the request pattern; they are kept in
+    /// the caller's syntax while the predicate conjuncts are replaced by the simplified
+    /// constraints.
+    fn is_term_leaf(pattern: &KorePattern) -> bool {
+        matches!(
+            pattern,
+            KorePattern::Application { .. }
+                | KorePattern::AssociativeApplication { .. }
+                | KorePattern::Variable(_)
+                | KorePattern::DomainValue { .. }
+                | KorePattern::String(_)
+        )
     }
 
-    fn take_term_leaves(pattern: &KorePattern, terms_remaining: &mut usize) -> Option<KorePattern> {
+    fn take_term_leaves(pattern: &KorePattern) -> Option<KorePattern> {
         match pattern {
             KorePattern::And { sort, arguments } => {
                 let mut arguments = arguments
                     .iter()
-                    .filter_map(|argument| take_term_leaves(argument, terms_remaining))
+                    .filter_map(take_term_leaves)
                     .collect::<Vec<_>>();
                 match arguments.len() {
                     0 => None,
@@ -1219,10 +1226,7 @@ fn normalized_implication_syntax(original: &KorePattern, pattern: &Pattern) -> K
                     }),
                 }
             }
-            _ if *terms_remaining > 0 => {
-                *terms_remaining -= 1;
-                Some(pattern.clone())
-            }
+            _ if is_term_leaf(pattern) => Some(pattern.clone()),
             _ => None,
         }
     }
@@ -1245,22 +1249,17 @@ fn normalized_implication_syntax(original: &KorePattern, pattern: &Pattern) -> K
 
     fn normalize_body(original: &KorePattern, pattern: &Pattern) -> KorePattern {
         let result_sort = pattern.term.sort();
+        let Some(term) = take_term_leaves(original) else {
+            return externalize::constrained_pattern(pattern);
+        };
         let mut constraints = pattern.constraints.iter().collect::<Vec<_>>();
         constraints.sort();
         let constraints = constraints
             .into_iter()
             .map(|predicate| externalize::predicate_pattern(predicate, &result_sort))
             .collect::<Vec<_>>();
-        let leaves = leaf_count(original);
-        if constraints.is_empty() || constraints.len() >= leaves {
-            return original.clone();
-        }
-        let mut terms_remaining = leaves - constraints.len();
-        let Some(term) = take_term_leaves(original, &mut terms_remaining) else {
-            return original.clone();
-        };
-        if terms_remaining != 0 {
-            return original.clone();
+        if constraints.is_empty() {
+            return term;
         }
         let sort = externalize::sort(&result_sort);
         let predicate = balanced_and(&sort, &constraints);
@@ -1289,17 +1288,20 @@ fn simplified_implication_response_syntax(
     original: &KorePattern,
     unsimplified: &Pattern,
     solver: &dyn SmtSolver,
-) -> KorePattern {
-    let Ok(simplified) = simplify_pattern_with_solver(
+) -> Result<KorePattern, RpcFault> {
+    // The verdict is already decided; rendering runs the same simplifier the `simplify`
+    // method exposes, so its failures are reported through the same fault instead of
+    // echoing an unsimplified pattern next to a verdict that was computed from the
+    // simplified one.
+    let simplified = simplify_pattern_with_solver(
         definition,
         unsimplified,
         SimplificationOptions::default(),
         solver,
-    ) else {
-        return normalized_implication_syntax(original, unsimplified);
-    };
+    )
+    .map_err(|error| simplify_fault(error, &unsimplified.term.sort()))?;
     if unsimplified.term == simplified.term {
-        return normalized_implication_syntax(original, &simplified);
+        return Ok(normalized_implication_syntax(original, &simplified));
     }
 
     let mut result = externalize::constrained_pattern(&simplified);
@@ -1321,7 +1323,7 @@ fn simplified_implication_response_syntax(
             body: Box::new(result),
         };
     }
-    result
+    Ok(result)
 }
 
 fn simplified_not_consequent_response_syntax(
@@ -1329,8 +1331,8 @@ fn simplified_not_consequent_response_syntax(
     original: &KorePattern,
     sort_variables: &[super::BackendName],
     solver: &dyn SmtSolver,
-) -> KorePattern {
-    match original {
+) -> Result<KorePattern, RpcFault> {
+    Ok(match original {
         KorePattern::Exists {
             sort,
             variable,
@@ -1343,23 +1345,21 @@ fn simplified_not_consequent_response_syntax(
                 body,
                 sort_variables,
                 solver,
-            )),
+            )?),
         },
         KorePattern::Not { sort, argument } => {
-            let Ok((pattern, _)) =
-                definition.internalize_implication_pattern(argument, sort_variables)
-            else {
-                return original.clone();
-            };
+            let (pattern, _) = definition
+                .internalize_implication_pattern(argument, sort_variables)
+                .map_err(RpcFault::pattern)?;
             KorePattern::Not {
                 sort: sort.clone(),
                 argument: Box::new(simplified_implication_response_syntax(
                     definition, argument, &pattern, solver,
-                )),
+                )?),
             }
         }
         _ => original.clone(),
-    }
+    })
 }
 
 fn validate_implication_variable_capture(
@@ -2896,7 +2896,7 @@ mod tests {
     }
 
     #[test]
-    fn implication_response_rendering_degrades_on_simplification_failure() {
+    fn implication_response_rendering_surfaces_simplification_failure() {
         let syntax = parse_definition(
             r#"[]
             module TEST
@@ -2922,14 +2922,44 @@ mod tests {
             .internalize_implication_pattern(&original, &[])
             .unwrap();
 
-        let rendered = simplified_implication_response_syntax(
+        let fault = simplified_implication_response_syntax(
             &definition,
             &original,
             &pattern,
             &k_rust_backend::smt::NoSolver,
+        )
+        .expect_err("a diverging simplification rule should fail the request");
+
+        assert!(
+            fault.message.contains("could not simplify pattern"),
+            "{}",
+            fault.message
+        );
+    }
+
+    #[test]
+    fn implication_normalization_drops_constraints_that_simplified_away() {
+        let sort = BackendSort::simple("SortK");
+        let configuration = Term::variable(Variable::new("CONFIG", sort.clone()));
+        let x = Term::variable(Variable::new("X", sort.clone()));
+        let stale = Predicate::Equals(Term::domain_value(sort.clone(), "3"), x);
+        let original = KorePattern::And {
+            sort: externalize::sort(&sort),
+            arguments: vec![
+                externalize::term(&configuration),
+                externalize::predicate_pattern(&stale, &sort),
+            ],
+        };
+
+        let normalized = normalized_implication_syntax(
+            &original,
+            &Pattern {
+                term: configuration.clone(),
+                constraints: Vec::new(),
+            },
         );
 
-        assert_eq!(rendered, original);
+        assert_eq!(normalized, externalize::term(&configuration));
     }
 
     #[test]
