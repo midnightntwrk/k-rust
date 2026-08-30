@@ -7,14 +7,14 @@ use k_rust::{
     kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, printer::Printer},
     kompile::{
         add_cool_like_attributes, add_implicit_computation_cell, add_semantics_module,
-        check_simplification_rules, concretize_cells, constant_fold, expand_macros,
-        generate_sort_predicate_rules, generate_sort_predicate_syntax, generate_sort_projections,
-        guard_or_patterns, minimize_term_construction, module_to_kore, number_sentences,
-        propagate_macro_attributes, remove_unit, resolve_anon_vars, resolve_comm,
-        resolve_config_var, resolve_contexts, resolve_fresh_config_constants,
-        resolve_fresh_constants, resolve_fun, resolve_function_with_config,
-        resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts, resolve_strict,
-        subsort_kitem,
+        add_sort_injections_to_definition, check_simplification_rules, concretize_cells,
+        constant_fold, expand_macros, generate_sort_predicate_rules,
+        generate_sort_predicate_syntax, generate_sort_projections, guard_or_patterns,
+        minimize_term_construction, module_to_kore, number_sentences, propagate_macro_attributes,
+        remove_unit, resolve_anon_vars, resolve_comm, resolve_config_var, resolve_contexts,
+        resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
+        resolve_function_with_config, resolve_heat_cool_attributes, resolve_io,
+        resolve_semantic_casts, resolve_strict, subsort_kitem,
     },
     outer::{ResolvedSource, load},
 };
@@ -2052,6 +2052,178 @@ fn complete_cells_are_rejected_with_a_typed_error() {
             "{name}: {error:#?}"
         );
     }
+}
+
+#[test]
+fn drops_a_shallower_misnested_sibling_when_completing_parent_cells() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <left>
+                <value> 0 </value>
+              </left>
+              <right> 1 </right>
+            </top>
+          rule
+            <left>
+              <value> 0 => 2 </value>
+              <right> 1 => 3 </right>
+              ...
+            </left>
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_none()
+                && Printer::new().print_term(body).contains("#token(\"2\"") =>
+            {
+                Some(Printer::new().print_term(body))
+            }
+            _ => None,
+        })
+        .expect("the labeled rule should remain");
+
+    assert!(
+        body.contains("<value>"),
+        "the direct child was lost: {body}"
+    );
+    assert!(
+        !body.contains("<right>"),
+        "the shallower sibling should match Java's discarded level: {body}"
+    );
+}
+
+#[test]
+fn concretizes_cells_inside_generated_simplification_rules() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <batch> 0 </batch>
+            </top>
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+
+    for sentence in transformed
+        .modules
+        .iter()
+        .flat_map(|module| &module.local_sentences)
+    {
+        let Sentence::Rule { body, .. } = sentence else {
+            continue;
+        };
+        body.visit_preorder(&mut |term| {
+            if let Term::Apply { label, arguments } = term.unannotated()
+                && label.name == "<batch>"
+            {
+                assert_eq!(arguments.len(), 1, "incomplete batch cell in {body:?}");
+            }
+        });
+    }
+
+    let transformed = add_semantics_module(&transformed);
+    let transformed = resolve_config_var(&transformed);
+    let transformed = add_cool_like_attributes(&transformed);
+    let transformed = generate_sort_predicate_rules(&transformed);
+    let transformed = number_sentences(&transformed);
+    add_sort_injections_to_definition(&transformed).unwrap();
+}
+
+#[test]
+fn concretizes_authored_simplification_cell_bodies_without_root_wrapping() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <batch> 0 </batch>
+            </top>
+          rule <batch> 0 => 1 </batch> [simplification]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("simplification").is_some() => Some(body),
+            _ => None,
+        })
+        .expect("the authored simplification rule should remain");
+
+    let mut batch_arities = Vec::new();
+    body.visit_preorder(&mut |term| {
+        if let Term::Apply { label, arguments } = term.unannotated()
+            && label.name == "<batch>"
+        {
+            batch_arities.push(arguments.len());
+        }
+    });
+    assert_eq!(batch_arities, [1], "incomplete batch cell in {body:?}");
+    assert!(
+        !Printer::new().print_term(body).contains("<generatedTop>"),
+        "simplification rule gained a generated top cell: {body:?}"
+    );
+}
+
+#[test]
+fn does_not_wrap_matching_logic_simplifications_in_the_generated_top_cell() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "m(" Exp ")" [mlOp, symbol(m)]
+          configuration <k> a </k>
+          rule m(a) => a [simplification]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("simplification").is_some() => {
+                Some(Printer::new().print_term(body))
+            }
+            _ => None,
+        })
+        .expect("the simplification rule should remain");
+
+    assert!(body.starts_with("m("), "rule was wrapped in a cell: {body}");
+    assert!(
+        !body.contains("<generatedTop>"),
+        "simplification rule gained the generated top cell: {body}"
+    );
 }
 
 #[test]
