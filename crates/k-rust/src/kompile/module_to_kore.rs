@@ -210,6 +210,7 @@ pub enum ModuleToKoreError {
     },
     ExpectedGeneratedTopCell {
         actual: Sort,
+        rule: String,
     },
     MissingEquationProduction {
         label: String,
@@ -257,9 +258,9 @@ impl fmt::Display for ModuleToKoreError {
             Self::ExpectedRewrite { sentence } => {
                 write!(formatter, "cannot emit {sentence} without a rewrite body")
             }
-            Self::ExpectedGeneratedTopCell { actual } => write!(
+            Self::ExpectedGeneratedTopCell { actual, rule } => write!(
                 formatter,
-                "ordinary semantic rules must rewrite GeneratedTopCell, found {actual}"
+                "ordinary semantic rules must rewrite GeneratedTopCell, found {actual} in rule {rule}"
             ),
             Self::MissingEquationProduction { label } => {
                 write!(
@@ -2035,7 +2036,10 @@ fn emit_rule_or_claim(
         return emit_macro_axiom(left, right, attributes, valued, injector, converter);
     }
     if !claim && body_sort != Sort::new("GeneratedTopCell") {
-        return Err(ModuleToKoreError::ExpectedGeneratedTopCell { actual: body_sort });
+        return Err(ModuleToKoreError::ExpectedGeneratedTopCell {
+            actual: body_sort,
+            rule: body.to_string(),
+        });
     }
     let result_sort = encode_kore_sort(&body_sort);
     let left = converter.convert(left)?;

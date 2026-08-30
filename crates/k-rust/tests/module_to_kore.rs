@@ -685,7 +685,7 @@ fn rejects_non_top_cell_semantic_rules() {
     let error = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap_err();
     assert_eq!(
         error.to_string(),
-        "ordinary semantic rules must rewrite GeneratedTopCell, found Int"
+        "ordinary semantic rules must rewrite GeneratedTopCell, found Int in rule #token(\"0\",\"Int\")=>#token(\"1\",\"Int\")"
     );
 }
 
