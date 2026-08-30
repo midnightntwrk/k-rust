@@ -6,6 +6,8 @@ module FLOAT-EXECUTION
     [function, hook(FLOAT.add)]
                  | "FloatRound" "(" Float "," Int "," Int ")"
     [function, hook(FLOAT.round)]
+                 | "FloatSqrt" "(" Float "," Int ")"
+    [function, hook(FLOAT.root)]
                  | "FloatMin" "(" Float "," Float ")"
     [function, hook(FLOAT.min)]
                  | "FloatMaxValue" "(" Int "," Int ")"

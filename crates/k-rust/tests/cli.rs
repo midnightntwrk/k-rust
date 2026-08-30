@@ -2001,6 +2001,10 @@ fn krun_executes_float_fixture_to_pinned_kore_results() {
             scalar_result("Float", "1.00000000e+00p24x8"),
         ),
         (
+            "float-sqrt.float",
+            scalar_result("Float", "2.00000000e+00p24x8"),
+        ),
+        (
             "float-min-zero.float",
             scalar_result("Float", "-0e+00p24x8"),
         ),
