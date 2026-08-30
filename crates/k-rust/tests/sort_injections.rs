@@ -3,7 +3,7 @@ use k_rust::definition::{
     Attributes, Definition, FlatImport, FlatModule, ProductionItem, ResolvedDefinition, Sentence,
 };
 use k_rust::inner::resolve_rule_bubbles;
-use k_rust::kast::{Label, Sort, Term, TermMetadata};
+use k_rust::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata};
 use k_rust::kompile::{
     SortInjector, add_sort_injections_to_definition, generate_sort_projections,
     resolve_semantic_casts, term_to_kore_from_resolved,
@@ -66,6 +66,57 @@ macro_rules! injection_snapshot {
             });
         }
     };
+}
+
+#[test]
+fn recovers_a_stale_catalog_identity_for_a_unique_label() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+        endmodule
+    "#});
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let module = resolved.module_id("MAIN").unwrap();
+    let catalog = resolved.production_catalog(module);
+    let stale = catalog.productions_for(&k_rust::definition::LabelHead::new("b"))[0];
+    let term = Term::apply("a", Vec::new()).with_metadata(TermMetadata {
+        span: None,
+        production: Some(ResolvedProductionId(stale.0)),
+        sort: None,
+    });
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+
+    assert_eq!(
+        injector.inject_at_top(&term).unwrap().to_string(),
+        "a(.KList)"
+    );
+}
+
+#[test]
+fn stale_catalog_identity_uses_metadata_sort_to_disambiguate_a_label() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax A ::= "a" [symbol(choice)]
+          syntax B ::= "b" [symbol(choice)]
+          syntax Stale ::= "stale" [symbol(stale)]
+        endmodule
+    "#});
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let module = resolved.module_id("MAIN").unwrap();
+    let catalog = resolved.production_catalog(module);
+    let stale = catalog.productions_for(&k_rust::definition::LabelHead::new("stale"))[0];
+    let term = Term::apply("choice", Vec::new()).with_metadata(TermMetadata {
+        span: None,
+        production: Some(ResolvedProductionId(stale.0)),
+        sort: Some(Sort::new("A")),
+    });
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+
+    assert_eq!(
+        injector.inject_at_top(&term).unwrap().to_string(),
+        "choice(.KList)"
+    );
 }
 
 injection_snapshot!(

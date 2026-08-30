@@ -709,9 +709,10 @@ impl<'a> SortInjector<'a> {
     }
 
     fn production(&self, term: &Term, label: &Label) -> Result<&'a Sentence, SortInjectionError> {
+        let mut invalid_resolved = None;
         if let Some(resolved) = term.metadata().and_then(|metadata| metadata.production) {
             if resolved.0 >= self.productions.len() {
-                return Err(SortInjectionError::InvalidResolvedProduction {
+                invalid_resolved = Some(SortInjectionError::InvalidResolvedProduction {
                     label: label.name.clone(),
                     production: resolved.0,
                     message: format!(
@@ -719,26 +720,27 @@ impl<'a> SortInjector<'a> {
                         self.productions.len()
                     ),
                 });
-            }
-            let production = self.productions.production(ProductionId(resolved.0));
-            let Sentence::Production {
-                label: production_label,
-                ..
-            } = production
-            else {
-                unreachable!()
-            };
-            if production_label
-                .as_ref()
-                .is_none_or(|production_label| production_label.name != label.name)
-            {
-                return Err(SortInjectionError::InvalidResolvedProduction {
+            } else {
+                let production = self.productions.production(ProductionId(resolved.0));
+                let Sentence::Production {
+                    label: production_label,
+                    ..
+                } = production
+                else {
+                    unreachable!()
+                };
+                if production_label
+                    .as_ref()
+                    .is_some_and(|production_label| production_label.name == label.name)
+                {
+                    return Ok(production);
+                }
+                invalid_resolved = Some(SortInjectionError::InvalidResolvedProduction {
                     label: label.name.clone(),
                     production: resolved.0,
                     message: "the production belongs to a different KLabel".into(),
                 });
             }
-            return Ok(production);
         }
         let ids = self.productions.productions_for(&LabelHead::from(label));
         if ids.len() > 1
@@ -758,12 +760,15 @@ impl<'a> SortInjector<'a> {
             }
         }
         match ids {
-            [] => Err(SortInjectionError::UnknownLabel(label.name.clone())),
+            [] => Err(invalid_resolved
+                .unwrap_or_else(|| SortInjectionError::UnknownLabel(label.name.clone()))),
             [id] => Ok(self.productions.production(*id)),
-            ids => Err(SortInjectionError::AmbiguousLabel {
-                label: label.name.clone(),
-                productions: ids.len(),
-            }),
+            ids => Err(
+                invalid_resolved.unwrap_or_else(|| SortInjectionError::AmbiguousLabel {
+                    label: label.name.clone(),
+                    productions: ids.len(),
+                }),
+            ),
         }
     }
 
