@@ -319,8 +319,10 @@ endmodule
         command.output().unwrap()
     };
 
+    // Without `--backend`, kast parses against the same Rust-backend view that `kcompile` and
+    // `krun` use by default, so the grammar can never disagree with the compiled artifact.
     assert!(kast(None, "symbolic").status.success());
-    assert!(kast(None, "concrete").status.success());
+    assert!(!kast(None, "concrete").status.success());
     assert!(kast(Some("rust"), "symbolic").status.success());
     assert!(!kast(Some("rust"), "concrete").status.success());
     assert!(kast(Some("llvm"), "concrete").status.success());

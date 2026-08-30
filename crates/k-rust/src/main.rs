@@ -186,9 +186,10 @@ struct KastArgs {
     #[arg(short = 'm', long, value_name = "MODULE")]
     module: String,
 
-    /// Backend whose module view should be used while parsing.
-    #[arg(long, value_enum)]
-    backend: Option<CompilationBackendArg>,
+    /// Backend whose module view parses the program (the same default as `kcompile`, so the
+    /// grammar always matches the compiled artifact).
+    #[arg(long, value_enum, default_value_t)]
+    backend: CompilationBackendArg,
 
     /// Start sort for the program parser.
     #[arg(
@@ -697,7 +698,7 @@ impl From<ExecutionStrategyArg> for ExecutionMode {
 #[derive(Debug)]
 struct KastOptions {
     common: CommonOptions,
-    backend: Option<CompilationBackend>,
+    backend: CompilationBackend,
     sort: Option<String>,
     batch_cases: Vec<KastBatchCase>,
     batch_reject_cases: Vec<KastBatchCase>,
@@ -854,7 +855,7 @@ impl From<KastArgs> for KastOptions {
             common: arguments
                 .source
                 .common(arguments.definition, arguments.module),
-            backend: arguments.backend.map(Into::into),
+            backend: arguments.backend.into(),
             sort: arguments.sort,
             batch_cases,
             batch_reject_cases,
@@ -1089,7 +1090,7 @@ fn parsed_definition_for_json(
 }
 
 fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
-    let loaded = load_definition(&options.common, options.backend, None)?;
+    let loaded = load_definition(&options.common, Some(options.backend), None)?;
     let diagnostics = check_definition(&loaded.resolved)?;
     emit_diagnostics(&diagnostics);
     if diagnostics
@@ -3070,27 +3071,33 @@ mod tests {
     }
 
     #[test]
-    fn parses_an_optional_kast_backend() {
-        let cli = Cli::try_parse_from([
-            "krust",
-            "kast",
-            "definition.k",
-            "--module",
-            "MAIN",
-            "--sort",
-            "Exp",
-            "--backend",
-            "llvm",
-            "--expression",
-            "value",
-        ])
-        .unwrap();
-        let Command::Kast(options) = cli.command else {
-            panic!("expected kast command");
+    fn kast_defaults_to_the_kcompile_backend() {
+        let parse = |extra: &[&str]| {
+            let mut arguments = vec![
+                "krust",
+                "kast",
+                "definition.k",
+                "--module",
+                "MAIN",
+                "--sort",
+                "Exp",
+                "--expression",
+                "value",
+            ];
+            arguments.extend_from_slice(extra);
+            let cli = Cli::try_parse_from(arguments).unwrap();
+            let Command::Kast(options) = cli.command else {
+                panic!("expected kast command");
+            };
+            KastOptions::from(options).backend
         };
-        let options = KastOptions::from(options);
 
-        assert_eq!(options.backend, Some(CompilationBackend::Llvm));
+        assert_eq!(parse(&[]), CompilationBackend::Rust);
+        assert_eq!(
+            parse(&[]),
+            CompilationBackend::from(CompilationBackendArg::default())
+        );
+        assert_eq!(parse(&["--backend", "llvm"]), CompilationBackend::Llvm);
     }
 
     #[test]
