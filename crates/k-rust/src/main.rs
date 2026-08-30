@@ -2403,7 +2403,6 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                 stuck_check: options.stuck_check,
                 step_timeout: options.step_timeout,
                 moving_average_timeout: options.moving_average_timeout,
-                ..ProofOptions::default()
             },
             &solver,
         )?;
