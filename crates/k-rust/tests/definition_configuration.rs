@@ -177,6 +177,7 @@ fn configuration_expansion_emits_origin_records() {
         Some(&serde_json::json!({
             "module": "MAIN",
             "sentence": sentence_anchor,
+            "sentenceIndex": initializer_index,
             "path": [],
         })),
     );
@@ -212,6 +213,7 @@ fn configuration_expansion_emits_origin_records() {
         Some(DestinationAnchor {
             module: "MAIN".into(),
             sentence: sentence_anchor,
+            sentence_index: u32::try_from(initializer_index).unwrap(),
             path: vec![0],
         }),
     );

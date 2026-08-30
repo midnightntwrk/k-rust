@@ -175,6 +175,7 @@ pub enum ProvenanceLink {
 pub struct DestinationAnchor {
     pub module: String,
     pub sentence: String,
+    pub sentence_index: u32,
     pub path: Vec<u32>,
 }
 
@@ -194,6 +195,7 @@ impl OriginRecord {
             "destination": self.destination.as_ref().map(|destination| json!({
                 "module": destination.module,
                 "sentence": destination.sentence,
+                "sentenceIndex": destination.sentence_index,
                 "path": destination.path,
             })),
         })
@@ -229,10 +231,14 @@ pub fn record_generated_origins(
             .map(|candidate| candidate.local_sentences.as_slice())
             .unwrap_or_default();
         let module_origins = module_origin_links(before_sentences, pass);
-        for (sentence_index, sentence) in module.local_sentences.iter_mut().enumerate() {
-            let before_sentence = sentence_counterpart(before_sentences, sentence, sentence_index);
+        let counterparts = sentence_counterparts(before_sentences, &module.local_sentences);
+        for (sentence_offset, sentence) in module.local_sentences.iter_mut().enumerate() {
+            let sentence_index =
+                u32::try_from(sentence_offset).expect("module sentence count fits u32");
+            let before_sentence =
+                counterparts[sentence_offset].map(|index| &before_sentences[index]);
             let generated = before_sentence.is_none_or(|candidate| candidate != sentence);
-            let sentence_name = sentence_name(sentence, sentence_index);
+            let sentence_name = sentence_name(sentence, sentence_offset);
             let mut origins = before_sentence
                 .map(sentence_origin_links)
                 .unwrap_or_default();
@@ -249,6 +255,7 @@ pub fn record_generated_origins(
                     destination: Some(DestinationAnchor {
                         module: module.name.clone(),
                         sentence: sentence_name.clone(),
+                        sentence_index,
                         path: Vec::new(),
                     }),
                 };
@@ -263,34 +270,57 @@ pub fn record_generated_origins(
                 &origins,
                 &module.name,
                 &sentence_name,
+                sentence_index,
             );
         }
     }
     after
 }
 
-fn sentence_counterpart<'a>(
-    before: &'a [Sentence],
-    after: &Sentence,
-    index: usize,
-) -> Option<&'a Sentence> {
-    if let Some(unique_id) = after.attributes().get_str("UNIQUE_ID")
-        && let Some(sentence) = before
-            .iter()
-            .find(|candidate| candidate.attributes().get_str("UNIQUE_ID") == Some(unique_id))
-    {
-        return Some(sentence);
+fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<usize>> {
+    let mut counterparts = vec![None; after.len()];
+    let mut used = vec![false; before.len()];
+    for key in ["UNIQUE_ID", "label"] {
+        for (after_index, sentence) in after.iter().enumerate() {
+            if counterparts[after_index].is_some() {
+                continue;
+            }
+            let Some(value) = sentence.attributes().get_str(key) else {
+                continue;
+            };
+            if after
+                .iter()
+                .filter(|candidate| candidate.attributes().get_str(key) == Some(value))
+                .count()
+                != 1
+            {
+                continue;
+            }
+            let matching_before = before
+                .iter()
+                .enumerate()
+                .filter(|(_, candidate)| candidate.attributes().get_str(key) == Some(value))
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            if let [before_index] = matching_before.as_slice()
+                && !used[*before_index]
+            {
+                counterparts[after_index] = Some(*before_index);
+                used[*before_index] = true;
+            }
+        }
     }
-    if let Some(label) = after.attributes().get_str("label")
-        && let Some(sentence) = before
-            .iter()
-            .find(|candidate| candidate.attributes().get_str("label") == Some(label))
-    {
-        return Some(sentence);
+    for (index, sentence) in after.iter().enumerate() {
+        if counterparts[index].is_none()
+            && before.get(index).is_some_and(|candidate| {
+                !used[index] && sentence_kind(candidate) == sentence_kind(sentence)
+            })
+        {
+            counterparts[index] = Some(index);
+            used[index] = true;
+        }
     }
-    before
-        .get(index)
-        .filter(|candidate| sentence_kind(candidate) == sentence_kind(after))
+    counterparts
 }
 
 fn sentence_name(sentence: &Sentence, index: usize) -> String {
@@ -424,6 +454,7 @@ struct AnnotationContext<'a> {
     pass: GeneratingPass,
     module: &'a str,
     sentence: &'a str,
+    sentence_index: u32,
 }
 
 fn annotate_sentence_terms(
@@ -433,11 +464,13 @@ fn annotate_sentence_terms(
     origins: &[ProvenanceLink],
     module: &str,
     sentence_name: &str,
+    sentence_index: u32,
 ) {
     let context = AnnotationContext {
         pass,
         module,
         sentence: sentence_name,
+        sentence_index,
     };
     match sentence {
         Sentence::Rule {
@@ -524,6 +557,7 @@ fn annotate_term(
                 destination: Some(DestinationAnchor {
                     module: context.module.into(),
                     sentence: context.sentence.into(),
+                    sentence_index: context.sentence_index,
                     path: path.clone(),
                 }),
             })),
@@ -728,6 +762,19 @@ mod tests {
         }
     }
 
+    fn definition_with_rules(rules: Vec<Sentence>) -> Definition {
+        Definition {
+            main_module: "MAIN".into(),
+            modules: vec![FlatModule {
+                name: "MAIN".into(),
+                imports: Vec::new(),
+                local_sentences: rules,
+                attributes: Attributes::default(),
+            }],
+            attributes: Attributes::default(),
+        }
+    }
+
     #[test]
     fn changed_node_with_inherited_span_records_the_generating_pass() {
         let span = TermSpan {
@@ -764,6 +811,7 @@ mod tests {
             Some(DestinationAnchor {
                 module: "MAIN".into(),
                 sentence: "MAIN.rule".into(),
+                sentence_index: 0,
                 path: vec![0],
             }),
         );
@@ -796,6 +844,7 @@ mod tests {
             destination: Some(DestinationAnchor {
                 module: "MAIN".into(),
                 sentence: "MAIN.rule".into(),
+                sentence_index: 0,
                 path: vec![0],
             }),
         });
@@ -826,8 +875,94 @@ mod tests {
             Some(DestinationAnchor {
                 module: "MAIN".into(),
                 sentence: "MAIN.rule".into(),
+                sentence_index: 0,
                 path: vec![0],
             }),
         );
+    }
+
+    #[test]
+    fn duplicate_sentence_keys_do_not_reuse_a_before_counterpart() {
+        for key in ["label", "UNIQUE_ID"] {
+            let duplicate_attributes = || {
+                let mut attributes = Attributes::default();
+                attributes.insert(key, Value::String("duplicate".into()));
+                attributes
+            };
+            let make_rule = |body| {
+                let mut sentence = rule(Term::apply(body, Vec::new()));
+                *sentence.attributes_mut() = duplicate_attributes();
+                sentence
+            };
+            let before = definition_with_rules(vec![make_rule("before"), make_rule("unchanged")]);
+            let after = record_generated_origins(
+                &before,
+                definition_with_rules(vec![make_rule("after"), make_rule("unchanged")]),
+                GeneratingPass::MacroExpansion,
+            );
+            let [
+                Sentence::Rule {
+                    body: changed_body, ..
+                },
+                Sentence::Rule {
+                    body: unchanged_body,
+                    ..
+                },
+            ] = after.main_module().unwrap().local_sentences.as_slice()
+            else {
+                panic!("expected two rules");
+            };
+
+            assert!(
+                changed_body
+                    .metadata()
+                    .and_then(|metadata| metadata.origin.as_ref())
+                    .is_some(),
+                "changed node with duplicate {key} has an origin",
+            );
+            assert_eq!(
+                unchanged_body.metadata(),
+                None,
+                "unchanged node with duplicate {key} is not claimed",
+            );
+        }
+    }
+
+    #[test]
+    fn equal_generated_terms_in_duplicate_key_sentences_have_distinct_destinations() {
+        for key in ["label", "UNIQUE_ID"] {
+            let make_rule = || {
+                let mut sentence = rule(Term::apply("generated", Vec::new()));
+                sentence
+                    .attributes_mut()
+                    .insert(key, Value::String("duplicate".into()));
+                sentence
+            };
+            let before = definition_with_rules(Vec::new());
+            let after = record_generated_origins(
+                &before,
+                definition_with_rules(vec![make_rule(), make_rule()]),
+                GeneratingPass::ConcretizeCells,
+            );
+            let destinations = after
+                .main_module()
+                .unwrap()
+                .local_sentences
+                .iter()
+                .filter_map(|sentence| match sentence {
+                    Sentence::Rule { body, .. } => body
+                        .metadata()
+                        .and_then(|metadata| metadata.origin.as_deref())
+                        .and_then(|origin| origin.destination.as_ref()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(destinations.len(), 2);
+            assert_ne!(
+                destinations[0], destinations[1],
+                "duplicate {key} sentences have distinct destination occurrences",
+            );
+        }
     }
 }
