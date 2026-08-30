@@ -403,6 +403,7 @@ fn execute_using(
                 continue;
             }
         }
+        let pattern_before_term_simplification = state.pattern.clone();
         let simplified = simplify_with_solver(
             definition,
             &state.pattern.term,
@@ -418,6 +419,15 @@ fn execute_using(
                 state.pattern.term = simplified.term;
                 state.pattern.constraints.extend(simplified.constraints);
                 normalize_pattern_substitution(&mut state.pattern);
+                state.observation = observation_log.append_simplification(
+                    state.observation,
+                    definition,
+                    pattern_before_term_simplification,
+                    &state.pattern,
+                    &simplified.applied_rules,
+                    &simplified.effects,
+                    observation,
+                );
                 record_effects(&mut effects, simplified.effects, &mut observe);
                 state
                     .trace
@@ -1010,7 +1020,7 @@ type ObservationHead = Option<ObservationNodeId>;
 
 struct ObservationNode {
     parent: ObservationHead,
-    transition: TransitionId,
+    transition: Option<TransitionId>,
     event: Option<ObservationEvent>,
 }
 
@@ -1045,7 +1055,7 @@ impl ObservationLog {
         });
         Some(self.push(ObservationNode {
             parent,
-            transition: id,
+            transition: Some(id),
             event,
         }))
     }
@@ -1076,9 +1086,55 @@ impl ObservationLog {
         });
         Some(self.push(ObservationNode {
             parent,
-            transition: id,
+            transition: Some(id),
             event,
         }))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn append_simplification(
+        &mut self,
+        mut parent: ObservationHead,
+        definition: &BackendDefinition,
+        before: Pattern,
+        after: &Pattern,
+        applied_rules: &[String],
+        effects: &[BuiltinEffect],
+        options: Option<&ObservationOptions>,
+    ) -> ObservationHead {
+        let options = options?;
+        let mut effects = effects.iter();
+        for rule in applied_rules {
+            let class = transition_class(definition, rule);
+            let attributed_effects =
+                if class == TransitionClass::Builtin && rule == "builtin:IO.logString" {
+                    effects.next().cloned().into_iter().collect()
+                } else {
+                    Vec::new()
+                };
+            if !options.observes(rule) {
+                continue;
+            }
+            let id = TransitionId {
+                rule: rule.clone(),
+                target: PatternDigest::of(after),
+            };
+            parent = Some(self.push(ObservationNode {
+                parent,
+                transition: None,
+                event: Some(ObservationEvent::Transition(TransitionObservation {
+                    id,
+                    class,
+                    rule_label: equation_label(definition, rule),
+                    bindings: Substitution::new(),
+                    introduced_predicates: Vec::new(),
+                    before: before.clone(),
+                    after: after.clone(),
+                    effects: attributed_effects,
+                })),
+            }));
+        }
+        parent
     }
 
     fn push(&mut self, node: ObservationNode) -> ObservationNodeId {
@@ -1092,7 +1148,9 @@ impl ObservationLog {
         let mut events = Vec::new();
         while let Some(id) = head {
             let node = &self.nodes[id.0];
-            branch.push(node.transition.clone());
+            if let Some(transition) = &node.transition {
+                branch.push(transition.clone());
+            }
             if let Some(event) = &node.event {
                 events.push(event.clone());
             }
@@ -1102,6 +1160,38 @@ impl ObservationLog {
         events.reverse();
         (branch, events)
     }
+}
+
+fn transition_class(definition: &BackendDefinition, rule_id: &str) -> TransitionClass {
+    if rule_id.starts_with("builtin:") {
+        return TransitionClass::Builtin;
+    }
+    if theory_contains_rule(&definition.function_theory, rule_id) {
+        TransitionClass::FunctionEquation
+    } else {
+        TransitionClass::Simplification
+    }
+}
+
+fn equation_label(definition: &BackendDefinition, rule_id: &str) -> Option<String> {
+    [
+        &definition.function_theory,
+        &definition.simplification_theory,
+    ]
+    .into_iter()
+    .flat_map(|theory| theory.values())
+    .flat_map(|priorities| priorities.values())
+    .flatten()
+    .find(|rule| rule.attributes.unique_id == rule_id)
+    .and_then(|rule| rule.attributes.label.clone())
+}
+
+fn theory_contains_rule(theory: &crate::rule::Theory, rule_id: &str) -> bool {
+    theory
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .any(|rule| rule.attributes.unique_id == rule_id)
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -6733,6 +6823,51 @@ mod tests {
                 .filter(|leaf| !leaf.observations.is_empty())
                 .count(),
             1
+        );
+    }
+
+    #[test]
+    fn transition_classes_distinguish_function_equations_from_rewrites() {
+        let definition = definition(
+            r#"
+            symbol value{}() : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \top{R}()),
+                \equals{SortS{}, R}(
+                    value{}(),
+                    \and{SortS{}}(
+                        \dv{SortS{}}("value"),
+                        \top{SortS{}}()
+                    )
+                )
+            ) [label{}("value")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \dv{SortS{}}("done")
+            ) [label{}("step")]
+            "#,
+        );
+        let initial = Pattern {
+            term: internal_term(&definition, r#"wrap{}(value{}())"#),
+            constraints: Vec::new(),
+        };
+        let result = execute_observed(
+            &definition,
+            initial,
+            ExecutionOptions::default(),
+            &ObservationOptions::all(),
+        );
+
+        assert_eq!(
+            result.leaves[0]
+                .observations
+                .iter()
+                .map(|event| match event {
+                    ObservationEvent::Transition(observation) => observation.class,
+                    ObservationEvent::Uncommitted(_) => panic!("unexpected rollback"),
+                })
+                .collect::<Vec<_>>(),
+            [TransitionClass::FunctionEquation, TransitionClass::Rewrite]
         );
     }
 
