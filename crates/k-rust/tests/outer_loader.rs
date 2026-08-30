@@ -356,15 +356,50 @@ load_error_snapshot!(
     "MAIN"
 );
 
-load_error_snapshot!(
-    circular_requires,
-    "requires \"b.k\"",
-    [
-        ("b.k", "requires \"main.k\""),
-        ("main.k", "requires \"b.k\"")
-    ],
-    "MAIN"
-);
+#[test]
+fn deduplicates_mutual_requires_cycles_dependency_first() {
+    let sources = BTreeMap::from([
+        (
+            "body.k",
+            indoc! {r#"
+                requires "lib.k"
+                module BODY endmodule
+            "#},
+        ),
+        (
+            "lib.k",
+            indoc! {r#"
+                requires "body.k"
+                module LIB endmodule
+            "#},
+        ),
+    ]);
+    let entry = indoc! {r#"
+        requires "lib.k"
+        module MAIN
+          imports LIB
+          imports BODY
+        endmodule
+    "#};
+    let mut resolver = |_: &str, required: &str| {
+        sources
+            .get(required)
+            .map(|text| ResolvedSource::new(required, *text))
+            .ok_or_else(|| "not found".to_owned())
+    };
+
+    let loaded = load(ResolvedSource::new("main.k", entry), "MAIN", &mut resolver)
+        .expect("requires cycles should be de-duplicated like the reference frontend");
+
+    assert_eq!(
+        loaded
+            .files
+            .iter()
+            .map(|file| file.source.as_str())
+            .collect::<Vec<_>>(),
+        ["body.k", "lib.k", "main.k"]
+    );
+}
 
 load_error_snapshot!(
     duplicate_modules_across_sources,
