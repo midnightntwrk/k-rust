@@ -36,6 +36,35 @@ struct BoundaryGenerator {
     reason: String,
 }
 
+fn definition_consuming_calls(source: &str) -> BTreeMap<String, usize> {
+    let call_pattern = Regex::new(
+        r"([A-Za-z_][A-Za-z0-9_]*)\(\s*(?:&loaded\.definition|&resolved|&definition|definition)\s*(?:,|\))",
+    )
+    .unwrap();
+    let mut calls = BTreeMap::new();
+    for captures in call_pattern.captures_iter(source) {
+        *calls.entry(captures[1].to_owned()).or_insert(0) += 1;
+    }
+    calls
+}
+
+fn pipeline_assignment_count(source: &str) -> usize {
+    Regex::new(r"(?m)^\s*let\s+(?:\([^=]+\)|[A-Za-z_][A-Za-z0-9_]*)\s*=")
+        .unwrap()
+        .find_iter(source)
+        .count()
+}
+
+#[test]
+fn pipeline_source_audit_detects_borrowed_and_by_value_rebindings() {
+    let source = "let definition = borrowed(&definition);\nlet definition = moved(definition);";
+    assert_eq!(
+        definition_consuming_calls(source),
+        BTreeMap::from([("borrowed".into(), 1), ("moved".into(), 1)])
+    );
+    assert_eq!(pipeline_assignment_count(source), 2);
+}
+
 #[test]
 fn provenance_manifest_classifies_the_compile_pipeline_and_origin_free_nodes() {
     let manifest: ProvenanceCoverageManifest =
@@ -110,14 +139,12 @@ fn provenance_manifest_classifies_the_compile_pipeline_and_origin_free_nodes() {
         .split_once("fn with_newline(")
         .unwrap()
         .0;
-    let call_pattern = Regex::new(
-        r"([A-Za-z_][A-Za-z0-9_]*)\(\s*(?:&loaded\.definition|&resolved|&definition)\s*(?:,|\))",
-    )
-    .unwrap();
-    let mut actual_pipeline = BTreeMap::new();
-    for captures in call_pattern.captures_iter(pipeline_source) {
-        *actual_pipeline.entry(captures[1].to_owned()).or_insert(0) += 1;
-    }
+    let actual_pipeline = definition_consuming_calls(pipeline_source);
+    assert_eq!(
+        actual_pipeline.values().sum::<usize>(),
+        pipeline_assignment_count(pipeline_source),
+        "every pipeline assignment must contain one recognized definition-consuming call"
+    );
     assert_eq!(declared_pipeline, actual_pipeline);
 
     let boundary_source = include_str!("../src/kompile/module_to_kore.rs");
