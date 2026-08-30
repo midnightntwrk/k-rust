@@ -11,12 +11,11 @@ use std::{
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use k_rust::{
-    definition::{ProductionCatalog, Sentence, checks::check_definition, json as definition_json},
+    definition::{checks::check_definition, json as definition_json},
     diagnostic::{Diagnostic, Severity},
-    inner::ProgramParser,
+    inner::{ProgramParser, prepare_reference_kast},
     kast::{
-        Sort as KastSort, Term as KastTerm, json as kast_json, parser::parse_sort,
-        printer::Printer as KastPrinter,
+        Sort as KastSort, json as kast_json, parser::parse_sort, printer::Printer as KastPrinter,
     },
     kompile::{
         CompilationBackend, CompileOptions, SortInjector, compile_loaded_definition,
@@ -1146,63 +1145,6 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
         OutputFormat::Json => println!("{}", kast_json::to_string_pretty(&term)?),
     }
     Ok(())
-}
-
-/// Match the reference `kast` presentation boundary without weakening the typed term used by
-/// execution and compilation. The reference concrete parser infers parametric production sorts
-/// but omits those inferred arguments from the user-facing KLabel.
-fn prepare_reference_kast(term: KastTerm, productions: &ProductionCatalog<'_>) -> KastTerm {
-    let metadata = term.metadata().cloned();
-    let inferred_production_parameters = metadata
-        .as_ref()
-        .and_then(|metadata| metadata.production)
-        .is_some_and(|production| {
-            production.0 < productions.len()
-                && matches!(
-                    productions.production(k_rust::definition::ProductionId(production.0)),
-                    Sentence::Production { parameters, .. } if !parameters.is_empty()
-                )
-        });
-    let rebuilt = match term.into_unannotated() {
-        KastTerm::Apply {
-            mut label,
-            arguments,
-        } => {
-            if inferred_production_parameters {
-                label.parameters.clear();
-            }
-            KastTerm::Apply {
-                label,
-                arguments: arguments
-                    .into_iter()
-                    .map(|argument| prepare_reference_kast(argument, productions))
-                    .collect(),
-            }
-        }
-        KastTerm::InjectedLabel(mut label) => {
-            if inferred_production_parameters {
-                label.parameters.clear();
-            }
-            KastTerm::InjectedLabel(label)
-        }
-        KastTerm::Rewrite { left, right } => KastTerm::Rewrite {
-            left: Box::new(prepare_reference_kast(*left, productions)),
-            right: Box::new(prepare_reference_kast(*right, productions)),
-        },
-        KastTerm::As { pattern, alias } => KastTerm::As {
-            pattern: Box::new(prepare_reference_kast(*pattern, productions)),
-            alias: Box::new(prepare_reference_kast(*alias, productions)),
-        },
-        KastTerm::Sequence(items) => KastTerm::Sequence(
-            items
-                .into_iter()
-                .map(|item| prepare_reference_kast(item, productions))
-                .collect(),
-        ),
-        leaf @ (KastTerm::Variable { .. } | KastTerm::Token { .. }) => leaf,
-        KastTerm::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
-    };
-    metadata.map_or(rebuilt.clone(), |metadata| rebuilt.with_metadata(metadata))
 }
 
 fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
