@@ -525,9 +525,11 @@ impl<'a> TermConverter<'a> {
             }
             _ => {}
         }
+        let ids = self.productions.productions_for(&LabelHead::from(label));
+        let mut invalid_resolved = None;
         if let Some(resolved) = term.metadata().and_then(|metadata| metadata.production) {
             if resolved.0 >= self.productions.len() {
-                return Err(TermConversionError::InvalidResolvedProduction {
+                invalid_resolved = Some(TermConversionError::InvalidResolvedProduction {
                     label: label.name.clone(),
                     production: resolved.0,
                     message: format!(
@@ -535,33 +537,34 @@ impl<'a> TermConverter<'a> {
                         self.productions.len()
                     ),
                 });
-            }
-            let production = self.productions.production(ProductionId(resolved.0));
-            let Sentence::Production {
-                label: production_label,
-                parameters,
-                sort,
-                ..
-            } = production
-            else {
-                unreachable!()
-            };
-            if production_label
-                .as_ref()
-                .is_none_or(|production_label| production_label.name != label.name)
-            {
-                return Err(TermConversionError::InvalidResolvedProduction {
+            } else {
+                let production = self.productions.production(ProductionId(resolved.0));
+                let Sentence::Production {
+                    label: production_label,
+                    parameters,
+                    sort,
+                    ..
+                } = production
+                else {
+                    unreachable!()
+                };
+                if production_label
+                    .as_ref()
+                    .is_some_and(|production_label| production_label.name == label.name)
+                {
+                    return Ok(production_result_sort(parameters, sort, label));
+                }
+                invalid_resolved = Some(TermConversionError::InvalidResolvedProduction {
                     label: label.name.clone(),
                     production: resolved.0,
                     message: "the production belongs to a different KLabel".into(),
                 });
             }
-            return Ok(production_result_sort(parameters, sort, label));
         }
 
-        let ids = self.productions.productions_for(&LabelHead::from(label));
         if ids.is_empty() {
-            return Err(TermConversionError::UnknownLabel(label.name.clone()));
+            return Err(invalid_resolved
+                .unwrap_or_else(|| TermConversionError::UnknownLabel(label.name.clone())));
         }
         if ids.len() != 1
             && let Some(expected) = term.metadata().and_then(|metadata| metadata.sort.as_ref())
@@ -589,10 +592,12 @@ impl<'a> TermConverter<'a> {
             }
         }
         if ids.len() != 1 {
-            return Err(TermConversionError::AmbiguousLabel {
-                label: label.name.clone(),
-                productions: ids.len(),
-            });
+            return Err(
+                invalid_resolved.unwrap_or_else(|| TermConversionError::AmbiguousLabel {
+                    label: label.name.clone(),
+                    productions: ids.len(),
+                }),
+            );
         }
         let Sentence::Production {
             parameters, sort, ..

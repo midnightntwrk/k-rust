@@ -260,3 +260,76 @@ fn resolved_production_identity_disambiguates_application_sorts() {
         k_rust::kore::ast::Pattern::Rewrites { .. }
     ));
 }
+
+#[test]
+fn recovers_a_stale_catalog_identity_for_a_unique_label() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+        endmodule
+    "#});
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let module = resolved.module_id("MAIN").unwrap();
+    let catalog = resolved.production_catalog(module);
+    let stale = catalog.productions_for(&LabelHead::new("b"))[0];
+    let stale_application = Term::apply("a", Vec::new()).with_metadata(TermMetadata {
+        span: None,
+        production: Some(ResolvedProductionId(stale.0)),
+        sort: None,
+    });
+    let term = Term::Rewrite {
+        left: Box::new(stale_application),
+        right: Box::new(Term::Variable {
+            name: "X".into(),
+            sort: Some(Sort::new("A")),
+        }),
+    };
+
+    assert_eq!(
+        Printer::compact().print_pattern(
+            &TermConverter::new(&resolved, "MAIN")
+                .unwrap()
+                .convert(&term)
+                .expect("the unique visible production should replace the stale identity")
+        ),
+        "\\rewrites{SortA{}}(Lbla{}(), VarX:SortA{})"
+    );
+}
+
+#[test]
+fn stale_catalog_identity_uses_metadata_sort_to_disambiguate_a_label() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax A ::= "a" [symbol(choice)]
+          syntax B ::= "b" [symbol(choice)]
+          syntax Stale ::= "stale" [symbol(stale)]
+        endmodule
+    "#});
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let module = resolved.module_id("MAIN").unwrap();
+    let catalog = resolved.production_catalog(module);
+    let stale = catalog.productions_for(&LabelHead::new("stale"))[0];
+    let choice = Term::apply("choice", Vec::new()).with_metadata(TermMetadata {
+        span: None,
+        production: Some(ResolvedProductionId(stale.0)),
+        sort: Some(Sort::new("A")),
+    });
+    let term = Term::Rewrite {
+        left: Box::new(choice),
+        right: Box::new(Term::Variable {
+            name: "X".into(),
+            sort: Some(Sort::new("A")),
+        }),
+    };
+
+    assert_eq!(
+        Printer::compact().print_pattern(
+            &TermConverter::new(&resolved, "MAIN")
+                .unwrap()
+                .convert(&term)
+                .expect("the metadata sort should replace the stale identity")
+        ),
+        "\\rewrites{SortA{}}(Lblchoice{}(), VarX:SortA{})"
+    );
+}
