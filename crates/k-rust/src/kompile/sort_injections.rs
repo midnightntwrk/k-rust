@@ -405,7 +405,105 @@ impl<'a> SortInjector<'a> {
         {
             return Ok(wrapped);
         }
+        if let Some(wrapped) = self.user_list_wrapper(&actual, expected, visited.clone()) {
+            return Ok(wrapped);
+        }
         Ok(injection(actual, expected.clone(), visited))
+    }
+
+    fn user_list_wrapper(&self, actual: &Sort, expected: &Sort, visited: Term) -> Option<Term> {
+        if !self.is_user_list_sort(expected) || self.is_user_list_sort(actual) {
+            return None;
+        }
+        let mut recursive = self
+            .productions
+            .productions_for_sort(&SortHead::from(expected))
+            .iter()
+            .filter_map(|id| match self.productions.production(*id) {
+                Sentence::Production {
+                    label: Some(label),
+                    parameters,
+                    sort,
+                    items,
+                    attributes,
+                } if parameters.is_empty()
+                    && sort == expected
+                    && attributes.get("userList").is_some() =>
+                {
+                    let arguments = items
+                        .iter()
+                        .filter_map(|item| match item {
+                            crate::definition::ProductionItem::NonTerminal { sort, .. } => {
+                                Some(sort)
+                            }
+                            crate::definition::ProductionItem::Terminal(_)
+                            | crate::definition::ProductionItem::RegexTerminal { .. } => None,
+                        })
+                        .collect::<Vec<_>>();
+                    match arguments.as_slice() {
+                        [child, list]
+                            if *list == expected
+                                && (actual == *child
+                                    || self.subsorts.less_than_eq(actual, child)) =>
+                        {
+                            Some((label.clone(), false))
+                        }
+                        [list, child]
+                            if *list == expected
+                                && (actual == *child
+                                    || self.subsorts.less_than_eq(actual, child)) =>
+                        {
+                            Some((label.clone(), true))
+                        }
+                        _ => None,
+                    }
+                }
+                _ => None,
+            });
+        let (recursive_label, list_first) = recursive.next()?;
+        if recursive.next().is_some() {
+            return None;
+        }
+
+        let mut terminators = self
+            .productions
+            .productions_for_sort(&SortHead::from(expected))
+            .iter()
+            .filter_map(|id| match self.productions.production(*id) {
+                Sentence::Production {
+                    label: Some(label),
+                    parameters,
+                    sort,
+                    items,
+                    attributes,
+                } if parameters.is_empty()
+                    && sort == expected
+                    && attributes.get("userList").is_some()
+                    && !items.iter().any(|item| {
+                        matches!(item, crate::definition::ProductionItem::NonTerminal { .. })
+                    }) =>
+                {
+                    Some(label.clone())
+                }
+                _ => None,
+            });
+        let terminator = terminators.next()?;
+        if terminators.next().is_some() {
+            return None;
+        }
+        let terminator = Term::Apply {
+            label: terminator,
+            arguments: Vec::new(),
+        };
+        let arguments = if list_first {
+            vec![terminator, visited]
+        } else {
+            vec![visited, terminator]
+        };
+        Some(Term::Apply {
+            label: recursive_label,
+            arguments,
+        })
     }
 
     fn collection_wrapper(

@@ -119,6 +119,26 @@ fn stale_catalog_identity_uses_metadata_sort_to_disambiguate_a_label() {
     );
 }
 
+#[test]
+fn reconstructs_a_singleton_user_list_for_generated_terms() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Item ::= "item" [symbol(item)]
+          syntax Items ::= List{Item, ""} [symbol(items), terminator-symbol(.Items)]
+        endmodule
+    "#});
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let item = Term::Variable {
+        name: "X".into(),
+        sort: Some(Sort::new("Item")),
+    };
+
+    let injected = injector.inject(&item, &Sort::new("Items")).unwrap();
+
+    assert_eq!(injected.to_string(), "items(X,`.Items`(.KList))");
+}
+
 injection_snapshot!(
     inserts_subsort_injections_in_production_arguments,
     r#"
