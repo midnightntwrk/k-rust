@@ -2,13 +2,17 @@
 
 use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
 use k256::elliptic_curve::sec1::ToSec1Point;
+use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256, Sha512_256};
 use sha3::{Keccak256, Sha3_256};
+use substrate_bn::{AffineG1, AffineG2, Fq, Fq2, G1, G2, Group};
 
-use super::{BuiltinError, BuiltinResult, bytes, check_interrupted, expect_arity, read_int};
-use crate::term::{Sort, Term};
+use super::{
+    BuiltinError, BuiltinResult, bool_term, bytes, check_interrupted, expect_arity, read_int,
+};
+use crate::term::{Sort, Term, TermKind};
 
 pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     match hook {
@@ -22,8 +26,140 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
         "KRYPTO.ripemd160raw" => hash_raw::<Ripemd160>(hook, arguments),
         "KRYPTO.ecdsaPubKey" => ecdsa_public_key(arguments),
         "KRYPTO.ecdsaRecover" | "SECP256K1.ecdsaRecover" => ecdsa_recover(hook, arguments),
+        "KRYPTO.bn128valid" => bn128_valid(hook, arguments),
+        "KRYPTO.bn128g2valid" => bn128_g2_valid(hook, arguments),
         _ => Ok(BuiltinResult::NotApplicable),
     }
+}
+
+enum Reading<T> {
+    Concrete(T),
+    Invalid,
+    Symbolic,
+}
+
+struct ConcreteG1 {
+    x: BigInt,
+    y: BigInt,
+}
+
+struct ConcreteG2 {
+    x_c0: BigInt,
+    x_c1: BigInt,
+    y_c0: BigInt,
+    y_c1: BigInt,
+}
+
+fn without_injections(mut term: &Term) -> &Term {
+    while let TermKind::Injection { term: inner, .. } = term.kind() {
+        term = inner;
+    }
+    term
+}
+
+fn unreadable<T>(term: &Term) -> Reading<T> {
+    if term.attributes().variables.is_empty() {
+        Reading::Invalid
+    } else {
+        Reading::Symbolic
+    }
+}
+
+fn concrete_g1(term: &Term) -> Reading<ConcreteG1> {
+    let term = without_injections(term);
+    let TermKind::Application { arguments, .. } = term.kind() else {
+        return unreadable(term);
+    };
+    let [x, y] = arguments.as_slice() else {
+        return unreadable(term);
+    };
+    let Some(x) = read_int(x) else {
+        return unreadable(term);
+    };
+    let Some(y) = read_int(y) else {
+        return unreadable(term);
+    };
+    Reading::Concrete(ConcreteG1 { x, y })
+}
+
+fn concrete_g2(term: &Term) -> Reading<ConcreteG2> {
+    let term = without_injections(term);
+    let TermKind::Application { arguments, .. } = term.kind() else {
+        return unreadable(term);
+    };
+    let [x_c0, x_c1, y_c0, y_c1] = arguments.as_slice() else {
+        return unreadable(term);
+    };
+    let Some(x_c0) = read_int(x_c0) else {
+        return unreadable(term);
+    };
+    let Some(x_c1) = read_int(x_c1) else {
+        return unreadable(term);
+    };
+    let Some(y_c0) = read_int(y_c0) else {
+        return unreadable(term);
+    };
+    let Some(y_c1) = read_int(y_c1) else {
+        return unreadable(term);
+    };
+    Reading::Concrete(ConcreteG2 {
+        x_c0,
+        x_c1,
+        y_c0,
+        y_c1,
+    })
+}
+
+fn coordinate_bytes(value: &BigInt) -> Option<[u8; 32]> {
+    let (sign, significant) = value.to_bytes_be();
+    if sign == Sign::Minus || significant.len() > 32 {
+        return None;
+    }
+    let mut bytes = [0_u8; 32];
+    bytes[32 - significant.len()..].copy_from_slice(&significant);
+    Some(bytes)
+}
+
+fn g1_value(point: &ConcreteG1) -> Option<G1> {
+    let x = Fq::from_slice(&coordinate_bytes(&point.x)?).ok()?;
+    let y = Fq::from_slice(&coordinate_bytes(&point.y)?).ok()?;
+    if x.is_zero() && y.is_zero() {
+        Some(G1::zero())
+    } else {
+        AffineG1::new(x, y).ok().map(Into::into)
+    }
+}
+
+fn g2_value(point: &ConcreteG2) -> Option<G2> {
+    let x_c0 = Fq::from_slice(&coordinate_bytes(&point.x_c0)?).ok()?;
+    let x_c1 = Fq::from_slice(&coordinate_bytes(&point.x_c1)?).ok()?;
+    let y_c0 = Fq::from_slice(&coordinate_bytes(&point.y_c0)?).ok()?;
+    let y_c1 = Fq::from_slice(&coordinate_bytes(&point.y_c1)?).ok()?;
+    if x_c0.is_zero() && x_c1.is_zero() && y_c0.is_zero() && y_c1.is_zero() {
+        Some(G2::zero())
+    } else {
+        AffineG2::new(Fq2::new(x_c0, x_c1), Fq2::new(y_c0, y_c1))
+            .ok()
+            .map(Into::into)
+    }
+}
+
+fn bn128_valid(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity(hook, arguments, 1)?;
+    Ok(match concrete_g1(&arguments[0]) {
+        Reading::Concrete(point) => BuiltinResult::Value(bool_term(g1_value(&point).is_some())),
+        Reading::Invalid => BuiltinResult::Value(bool_term(false)),
+        Reading::Symbolic => BuiltinResult::NotApplicable,
+    })
+}
+
+fn bn128_g2_valid(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity(hook, arguments, 1)?;
+    Ok(match concrete_g2(&arguments[0]) {
+        Reading::Concrete(point) => BuiltinResult::Value(bool_term(g2_value(&point).is_some())),
+        Reading::Invalid => BuiltinResult::Value(bool_term(false)),
+        Reading::Symbolic => BuiltinResult::NotApplicable,
+    })
 }
 
 fn hash_hex<D>(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError>
@@ -150,6 +286,8 @@ fn string_term(value: impl Into<String>) -> Term {
 mod tests {
     use std::sync::Arc;
 
+    use num_bigint::BigInt;
+
     use super::*;
     use crate::{
         cancellation::CancellationToken,
@@ -158,6 +296,69 @@ mod tests {
 
     fn string(value: &str) -> BuiltinResult {
         BuiltinResult::Value(string_term(value))
+    }
+
+    fn decimal(value: &str) -> BigInt {
+        BigInt::parse_bytes(value.as_bytes(), 10).expect("decimal curve fixture")
+    }
+
+    fn hex_coordinate(value: &str) -> BigInt {
+        BigInt::parse_bytes(value.as_bytes(), 16).expect("hexadecimal curve fixture")
+    }
+
+    fn g1_symbol() -> Arc<Symbol> {
+        Arc::new(Symbol::constructor(
+            "Lblg1Point",
+            vec![Sort::simple("SortInt"), Sort::simple("SortInt")],
+            Sort::simple("SortG1Point"),
+        ))
+    }
+
+    fn g1_point(symbol: &Arc<Symbol>, x: BigInt, y: BigInt) -> Term {
+        Term::application(
+            symbol.clone(),
+            Vec::new(),
+            vec![super::super::int_term(x), super::super::int_term(y)],
+        )
+    }
+
+    fn g2_symbol() -> Arc<Symbol> {
+        Arc::new(Symbol::constructor(
+            "Lblg2Point",
+            vec![Sort::simple("SortInt"); 4],
+            Sort::simple("SortG2Point"),
+        ))
+    }
+
+    fn g2_point(symbol: &Arc<Symbol>, coordinates: [BigInt; 4]) -> Term {
+        Term::application(
+            symbol.clone(),
+            Vec::new(),
+            coordinates
+                .into_iter()
+                .map(super::super::int_term)
+                .collect(),
+        )
+    }
+
+    fn g2_generator(symbol: &Arc<Symbol>) -> Term {
+        g2_point(
+            symbol,
+            [
+                decimal(
+                    "10857046999023057135944570762232829481370756359578518086990519993285655852781",
+                ),
+                decimal(
+                    "11559732032986387107991004021392285783925812861821192530917403151452391805634",
+                ),
+                decimal(
+                    "8495653923123431417604973247489272438418190587263600148770280649306958101930",
+                ),
+                decimal(
+                    "4082367875863433681332203403145435568316851327593401208105741076214120093531",
+                ),
+            ],
+        )
     }
 
     #[test]
@@ -580,6 +781,136 @@ mod tests {
         assert_eq!(
             evaluate("KRYPTO.ecdsaRecover", &symbolic),
             Ok(BuiltinResult::NotApplicable)
+        );
+    }
+
+    #[test]
+    fn validates_concrete_bn128_g1_points() {
+        let symbol = g1_symbol();
+        let field_modulus = decimal(
+            "21888242871839275222246405745257275088696311157297823662689037894645226208583",
+        );
+
+        for (name, point, expected) in [
+            ("infinity", g1_point(&symbol, 0.into(), 0.into()), true),
+            ("generator", g1_point(&symbol, 1.into(), 2.into()), true),
+            ("off curve", g1_point(&symbol, 1.into(), 3.into()), false),
+            (
+                "out of field",
+                g1_point(&symbol, field_modulus, 2.into()),
+                false,
+            ),
+        ] {
+            assert_eq!(
+                evaluate("KRYPTO.bn128valid", &[point]),
+                Ok(BuiltinResult::Value(super::super::bool_term(expected))),
+                "{name}"
+            );
+        }
+
+        let symbolic = Term::application(
+            symbol,
+            Vec::new(),
+            vec![
+                Term::variable(Variable::new("X", Sort::simple("SortInt"))),
+                super::super::int_term(2.into()),
+            ],
+        );
+        assert_eq!(
+            evaluate("KRYPTO.bn128valid", &[symbolic]),
+            Ok(BuiltinResult::NotApplicable)
+        );
+    }
+
+    #[test]
+    fn validates_concrete_bn128_g2_points_and_subgroup() {
+        let symbol = g2_symbol();
+        let generator = g2_generator(&symbol);
+        let infinity = g2_point(&symbol, std::array::from_fn(|_| 0.into()));
+        let off_curve = g2_point(
+            &symbol,
+            [
+                decimal(
+                    "10857046999023057135944570762232829481370756359578518086990519993285655852781",
+                ),
+                decimal(
+                    "11559732032986387107991004021392285783925812861821192530917403151452391805634",
+                ),
+                decimal(
+                    "8495653923123431417604973247489272438418190587263600148770280649306958101931",
+                ),
+                decimal(
+                    "4082367875863433681332203403145435568316851327593401208105741076214120093531",
+                ),
+            ],
+        );
+        let out_of_field = g2_point(
+            &symbol,
+            [
+                decimal(
+                    "21888242871839275222246405745257275088696311157297823662689037894645226208583",
+                ),
+                0.into(),
+                0.into(),
+                0.into(),
+            ],
+        );
+        // ethereum/execution-specs' `one_point_not_in_subgroup` vector is encoded
+        // imaginary-first for calldata. The K production is c0-first, so each Fq2
+        // pair is reversed here.
+        let non_subgroup = g2_point(
+            &symbol,
+            [
+                8.into(),
+                0.into(),
+                hex_coordinate("2588360d269af2cd3e0803839ea274c2b8f062a6308e8da85fd774c26f1bcb87"),
+                hex_coordinate("00d3270b7da683f988d3889abcdad9776ecd45abaca689f1118c3fd33404b439"),
+            ],
+        );
+
+        for (name, point, expected) in [
+            ("generator", generator, true),
+            ("infinity", infinity, true),
+            ("off curve", off_curve, false),
+            ("out of field", out_of_field, false),
+            ("outside the order-r subgroup", non_subgroup, false),
+        ] {
+            assert_eq!(
+                evaluate("KRYPTO.bn128g2valid", &[point]),
+                Ok(BuiltinResult::Value(super::super::bool_term(expected))),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn orders_g2_coordinates_as_the_k_production_declares() {
+        let symbol = g2_symbol();
+        let calldata_order = g2_point(
+            &symbol,
+            [
+                decimal(
+                    "11559732032986387107991004021392285783925812861821192530917403151452391805634",
+                ),
+                decimal(
+                    "10857046999023057135944570762232829481370756359578518086990519993285655852781",
+                ),
+                decimal(
+                    "4082367875863433681332203403145435568316851327593401208105741076214120093531",
+                ),
+                decimal(
+                    "8495653923123431417604973247489272438418190587263600148770280649306958101930",
+                ),
+            ],
+        );
+
+        assert_eq!(
+            evaluate("KRYPTO.bn128g2valid", &[g2_generator(&symbol)]),
+            Ok(BuiltinResult::Value(super::super::bool_term(true)))
+        );
+        assert_eq!(
+            evaluate("KRYPTO.bn128g2valid", &[calldata_order]),
+            Ok(BuiltinResult::Value(super::super::bool_term(false)))
         );
     }
 }
