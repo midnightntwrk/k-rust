@@ -4,6 +4,7 @@ use num_bigint::{BigInt, Sign};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 mod bytes;
+mod float;
 mod krypto;
 mod list;
 mod map;
@@ -35,6 +36,22 @@ pub enum BuiltinError {
     IncompatibleMapSorts {
         left: Sort,
         right: Sort,
+    },
+    InvalidFloatToken {
+        hook: String,
+        token: String,
+    },
+    UnsupportedFloatFormat {
+        hook: String,
+        precision: u32,
+        exponent_bits: u32,
+    },
+    MismatchedFloatFormats {
+        hook: String,
+        left_precision: u32,
+        left_exponent_bits: u32,
+        right_precision: u32,
+        right_exponent_bits: u32,
     },
 }
 
@@ -134,6 +151,7 @@ fn evaluate_hook_with_sort(
         hook if hook.starts_with("MAP.") => return map::evaluate(hook, arguments),
         hook if hook.starts_with("SET.") => set::evaluate(hook, arguments),
         hook if hook.starts_with("BYTES.") => return bytes::evaluate(hook, arguments),
+        hook if hook.starts_with("FLOAT.") => return float::evaluate(hook, arguments),
         hook if hook
             .split_once('.')
             .is_some_and(|(namespace, _)| PLUGIN_HOOK_NAMESPACES.contains(&namespace)) =>
@@ -718,6 +736,85 @@ mod tests {
                 .collect::<Vec<_>>(),
         )
         .unwrap()
+    }
+
+    fn float_term(value: &str) -> Term {
+        Term::domain_value(Sort::simple("SortFloat"), value)
+    }
+
+    #[test]
+    fn float_representation_hooks_use_canonical_k_tokens() {
+        let cases = [
+            (
+                "FLOAT.precision",
+                vec![float_term("0.1f")],
+                BuiltinResult::Value(int_term(BigInt::from(24))),
+            ),
+            (
+                "FLOAT.exponentBits",
+                vec![float_term("0.1p53x11")],
+                BuiltinResult::Value(int_term(BigInt::from(11))),
+            ),
+            (
+                "FLOAT.sign",
+                vec![float_term("-0.0p24x8")],
+                BuiltinResult::Value(bool_term(true)),
+            ),
+            (
+                "FLOAT.isNaN",
+                vec![float_term("NaNp53x11")],
+                BuiltinResult::Value(bool_term(true)),
+            ),
+            (
+                "FLOAT.neg",
+                vec![float_term("0.1")],
+                BuiltinResult::Value(float_term("-1.0000000000000001e-01p53x11")),
+            ),
+            (
+                "FLOAT.neg",
+                vec![float_term("0.1f")],
+                BuiltinResult::Value(float_term("-1.00000001e-01p24x8")),
+            ),
+            (
+                "FLOAT.neg",
+                vec![float_term("0.0f")],
+                BuiltinResult::Value(float_term("-0e+00p24x8")),
+            ),
+            (
+                "FLOAT.neg",
+                vec![float_term("-Infinity")],
+                BuiltinResult::Value(float_term("Infinityp53x11")),
+            ),
+        ];
+
+        for (hook, arguments, expected) in cases {
+            assert_eq!(evaluate_hook(hook, &arguments), Ok(expected), "{hook}");
+        }
+    }
+
+    #[test]
+    fn float_tokens_reject_unsupported_or_malformed_ground_formats() {
+        assert_eq!(
+            evaluate_hook("FLOAT.precision", &[float_term("1.0p2x8")]),
+            Err(BuiltinError::UnsupportedFloatFormat {
+                hook: "FLOAT.precision".into(),
+                precision: 2,
+                exponent_bits: 8,
+            })
+        );
+        assert_eq!(
+            evaluate_hook("FLOAT.sign", &[float_term("not-a-float")]),
+            Err(BuiltinError::InvalidFloatToken {
+                hook: "FLOAT.sign".into(),
+                token: "not-a-float".into(),
+            })
+        );
+
+        let symbolic = Term::variable(Variable::new("F", Sort::simple("SortFloat")));
+        assert_eq!(
+            evaluate_hook("FLOAT.sign", &[symbolic]),
+            Ok(BuiltinResult::NotApplicable)
+        );
     }
 
     #[test]

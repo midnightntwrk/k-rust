@@ -32,6 +32,11 @@ implemented = [
   "BYTES.string2bytes",
   "BYTES.substr",
   "BYTES.update",
+  "FLOAT.exponentBits",
+  "FLOAT.isNaN",
+  "FLOAT.neg",
+  "FLOAT.precision",
+  "FLOAT.sign",
   "INT.abs",
   "INT.add",
   "INT.and",
@@ -157,11 +162,11 @@ reason = "arbitrary-precision floating-point evaluation is not implemented"
 hooks = [
   "FLOAT.abs", "FLOAT.acos", "FLOAT.add", "FLOAT.asin", "FLOAT.atan",
   "FLOAT.atan2", "FLOAT.ceil", "FLOAT.cos", "FLOAT.div", "FLOAT.eq",
-  "FLOAT.exp", "FLOAT.exponent", "FLOAT.exponentBits", "FLOAT.float2int",
-  "FLOAT.floor", "FLOAT.ge", "FLOAT.gt", "FLOAT.int2float", "FLOAT.isNaN",
+  "FLOAT.exp", "FLOAT.exponent", "FLOAT.float2int",
+  "FLOAT.floor", "FLOAT.ge", "FLOAT.gt", "FLOAT.int2float",
   "FLOAT.le", "FLOAT.log", "FLOAT.lt", "FLOAT.max", "FLOAT.maxValue",
-  "FLOAT.min", "FLOAT.minValue", "FLOAT.mul", "FLOAT.neg", "FLOAT.pow",
-  "FLOAT.precision", "FLOAT.rem", "FLOAT.root", "FLOAT.round", "FLOAT.sign",
+  "FLOAT.min", "FLOAT.minValue", "FLOAT.mul", "FLOAT.pow",
+  "FLOAT.rem", "FLOAT.root", "FLOAT.round",
   "FLOAT.sin", "FLOAT.sub", "FLOAT.tan", "FLOAT.trunc",
 ]
 
