@@ -413,6 +413,9 @@ impl<'a> Parser<'a> {
                 break;
             }
             let key = self.word()?;
+            if !is_attribute_key(&key) {
+                return Err(self.error("invalid attribute key"));
+            }
             self.skip_trivia()?;
             let value = if self.consume("(") {
                 let start = self.offset;
@@ -436,7 +439,7 @@ impl<'a> Parser<'a> {
                             depth -= 1;
                             if depth == 0 {
                                 let end = self.offset - 1;
-                                break 'value Some(self.input[start..end].trim().to_owned());
+                                break 'value Some(self.input[start..end].to_owned());
                             }
                         }
                     }
@@ -929,6 +932,31 @@ fn attribute_starts(raw: &str) -> Vec<usize> {
         }
     }
     offsets
+}
+
+fn is_attribute_key(key: &str) -> bool {
+    let base = if let Some((base, parameter)) = key.split_once('<') {
+        let Some(parameter) = parameter.strip_suffix('>') else {
+            return false;
+        };
+        if parameter.is_empty()
+            || !parameter
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '-')
+        {
+            return false;
+        }
+        base
+    } else {
+        key
+    };
+    let mut characters = base.chars();
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    (first.is_ascii_lowercase() || ('1'..='9').contains(&first))
+        && characters
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '.'))
 }
 
 fn split_label(raw: &str) -> (Option<String>, &str) {

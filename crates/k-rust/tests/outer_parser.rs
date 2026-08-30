@@ -95,6 +95,34 @@ outer_snapshot!(
 "#}
 );
 
+#[test]
+fn uppercase_bracketed_rule_rhs_is_not_parsed_as_attributes() {
+    let source = "module MAIN\nrule gather(_, TYPES) => [ TYPES ]\nendmodule\n";
+    let parsed = parse("bracketed-rhs.k", source).unwrap();
+    let Sentence::Bubble(bubble) = &parsed.modules[0].sentences[0] else {
+        panic!("expected rule bubble")
+    };
+
+    assert_eq!(bubble.content, "gather(_, TYPES) => [ TYPES ]");
+    assert!(bubble.attributes.is_empty());
+}
+
+#[test]
+fn preserves_edge_spaces_in_unquoted_attribute_values() {
+    let source = "module MAIN\nsyntax Exp ::= \"x\" [symbol( x), smtlib(x )]\nendmodule\n";
+    let parsed = parse("attribute-spaces.k", source).unwrap();
+    let Sentence::Syntax(syntax) = &parsed.modules[0].sentences[0] else {
+        panic!("expected syntax declaration")
+    };
+    let k_rust::outer::SyntaxBody::Productions(blocks) = &syntax.body else {
+        panic!("expected syntax productions")
+    };
+    let attributes = &blocks[0].productions[0].attributes;
+
+    assert_eq!(attributes[0].value.as_deref(), Some(" x"));
+    assert_eq!(attributes[1].value.as_deref(), Some("x "));
+}
+
 outer_snapshot!(
     bubble_attributes_ignore_commented_brackets,
     indoc! {r#"
