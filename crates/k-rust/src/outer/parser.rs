@@ -47,6 +47,7 @@ pub fn parse(source: impl Into<String>, input: &str) -> Result<SourceFile, Parse
     }
     Ok(SourceFile {
         source,
+        source_id: crate::provenance::SourceId(0),
         requires,
         modules,
     })

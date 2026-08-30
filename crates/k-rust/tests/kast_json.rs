@@ -18,7 +18,11 @@ fn reference_kast_json_v4_terms_round_trip_structurally() {
 fn encoding_ignores_compiler_metadata() {
     let plain = Term::apply("f", vec![Term::variable("X")]);
     let annotated = plain.clone().with_metadata(TermMetadata {
-        span: Some(TermSpan { start: 0, end: 4 }),
+        span: Some(TermSpan {
+            source: k_rust::provenance::SourceId(0),
+            start: 0,
+            end: 4,
+        }),
         production: Some(ResolvedProductionId(3)),
         sort: Some(Sort::new("Exp")),
     });

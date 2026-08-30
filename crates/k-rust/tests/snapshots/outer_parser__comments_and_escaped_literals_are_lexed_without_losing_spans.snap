@@ -4,6 +4,9 @@ description: "K source:\n\n// file comment\nmodule TRIVIA /* module comment */\n
 ---
 SourceFile {
     source: "trivia.k",
+    source_id: SourceId(
+        0,
+    ),
     requires: [],
     modules: [
         Module {

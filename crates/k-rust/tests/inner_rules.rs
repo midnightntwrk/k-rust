@@ -3,6 +3,7 @@ use k_rust::definition::Sentence;
 use k_rust::inner::{ParseError, RuleError, resolve_rule_bubbles};
 use k_rust::kast::{Sort, Term, TermSpan};
 use k_rust::outer::{ResolvedSource, load};
+use k_rust::provenance::SourceTable;
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -19,16 +20,25 @@ struct SentenceSummary<'a> {
 struct MetadataSummary<'a> {
     term: String,
     source: Option<&'a str>,
+    logical_source: Option<&'a str>,
     span: Option<TermSpan>,
     production: Option<usize>,
 }
 
-fn metadata_summary<'a>(term: &Term, source: &'a str, output: &mut Vec<MetadataSummary<'a>>) {
+fn metadata_summary<'a>(
+    term: &Term,
+    source: &'a str,
+    source_table: &'a SourceTable,
+    output: &mut Vec<MetadataSummary<'a>>,
+) {
     let metadata = term.metadata();
     let span = metadata.and_then(|metadata| metadata.span);
     output.push(MetadataSummary {
         term: term.to_string(),
         source: span.and_then(|span| source.get(span.start..span.end)),
+        logical_source: span
+            .and_then(|span| source_table.get(span.source))
+            .map(|identity| identity.logical.as_str()),
         span,
         production: metadata
             .and_then(|metadata| metadata.production)
@@ -36,19 +46,19 @@ fn metadata_summary<'a>(term: &Term, source: &'a str, output: &mut Vec<MetadataS
     });
     match term.unannotated() {
         Term::Rewrite { left, right } => {
-            metadata_summary(left, source, output);
-            metadata_summary(right, source, output);
+            metadata_summary(left, source, source_table, output);
+            metadata_summary(right, source, source_table, output);
         }
         Term::As { pattern, alias } => {
-            metadata_summary(pattern, source, output);
-            metadata_summary(alias, source, output);
+            metadata_summary(pattern, source, source_table, output);
+            metadata_summary(alias, source, source_table, output);
         }
         Term::Sequence(items)
         | Term::Apply {
             arguments: items, ..
         } => {
             for item in items {
-                metadata_summary(item, source, output);
+                metadata_summary(item, source, source_table, output);
             }
         }
         Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => {}
@@ -135,13 +145,20 @@ fn preserves_nested_term_spans_and_resolved_productions() {
           syntax Int ::= r"[0-9]+" [token]
           syntax Exp ::= Int
           syntax Exp ::= Exp "+" Exp [symbol(_+_)]
+          syntax Exp ::= "f(" Exp ")" [symbol(f)]
 
-          rule 1 + 2 => 3
+          rule f(f(1 + 2)) => f(3)
         endmodule
     "#};
-    let rule_source = "1 + 2 => 3";
-    let definition = resolve_rule_bubbles(&lowered(source)).unwrap();
-    let body = definition
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+    let loaded = load(
+        ResolvedSource::new("nested.k", source),
+        "MAIN",
+        &mut resolver,
+    )
+    .unwrap();
+    let body = loaded
+        .definition
         .main_module()
         .unwrap()
         .local_sentences
@@ -152,7 +169,7 @@ fn preserves_nested_term_spans_and_resolved_productions() {
         })
         .unwrap();
     let mut metadata = Vec::new();
-    metadata_summary(body, rule_source, &mut metadata);
+    metadata_summary(body, source, &loaded.source_table, &mut metadata);
 
     insta::with_settings!({
         description => format!("K definition:\n\n{source}"),

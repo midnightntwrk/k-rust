@@ -8,6 +8,7 @@ use crate::definition::{
     Sentence,
 };
 use crate::kast::{Label, Sort, Term};
+use crate::provenance::SourceId;
 
 use super::config::{add_casts, add_k_syntax, add_subsort, nonterminal, truth};
 use super::parser::{Grammar, ParseError};
@@ -116,13 +117,27 @@ pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleE
             .iter()
             .any(|key| attributes.get(key).is_some());
             let parsed = grammar
-                .parse_with_context(&Sort::new("#RuleContent"), contents, is_anywhere)
+                .parse_with_context(
+                    &Sort::new("#RuleContent"),
+                    contents,
+                    is_anywhere,
+                    attributes.source_id().unwrap_or(SourceId(0)),
+                    content_start_offset(attributes),
+                )
                 .map_err(|error| bubble_error(&module.name, sentence_type, attributes, error))?;
             *sentence = up_sentence(&module.name, sentence_type, parsed, attributes.clone())?;
         }
     }
 
     Ok(transformed)
+}
+
+fn content_start_offset(attributes: &Attributes) -> usize {
+    attributes
+        .get("contentStartOffset")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|offset| usize::try_from(offset).ok())
+        .unwrap_or(0)
 }
 
 fn is_rule_bubble(sentence: &Sentence) -> bool {

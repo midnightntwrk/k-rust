@@ -2,6 +2,8 @@
 
 use std::fmt::{self, Display, Formatter};
 
+use crate::provenance::SourceId;
+
 use super::printer::Printer;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -48,9 +50,10 @@ impl Label {
     }
 }
 
-/// A byte range relative to the source fragment parsed into a term.
+/// An absolute byte range in one logical source's semantic text.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct TermSpan {
+    pub source: SourceId,
     pub start: usize,
     pub end: usize,
 }

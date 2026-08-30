@@ -6,7 +6,7 @@ use crate::{
     definition::{
         Associativity as FlatAssociativity, Attributes, Definition, FlatImport, FlatModule,
         LOCATION_ATTRIBUTE, ProductionItem as FlatProductionItem, SOURCE_ATTRIBUTE,
-        Sentence as FlatSentence,
+        SOURCE_ID_ATTRIBUTE, Sentence as FlatSentence,
     },
     kast::{Label, Sort},
 };
@@ -581,6 +581,7 @@ fn source_attributes(file: &SourceFile, span: Span, attributes: &[Attribute]) ->
         );
     }
     result.insert(SOURCE_ATTRIBUTE, json!(file.source));
+    result.insert(SOURCE_ID_ATTRIBUTE, json!(file.source_id.0));
     result.insert(
         LOCATION_ATTRIBUTE,
         json!([

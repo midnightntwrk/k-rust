@@ -19,12 +19,19 @@ use crate::definition::{
     compute_overloads, compute_priorities, compute_subsorts, parse_regex, sentence_equivalent,
 };
 use crate::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan};
+use crate::provenance::SourceId;
 
 use self::disambiguation::parse_apply_priority;
 use self::lists::UserList;
 use self::scanner::{Item, Layout, Scanner, compile_item};
 
 const MAX_DERIVATIONS_PER_STATE: usize = 64;
+
+#[derive(Clone, Copy)]
+struct ParseProvenance {
+    source: SourceId,
+    base_offset: usize,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ParseError {
@@ -596,7 +603,18 @@ impl Grammar {
     }
 
     pub fn parse(&self, start: &Sort, input: &str) -> Result<Term, ParseError> {
-        self.parse_with_context(start, input, false)
+        self.parse_with_provenance(start, input, SourceId(0), 0)
+    }
+
+    /// Parse semantic text whose byte zero begins at `base_offset` in `source`.
+    pub fn parse_with_provenance(
+        &self,
+        start: &Sort,
+        input: &str,
+        source: SourceId,
+        base_offset: usize,
+    ) -> Result<Term, ParseError> {
+        self.parse_with_context(start, input, false, source, base_offset)
     }
 
     pub(crate) fn parse_with_context(
@@ -604,7 +622,13 @@ impl Grammar {
         start: &Sort,
         input: &str,
         is_anywhere: bool,
+        source: SourceId,
+        base_offset: usize,
     ) -> Result<Term, ParseError> {
+        let provenance = ParseProvenance {
+            source,
+            base_offset,
+        };
         let mut charts = (0..=input.len())
             .map(|_| Chart::default())
             .collect::<Vec<_>>();
@@ -658,6 +682,7 @@ impl Grammar {
                             position,
                             position,
                             input,
+                            provenance,
                         );
                         if first_violation.is_none() {
                             first_violation = violation;
@@ -706,6 +731,7 @@ impl Grammar {
                                 input,
                                 state.origin,
                                 position,
+                                provenance,
                             );
                             match filter_or_defer_priority(self, term) {
                                 Ok(term) => {
@@ -751,8 +777,15 @@ impl Grammar {
             if self.layout.skip(input, position) != input.len() {
                 continue;
             }
-            let (completed, violation) =
-                completed_nodes(chart, self, start, start_position, position, input);
+            let (completed, violation) = completed_nodes(
+                chart,
+                self,
+                start,
+                start_position,
+                position,
+                input,
+                provenance,
+            );
             parses.extend(completed.into_iter().map(|term| term.as_ref().clone()));
             if first_violation.is_none() {
                 first_violation = violation;
@@ -1419,6 +1452,7 @@ fn completed_nodes(
     origin: usize,
     end: usize,
     input: &str,
+    provenance: ParseProvenance,
 ) -> (BTreeSet<Rc<ParsedTerm>>, Option<ParseError>) {
     let mut nodes = BTreeSet::new();
     let mut first_violation = None;
@@ -1436,6 +1470,7 @@ fn completed_nodes(
                 input,
                 state.origin,
                 end,
+                provenance,
             );
             match filter_or_defer_priority(grammar, term) {
                 Ok(term) => {
@@ -1488,6 +1523,7 @@ fn build_parsed_term(
     input: &str,
     start: usize,
     end: usize,
+    provenance: ParseProvenance,
 ) -> ParsedTerm {
     if production.token {
         if production.result.name == "#KVariable" {
@@ -1496,7 +1532,12 @@ fn build_parsed_term(
                     name: input[start..end].to_owned(),
                     sort: None,
                 }
-                .with_metadata(term_metadata(production, start, end)),
+                .with_metadata(term_metadata(
+                    production,
+                    provenance.source,
+                    provenance.base_offset + start,
+                    provenance.base_offset + end,
+                )),
             );
         }
         return ParsedTerm::Term(
@@ -1504,7 +1545,12 @@ fn build_parsed_term(
                 token: input[start..end].to_owned(),
                 sort: production.result.clone(),
             }
-            .with_metadata(term_metadata(production, start, end)),
+            .with_metadata(term_metadata(
+                production,
+                provenance.source,
+                provenance.base_offset + start,
+                provenance.base_offset + end,
+            )),
         );
     }
     if production.record.is_none()
@@ -1520,13 +1566,23 @@ fn build_parsed_term(
             .iter()
             .map(|child| child.as_ref().clone())
             .collect(),
-        metadata: term_metadata(production, start, end),
+        metadata: term_metadata(
+            production,
+            provenance.source,
+            provenance.base_offset + start,
+            provenance.base_offset + end,
+        ),
     }
 }
 
-fn term_metadata(production: &Production, start: usize, end: usize) -> TermMetadata {
+fn term_metadata(
+    production: &Production,
+    source: SourceId,
+    start: usize,
+    end: usize,
+) -> TermMetadata {
     TermMetadata {
-        span: Some(TermSpan { start, end }),
+        span: Some(TermSpan { source, start, end }),
         production: production
             .source_production
             .map(|production| ResolvedProductionId(production.0)),

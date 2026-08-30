@@ -4,6 +4,9 @@ description: "K source:\n\nmodule COMMENTS\n  rule X => X [simplification]\n  //
 ---
 SourceFile {
     source: "bubble_attributes_ignore_commented_brackets.k",
+    source_id: SourceId(
+        0,
+    ),
     requires: [],
     modules: [
         Module {

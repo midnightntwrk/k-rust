@@ -18,6 +18,7 @@ fn attributes(attributes: &Attributes) -> String {
             !matches!(
                 key.as_str(),
                 "org.kframework.attributes.Source"
+                    | "org.kframework.attributes.SourceId"
                     | "org.kframework.attributes.Location"
                     | "contentStartLine"
                     | "contentStartColumn"

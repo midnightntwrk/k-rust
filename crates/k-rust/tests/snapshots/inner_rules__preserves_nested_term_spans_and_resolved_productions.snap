@@ -1,30 +1,84 @@
 ---
 source: crates/k-rust/tests/inner_rules.rs
-description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Int\n  syntax Exp ::= Exp \"+\" Exp [symbol(_+_)]\n\n  rule 1 + 2 => 3\nendmodule\n"
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Exp ::= Int\n  syntax Exp ::= Exp \"+\" Exp [symbol(_+_)]\n  syntax Exp ::= \"f(\" Exp \")\" [symbol(f)]\n\n  rule f(f(1 + 2)) => f(3)\nendmodule\n"
 ---
 [
     MetadataSummary {
-        term: "`_+_`(#token(\"1\",\"Int\"),#token(\"2\",\"Int\"))=>#token(\"3\",\"Int\")",
+        term: "f(f(`_+_`(#token(\"1\",\"Int\"),#token(\"2\",\"Int\"))))=>f(#token(\"3\",\"Int\"))",
         source: Some(
-            "1 + 2 => 3",
+            "f(f(1 + 2)) => f(3)",
+        ),
+        logical_source: Some(
+            "nested.k",
         ),
         span: Some(
             TermSpan {
-                start: 0,
-                end: 10,
+                source: SourceId(
+                    0,
+                ),
+                start: 161,
+                end: 180,
             },
         ),
         production: None,
+    },
+    MetadataSummary {
+        term: "f(f(`_+_`(#token(\"1\",\"Int\"),#token(\"2\",\"Int\"))))",
+        source: Some(
+            "f(f(1 + 2))",
+        ),
+        logical_source: Some(
+            "nested.k",
+        ),
+        span: Some(
+            TermSpan {
+                source: SourceId(
+                    0,
+                ),
+                start: 161,
+                end: 172,
+            },
+        ),
+        production: Some(
+            3,
+        ),
+    },
+    MetadataSummary {
+        term: "f(`_+_`(#token(\"1\",\"Int\"),#token(\"2\",\"Int\")))",
+        source: Some(
+            "f(1 + 2)",
+        ),
+        logical_source: Some(
+            "nested.k",
+        ),
+        span: Some(
+            TermSpan {
+                source: SourceId(
+                    0,
+                ),
+                start: 163,
+                end: 171,
+            },
+        ),
+        production: Some(
+            3,
+        ),
     },
     MetadataSummary {
         term: "`_+_`(#token(\"1\",\"Int\"),#token(\"2\",\"Int\"))",
         source: Some(
             "1 + 2",
         ),
+        logical_source: Some(
+            "nested.k",
+        ),
         span: Some(
             TermSpan {
-                start: 0,
-                end: 5,
+                source: SourceId(
+                    0,
+                ),
+                start: 165,
+                end: 170,
             },
         ),
         production: Some(
@@ -36,10 +90,16 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
         source: Some(
             "1",
         ),
+        logical_source: Some(
+            "nested.k",
+        ),
         span: Some(
             TermSpan {
-                start: 0,
-                end: 1,
+                source: SourceId(
+                    0,
+                ),
+                start: 165,
+                end: 166,
             },
         ),
         production: Some(
@@ -51,10 +111,16 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
         source: Some(
             "2",
         ),
+        logical_source: Some(
+            "nested.k",
+        ),
         span: Some(
             TermSpan {
-                start: 4,
-                end: 5,
+                source: SourceId(
+                    0,
+                ),
+                start: 169,
+                end: 170,
             },
         ),
         production: Some(
@@ -62,14 +128,41 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
         ),
     },
     MetadataSummary {
+        term: "f(#token(\"3\",\"Int\"))",
+        source: Some(
+            "f(3)",
+        ),
+        logical_source: Some(
+            "nested.k",
+        ),
+        span: Some(
+            TermSpan {
+                source: SourceId(
+                    0,
+                ),
+                start: 176,
+                end: 180,
+            },
+        ),
+        production: Some(
+            3,
+        ),
+    },
+    MetadataSummary {
         term: "#token(\"3\",\"Int\")",
         source: Some(
             "3",
         ),
+        logical_source: Some(
+            "nested.k",
+        ),
         span: Some(
             TermSpan {
-                start: 9,
-                end: 10,
+                source: SourceId(
+                    0,
+                ),
+                start: 178,
+                end: 179,
             },
         ),
         production: Some(

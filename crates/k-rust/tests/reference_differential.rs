@@ -273,6 +273,7 @@ fn normalize_definition_value(
             for key in [
                 "digest",
                 "org.kframework.attributes.Source",
+                "org.kframework.attributes.SourceId",
                 "org.kframework.attributes.Location",
                 "org.kframework.definition.Production",
                 "contentStartColumn",

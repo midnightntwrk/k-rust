@@ -16,7 +16,7 @@ pub mod synonyms;
 
 pub use ast::{
     Associativity, Attributes, Definition, FlatImport, FlatModule, LOCATION_ATTRIBUTE, Location,
-    ProductionItem, SOURCE_ATTRIBUTE, Sentence,
+    ProductionItem, SOURCE_ATTRIBUTE, SOURCE_ID_ATTRIBUTE, Sentence,
 };
 pub use catalog::{
     FreshGeneratorError, LabelHead, ProductionCatalog, ProductionId, ProductionSignature, SortHead,
