@@ -870,7 +870,16 @@ impl Grammar {
             } => {
                 let children = children
                     .into_iter()
-                    .map(|child| self.resolve_overloaded_terminators(child))
+                    .enumerate()
+                    .map(|(child_index, child)| {
+                        if let Some(terminator) =
+                            self.program_list_terminator(production, child_index, &child)
+                        {
+                            Ok(terminator)
+                        } else {
+                            self.resolve_overloaded_terminators(child)
+                        }
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 let current = &self.productions[production];
                 let Some(source) = current.source_production else {
