@@ -82,7 +82,8 @@ pub struct DeclarationModules {
 /// Backend-specific KORE generation switches.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModuleToKoreOptions {
-    /// Generate definedness axioms for hooked maps used by the symbolic Rust backend.
+    /// Generate the hooked-map definedness axioms Java's Haskell backend emits
+    /// (`ModuleToKORE.genMapCeilAxioms`), which the symbolic Rust backend also relies on.
     pub generate_map_ceil_axioms: bool,
     /// Treat otherwise-unqualified claims as all-path reachability claims.
     pub default_claims_to_all_path: bool,

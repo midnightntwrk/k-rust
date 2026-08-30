@@ -28,6 +28,9 @@ use super::{
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum CompilationBackend {
     Llvm,
+    /// The in-process symbolic backend. Its KORE is Java's Haskell-backend dialect (including
+    /// the map definedness axioms `kompile --backend haskell` generates) plus the plugin hook
+    /// namespaces the backend dispatches natively, so `haskell` names the same target.
     #[default]
     Rust,
 }
@@ -372,6 +375,9 @@ mod tests {
         assert_eq!("rust".parse(), Ok(CompilationBackend::Rust));
         assert_eq!("haskell".parse(), Ok(CompilationBackend::Rust));
         assert!("nope".parse::<CompilationBackend>().is_err());
+        for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
+            assert_eq!(backend.to_string().parse(), Ok(backend));
+        }
     }
 
     #[test]
