@@ -274,6 +274,34 @@ fn chooses_the_rewrite_overload_matching_the_rhs_sort() {
     );
 }
 
+#[test]
+fn keeps_a_valid_concrete_application_when_a_kapply_alternative_is_unknown() {
+    let source = indoc! {r##"
+        module MAIN
+          syntax WordStack ::= ".WordStack" [symbol(.WordStack)]
+          syntax Int ::= "#sizeWordStack" "(" WordStack ")"
+                         [symbol(#sizeWordStack), function]
+                       | "#sizeWordStack" "(" WordStack "," Int ")"
+                         [symbol(sizeWordStackAux), function]
+
+          rule #sizeWordStack(.WordStack, SIZE) => SIZE
+        endmodule
+    "##};
+    let resolved = resolve_rule_bubbles(&lowered(source)).unwrap();
+    let body = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .unwrap();
+
+    assert!(body.contains("sizeWordStackAux"), "{body}");
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn parses_a_semantic_cast_inside_nested_map_and_bytes_lookups() {
