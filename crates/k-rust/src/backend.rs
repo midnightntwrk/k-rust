@@ -19,9 +19,15 @@ use k_rust_backend::{
     proof::{ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
     rewrite::{
         ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, TraceKind,
-        execute_with_solver,
+        execute_observed_with_solver, execute_with_solver,
     },
     rule::{Predicate, RulePatternError},
+    search::{
+        SearchOptions, SearchType, search_graph_observed_with_solver, search_graph_with_solver,
+        search_paths_observed_with_solver, search_paths_with_solver,
+        search_pattern_observed_with_solver, search_pattern_paths_observed_with_solver,
+        search_pattern_paths_with_solver, search_pattern_with_solver,
+    },
     session::BackendSession,
     simplify::{
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationOptions,
@@ -29,6 +35,7 @@ use k_rust_backend::{
     },
     smt::SmtSolver,
     term::{Name, Sort, Term},
+    transition::ObservationOptions,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -69,6 +76,8 @@ pub struct BackendCapabilities {
     pub module_addition: bool,
     pub smt: bool,
     pub step_timeouts: bool,
+    pub search: bool,
+    pub observation: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -123,6 +132,9 @@ pub enum ExecutionStrategy {
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionResult {
     pub leaves: Vec<ExecutionLeaf>,
+    pub effects: Vec<EffectOutput>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub discarded: Vec<ObservationEventOutput>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -134,6 +146,10 @@ pub struct ExecutionLeaf {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     pub trace: Vec<TraceEntry>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub branch: Vec<TransitionIdOutput>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub observations: Vec<ObservationEventOutput>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -286,6 +302,8 @@ impl Backend {
             module_addition: true,
             smt: cfg!(feature = "z3-inference"),
             step_timeouts: !cfg!(target_arch = "wasm32"),
+            search: true,
+            observation: true,
         }
     }
 
@@ -297,6 +315,21 @@ impl Backend {
     }
 
     pub fn execute(&mut self, request: ExecuteRequest) -> Result<ExecutionResult, BackendError> {
+        self.execute_using(request, None)
+    }
+
+    pub fn execute_observed(
+        &mut self,
+        request: ObservedRequest<ExecuteRequest>,
+    ) -> Result<ExecutionResult, BackendError> {
+        self.execute_using(request.request, Some(request.rules))
+    }
+
+    fn execute_using(
+        &mut self,
+        request: ExecuteRequest,
+        observation_rules: Option<Option<Vec<String>>>,
+    ) -> Result<ExecutionResult, BackendError> {
         #[cfg(target_arch = "wasm32")]
         if request.step_timeout_ms.is_some() || request.moving_average_timeout {
             return Err(BackendError(
@@ -309,48 +342,218 @@ impl Backend {
             let initial = definition
                 .internalize_pattern(&syntax, &[])
                 .map_err(error("could not internalize execution state"))?;
-            let result = execute_with_solver(
-                definition,
-                initial,
-                ExecutionOptions {
-                    max_depth: request.max_depth.unwrap_or(u64::MAX),
-                    max_breadth: request.max_breadth,
-                    max_simplification_iterations: request.max_simplification_iterations,
-                    mode: match request.strategy {
-                        ExecutionStrategy::All => ExecutionMode::All,
-                        ExecutionStrategy::Any => ExecutionMode::Any,
-                    },
-                    branch_mode: if request.stop_at_branch {
-                        ExecutionBranchMode::StopAtBranch
-                    } else {
-                        ExecutionBranchMode::ExploreAll
-                    },
-                    cut_point_rules: request.cut_point_rules.into_iter().collect(),
-                    terminal_rules: request.terminal_rules.into_iter().collect(),
-                    step_timeout: request.step_timeout_ms.map(Duration::from_millis),
-                    moving_average_timeout: request.moving_average_timeout,
-                    assume_initial_defined: request.assume_state_defined,
+            let options = ExecutionOptions {
+                max_depth: request.max_depth.unwrap_or(u64::MAX),
+                max_breadth: request.max_breadth,
+                max_simplification_iterations: request.max_simplification_iterations,
+                mode: match request.strategy {
+                    ExecutionStrategy::All => ExecutionMode::All,
+                    ExecutionStrategy::Any => ExecutionMode::Any,
                 },
-                solver,
-            );
-            Ok(ExecutionResult {
-                leaves: result
-                    .leaves
-                    .into_iter()
-                    .map(|leaf| {
-                        let (reason, detail) = halt_reason(&leaf.halt_reason);
-                        Ok(ExecutionLeaf {
-                            state: encode_pattern(&externalize::constrained_pattern(
-                                &leaf.pattern,
-                            ))?,
-                            depth: leaf.depth,
-                            reason: reason.into(),
-                            detail,
-                            trace: leaf.trace.into_iter().map(trace_entry).collect(),
-                        })
-                    })
-                    .collect::<Result<_, BackendError>>()?,
-            })
+                branch_mode: if request.stop_at_branch {
+                    ExecutionBranchMode::StopAtBranch
+                } else {
+                    ExecutionBranchMode::ExploreAll
+                },
+                cut_point_rules: request.cut_point_rules.into_iter().collect(),
+                terminal_rules: request.terminal_rules.into_iter().collect(),
+                step_timeout: request.step_timeout_ms.map(Duration::from_millis),
+                moving_average_timeout: request.moving_average_timeout,
+                assume_initial_defined: request.assume_state_defined,
+            };
+            let result = match observation_rules {
+                Some(rules) => {
+                    let observation = observation_options(definition, rules)?;
+                    execute_observed_with_solver(definition, initial, options, solver, &observation)
+                }
+                None => execute_with_solver(definition, initial, options, solver),
+            };
+            wire::execution_response(result)
+        })
+    }
+
+    pub fn search(&mut self, request: SearchRequest) -> Result<SearchResponse, BackendError> {
+        self.search_using(request, None)
+    }
+
+    pub fn search_observed(
+        &mut self,
+        request: ObservedRequest<SearchRequest>,
+    ) -> Result<SearchResponse, BackendError> {
+        self.search_using(request.request, Some(request.rules))
+    }
+
+    fn search_using(
+        &mut self,
+        request: SearchRequest,
+        observation_rules: Option<Option<Vec<String>>>,
+    ) -> Result<SearchResponse, BackendError> {
+        request.validate_schema()?;
+        let schema_version = request.schema_version;
+        let options = search_options(&request);
+        let syntax = decode_pattern(request.state)?;
+        self.with_solver(request.module_name.as_deref(), |definition, solver| {
+            let initial = definition
+                .internalize_pattern(&syntax, &[])
+                .map_err(error("could not internalize search state"))?;
+            let result = match observation_rules {
+                Some(rules) => {
+                    let observation = observation_options(definition, rules)?;
+                    search_graph_observed_with_solver(
+                        definition,
+                        initial,
+                        options,
+                        solver,
+                        &observation,
+                    )
+                }
+                None => search_graph_with_solver(definition, initial, options, solver),
+            };
+            wire::search_response(result, schema_version)
+        })
+    }
+
+    pub fn search_paths(
+        &mut self,
+        request: SearchRequest,
+    ) -> Result<PathSearchResponse, BackendError> {
+        self.search_paths_using(request, None)
+    }
+
+    pub fn search_paths_observed(
+        &mut self,
+        request: ObservedRequest<SearchRequest>,
+    ) -> Result<PathSearchResponse, BackendError> {
+        self.search_paths_using(request.request, Some(request.rules))
+    }
+
+    fn search_paths_using(
+        &mut self,
+        request: SearchRequest,
+        observation_rules: Option<Option<Vec<String>>>,
+    ) -> Result<PathSearchResponse, BackendError> {
+        request.validate_schema()?;
+        let schema_version = request.schema_version;
+        let options = search_options(&request);
+        let syntax = decode_pattern(request.state)?;
+        self.with_solver(request.module_name.as_deref(), |definition, solver| {
+            let initial = definition
+                .internalize_pattern(&syntax, &[])
+                .map_err(error("could not internalize path-search state"))?;
+            let result = match observation_rules {
+                Some(rules) => {
+                    let observation = observation_options(definition, rules)?;
+                    search_paths_observed_with_solver(
+                        definition,
+                        initial,
+                        options,
+                        solver,
+                        &observation,
+                    )
+                }
+                None => search_paths_with_solver(definition, initial, options, solver),
+            };
+            wire::path_search_response(result, schema_version)
+        })
+    }
+
+    pub fn search_pattern(
+        &mut self,
+        request: SearchPatternRequest,
+    ) -> Result<PatternSearchResponse, BackendError> {
+        self.search_pattern_using(request, None)
+    }
+
+    pub fn search_pattern_observed(
+        &mut self,
+        request: ObservedRequest<SearchPatternRequest>,
+    ) -> Result<PatternSearchResponse, BackendError> {
+        self.search_pattern_using(request.request, Some(request.rules))
+    }
+
+    fn search_pattern_using(
+        &mut self,
+        request: SearchPatternRequest,
+        observation_rules: Option<Option<Vec<String>>>,
+    ) -> Result<PatternSearchResponse, BackendError> {
+        request.validate_schema()?;
+        let schema_version = request.schema_version;
+        let options = pattern_search_options(&request);
+        let initial_syntax = decode_pattern(request.state)?;
+        let target_syntax = decode_pattern(request.pattern)?;
+        self.with_solver(request.module_name.as_deref(), |definition, solver| {
+            let initial = definition
+                .internalize_pattern(&initial_syntax, &[])
+                .map_err(error("could not internalize pattern-search state"))?;
+            let target = definition
+                .internalize_pattern(&target_syntax, &[])
+                .map_err(error("could not internalize search pattern"))?;
+            let result = match observation_rules {
+                Some(rules) => {
+                    let observation = observation_options(definition, rules)?;
+                    search_pattern_observed_with_solver(
+                        definition,
+                        initial,
+                        &target,
+                        options,
+                        solver,
+                        &observation,
+                    )
+                }
+                None => search_pattern_with_solver(definition, initial, &target, options, solver),
+            };
+            wire::pattern_search_response(result, schema_version)
+        })
+    }
+
+    pub fn search_pattern_paths(
+        &mut self,
+        request: SearchPatternRequest,
+    ) -> Result<PathPatternSearchResponse, BackendError> {
+        self.search_pattern_paths_using(request, None)
+    }
+
+    pub fn search_pattern_paths_observed(
+        &mut self,
+        request: ObservedRequest<SearchPatternRequest>,
+    ) -> Result<PathPatternSearchResponse, BackendError> {
+        self.search_pattern_paths_using(request.request, Some(request.rules))
+    }
+
+    fn search_pattern_paths_using(
+        &mut self,
+        request: SearchPatternRequest,
+        observation_rules: Option<Option<Vec<String>>>,
+    ) -> Result<PathPatternSearchResponse, BackendError> {
+        request.validate_schema()?;
+        let schema_version = request.schema_version;
+        let options = pattern_search_options(&request);
+        let initial_syntax = decode_pattern(request.state)?;
+        let target_syntax = decode_pattern(request.pattern)?;
+        self.with_solver(request.module_name.as_deref(), |definition, solver| {
+            let initial = definition
+                .internalize_pattern(&initial_syntax, &[])
+                .map_err(error("could not internalize path-pattern-search state"))?;
+            let target = definition
+                .internalize_pattern(&target_syntax, &[])
+                .map_err(error("could not internalize search pattern"))?;
+            let result = match observation_rules {
+                Some(rules) => {
+                    let observation = observation_options(definition, rules)?;
+                    search_pattern_paths_observed_with_solver(
+                        definition,
+                        initial,
+                        &target,
+                        options,
+                        solver,
+                        &observation,
+                    )
+                }
+                None => {
+                    search_pattern_paths_with_solver(definition, initial, &target, options, solver)
+                }
+            };
+            wire::path_pattern_search_response(result, schema_version)
         })
     }
 
@@ -589,6 +792,45 @@ impl Backend {
     ) -> Result<T, BackendError> {
         let _ = self.options;
         operation(&definition, &NoSolver)
+    }
+}
+
+fn search_options(request: &SearchRequest) -> SearchOptions {
+    SearchOptions {
+        search_type: match request.search_type {
+            SearchTypeArg::Final => SearchType::Final,
+            SearchTypeArg::All => SearchType::Star,
+            SearchTypeArg::OneStep => SearchType::One,
+            SearchTypeArg::OneOrMoreSteps => SearchType::Plus,
+        },
+        max_depth: request.max_depth.unwrap_or(u64::MAX),
+        max_breadth: request.max_breadth,
+        max_results: request.max_results,
+        max_simplification_iterations: request.max_simplification_iterations,
+    }
+}
+
+fn pattern_search_options(request: &SearchPatternRequest) -> SearchOptions {
+    search_options(&SearchRequest {
+        state: Value::Null,
+        module_name: None,
+        search_type: request.search_type,
+        max_depth: request.max_depth,
+        max_breadth: request.max_breadth,
+        max_results: request.max_results,
+        max_simplification_iterations: request.max_simplification_iterations,
+        schema_version: request.schema_version,
+    })
+}
+
+fn observation_options(
+    definition: &BackendDefinition,
+    rules: Option<Vec<String>>,
+) -> Result<ObservationOptions, BackendError> {
+    match rules {
+        Some(rules) => ObservationOptions::with_rules(definition, rules)
+            .map_err(error("could not install observation filter")),
+        None => Ok(ObservationOptions::all()),
     }
 }
 
@@ -863,6 +1105,36 @@ mod tests {
             ) [label{}("reaches-c")]
         endmodule []"#;
 
+    const DIAMOND_DEFINITION: &str = r#"[]
+        module DIAMOND
+            sort SortS{} []
+            symbol initial{}() : SortS{} [constructor{}()]
+            symbol left{}() : SortS{} [constructor{}()]
+            symbol right{}() : SortS{} [constructor{}()]
+            symbol merged{}() : SortS{} [constructor{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(initial{}(), \top{SortS{}}()), left{}()
+            ) [label{}("initial-left")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(initial{}(), \top{SortS{}}()), right{}()
+            ) [label{}("initial-right")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(left{}(), \top{SortS{}}()), merged{}()
+            ) [label{}("left-merged")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(right{}(), \top{SortS{}}()), merged{}()
+            ) [label{}("right-merged")]
+        endmodule []"#;
+
+    const LOG_DEFINITION: &str = r#"[]
+        module MAIN
+            sort SortString{} [hasDomainValues{}()]
+            sort SortK{} []
+            symbol dotk{}() : SortK{} [constructor{}()]
+            symbol log{}(SortString{}) : SortK{}
+                [function{}(), total{}(), hook{}("IO.logString")]
+        endmodule []"#;
+
     fn backend() -> Backend {
         Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap()
     }
@@ -896,6 +1168,7 @@ mod tests {
                 state: state.clone(),
                 reason: SearchFailureOutput::Requires {
                     rule: "rule-id".into(),
+                    predicates: Vec::new(),
                 },
             },
             IncompleteSearchOutput::Cancelled {
@@ -903,7 +1176,10 @@ mod tests {
             },
             IncompleteSearchOutput::Simplification {
                 state: state.clone(),
-                error: SearchFailureOutput::IterationLimit { limit: 100 },
+                error: SearchFailureOutput::IterationLimit {
+                    limit: 100,
+                    term: None,
+                },
             },
             IncompleteSearchOutput::Match {
                 state: state.clone(),
@@ -990,6 +1266,162 @@ mod tests {
             })
             .unwrap();
         assert_eq!(proof.status, "proven");
+    }
+
+    #[test]
+    fn persistent_backend_searches_states_and_reports_bounds() {
+        let mut backend = backend();
+        let result = backend
+            .search(SearchRequest {
+                state: json("a{}()"),
+                ..SearchRequest::default()
+            })
+            .unwrap();
+        assert_eq!(result.schema_version, BACKEND_SCHEMA_VERSION);
+        assert_eq!(result.modality, ResultModalityOutput::StateSet);
+        assert_eq!(result.states.len(), 1);
+        assert_eq!(text(result.states[0].state.clone()), "c{}()");
+        assert!(result.incomplete.is_empty());
+
+        let bounded = backend
+            .search(SearchRequest {
+                state: json("a{}()"),
+                max_results: Some(0),
+                ..SearchRequest::default()
+            })
+            .unwrap();
+        assert!(bounded.states.is_empty());
+        assert_eq!(bounded.incomplete, [IncompleteSearchOutput::ResultBound]);
+    }
+
+    #[test]
+    fn persistent_backend_searches_deterministic_path_witnesses() {
+        let request = SearchRequest {
+            state: json("initial{}()"),
+            ..SearchRequest::default()
+        };
+        let mut backend =
+            Backend::new(DIAMOND_DEFINITION, "DIAMOND", BackendOptions::default()).unwrap();
+        let first = backend.search_paths(request.clone()).unwrap();
+        let second = backend.search_paths(request).unwrap();
+
+        assert_eq!(first.modality, ResultModalityOutput::PathSet);
+        assert_eq!(first.witnesses.len(), 2);
+        assert_eq!(first.witnesses, second.witnesses);
+        let paths = first
+            .witnesses
+            .iter()
+            .map(|witness| {
+                witness
+                    .id
+                    .iter()
+                    .map(|transition| transition.rule.as_str())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert!(paths.contains(&vec!["initial-left", "left-merged"]));
+        assert!(paths.contains(&vec!["initial-right", "right-merged"]));
+    }
+
+    #[test]
+    fn persistent_backend_searches_patterns_in_both_modalities() {
+        let mut backend = backend();
+        let state_set = backend
+            .search_pattern(SearchPatternRequest {
+                state: json("a{}()"),
+                pattern: json("c{}()"),
+                ..SearchPatternRequest::default()
+            })
+            .unwrap();
+        assert_eq!(state_set.modality, ResultModalityOutput::StateSet);
+        assert_eq!(state_set.matches.len(), 1);
+        assert_eq!(text(state_set.matches[0].state.state.clone()), "c{}()");
+
+        let mut diamond =
+            Backend::new(DIAMOND_DEFINITION, "DIAMOND", BackendOptions::default()).unwrap();
+        let path_set = diamond
+            .search_pattern_paths(SearchPatternRequest {
+                state: json("initial{}()"),
+                pattern: json("merged{}()"),
+                ..SearchPatternRequest::default()
+            })
+            .unwrap();
+        assert_eq!(path_set.modality, ResultModalityOutput::PathSet);
+        assert_eq!(path_set.matches.len(), 2);
+        assert!(
+            path_set
+                .matches
+                .iter()
+                .all(|found| found.witness.id.len() == 2)
+        );
+    }
+
+    #[test]
+    fn observed_searches_expose_filtered_transition_streams_atomically() {
+        let request = SearchRequest {
+            state: json("a{}()"),
+            ..SearchRequest::default()
+        };
+        let mut backend = backend();
+        let observed = backend
+            .search_observed(ObservedRequest {
+                request: request.clone(),
+                rules: Some(vec!["a-to-b".into()]),
+            })
+            .unwrap();
+        assert_eq!(observed.states[0].branch.len(), 2);
+        let [ObservationEventOutput::Transition { id, .. }] =
+            observed.states[0].observations.as_slice()
+        else {
+            panic!("expected one filtered transition observation")
+        };
+        assert_eq!(id.rule, "a-to-b");
+
+        let error = backend
+            .search_observed(ObservedRequest {
+                request,
+                rules: Some(vec!["a-to-b".into(), "missing".into()]),
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("UnknownRule"), "{error}");
+    }
+
+    #[test]
+    fn execute_preserves_effects_and_observed_execution_attributes_them() {
+        let request = ExecuteRequest {
+            state: json(r#"log{}(\dv{SortString{}}("one line"))"#),
+            ..ExecuteRequest::default()
+        };
+        let mut backend = Backend::new(LOG_DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+        let ordinary = backend.execute(request.clone()).unwrap();
+        assert_eq!(
+            ordinary.effects,
+            [EffectOutput::UserLog {
+                message: "one line".into()
+            }]
+        );
+        assert!(ordinary.leaves[0].observations.is_empty());
+
+        let observed = backend
+            .execute_observed(ObservedRequest {
+                request,
+                rules: None,
+            })
+            .unwrap();
+        let [ObservationEventOutput::Transition { id, effects, .. }] =
+            observed.leaves[0].observations.as_slice()
+        else {
+            panic!("expected one committed transition observation")
+        };
+        assert_eq!(id.rule, "builtin:IO.logString");
+        assert_eq!(effects, &ordinary.effects);
+    }
+
+    #[test]
+    fn capabilities_advertise_search_and_observation() {
+        let capabilities = backend().capabilities();
+        assert!(capabilities.search);
+        assert!(capabilities.observation);
     }
 
     #[test]
