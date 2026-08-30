@@ -1675,6 +1675,23 @@ mod tests {
     }
 
     #[test]
+    fn builtin_effect_observer_preserves_state_search_results() {
+        let definition = diamond_definition(false);
+        let expected = search_graph(&definition, initial(&definition), SearchOptions::default());
+        let mut observed = Vec::new();
+        let actual = search_graph_with_solver_and_observer(
+            &definition,
+            initial(&definition),
+            SearchOptions::default(),
+            &NoSolver,
+            |effect| observed.push(effect.clone()),
+        );
+
+        assert_eq!(actual, expected);
+        assert_eq!(observed, actual.effects);
+    }
+
+    #[test]
     fn path_search_returns_a_witness_per_distinct_path() {
         let definition = diamond_definition(false);
         let result = search_paths(&definition, initial(&definition), SearchOptions::default());
