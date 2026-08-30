@@ -850,6 +850,8 @@ reason = "MIR programs require configurations generated from SMIR by the semanti
 name = "proof-counterexample-artifact"
 section = "proof"
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/mini-spec.k"
+disposition = "alternative-oracle"
+local-gate = "K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-proof-differential.sh mini-proof"
 reason = "The pinned prover emits a concrete generatedCounter cell containing a fresh Int variable, while k-rust reports an unconstrained generatedCounter cell variable; both identify the same stuck k cell, but exact KORE comparison would pin backend-internal framing. Verdicts are compared per claim instead."
 
 [[proof]]
