@@ -6187,6 +6187,43 @@ mod tests {
     }
 
     #[test]
+    fn builtin_effect_observer_is_observational() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortString{} [hasDomainValues{}()]
+                sort SortK{} []
+                symbol dotk{}() : SortK{} [constructor{}()]
+                symbol log{}(SortString{}) : SortK{}
+                    [function{}(), total{}(), hook{}("IO.logString")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let initial = Pattern {
+            term: definition
+                .internalize_term(
+                    &parse_pattern(r#"log{}(\dv{SortString{}}("one line"))"#).unwrap(),
+                    &[],
+                )
+                .unwrap(),
+            constraints: Vec::new(),
+        };
+        let expected = execute(&definition, initial.clone(), ExecutionOptions::default());
+        let mut observed = Vec::new();
+        let actual = execute_with_solver_and_observer(
+            &definition,
+            initial,
+            ExecutionOptions::default(),
+            &NoSolver,
+            |effect| observed.push(effect.clone()),
+        );
+
+        assert_eq!(actual, expected);
+        assert_eq!(observed, actual.effects);
+    }
+
+    #[test]
     fn execution_interrupts_native_hooks_at_the_step_deadline() {
         let syntax = parse_definition(
             r#"[]
