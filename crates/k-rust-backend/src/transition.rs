@@ -5,8 +5,13 @@ use std::{collections::BTreeMap, collections::BTreeSet, fmt};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    builtin::BuiltinEffect, definition::BackendDefinition, externalize, rewrite::Pattern,
-    rule::Predicate, substitution::Substitution,
+    builtin::BuiltinEffect,
+    definition::BackendDefinition,
+    externalize,
+    rewrite::Pattern,
+    rewrite::{AppliedRule, RemainderBranch},
+    rule::Predicate,
+    substitution::Substitution,
 };
 
 /// A stable SHA-256 digest of a constrained pattern's canonical compact KORE form.
@@ -154,4 +159,188 @@ pub enum ObservationFilterError {
     UnknownRule(String),
     DuplicateRule(String),
     AmbiguousRule(String),
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ObservationNodeId(usize);
+
+pub(crate) type ObservationHead = Option<ObservationNodeId>;
+
+struct ObservationNode {
+    parent: ObservationHead,
+    transition: Option<TransitionId>,
+    event: Option<ObservationEvent>,
+}
+
+#[derive(Default)]
+pub(crate) struct ObservationLog {
+    nodes: Vec<ObservationNode>,
+}
+
+impl ObservationLog {
+    pub(crate) fn append_applied(
+        &mut self,
+        parent: ObservationHead,
+        applied: &AppliedRule,
+        options: Option<&ObservationOptions>,
+    ) -> ObservationHead {
+        let options = options?;
+        let id = TransitionId {
+            rule: applied.unique_id.clone(),
+            target: PatternDigest::of(&applied.pattern),
+        };
+        let event = options.observes(&applied.unique_id).then(|| {
+            ObservationEvent::Transition(TransitionObservation {
+                id: id.clone(),
+                class: TransitionClass::Rewrite,
+                rule_label: applied.label.clone(),
+                bindings: applied.rule_substitution.clone(),
+                introduced_predicates: applied.rule_predicates.clone(),
+                before: applied.before.clone(),
+                after: applied.pattern.clone(),
+                effects: applied.effects.clone(),
+            })
+        });
+        Some(self.push(ObservationNode {
+            parent,
+            transition: Some(id),
+            event,
+        }))
+    }
+
+    pub(crate) fn append_remainder(
+        &mut self,
+        parent: ObservationHead,
+        before: Pattern,
+        remainder: &RemainderBranch,
+        options: Option<&ObservationOptions>,
+    ) -> ObservationHead {
+        let options = options?;
+        let id = TransitionId {
+            rule: format!("remainder:{}", remainder.rule_ids.join(",")),
+            target: PatternDigest::of(&remainder.pattern),
+        };
+        let event = options.rules_are_unfiltered().then(|| {
+            ObservationEvent::Transition(TransitionObservation {
+                id: id.clone(),
+                class: TransitionClass::Remainder,
+                rule_label: None,
+                bindings: Substitution::new(),
+                introduced_predicates: Vec::new(),
+                before,
+                after: remainder.pattern.clone(),
+                effects: Vec::new(),
+            })
+        });
+        Some(self.push(ObservationNode {
+            parent,
+            transition: Some(id),
+            event,
+        }))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn append_simplification(
+        &mut self,
+        mut parent: ObservationHead,
+        definition: &BackendDefinition,
+        before: Pattern,
+        after: &Pattern,
+        applied_rules: &[String],
+        effects: &[BuiltinEffect],
+        options: Option<&ObservationOptions>,
+    ) -> ObservationHead {
+        let options = options?;
+        let mut effects = effects.iter();
+        for rule in applied_rules {
+            let class = transition_class(definition, rule);
+            let attributed_effects =
+                if class == TransitionClass::Builtin && rule == "builtin:IO.logString" {
+                    effects.next().cloned().into_iter().collect()
+                } else {
+                    Vec::new()
+                };
+            if !options.observes(rule) {
+                continue;
+            }
+            let id = TransitionId {
+                rule: rule.clone(),
+                target: PatternDigest::of(after),
+            };
+            parent = Some(self.push(ObservationNode {
+                parent,
+                transition: None,
+                event: Some(ObservationEvent::Transition(TransitionObservation {
+                    id,
+                    class,
+                    rule_label: equation_label(definition, rule),
+                    bindings: Substitution::new(),
+                    introduced_predicates: Vec::new(),
+                    before: before.clone(),
+                    after: after.clone(),
+                    effects: attributed_effects,
+                })),
+            }));
+        }
+        parent
+    }
+
+    pub(crate) fn materialize(
+        &self,
+        mut head: ObservationHead,
+    ) -> (Vec<TransitionId>, Vec<ObservationEvent>) {
+        let mut branch = Vec::new();
+        let mut events = Vec::new();
+        while let Some(id) = head {
+            let node = &self.nodes[id.0];
+            if let Some(transition) = &node.transition {
+                branch.push(transition.clone());
+            }
+            if let Some(event) = &node.event {
+                events.push(event.clone());
+            }
+            head = node.parent;
+        }
+        branch.reverse();
+        events.reverse();
+        (branch, events)
+    }
+
+    fn push(&mut self, node: ObservationNode) -> ObservationNodeId {
+        let id = ObservationNodeId(self.nodes.len());
+        self.nodes.push(node);
+        id
+    }
+}
+
+fn transition_class(definition: &BackendDefinition, rule_id: &str) -> TransitionClass {
+    if rule_id.starts_with("builtin:") {
+        return TransitionClass::Builtin;
+    }
+    if theory_contains_rule(&definition.function_theory, rule_id) {
+        TransitionClass::FunctionEquation
+    } else {
+        TransitionClass::Simplification
+    }
+}
+
+fn equation_label(definition: &BackendDefinition, rule_id: &str) -> Option<String> {
+    [
+        &definition.function_theory,
+        &definition.simplification_theory,
+    ]
+    .into_iter()
+    .flat_map(|theory| theory.values())
+    .flat_map(|priorities| priorities.values())
+    .flatten()
+    .find(|rule| rule.attributes.unique_id == rule_id)
+    .and_then(|rule| rule.attributes.label.clone())
+}
+
+fn theory_contains_rule(theory: &crate::rule::Theory, rule_id: &str) -> bool {
+    theory
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .any(|rule| rule.attributes.unique_id == rule_id)
 }
