@@ -399,23 +399,39 @@ The implementation is compared against these pinned references:
 | Component | Commit |
 |---|---|
 | [`runtimeverification/k`](https://github.com/runtimeverification/k) | `4a46d1231473b599c699160132fd6e76a5c46406` (v7.1.337) |
+| [`runtimeverification/imp-semantics`](https://github.com/runtimeverification/imp-semantics) | `683a773418add3bcae8ded47c2b24e94494e1988` |
+| [`runtimeverification/wasm-semantics`](https://github.com/runtimeverification/wasm-semantics) | `212271bd434bd402e27c42f6416854342733386d` |
+| [`runtimeverification/evm-equivalence`](https://github.com/runtimeverification/evm-equivalence) | `3a757eb6f88000047d6fd064d6b72b78b6e23592` |
+| [`runtimeverification/evm-semantics`](https://github.com/runtimeverification/evm-semantics) | `5dd05ea7936c13f4029389bafd25785ed9ff0a55` (plugin `651a2db5afc1789c89553f9113c1afa39e391e35`) |
+| [`runtimeverification/mir-semantics`](https://github.com/runtimeverification/mir-semantics) | `4d793252bcd77091ee759ca6cd1629db41ed5496` |
 | [`runtimeverification/scala-kore`](https://github.com/runtimeverification/scala-kore) | `844214975c` (v0.3.3) |
 
 The outer parser accepts 1,499 of the 1,504 `.k` files probed at the pinned commit. Four rejected
 files are intentional malformed-string tests; the fifth is a legacy `Token{...}` fixture also
 rejected by the pinned JavaCC grammar.
 
-The structural differential corpus compiles seven upstream definitions through both frontends,
-strips source locations and generated sentence IDs, and compares every KORE module as a sentence
-multiset. It covers append syntax, ambiguous rewrites, casts, collection-cell rewrites, fresh
-variables, List/Set hooks, and rewrite macros:
+The compile differential manifest declares 18 cases, including the pinned IMP, WASM, MIR, and EVM-equivalence semantics.
+Each case compares semantic KORE, syntax KORE, macro KORE, and parsed-definition JSON after the artifact-specific normalizers remove only documented non-semantic differences.
 
 ```console
 K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-differential.sh
 scripts/reference-differential.sh casts cell-map  # selected cases
 ```
 
-Set `K_CHECKOUT` if the ignored reference checkout is not at `k/`.
+The real-semantics certification protocol is manual rather than a CI job.
+Run the complete protocol after a change to frontend, definition, kompile, or KORE-emission behavior and retain the named results, wall times, and peak memory in the landing record:
+
+```console
+scripts/reference-differential.sh wasm mir evm-equivalence
+scripts/reference-kast-differential.sh wasm mir evm-equivalence
+scripts/reference-non-imp-execution-differential.sh imp
+scripts/reference-proof-differential.sh imp
+scripts/reference-rpc-differential.sh imp
+```
+
+`scripts/reference-differential.toml` is the source of truth for pins, checkout paths, compiler options, compared artifacts, parser cases, execution/search programs, proof claims, RPC cases, and the six adjudicated oracle exclusions.
+The scripts enforce clean checkouts at the manifest revisions and require the matching K release.
+Set `K_CHECKOUT`, `IMP_SEMANTICS_CHECKOUT`, `WASM_SEMANTICS_CHECKOUT`, `EVM_SEMANTICS_CHECKOUT`, `EVM_EQUIVALENCE_CHECKOUT`, or `MIR_SEMANTICS_CHECKOUT` when a checkout is not at its ignored workspace-default path.
 
 The backend acceptance gate compiles, executes, and proves with the in-process Rust backend:
 
