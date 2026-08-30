@@ -371,24 +371,36 @@ impl Grammar {
         source_catalog: &ProductionCatalog<'_>,
     ) -> Result<Self, ParseError> {
         let mut sentences = sentences.into_iter().cloned().collect::<Vec<_>>();
+        // Program grammars parse the empty list as the empty string rather than the
+        // `.Sort` terminator. Record each erased terminator's source production at
+        // the moment of erasure so the link survives the rewrite.
+        let mut erased = Vec::new();
         for sentence in &mut sentences {
-            let Sentence::Production {
-                items, attributes, ..
-            } = sentence
-            else {
+            let is_terminator = matches!(
+                &*sentence,
+                Sentence::Production { items, attributes, .. }
+                    if attributes.get_str("userList") == Some("*")
+                        && !items
+                            .iter()
+                            .any(|item| matches!(item, ProductionItem::NonTerminal { .. }))
+            );
+            if !is_terminator {
                 continue;
-            };
-            if attributes.get_str("userList") == Some("*")
-                && !items
-                    .iter()
-                    .any(|item| matches!(item, ProductionItem::NonTerminal { .. }))
-            {
+            }
+            let source = catalog_production(source_catalog, sentence);
+            if let Sentence::Production { items, .. } = sentence {
                 items.clear();
+            }
+            if let Some(source) = source {
+                erased.push((sentence.clone(), source));
             }
         }
         Self::from_collected_sentences(
             sentences.iter().collect(),
-            Some(source_catalog),
+            Some(SourceLinks {
+                catalog: source_catalog,
+                erased,
+            }),
             ParserRole::Program,
         )
     }
@@ -405,12 +417,16 @@ impl Grammar {
         source_catalog: &ProductionCatalog<'_>,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
-        Self::from_collected_sentences(sentences, Some(source_catalog), ParserRole::Rule)
+        Self::from_collected_sentences(
+            sentences,
+            Some(SourceLinks::catalog(source_catalog)),
+            ParserRole::Rule,
+        )
     }
 
     fn from_collected_sentences(
         sentences: Vec<&Sentence>,
-        source_catalog: Option<&ProductionCatalog<'_>>,
+        source_links: Option<SourceLinks<'_, '_>>,
         role: ParserRole,
     ) -> Result<Self, ParseError> {
         let lexical = sentences
@@ -458,20 +474,17 @@ impl Grammar {
             .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
         let overloads = compute_overloads(sentences.iter().copied(), &semantic_subsorts)
             .map_err(|cycle| ParseError::CircularOverloads { path: cycle.path })?;
-        let external_catalog = source_catalog;
-        let source_catalog = source_catalog.unwrap_or_else(|| overloads.catalog());
-        let overload_order = if external_catalog.is_some() {
+        let external = source_links.is_some();
+        let source_links =
+            source_links.unwrap_or_else(|| SourceLinks::catalog(overloads.catalog()));
+        let overload_order = if external {
             let relations = overloads
                 .order()
                 .direct_relations()
                 .iter()
                 .filter_map(|(lesser, greater)| {
-                    let lesser =
-                        source_production(source_catalog, overloads.catalog().production(*lesser))?;
-                    let greater = source_production(
-                        source_catalog,
-                        overloads.catalog().production(*greater),
-                    )?;
+                    let lesser = source_links.resolve(overloads.catalog().production(*lesser))?;
+                    let greater = source_links.resolve(overloads.catalog().production(*greater))?;
                     (lesser != greater).then_some((lesser, greater))
                 })
                 .collect::<BTreeSet<_>>();
@@ -527,14 +540,14 @@ impl Grammar {
                         .any(|key| attributes.get(key).is_some()),
                     prefer: attributes.get("prefer").is_some(),
                     avoid: attributes.get("avoid").is_some(),
-                    source_production: source_production(source_catalog, sentence),
+                    source_production: source_links.resolve(sentence),
                     user_list: attributes.get("userList").is_some(),
                     precedence: attributes.get_str("prec"),
                 },
                 &lexical,
             )?;
         }
-        grammar.add_parametric_productions(&sentences, &lexical, source_catalog)?;
+        grammar.add_parametric_productions(&sentences, &lexical, source_links.catalog)?;
         grammar.initialize_user_lists()?;
         let original_productions = grammar.productions.len();
         for production in 0..original_productions {
@@ -717,11 +730,6 @@ impl Grammar {
         let resolved = self.resolve_overloaded_terminators(inferred)?;
         let filtered = self.filter_overloads_prefer_avoid(resolved);
         let listed = self.add_empty_lists(filtered, start)?;
-        let listed = if self.role == ParserRole::Program {
-            self.prefer_program_lists(listed)
-        } else {
-            listed
-        };
         let cleaned = self.remove_brackets_and_syntactic_casts(listed);
         let cleaned = self.factor_ambiguities(cleaned);
         let parses = Grammar::ambiguity_count(&cleaned);
@@ -971,7 +979,34 @@ impl Grammar {
     }
 }
 
-fn source_production(catalog: &ProductionCatalog<'_>, sentence: &Sentence) -> Option<ProductionId> {
+/// Links from grammar sentences back to the source production catalog.
+struct SourceLinks<'c, 'a> {
+    catalog: &'c ProductionCatalog<'a>,
+    /// Sentences rewritten by the program grammar, paired with the source
+    /// production they were derived from.
+    erased: Vec<(Sentence, ProductionId)>,
+}
+
+impl<'c, 'a> SourceLinks<'c, 'a> {
+    fn catalog(catalog: &'c ProductionCatalog<'a>) -> Self {
+        Self {
+            catalog,
+            erased: Vec::new(),
+        }
+    }
+
+    fn resolve(&self, sentence: &Sentence) -> Option<ProductionId> {
+        self.erased
+            .iter()
+            .find_map(|(erased, source)| (erased == sentence).then_some(*source))
+            .or_else(|| catalog_production(self.catalog, sentence))
+    }
+}
+
+fn catalog_production(
+    catalog: &ProductionCatalog<'_>,
+    sentence: &Sentence,
+) -> Option<ProductionId> {
     if matches!(sentence, Sentence::Production { attributes, .. } if attributes.get("generatedRuleSyntax").is_some())
     {
         return None;
@@ -979,41 +1014,6 @@ fn source_production(catalog: &ProductionCatalog<'_>, sentence: &Sentence) -> Op
     catalog
         .productions()
         .find_map(|(id, candidate)| sentence_equivalent(candidate, sentence).then_some(id))
-        .or_else(|| {
-            let Sentence::Production {
-                label,
-                parameters,
-                sort,
-                items,
-                attributes,
-            } = sentence
-            else {
-                return None;
-            };
-            if !items.is_empty() || attributes.get("userList").is_none() {
-                return None;
-            }
-            catalog.productions().find_map(|(id, candidate)| {
-                let Sentence::Production {
-                    label: candidate_label,
-                    parameters: candidate_parameters,
-                    sort: candidate_sort,
-                    items: candidate_items,
-                    attributes: candidate_attributes,
-                } = candidate
-                else {
-                    unreachable!()
-                };
-                (candidate_label == label
-                    && candidate_parameters == parameters
-                    && candidate_sort == sort
-                    && candidate_attributes.get("userList").is_some()
-                    && candidate_items
-                        .iter()
-                        .all(|item| matches!(item, ProductionItem::Terminal(_))))
-                .then_some(id)
-            })
-        })
 }
 
 fn expand_regex(source: &str, lexical: &BTreeMap<String, KRegex>) -> Result<String, ParseError> {
