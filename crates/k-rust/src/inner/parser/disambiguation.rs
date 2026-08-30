@@ -523,11 +523,31 @@ impl Grammar {
     pub(super) fn resolve_applications(&self, term: ParsedTerm) -> Result<ParsedTerm, ParseError> {
         match term {
             ParsedTerm::Term(_) => Ok(term),
-            ParsedTerm::Ambiguity(alternatives) => alternatives
-                .into_iter()
-                .map(|alternative| self.resolve_applications(alternative))
-                .collect::<Result<BTreeSet<_>, _>>()
-                .map(ParsedTerm::Ambiguity),
+            ParsedTerm::Ambiguity(alternatives) => {
+                let mut resolved = BTreeSet::new();
+                let mut first_error = None;
+                for alternative in alternatives {
+                    match self.resolve_applications(alternative) {
+                        Ok(ParsedTerm::Ambiguity(nested)) => resolved.extend(nested),
+                        Ok(alternative) => {
+                            resolved.insert(alternative);
+                        }
+                        Err(error) => {
+                            first_error.get_or_insert(error);
+                        }
+                    }
+                    if resolved.len() > super::MAX_DERIVATIONS_PER_STATE {
+                        return Err(ParseError::TooManyParses {
+                            limit: super::MAX_DERIVATIONS_PER_STATE,
+                        });
+                    }
+                }
+                match resolved.len() {
+                    0 => Err(first_error.expect("an empty ambiguity had no resolution result")),
+                    1 => Ok(resolved.pop_first().expect("length was one")),
+                    _ => Ok(ParsedTerm::Ambiguity(resolved)),
+                }
+            }
             ParsedTerm::Production {
                 production,
                 children,
