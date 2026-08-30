@@ -138,6 +138,14 @@ main-module = "OWISE-FUNCTIONS"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
 
 [[compile]]
+name = "owise-competitors"
+requires = ["reference-toolchain"]
+constructs = ["owise", "multiple-competitors"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/owise-competitors.k"
+main-module = "OWISE-COMPETITORS"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+
+[[compile]]
 name = "owise"
 requires = ["reference-toolchain"]
 constructs = ["owise"]

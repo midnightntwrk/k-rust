@@ -141,45 +141,55 @@ module MAIN
                 )
               )
             ),
-            \exists{R}(
-              Var'Unds'Gen5:SortExp{},
-              \and{R}(
-                \equals{SortBool{}, R}(
-                  Lbleq{}(
-                    Lbl'Hash'SemanticCastToExp{}(Var'Unds'Gen5:SortExp{}),
-                    inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("1"))
-                  ),
-                  \dv{SortBool{}}("true")
-                ),
+            \or{R}(
+              \exists{R}(
+                Var'Unds'Gen5:SortExp{},
                 \and{R}(
-                  \in{SortExp{}, R}(
-                    X0:SortExp{},
-                    Lbl'Hash'SemanticCastToExp{}(Var'Unds'Gen5:SortExp{})
+                  \equals{SortBool{}, R}(
+                    Lbleq{}(
+                      Lbl'Hash'SemanticCastToExp{}(Var'Unds'Gen5:SortExp{}),
+                      inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("1"))
+                    ),
+                    \dv{SortBool{}}("true")
                   ),
-                  \and{R}(
-                    \in{SortExp{}, R}(X1:SortExp{}, inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))),
-                    \top{R}()
-                  )
-                )
-              )
-            ),
-            \exists{R}(
-              Var'Unds'Gen8:SortExp{},
-              \and{R}(
-                \top{R}(),
-                \and{R}(
-                  \in{SortExp{}, R}(X0:SortExp{}, inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))),
                   \and{R}(
                     \in{SortExp{}, R}(
-                      X1:SortExp{},
-                      Lbl'Hash'SemanticCastToExp{}(Var'Unds'Gen8:SortExp{})
+                      X0:SortExp{},
+                      Lbl'Hash'SemanticCastToExp{}(Var'Unds'Gen5:SortExp{})
                     ),
-                    \top{R}()
+                    \and{R}(
+                      \in{SortExp{}, R}(
+                        X1:SortExp{},
+                        inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))
+                      ),
+                      \top{R}()
+                    )
                   )
                 )
+              ),
+              \or{R}(
+                \exists{R}(
+                  Var'Unds'Gen8:SortExp{},
+                  \and{R}(
+                    \top{R}(),
+                    \and{R}(
+                      \in{SortExp{}, R}(
+                        X0:SortExp{},
+                        inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))
+                      ),
+                      \and{R}(
+                        \in{SortExp{}, R}(
+                          X1:SortExp{},
+                          Lbl'Hash'SemanticCastToExp{}(Var'Unds'Gen8:SortExp{})
+                        ),
+                        \top{R}()
+                      )
+                    )
+                  )
+                ),
+                \bottom{R}()
               )
-            ),
-            \bottom{R}()
+            )
           )
         ),
         \and{R}(

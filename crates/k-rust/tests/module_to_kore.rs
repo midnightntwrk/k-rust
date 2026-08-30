@@ -363,6 +363,74 @@ module_snapshot!(
     "MAIN"
 );
 
+#[test]
+fn emits_owise_competitors_as_a_right_nested_binary_disjunction() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "b" [symbol(b)]
+                       | "choose(" Exp ")" [function, symbol(choose)]
+
+          rule choose(a) => a [label(choose-a)]
+          rule choose(b) => b [label(choose-b)]
+          rule choose(X:Exp) => X:Exp [owise, label(otherwise)]
+        endmodule
+    "#};
+    let modules = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap();
+    let owise = modules
+        .semantics
+        .sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Axiom {
+                pattern,
+                attributes,
+                ..
+            } => attributes
+                .0
+                .iter()
+                .any(|attribute| {
+                    matches!(
+                        attribute,
+                        Pattern::Application { symbol, arguments }
+                            if symbol.name == "label"
+                                && arguments == &[Pattern::String("otherwise".into())]
+                    )
+                })
+                .then_some(pattern.as_ref()),
+            _ => None,
+        })
+        .expect("the owise equation should be emitted");
+    let Pattern::Implies { left, .. } = owise else {
+        panic!("owise equation should be an implication")
+    };
+    let Pattern::And { arguments, .. } = left.as_ref() else {
+        panic!("owise equation should conjoin its match conditions")
+    };
+    let disjunction = arguments
+        .iter()
+        .find_map(|argument| match argument {
+            Pattern::Not { argument, .. } => Some(argument.as_ref()),
+            _ => None,
+        })
+        .expect("the owise equation should negate its competitors");
+
+    let mut disjunction = disjunction;
+    let mut competitors = 0;
+    loop {
+        match disjunction {
+            Pattern::Or { arguments, .. } => {
+                assert_eq!(arguments.len(), 2, "KORE disjunctions must be binary");
+                competitors += 1;
+                disjunction = &arguments[1];
+            }
+            Pattern::Bottom { .. } => break,
+            pattern => panic!("right-nested disjunction must end in bottom, found {pattern:?}"),
+        }
+    }
+    assert_eq!(competitors, 2);
+}
+
 module_snapshot!(
     routes_macro_and_alias_axioms_to_the_standalone_sentence_list,
     r#"
