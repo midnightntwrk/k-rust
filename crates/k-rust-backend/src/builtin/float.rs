@@ -1,8 +1,9 @@
 //! Portable IEEE binary32/binary64 implementations of K's `FLOAT` hooks.
 
 use num_bigint::BigInt;
+use num_traits::{FromPrimitive, ToPrimitive};
 
-use super::{BuiltinError, BuiltinResult, bool_term, expect_arity, int_term};
+use super::{BuiltinError, BuiltinResult, bool_term, expect_arity, int_term, read_int};
 use crate::term::{Sort, Term, TermKind};
 
 #[derive(Clone, Copy, Debug)]
@@ -163,6 +164,25 @@ impl KFloat {
         }
     }
 
+    fn round_to(self, precision: u32, exponent_bits: u32) -> Self {
+        match (precision, exponent_bits) {
+            (24, 8) => Self::Binary32(match self {
+                Self::Binary32(value) => value,
+                Self::Binary64(value) => value as f32,
+            }),
+            (53, 11) => Self::Binary64(self.as_f64()),
+            _ => unreachable!("the requested Float format was validated"),
+        }
+    }
+
+    fn round_to_integer(self) -> Option<BigInt> {
+        let rounded = match self {
+            Self::Binary32(value) => f64::from(value.round_ties_even()),
+            Self::Binary64(value) => value.round_ties_even(),
+        };
+        BigInt::from_f64(rounded)
+    }
+
     fn token(self) -> String {
         match self {
             Self::Binary32(value) => canonical_f32(value),
@@ -197,7 +217,102 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
         "FLOAT.gt" => compare(hook, arguments, Comparison::Greater),
         "FLOAT.ge" => compare(hook, arguments, Comparison::GreaterEqual),
         "FLOAT.eq" => compare(hook, arguments, Comparison::Equal),
+        "FLOAT.round" => round(hook, arguments),
+        "FLOAT.int2float" => int_to_float(hook, arguments),
+        "FLOAT.float2int" => float_to_int(hook, arguments),
+        "FLOAT.maxValue" => maximum_value(hook, arguments),
         _ => Ok(BuiltinResult::NotApplicable),
+    }
+}
+
+fn round(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity(hook, arguments, 3)?;
+    let Some(value) = read_float(hook, &arguments[0])? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some((precision, exponent_bits)) = read_format(hook, &arguments[1], &arguments[2])? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    Ok(BuiltinResult::Value(float_term(
+        value.round_to(precision, exponent_bits),
+    )))
+}
+
+fn int_to_float(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity(hook, arguments, 3)?;
+    let Some(integer) = read_int(&arguments[0]) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some((precision, exponent_bits)) = read_format(hook, &arguments[1], &arguments[2])? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let value = match (precision, exponent_bits) {
+        (24, 8) => KFloat::Binary32(
+            integer
+                .to_f32()
+                .expect("num-bigint defines binary32 conversion for every BigInt"),
+        ),
+        (53, 11) => KFloat::Binary64(
+            integer
+                .to_f64()
+                .expect("num-bigint defines binary64 conversion for every BigInt"),
+        ),
+        _ => unreachable!("the requested Float format was validated"),
+    };
+    Ok(BuiltinResult::Value(float_term(value)))
+}
+
+fn float_to_int(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity(hook, arguments, 1)?;
+    let Some(value) = read_float(hook, &arguments[0])? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    Ok(value
+        .round_to_integer()
+        .map(int_term)
+        .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
+}
+
+fn maximum_value(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    expect_arity(hook, arguments, 2)?;
+    let Some((precision, exponent_bits)) = read_format(hook, &arguments[0], &arguments[1])? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let value = match (precision, exponent_bits) {
+        (24, 8) => KFloat::Binary32(f32::MAX),
+        (53, 11) => KFloat::Binary64(f64::MAX),
+        _ => unreachable!("the requested Float format was validated"),
+    };
+    Ok(BuiltinResult::Value(float_term(value)))
+}
+
+fn read_format(
+    hook: &str,
+    precision: &Term,
+    exponent_bits: &Term,
+) -> Result<Option<(u32, u32)>, BuiltinError> {
+    let Some(precision) = read_int(precision) else {
+        return Ok(None);
+    };
+    let Some(exponent_bits) = read_int(exponent_bits) else {
+        return Ok(None);
+    };
+    let (Some(precision_u32), Some(exponent_bits_u32)) =
+        (precision.to_u32(), exponent_bits.to_u32())
+    else {
+        return Err(BuiltinError::UnsupportedFloatFormatParameters {
+            hook: hook.into(),
+            precision: precision.to_string(),
+            exponent_bits: exponent_bits.to_string(),
+        });
+    };
+    match (precision_u32, exponent_bits_u32) {
+        (24, 8) | (53, 11) => Ok(Some((precision_u32, exponent_bits_u32))),
+        _ => Err(BuiltinError::UnsupportedFloatFormat {
+            hook: hook.into(),
+            precision: precision_u32,
+            exponent_bits: exponent_bits_u32,
+        }),
     }
 }
 
