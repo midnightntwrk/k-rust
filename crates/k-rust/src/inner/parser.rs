@@ -756,6 +756,7 @@ impl Grammar {
         let forest = self.collapse_record_productions(ParsedTerm::Ambiguity(parses))?;
         let forest = self.filter_priority(forest)?;
         let forest = self.resolve_applications(forest)?;
+        let forest = self.prefer_exact_rewrite_sibling_sorts(forest);
         let forest = self.push_top_lhs_ambiguity_up(self.factor_ambiguities(forest));
         let inferred = self.infer_sorts(forest, start, is_anywhere)?;
         let resolved = self.resolve_overloaded_terminators(inferred)?;
