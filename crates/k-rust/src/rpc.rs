@@ -2417,6 +2417,27 @@ mod tests {
         assert_eq!(missing["error"]["data"], "missing");
     }
 
+    /// The fixture is the verbatim line returned by the pinned reference servers
+    /// (`kore-rpc` and `kore-rpc-booster` v0.1.155, K v7.1.337's haskell-backend pin) for
+    /// the `error-unknown` request of the RPC differential matrix, recorded from the
+    /// bounded-search definition. Every field is compared, not only the code.
+    #[test]
+    fn unknown_method_fault_matches_the_recorded_reference_response() {
+        let recorded: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/reference/rpc/error-unknown.json"
+        ))
+        .unwrap();
+        let mut service = service();
+        let actual: Value = serde_json::from_str(
+            &service
+                .handle_line(r#"{"jsonrpc":"2.0","id":"unknown-1","method":"unknown"}"#)
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(actual, recorded);
+    }
+
     #[test]
     fn invalid_requests_report_the_reference_error_shape() {
         let cases = vec![
