@@ -119,7 +119,8 @@ for fixture in "${cases[@]}"; do
   include_args=()
   selector_args=()
   syntax_args=()
-  hook_args=()
+  reference_hook_args=()
+  rust_hook_args=()
   if [[ -n "$include" ]]; then
     if [[ ! -d "$include" ]]; then
       echo "error: missing include directory: $include" >&2
@@ -134,7 +135,8 @@ for fixture in "${cases[@]}"; do
     syntax_args=(--syntax-module "$syntax_module")
   fi
   if [[ -n "$hook_namespaces" ]]; then
-    hook_args=(--hook-namespaces "$hook_namespaces")
+    reference_hook_args=(--hook-namespaces "$hook_namespaces")
+    rust_hook_args=(--hook-namespaces "${hook_namespaces// /,}")
   fi
 
   echo "[$name] compiling with reference frontend"
@@ -153,7 +155,7 @@ for fixture in "${cases[@]}"; do
       "${include_args[@]}" \
       "${selector_args[@]}" \
       "${syntax_args[@]}" \
-      "${hook_args[@]}" \
+      "${reference_hook_args[@]}" \
       --emit-json \
       --warnings none
   )
@@ -172,7 +174,7 @@ for fixture in "${cases[@]}"; do
       "${include_args[@]}" \
       "${selector_args[@]}" \
       "${syntax_args[@]}" \
-      "${hook_args[@]}" \
+      "${rust_hook_args[@]}" \
       --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
   )
 
