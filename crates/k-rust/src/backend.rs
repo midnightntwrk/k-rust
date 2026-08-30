@@ -145,6 +145,10 @@ pub struct ExecutionLeaf {
     pub state: Value,
     pub depth: u64,
     pub reason: String,
+    /// Legacy human-readable diagnostic context.
+    ///
+    /// This field is not a stable semantic encoding. Consumers must branch on `reason` and use
+    /// `branch` / `observations` when they need structured transition evidence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     pub trace: Vec<TraceEntry>,

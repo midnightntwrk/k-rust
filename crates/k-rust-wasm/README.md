@@ -91,6 +91,11 @@ backend.free()
 ```
 
 Portable `execute`, `simplify`, `implies`, `prove`, and `addModule` operations are available.
+The portable backend also mirrors native `search`, `searchPaths`, `searchPattern`, `searchPatternPaths`, and their `*Observed` variants.
+Method names declare state-set versus path-set and observed versus ordinary behavior; each search response carries a versioned, closed structural completeness disposition.
+Observed calls accept an atomically validated exact-rule allowlist and expose transition-owned effects.
+The legacy execution-leaf `detail` string is diagnostic-only; use `reason`, `branch`, and `observations` for semantic decisions.
+Search responses are synchronous and fully materialized, so callers should set depth, breadth, result, and simplification bounds; streaming/backpressure and cancellation are not exposed at this boundary.
 Reachability claims present in portable input KORE can therefore be proved without leaving WASM.
 `getModel` always throws an actionable SMT capability error, and operations that actually require
 an SMT decision report an indeterminate/error result instead of pretending to have native Z3.

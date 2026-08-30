@@ -205,6 +205,7 @@ export interface ExecutionLeaf {
     | 'indeterminate'
     | 'simplification-error'
     | 'timeout'
+  /** Legacy human-readable diagnostic only; never parse it as semantic data. */
   detail?: string
   trace: BackendTraceEntry[]
   branch?: TransitionId[]
