@@ -848,7 +848,9 @@ reason = "The pinned Haskell execution path fails in kore-expand-macros before p
 name = "mir-execution"
 section = "execution"
 source = "${mir}/kmir/src/kmir/kdist/mir-semantics/kmir.md"
-reason = "MIR programs require configurations generated from SMIR by the semantics' Python toolchain; a raw source fixture does not define a reproducible cross-backend execution input."
+disposition = "alternative-oracle"
+local_gate = "K_KOMPILE=/path/to/pinned/bin/kompile KMIR_PYTHON=/path/to/pinned/kmir/python scripts/reference-mir-execution-differential.sh"
+reason = "The pinned generic krun source interface cannot construct a MIR configuration from SMIR. The alternative oracle uses the pinned KMIR Python generator to produce one shared raw initial KORE pattern, then compares the pinned Haskell backend and k-rust terminal patterns."
 
 [[excluded]]
 name = "proof-counterexample-artifact"
