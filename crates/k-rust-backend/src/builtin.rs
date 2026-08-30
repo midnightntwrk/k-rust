@@ -46,6 +46,11 @@ pub enum BuiltinError {
         precision: u32,
         exponent_bits: u32,
     },
+    UnsupportedFloatFormatParameters {
+        hook: String,
+        precision: String,
+        exponent_bits: String,
+    },
     MismatchedFloatFormats {
         hook: String,
         left_precision: u32,
@@ -925,6 +930,139 @@ mod tests {
                 right_exponent_bits: 11,
             })
         );
+    }
+
+    #[test]
+    fn float_round_uses_ieee_ties_to_even_and_target_format() {
+        let cases = [
+            (
+                "1.000000059604644775390625p53x11",
+                24,
+                8,
+                "1.00000000e+00p24x8",
+            ),
+            (
+                "1.000000178813934326171875p53x11",
+                24,
+                8,
+                "1.00000024e+00p24x8",
+            ),
+            ("0.1f", 53, 11, "1.0000000149011612e-01p53x11"),
+            ("-0.0", 24, 8, "-0e+00p24x8"),
+            ("Infinity", 24, 8, "Infinityp24x8"),
+            ("NaN", 24, 8, "NaNp24x8"),
+        ];
+        for (value, precision, exponent_bits, expected) in cases {
+            assert_eq!(
+                evaluate_hook(
+                    "FLOAT.round",
+                    &[
+                        float_term(value),
+                        int_term(BigInt::from(precision)),
+                        int_term(BigInt::from(exponent_bits)),
+                    ],
+                ),
+                Ok(BuiltinResult::Value(float_term(expected))),
+                "round({value}, {precision}, {exponent_bits})"
+            );
+        }
+        assert_eq!(
+            evaluate_hook(
+                "FLOAT.round",
+                &[
+                    float_term("1.0"),
+                    int_term(BigInt::from(2)),
+                    int_term(BigInt::from(8)),
+                ],
+            ),
+            Err(BuiltinError::UnsupportedFloatFormat {
+                hook: "FLOAT.round".into(),
+                precision: 2,
+                exponent_bits: 8,
+            })
+        );
+    }
+
+    #[test]
+    fn float_integer_conversions_are_arbitrary_precision_and_ties_to_even() {
+        let int_to_float_cases = [
+            (
+                BigInt::from(16_777_217_u64),
+                24,
+                8,
+                "1.67772160e+07p24x8",
+            ),
+            (
+                BigInt::from(9_007_199_254_740_993_u64),
+                53,
+                11,
+                "9.0071992547409920e+15p53x11",
+            ),
+            (
+                BigInt::parse_bytes(
+                    b"10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+                    10,
+                )
+                .unwrap(),
+                53,
+                11,
+                "Infinityp53x11",
+            ),
+        ];
+        for (integer, precision, exponent_bits, expected) in int_to_float_cases {
+            assert_eq!(
+                evaluate_hook(
+                    "FLOAT.int2float",
+                    &[
+                        int_term(integer),
+                        int_term(BigInt::from(precision)),
+                        int_term(BigInt::from(exponent_bits)),
+                    ],
+                ),
+                Ok(BuiltinResult::Value(float_term(expected))),
+                "int2float(_, {precision}, {exponent_bits})"
+            );
+        }
+
+        let float_to_int_cases = [
+            ("10.5", Some(10)),
+            ("11.5", Some(12)),
+            ("-10.5f", Some(-10)),
+            ("1.40129846e-45p24x8", Some(0)),
+            ("Infinity", None),
+            ("NaNf", None),
+        ];
+        for (value, expected) in float_to_int_cases {
+            let expected = expected.map_or(BuiltinResult::Bottom, |expected| {
+                BuiltinResult::Value(int_term(BigInt::from(expected)))
+            });
+            assert_eq!(
+                evaluate_hook("FLOAT.float2int", &[float_term(value)]),
+                Ok(expected),
+                "float2int({value})"
+            );
+        }
+    }
+
+    #[test]
+    fn float_max_value_matches_ieee_format_limits() {
+        let cases = [
+            (24, 8, "3.40282347e+38p24x8"),
+            (53, 11, "1.7976931348623157e+308p53x11"),
+        ];
+        for (precision, exponent_bits, expected) in cases {
+            assert_eq!(
+                evaluate_hook(
+                    "FLOAT.maxValue",
+                    &[
+                        int_term(BigInt::from(precision)),
+                        int_term(BigInt::from(exponent_bits)),
+                    ],
+                ),
+                Ok(BuiltinResult::Value(float_term(expected))),
+                "maxValue({precision}, {exponent_bits})"
+            );
+        }
     }
 
     #[test]

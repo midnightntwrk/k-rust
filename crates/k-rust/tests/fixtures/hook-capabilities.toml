@@ -38,17 +38,21 @@ implemented = [
   "FLOAT.div",
   "FLOAT.eq",
   "FLOAT.exponentBits",
+  "FLOAT.float2int",
   "FLOAT.floor",
   "FLOAT.ge",
   "FLOAT.gt",
+  "FLOAT.int2float",
   "FLOAT.isNaN",
   "FLOAT.le",
   "FLOAT.lt",
   "FLOAT.max",
+  "FLOAT.maxValue",
   "FLOAT.min",
   "FLOAT.mul",
   "FLOAT.neg",
   "FLOAT.precision",
+  "FLOAT.round",
   "FLOAT.sign",
   "FLOAT.sub",
   "FLOAT.trunc",
@@ -173,12 +177,11 @@ hooks = [
 ]
 
 [[unsupported]]
-reason = "arbitrary-precision floating-point evaluation is not implemented"
+reason = "WASM-unused arbitrary-precision, transcendental, remainder, root, and exponent hooks are not implemented"
 hooks = [
   "FLOAT.acos", "FLOAT.asin", "FLOAT.atan", "FLOAT.atan2", "FLOAT.cos",
-  "FLOAT.exp", "FLOAT.exponent", "FLOAT.float2int", "FLOAT.int2float",
-  "FLOAT.log", "FLOAT.maxValue", "FLOAT.minValue", "FLOAT.pow",
-  "FLOAT.rem", "FLOAT.root", "FLOAT.round",
+  "FLOAT.exp", "FLOAT.exponent", "FLOAT.log", "FLOAT.minValue", "FLOAT.pow",
+  "FLOAT.rem", "FLOAT.root",
   "FLOAT.sin", "FLOAT.tan",
 ]
 
