@@ -29,7 +29,7 @@ use k_rust_backend::{
 
 pub const BACKEND_SCHEMA_VERSION: u32 = 1;
 
-fn validate_schema_version(schema_version: u32) -> Result<(), BackendError> {
+pub(super) fn validate_schema_version(schema_version: u32) -> Result<(), BackendError> {
     if schema_version == BACKEND_SCHEMA_VERSION {
         Ok(())
     } else {
