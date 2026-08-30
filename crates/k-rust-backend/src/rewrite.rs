@@ -730,15 +730,24 @@ pub fn execute_with_solver_and_observer(
                                 vec![remaining_state(state.depth, state.trace, remainder)],
                             );
                         }
-                        _ => leaves.push(ExecutionLeaf {
-                            pattern: original,
-                            depth: state.depth,
-                            trace: state.trace,
-                            halt_reason: HaltReason::Branch {
-                                branches,
-                                remainder,
-                            },
-                        }),
+                        _ => {
+                            for applied in &branches {
+                                record_effects(
+                                    &mut effects,
+                                    applied.effects.iter().cloned(),
+                                    &mut observe,
+                                );
+                            }
+                            leaves.push(ExecutionLeaf {
+                                pattern: original,
+                                depth: state.depth,
+                                trace: state.trace,
+                                halt_reason: HaltReason::Branch {
+                                    branches,
+                                    remainder,
+                                },
+                            });
+                        }
                     }
                     continue;
                 }
@@ -6429,6 +6438,59 @@ mod tests {
         };
         assert_eq!(branches.len(), 2);
         assert!(remainder.is_none());
+    }
+
+    #[test]
+    fn stopped_branch_retains_effects_from_every_reported_successor() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortString{} [hasDomainValues{}()]
+                sort SortK{} []
+                symbol initial{}() : SortK{} [constructor{}()]
+                symbol dotk{}() : SortK{} [constructor{}()]
+                symbol log{}(SortString{}) : SortK{}
+                    [function{}(), hook{}("IO.logString")]
+                axiom{} \rewrites{SortK{}}(
+                    \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                    log{}(\dv{SortString{}}("left"))
+                ) [label{}("left")]
+                axiom{} \rewrites{SortK{}}(
+                    \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                    log{}(\dv{SortString{}}("right"))
+                ) [label{}("right")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let initial = definition
+            .internalize_pattern(&parse_pattern("initial{}()").unwrap(), &[])
+            .unwrap();
+
+        let mut observed = Vec::new();
+        let result = execute_with_solver_and_observer(
+            &definition,
+            initial,
+            ExecutionOptions {
+                branch_mode: ExecutionBranchMode::StopAtBranch,
+                ..ExecutionOptions::default()
+            },
+            &NoSolver,
+            |effect| observed.push(effect.clone()),
+        );
+
+        assert!(matches!(
+            result.leaves[0].halt_reason,
+            HaltReason::Branch { .. }
+        ));
+        assert_eq!(
+            result.effects,
+            [
+                BuiltinEffect::UserLog("left".into()),
+                BuiltinEffect::UserLog("right".into()),
+            ]
+        );
+        assert_eq!(observed, result.effects);
     }
 
     #[test]
