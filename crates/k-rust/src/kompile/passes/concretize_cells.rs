@@ -413,7 +413,11 @@ impl CellModel {
             Term::Rewrite { left, right } => {
                 let left = self.sort_for_side(left);
                 let right = self.sort_for_side(right);
-                if left == right { left } else { None }
+                match (left, right) {
+                    (Some(left), Some(right)) if left == right => Some(left),
+                    (Some(sort), None) | (None, Some(sort)) => Some(sort),
+                    _ => None,
+                }
             }
             _ => None,
         }
@@ -1011,18 +1015,32 @@ impl<'a> Concretizer<'a> {
         let mut ordered = BTreeMap::<Sort, Term>::new();
         let mut unknown = Vec::new();
         for item in arguments {
-            if let Some(sort) = self.model.sort_for_term(&item) {
-                self.insert_child(&mut ordered, sort, item, cell)?;
-            } else if matches!(item.unannotated(), Term::Variable { .. }) {
-                unknown.push(item);
-            } else if let Term::Rewrite { left, right } = item.unannotated() {
-                let left = split_side(left, self.model);
-                let right = split_side(right, self.model);
-                let sorts = left
+            if let Term::Rewrite { left, right } = item.unannotated() {
+                let left_side = left.as_ref();
+                let right_side = right.as_ref();
+                let left = self.split_rewrite_side(left_side, cell)?;
+                let right = self.split_rewrite_side(right_side, cell)?;
+                let mut sorts = left
                     .keys()
                     .chain(right.keys())
                     .cloned()
                     .collect::<BTreeSet<_>>();
+                if sorts.is_empty()
+                    && ((matches!(left_side.unannotated(), Term::Variable { .. })
+                        && is_empty_cell_bag(right_side))
+                        || (is_empty_cell_bag(left_side)
+                            && matches!(right_side.unannotated(), Term::Variable { .. })))
+                {
+                    let candidates = cell
+                        .children
+                        .iter()
+                        .filter(|child| child.multiplicity == Multiplicity::Star)
+                        .collect::<Vec<_>>();
+                    if let [child] = candidates.as_slice() {
+                        sorts.insert(child.sort.clone());
+                    }
+                }
+                let singleton_sort = sorts.len() == 1;
                 for sort in sorts {
                     let child = cell
                         .children
@@ -1032,11 +1050,21 @@ impl<'a> Concretizer<'a> {
                     let left = left
                         .get(&sort)
                         .cloned()
+                        .or_else(|| {
+                            singleton_sort
+                                .then(|| rewrite_side_variable(item.unannotated(), false, child))
+                                .flatten()
+                        })
                         .or_else(|| unit(child))
                         .ok_or_else(|| format!("Cannot rewrite required cell {sort} from unit"))?;
                     let right = right
                         .get(&sort)
                         .cloned()
+                        .or_else(|| {
+                            singleton_sort
+                                .then(|| rewrite_side_variable(item.unannotated(), true, child))
+                                .flatten()
+                        })
                         .or_else(|| unit(child))
                         .ok_or_else(|| format!("Cannot rewrite required cell {sort} to unit"))?;
                     self.insert_child(
@@ -1049,6 +1077,10 @@ impl<'a> Concretizer<'a> {
                         cell,
                     )?;
                 }
+            } else if let Some(sort) = self.model.sort_for_term(&item) {
+                self.insert_child(&mut ordered, sort, item, cell)?;
+            } else if matches!(item.unannotated(), Term::Variable { .. }) {
+                unknown.push(item);
             } else {
                 return Err(format!(
                     "Unexpected term in parent cell {} during child ordering",
@@ -1110,6 +1142,30 @@ impl<'a> Concretizer<'a> {
             label,
             arguments: result,
         })
+    }
+
+    fn split_rewrite_side(
+        &self,
+        term: &Term,
+        parent: &Cell,
+    ) -> Result<BTreeMap<Sort, Term>, String> {
+        let mut split = BTreeMap::new();
+        for item in flatten_cells(term) {
+            if let Some(sort) = self.model.sort_for_term(item) {
+                self.insert_child(&mut split, sort, item.clone(), parent)?;
+                continue;
+            }
+            let Term::Variable { name, .. } = item.unannotated() else {
+                continue;
+            };
+            let Some(fragment) = self.fragments.get(name) else {
+                continue;
+            };
+            for (sort, term) in &fragment.split {
+                self.insert_child(&mut split, sort.clone(), term.clone(), parent)?;
+            }
+        }
+        Ok(split)
     }
 
     fn insert_child(
@@ -1298,6 +1354,23 @@ fn skip_root_wrapping(attributes: &Attributes) -> bool {
     .any(|attribute| attributes.get(attribute).is_some())
 }
 
+fn rewrite_side_variable(term: &Term, right: bool, child: &Child) -> Option<Term> {
+    let Term::Rewrite { left, right: rhs } = term else {
+        return None;
+    };
+    let side = if right { rhs.as_ref() } else { left.as_ref() };
+    matches!(side.unannotated(), Term::Variable { .. })
+        .then(|| set_variable_sort(side.clone(), child.value_sort.clone()))
+}
+
+fn is_empty_cell_bag(term: &Term) -> bool {
+    matches!(
+        term.unannotated(),
+        Term::Apply { label, arguments }
+            if arguments.is_empty() && matches!(label.name.as_str(), "#cells" | ".Bag")
+    )
+}
+
 fn is_function(term: &Term, productions: &ProductionCatalog<'_>) -> bool {
     let label = match term.unannotated() {
         Term::Apply { label, .. } => Some(label),
@@ -1380,13 +1453,6 @@ fn make_body(mut items: Vec<Term>) -> Term {
     } else {
         Term::apply("#cells", items)
     }
-}
-
-fn split_side(term: &Term, model: &CellModel) -> BTreeMap<Sort, Term> {
-    flatten_cells(term)
-        .into_iter()
-        .filter_map(|item| model.sort_for_term(item).map(|sort| (sort, item.clone())))
-        .collect()
 }
 
 fn unit(child: &Child) -> Option<Term> {
