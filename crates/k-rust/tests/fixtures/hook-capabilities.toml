@@ -247,7 +247,9 @@ implemented = [
   "HASH.ripemd160",
   "HASH.sha256",
   "HASH.sha3_256",
+  "KRYPTO.bn128add",
   "KRYPTO.bn128g2valid",
+  "KRYPTO.bn128mul",
   "KRYPTO.bn128valid",
   "KRYPTO.ecdsaPubKey",
   "KRYPTO.ecdsaRecover",
@@ -324,7 +326,7 @@ hooks = ["KRYPTO.ecdsaSign", "KRYPTO.ed25519verify", "KRYPTO.p256verify"]
 [[crypto.unsupported]]
 reason = "BN128 curve operations are tracked as unsupported semantics capabilities"
 hooks = [
-  "KRYPTO.bn128add", "KRYPTO.bn128ate", "KRYPTO.bn128mul",
+  "KRYPTO.bn128ate",
 ]
 
 [[crypto.unsupported]]
