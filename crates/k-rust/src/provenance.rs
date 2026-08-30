@@ -17,6 +17,10 @@ use crate::{
 
 pub const ORIGIN_ATTRIBUTE: &str = "org.krust.provenance.Origin";
 
+/// Generated leaf categories whose derivation is represented by their nearest parent receipt.
+pub const DECLARED_ORIGIN_FREE_NODE_KINDS: [&str; 3] =
+    ["primitive-token", "structural-dot", "truth-value"];
+
 /// Relocation-stable identity for one logical source and exact contents.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct LogicalSourceId {
@@ -1146,5 +1150,84 @@ mod tests {
                 "duplicate {key} sentences have distinct destination occurrences",
             );
         }
+    }
+
+    #[test]
+    fn duplicate_labels_across_modules_keep_distinct_source_and_destination_identities() {
+        let make_rule = |body: Term| {
+            let mut sentence = rule(body);
+            sentence
+                .attributes_mut()
+                .insert("label", Value::String("duplicate".into()));
+            sentence
+        };
+        let span = |source, start| TermSpan {
+            source: SourceId(source),
+            start,
+            end: start + 4,
+        };
+        let module = |name: &str, body| FlatModule {
+            name: name.into(),
+            imports: Vec::new(),
+            local_sentences: vec![make_rule(body)],
+            attributes: Attributes::default(),
+        };
+        let before = Definition {
+            main_module: "FIRST".into(),
+            modules: vec![
+                module(
+                    "FIRST",
+                    Term::apply("before", Vec::new()).with_metadata(TermMetadata {
+                        span: Some(span(0, 10)),
+                        ..TermMetadata::default()
+                    }),
+                ),
+                module(
+                    "SECOND",
+                    Term::apply("before", Vec::new()).with_metadata(TermMetadata {
+                        span: Some(span(1, 30)),
+                        ..TermMetadata::default()
+                    }),
+                ),
+            ],
+            attributes: Attributes::default(),
+        };
+        let after = Definition {
+            main_module: "FIRST".into(),
+            modules: vec![
+                module("FIRST", Term::apply("generated", Vec::new())),
+                module("SECOND", Term::apply("generated", Vec::new())),
+            ],
+            attributes: Attributes::default(),
+        };
+        let after = record_generated_origins(&before, after, GeneratingPass::MacroExpansion);
+        let receipts = after
+            .modules
+            .iter()
+            .map(|module| {
+                let Sentence::Rule { body, .. } = &module.local_sentences[0] else {
+                    unreachable!()
+                };
+                assert_eq!(body, &Term::apply("generated", Vec::new()));
+                body.metadata()
+                    .and_then(|metadata| metadata.origin.as_deref())
+                    .expect("generated term has a receipt")
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            receipts[0].origins,
+            [ProvenanceLink::Source { span: span(0, 10) }]
+        );
+        assert_eq!(
+            receipts[1].origins,
+            [ProvenanceLink::Source { span: span(1, 30) }]
+        );
+        assert_ne!(receipts[0].origins, receipts[1].origins);
+        assert_ne!(receipts[0].destination, receipts[1].destination);
+        assert_eq!(receipts[0].destination.as_ref().unwrap().module, "FIRST");
+        assert_eq!(receipts[1].destination.as_ref().unwrap().module, "SECOND");
+        assert_eq!(receipts[0].destination.as_ref().unwrap().path, [0]);
+        assert_eq!(receipts[1].destination.as_ref().unwrap().path, [0]);
     }
 }
