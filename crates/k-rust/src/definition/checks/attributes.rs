@@ -2,8 +2,9 @@
 
 use super::Sentence;
 use crate::definition::{
-    Attributes, LabelHead, ProductionCatalog, ProductionItem, ResolvedModule, SortCatalog,
-    SortHead, match_rule_label,
+    Attributes, LabelHead, ProductionCatalog, ProductionItem, ResolvedModule,
+    SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE, SortCatalog, SortHead,
+    match_rule_label,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 
@@ -626,6 +627,8 @@ fn is_internal_attribute(key: &str) -> bool {
             | "org.kframework.attributes.Source"
             | "org.kframework.attributes.SourceId"
             | "org.krust.provenance.Origin"
+            | SENTENCE_START_OFFSET_ATTRIBUTE
+            | SENTENCE_END_OFFSET_ATTRIBUTE
             | "org.kframework.attributes.Location"
             | "symbol-overload"
             | "syntaxModule"

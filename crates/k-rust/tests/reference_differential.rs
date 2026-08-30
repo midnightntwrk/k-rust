@@ -275,6 +275,8 @@ fn normalize_definition_value(
                 "org.kframework.attributes.Source",
                 "org.kframework.attributes.SourceId",
                 "org.krust.provenance.Origin",
+                "org.krust.provenance.SentenceStartOffset",
+                "org.krust.provenance.SentenceEndOffset",
                 "org.kframework.attributes.Location",
                 "org.kframework.definition.Production",
                 "contentStartColumn",

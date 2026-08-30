@@ -10,6 +10,15 @@ use crate::provenance::{ORIGIN_ATTRIBUTE, SourceId};
 pub const LOCATION_ATTRIBUTE: &str = "org.kframework.attributes.Location";
 pub const SOURCE_ATTRIBUTE: &str = "org.kframework.attributes.Source";
 pub const SOURCE_ID_ATTRIBUTE: &str = "org.kframework.attributes.SourceId";
+pub const SENTENCE_START_OFFSET_ATTRIBUTE: &str = "org.krust.provenance.SentenceStartOffset";
+pub const SENTENCE_END_OFFSET_ATTRIBUTE: &str = "org.krust.provenance.SentenceEndOffset";
+
+pub(super) fn is_provenance_only_attribute(key: &str) -> bool {
+    matches!(
+        key,
+        ORIGIN_ATTRIBUTE | SENTENCE_START_OFFSET_ATTRIBUTE | SENTENCE_END_OFFSET_ATTRIBUTE
+    )
+}
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Location {
@@ -34,11 +43,11 @@ impl PartialEq for Attributes {
     fn eq(&self, other: &Self) -> bool {
         self.entries
             .iter()
-            .filter(|(key, _)| key.as_str() != ORIGIN_ATTRIBUTE)
+            .filter(|(key, _)| !is_provenance_only_attribute(key))
             .eq(other
                 .entries
                 .iter()
-                .filter(|(key, _)| key.as_str() != ORIGIN_ATTRIBUTE))
+                .filter(|(key, _)| !is_provenance_only_attribute(key)))
     }
 }
 
