@@ -209,6 +209,26 @@ impl PatternSearchResult {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PathSearchMatch {
+    pub substitution: Substitution,
+    pub constraints: Vec<Predicate>,
+    pub witness: PathWitness,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PatternPathSearchResult {
+    pub matches: Vec<PathSearchMatch>,
+    pub effects: Vec<BuiltinEffect>,
+    pub incomplete: Vec<IncompleteSearch>,
+}
+
+impl PatternPathSearchResult {
+    pub const fn modality(&self) -> ResultModality {
+        ResultModality::PathSet
+    }
+}
+
 /// Match a constrained pattern against each alternative in a disjunction.
 pub fn match_disjunction(
     definition: &BackendDefinition,
@@ -828,6 +848,113 @@ pub fn search_pattern_with_solver(
         matches,
         effects: graph.effects,
         incomplete,
+    }
+}
+
+/// Search selected path witnesses for instances of `target` without collapsing equal matches.
+pub fn search_pattern_paths(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    target: &Pattern,
+    options: SearchOptions,
+) -> PatternPathSearchResult {
+    search_pattern_paths_with_solver(definition, initial, target, options, &NoSolver)
+}
+
+/// Search selected path witnesses for instances using the supplied SMT solver.
+pub fn search_pattern_paths_with_solver(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    target: &Pattern,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+) -> PatternPathSearchResult {
+    let requested_bound = options.max_results;
+    if requested_bound == Some(0) {
+        return PatternPathSearchResult {
+            matches: Vec::new(),
+            effects: Vec::new(),
+            incomplete: vec![IncompleteSearch::ResultBound],
+        };
+    }
+    let graph = search_paths_with_solver(
+        definition,
+        initial,
+        SearchOptions {
+            max_results: None,
+            ..options
+        },
+        solver,
+    );
+    let mut matches = Vec::new();
+    let mut incomplete = graph.incomplete;
+    let output_variables = pattern_variables(target);
+
+    let mut remaining = graph.witnesses.into_iter();
+    while let Some(witness) = remaining.next() {
+        let found = match match_pattern_with_variables(
+            definition,
+            target,
+            &witness.pattern,
+            &output_variables,
+            simplification_options(options),
+            solver,
+            false,
+        ) {
+            Ok(Some(found)) => found,
+            Ok(None) => continue,
+            Err(PatternMatchError::Indeterminate {
+                substitution,
+                remainder,
+            }) => {
+                incomplete.push(IncompleteSearch::Match {
+                    state: witness_search_state(witness),
+                    substitution,
+                    remainder,
+                });
+                continue;
+            }
+            Err(PatternMatchError::Simplification(error)) => {
+                incomplete.push(simplification_incomplete(
+                    witness_search_state(witness),
+                    error,
+                ));
+                continue;
+            }
+            Err(PatternMatchError::Smt(error)) => {
+                incomplete.push(IncompleteSearch::Smt {
+                    state: witness_search_state(witness),
+                    error,
+                });
+                continue;
+            }
+        };
+
+        matches.push(PathSearchMatch {
+            substitution: found.substitution,
+            constraints: found.constraints,
+            witness,
+        });
+        if requested_bound.is_some_and(|bound| matches.len() >= bound) {
+            if remaining.len() > 0 {
+                incomplete.push(IncompleteSearch::ResultBound);
+            }
+            break;
+        }
+    }
+
+    PatternPathSearchResult {
+        matches,
+        effects: graph.effects,
+        incomplete,
+    }
+}
+
+fn witness_search_state(witness: PathWitness) -> SearchState {
+    SearchState {
+        pattern: witness.pattern,
+        depth: witness.depth,
+        trace: witness.trace,
     }
 }
 
@@ -1552,6 +1679,43 @@ mod tests {
         };
 
         assert_eq!(search(), search());
+    }
+
+    #[test]
+    fn equal_binding_paths_keep_distinct_trace_identities() {
+        let definition = diamond_definition(false);
+        let result_variable = result_variable();
+        let target = Pattern {
+            term: Term::variable(result_variable.clone()),
+            constraints: Vec::new(),
+        };
+        let result = search_pattern_paths(
+            &definition,
+            initial(&definition),
+            &target,
+            SearchOptions::default(),
+        );
+
+        assert_eq!(result.modality(), ResultModality::PathSet);
+        assert_eq!(result.matches.len(), 2);
+        assert_eq!(
+            result
+                .matches
+                .iter()
+                .map(|found| found.substitution[&result_variable].clone())
+                .collect::<BTreeSet<_>>()
+                .len(),
+            1
+        );
+        assert_eq!(
+            result
+                .matches
+                .iter()
+                .map(|found| found.witness.id.clone())
+                .collect::<BTreeSet<_>>()
+                .len(),
+            2
+        );
     }
 
     #[test]
