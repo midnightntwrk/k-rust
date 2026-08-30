@@ -16,10 +16,10 @@ krust kast examples/z3-inference.k \
   --no-prelude
 ```
 
-The result should contain `same{Int}`, showing that Z3 inferred the concrete sort:
+The result should contain an `Int` token below `same`, showing that Z3 inferred the concrete sort:
 
 ```text
-box(same{Int}(#token("1","Int")))
+box(same(#token("1","Int")))
 ```
 
 Compile and execute a small rewriting definition with the in-process backend:
@@ -56,14 +56,14 @@ krust krun examples/map-framing.k \
 
 The final `<store>` cell contains only the `b |-> 2` and `c |-> 3` entries.
 
-On macOS, verify that the release binary does not dynamically load Z3:
+On macOS, verify that the default GitHub-release build does not dynamically load Z3:
 
 ```console
 otool -L ~/.local/bin/krust
 ```
 
-The output should contain only system libraries and no `libz3.dylib`; together with the inference
-example succeeding, this confirms that the statically linked Z3 implementation was exercised.
+The output should contain only system libraries and no `libz3.dylib`.
+Together with the inference example succeeding, this confirms that the default statically linked Z3 implementation was exercised.
 
 ## Status
 
@@ -100,8 +100,8 @@ native Node.js and portable WebAssembly respectively.
 
 ## Install and build
 
-The native frontend enables statically linked Z3 and MPFR support by default. Z3 is downloaded from
-its official GitHub release rather than compiled from source:
+The native frontend enables statically linked Z3 and MPFR support by default.
+Z3 is downloaded from its official GitHub release rather than compiled from source:
 
 ```console
 cargo install --path crates/k-rust
@@ -109,7 +109,19 @@ cargo install --path crates/k-rust
 cargo build --workspace --release
 ```
 
-The Z3 binding does not call a `z3` executable or require a system Z3 installation.
+The Z3 binding does not call a `z3` executable or require a system Z3 installation in this default mode.
+The upstream `z3-sys` build selects the release artifact at build time; this repository does not content-hash-pin that artifact.
+
+Consumers that pin Z3 outside Cargo can select system linkage for the library or CLI:
+
+```console
+cargo build -p k-rust --no-default-features --features z3-inference
+cargo build -p k-rust --no-default-features --features cli
+```
+
+System mode requires the development library and headers to be discoverable by the platform linker or `pkg-config`; a `z3` executable alone is insufficient.
+It commonly links dynamically, so the selected library must also be discoverable at runtime.
+The repository checks both system feature graphs and exercises a clean system-linked build with `scripts/z3-acquisition-check.sh`.
 
 The portable library subset disables native inference and floating-point folding:
 
