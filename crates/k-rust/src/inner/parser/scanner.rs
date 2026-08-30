@@ -57,6 +57,17 @@ impl Layout {
         })
     }
 
+    pub(super) fn compile_with_default(
+        sources: impl IntoIterator<Item = impl AsRef<str>>,
+    ) -> Result<Self, ParseError> {
+        Self::compile(
+            DEFAULT_LAYOUT
+                .into_iter()
+                .map(str::to_owned)
+                .chain(sources.into_iter().map(|source| source.as_ref().to_owned())),
+        )
+    }
+
     pub(super) fn skip(&self, input: &str, mut position: usize) -> usize {
         let Some(pattern) = &self.pattern else {
             return position;
