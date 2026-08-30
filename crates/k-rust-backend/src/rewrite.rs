@@ -3354,7 +3354,10 @@ fn conjoin(mut predicates: Vec<Predicate>) -> Predicate {
     }
 }
 
-fn quantify_introduced_variables(pattern: &Pattern, predicates: Vec<Predicate>) -> Predicate {
+pub(crate) fn quantify_introduced_variables(
+    pattern: &Pattern,
+    predicates: Vec<Predicate>,
+) -> Predicate {
     let mut condition = conjoin(predicates);
     let state_variables = pattern_free_variables(pattern);
     let introduced = condition
@@ -3368,7 +3371,10 @@ fn quantify_introduced_variables(pattern: &Pattern, predicates: Vec<Predicate>) 
     condition
 }
 
-fn conjunctively_contains_alpha_equivalent(predicates: &[Predicate], target: &Predicate) -> bool {
+pub(crate) fn conjunctively_contains_alpha_equivalent(
+    predicates: &[Predicate],
+    target: &Predicate,
+) -> bool {
     predicates.iter().any(|predicate| {
         alpha_equivalent(predicate, target)
             || matches!(predicate, Predicate::And(inner) if conjunctively_contains_alpha_equivalent(inner, target))
