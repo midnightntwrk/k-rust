@@ -344,8 +344,64 @@ mod tests {
         kore::parser::parse_definition,
         outer::{ResolvedSource, load},
     };
+    use sha3::{Digest, Sha3_256};
 
     use super::*;
+
+    fn artifact_digest(text: &str) -> String {
+        Sha3_256::digest(text.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn provenance_plumbing_leaves_emitted_kore_unchanged() {
+        let source = r#"
+            module MAIN
+              imports MAP
+              syntax Int ::= r"[0-9]+" [token]
+              syntax Exp ::= Int
+              syntax Exp ::= Exp "+" Exp [symbol(_+_)]
+              configuration <k> $PGM:Exp </k> <n> 0:KItem </n>
+              rule <k> X:Exp + 0 => X:Exp </k> [label(right-zero)]
+              claim <k> X:Exp => X:Exp </k> [one-path, label(reflexive)]
+            endmodule
+        "#;
+        let prelude = embedded("prelude.md").unwrap();
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = load_with_options(
+            ResolvedSource::new("provenance.k", source),
+            "MAIN",
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![prelude],
+                excluded_module_attributes: vec![
+                    CompilationBackend::Rust.excluded_module_attribute().into(),
+                ],
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap();
+
+        let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+
+        assert_eq!(
+            [
+                artifact_digest(&artifacts.definition_kore),
+                artifact_digest(&artifacts.syntax_definition_kore),
+                artifact_digest(&artifacts.macros_kore),
+            ],
+            [
+                String::from("d32725c7573de3114b83f8173c27891ef5f980a2e149f44d63b23493fe16acbf",),
+                String::from("152ac87c1dfd56b6ecacd928f8961b5838867a7f994c55d0ebfb92ead143ef74",),
+                String::from("a78f2c566b2439463a2e7ca515bbfa3f92948506583cbadaebdd507f277542bd",),
+            ],
+        );
+    }
 
     #[test]
     fn compiles_an_in_memory_definition_into_three_artifacts() {
