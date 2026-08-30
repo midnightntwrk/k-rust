@@ -8,7 +8,7 @@ use serde_json::Value;
 use super::ast::{
     Associativity, Attributes, LOCATION_ATTRIBUTE, ProductionItem, SOURCE_ATTRIBUTE, Sentence,
 };
-use crate::kast::Term;
+use crate::{kast::Term, provenance::ORIGIN_ATTRIBUTE};
 
 const STRING_CLASS: &str = "java.lang.String";
 const INTEGER_CLASS: &str = "java.lang.Integer";
@@ -614,6 +614,7 @@ fn attribute_triples(attributes: &Attributes) -> Vec<(String, String, String)> {
     attributes
         .entries()
         .iter()
+        .filter(|(key, _)| key.as_str() != ORIGIN_ATTRIBUTE)
         .map(|(key, value)| {
             (
                 key.clone(),

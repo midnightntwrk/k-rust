@@ -1587,6 +1587,7 @@ fn term_metadata(
             .source_production
             .map(|production| ResolvedProductionId(production.0)),
         sort: None,
+        origin: None,
     }
 }
 

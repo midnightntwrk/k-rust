@@ -1,8 +1,11 @@
 //! The user-facing K term model.
 
-use std::fmt::{self, Display, Formatter};
+use std::{
+    fmt::{self, Display, Formatter},
+    sync::Arc,
+};
 
-use crate::provenance::SourceId;
+use crate::provenance::{OriginRecord, SourceId};
 
 use super::printer::Printer;
 
@@ -72,6 +75,7 @@ pub struct TermMetadata {
     pub production: Option<ResolvedProductionId>,
     /// An explicit compiler sort attached by transformations such as semantic-cast resolution.
     pub sort: Option<Sort>,
+    pub origin: Option<Arc<OriginRecord>>,
 }
 
 /// A K term. Semantic variant order follows the Scala frontend's total ordering.
@@ -155,6 +159,9 @@ impl Term {
                 }
                 if metadata.sort.is_some() {
                     existing.sort = metadata.sort;
+                }
+                if metadata.origin.is_some() {
+                    existing.origin = metadata.origin;
                 }
                 Self::Annotated {
                     term,

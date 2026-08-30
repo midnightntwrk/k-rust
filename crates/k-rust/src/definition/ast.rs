@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 use crate::kast::{Label, Sort, Term};
-use crate::provenance::SourceId;
+use crate::provenance::{ORIGIN_ATTRIBUTE, SourceId};
 
 pub const LOCATION_ATTRIBUTE: &str = "org.kframework.attributes.Location";
 pub const SOURCE_ATTRIBUTE: &str = "org.kframework.attributes.Source";
@@ -23,10 +23,26 @@ pub struct Location {
 ///
 /// Values remain JSON values because the Java frontend emits a mixture of
 /// strings and typed values, and unknown internal attributes must round-trip.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+/// Semantic equality ignores the reserved origin receipt while [`Self::entries`]
+/// continues to expose it to provenance consumers.
+#[derive(Clone, Debug, Default)]
 pub struct Attributes {
     entries: BTreeMap<String, Value>,
 }
+
+impl PartialEq for Attributes {
+    fn eq(&self, other: &Self) -> bool {
+        self.entries
+            .iter()
+            .filter(|(key, _)| key.as_str() != ORIGIN_ATTRIBUTE)
+            .eq(other
+                .entries
+                .iter()
+                .filter(|(key, _)| key.as_str() != ORIGIN_ATTRIBUTE))
+    }
+}
+
+impl Eq for Attributes {}
 
 impl Attributes {
     pub fn new(entries: BTreeMap<String, Value>) -> Self {
@@ -207,6 +223,23 @@ pub enum Sentence {
 
 impl Sentence {
     pub fn attributes(&self) -> &Attributes {
+        match self {
+            Self::SyntaxSort { attributes, .. }
+            | Self::SortSynonym { attributes, .. }
+            | Self::SyntaxLexical { attributes, .. }
+            | Self::Production { attributes, .. }
+            | Self::SyntaxAssociativity { attributes, .. }
+            | Self::SyntaxPriority { attributes, .. }
+            | Self::ContextAlias { attributes, .. }
+            | Self::Context { attributes, .. }
+            | Self::Rule { attributes, .. }
+            | Self::Claim { attributes, .. }
+            | Self::Configuration { attributes, .. }
+            | Self::Bubble { attributes, .. } => attributes,
+        }
+    }
+
+    pub fn attributes_mut(&mut self) -> &mut Attributes {
         match self {
             Self::SyntaxSort { attributes, .. }
             | Self::SortSynonym { attributes, .. }
