@@ -137,6 +137,16 @@ impl ObservationOptions {
             rules: Some(selected),
         })
     }
+
+    pub(crate) fn observes(&self, rule: &str) -> bool {
+        self.rules
+            .as_ref()
+            .is_none_or(|selected| selected.contains(rule))
+    }
+
+    pub(crate) const fn rules_are_unfiltered(&self) -> bool {
+        self.rules.is_none()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

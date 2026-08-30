@@ -28,6 +28,10 @@ use crate::{
     substitution::{Substitution, compose, extract_substitution, substitute, substitution_binding},
     term::{Sort, Symbol, SymbolType, Term, TermKind, Variable},
     timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
+    transition::{
+        ObservationEvent, ObservationOptions, PatternDigest, TransitionClass, TransitionId,
+        TransitionObservation,
+    },
     unification::{UnificationFailure, UnificationResult, unify_term_pairs},
 };
 
@@ -81,6 +85,8 @@ pub(crate) fn retain_substitution_predicates(
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AppliedRule {
+    /// The constrained pattern against which this application was constructed.
+    pub before: Pattern,
     pub pattern: Pattern,
     pub label: Option<String>,
     pub unique_id: String,
@@ -245,6 +251,10 @@ pub struct ExecutionLeaf {
     pub pattern: Pattern,
     pub depth: u64,
     pub trace: Vec<TraceEntry>,
+    /// Stable semantic path prefix for this leaf when observation was enabled.
+    pub branch: Vec<TransitionId>,
+    /// Ordered structured events retained for this branch.
+    pub observations: Vec<ObservationEvent>,
     pub halt_reason: HaltReason,
 }
 
@@ -271,18 +281,59 @@ pub fn execute_with_solver(
     execute_with_solver_and_observer(definition, initial, options, solver, |_| {})
 }
 
+/// Execute with branch-local structured transition observation enabled.
+pub fn execute_observed(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: ExecutionOptions,
+    observation: &ObservationOptions,
+) -> ExecutionResult {
+    execute_observed_with_solver(definition, initial, options, &NoSolver, observation)
+}
+
+/// Execute with structured observation and the supplied SMT solver.
+pub fn execute_observed_with_solver(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: ExecutionOptions,
+    solver: &dyn SmtSolver,
+    observation: &ObservationOptions,
+) -> ExecutionResult {
+    execute_using(
+        definition,
+        initial,
+        options,
+        solver,
+        Some(observation),
+        |_| {},
+    )
+}
+
 pub fn execute_with_solver_and_observer(
     definition: &BackendDefinition,
     initial: Pattern,
     options: ExecutionOptions,
     solver: &dyn SmtSolver,
+    observe: impl FnMut(&BuiltinEffect),
+) -> ExecutionResult {
+    execute_using(definition, initial, options, solver, None, observe)
+}
+
+fn execute_using(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: ExecutionOptions,
+    solver: &dyn SmtSolver,
+    observation: Option<&ObservationOptions>,
     mut observe: impl FnMut(&BuiltinEffect),
 ) -> ExecutionResult {
     let mut fresh_counter = 0;
+    let mut observation_log = ObservationLog::default();
     let mut pending = VecDeque::from([ExecutionState {
         pattern: initial,
         depth: 0,
         trace: Vec::new(),
+        observation: None,
     }]);
     let mut leaves = Vec::new();
     let mut effects = Vec::new();
@@ -294,7 +345,7 @@ pub fn execute_with_solver_and_observer(
         return ExecutionResult {
             leaves: pending
                 .drain(..)
-                .map(execution_state_at_breadth_bound)
+                .map(|state| execution_state_at_breadth_bound(state, &observation_log))
                 .collect(),
             effects,
         };
@@ -305,22 +356,12 @@ pub fn execute_with_solver_and_observer(
             () => {
                 if cancellation_requested() {
                     step_timer.discard_measurement();
-                    leaves.push(ExecutionLeaf {
-                        pattern: state.pattern,
-                        depth: state.depth,
-                        trace: state.trace,
-                        halt_reason: HaltReason::Cancelled,
-                    });
+                    leaves.push(state.leaf(HaltReason::Cancelled, &observation_log));
                     continue;
                 }
                 if let Some(mode) = step_timer.timed_out() {
                     step_timer.discard_measurement();
-                    leaves.push(ExecutionLeaf {
-                        pattern: state.pattern,
-                        depth: state.depth,
-                        trace: state.trace,
-                        halt_reason: HaltReason::Timeout(mode),
-                    });
+                    leaves.push(state.leaf(HaltReason::Timeout(mode), &observation_log));
                     continue;
                 }
             };
@@ -346,12 +387,7 @@ pub fn execute_with_solver_and_observer(
                 normalize_pattern_substitution(&mut state.pattern);
             }
             Err(error) => {
-                leaves.push(ExecutionLeaf {
-                    pattern: state.pattern,
-                    depth: state.depth,
-                    trace: state.trace,
-                    halt_reason: HaltReason::Simplification(error),
-                });
+                leaves.push(state.leaf(HaltReason::Simplification(error), &observation_log));
                 continue;
             }
         }
@@ -363,12 +399,7 @@ pub fn execute_with_solver_and_observer(
                 deferred_initial_vacuity = Some(state.pattern.clone());
                 state.pattern = pattern_before_constraint_simplification;
             } else {
-                leaves.push(ExecutionLeaf {
-                    pattern: state.pattern,
-                    depth: state.depth,
-                    trace: state.trace,
-                    halt_reason: HaltReason::Vacuous,
-                });
+                leaves.push(state.leaf(HaltReason::Vacuous, &observation_log));
                 continue;
             }
         }
@@ -403,22 +434,12 @@ pub fn execute_with_solver_and_observer(
                     );
             }
             Err(error) => {
-                leaves.push(ExecutionLeaf {
-                    pattern: state.pattern,
-                    depth: state.depth,
-                    trace: state.trace,
-                    halt_reason: HaltReason::Simplification(error),
-                });
+                leaves.push(state.leaf(HaltReason::Simplification(error), &observation_log));
                 continue;
             }
         }
         if state.depth >= options.max_depth {
-            leaves.push(ExecutionLeaf {
-                pattern: state.pattern,
-                depth: state.depth,
-                trace: state.trace,
-                halt_reason: HaltReason::DepthBound,
-            });
+            leaves.push(state.leaf(HaltReason::DepthBound, &observation_log));
             continue;
         }
         let rewritten = rewrite_step_with_mode(
@@ -439,25 +460,14 @@ pub fn execute_with_solver_and_observer(
                     .map_or((pattern, HaltReason::Stuck), |pattern| {
                         (pattern, HaltReason::Vacuous)
                     });
-                leaves.push(ExecutionLeaf {
-                    pattern,
-                    depth: state.depth,
-                    trace: state.trace,
-                    halt_reason,
-                });
+                leaves.push(state.leaf_with_pattern(pattern, halt_reason, &observation_log));
             }
-            RewriteResult::Trivial(pattern) => leaves.push(ExecutionLeaf {
-                pattern,
-                depth: state.depth,
-                trace: state.trace,
-                halt_reason: HaltReason::Trivial,
-            }),
-            RewriteResult::Vacuous(pattern) => leaves.push(ExecutionLeaf {
-                pattern,
-                depth: state.depth,
-                trace: state.trace,
-                halt_reason: HaltReason::Vacuous,
-            }),
+            RewriteResult::Trivial(pattern) => {
+                leaves.push(state.leaf_with_pattern(pattern, HaltReason::Trivial, &observation_log))
+            }
+            RewriteResult::Vacuous(pattern) => {
+                leaves.push(state.leaf_with_pattern(pattern, HaltReason::Vacuous, &observation_log))
+            }
             RewriteResult::Indeterminate { pattern, reason } => {
                 let halt_reason = match reason {
                     IndeterminateReason::Simplification { error, .. } => {
@@ -465,12 +475,7 @@ pub fn execute_with_solver_and_observer(
                     }
                     reason => HaltReason::Indeterminate(reason),
                 };
-                leaves.push(ExecutionLeaf {
-                    pattern,
-                    depth: state.depth,
-                    trace: state.trace,
-                    halt_reason,
-                });
+                leaves.push(state.leaf_with_pattern(pattern, halt_reason, &observation_log));
             }
             RewriteResult::Finished(applied) => {
                 record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
@@ -488,38 +493,41 @@ pub fn execute_with_solver_and_observer(
                     ) {
                         Ok(pattern) => pattern,
                         Err(error) => {
-                            leaves.push(ExecutionLeaf {
-                                pattern: applied.pattern,
-                                depth: state.depth,
-                                trace: state.trace,
-                                halt_reason: HaltReason::Simplification(error),
-                            });
+                            leaves.push(state.leaf_with_pattern(
+                                applied.pattern,
+                                HaltReason::Simplification(error),
+                                &observation_log,
+                            ));
                             continue;
                         }
                     };
                     finish_if_interrupted!();
                     if predicates_truth(&applied.pattern.constraints) == Truth::False {
-                        leaves.push(ExecutionLeaf {
-                            pattern: applied.pattern,
-                            depth: state.depth,
-                            trace: state.trace,
-                            halt_reason: HaltReason::Trivial,
-                        });
+                        leaves.push(state.leaf_with_pattern(
+                            applied.pattern,
+                            HaltReason::Trivial,
+                            &observation_log,
+                        ));
                         continue;
                     }
-                    leaves.push(ExecutionLeaf {
-                        pattern: state.pattern,
-                        depth: state.depth,
-                        trace: state.trace,
-                        halt_reason: HaltReason::CutPointRule {
+                    leaves.push(state.leaf(
+                        HaltReason::CutPointRule {
                             rule,
                             next_states: vec![applied],
                         },
-                    });
+                        &observation_log,
+                    ));
                     continue;
                 }
                 let terminal_rule = selected_stop_rule(&applied, &options.terminal_rules);
-                let mut next = next_state(state.depth, state.trace, applied);
+                let mut next = next_state(
+                    state.depth,
+                    state.trace,
+                    state.observation,
+                    applied,
+                    &mut observation_log,
+                    observation,
+                );
                 if let Some(rule) = terminal_rule {
                     next.pattern = match simplify_result_pattern(
                         definition,
@@ -533,50 +541,40 @@ pub fn execute_with_solver_and_observer(
                     ) {
                         Ok(pattern) => pattern,
                         Err(error) => {
-                            leaves.push(ExecutionLeaf {
-                                pattern: next.pattern,
-                                depth: next.depth,
-                                trace: next.trace,
-                                halt_reason: HaltReason::Simplification(error),
-                            });
+                            leaves.push(
+                                next.leaf(HaltReason::Simplification(error), &observation_log),
+                            );
                             continue;
                         }
                     };
                     if cancellation_requested() {
                         step_timer.discard_measurement();
-                        leaves.push(ExecutionLeaf {
-                            pattern: next.pattern,
-                            depth: next.depth,
-                            trace: next.trace,
-                            halt_reason: HaltReason::Cancelled,
-                        });
+                        leaves.push(next.leaf(HaltReason::Cancelled, &observation_log));
                         continue;
                     }
                     if let Some(mode) = step_timer.timed_out() {
                         step_timer.discard_measurement();
-                        leaves.push(ExecutionLeaf {
-                            pattern: next.pattern,
-                            depth: next.depth,
-                            trace: next.trace,
-                            halt_reason: HaltReason::Timeout(mode),
-                        });
+                        leaves.push(next.leaf(HaltReason::Timeout(mode), &observation_log));
                         continue;
                     }
                     let trivial = predicates_truth(&next.pattern.constraints) == Truth::False;
-                    leaves.push(ExecutionLeaf {
-                        pattern: next.pattern,
-                        depth: next.depth,
-                        trace: next.trace,
-                        halt_reason: if trivial {
+                    leaves.push(next.leaf(
+                        if trivial {
                             HaltReason::Trivial
                         } else {
                             HaltReason::TerminalRule { rule }
                         },
-                    });
+                        &observation_log,
+                    ));
                     continue;
                 }
                 enqueue_execution_states(&mut pending, vec![next]);
-                if execution_breadth_exceeded(&mut pending, &mut leaves, options.max_breadth) {
+                if execution_breadth_exceeded(
+                    &mut pending,
+                    &mut leaves,
+                    options.max_breadth,
+                    &observation_log,
+                ) {
                     break;
                 }
             }
@@ -597,12 +595,8 @@ pub fn execute_with_solver_and_observer(
                         solver,
                         (options.mode, options.assume_initial_defined),
                     ) {
-                        leaves.push(ExecutionLeaf {
-                            pattern: state.pattern,
-                            depth: state.depth,
-                            trace: state.trace,
-                            halt_reason: HaltReason::Simplification(error),
-                        });
+                        leaves
+                            .push(state.leaf(HaltReason::Simplification(error), &observation_log));
                         continue;
                     }
                     let mut original = original;
@@ -618,22 +612,20 @@ pub fn execute_with_solver_and_observer(
                     ) {
                         Ok(pattern) => pattern,
                         Err(error) => {
-                            leaves.push(ExecutionLeaf {
-                                pattern: original,
-                                depth: state.depth,
-                                trace: state.trace,
-                                halt_reason: HaltReason::Simplification(error),
-                            });
+                            leaves.push(state.leaf_with_pattern(
+                                original,
+                                HaltReason::Simplification(error),
+                                &observation_log,
+                            ));
                             continue;
                         }
                     };
                     if predicates_truth(&original.constraints) == Truth::False {
-                        leaves.push(ExecutionLeaf {
-                            pattern: original,
-                            depth: state.depth,
-                            trace: state.trace,
-                            halt_reason: HaltReason::Trivial,
-                        });
+                        leaves.push(state.leaf_with_pattern(
+                            original,
+                            HaltReason::Trivial,
+                            &observation_log,
+                        ));
                         continue;
                     }
                     // A branch point is reported as a single leaf for the parent state. When
@@ -666,12 +658,11 @@ pub fn execute_with_solver_and_observer(
                         }
                     }
                     if let Some(error) = failed_branch {
-                        leaves.push(ExecutionLeaf {
-                            pattern: original,
-                            depth: state.depth,
-                            trace: state.trace,
-                            halt_reason: HaltReason::Simplification(error),
-                        });
+                        leaves.push(state.leaf_with_pattern(
+                            original,
+                            HaltReason::Simplification(error),
+                            &observation_log,
+                        ));
                         continue;
                     }
                     branches = simplified_branches;
@@ -688,12 +679,11 @@ pub fn execute_with_solver_and_observer(
                         ) {
                             Ok(pattern) => pattern,
                             Err(error) => {
-                                leaves.push(ExecutionLeaf {
-                                    pattern: original,
-                                    depth: state.depth,
-                                    trace: state.trace,
-                                    halt_reason: HaltReason::Simplification(error),
-                                });
+                                leaves.push(state.leaf_with_pattern(
+                                    original,
+                                    HaltReason::Simplification(error),
+                                    &observation_log,
+                                ));
                                 continue;
                             }
                         };
@@ -704,12 +694,11 @@ pub fn execute_with_solver_and_observer(
                     finish_if_interrupted!();
                     match (branches.len(), remainder.is_some()) {
                         (0, false) => {
-                            leaves.push(ExecutionLeaf {
-                                pattern: original,
-                                depth: state.depth,
-                                trace: state.trace,
-                                halt_reason: HaltReason::Stuck,
-                            });
+                            leaves.push(state.leaf_with_pattern(
+                                original,
+                                HaltReason::Stuck,
+                                &observation_log,
+                            ));
                         }
                         (1, false) => {
                             let applied = branches.pop().expect("one branch remains");
@@ -720,14 +709,30 @@ pub fn execute_with_solver_and_observer(
                             );
                             enqueue_execution_states(
                                 &mut pending,
-                                vec![next_state(state.depth, state.trace, applied)],
+                                vec![next_state(
+                                    state.depth,
+                                    state.trace,
+                                    state.observation,
+                                    applied,
+                                    &mut observation_log,
+                                    observation,
+                                )],
                             );
                         }
                         (0, true) => {
                             let remainder = remainder.take().expect("one remainder remains");
+                            let before = state.pattern.clone();
                             enqueue_execution_states(
                                 &mut pending,
-                                vec![remaining_state(state.depth, state.trace, remainder)],
+                                vec![remaining_state(
+                                    state.depth,
+                                    state.trace,
+                                    state.observation,
+                                    before,
+                                    remainder,
+                                    &mut observation_log,
+                                    observation,
+                                )],
                             );
                         }
                         _ => {
@@ -738,15 +743,14 @@ pub fn execute_with_solver_and_observer(
                                     &mut observe,
                                 );
                             }
-                            leaves.push(ExecutionLeaf {
-                                pattern: original,
-                                depth: state.depth,
-                                trace: state.trace,
-                                halt_reason: HaltReason::Branch {
+                            leaves.push(state.leaf_with_pattern(
+                                original,
+                                HaltReason::Branch {
                                     branches,
                                     remainder,
                                 },
-                            });
+                                &observation_log,
+                            ));
                         }
                     }
                     continue;
@@ -755,13 +759,34 @@ pub fn execute_with_solver_and_observer(
                     Vec::with_capacity(branches.len() + usize::from(remainder.is_some()));
                 for applied in branches {
                     record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
-                    next.push(next_state(state.depth, state.trace.clone(), applied));
+                    next.push(next_state(
+                        state.depth,
+                        state.trace.clone(),
+                        state.observation,
+                        applied,
+                        &mut observation_log,
+                        observation,
+                    ));
                 }
                 if let Some(remainder) = remainder {
-                    next.push(remaining_state(state.depth, state.trace, remainder));
+                    let before = state.pattern;
+                    next.push(remaining_state(
+                        state.depth,
+                        state.trace,
+                        state.observation,
+                        before,
+                        remainder,
+                        &mut observation_log,
+                        observation,
+                    ));
                 }
                 enqueue_execution_states(&mut pending, next);
-                if execution_breadth_exceeded(&mut pending, &mut leaves, options.max_breadth) {
+                if execution_breadth_exceeded(
+                    &mut pending,
+                    &mut leaves,
+                    options.max_breadth,
+                    &observation_log,
+                ) {
                     break;
                 }
             }
@@ -837,22 +862,25 @@ fn execution_breadth_exceeded(
     pending: &mut VecDeque<ExecutionState>,
     leaves: &mut Vec<ExecutionLeaf>,
     max_breadth: Option<usize>,
+    observation_log: &ObservationLog,
 ) -> bool {
     if !max_breadth.is_some_and(|bound| pending.len() > bound) {
         return false;
     }
     leaves.clear();
-    leaves.extend(pending.drain(..).map(execution_state_at_breadth_bound));
+    leaves.extend(
+        pending
+            .drain(..)
+            .map(|state| execution_state_at_breadth_bound(state, observation_log)),
+    );
     true
 }
 
-fn execution_state_at_breadth_bound(state: ExecutionState) -> ExecutionLeaf {
-    ExecutionLeaf {
-        pattern: state.pattern,
-        depth: state.depth,
-        trace: state.trace,
-        halt_reason: HaltReason::BreadthBound,
-    }
+fn execution_state_at_breadth_bound(
+    state: ExecutionState,
+    observation_log: &ObservationLog,
+) -> ExecutionLeaf {
+    state.leaf(HaltReason::BreadthBound, observation_log)
 }
 
 fn record_effects(
@@ -897,7 +925,15 @@ fn simplify_result_pattern(
     Ok(pattern)
 }
 
-fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> ExecutionState {
+fn next_state(
+    depth: u64,
+    mut trace: Vec<TraceEntry>,
+    observation: ObservationHead,
+    applied: AppliedRule,
+    observation_log: &mut ObservationLog,
+    observation_options: Option<&ObservationOptions>,
+) -> ExecutionState {
+    let observation = observation_log.append_applied(observation, &applied, observation_options);
     trace.push(TraceEntry {
         depth: depth + 1,
         kind: TraceKind::Rewrite,
@@ -908,14 +944,21 @@ fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> E
         pattern: applied.pattern,
         depth: depth + 1,
         trace,
+        observation,
     }
 }
 
 fn remaining_state(
     depth: u64,
     mut trace: Vec<TraceEntry>,
+    observation: ObservationHead,
+    before: Pattern,
     remainder: RemainderBranch,
+    observation_log: &mut ObservationLog,
+    observation_options: Option<&ObservationOptions>,
 ) -> ExecutionState {
+    let observation =
+        observation_log.append_remainder(observation, before, &remainder, observation_options);
     trace.push(TraceEntry {
         depth,
         kind: TraceKind::Remainder,
@@ -926,6 +969,7 @@ fn remaining_state(
         pattern: remainder.pattern,
         depth,
         trace,
+        observation,
     }
 }
 
@@ -933,6 +977,131 @@ struct ExecutionState {
     pattern: Pattern,
     depth: u64,
     trace: Vec<TraceEntry>,
+    observation: ObservationHead,
+}
+
+impl ExecutionState {
+    fn leaf(self, halt_reason: HaltReason, observation_log: &ObservationLog) -> ExecutionLeaf {
+        let (branch, observations) = observation_log.materialize(self.observation);
+        ExecutionLeaf {
+            pattern: self.pattern,
+            depth: self.depth,
+            trace: self.trace,
+            branch,
+            observations,
+            halt_reason,
+        }
+    }
+
+    fn leaf_with_pattern(
+        self,
+        pattern: Pattern,
+        halt_reason: HaltReason,
+        observation_log: &ObservationLog,
+    ) -> ExecutionLeaf {
+        ExecutionState { pattern, ..self }.leaf(halt_reason, observation_log)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ObservationNodeId(usize);
+
+type ObservationHead = Option<ObservationNodeId>;
+
+struct ObservationNode {
+    parent: ObservationHead,
+    transition: TransitionId,
+    event: Option<ObservationEvent>,
+}
+
+#[derive(Default)]
+struct ObservationLog {
+    nodes: Vec<ObservationNode>,
+}
+
+impl ObservationLog {
+    fn append_applied(
+        &mut self,
+        parent: ObservationHead,
+        applied: &AppliedRule,
+        options: Option<&ObservationOptions>,
+    ) -> ObservationHead {
+        let options = options?;
+        let id = TransitionId {
+            rule: applied.unique_id.clone(),
+            target: PatternDigest::of(&applied.pattern),
+        };
+        let event = options.observes(&applied.unique_id).then(|| {
+            ObservationEvent::Transition(TransitionObservation {
+                id: id.clone(),
+                class: TransitionClass::Rewrite,
+                rule_label: applied.label.clone(),
+                bindings: applied.rule_substitution.clone(),
+                introduced_predicates: applied.rule_predicates.clone(),
+                before: applied.before.clone(),
+                after: applied.pattern.clone(),
+                effects: applied.effects.clone(),
+            })
+        });
+        Some(self.push(ObservationNode {
+            parent,
+            transition: id,
+            event,
+        }))
+    }
+
+    fn append_remainder(
+        &mut self,
+        parent: ObservationHead,
+        before: Pattern,
+        remainder: &RemainderBranch,
+        options: Option<&ObservationOptions>,
+    ) -> ObservationHead {
+        let options = options?;
+        let id = TransitionId {
+            rule: format!("remainder:{}", remainder.rule_ids.join(",")),
+            target: PatternDigest::of(&remainder.pattern),
+        };
+        let event = options.rules_are_unfiltered().then(|| {
+            ObservationEvent::Transition(TransitionObservation {
+                id: id.clone(),
+                class: TransitionClass::Remainder,
+                rule_label: None,
+                bindings: Substitution::new(),
+                introduced_predicates: Vec::new(),
+                before,
+                after: remainder.pattern.clone(),
+                effects: Vec::new(),
+            })
+        });
+        Some(self.push(ObservationNode {
+            parent,
+            transition: id,
+            event,
+        }))
+    }
+
+    fn push(&mut self, node: ObservationNode) -> ObservationNodeId {
+        let id = ObservationNodeId(self.nodes.len());
+        self.nodes.push(node);
+        id
+    }
+
+    fn materialize(&self, mut head: ObservationHead) -> (Vec<TransitionId>, Vec<ObservationEvent>) {
+        let mut branch = Vec::new();
+        let mut events = Vec::new();
+        while let Some(id) = head {
+            let node = &self.nodes[id.0];
+            branch.push(node.transition.clone());
+            if let Some(event) = &node.event {
+                events.push(event.clone());
+            }
+            head = node.parent;
+        }
+        branch.reverse();
+        events.reverse();
+        (branch, events)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -2485,6 +2654,7 @@ fn apply_rule_with_match(
     };
     RuleAttempt::Applied(vec![RuleApplication {
         applied: AppliedRule {
+            before: pattern.clone(),
             pattern: Pattern {
                 term: rhs,
                 constraints,
@@ -3817,7 +3987,10 @@ mod tests {
 
     use super::*;
     use crate::cancellation::CancellationToken;
-    use crate::transition::{ObservationFilterError, ObservationOptions};
+    use crate::transition::{
+        ObservationEvent, ObservationFilterError, ObservationOptions, PatternDigest,
+        TransitionClass,
+    };
 
     #[test]
     fn large_unique_extensions_preserve_first_occurrence_order() {
@@ -6289,6 +6462,8 @@ mod tests {
                 pattern: initial,
                 depth: 0,
                 trace: Vec::new(),
+                branch: Vec::new(),
+                observations: Vec::new(),
                 halt_reason: HaltReason::Cancelled,
             }]
         );
@@ -6422,6 +6597,44 @@ mod tests {
             Err(ObservationFilterError::UnknownRule("missing".into()))
         );
         assert!(ObservationOptions::with_rules(&definition, ["left", "right"]).is_ok());
+    }
+
+    #[test]
+    fn single_rewrite_emits_one_committed_observation() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \dv{SortS{}}("done")
+            ) [label{}("step")]
+            "#,
+        );
+        let before = subject(&definition, "value");
+        let result = execute_observed(
+            &definition,
+            before.clone(),
+            ExecutionOptions::default(),
+            &ObservationOptions::all(),
+        );
+
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one execution leaf");
+        };
+        let [ObservationEvent::Transition(observation)] = leaf.observations.as_slice() else {
+            panic!(
+                "expected one committed observation: {:?}",
+                leaf.observations
+            );
+        };
+        assert_eq!(observation.class, TransitionClass::Rewrite);
+        assert_eq!(observation.id.rule, "step");
+        assert_eq!(observation.id.target, PatternDigest::of(&observation.after));
+        assert_eq!(observation.rule_label.as_deref(), Some("step"));
+        assert_eq!(observation.bindings.len(), 1);
+        assert!(observation.introduced_predicates.is_empty());
+        assert_eq!(observation.before, before);
+        assert_eq!(observation.after, leaf.pattern);
+        assert!(observation.effects.is_empty());
     }
 
     #[test]
