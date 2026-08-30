@@ -2518,10 +2518,16 @@ fn emit_owise_equation(
     competitors.push(Pattern::Bottom {
         sort: predicate_sort.clone(),
     });
-    let any_competitor = Pattern::Or {
-        sort: predicate_sort.clone(),
-        arguments: competitors,
-    };
+    let mut competitors = competitors.into_iter().rev();
+    let mut any_competitor = competitors
+        .next()
+        .expect("the competitor disjunction always ends in bottom");
+    for competitor in competitors {
+        any_competitor = Pattern::Or {
+            sort: predicate_sort.clone(),
+            arguments: vec![competitor, any_competitor],
+        };
+    }
     let negative_match = Pattern::Not {
         sort: predicate_sort.clone(),
         argument: Box::new(any_competitor),
