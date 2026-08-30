@@ -17,6 +17,7 @@ use crate::{
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver},
     substitution::{Substitution, compose, substitute},
+    transition::{ObservationEvent, ObservationHead, ObservationLog, ObservationOptions},
 };
 
 pub use crate::transition::{PatternDigest, TransitionId};
@@ -68,6 +69,10 @@ pub struct SearchState {
     pub depth: u64,
     /// One valid path to this pattern; when paths converge, which witness survives is unspecified.
     pub trace: Vec<TraceEntry>,
+    /// Stable semantic path prefix when structured observation was enabled.
+    pub branch: Vec<TransitionId>,
+    /// Ordered structured events retained for this search path.
+    pub observations: Vec<ObservationEvent>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -264,6 +269,34 @@ pub fn search_graph_with_solver(
     search_graph_with_solver_and_observer(definition, initial, options, solver, |_| {})
 }
 
+/// Search with branch-local structured transition observation enabled.
+pub fn search_graph_observed(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: SearchOptions,
+    observation: &ObservationOptions,
+) -> SearchResult {
+    search_graph_observed_with_solver(definition, initial, options, &NoSolver, observation)
+}
+
+/// Search with structured observation and the supplied SMT solver.
+pub fn search_graph_observed_with_solver(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+    observation: &ObservationOptions,
+) -> SearchResult {
+    search_graph_using(
+        definition,
+        initial,
+        options,
+        solver,
+        Some(observation),
+        |_| {},
+    )
+}
+
 pub fn search_graph_with_solver_and_observer(
     definition: &BackendDefinition,
     initial: Pattern,
@@ -271,10 +304,27 @@ pub fn search_graph_with_solver_and_observer(
     solver: &dyn SmtSolver,
     mut observe: impl FnMut(&BuiltinEffect),
 ) -> SearchResult {
-    let mut pending = VecDeque::from([SearchState {
-        pattern: initial,
-        depth: 0,
-        trace: Vec::new(),
+    search_graph_using(definition, initial, options, solver, None, &mut observe)
+}
+
+fn search_graph_using(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+    observation: Option<&ObservationOptions>,
+    mut observe: impl FnMut(&BuiltinEffect),
+) -> SearchResult {
+    let mut observation_log = ObservationLog::default();
+    let mut pending = VecDeque::from([SearchWorkState {
+        state: SearchState {
+            pattern: initial,
+            depth: 0,
+            trace: Vec::new(),
+            branch: Vec::new(),
+            observations: Vec::new(),
+        },
+        observation: None,
     }]);
     let mut states = Vec::new();
     let mut effects = Vec::new();
@@ -282,7 +332,12 @@ pub fn search_graph_with_solver_and_observer(
     let mut fresh_counter = 0;
 
     if options.max_breadth == Some(0) {
-        incomplete.push(IncompleteSearch::BreadthBound(pending.drain(..).collect()));
+        incomplete.push(IncompleteSearch::BreadthBound(
+            pending
+                .drain(..)
+                .map(|work| work.materialize(&observation_log))
+                .collect(),
+        ));
         return SearchResult {
             states,
             effects,
@@ -299,7 +354,11 @@ pub fn search_graph_with_solver_and_observer(
         };
     }
 
-    while let Some(mut state) = pending.pop_front() {
+    while let Some(work) = pending.pop_front() {
+        let SearchWorkState {
+            mut state,
+            observation: mut observation_head,
+        } = work;
         match simplify_predicates_with_solver(
             definition,
             &state.pattern.constraints,
@@ -309,10 +368,14 @@ pub fn search_graph_with_solver_and_observer(
         ) {
             Ok(constraints) => state.pattern.constraints = constraints,
             Err(error) => {
-                incomplete.push(simplification_incomplete(state, error));
+                incomplete.push(simplification_incomplete(
+                    materialize_search_state(state, observation_head, &observation_log),
+                    error,
+                ));
                 continue;
             }
         }
+        let pattern_before_simplification = state.pattern.clone();
         match simplify_with_solver(
             definition,
             &state.pattern.term,
@@ -323,7 +386,20 @@ pub fn search_graph_with_solver_and_observer(
             Ok(simplified) => {
                 state.pattern.term = simplified.term;
                 state.pattern.constraints.extend(simplified.constraints);
-                record_effects(&mut effects, simplified.effects, &mut observe);
+                observation_head = observation_log.append_simplification(
+                    observation_head,
+                    definition,
+                    pattern_before_simplification,
+                    &state.pattern,
+                    &simplified.applied_rules,
+                    &simplified.effects,
+                    observation,
+                );
+                record_effects(
+                    &mut effects,
+                    simplified.effects.iter().cloned(),
+                    &mut observe,
+                );
                 state
                     .trace
                     .extend(
@@ -339,13 +415,20 @@ pub fn search_graph_with_solver_and_observer(
                     );
             }
             Err(error) => {
-                incomplete.push(simplification_incomplete(state, error));
+                incomplete.push(simplification_incomplete(
+                    materialize_search_state(state, observation_head, &observation_log),
+                    error,
+                ));
                 continue;
             }
         }
 
         if selects_reachable_state(options.search_type, state.depth)
-            && push_unique(&mut states, state.clone(), options.max_results)
+            && push_unique(
+                &mut states,
+                materialize_search_state(state.clone(), observation_head, &observation_log),
+                options.max_results,
+            )
         {
             if !pending.is_empty()
                 || state_may_expand(definition, &state, options, &mut fresh_counter, solver)
@@ -359,7 +442,11 @@ pub fn search_graph_with_solver_and_observer(
         }
         let at_depth_bound = state.depth >= options.max_depth;
         if at_depth_bound && options.search_type != SearchType::Final {
-            incomplete.push(IncompleteSearch::DepthBound(state));
+            incomplete.push(IncompleteSearch::DepthBound(materialize_search_state(
+                state,
+                observation_head,
+                &observation_log,
+            )));
             continue;
         }
 
@@ -374,7 +461,11 @@ pub fn search_graph_with_solver_and_observer(
             match rewrite {
                 RewriteResult::Stuck(pattern) => {
                     state.pattern = pattern;
-                    if push_unique(&mut states, state, options.max_results) {
+                    if push_unique(
+                        &mut states,
+                        materialize_search_state(state, observation_head, &observation_log),
+                        options.max_results,
+                    ) {
                         if !pending.is_empty() {
                             incomplete.push(IncompleteSearch::ResultBound);
                         }
@@ -384,10 +475,17 @@ pub fn search_graph_with_solver_and_observer(
                 RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
                 RewriteResult::Indeterminate { pattern, reason } => {
                     state.pattern = pattern;
-                    incomplete.push(rewrite_incomplete(state, reason));
+                    incomplete.push(rewrite_incomplete(
+                        materialize_search_state(state, observation_head, &observation_log),
+                        reason,
+                    ));
                 }
                 RewriteResult::Finished(_) | RewriteResult::Branch { .. } => {
-                    incomplete.push(IncompleteSearch::DepthBound(state));
+                    incomplete.push(IncompleteSearch::DepthBound(materialize_search_state(
+                        state,
+                        observation_head,
+                        &observation_log,
+                    )));
                 }
             }
             continue;
@@ -397,7 +495,11 @@ pub fn search_graph_with_solver_and_observer(
             RewriteResult::Stuck(pattern) => {
                 state.pattern = pattern;
                 if options.search_type == SearchType::Final
-                    && push_unique(&mut states, state, options.max_results)
+                    && push_unique(
+                        &mut states,
+                        materialize_search_state(state, observation_head, &observation_log),
+                        options.max_results,
+                    )
                 {
                     if !pending.is_empty() {
                         incomplete.push(IncompleteSearch::ResultBound);
@@ -408,12 +510,27 @@ pub fn search_graph_with_solver_and_observer(
             RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
             RewriteResult::Indeterminate { pattern, reason } => {
                 state.pattern = pattern;
-                incomplete.push(rewrite_incomplete(state, reason));
+                incomplete.push(rewrite_incomplete(
+                    materialize_search_state(state, observation_head, &observation_log),
+                    reason,
+                ));
             }
             RewriteResult::Finished(applied) => {
                 record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
-                pending.push_back(next_state(state.depth, state.trace, applied));
-                if search_breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth) {
+                pending.push_back(next_search_work_state(
+                    state.depth,
+                    state.trace,
+                    observation_head,
+                    applied,
+                    &mut observation_log,
+                    observation,
+                ));
+                if observed_search_breadth_exceeded(
+                    &mut pending,
+                    &mut incomplete,
+                    options.max_breadth,
+                    &observation_log,
+                ) {
                     break;
                 }
             }
@@ -424,12 +541,32 @@ pub fn search_graph_with_solver_and_observer(
             } => {
                 for applied in branches {
                     record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
-                    pending.push_back(next_state(state.depth, state.trace.clone(), applied));
+                    pending.push_back(next_search_work_state(
+                        state.depth,
+                        state.trace.clone(),
+                        observation_head,
+                        applied,
+                        &mut observation_log,
+                        observation,
+                    ));
                 }
                 if let Some(remainder) = remainder {
-                    pending.push_back(remaining_state(state.depth, state.trace, remainder));
+                    pending.push_back(remaining_search_work_state(
+                        state.depth,
+                        state.trace,
+                        observation_head,
+                        state.pattern,
+                        remainder,
+                        &mut observation_log,
+                        observation,
+                    ));
                 }
-                if search_breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth) {
+                if observed_search_breadth_exceeded(
+                    &mut pending,
+                    &mut incomplete,
+                    options.max_breadth,
+                    &observation_log,
+                ) {
                     break;
                 }
             }
@@ -441,6 +578,78 @@ pub fn search_graph_with_solver_and_observer(
         effects,
         incomplete,
     }
+}
+
+#[derive(Clone)]
+struct SearchWorkState {
+    state: SearchState,
+    observation: ObservationHead,
+}
+
+impl SearchWorkState {
+    fn materialize(self, observation_log: &ObservationLog) -> SearchState {
+        materialize_search_state(self.state, self.observation, observation_log)
+    }
+}
+
+fn materialize_search_state(
+    mut state: SearchState,
+    observation: ObservationHead,
+    observation_log: &ObservationLog,
+) -> SearchState {
+    (state.branch, state.observations) = observation_log.materialize(observation);
+    state
+}
+
+fn next_search_work_state(
+    depth: u64,
+    trace: Vec<TraceEntry>,
+    observation: ObservationHead,
+    applied: AppliedRule,
+    observation_log: &mut ObservationLog,
+    observation_options: Option<&ObservationOptions>,
+) -> SearchWorkState {
+    let observation = observation_log.append_applied(observation, &applied, observation_options);
+    SearchWorkState {
+        state: next_state(depth, trace, applied),
+        observation,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn remaining_search_work_state(
+    depth: u64,
+    trace: Vec<TraceEntry>,
+    observation: ObservationHead,
+    before: Pattern,
+    remainder: RemainderBranch,
+    observation_log: &mut ObservationLog,
+    observation_options: Option<&ObservationOptions>,
+) -> SearchWorkState {
+    let observation =
+        observation_log.append_remainder(observation, before, &remainder, observation_options);
+    SearchWorkState {
+        state: remaining_state(depth, trace, remainder),
+        observation,
+    }
+}
+
+fn observed_search_breadth_exceeded(
+    pending: &mut VecDeque<SearchWorkState>,
+    incomplete: &mut Vec<IncompleteSearch>,
+    max_breadth: Option<usize>,
+    observation_log: &ObservationLog,
+) -> bool {
+    if !max_breadth.is_some_and(|bound| pending.len() > bound) {
+        return false;
+    }
+    incomplete.push(IncompleteSearch::BreadthBound(
+        pending
+            .drain(..)
+            .map(|work| work.materialize(observation_log))
+            .collect(),
+    ));
+    true
 }
 
 /// Search for one witness per distinct acyclic semantic path.
@@ -467,6 +676,8 @@ pub fn search_paths_with_solver(
             pattern: initial,
             depth: 0,
             trace: Vec::new(),
+            branch: Vec::new(),
+            observations: Vec::new(),
         },
         id: Vec::new(),
         visited: Vec::new(),
@@ -699,18 +910,6 @@ fn path_search_breadth_exceeded(
     true
 }
 
-fn search_breadth_exceeded(
-    pending: &mut VecDeque<SearchState>,
-    incomplete: &mut Vec<IncompleteSearch>,
-    max_breadth: Option<usize>,
-) -> bool {
-    if !max_breadth.is_some_and(|bound| pending.len() > bound) {
-        return false;
-    }
-    incomplete.push(IncompleteSearch::BreadthBound(pending.drain(..).collect()));
-    true
-}
-
 /// Search the selected execution states for instances of `target`.
 pub fn search_pattern(
     definition: &BackendDefinition,
@@ -910,6 +1109,8 @@ fn witness_search_state(witness: PathWitness) -> SearchState {
         pattern: witness.pattern,
         depth: witness.depth,
         trace: witness.trace,
+        branch: Vec::new(),
+        observations: Vec::new(),
     }
 }
 
@@ -1132,6 +1333,8 @@ fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> S
         pattern: applied.pattern,
         depth: depth + 1,
         trace,
+        branch: Vec::new(),
+        observations: Vec::new(),
     }
 }
 
@@ -1150,6 +1353,8 @@ fn remaining_state(
         pattern: remainder.pattern,
         depth,
         trace,
+        branch: Vec::new(),
+        observations: Vec::new(),
     }
 }
 
@@ -1162,6 +1367,7 @@ mod tests {
 
     use super::*;
     use crate::term::{Sort, Symbol, Term, TermKind, Variable};
+    use crate::transition::{ObservationEvent, ObservationOptions};
 
     #[test]
     fn cancellation_is_not_reported_as_a_simplifier_failure() {
@@ -1355,6 +1561,8 @@ mod tests {
             pattern: initial(&definition),
             depth: 0,
             trace: Vec::new(),
+            branch: Vec::new(),
+            observations: Vec::new(),
         };
 
         assert_eq!(
@@ -1649,6 +1857,74 @@ mod tests {
 
         assert_eq!(actual, expected);
         assert_eq!(observed, actual.effects);
+    }
+
+    #[test]
+    fn observed_search_retains_branch_local_transition_streams() {
+        let definition = definition();
+        let result = search_graph_observed(
+            &definition,
+            initial(&definition),
+            SearchOptions::default(),
+            &ObservationOptions::all(),
+        );
+
+        assert_eq!(result.states.len(), 2);
+        assert_eq!(
+            result
+                .states
+                .iter()
+                .map(|state| {
+                    state
+                        .observations
+                        .iter()
+                        .map(|event| match event {
+                            ObservationEvent::Transition(observation) => {
+                                observation.id.rule.as_str()
+                            }
+                            ObservationEvent::Uncommitted(_) => {
+                                panic!("search cannot retain a rolled-back transition")
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([
+                vec!["initial-next1", "next1-final1"],
+                vec!["initial-next2", "next2-final2"],
+            ])
+        );
+        assert!(
+            result
+                .states
+                .iter()
+                .all(|state| state.branch.len() == state.depth as usize)
+        );
+    }
+
+    #[test]
+    fn observed_search_preserves_non_observation_outputs() {
+        let definition = definition();
+        let initial = initial(&definition);
+        let expected = search_graph(&definition, initial.clone(), SearchOptions::default());
+        let mut actual = search_graph_observed(
+            &definition,
+            initial,
+            SearchOptions::default(),
+            &ObservationOptions::all(),
+        );
+
+        assert!(
+            actual
+                .states
+                .iter()
+                .all(|state| !state.observations.is_empty())
+        );
+        for state in &mut actual.states {
+            state.branch.clear();
+            state.observations.clear();
+        }
+        assert_eq!(actual, expected);
     }
 
     #[test]
