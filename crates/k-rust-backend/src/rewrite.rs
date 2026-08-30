@@ -3817,6 +3817,7 @@ mod tests {
 
     use super::*;
     use crate::cancellation::CancellationToken;
+    use crate::transition::{ObservationFilterError, ObservationOptions};
 
     #[test]
     fn large_unique_extensions_preserve_first_occurrence_order() {
@@ -6410,6 +6411,17 @@ mod tests {
             ) [label{}("right")]
             "#,
         )
+    }
+
+    #[test]
+    fn observation_filter_installation_is_atomic() {
+        let definition = unconditional_branch_definition();
+
+        assert_eq!(
+            ObservationOptions::with_rules(&definition, ["left", "missing"]),
+            Err(ObservationFilterError::UnknownRule("missing".into()))
+        );
+        assert!(ObservationOptions::with_rules(&definition, ["left", "right"]).is_ok());
     }
 
     #[test]
