@@ -172,6 +172,7 @@ for fixture in "${cases[@]}"; do
       "${include_args[@]}" \
       "${selector_args[@]}" \
       "${syntax_args[@]}" \
+      "${hook_args[@]}" \
       --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
   )
 
