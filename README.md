@@ -171,6 +171,10 @@ first-applicable rewriting instead of the default `--strategy all`. Pass `--brea
 live frontier: execution returns that frontier when the bound is exceeded, while search reports
 that it is incomplete.
 
+Bounded execution, search, and proof operations allow 100 simplifier iterations per step by default.
+Pass `--max-simplification-iterations N` to `krun`, `kore-exec`, or `kprove` to select a request-specific bound; exhaustion is reported as a simplification iteration-limit stop.
+The standalone `kore-simplify` command remains deliberately unbounded so it can serve as the complete Kore-style simplification fallback.
+
 Search final states, every reachable state, states after exactly one step, or states after one or
 more steps:
 
@@ -224,6 +228,8 @@ expose it on every interface or `--server-port 0` to request an ephemeral port.
 `execute` also honors `assume-state-defined` by treating partial subterms of the current
 configuration as defined while matching rewrite rules. `implies` accepts `assume-defined` as the
 reference proxy's backend-routing hint; the unified Rust service already uses that in-process path.
+`execute` accepts the k-rust extension `max-simplification-iterations`; omitted values use the same shared default as the library and CLI.
+The standalone RPC `simplify` method remains deliberately unbounded.
 
 Execution can return reference-shaped rewrite diagnostics through `log-successful-rewrites` and
 `log-failed-rewrites`. Requests may also select legacy context names such as `Proxy`, `Execute`,
