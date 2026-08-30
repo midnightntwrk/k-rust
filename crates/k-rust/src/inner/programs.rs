@@ -4,7 +4,8 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use crate::definition::{
-    Definition, ModuleId, ResolveError, ResolvedDefinition, Sentence, sentence_equivalent,
+    Definition, ModuleId, ProductionCatalog, ProductionId, ResolveError, ResolvedDefinition,
+    Sentence, sentence_equivalent,
 };
 use crate::kast::{Sort, Term};
 
@@ -201,5 +202,65 @@ fn append_unique<'a>(
         {
             sentences.push(sentence.clone());
         }
+    }
+}
+
+/// Match the reference `kast` presentation boundary without weakening the typed term used by
+/// execution and compilation. The reference concrete parser infers parametric production sorts
+/// but omits those inferred arguments from the user-facing KLabel.
+pub fn prepare_reference_kast(term: Term, productions: &ProductionCatalog<'_>) -> Term {
+    let metadata = term.metadata().cloned();
+    let inferred_production_parameters = metadata
+        .as_ref()
+        .and_then(|metadata| metadata.production)
+        .is_some_and(|production| {
+            production.0 < productions.len()
+                && matches!(
+                    productions.production(ProductionId(production.0)),
+                    Sentence::Production { parameters, .. } if !parameters.is_empty()
+                )
+        });
+    let rebuilt = match term.into_unannotated() {
+        Term::Apply {
+            mut label,
+            arguments,
+        } => {
+            if inferred_production_parameters {
+                label.parameters.clear();
+            }
+            Term::Apply {
+                label,
+                arguments: arguments
+                    .into_iter()
+                    .map(|argument| prepare_reference_kast(argument, productions))
+                    .collect(),
+            }
+        }
+        Term::InjectedLabel(mut label) => {
+            if inferred_production_parameters {
+                label.parameters.clear();
+            }
+            Term::InjectedLabel(label)
+        }
+        Term::Rewrite { left, right } => Term::Rewrite {
+            left: Box::new(prepare_reference_kast(*left, productions)),
+            right: Box::new(prepare_reference_kast(*right, productions)),
+        },
+        Term::As { pattern, alias } => Term::As {
+            pattern: Box::new(prepare_reference_kast(*pattern, productions)),
+            alias: Box::new(prepare_reference_kast(*alias, productions)),
+        },
+        Term::Sequence(items) => Term::Sequence(
+            items
+                .into_iter()
+                .map(|item| prepare_reference_kast(item, productions))
+                .collect(),
+        ),
+        leaf @ (Term::Variable { .. } | Term::Token { .. }) => leaf,
+        Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+    };
+    match metadata {
+        Some(metadata) => rebuilt.with_metadata(metadata),
+        None => rebuilt,
     }
 }
