@@ -7,6 +7,7 @@ use crate::{
         Attributes, Definition, LabelHead, ProductionItem, ResolvedDefinition, Sentence, SortHead,
     },
     kast::{Label, Sort, Term},
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 use super::rebase_local_metadata;
@@ -63,7 +64,12 @@ pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definit
             module.local_sentences.extend(generated);
         }
     }
-    rebase_local_metadata(definition, output)
+    let output = rebase_local_metadata(definition, output)?;
+    Ok(record_generated_origins(
+        definition,
+        output,
+        GeneratingPass::GenerateSortPredicateSyntax,
+    ))
 }
 
 /// Apply the non-coverage form of Java's `GenerateSortProjections` transformation.
@@ -112,7 +118,12 @@ pub fn generate_sort_projections(definition: &Definition) -> Result<Definition, 
             }
         }
     }
-    rebase_local_metadata(definition, output)
+    let output = rebase_local_metadata(definition, output)?;
+    Ok(record_generated_origins(
+        definition,
+        output,
+        GeneratingPass::GenerateSortProjections,
+    ))
 }
 
 fn sort_projection(sort: &Sort, label: Label) -> [Sentence; 2] {

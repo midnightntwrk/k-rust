@@ -6,6 +6,7 @@ use crate::{
     definition::{Definition, ResolvedDefinition, Sentence},
     kast::{Sort, Term},
     kompile::SortInjector,
+    provenance::{GeneratingPass, record_generated_origins},
 };
 
 /// Apply Java's `GuardOrPatterns` transformation to rules and contexts.
@@ -41,7 +42,11 @@ pub fn guard_or_patterns(definition: &Definition) -> Result<Definition, String> 
             }
         }
     }
-    Ok(output)
+    Ok(record_generated_origins(
+        definition,
+        output,
+        GeneratingPass::GuardOrPatterns,
+    ))
 }
 
 fn transform(
