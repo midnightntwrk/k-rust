@@ -1962,3 +1962,83 @@ fn krun_executes_bn128_fixture_to_pinned_kore_results() {
         );
     }
 }
+
+#[test]
+fn krun_executes_float_fixture_to_pinned_kore_results() {
+    fn scalar_result(sort: &str, value: &str) -> String {
+        if sort == "Float" {
+            return format!(
+                concat!(
+                    "Lbl'-LT-'generatedTop'-GT-'{{}}(\n",
+                    "  Lbl'-LT-'k'-GT-'{{}}(\n",
+                    "    kseq{{}}(inj{{SortFloat{{}}, SortKItem{{}}}}(\\dv{{SortFloat{{}}}}(\"{value}\")), dotk{{}}())\n",
+                    "  ),\n",
+                    "  Lbl'-LT-'generatedCounter'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"0\"))\n",
+                    ")\n",
+                ),
+                value = value,
+            );
+        }
+        format!(
+            concat!(
+                "Lbl'-LT-'generatedTop'-GT-'{{}}(\n",
+                "  Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{Sort{sort}{{}}, SortKItem{{}}}}(\\dv{{Sort{sort}{{}}}}(\"{value}\")), dotk{{}}())),\n",
+                "  Lbl'-LT-'generatedCounter'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"0\"))\n",
+                ")\n",
+            ),
+            sort = sort,
+            value = value,
+        )
+    }
+
+    let cases = [
+        (
+            "float-add.float",
+            scalar_result("Float", "3.75000000e+00p24x8"),
+        ),
+        (
+            "float-round-tie.float",
+            scalar_result("Float", "1.00000000e+00p24x8"),
+        ),
+        (
+            "float-min-zero.float",
+            scalar_result("Float", "-0e+00p24x8"),
+        ),
+        ("float-nan-eq.float", scalar_result("Bool", "false")),
+        ("float2int-tie.float", scalar_result("Int", "12")),
+        (
+            "float-max-value.float",
+            scalar_result("Float", "3.40282347e+38p24x8"),
+        ),
+    ];
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference");
+    let definition = fixtures.join("float-execution.k");
+
+    for (program, expected) in cases {
+        let program_path = fixtures.join(program);
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "FLOAT-EXECUTION",
+                "--sort",
+                "Input",
+                program_path.to_str().unwrap(),
+                "--depth",
+                "10",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{program}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            expected,
+            "{program}"
+        );
+    }
+}
