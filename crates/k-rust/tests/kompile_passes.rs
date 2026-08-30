@@ -2227,6 +2227,140 @@ fn does_not_wrap_matching_logic_simplifications_in_the_generated_top_cell() {
 }
 
 #[test]
+fn splits_fragment_variables_on_both_sides_of_a_parent_cell_rewrite() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <k> 0 </k>
+              <saved>
+                <first> 1 </first>
+                <second> 2 </second>
+              </saved>
+            </top>
+          rule <k> 0 => 1 ... </k>
+               <saved> _ => SAVED </saved>
+        endmodule
+    "#};
+    let definition = resolve_anon_vars(&parsed(source));
+    let definition = resolve_semantic_casts(&definition);
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_none() => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .unwrap();
+
+    assert!(
+        body.contains("<saved>"),
+        "missing saved parent cell: {body}"
+    );
+    assert_eq!(
+        body.matches("=>").count(),
+        3,
+        "the k, first, and second cells should each contain a rewrite: {body}"
+    );
+}
+
+#[test]
+fn lifts_one_sided_repeated_cell_rewrites_through_missing_parents() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <store>
+                <items>
+                  <item multiplicity="*" type="Map">
+                    <id> 0 </id>
+                  </item>
+                </items>
+              </store>
+            </top>
+          rule (.Bag => <item> <id> 1 </id> </item>)
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_none() => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .expect("the repeated-cell insertion rule should remain");
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_snapshot!(body);
+    });
+}
+
+#[test]
+fn clears_repeated_cell_contents_without_removing_the_parent() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <items>
+                <item multiplicity="*" type="Map">
+                  <id> 0 </id>
+                </item>
+              </items>
+            </top>
+          rule <items> _ => .Bag </items>
+        endmodule
+    "#};
+    let definition = resolve_anon_vars(&parsed(source));
+    let definition = resolve_semantic_casts(&definition);
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_none() => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .expect("the repeated-cell clearing rule should remain");
+
+    assert!(
+        body.contains("`<items>`("),
+        "the parent cell was removed: {body}"
+    );
+    assert!(
+        body.contains("=>`.ItemCellMap`"),
+        "the repeated contents were not cleared: {body}"
+    );
+}
+
+#[test]
 fn fills_absent_optional_and_repeated_cells_with_their_units() {
     let source = indoc! {r#"
         module MAIN
