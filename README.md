@@ -427,15 +427,19 @@ scripts/reference-kast-differential.sh wasm mir evm-equivalence
 scripts/reference-non-imp-execution-differential.sh imp
 scripts/reference-proof-differential.sh imp
 scripts/reference-rpc-differential.sh imp
+scripts/reference-mir-execution-differential.sh
 ```
 
 `scripts/reference-differential.toml` is the source of truth for pins, checkout paths, compiler options, compared artifacts, parser cases, execution/search programs, proof claims, RPC cases, and the six adjudicated oracle exclusions.
 The scripts enforce clean checkouts at the manifest revisions and require the matching K release.
 Set `K_CHECKOUT`, `IMP_SEMANTICS_CHECKOUT`, `WASM_SEMANTICS_CHECKOUT`, `EVM_SEMANTICS_CHECKOUT`, `EVM_EQUIVALENCE_CHECKOUT`, or `MIR_SEMANTICS_CHECKOUT` when a checkout is not at its ignored workspace-default path.
-Frontend differential runs give k-rust an independent resident-memory guard through a transient user systemd scope.
-`RUST_DIFFERENTIAL_MEMORY_HIGH_KIB` and `RUST_DIFFERENTIAL_MEMORY_MAX_KIB` both default to 8 GiB, and swap is disabled for the scope.
-The equal defaults make the hard stop authoritative for anonymous-memory-heavy compiler workloads; operators may still configure an earlier soft throttle when the workload can reclaim or swap memory under pressure.
-When user scopes are unavailable, `RUST_DIFFERENTIAL_FALLBACK_VIRTUAL_MEMORY_KIB` supplies a separate 12 GiB virtual-address ceiling; the fallback is deliberately larger because a healthy process can reserve substantially more address space than it keeps resident.
+Each of the six Java-backed differential scripts re-executes its complete job in one transient user systemd scope before loading the manifest, validating pins, or starting reference and Rust phases.
+The single scope contains the aggregate process tree, including reference JVMs, k-rust, backend servers, Cargo children, and cleanup; the Java and Rust phases are sequential rather than concurrent.
+`REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB` and `REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB` both default to 8 GiB, and swap is disabled for the scope.
+The equal defaults make the hard stop authoritative for anonymous-memory-heavy compiler workloads; operators may still configure an earlier soft throttle when a measured workload can reclaim or swap memory under pressure.
+An inner `systemd-run` scope would be a sibling of the aggregate scope rather than its child, so `reference_run_rust_frontend` executes directly after the whole-job marker is present.
+When user scopes are unavailable, `REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB` supplies a separate 12 GiB whole-job virtual-address ceiling and emits a warning identifying its RLIMIT_AS semantics.
+The fallback is deliberately larger because a healthy process can reserve substantially more address space than it keeps resident; it is not a resident-memory guarantee.
 `REFERENCE_DIFFERENTIAL_MEMORY_KIB` independently controls only the reference JVM's virtual memory and remains unset by default for the same reservation reason.
 Raise a hard ceiling only after checking current machine headroom.
 
