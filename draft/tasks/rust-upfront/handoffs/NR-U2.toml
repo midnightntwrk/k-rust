@@ -1,0 +1,113 @@
+schema_version = 1
+packet_id = "NR-U2"
+title = "Clean KRS and shared-parser upstream delta audit"
+status = "complete-audit-only"
+audited_on = "2026-08-31"
+protected_artifact_sha256 = "dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec"
+
+[scope]
+owned = ["draft/tasks/rust-upfront/handoffs/NR-U2.toml", "draft/tasks/rust-upfront/native-capability-reassessment.toml", "draft/tasks/rust-upfront/native-readiness-work-package.toml", "draft/tasks/rust-upfront/native-readiness-repair-work-package.toml", "draft/tasks/rust-upfront/README.md"]
+read_only = ["/home/sebastiengllmt/git/workspaces/starstream-fv/krs", "/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust", "/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust-krs-main", "investigations/k-rust-target/k-rust-agent-requests.toml"]
+
+[revisions]
+previous_shared_k_rust = "96bbe9d6b4d486f907e72cdc01ee0d9580e4757b"
+audited_shared_k_rust = "4fef6d7beee5e95495b3ff42272703b957d80c29"
+audited_shared_k_rust_state = "clean-at-audit-snapshot"
+post_audit_shared_k_rust_state = "dirty-concurrent-parser-work-excluded"
+previous_krs = "9a10f89e04cf4bc48ba42046569b31644bd0f55e"
+audited_krs = "cff5e10b77a24a58590f59b5379f9f77ebd19f4d"
+audited_krs_state = "clean-at-audit-snapshot"
+post_audit_krs_state = "dirty-untracked-docs-plan-excluded"
+krs_pinned_k_rust = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
+krs_pinned_k_rust_state = "clean"
+krs_cargo_dependency = "k-rust =0.4.0 at ../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust with default-features=false and features=[z3-inference]"
+krs_revision_authority = "Krs.lock, qualification ledgers, and runtime Git checks pin 0de7983; Cargo metadata pins the exact version, path, and feature profile but not the Git revision."
+
+[shared_k_rust_delta]
+commits = ["1f9110c5a2c5afcc39a0f39d821b35de41091e60", "1b786e66e2acc1c9a8bd4d8bea573d4fc5203be3", "55f74d635de7822f3a927eff88318533596208fa", "4fef6d7beee5e95495b3ff42272703b957d80c29"]
+subjects = ["perf(parser): preserve sharing in Earley charts", "perf(parser): prune packed roots before materialization", "perf(parser): factor packed diamonds before unpacking", "perf(parser): retain sharing through pre-inference"]
+files = ["crates/k-rust/src/inner/parser.rs", "crates/k-rust/src/inner/parser/disambiguation.rs", "crates/k-rust/src/inner/parser/record.rs"]
+effect = "Private parser charts retain a PackedNode and PackedTerm DAG, prune losing packed roots, factor retained diamonds, and memoize priority, application, rewrite, LHS, failure, and pre-inference work. The public parse and lowering results and all term, sentence, provenance, search, and evidence APIs are unchanged."
+qualification = "The regressions cover shared allocation, losing-root pruning, retained-diamond factoring, derivation limits, deep invalid DAG errors, memoization, ordering, and UID stability. Commit 4fef6d7 did not run the final WASM differential, and irreducible sharing may still expand during final unpack."
+authority_effect = "Performance and semantic-compatibility evidence only; no native authority hold is discharged."
+
+[krs_delta]
+commit = "cff5e10b77a24a58590f59b5379f9f77ebd19f4d"
+subject = "Complete semantics qualification on clean k-rust main"
+files_changed = 25
+insertions = 507
+deletions = 157
+semantic_effect = "Adapter::term maps DefinitionTermKind::Cell through incomplete_cell(&name, native_cells(arguments), false), presenting complete cells as closed three-argument frontend cells while retaining ordered nested contents."
+test = "complete_cell_terms_use_the_pinned_frontend_concretization_shape"
+qualification = "The previous dirty-worktree compatibility observation is now clean immutable KRS evidence. The remaining commit changes are pin, ledger, hash, toolchain, M4, and narrow LLVM address-space-limit qualification."
+recorded_evidence = ["25 adapter tests", "KEVM native KORE SHA-256 2556ffc8c15b4c341be3e0a9b08b35015eae266617c742813db7bd142d19b3e1", "KEVM 240-case behavior SHA-256 7d7fd9dac9d3088682fa3ea27686c2a431219ded26f8a13400d2f4025f024673"]
+audit_limit = "NR-U2 inspected the records and source delta but did not execute upstream builds or qualification gates."
+
+[[gate]]
+id = "NATIVE-01"
+classification = "partial-clean-pin-improvement"
+newly_available = ["Complete nested-cell frontend admission is reproducible at clean KRS cff5e10 and dedicated k-rust 0de7983."]
+still_blocked = ["KRS OriginMapping is not bound into k-rust SourceTable, TermSpan, production metadata, and OriginRecord or returned in an equivalent provenance-bearing compilation result."]
+
+[[gate]]
+id = "NATIVE-02"
+classification = "partial-clean-pin-improvement"
+newly_available = ["Complete nested-cell candidates can enter the existing clean preparation and compilation pipeline."]
+still_blocked = ["CompiledKoreArtifacts and KRS CompiledArtifacts are ordered outputs, not a checked lowering relation, proof artifact, or registered checker.", "Provenance-complete receipts depend on NATIVE-01."]
+
+[[gate]]
+id = "NATIVE-03"
+classification = "partial-unchanged"
+newly_available = []
+still_blocked = ["No observation API or portable emitting-sentence provenance bridge changed."]
+
+[[gate]]
+id = "NATIVE-04"
+classification = "positive-bounded-only-unchanged"
+newly_available = []
+still_blocked = ["IncompleteSearch::ResultBound remains payload-free.", "Successful exhaustion remains an empty incomplete vector rather than a positive closed completion record with frontier or equivalent unvisited-work evidence."]
+
+[[gate]]
+id = "NATIVE-05"
+classification = "authority-blocked-unchanged"
+newly_available = []
+still_blocked = ["No K-owned mutation discovery, ordered sites, joined tuples, decoder, or production receipt was added."]
+
+[[gate]]
+id = "NATIVE-06"
+classification = "authority-blocked-unchanged"
+newly_available = []
+still_blocked = ["M4 host differential qualification is not a K-authored pattern compiler, independent evaluator conformance suite, or sealed issuer."]
+
+[[gate]]
+id = "NATIVE-07"
+classification = "partial-unchanged"
+newly_available = []
+still_blocked = ["The narrow M4 LLVM prlimit helper does not provide a fresh child per attempt, full resource enforcement, durable publication, replay comparison, or a checked lowering artifact."]
+
+[[gate]]
+id = "NATIVE-08"
+classification = "unblocked-local-unchanged"
+newly_available = []
+still_blocked = []
+
+[binding]
+feasible = true
+clean_pair = ["KRS cff5e10b77a24a58590f59b5379f9f77ebd19f4d", "k-rust 0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"]
+current_default_krs_checkout_bindable = false
+current_checkout_reason = "The post-audit untracked docs-plan directory makes kink-native::verify_repository reject the default KRS checkout as dirty. A clean checkout at the same revision is mechanically bindable."
+required_local_repairs = ["Bind a clean KRS cff5e10 checkout rather than treating the current dirty default checkout as accepted.", "Update kink-native::KRS_REVISION from 9a10f89 to cff5e10 only within NR-05R.", "Replace substring manifest checks with exact TOML structural validation of dependencies.k-rust.", "Record and validate the Rust 1.98 native/frontend toolchain profile instead of retaining kink-native's Rust 1.88 declaration.", "Retain ProvenanceStatus::SidecarOnlyMissingBridge and issue no native authority."]
+
+[packet_effects]
+nr_04 = "Unchanged; it remains blocked until NR-R3 accepts the local repair wave."
+nr_05r = "The clean nested-cell input is available. Local term-role identity, fail-closed resolution, structural pin verification, clean repin, and toolchain repairs remain."
+nr_06 = "Unchanged; it remains blocked on NR-05R and may adapt positive bounded witnesses only. Solver-relative search requires an explicit qualified solver feature and profile."
+
+[upstream_holds]
+items = ["Positive explicit search exhaustion.", "Provenance-bearing KRS-to-k-rust bridge.", "Checked lowering proof artifact.", "Qualified K-authored compiler and independent evaluator."]
+discharged = []
+
+[validation]
+required = ["Parse every edited TOML file.", "Verify the protected request SHA-256.", "Confirm no KRS or k-rust file was modified by the audit."]
+result = ["All four edited TOML files parsed.", "The protected request retained SHA-256 dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec.", "The audit made no KRS or k-rust writes and ran no upstream build or test.", "The host already provides stable Rust 1.98.0 for the later NR-05R binding gate."]
+concurrent_state_note = "Shared k-rust became dirty with further parser work after the clean 4fef6d7 snapshot, and KRS gained an untracked docs-plan directory after its clean cff5e10 snapshot. Those post-audit changes are excluded from NR-U2 evidence and were not inspected or modified."

@@ -12,7 +12,7 @@ failure_rule = "Do not weaken the durable atomicity or no-output-on-failure clau
 [[packet]]
 id = "NR-01R"
 title = "Durable publication authority and locking repair"
-status = "ready"
+status = "complete-awaiting-NR-R3"
 depends_on = []
 owns = ["kink-contracts locator boundary as required", "kink-portable durable artifact modules", "kink-campaign durable cache modules", "focused adversarial tests", "handoffs/NR-01R.toml"]
 deliverables = [
@@ -34,7 +34,7 @@ acceptance = [
 [[packet]]
 id = "NR-02R"
 title = "Closed native validator rejection boundary"
-status = "ready"
+status = "complete-awaiting-NR-R3"
 depends_on = []
 owns = ["kink-patch staged validator API and adversarial tests", "handoffs/NR-02R.toml"]
 deliverables = [
@@ -48,10 +48,25 @@ acceptance = [
 ]
 
 [[packet]]
+id = "NR-R2"
+title = "Transaction-closure pre-audit hardening"
+status = "complete-awaiting-NR-R3"
+depends_on = ["NR-01R", "NR-02R"]
+owns = ["kink-portable complete transaction validation", "kink-campaign exact cache sidecar closure", "focused adversarial tests", "handoffs/NR-R2.toml"]
+deliverables = [
+  "Validate every sibling row in a committed artifact transaction against the store-bound authority.",
+  "Require a cache sidecar transaction to commit exactly the referring record's ordered output set.",
+]
+acceptance = [
+  "An authorized queried row cannot hide an unauthorized or malformed transaction sibling.",
+  "A canonical cache sidecar cannot borrow an unrelated committed transaction.",
+]
+
+[[packet]]
 id = "NR-R3"
 title = "Independent first-wave repair audit"
 status = "ready"
-depends_on = ["NR-01R", "NR-02R"]
+depends_on = ["NR-01R", "NR-02R", "NR-R2"]
 owns = ["repair completion report", "handoffs/NR-R3.toml", "audit-only repairs"]
 deliverables = ["Reproduce every NR-R0 exploit against the repaired public API.", "Reproduce the NR-R2 unauthorized transaction sibling and unrelated committed sidecar adversaries.", "Run full workspace and protected-artifact gates."]
 acceptance = ["Every exploit rejects and all original portable behavior remains green.", "NR-04 and NR-06 resume only after this audit passes."]
