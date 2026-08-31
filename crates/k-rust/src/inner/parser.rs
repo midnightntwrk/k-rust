@@ -320,11 +320,11 @@ enum ParsedTerm {
     Ambiguity(BTreeSet<ParsedTerm>),
 }
 
-/// Shared parse-forest node used only while the Earley chart is growing.
+/// Shared parse-forest node used through the ordering-sensitive pre-inference pipeline.
 ///
-/// The owned [`ParsedTerm`] tree remains the disambiguation and sort-inference boundary. Keeping
-/// chart children behind `Rc` prevents every completed parent from cloning its descendants; the
-/// successful forest is materialized once, after the final completed roots have been selected.
+/// Keeping children behind `Rc` prevents chart diamonds from expanding while record syntax,
+/// priority, applications, rewrite preferences, and ambiguities are normalized. The compressed
+/// forest is materialized as an owned [`ParsedTerm`] only at the sort-inference boundary.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum PackedNode {
     Production {
@@ -346,6 +346,8 @@ struct PackedTerm {
 thread_local! {
     static PACKED_STRUCTURAL_COMPARISONS: Cell<usize> = const { Cell::new(0) };
     static UNPACKED_NODES: Cell<usize> = const { Cell::new(0) };
+    static PACKED_APPLICATION_RESOLUTIONS: Cell<usize> = const { Cell::new(0) };
+    static PACKED_PRIORITY_COMPUTATIONS: Cell<usize> = const { Cell::new(0) };
 }
 
 impl PartialEq for PackedTerm {
@@ -437,6 +439,78 @@ impl PackedTerm {
             }
         }
     }
+}
+
+fn cmp_packed_structurally(left: &Rc<PackedTerm>, right: &Rc<PackedTerm>) -> std::cmp::Ordering {
+    fn compare(
+        left: &Rc<PackedTerm>,
+        right: &Rc<PackedTerm>,
+        memo: &mut std::collections::HashMap<
+            (*const PackedTerm, *const PackedTerm),
+            std::cmp::Ordering,
+        >,
+    ) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+
+        if Rc::ptr_eq(left, right) {
+            return Ordering::Equal;
+        }
+        let key = (Rc::as_ptr(left), Rc::as_ptr(right));
+        if let Some(ordering) = memo.get(&key) {
+            return *ordering;
+        }
+        let ordering = match (&left.node, &right.node) {
+            (
+                PackedNode::Production {
+                    production: left_production,
+                    children: left_children,
+                    metadata: left_metadata,
+                },
+                PackedNode::Production {
+                    production: right_production,
+                    children: right_children,
+                    metadata: right_metadata,
+                },
+            ) => left_production
+                .cmp(right_production)
+                .then_with(|| {
+                    left_children
+                        .iter()
+                        .zip(right_children)
+                        .map(|(left, right)| compare(left, right, memo))
+                        .find(|ordering| !ordering.is_eq())
+                        .unwrap_or_else(|| left_children.len().cmp(&right_children.len()))
+                })
+                .then_with(|| left_metadata.cmp(right_metadata)),
+            (PackedNode::Production { .. }, _) => Ordering::Less,
+            (_, PackedNode::Production { .. }) => Ordering::Greater,
+            (PackedNode::Term(left), PackedNode::Term(right)) => left.cmp(right),
+            (PackedNode::Term(_), PackedNode::Ambiguity(_)) => Ordering::Less,
+            (PackedNode::Ambiguity(_), PackedNode::Term(_)) => Ordering::Greater,
+            (PackedNode::Ambiguity(left), PackedNode::Ambiguity(right)) => {
+                let mut left = left.iter().cloned().collect::<Vec<_>>();
+                let mut right = right.iter().cloned().collect::<Vec<_>>();
+                left.sort_by(|left, right| compare(left, right, memo));
+                right.sort_by(|left, right| compare(left, right, memo));
+                left.iter()
+                    .zip(&right)
+                    .map(|(left, right)| compare(left, right, memo))
+                    .find(|ordering| !ordering.is_eq())
+                    .unwrap_or_else(|| left.len().cmp(&right.len()))
+            }
+        };
+        memo.insert(key, ordering);
+        memo.insert((key.1, key.0), ordering.reverse());
+        ordering
+    }
+
+    compare(left, right, &mut std::collections::HashMap::new())
+}
+
+fn packed_terms_in_structural_order(terms: &BTreeSet<Rc<PackedTerm>>) -> Vec<Rc<PackedTerm>> {
+    let mut terms = terms.iter().cloned().collect::<Vec<_>>();
+    terms.sort_by(cmp_packed_structurally);
+    terms
 }
 
 fn packed_variable_names(root: &Rc<PackedTerm>) -> BTreeSet<String> {
@@ -535,9 +609,30 @@ fn unpacked_nodes() -> usize {
     UNPACKED_NODES.get()
 }
 
+#[cfg(test)]
+fn reset_packed_application_resolutions() {
+    PACKED_APPLICATION_RESOLUTIONS.set(0);
+}
+
+#[cfg(test)]
+fn packed_application_resolutions() -> usize {
+    PACKED_APPLICATION_RESOLUTIONS.get()
+}
+
+#[cfg(test)]
+fn reset_packed_priority_computations() {
+    PACKED_PRIORITY_COMPUTATIONS.set(0);
+}
+
+#[cfg(test)]
+fn packed_priority_computations() -> usize {
+    PACKED_PRIORITY_COMPUTATIONS.get()
+}
+
 type Derivation = Vec<Rc<PackedTerm>>;
 
 impl ParsedTerm {
+    #[cfg(test)]
     fn leaf(&self) -> Option<&Term> {
         match self {
             Self::Term(term) => Some(term.unannotated()),
@@ -1025,9 +1120,6 @@ impl Grammar {
         // each root independently incorrectly rejects inputs whose winning interpretation is a
         // top-level rewrite (for example a rewrite inside a competing map-item parse).
         let forest = self.materialize_packed_forest(PackedTerm::ambiguity(parses))?;
-        let forest = self.resolve_applications(forest)?;
-        let forest = self.prefer_exact_rewrite_sibling_sorts(forest);
-        let forest = self.push_top_lhs_ambiguity_up(self.factor_ambiguities(forest));
         let inferred = self.infer_sorts(forest, start, is_anywhere)?;
         let resolved = self.resolve_overloaded_terminators(inferred)?;
         let filtered = self.filter_overloads_prefer_avoid(resolved);
@@ -1042,19 +1134,23 @@ impl Grammar {
         }
     }
 
-    /// Cross the shared packed-forest boundary only after Java-compatible root preference.
+    /// Cross the shared packed-forest boundary only after Java's pre-inference transforms.
     ///
     /// Record collapse allocates generated variables against every name in the original forest,
     /// including losing root interpretations. Collect that small context before pruning so the
-    /// allocation remains stable without materializing those losing trees. A second priority pass
-    /// is required after collapse because generated record productions deliberately defer edge
+    /// allocation remains stable without materializing those losing trees. Every transformer
+    /// before inference operates on the identity-shared DAG, matching Java's memoizing visitors.
+    /// Priority runs after collapse because generated record productions deliberately defer edge
     /// checks until they have exposed their original production.
     fn materialize_packed_forest(&self, forest: Rc<PackedTerm>) -> Result<ParsedTerm, ParseError> {
         let reserved_names = packed_variable_names(&forest);
+        let forest = self.collapse_packed_record_productions(forest, reserved_names)?;
         let forest = self.filter_packed_priority(forest)?;
-        let forest = self.factor_materialization_safe_packed_ambiguities(forest);
-        let forest = self.collapse_record_productions(forest.unpack(), reserved_names)?;
-        self.filter_priority(forest)
+        let forest = self.resolve_packed_applications(forest)?;
+        let forest = self.prefer_exact_packed_rewrite_sibling_sorts(forest);
+        let forest = self.factor_pre_inference_packed_ambiguities(forest);
+        let forest = self.push_top_lhs_packed_ambiguity_up(forest);
+        Ok(forest.unpack())
     }
 
     pub(crate) fn add(
@@ -1729,7 +1825,7 @@ fn completed_nodes(
 fn canonical_packed_error(errors: Vec<(Rc<PackedTerm>, ParseError)>) -> ParseError {
     errors
         .into_iter()
-        .min_by(|(left, _), (right, _)| left.unpack().cmp(&right.unpack()))
+        .min_by(|(left, _), (right, _)| cmp_packed_structurally(left, right))
         .map(|(_, error)| error)
         .expect("an empty packed ambiguity had no invalid alternative")
 }
@@ -2083,7 +2179,7 @@ mod chart_tests {
     }
 
     #[test]
-    fn packed_prefactoring_does_not_merge_independently_bounded_ambiguities() {
+    fn record_collapse_preserves_a_shared_diamond_until_it_can_be_factored() {
         let mut grammar = Grammar::default();
         grammar
             .add(
@@ -2092,102 +2188,39 @@ mod chart_tests {
                     sort: Sort::new("Leaf"),
                     name: None,
                 }],
-                Some(Label::new("node")),
+                Some(Label::new("record")),
                 false,
                 false,
             )
             .unwrap();
-        let alternatives = |prefix: &str| {
-            PackedTerm::ambiguity(
-                (0..40)
-                    .map(|index| {
-                        PackedTerm::leaf(Term::Variable {
-                            name: format!("{prefix}{index}"),
-                            sort: None,
-                        })
-                    })
-                    .collect(),
-            )
-        };
-        let forest = PackedTerm::ambiguity(BTreeSet::from([
-            PackedTerm::production(0, vec![alternatives("left")], TermMetadata::default()),
-            PackedTerm::production(0, vec![alternatives("right")], TermMetadata::default()),
-        ]));
-        let baseline = grammar
-            .resolve_applications(forest.unpack())
-            .expect("each nested ambiguity is independently below the limit");
-
-        let factored = grammar.factor_materialization_safe_packed_ambiguities(Rc::clone(&forest));
-
-        assert!(Rc::ptr_eq(&factored, &forest));
-        assert_eq!(
-            grammar
-                .resolve_applications(factored.unpack())
-                .expect("prefactoring must preserve independently bounded ambiguities"),
-            baseline
-        );
-    }
-
-    #[test]
-    fn packed_prefactoring_respects_record_application_and_rewrite_boundaries() {
-        let mut grammar = Grammar::default();
+        grammar.productions[0].field_names = vec![Some("body".to_owned())];
         grammar
             .add(
-                Sort::new("Record"),
+                Sort::new("Node"),
                 Vec::new(),
                 Some(Label::new("record")),
                 false,
                 false,
             )
             .unwrap();
-        grammar.productions[0].record = Some(RecordProduction {
+        grammar.productions[1].record = Some(RecordProduction {
             original: 0,
             kind: RecordProductionKind::Zero,
         });
         grammar
             .add(
-                Sort::new("K"),
-                vec![ProductionItem::NonTerminal {
-                    sort: Sort::new("K"),
-                    name: None,
-                }],
-                Some(Label::new("#KApply")),
-                false,
-                false,
-            )
-            .unwrap();
-        grammar
-            .add(
-                Sort::new("K"),
+                Sort::new("Node"),
                 vec![
                     ProductionItem::NonTerminal {
-                        sort: Sort::new("K"),
+                        sort: Sort::new("Node"),
                         name: None,
                     },
                     ProductionItem::NonTerminal {
-                        sort: Sort::new("K"),
+                        sort: Sort::new("Leaf"),
                         name: None,
                     },
                 ],
-                Some(Label::new("#KRewrite")),
-                false,
-                false,
-            )
-            .unwrap();
-        grammar
-            .add(
-                Sort::new("K"),
-                vec![
-                    ProductionItem::NonTerminal {
-                        sort: Sort::new("K"),
-                        name: None,
-                    },
-                    ProductionItem::NonTerminal {
-                        sort: Sort::new("K"),
-                        name: None,
-                    },
-                ],
-                Some(Label::new("ordinary")),
+                Some(Label::new("node")),
                 false,
                 false,
             )
@@ -2200,74 +2233,880 @@ mod chart_tests {
             name: "right".to_owned(),
             sort: None,
         });
-        let record = PackedTerm::production(0, Vec::new(), TermMetadata::default());
-        let left_application =
-            PackedTerm::production(1, vec![Rc::clone(&left)], TermMetadata::default());
-        let right_application =
-            PackedTerm::production(1, vec![Rc::clone(&right)], TermMetadata::default());
-        let application_ambiguity = PackedTerm::ambiguity(BTreeSet::from([
-            Rc::clone(&left_application),
-            Rc::clone(&right_application),
-        ]));
-        let rewrite_ambiguity = PackedTerm::ambiguity(BTreeSet::from([
+        let mut shared = PackedTerm::production(1, Vec::new(), TermMetadata::default());
+        let depth = 10;
+        for _ in 0..depth {
+            shared = PackedTerm::ambiguity(
+                [Rc::clone(&left), Rc::clone(&right)]
+                    .into_iter()
+                    .map(|choice| {
+                        PackedTerm::production(
+                            2,
+                            vec![Rc::clone(&shared), choice],
+                            TermMetadata::default(),
+                        )
+                    })
+                    .collect(),
+            );
+        }
+        reset_unpacked_nodes();
+
+        let materialized = grammar
+            .materialize_packed_forest(shared)
+            .expect("the collapsed record diamond satisfies priority");
+
+        assert_eq!(unpacked_nodes(), 2 + depth * 4);
+        assert!(matches!(
+            materialized,
+            ParsedTerm::Production { production: 2, .. }
+        ));
+    }
+
+    #[test]
+    fn packed_record_collapse_discards_a_duplicate_key_ambiguity_sibling() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("Record"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Value"),
+                    name: None,
+                }],
+                Some(Label::new("record")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[0].field_names = vec![Some("body".to_owned())];
+        grammar
+            .add(
+                Sort::new("Record"),
+                Vec::new(),
+                Some(Label::new("record")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[1].record = Some(RecordProduction {
+            original: 0,
+            kind: RecordProductionKind::Zero,
+        });
+        grammar
+            .add(
+                Sort::new("RecordItem"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Value"),
+                    name: None,
+                }],
+                Some(Label::new("recordItem")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[2].record = Some(RecordProduction {
+            original: 0,
+            kind: RecordProductionKind::Item("body".to_owned()),
+        });
+        grammar
+            .add(
+                Sort::new("Record"),
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("RecordItem"),
+                        name: None,
+                    },
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("RecordItem"),
+                        name: None,
+                    },
+                ],
+                Some(Label::new("recordRepeat")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[3].record = Some(RecordProduction {
+            original: 0,
+            kind: RecordProductionKind::Repeat,
+        });
+        let valid = |start| {
+            PackedTerm::production(
+                1,
+                Vec::new(),
+                TermMetadata {
+                    span: Some(TermSpan {
+                        source: SourceId(0),
+                        start,
+                        end: start + 1,
+                    }),
+                    ..TermMetadata::default()
+                },
+            )
+        };
+        let nested_valid = PackedTerm::ambiguity(BTreeSet::from([valid(0), valid(1)]));
+        let item = |name: &str| {
             PackedTerm::production(
                 2,
-                vec![Rc::clone(&left), Rc::clone(&right)],
+                vec![PackedTerm::leaf(Term::Variable {
+                    name: name.to_owned(),
+                    sort: None,
+                })],
                 TermMetadata::default(),
-            ),
-            PackedTerm::production(
-                2,
-                vec![Rc::clone(&right), Rc::clone(&right)],
-                TermMetadata::default(),
-            ),
-        ]));
-        let forest = PackedTerm::ambiguity(BTreeSet::from([record, Rc::clone(&left_application)]));
+            )
+        };
+        let duplicate = PackedTerm::production(
+            3,
+            vec![item("first"), item("second")],
+            TermMetadata::default(),
+        );
 
-        let factored = grammar.factor_materialization_safe_packed_ambiguities(Rc::clone(&forest));
-        let applications = grammar
-            .factor_materialization_safe_packed_ambiguities(Rc::clone(&application_ambiguity));
-        let rewrites =
-            grammar.factor_materialization_safe_packed_ambiguities(Rc::clone(&rewrite_ambiguity));
-        let around_application = PackedTerm::ambiguity(BTreeSet::from([
-            PackedTerm::production(
-                3,
-                vec![Rc::clone(&applications), Rc::clone(&left)],
-                TermMetadata::default(),
-            ),
-            PackedTerm::production(
-                3,
-                vec![Rc::clone(&applications), right],
-                TermMetadata::default(),
-            ),
-        ]));
-        let around_application =
-            grammar.factor_materialization_safe_packed_ambiguities(around_application);
-        let differing_applications = PackedTerm::ambiguity(BTreeSet::from([
-            PackedTerm::production(
-                3,
-                vec![left_application, Rc::clone(&left)],
-                TermMetadata::default(),
-            ),
-            PackedTerm::production(3, vec![right_application, left], TermMetadata::default()),
-        ]));
-        let retained_differing_applications = grammar
-            .factor_materialization_safe_packed_ambiguities(Rc::clone(&differing_applications));
+        assert_eq!(
+            grammar.collapse_packed_record_productions(Rc::clone(&duplicate), BTreeSet::new(),),
+            Err(ParseError::RecordProduction {
+                message: "Duplicate record production key: body".to_owned(),
+            })
+        );
 
-        assert!(Rc::ptr_eq(&factored, &forest));
-        assert!(Rc::ptr_eq(&applications, &application_ambiguity));
-        assert!(Rc::ptr_eq(&rewrites, &rewrite_ambiguity));
-        assert!(Rc::ptr_eq(
-            &retained_differing_applications,
-            &differing_applications
-        ));
-        assert!(matches!(
-            applications.node,
-            PackedNode::Ambiguity(ref alternatives) if alternatives.len() == 2
-        ));
-        assert!(matches!(
-            around_application.node,
-            PackedNode::Production { production: 3, .. }
-        ));
+        let collapsed = grammar
+            .collapse_packed_record_productions(
+                PackedTerm::ambiguity(BTreeSet::from([nested_valid, duplicate])),
+                BTreeSet::new(),
+            )
+            .expect("a valid record alternative survives its duplicate-key sibling");
+        let PackedNode::Ambiguity(alternatives) = &collapsed.node else {
+            panic!("expected two flat successful alternatives");
+        };
+        assert_eq!(alternatives.len(), 2);
+        assert!(
+            alternatives
+                .iter()
+                .all(|alternative| !matches!(&alternative.node, PackedNode::Ambiguity(_)))
+        );
+        let names = packed_terms_in_structural_order(alternatives)
+            .into_iter()
+            .map(|alternative| {
+                let PackedNode::Production { children, .. } = &alternative.node else {
+                    panic!("expected collapsed record production");
+                };
+                let PackedNode::Term(Term::Variable { name, .. }) = &children[0].node else {
+                    panic!("expected generated record variable");
+                };
+                name.clone()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["_body0", "_body1"]);
+    }
+
+    #[test]
+    fn packed_record_collapse_selects_the_structurally_first_all_invalid_error() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("Record"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Value"),
+                    name: None,
+                }],
+                Some(Label::new("record")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[0].field_names = vec![Some("body".to_owned())];
+        for kind in [
+            RecordProductionKind::Main,
+            RecordProductionKind::One("body".to_owned()),
+        ] {
+            grammar
+                .add(
+                    Sort::new("Record"),
+                    Vec::new(),
+                    Some(Label::new("record")),
+                    false,
+                    false,
+                )
+                .unwrap();
+            let production = grammar.productions.len() - 1;
+            grammar.productions[production].record = Some(RecordProduction { original: 0, kind });
+        }
+        let malformed_list = PackedTerm::production(1, Vec::new(), TermMetadata::default());
+        let malformed_item = PackedTerm::production(2, Vec::new(), TermMetadata::default());
+
+        let error = grammar
+            .collapse_packed_record_productions(
+                PackedTerm::ambiguity(BTreeSet::from([malformed_item, malformed_list])),
+                BTreeSet::new(),
+            )
+            .expect_err("all malformed record alternatives fail");
+
+        assert_eq!(
+            error,
+            ParseError::RecordProduction {
+                message: "malformed generated record list".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn nested_packed_record_errors_follow_owned_structural_order() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("Record"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Value"),
+                    name: None,
+                }],
+                Some(Label::new("record")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[0].field_names = vec![Some("body".to_owned())];
+        grammar
+            .add(
+                Sort::new("Record"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Record"),
+                    name: None,
+                }],
+                Some(Label::new("record")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[1].record = Some(RecordProduction {
+            original: 0,
+            kind: RecordProductionKind::Main,
+        });
+        let candidates = (0..64)
+            .map(|index| {
+                let kind = if index % 2 == 0 {
+                    RecordProductionKind::Main
+                } else {
+                    RecordProductionKind::One("body".to_owned())
+                };
+                grammar
+                    .add(
+                        Sort::new("Record"),
+                        Vec::new(),
+                        Some(Label::new("record")),
+                        false,
+                        false,
+                    )
+                    .unwrap();
+                let production = grammar.productions.len() - 1;
+                grammar.productions[production].record = Some(RecordProduction {
+                    original: 0,
+                    kind: kind.clone(),
+                });
+                let message = match kind {
+                    RecordProductionKind::Main => "malformed generated record list",
+                    RecordProductionKind::One(_) => "malformed generated record item",
+                    _ => unreachable!(),
+                };
+                (
+                    PackedTerm::production(production, Vec::new(), TermMetadata::default()),
+                    message,
+                )
+            })
+            .collect::<Vec<_>>();
+        let (left, right) = candidates
+            .iter()
+            .enumerate()
+            .flat_map(|(index, left)| {
+                candidates[index + 1..]
+                    .iter()
+                    .map(move |right| (left, right))
+            })
+            .find(|((left, left_message), (right, right_message))| {
+                left_message != right_message
+                    && left.cmp(right) != cmp_packed_structurally(left, right)
+            })
+            .expect("fingerprint and structural order differ for two malformed record shapes");
+        let expected = if cmp_packed_structurally(&left.0, &right.0).is_lt() {
+            left.1
+        } else {
+            right.1
+        };
+        let nested =
+            PackedTerm::ambiguity(BTreeSet::from([Rc::clone(&left.0), Rc::clone(&right.0)]));
+        let wrapper = PackedTerm::production(1, vec![nested], TermMetadata::default());
+
+        assert_eq!(
+            grammar.collapse_packed_record_productions(wrapper, BTreeSet::new()),
+            Err(ParseError::RecordProduction {
+                message: expected.to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn canonical_packed_error_does_not_unpack_deep_invalid_dags() {
+        let deep = |root, name: &str| {
+            let mut term = PackedTerm::leaf(Term::Variable {
+                name: name.to_owned(),
+                sort: None,
+            });
+            for production in 2..14 {
+                term = PackedTerm::production(
+                    production,
+                    vec![Rc::clone(&term), Rc::clone(&term)],
+                    TermMetadata::default(),
+                );
+            }
+            PackedTerm::production(root, vec![term], TermMetadata::default())
+        };
+        let first = deep(0, "first");
+        let second = deep(1, "second");
+        reset_unpacked_nodes();
+
+        let selected = canonical_packed_error(vec![
+            (
+                second,
+                ParseError::RecordProduction {
+                    message: "second".to_owned(),
+                },
+            ),
+            (
+                first,
+                ParseError::RecordProduction {
+                    message: "first".to_owned(),
+                },
+            ),
+        ]);
+
+        assert_eq!(
+            selected,
+            ParseError::RecordProduction {
+                message: "first".to_owned(),
+            }
+        );
+        assert_eq!(unpacked_nodes(), 0);
+    }
+
+    #[test]
+    fn losing_record_roots_consume_generated_uids_before_priority_selection() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("Record"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Value"),
+                    name: None,
+                }],
+                Some(Label::new("record")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[0].field_names = vec![Some("body".to_owned())];
+        grammar
+            .add(
+                Sort::new("Record"),
+                Vec::new(),
+                Some(Label::new("record")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[1].record = Some(RecordProduction {
+            original: 0,
+            kind: RecordProductionKind::Zero,
+        });
+        for label in ["ordinary", "#KRewrite"] {
+            grammar
+                .add(
+                    Sort::new("Rule"),
+                    vec![ProductionItem::NonTerminal {
+                        sort: Sort::new("Record"),
+                        name: None,
+                    }],
+                    Some(Label::new(label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        let record = |start| {
+            PackedTerm::production(
+                1,
+                Vec::new(),
+                TermMetadata {
+                    span: Some(TermSpan {
+                        source: SourceId(0),
+                        start,
+                        end: start + 1,
+                    }),
+                    ..TermMetadata::default()
+                },
+            )
+        };
+        let losing = PackedTerm::production(2, vec![record(0)], TermMetadata::default());
+        let preferred = PackedTerm::production(3, vec![record(1)], TermMetadata::default());
+
+        let materialized = grammar
+            .materialize_packed_forest(PackedTerm::ambiguity(BTreeSet::from([losing, preferred])))
+            .expect("the preferred collapsed record satisfies priority");
+        let ParsedTerm::Production { children, .. } = materialized else {
+            panic!("expected preferred rewrite root");
+        };
+        let ParsedTerm::Production { children, .. } = &children[0] else {
+            panic!("expected collapsed record");
+        };
+        let ParsedTerm::Term(Term::Variable { name, .. }) = &children[0] else {
+            panic!("expected generated record variable");
+        };
+
+        assert_eq!(name, "_body1");
+    }
+
+    #[test]
+    fn a_shared_failing_record_consumes_generated_uids_only_once() {
+        let mut grammar = Grammar::default();
+        for label in ["first", "second", "survivor"] {
+            grammar
+                .add(
+                    Sort::new("Rule"),
+                    vec![ProductionItem::NonTerminal {
+                        sort: Sort::new("Record"),
+                        name: None,
+                    }],
+                    Some(Label::new(label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        grammar
+            .add(
+                Sort::new("Record"),
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("Value"),
+                        name: None,
+                    },
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("Record"),
+                        name: None,
+                    },
+                ],
+                Some(Label::new("failingRecord")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[3].field_names =
+            vec![Some("missing".to_owned()), Some("bad".to_owned())];
+        grammar
+            .add(
+                Sort::new("Record"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Record"),
+                    name: None,
+                }],
+                Some(Label::new("failingRecord")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[4].record = Some(RecordProduction {
+            original: 3,
+            kind: RecordProductionKind::One("bad".to_owned()),
+        });
+        grammar
+            .add(
+                Sort::new("Record"),
+                Vec::new(),
+                Some(Label::new("malformed")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[5].record = Some(RecordProduction {
+            original: 3,
+            kind: RecordProductionKind::Main,
+        });
+        grammar
+            .add(
+                Sort::new("Record"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Value"),
+                    name: None,
+                }],
+                Some(Label::new("survivingRecord")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[6].field_names = vec![Some("kept".to_owned())];
+        grammar
+            .add(
+                Sort::new("Record"),
+                Vec::new(),
+                Some(Label::new("survivingRecord")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[7].record = Some(RecordProduction {
+            original: 6,
+            kind: RecordProductionKind::Zero,
+        });
+        let malformed = PackedTerm::production(5, Vec::new(), TermMetadata::default());
+        let shared_failing = PackedTerm::production(4, vec![malformed], TermMetadata::default());
+        let first =
+            PackedTerm::production(0, vec![Rc::clone(&shared_failing)], TermMetadata::default());
+        let second = PackedTerm::production(1, vec![shared_failing], TermMetadata::default());
+        let survivor = PackedTerm::production(
+            2,
+            vec![PackedTerm::production(
+                7,
+                Vec::new(),
+                TermMetadata::default(),
+            )],
+            TermMetadata::default(),
+        );
+
+        let materialized = grammar
+            .materialize_packed_forest(PackedTerm::ambiguity(BTreeSet::from([
+                first, second, survivor,
+            ])))
+            .expect("the surviving record remains after both shared failures");
+        let ParsedTerm::Production { children, .. } = materialized else {
+            panic!("expected surviving wrapper");
+        };
+        let ParsedTerm::Production { children, .. } = &children[0] else {
+            panic!("expected surviving collapsed record");
+        };
+        let ParsedTerm::Term(Term::Variable { name, .. }) = &children[0] else {
+            panic!("expected generated surviving field");
+        };
+
+        assert_eq!(name, "_kept1");
+    }
+
+    #[test]
+    fn packed_record_collapse_visits_later_children_after_an_earlier_failure() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("Rule"),
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("Record"),
+                        name: None,
+                    },
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("Record"),
+                        name: None,
+                    },
+                ],
+                Some(Label::new("failingWrapper")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .add(
+                Sort::new("Rule"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Record"),
+                    name: None,
+                }],
+                Some(Label::new("survivingWrapper")),
+                false,
+                false,
+            )
+            .unwrap();
+        for (name, original, generated) in [("spent", 2, 3), ("kept", 4, 5)] {
+            grammar
+                .add(
+                    Sort::new("Record"),
+                    vec![ProductionItem::NonTerminal {
+                        sort: Sort::new("Value"),
+                        name: None,
+                    }],
+                    Some(Label::new(format!("{name}Record"))),
+                    false,
+                    false,
+                )
+                .unwrap();
+            assert_eq!(grammar.productions.len() - 1, original);
+            grammar.productions[original].field_names = vec![Some(name.to_owned())];
+            grammar
+                .add(
+                    Sort::new("Record"),
+                    Vec::new(),
+                    Some(Label::new(format!("{name}Record"))),
+                    false,
+                    false,
+                )
+                .unwrap();
+            assert_eq!(grammar.productions.len() - 1, generated);
+            grammar.productions[generated].record = Some(RecordProduction {
+                original,
+                kind: RecordProductionKind::Zero,
+            });
+        }
+        grammar
+            .add(
+                Sort::new("Record"),
+                Vec::new(),
+                Some(Label::new("malformed")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[6].record = Some(RecordProduction {
+            original: 2,
+            kind: RecordProductionKind::Main,
+        });
+        let failing = PackedTerm::production(
+            0,
+            vec![
+                PackedTerm::production(6, Vec::new(), TermMetadata::default()),
+                PackedTerm::production(3, Vec::new(), TermMetadata::default()),
+            ],
+            TermMetadata::default(),
+        );
+        let surviving = PackedTerm::production(
+            1,
+            vec![PackedTerm::production(
+                5,
+                Vec::new(),
+                TermMetadata::default(),
+            )],
+            TermMetadata::default(),
+        );
+
+        let materialized = grammar
+            .materialize_packed_forest(PackedTerm::ambiguity(BTreeSet::from([failing, surviving])))
+            .expect("the later ambiguity alternative survives");
+        let ParsedTerm::Production { children, .. } = materialized else {
+            panic!("expected surviving wrapper");
+        };
+        let ParsedTerm::Production { children, .. } = &children[0] else {
+            panic!("expected surviving collapsed record");
+        };
+        let ParsedTerm::Term(Term::Variable { name, .. }) = &children[0] else {
+            panic!("expected generated surviving field");
+        };
+
+        assert_eq!(name, "_kept1");
+    }
+
+    #[test]
+    fn packed_application_resolution_keeps_the_per_node_derivation_limit() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("K"),
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("KLabel"),
+                        name: None,
+                    },
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("KList"),
+                        name: None,
+                    },
+                ],
+                Some(Label::new("#KApply")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .add(
+                Sort::new("K"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("K"),
+                    name: None,
+                }],
+                Some(Label::new("foo")),
+                false,
+                false,
+            )
+            .unwrap();
+        let application = |alternatives| {
+            let label = PackedTerm::leaf(Term::Token {
+                token: "foo".to_owned(),
+                sort: Sort::new("KLabel"),
+            });
+            let arguments = PackedTerm::ambiguity(
+                (0..alternatives)
+                    .map(|index| {
+                        PackedTerm::leaf(Term::Variable {
+                            name: format!("V{index}"),
+                            sort: None,
+                        })
+                    })
+                    .collect(),
+            );
+            PackedTerm::production(0, vec![label, arguments], TermMetadata::default())
+        };
+
+        let retained = grammar
+            .materialize_packed_forest(application(MAX_DERIVATIONS_PER_STATE))
+            .expect("exactly the per-node application limit is retained");
+        let rejected =
+            grammar.materialize_packed_forest(application(MAX_DERIVATIONS_PER_STATE + 1));
+
+        assert_eq!(
+            Grammar::ambiguity_count(&retained),
+            MAX_DERIVATIONS_PER_STATE
+        );
+        assert_eq!(
+            rejected,
+            Err(ParseError::TooManyParses {
+                limit: MAX_DERIVATIONS_PER_STATE,
+            })
+        );
+    }
+
+    #[test]
+    fn a_shared_over_limit_application_is_resolved_only_once() {
+        let mut grammar = Grammar::default();
+        for label in ["first", "second"] {
+            grammar
+                .add(
+                    Sort::new("K"),
+                    vec![ProductionItem::NonTerminal {
+                        sort: Sort::new("K"),
+                        name: None,
+                    }],
+                    Some(Label::new(label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        grammar
+            .add(
+                Sort::new("K"),
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("KLabel"),
+                        name: None,
+                    },
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("KList"),
+                        name: None,
+                    },
+                ],
+                Some(Label::new("#KApply")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .add(
+                Sort::new("K"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("K"),
+                    name: None,
+                }],
+                Some(Label::new("foo")),
+                false,
+                false,
+            )
+            .unwrap();
+        let label = PackedTerm::leaf(Term::Token {
+            token: "foo".to_owned(),
+            sort: Sort::new("KLabel"),
+        });
+        let arguments = PackedTerm::ambiguity(
+            (0..=MAX_DERIVATIONS_PER_STATE)
+                .map(|index| {
+                    PackedTerm::leaf(Term::Variable {
+                        name: format!("V{index}"),
+                        sort: None,
+                    })
+                })
+                .collect(),
+        );
+        let shared = PackedTerm::production(2, vec![label, arguments], TermMetadata::default());
+        let forest = PackedTerm::ambiguity(BTreeSet::from([
+            PackedTerm::production(0, vec![Rc::clone(&shared)], TermMetadata::default()),
+            PackedTerm::production(1, vec![shared], TermMetadata::default()),
+        ]));
+        reset_packed_application_resolutions();
+
+        let error = grammar
+            .resolve_packed_applications(forest)
+            .expect_err("the shared application exceeds the per-node limit");
+
+        assert_eq!(
+            error,
+            ParseError::TooManyParses {
+                limit: MAX_DERIVATIONS_PER_STATE,
+            }
+        );
+        assert_eq!(packed_application_resolutions(), 1);
+    }
+
+    #[test]
+    fn a_shared_priority_failing_parent_is_filtered_only_once() {
+        let mut grammar = Grammar::default();
+        for label in ["first", "second"] {
+            grammar
+                .add(
+                    Sort::new("K"),
+                    vec![ProductionItem::NonTerminal {
+                        sort: Sort::new("K"),
+                        name: None,
+                    }],
+                    Some(Label::new(label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        grammar
+            .add(
+                Sort::new("K"),
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("K"),
+                        name: None,
+                    },
+                    ProductionItem::Terminal(";".to_owned()),
+                ],
+                Some(Label::new("failing")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .add(
+                Sort::new("K"),
+                Vec::new(),
+                Some(Label::new("#KRewrite")),
+                false,
+                false,
+            )
+            .unwrap();
+        let rewrite = PackedTerm::production(3, Vec::new(), TermMetadata::default());
+        let shared = PackedTerm::production(2, vec![rewrite], TermMetadata::default());
+        let forest = PackedTerm::ambiguity(BTreeSet::from([
+            PackedTerm::production(0, vec![Rc::clone(&shared)], TermMetadata::default()),
+            PackedTerm::production(1, vec![shared], TermMetadata::default()),
+        ]));
+        reset_packed_priority_computations();
+
+        let error = grammar
+            .filter_packed_priority(forest)
+            .expect_err("the shared parent cannot contain an unscoped rewrite");
+
+        assert_eq!(
+            error,
+            ParseError::Scope {
+                parent: "failing".to_owned(),
+                child: "#KRewrite".to_owned(),
+            }
+        );
+        assert_eq!(packed_priority_computations(), 4);
     }
 
     #[test]
@@ -2402,6 +3241,82 @@ mod chart_tests {
         };
 
         assert_eq!(name, "_body1");
+    }
+
+    #[test]
+    fn packed_record_collapse_allocates_names_in_owned_structural_order() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("Record"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Value"),
+                    name: None,
+                }],
+                Some(Label::new("record")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[0].field_names = vec![Some("body".to_owned())];
+        grammar
+            .add(
+                Sort::new("Record"),
+                Vec::new(),
+                Some(Label::new("record")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[1].record = Some(RecordProduction {
+            original: 0,
+            kind: RecordProductionKind::Zero,
+        });
+        let candidates = (0..64)
+            .map(|start| {
+                PackedTerm::production(
+                    1,
+                    Vec::new(),
+                    TermMetadata {
+                        span: Some(TermSpan {
+                            source: SourceId(0),
+                            start,
+                            end: start + 1,
+                        }),
+                        ..TermMetadata::default()
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let (left, right) = candidates
+            .iter()
+            .enumerate()
+            .flat_map(|(index, left)| {
+                candidates[index + 1..]
+                    .iter()
+                    .map(move |right| (left, right))
+            })
+            .find(|(left, right)| left.cmp(right) != cmp_packed_structurally(left, right))
+            .expect("fingerprint and structural order differ for at least one metadata pair");
+        let forest = PackedTerm::ambiguity(BTreeSet::from([Rc::clone(left), Rc::clone(right)]));
+        let baseline_names = packed_variable_names(&forest);
+        let baseline = grammar
+            .collapse_record_productions(forest.unpack(), baseline_names)
+            .expect("the generated records are well formed");
+        let baseline = grammar
+            .filter_priority(baseline)
+            .expect("the collapsed records satisfy priority");
+        let baseline = grammar
+            .resolve_applications(baseline)
+            .expect("the collapsed records contain no applications");
+        let baseline = grammar.prefer_exact_rewrite_sibling_sorts(baseline);
+        let baseline = grammar.push_top_lhs_ambiguity_up(grammar.factor_ambiguities(baseline));
+
+        let materialized = grammar
+            .materialize_packed_forest(forest)
+            .expect("the packed records satisfy pre-inference disambiguation");
+
+        assert_eq!(materialized, baseline);
     }
 
     #[test]

@@ -1,11 +1,15 @@
 //! Priority and associativity filtering over production-bearing parse trees.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+#[cfg(test)]
+use std::collections::BTreeMap;
+use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 
+#[cfg(test)]
 use super::parametric::substitute_sort;
 use super::{
-    Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production, lower_term,
+    Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
+    cmp_packed_structurally, lower_term, packed_terms_in_structural_order,
 };
 use crate::kast::{Sort, Term, string};
 
@@ -22,62 +26,22 @@ fn packed_sets_share_nodes(
             .all(|(left, right)| Rc::ptr_eq(left, right))
 }
 
+type PackedTransformResult = Result<Rc<PackedTerm>, ParseError>;
+type PackedTransformMemo = HashMap<*const PackedTerm, (Rc<PackedTerm>, PackedTransformResult)>;
+type PackedPriorityChildMemo =
+    HashMap<(*const PackedTerm, usize, Option<Side>), (Rc<PackedTerm>, PackedTransformResult)>;
+
 impl Grammar {
-    /// Apply the ambiguity factoring that normally follows application resolution while the
-    /// retained parse is still a DAG.
-    ///
-    /// This pass deliberately leaves any subtree containing generated record syntax untouched.
-    /// Record collapse allocates names in traversal order, so moving factoring across that pass
-    /// could change observable generated names. Factoring also stops at an ambiguity whose common
-    /// production is `#KApply` or `#KRewrite`: application resolution reconstructs applications,
-    /// while exact rewrite-sibling preference must inspect each root alternative before factoring
-    /// can expose a child ambiguity. Those nodes may remain as identical shared children of a
-    /// factored ordinary production because the earlier transformations traverse that surrounding
-    /// production structurally. This conservative boundary removes shared diamonds without
-    /// changing stateful record processing, application distribution, or rewrite selection.
-    pub(super) fn factor_materialization_safe_packed_ambiguities(
+    /// Apply Java's pre-inference ambiguity factoring after record and application syntax has
+    /// already been resolved, retaining identity sharing until the forest is compressed.
+    pub(super) fn factor_pre_inference_packed_ambiguities(
         &self,
         term: Rc<PackedTerm>,
     ) -> Rc<PackedTerm> {
-        let mut sensitive = HashMap::new();
-        if self.packed_subtree_is_materialization_sensitive(&term, &mut sensitive) {
-            return term;
-        }
-        let mut factored = HashMap::new();
-        self.factor_safe_packed_ambiguities(term, &mut factored)
+        self.factor_packed_ambiguities(term, &mut HashMap::new())
     }
 
-    fn packed_subtree_is_materialization_sensitive(
-        &self,
-        term: &Rc<PackedTerm>,
-        memo: &mut HashMap<*const PackedTerm, bool>,
-    ) -> bool {
-        let identity = Rc::as_ptr(term);
-        if let Some(sensitive) = memo.get(&identity) {
-            return *sensitive;
-        }
-        let sensitive = match &term.node {
-            PackedNode::Term(_) => false,
-            PackedNode::Ambiguity(alternatives) => alternatives.iter().any(|alternative| {
-                self.packed_subtree_is_materialization_sensitive(alternative, memo)
-            }),
-            PackedNode::Production {
-                production,
-                children,
-                ..
-            } => {
-                let descriptor = &self.productions[*production];
-                descriptor.record.is_some()
-                    || children
-                        .iter()
-                        .any(|child| self.packed_subtree_is_materialization_sensitive(child, memo))
-            }
-        };
-        memo.insert(identity, sensitive);
-        sensitive
-    }
-
-    fn factor_safe_packed_ambiguities(
+    fn factor_packed_ambiguities(
         &self,
         term: Rc<PackedTerm>,
         memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
@@ -95,7 +59,7 @@ impl Grammar {
             } => {
                 let factored_children = children
                     .iter()
-                    .map(|child| self.factor_safe_packed_ambiguities(Rc::clone(child), memo))
+                    .map(|child| self.factor_packed_ambiguities(Rc::clone(child), memo))
                     .collect::<Vec<_>>();
                 if factored_children
                     .iter()
@@ -110,8 +74,7 @@ impl Grammar {
             PackedNode::Ambiguity(alternatives) => {
                 let mut flattened = BTreeSet::new();
                 for alternative in alternatives {
-                    let alternative =
-                        self.factor_safe_packed_ambiguities(Rc::clone(alternative), memo);
+                    let alternative = self.factor_packed_ambiguities(Rc::clone(alternative), memo);
                     match &alternative.node {
                         PackedNode::Ambiguity(nested) => {
                             flattened.extend(nested.iter().cloned());
@@ -148,7 +111,10 @@ impl Grammar {
         if alternatives.len() <= 1 {
             return PackedTerm::ambiguity(alternatives);
         }
-        let Some(first) = alternatives.first() else {
+        let Some(first) = alternatives
+            .iter()
+            .min_by(|left, right| cmp_packed_structurally(left, right))
+        else {
             return PackedTerm::ambiguity(alternatives);
         };
         let PackedNode::Production {
@@ -159,23 +125,15 @@ impl Grammar {
         else {
             return PackedTerm::ambiguity(alternatives);
         };
-        if self.productions[*production]
-            .label
-            .as_ref()
-            .is_some_and(|label| matches!(label.name.as_str(), "#KApply" | "#KRewrite"))
-        {
-            return PackedTerm::ambiguity(alternatives);
-        }
         if !alternatives.iter().all(|alternative| {
             matches!(
                 &alternative.node,
                 PackedNode::Production {
                     production: candidate,
                     children: candidate_children,
-                    metadata: candidate_metadata,
+                    ..
                 } if candidate == production
                     && candidate_children.len() == children.len()
-                    && candidate_metadata == metadata
             )
         }) {
             return PackedTerm::ambiguity(alternatives);
@@ -197,31 +155,6 @@ impl Grammar {
         let [index] = differing.as_slice() else {
             return PackedTerm::ambiguity(alternatives);
         };
-        if alternatives.iter().any(|alternative| {
-            let PackedNode::Production {
-                children: candidate_children,
-                ..
-            } = &alternative.node
-            else {
-                unreachable!()
-            };
-            match &candidate_children[*index].node {
-                // The existing per-ambiguity limit applies independently before the owned
-                // factoring pass. Combining two valid child sets here can manufacture one set
-                // over that limit and make application resolution fail where the original forest
-                // succeeds.
-                PackedNode::Ambiguity(_) => true,
-                // Application resolution is not a structural traversal of `#KApply`; leave
-                // differing application roots distributed beneath their original parents.
-                PackedNode::Production { production, .. } => self.productions[*production]
-                    .label
-                    .as_ref()
-                    .is_some_and(|label| label.name == "#KApply"),
-                PackedNode::Term(_) => false,
-            }
-        }) {
-            return PackedTerm::ambiguity(alternatives);
-        }
         let mut factored_children = children.clone();
         let child_alternatives = alternatives
             .iter()
@@ -237,7 +170,7 @@ impl Grammar {
             })
             .collect();
         factored_children[*index] =
-            self.factor_safe_packed_ambiguities(PackedTerm::ambiguity(child_alternatives), memo);
+            self.factor_packed_ambiguities(PackedTerm::ambiguity(child_alternatives), memo);
         PackedTerm::production(*production, factored_children, metadata.clone())
     }
 
@@ -263,103 +196,136 @@ impl Grammar {
         &self,
         term: Rc<PackedTerm>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
-        match &term.node {
-            PackedNode::Term(_) => Ok(term),
-            PackedNode::Ambiguity(original_alternatives) => {
-                let mut alternatives = original_alternatives.clone();
-                for preferred in ["#KRewrite", "#KSequence", "#let"] {
-                    let matching = alternatives
-                        .iter()
-                        .filter(|alternative| {
-                            self.packed_top_parse_label(alternative) == Some(preferred)
-                        })
-                        .cloned()
-                        .collect::<BTreeSet<_>>();
-                    if !matching.is_empty() {
-                        alternatives = matching;
-                    }
-                }
-                let mut retained = BTreeSet::new();
-                let mut errors = Vec::new();
-                for alternative in alternatives {
-                    match self.filter_packed_priority(Rc::clone(&alternative)) {
-                        Ok(alternative) => match &alternative.node {
-                            PackedNode::Ambiguity(nested) => {
-                                retained.extend(nested.iter().cloned())
-                            }
-                            _ => {
-                                retained.insert(alternative);
-                            }
-                        },
-                        Err(error) => {
-                            errors.push((alternative, error));
-                        }
-                    }
-                }
-                if retained.is_empty() {
-                    Err(canonical_packed_error(errors))
-                } else if packed_sets_share_nodes(&retained, original_alternatives) {
-                    Ok(term)
-                } else {
-                    Ok(PackedTerm::ambiguity(retained))
-                }
-            }
-            PackedNode::Production {
-                production,
-                children,
-                metadata,
-            } => {
-                let descriptor = &self.productions[*production];
-                let checked = if descriptor.record.is_some() || descriptor.syntactic_subsort {
-                    BTreeSet::new()
-                } else {
-                    descriptor.apply_priority.clone().unwrap_or_else(|| {
-                        let mut positions = BTreeSet::new();
-                        if matches!(descriptor.items.first(), Some(Item::NonTerminal(_))) {
-                            positions.insert(1);
-                        }
-                        if matches!(descriptor.items.last(), Some(Item::NonTerminal(_))) {
-                            positions.insert(children.len());
-                        }
-                        positions
-                    })
-                };
-                let child_count = children.len();
-                let filtered_children = children
-                    .iter()
-                    .enumerate()
-                    .map(|(index, child)| {
-                        let position = index + 1;
-                        let side = checked.contains(&position).then(|| {
-                            if position == 1
-                                && matches!(descriptor.items.first(), Some(Item::NonTerminal(_)))
-                            {
-                                Side::Left
-                            } else if position == child_count
-                                && matches!(descriptor.items.last(), Some(Item::NonTerminal(_)))
-                            {
-                                Side::Right
-                            } else {
-                                Side::Middle
-                            }
-                        });
-                        self.filter_packed_priority_child(descriptor, Rc::clone(child), side)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                if filtered_children
-                    .iter()
-                    .zip(children)
-                    .all(|(filtered, original)| Rc::ptr_eq(filtered, original))
-                {
-                    return Ok(term);
-                }
-                Ok(PackedTerm::production(
-                    *production,
-                    filtered_children,
-                    metadata.clone(),
-                ))
-            }
+        self.filter_packed_priority_memo(term, &mut HashMap::new(), &mut HashMap::new())
+    }
+
+    fn filter_packed_priority_memo(
+        &self,
+        term: Rc<PackedTerm>,
+        memo: &mut PackedTransformMemo,
+        child_memo: &mut PackedPriorityChildMemo,
+    ) -> Result<Rc<PackedTerm>, ParseError> {
+        let identity = Rc::as_ptr(&term);
+        if let Some((_, filtered)) = memo.get(&identity) {
+            return filtered.clone();
         }
+        #[cfg(test)]
+        super::PACKED_PRIORITY_COMPUTATIONS.set(super::PACKED_PRIORITY_COMPUTATIONS.get() + 1);
+        let filtered = (|| -> PackedTransformResult {
+            match &term.node {
+                PackedNode::Term(_) => Ok(Rc::clone(&term)),
+                PackedNode::Ambiguity(original_alternatives) => {
+                    let mut alternatives = original_alternatives.clone();
+                    for preferred in ["#KRewrite", "#KSequence", "#let"] {
+                        let matching = alternatives
+                            .iter()
+                            .filter(|alternative| {
+                                self.packed_top_parse_label(alternative) == Some(preferred)
+                            })
+                            .cloned()
+                            .collect::<BTreeSet<_>>();
+                        if !matching.is_empty() {
+                            alternatives = matching;
+                        }
+                    }
+                    let mut retained = BTreeSet::new();
+                    let mut errors = Vec::new();
+                    for alternative in alternatives {
+                        match self.filter_packed_priority_memo(
+                            Rc::clone(&alternative),
+                            memo,
+                            child_memo,
+                        ) {
+                            Ok(alternative) => match &alternative.node {
+                                PackedNode::Ambiguity(nested) => {
+                                    retained.extend(nested.iter().cloned())
+                                }
+                                _ => {
+                                    retained.insert(alternative);
+                                }
+                            },
+                            Err(error) => {
+                                errors.push((alternative, error));
+                            }
+                        }
+                    }
+                    if retained.is_empty() {
+                        Err(canonical_packed_error(errors))
+                    } else if packed_sets_share_nodes(&retained, original_alternatives) {
+                        Ok(Rc::clone(&term))
+                    } else {
+                        Ok(PackedTerm::ambiguity(retained))
+                    }
+                }
+                PackedNode::Production {
+                    production,
+                    children,
+                    metadata,
+                } => {
+                    let descriptor = &self.productions[*production];
+                    let checked = if descriptor.record.is_some() || descriptor.syntactic_subsort {
+                        BTreeSet::new()
+                    } else {
+                        descriptor.apply_priority.clone().unwrap_or_else(|| {
+                            let mut positions = BTreeSet::new();
+                            if matches!(descriptor.items.first(), Some(Item::NonTerminal(_))) {
+                                positions.insert(1);
+                            }
+                            if matches!(descriptor.items.last(), Some(Item::NonTerminal(_))) {
+                                positions.insert(children.len());
+                            }
+                            positions
+                        })
+                    };
+                    let child_count = children.len();
+                    let filtered_children = children
+                        .iter()
+                        .enumerate()
+                        .map(|(index, child)| {
+                            let position = index + 1;
+                            let side = checked.contains(&position).then(|| {
+                                if position == 1
+                                    && matches!(
+                                        descriptor.items.first(),
+                                        Some(Item::NonTerminal(_))
+                                    )
+                                {
+                                    Side::Left
+                                } else if position == child_count
+                                    && matches!(descriptor.items.last(), Some(Item::NonTerminal(_)))
+                                {
+                                    Side::Right
+                                } else {
+                                    Side::Middle
+                                }
+                            });
+                            self.filter_packed_priority_child(
+                                *production,
+                                Rc::clone(child),
+                                side,
+                                memo,
+                                child_memo,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    if filtered_children
+                        .iter()
+                        .zip(children)
+                        .all(|(filtered, original)| Rc::ptr_eq(filtered, original))
+                    {
+                        Ok(Rc::clone(&term))
+                    } else {
+                        Ok(PackedTerm::production(
+                            *production,
+                            filtered_children,
+                            metadata.clone(),
+                        ))
+                    }
+                }
+            }
+        })();
+        memo.insert(identity, (Rc::clone(&term), filtered.clone()));
+        filtered
     }
 
     fn packed_top_parse_label<'a>(&'a self, term: &'a PackedTerm) -> Option<&'a str> {
@@ -387,15 +353,47 @@ impl Grammar {
 
     fn filter_packed_priority_child(
         &self,
-        parent: &Production,
+        parent: usize,
         child: Rc<PackedTerm>,
         side: Option<Side>,
+        memo: &mut PackedTransformMemo,
+        child_memo: &mut PackedPriorityChildMemo,
+    ) -> Result<Rc<PackedTerm>, ParseError> {
+        let identity = Rc::as_ptr(&child);
+        let key = (identity, parent, side);
+        if let Some((_, filtered)) = child_memo.get(&key) {
+            return filtered.clone();
+        }
+        let filtered = self.filter_packed_priority_child_uncached(
+            parent,
+            Rc::clone(&child),
+            side,
+            memo,
+            child_memo,
+        );
+        child_memo.insert(key, (child, filtered.clone()));
+        filtered
+    }
+
+    fn filter_packed_priority_child_uncached(
+        &self,
+        parent: usize,
+        child: Rc<PackedTerm>,
+        side: Option<Side>,
+        memo: &mut PackedTransformMemo,
+        child_memo: &mut PackedPriorityChildMemo,
     ) -> Result<Rc<PackedTerm>, ParseError> {
         if let PackedNode::Ambiguity(alternatives) = &child.node {
             let mut retained = BTreeSet::new();
             let mut errors = Vec::new();
             for alternative in alternatives {
-                match self.filter_packed_priority_child(parent, Rc::clone(alternative), side) {
+                match self.filter_packed_priority_child(
+                    parent,
+                    Rc::clone(alternative),
+                    side,
+                    memo,
+                    child_memo,
+                ) {
                     Ok(alternative) => match &alternative.node {
                         PackedNode::Ambiguity(nested) => retained.extend(nested.iter().cloned()),
                         _ => {
@@ -423,17 +421,142 @@ impl Grammar {
                 children: Vec::new(),
                 metadata: crate::kast::TermMetadata::default(),
             };
-            if let Some(error) = self.child_violation(parent, &shallow, side) {
+            if let Some(error) = self.child_violation(&self.productions[parent], &shallow, side) {
                 return Err(error);
             }
         }
-        self.filter_packed_priority(child)
+        self.filter_packed_priority_memo(child, memo, child_memo)
     }
 
     /// Prefer an ambiguous rewrite operand whose declared result exactly matches its concrete
     /// sibling. The polymorphic rewrite grammar otherwise widens both operands to `K`, retaining
     /// unrelated productions with identical surface syntax (for example Bytes and WordStack
     /// updates) after inference.
+    pub(super) fn prefer_exact_packed_rewrite_sibling_sorts(
+        &self,
+        term: Rc<PackedTerm>,
+    ) -> Rc<PackedTerm> {
+        self.prefer_exact_packed_rewrite_sibling_sorts_memo(term, &mut HashMap::new())
+    }
+
+    fn prefer_exact_packed_rewrite_sibling_sorts_memo(
+        &self,
+        term: Rc<PackedTerm>,
+        memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
+    ) -> Rc<PackedTerm> {
+        let identity = Rc::as_ptr(&term);
+        if let Some((_, preferred)) = memo.get(&identity) {
+            return Rc::clone(preferred);
+        }
+        let mut preferred = match &term.node {
+            PackedNode::Term(_) => Rc::clone(&term),
+            PackedNode::Ambiguity(alternatives) => PackedTerm::ambiguity(
+                alternatives
+                    .iter()
+                    .map(|alternative| {
+                        self.prefer_exact_packed_rewrite_sibling_sorts_memo(
+                            Rc::clone(alternative),
+                            memo,
+                        )
+                    })
+                    .collect(),
+            ),
+            PackedNode::Production {
+                production,
+                children,
+                metadata,
+            } => PackedTerm::production(
+                *production,
+                children
+                    .iter()
+                    .map(|child| {
+                        self.prefer_exact_packed_rewrite_sibling_sorts_memo(Rc::clone(child), memo)
+                    })
+                    .collect(),
+                metadata.clone(),
+            ),
+        };
+        let PackedNode::Production {
+            production,
+            children,
+            metadata,
+        } = &preferred.node
+        else {
+            memo.insert(identity, (term, Rc::clone(&preferred)));
+            return preferred;
+        };
+        if self.productions[*production]
+            .label
+            .as_ref()
+            .is_some_and(|label| label.name == "#KRewrite")
+            && children.len() == 2
+        {
+            let left_sort = self.declared_packed_term_sort(&children[0]);
+            let right_sort = self.declared_packed_term_sort(&children[1]);
+            let mut preferred_children = children.clone();
+            if let Some(sort) = right_sort {
+                preferred_children[0] =
+                    self.prefer_packed_ambiguity_result_sort(&preferred_children[0], &sort);
+            }
+            if let Some(sort) = left_sort {
+                preferred_children[1] =
+                    self.prefer_packed_ambiguity_result_sort(&preferred_children[1], &sort);
+            }
+            preferred = PackedTerm::production(*production, preferred_children, metadata.clone());
+        }
+        memo.insert(identity, (term, Rc::clone(&preferred)));
+        preferred
+    }
+
+    fn prefer_packed_ambiguity_result_sort(
+        &self,
+        term: &Rc<PackedTerm>,
+        expected: &Sort,
+    ) -> Rc<PackedTerm> {
+        let PackedNode::Ambiguity(alternatives) = &term.node else {
+            return Rc::clone(term);
+        };
+        let subsorts = crate::definition::PartialOrder::new(self.subsort_relations.iter().cloned())
+            .expect("the grammar rejected semantic subsort cycles during construction");
+        if alternatives.iter().any(|alternative| {
+            self.declared_packed_term_sort(alternative)
+                .is_some_and(|sort| {
+                    sort != *expected
+                        && (subsorts.less_than_eq(&sort, expected)
+                            || subsorts.less_than_eq(expected, &sort))
+                })
+        }) {
+            return Rc::clone(term);
+        }
+        let matching = alternatives
+            .iter()
+            .filter(|alternative| {
+                self.declared_packed_term_sort(alternative).as_ref() == Some(expected)
+            })
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        if matching.is_empty() {
+            Rc::clone(term)
+        } else {
+            PackedTerm::ambiguity(matching)
+        }
+    }
+
+    fn declared_packed_term_sort(&self, term: &PackedTerm) -> Option<Sort> {
+        match &term.node {
+            PackedNode::Production { production, .. } => {
+                Some(self.productions[*production].result.clone())
+            }
+            PackedNode::Term(term) => match term.unannotated() {
+                Term::Variable { sort, .. } => sort.clone(),
+                Term::Token { sort, .. } => Some(sort.clone()),
+                _ => term.metadata().and_then(|metadata| metadata.sort.clone()),
+            },
+            PackedNode::Ambiguity(_) => None,
+        }
+    }
+
+    #[cfg(test)]
     pub(super) fn prefer_exact_rewrite_sibling_sorts(&self, term: ParsedTerm) -> ParsedTerm {
         let rebuilt = match term {
             ParsedTerm::Term(_) => return term,
@@ -508,6 +631,7 @@ impl Grammar {
         rebuilt
     }
 
+    #[cfg(test)]
     fn prefer_ambiguity_result_sort(&self, term: ParsedTerm, expected: &Sort) -> ParsedTerm {
         let ParsedTerm::Ambiguity(alternatives) = term else {
             return term;
@@ -540,6 +664,7 @@ impl Grammar {
         }
     }
 
+    #[cfg(test)]
     fn declared_term_sort(&self, term: &ParsedTerm) -> Option<Sort> {
         match term {
             ParsedTerm::Production { production, .. } => {
@@ -576,6 +701,7 @@ impl Grammar {
     /// or discarded valid siblings, so this transformation performs the same branch-wise filter.
     /// This owned pass remains necessary after generated record productions collapse and expose
     /// edges which their parser-only wrappers deliberately exempt from priority checking.
+    #[cfg(test)]
     pub(super) fn filter_priority(&self, term: ParsedTerm) -> Result<ParsedTerm, ParseError> {
         match term {
             ParsedTerm::Term(_) => Ok(term),
@@ -667,6 +793,7 @@ impl Grammar {
         }
     }
 
+    #[cfg(test)]
     fn top_parse_label<'a>(&'a self, term: &'a ParsedTerm) -> Option<&'a str> {
         let (production, children) = match term {
             ParsedTerm::Production {
@@ -695,6 +822,7 @@ impl Grammar {
         })
     }
 
+    #[cfg(test)]
     fn filter_priority_child(
         &self,
         parent: &Production,
@@ -945,6 +1073,202 @@ impl Grammar {
     }
 
     /// Resolve `#KApply` nodes to every visible production with the same label and arity.
+    pub(super) fn resolve_packed_applications(
+        &self,
+        term: Rc<PackedTerm>,
+    ) -> Result<Rc<PackedTerm>, ParseError> {
+        self.resolve_packed_applications_memo(term, &mut HashMap::new())
+    }
+
+    fn resolve_packed_applications_memo(
+        &self,
+        term: Rc<PackedTerm>,
+        memo: &mut PackedTransformMemo,
+    ) -> Result<Rc<PackedTerm>, ParseError> {
+        let identity = Rc::as_ptr(&term);
+        if let Some((_, resolved)) = memo.get(&identity) {
+            return resolved.clone();
+        }
+        let resolved = (|| -> PackedTransformResult {
+            match &term.node {
+                PackedNode::Term(_) => Ok(Rc::clone(&term)),
+                PackedNode::Ambiguity(alternatives) => {
+                    let mut resolved = BTreeSet::new();
+                    let mut first_error = None;
+                    for alternative in packed_terms_in_structural_order(alternatives) {
+                        match self.resolve_packed_applications_memo(Rc::clone(&alternative), memo) {
+                            Ok(alternative) => match &alternative.node {
+                                PackedNode::Ambiguity(nested) => {
+                                    resolved.extend(nested.iter().cloned())
+                                }
+                                _ => {
+                                    resolved.insert(alternative);
+                                }
+                            },
+                            Err(error) => {
+                                first_error.get_or_insert(error);
+                            }
+                        }
+                        if resolved.len() > super::MAX_DERIVATIONS_PER_STATE {
+                            return Err(ParseError::TooManyParses {
+                                limit: super::MAX_DERIVATIONS_PER_STATE,
+                            });
+                        }
+                    }
+                    if resolved.is_empty() {
+                        Err(first_error.expect("an empty ambiguity had no resolution result"))
+                    } else {
+                        Ok(PackedTerm::ambiguity(resolved))
+                    }
+                }
+                PackedNode::Production {
+                    production,
+                    children,
+                    metadata,
+                } => {
+                    #[cfg(test)]
+                    if self.productions[*production]
+                        .label
+                        .as_ref()
+                        .is_some_and(|label| label.name == "#KApply")
+                    {
+                        super::PACKED_APPLICATION_RESOLUTIONS
+                            .set(super::PACKED_APPLICATION_RESOLUTIONS.get() + 1);
+                    }
+                    let children = children
+                        .iter()
+                        .map(|child| self.resolve_packed_applications_memo(Rc::clone(child), memo))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    if self.productions[*production]
+                        .label
+                        .as_ref()
+                        .map(|label| label.name.as_str())
+                        != Some("#KApply")
+                    {
+                        Ok(PackedTerm::production(
+                            *production,
+                            children,
+                            metadata.clone(),
+                        ))
+                    } else {
+                        let [label, arguments] = children.as_slice() else {
+                            return Err(ParseError::UnknownApplication {
+                                label: "<malformed>".into(),
+                                arity: children.len().saturating_sub(1),
+                            });
+                        };
+                        let label = packed_klabel_name(label).ok_or_else(|| {
+                            ParseError::UnknownApplication {
+                                label: "<malformed>".into(),
+                                arity: 0,
+                            }
+                        })?;
+                        let argument_lists = self.flatten_packed_klist(arguments)?;
+                        let arities = argument_lists.iter().map(Vec::len).collect::<BTreeSet<_>>();
+                        let mut candidates = BTreeSet::new();
+                        for arguments in argument_lists {
+                            for (candidate, candidate_production) in
+                                self.productions.iter().enumerate()
+                            {
+                                if candidate != *production
+                                    && candidate_production.record.is_none()
+                                    && candidate_production.label.as_ref().is_some_and(
+                                        |candidate_label| candidate_label.name == label,
+                                    )
+                                    && production_arity(candidate_production) == arguments.len()
+                                {
+                                    let candidate =
+                                        candidate_production.term_production.unwrap_or(candidate);
+                                    let mut candidate_metadata = metadata.clone();
+                                    candidate_metadata.production = self.productions[candidate]
+                                        .source_production
+                                        .map(|production| {
+                                            crate::kast::ResolvedProductionId(production.0)
+                                        });
+                                    candidates.insert(PackedTerm::production(
+                                        candidate,
+                                        arguments.clone(),
+                                        candidate_metadata,
+                                    ));
+                                    if candidates.len() > super::MAX_DERIVATIONS_PER_STATE {
+                                        return Err(ParseError::TooManyParses {
+                                            limit: super::MAX_DERIVATIONS_PER_STATE,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        if candidates.is_empty() {
+                            Err(ParseError::UnknownApplication {
+                                label,
+                                arity: arities.first().copied().unwrap_or(0),
+                            })
+                        } else {
+                            Ok(PackedTerm::ambiguity(candidates))
+                        }
+                    }
+                }
+            }
+        })();
+        memo.insert(identity, (term, resolved.clone()));
+        resolved
+    }
+
+    fn flatten_packed_klist(
+        &self,
+        term: &Rc<PackedTerm>,
+    ) -> Result<Vec<Vec<Rc<PackedTerm>>>, ParseError> {
+        let flattened = match &term.node {
+            PackedNode::Ambiguity(alternatives) => {
+                let mut flattened = Vec::new();
+                for alternative in packed_terms_in_structural_order(alternatives) {
+                    flattened.extend(self.flatten_packed_klist(&alternative)?);
+                    if flattened.len() > super::MAX_DERIVATIONS_PER_STATE {
+                        return Err(ParseError::TooManyParses {
+                            limit: super::MAX_DERIVATIONS_PER_STATE,
+                        });
+                    }
+                }
+                flattened
+            }
+            PackedNode::Production {
+                production,
+                children,
+                ..
+            } => match self.productions[*production]
+                .label
+                .as_ref()
+                .map(|label| label.name.as_str())
+            {
+                Some("#EmptyKList") => vec![Vec::new()],
+                Some("#KList") if children.len() == 2 => {
+                    let left = self.flatten_packed_klist(&children[0])?;
+                    let right = self.flatten_packed_klist(&children[1])?;
+                    left.into_iter()
+                        .flat_map(|left| {
+                            right.iter().map(move |right| {
+                                let mut combined = left.clone();
+                                combined.extend(right.iter().cloned());
+                                combined
+                            })
+                        })
+                        .take(super::MAX_DERIVATIONS_PER_STATE + 1)
+                        .collect()
+                }
+                _ => vec![vec![Rc::clone(term)]],
+            },
+            PackedNode::Term(_) => vec![vec![Rc::clone(term)]],
+        };
+        if flattened.len() > super::MAX_DERIVATIONS_PER_STATE {
+            Err(ParseError::TooManyParses {
+                limit: super::MAX_DERIVATIONS_PER_STATE,
+            })
+        } else {
+            Ok(flattened)
+        }
+    }
+
+    #[cfg(test)]
     pub(super) fn resolve_applications(&self, term: ParsedTerm) -> Result<ParsedTerm, ParseError> {
         match term {
             ParsedTerm::Term(_) => Ok(term),
@@ -1051,6 +1375,7 @@ impl Grammar {
         }
     }
 
+    #[cfg(test)]
     fn flatten_klist(&self, term: &ParsedTerm) -> Result<Vec<Vec<ParsedTerm>>, ParseError> {
         let flattened = match term {
             ParsedTerm::Ambiguity(alternatives) => {
@@ -1560,6 +1885,96 @@ impl Grammar {
     }
 
     /// Lift ambiguity in a top-level rewrite LHS above its `#RuleContent` wrapper.
+    pub(super) fn push_top_lhs_packed_ambiguity_up(&self, term: Rc<PackedTerm>) -> Rc<PackedTerm> {
+        if let PackedNode::Ambiguity(alternatives) = &term.node {
+            let mut lifted = BTreeSet::new();
+            for alternative in alternatives {
+                let alternative = self.push_top_lhs_packed_ambiguity_up(Rc::clone(alternative));
+                match &alternative.node {
+                    PackedNode::Ambiguity(nested) => lifted.extend(nested.iter().cloned()),
+                    _ => {
+                        lifted.insert(alternative);
+                    }
+                }
+            }
+            return PackedTerm::ambiguity(lifted);
+        }
+        let PackedNode::Production {
+            production,
+            children,
+            metadata,
+        } = &term.node
+        else {
+            return term;
+        };
+        if self.productions[*production].result.name != "#RuleContent" || children.is_empty() {
+            return term;
+        }
+        let bodies = self.expand_packed_rule_body_lhs(Rc::clone(&children[0]));
+        if bodies.len() == 1 {
+            let body = bodies.into_iter().next().expect("length was one");
+            if Rc::ptr_eq(&body, &children[0]) {
+                return term;
+            }
+            let mut rebuilt_children = children.clone();
+            rebuilt_children[0] = body;
+            return PackedTerm::production(*production, rebuilt_children, metadata.clone());
+        }
+        PackedTerm::ambiguity(
+            bodies
+                .into_iter()
+                .map(|body| {
+                    let mut alternative_children = children.clone();
+                    alternative_children[0] = body;
+                    PackedTerm::production(*production, alternative_children, metadata.clone())
+                })
+                .collect(),
+        )
+    }
+
+    fn expand_packed_rule_body_lhs(&self, body: Rc<PackedTerm>) -> BTreeSet<Rc<PackedTerm>> {
+        let PackedNode::Production {
+            production,
+            children,
+            metadata,
+        } = &body.node
+        else {
+            return BTreeSet::from([body]);
+        };
+        let label = self.productions[*production]
+            .label
+            .as_ref()
+            .map(|label| label.name.as_str());
+        if label == Some("#withConfig") && !children.is_empty() {
+            return self
+                .expand_packed_rule_body_lhs(Rc::clone(&children[0]))
+                .into_iter()
+                .map(|child| {
+                    let mut alternative_children = children.clone();
+                    alternative_children[0] = child;
+                    PackedTerm::production(*production, alternative_children, metadata.clone())
+                })
+                .collect();
+        }
+        if label != Some("#KRewrite") || children.len() != 2 {
+            return BTreeSet::from([body]);
+        }
+        let PackedNode::Ambiguity(alternatives) = &children[0].node else {
+            return BTreeSet::from([body]);
+        };
+        alternatives
+            .iter()
+            .map(|left| {
+                PackedTerm::production(
+                    *production,
+                    vec![Rc::clone(left), Rc::clone(&children[1])],
+                    metadata.clone(),
+                )
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
     pub(super) fn push_top_lhs_ambiguity_up(&self, term: ParsedTerm) -> ParsedTerm {
         if let ParsedTerm::Ambiguity(alternatives) = term {
             let lifted = alternatives
@@ -1612,6 +2027,7 @@ impl Grammar {
         )
     }
 
+    #[cfg(test)]
     fn expand_rule_body_lhs(&self, body: ParsedTerm) -> BTreeSet<ParsedTerm> {
         let ParsedTerm::Production {
             production,
@@ -1727,6 +2143,7 @@ fn production_arity(production: &Production) -> usize {
         .count()
 }
 
+#[cfg(test)]
 fn klabel_name(term: &ParsedTerm) -> Option<String> {
     let Term::Token { token, sort } = term.leaf()? else {
         return None;
@@ -1741,7 +2158,24 @@ fn klabel_name(term: &ParsedTerm) -> Option<String> {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+fn packed_klabel_name(term: &PackedTerm) -> Option<String> {
+    let PackedNode::Term(term) = &term.node else {
+        return None;
+    };
+    let Term::Token { token, sort } = term.unannotated() else {
+        return None;
+    };
+    if sort.name != "KLabel" {
+        return None;
+    }
+    if token.starts_with('`') {
+        string::unquote_label(token).ok()
+    } else {
+        Some(token.clone())
+    }
+}
+
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 enum Side {
     Left,
     Right,
