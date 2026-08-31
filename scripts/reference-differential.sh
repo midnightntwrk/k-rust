@@ -3,6 +3,7 @@ set -euo pipefail
 
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$workspace/scripts/reference-pins.sh"
+source "$workspace/scripts/reference-memory-guard.sh"
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
 imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
 wasm_checkout=${WASM_SEMANTICS_CHECKOUT:-"$workspace/wasm-semantics"}
@@ -11,7 +12,6 @@ evm_equivalence_checkout=${EVM_EQUIVALENCE_CHECKOUT:-"$workspace/evm-equivalence
 mir_checkout=${MIR_SEMANTICS_CHECKOUT:-"$workspace/mir-semantics"}
 kompile=${K_KOMPILE:-}
 reference_memory_kib=${REFERENCE_DIFFERENTIAL_MEMORY_KIB:-}
-rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}
 reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-}
 manifest_json=$(
   WORKSPACE="$workspace" \
@@ -162,22 +162,18 @@ for fixture in "${cases[@]}"; do
   )
 
   echo "[$name] compiling with k-rust"
-  (
-    if [[ -n "$rust_memory_kib" ]]; then
-      ulimit -v "$rust_memory_kib"
-    fi
-    cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust -- \
-      kcompile "$source" \
-      --main-module "$module" \
-      --backend llvm \
-      --output-directory "$rust" \
-      --emit-json \
-      "${include_args[@]}" \
-      "${selector_args[@]}" \
-      "${syntax_args[@]}" \
-      "${rust_hook_args[@]}" \
-      --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
-  )
+  reference_run_rust_frontend cargo run --quiet --release \
+    --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust -- \
+    kcompile "$source" \
+    --main-module "$module" \
+    --backend llvm \
+    --output-directory "$rust" \
+    --emit-json \
+    "${include_args[@]}" \
+    "${selector_args[@]}" \
+    "${syntax_args[@]}" \
+    "${rust_hook_args[@]}" \
+    --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
 
   if [[ " $comparisons " == *" semantic-kore "* ]]; then
     echo "[$name] comparing semantic KORE"
