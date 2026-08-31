@@ -1,0 +1,78 @@
+schema_version = 1
+packet_id = "NR-05R"
+title = "Pinned adapter index and manifest repair"
+status = "complete-local-repair-upstream-blocked"
+source_audit = "handoffs/NR-05A.toml"
+protected_artifact_sha256 = "dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec"
+
+[scope]
+owned = ["crates/kink-native", "Cargo.lock", "draft/tasks/rust-upfront/handoffs/NR-05R.toml", "native-readiness roadmap status"]
+untouched = ["KRS", "shared k-rust", "k-rust-krs-main", "investigations/k-rust-target/k-rust-agent-requests.toml", "other Rust crates"]
+
+[pins]
+krs_revision = "cff5e10b77a24a58590f59b5379f9f77ebd19f4d"
+k_rust_revision = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
+k_rust_crate_version = "=0.4.0"
+k_rust_dependency_path = "../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust"
+krs_declared_features = ["z3-inference"]
+krs_declared_default_features = false
+kink_native_default_features = false
+kink_native_solver_features = []
+native_frontend_rust_version = "1.98.0"
+integration_profile = "default-features=false,structured-no-z3-inference"
+
+[implementation]
+term_use_identity = "NativeTermUseId is the closed NativeSentenceId plus NativeTermRoot::{Body, Requires, Ensures} plus the complete nested u32 child path. Every symbol-bearing root and nested term retains the root role, so equal numeric paths in different sentence fields cannot alias. Occupied map entries reject without replacement."
+symbol_resolution = "Every InjectedLabel and Apply must resolve to exactly one visible owner. Missing declarations return UnknownSymbol, declarations confined to non-visible owners return NonVisibleSymbol with the sorted declared owner set, and multiple visible owners retain AmbiguousSymbolOwner. No builtin-label exception was introduced because no reviewed evidence established a closed builtin class."
+manifest_verification = "The selected published toml 0.9.12 parser parses the KRS Cargo.toml and selects only root dependencies.k-rust. Its table must contain exactly version, path, default-features, and features; values must be exact, the feature array must be exactly [z3-inference], and the pre-existing canonical path comparison must also pass. TOML parse errors, duplicate tables, wrong tables, comments, unrelated dependency strings, value drift, and extra keys reject."
+toolchain = "kink-native declares rust-version 1.98 and verify_pins requires the exact release line for stable Rust 1.98.0. VerifiedPins records that version and the complete rustc verbose identity. The crate's own k-rust dependency remains default-features=false with no z3-inference feature."
+failure_boundary = "Duplicate term-use, unknown-label, non-visible-label, manifest, revision, cleanliness, path, and toolchain failures produce no ValidatedNativeOutput and commit zero edits."
+authority = "ProvenanceStatus remains SidecarOnlyMissingBridge. The caller-supplied KRS sidecar remains non-authoritative, and this repair grants zero provenance, lowering, compiler, evaluator, solver, search-exhaustion, or native production authority."
+
+[tests]
+adversaries = [
+  "body/requires/ensures root applications at equal empty paths remain distinct",
+  "body/requires/ensures nested applications at equal [0] paths remain distinct",
+  "duplicate NativeTermUseId insertion rejects without replacing the original symbol",
+  "unknown label rejects",
+  "label declared only by a non-visible owner rejects",
+  "comments and unrelated dependency strings do not satisfy dependencies.k-rust",
+  "dev-dependencies.k-rust does not satisfy dependencies.k-rust",
+  "duplicate dependencies.k-rust tables reject",
+  "wrong version, path, default-features, empty or extra features, and extra keys reject",
+  "exact Rust 1.98.0 accepts and a different release rejects",
+  "kink-native's own dependency contains no solver feature",
+]
+retained = ["closed sentence and term inventory", "Bubble rejection", "duplicate declaration rejection", "arity checking", "ambiguous-owner rejection", "module relocation stability", "subsort and signature indexing", "sidecar bounds rejection"]
+
+[validation]
+compile = "PASS: CARGO_BUILD_JOBS=1 cargo +stable test -p kink-native --no-run compiled the test target and recorded the selected TOML parser closure in Cargo.lock."
+focused_tests = "PASS: CARGO_BUILD_JOBS=1 cargo +stable test -p kink-native --locked passed 19 active unit tests, ignored only the explicit clean-pair gate, and passed doc tests."
+clean_pair = "PASS: CARGO_BUILD_JOBS=1 cargo +stable test -p kink-native --locked -- --ignored --exact tests::exact_clean_pin_pair_passes_the_complete_binding_gate passed against a disposable local shared KRS clone at cff5e10 plus a canonical symlink to the real clean dedicated k-rust checkout at 0de7983; the disposable layout was removed afterward."
+clippy = "OMITTED: warnings-denied Clippy was not run because the shared slice remained at the 28 GiB throttle and unrelated CDDL Cargo/WASM builds recurred after the focused gates. It was not run concurrently and is not claimed as passed."
+format = "PASS: rustfmt +stable --edition 2024 --check crates/kink-native/src/lib.rs."
+toml = "PASS: Python stdlib tomllib parsed Cargo.lock, crates/kink-native/Cargo.toml, this handoff, and native-readiness-work-package.toml."
+diff = "PASS: git diff --check."
+protected_sha = "PASS: investigations/k-rust-target/k-rust-agent-requests.toml retained SHA-256 dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec."
+
+[limitations]
+items = [
+  "The default KRS checkout remains inadmissibly dirty only because of its pre-existing untracked docs-plan directory; the cleanliness gate continues to reject it.",
+  "NR-05R used a disposable clean clone for exact pin acceptance and did not modify either upstream checkout.",
+  "The no-z3 kink-native integration profile is not solver qualification. NR-06 must bind and qualify any solver-relative feature and profile explicitly.",
+  "KRS still exposes no qualified provenance-bearing bridge into complete k-rust source, term, production, and generated-origin records.",
+  "No full-workspace Cargo gate ran under the sustained 28 GiB shared-slice throttle; validation remained packet-focused and serialized.",
+]
+
+[unblocking]
+ready_after_acceptance = ["NR-06 positive-bounded observation/search adapter"]
+restrictions = ["Consume only role-qualified NativeTermUseId values.", "Treat every unknown, incomplete, external, solver-relative, or sidecar-only result as not-proven unless a later closed contract authorizes more.", "Do not issue native-proven observations or exhaustive absence from this adapter."]
+
+[acceptance]
+decision = "The NR-05A local index and pin-verification defects are repaired and the focused compile, adversarial suite, exact clean-pair binding, formatting, TOML, diff, and protected-artifact gates pass. NR-06 may proceed only as positive-bounded work."
+retained_upstream_boundary = "NR-05 remains upstream-blocked on a qualified KRS-to-k-rust provenance bridge, and NR-05R grants no native authority."
+
+[independent_review]
+result = "accepted-no-findings"
+scope = "A fresh Sol reviewer audited all four repairs, the complete changed public surface, every new adversary, the dependency closure, roadmap claims, and all retained authority boundaries."
+validation = "The reviewer independently parsed the relevant TOML, ran git diff --check, and verified the protected SHA. It did not rerun Rust gates under the recorded 28 GiB memory throttle and unrelated build."

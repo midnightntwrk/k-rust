@@ -24,11 +24,24 @@ use kink_patch::StagedNativeInput;
 /// Native definition type accepted by the exact k-rust pin.
 pub type NativeDefinition = Definition;
 
-/// Exact KRS source revision reviewed by NR-05.
-pub const KRS_REVISION: &str = "9a10f89e04cf4bc48ba42046569b31644bd0f55e";
+/// Exact clean KRS source revision reviewed by NR-05R.
+pub const KRS_REVISION: &str = "cff5e10b77a24a58590f59b5379f9f77ebd19f4d";
 
 /// Exact k-rust source revision declared by the reviewed KRS checkout.
 pub const K_RUST_REVISION: &str = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c";
+
+/// Exact published k-rust crate version declared by KRS.
+pub const K_RUST_CRATE_VERSION: &str = "0.4.0";
+
+/// Exact relative k-rust dependency path declared by KRS.
+pub const KRS_K_RUST_DEPENDENCY_PATH: &str =
+    "../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust";
+
+/// Exact solver feature set declared by KRS for its frontend adapter.
+pub const KRS_K_RUST_FEATURES: [&str; 1] = ["z3-inference"];
+
+/// Exact stable Rust release qualified for the native/frontend profile.
+pub const NATIVE_FRONTEND_RUST_VERSION: &str = "1.98.0";
 
 /// Absolute clean-source locations selected by the native-readiness work package.
 pub const KRS_PATH: &str = "/home/sebastiengllmt/git/workspaces/starstream-fv/krs";
@@ -59,6 +72,7 @@ pub struct VerifiedPins {
     pub k_rust_crate_version: &'static str,
     pub declared_krs_feature_profile: &'static str,
     pub integration_feature_profile: &'static str,
+    pub native_frontend_rust_version: &'static str,
     pub rustc_identity: String,
 }
 
@@ -134,6 +148,22 @@ pub struct NativeSentenceId {
     pub ordinal: usize,
 }
 
+/// Closed sentence-term root roles that cannot alias one another.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum NativeTermRoot {
+    Body,
+    Requires,
+    Ensures,
+}
+
+/// Role-qualified identity of one symbol-bearing term in a sentence.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct NativeTermUseId {
+    pub sentence: NativeSentenceId,
+    pub root: NativeTermRoot,
+    pub path: Vec<u32>,
+}
+
 /// Owner-qualified declared symbol identity.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct NativeSymbolId {
@@ -205,7 +235,7 @@ pub struct NativeIndex {
     pub sorts: BTreeMap<NativeSortId, NativeSentenceId>,
     pub signatures: BTreeMap<NativeSymbolId, NativeSignature>,
     pub subsorts: BTreeSet<NativeSubsort>,
-    pub resolved_symbol_uses: BTreeMap<(NativeSentenceId, Vec<u32>), NativeSymbolId>,
+    pub resolved_symbol_uses: BTreeMap<NativeTermUseId, NativeSymbolId>,
     pub provenance_sidecar: ProvenanceSidecarIndex,
 }
 
@@ -275,7 +305,7 @@ impl fmt::Display for NativePatchRejection {
 
 impl std::error::Error for NativePatchRejection {}
 
-/// Typed fail-closed native integration failures. No variant contains staged output or identity.
+/// Typed fail-closed native integration failures. No variant contains staged native output.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NativeFailure {
     PinRepositoryUnavailable {
@@ -311,6 +341,16 @@ pub enum NativeFailure {
         label: String,
         owners: Vec<String>,
     },
+    UnknownSymbol {
+        module: String,
+        label: String,
+    },
+    NonVisibleSymbol {
+        module: String,
+        label: String,
+        owners: Vec<String>,
+    },
+    DuplicateTermUseIdentity,
     ArityMismatch {
         module: String,
         label: String,
@@ -382,6 +422,22 @@ impl fmt::Display for NativeFailure {
                 "native label {label:?} used from {module:?} has ambiguous owners: {}",
                 owners.join(", ")
             ),
+            Self::UnknownSymbol { module, label } => write!(
+                formatter,
+                "native label {label:?} used from {module:?} has no declared owner"
+            ),
+            Self::NonVisibleSymbol {
+                module,
+                label,
+                owners,
+            } => write!(
+                formatter,
+                "native label {label:?} used from {module:?} is declared only by non-visible owners: {}",
+                owners.join(", ")
+            ),
+            Self::DuplicateTermUseIdentity => {
+                formatter.write_str("duplicate native term-use identity")
+            }
             Self::ArityMismatch {
                 module,
                 label,
@@ -496,27 +552,11 @@ pub fn verify_pins(sources: &PinnedSources) -> Result<VerifiedPins, NativeFailur
             detail: format!("cannot read {}: {error}", manifest.display()),
         }
     })?;
-    let expected = "../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust";
-    if !manifest_text.contains(&format!("path = \"{expected}\"")) {
-        return Err(NativeFailure::DeclaredFrontendMismatch(
-            "KRS does not declare the reviewed k-rust-krs-main path".to_owned(),
-        ));
-    }
-    for required in [
-        "version = \"=0.4.0\"",
-        "default-features = false",
-        "features = [\"z3-inference\"]",
-    ] {
-        if !manifest_text.contains(required) {
-            return Err(NativeFailure::DeclaredFrontendMismatch(format!(
-                "KRS frontend declaration is missing {required:?}"
-            )));
-        }
-    }
+    verify_krs_frontend_manifest(&manifest_text)?;
     let declared = sources
         .krs
         .join("crates/krs-k-rust")
-        .join(expected)
+        .join(KRS_K_RUST_DEPENDENCY_PATH)
         .canonicalize()
         .map_err(|error| NativeFailure::DeclaredFrontendMismatch(error.to_string()))?;
     let selected = sources
@@ -534,11 +574,99 @@ pub fn verify_pins(sources: &PinnedSources) -> Result<VerifiedPins, NativeFailur
     Ok(VerifiedPins {
         krs_revision: KRS_REVISION,
         k_rust_revision: K_RUST_REVISION,
-        k_rust_crate_version: "0.4.0",
+        k_rust_crate_version: K_RUST_CRATE_VERSION,
         declared_krs_feature_profile: "default-features=false,z3-inference",
         integration_feature_profile: "default-features=false,structured-no-z3-inference",
+        native_frontend_rust_version: NATIVE_FRONTEND_RUST_VERSION,
         rustc_identity: command_identity("rustc", &["--version", "--verbose"])?,
     })
+}
+
+fn verify_krs_frontend_manifest(manifest_text: &str) -> Result<(), NativeFailure> {
+    let manifest = manifest_text.parse::<toml::Table>().map_err(|error| {
+        NativeFailure::DeclaredFrontendMismatch(format!(
+            "KRS frontend manifest is not valid TOML: {error}"
+        ))
+    })?;
+    let dependency = manifest
+        .get("dependencies")
+        .and_then(toml::Value::as_table)
+        .and_then(|dependencies| dependencies.get("k-rust"))
+        .and_then(toml::Value::as_table)
+        .ok_or_else(|| {
+            NativeFailure::DeclaredFrontendMismatch(
+                "KRS manifest has no dependencies.k-rust table".to_owned(),
+            )
+        })?;
+    let expected_keys = BTreeSet::from(["default-features", "features", "path", "version"]);
+    let actual_keys = dependency
+        .keys()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    if actual_keys != expected_keys {
+        return Err(NativeFailure::DeclaredFrontendMismatch(format!(
+            "KRS dependencies.k-rust keys are {actual_keys:?}, expected {expected_keys:?}"
+        )));
+    }
+    require_dependency_string(dependency, "version", &format!("={K_RUST_CRATE_VERSION}"))?;
+    require_dependency_string(dependency, "path", KRS_K_RUST_DEPENDENCY_PATH)?;
+    if dependency
+        .get("default-features")
+        .and_then(toml::Value::as_bool)
+        != Some(false)
+    {
+        return Err(NativeFailure::DeclaredFrontendMismatch(
+            "KRS dependencies.k-rust default-features must be false".to_owned(),
+        ));
+    }
+    let features = dependency
+        .get("features")
+        .and_then(toml::Value::as_array)
+        .ok_or_else(|| {
+            NativeFailure::DeclaredFrontendMismatch(
+                "KRS dependencies.k-rust features must be an array".to_owned(),
+            )
+        })?;
+    let declared_features = features
+        .iter()
+        .map(toml::Value::as_str)
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| {
+            NativeFailure::DeclaredFrontendMismatch(
+                "KRS dependencies.k-rust features must contain only strings".to_owned(),
+            )
+        })?;
+    if declared_features.as_slice() != KRS_K_RUST_FEATURES {
+        return Err(NativeFailure::DeclaredFrontendMismatch(format!(
+            "KRS dependencies.k-rust features are {declared_features:?}, expected {:?}",
+            KRS_K_RUST_FEATURES
+        )));
+    }
+    Ok(())
+}
+
+fn require_dependency_string(
+    dependency: &toml::Table,
+    key: &str,
+    expected: &str,
+) -> Result<(), NativeFailure> {
+    let actual = dependency.get(key).and_then(toml::Value::as_str);
+    if actual != Some(expected) {
+        return Err(NativeFailure::DeclaredFrontendMismatch(format!(
+            "KRS dependencies.k-rust {key} is {actual:?}, expected {expected:?}"
+        )));
+    }
+    Ok(())
+}
+
+fn verify_native_frontend_rustc(identity: &str) -> Result<(), NativeFailure> {
+    let expected_release = format!("release: {NATIVE_FRONTEND_RUST_VERSION}");
+    if !identity.lines().any(|line| line == expected_release) {
+        return Err(NativeFailure::DeclaredFrontendMismatch(format!(
+            "native/frontend rustc is not exact stable Rust {NATIVE_FRONTEND_RUST_VERSION}"
+        )));
+    }
+    Ok(())
 }
 
 fn command_identity(command: &'static str, arguments: &[&str]) -> Result<String, NativeFailure> {
@@ -555,7 +683,9 @@ fn command_identity(command: &'static str, arguments: &[&str]) -> Result<String,
             detail: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
         });
     }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    let identity = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    verify_native_frontend_rustc(&identity)?;
+    Ok(identity)
 }
 
 fn verify_repository(
@@ -680,11 +810,12 @@ fn index_definition_with_sidecar(
                 owner_module: module.name.clone(),
                 ordinal,
             };
-            let mut path = Vec::new();
-            visit_sentence_terms(sentence, &mut |term| {
+            visit_sentence_terms(sentence, &mut |root, term| {
+                let mut path = Vec::new();
                 index_term(
                     term,
                     &id,
+                    root,
                     &visible,
                     &ownership,
                     &index.signatures,
@@ -804,13 +935,13 @@ fn index_sentence_declarations(
 
 fn visit_sentence_terms(
     sentence: &Sentence,
-    visitor: &mut impl FnMut(&Term) -> Result<(), NativeFailure>,
+    visitor: &mut impl FnMut(NativeTermRoot, &Term) -> Result<(), NativeFailure>,
 ) -> Result<(), NativeFailure> {
     match sentence {
         Sentence::ContextAlias { body, requires, .. }
         | Sentence::Context { body, requires, .. } => {
-            visitor(body)?;
-            visitor(requires)
+            visitor(NativeTermRoot::Body, body)?;
+            visitor(NativeTermRoot::Requires, requires)
         }
         Sentence::Rule {
             body,
@@ -824,13 +955,13 @@ fn visit_sentence_terms(
             ensures,
             ..
         } => {
-            visitor(body)?;
-            visitor(requires)?;
-            visitor(ensures)
+            visitor(NativeTermRoot::Body, body)?;
+            visitor(NativeTermRoot::Requires, requires)?;
+            visitor(NativeTermRoot::Ensures, ensures)
         }
         Sentence::Configuration { body, ensures, .. } => {
-            visitor(body)?;
-            visitor(ensures)
+            visitor(NativeTermRoot::Body, body)?;
+            visitor(NativeTermRoot::Ensures, ensures)
         }
         Sentence::SyntaxSort { .. }
         | Sentence::SortSynonym { .. }
@@ -846,11 +977,12 @@ fn visit_sentence_terms(
 fn index_term(
     term: &Term,
     sentence: &NativeSentenceId,
+    root: NativeTermRoot,
     visible: &BTreeSet<String>,
     ownership: &BTreeMap<String, BTreeSet<String>>,
     signatures: &BTreeMap<NativeSymbolId, NativeSignature>,
     inventory: &mut NativeInventory,
-    uses: &mut BTreeMap<(NativeSentenceId, Vec<u32>), NativeSymbolId>,
+    uses: &mut BTreeMap<NativeTermUseId, NativeSymbolId>,
     path: &mut Vec<u32>,
 ) -> Result<(), NativeFailure> {
     let variant = match term {
@@ -866,32 +998,33 @@ fn index_term(
     *inventory.term_variants.entry(variant).or_default() += 1;
     match term {
         Term::InjectedLabel(label) => resolve_label(
-            label, None, sentence, path, visible, ownership, signatures, uses,
+            label, None, sentence, root, path, visible, ownership, signatures, uses,
         ),
         Term::Rewrite { left, right } => {
             visit_child(
-                left, 0, sentence, visible, ownership, signatures, inventory, uses, path,
+                left, 0, sentence, root, visible, ownership, signatures, inventory, uses, path,
             )?;
             visit_child(
-                right, 1, sentence, visible, ownership, signatures, inventory, uses, path,
+                right, 1, sentence, root, visible, ownership, signatures, inventory, uses, path,
             )
         }
         Term::As { pattern, alias } => {
             visit_child(
-                pattern, 0, sentence, visible, ownership, signatures, inventory, uses, path,
+                pattern, 0, sentence, root, visible, ownership, signatures, inventory, uses, path,
             )?;
             visit_child(
-                alias, 1, sentence, visible, ownership, signatures, inventory, uses, path,
+                alias, 1, sentence, root, visible, ownership, signatures, inventory, uses, path,
             )
         }
         Term::Sequence(terms) => visit_children(
-            terms, sentence, visible, ownership, signatures, inventory, uses, path,
+            terms, sentence, root, visible, ownership, signatures, inventory, uses, path,
         ),
         Term::Apply { label, arguments } => {
             resolve_label(
                 label,
                 Some(arguments.len()),
                 sentence,
+                root,
                 path,
                 visible,
                 ownership,
@@ -899,11 +1032,11 @@ fn index_term(
                 uses,
             )?;
             visit_children(
-                arguments, sentence, visible, ownership, signatures, inventory, uses, path,
+                arguments, sentence, root, visible, ownership, signatures, inventory, uses, path,
             )
         }
         Term::Annotated { term, .. } => visit_child(
-            term, 0, sentence, visible, ownership, signatures, inventory, uses, path,
+            term, 0, sentence, root, visible, ownership, signatures, inventory, uses, path,
         ),
         Term::Variable { .. } | Term::Token { .. } => Ok(()),
     }
@@ -913,11 +1046,12 @@ fn index_term(
 fn visit_children(
     terms: &[Term],
     sentence: &NativeSentenceId,
+    root: NativeTermRoot,
     visible: &BTreeSet<String>,
     ownership: &BTreeMap<String, BTreeSet<String>>,
     signatures: &BTreeMap<NativeSymbolId, NativeSignature>,
     inventory: &mut NativeInventory,
-    uses: &mut BTreeMap<(NativeSentenceId, Vec<u32>), NativeSymbolId>,
+    uses: &mut BTreeMap<NativeTermUseId, NativeSymbolId>,
     path: &mut Vec<u32>,
 ) -> Result<(), NativeFailure> {
     for (offset, term) in terms.iter().enumerate() {
@@ -925,7 +1059,7 @@ fn visit_children(
             NativeFailure::Preparation("native term child index exceeds u32".to_owned())
         })?;
         visit_child(
-            term, offset, sentence, visible, ownership, signatures, inventory, uses, path,
+            term, offset, sentence, root, visible, ownership, signatures, inventory, uses, path,
         )?;
     }
     Ok(())
@@ -936,16 +1070,17 @@ fn visit_child(
     term: &Term,
     offset: u32,
     sentence: &NativeSentenceId,
+    root: NativeTermRoot,
     visible: &BTreeSet<String>,
     ownership: &BTreeMap<String, BTreeSet<String>>,
     signatures: &BTreeMap<NativeSymbolId, NativeSignature>,
     inventory: &mut NativeInventory,
-    uses: &mut BTreeMap<(NativeSentenceId, Vec<u32>), NativeSymbolId>,
+    uses: &mut BTreeMap<NativeTermUseId, NativeSymbolId>,
     path: &mut Vec<u32>,
 ) -> Result<(), NativeFailure> {
     path.push(offset);
     let result = index_term(
-        term, sentence, visible, ownership, signatures, inventory, uses, path,
+        term, sentence, root, visible, ownership, signatures, inventory, uses, path,
     );
     path.pop();
     result
@@ -956,14 +1091,18 @@ fn resolve_label(
     label: &Label,
     arity: Option<usize>,
     sentence: &NativeSentenceId,
+    root: NativeTermRoot,
     path: &[u32],
     visible: &BTreeSet<String>,
     ownership: &BTreeMap<String, BTreeSet<String>>,
     signatures: &BTreeMap<NativeSymbolId, NativeSignature>,
-    uses: &mut BTreeMap<(NativeSentenceId, Vec<u32>), NativeSymbolId>,
+    uses: &mut BTreeMap<NativeTermUseId, NativeSymbolId>,
 ) -> Result<(), NativeFailure> {
     let Some(all_owners) = ownership.get(&label.name) else {
-        return Ok(());
+        return Err(NativeFailure::UnknownSymbol {
+            module: sentence.owner_module.clone(),
+            label: label.name.clone(),
+        });
     };
     let owners = all_owners
         .intersection(visible)
@@ -971,7 +1110,11 @@ fn resolve_label(
         .collect::<Vec<_>>();
     let [owner] = owners.as_slice() else {
         if owners.is_empty() {
-            return Ok(());
+            return Err(NativeFailure::NonVisibleSymbol {
+                module: sentence.owner_module.clone(),
+                label: label.name.clone(),
+                owners: all_owners.iter().cloned().collect(),
+            });
         }
         return Err(NativeFailure::AmbiguousSymbolOwner {
             module: sentence.owner_module.clone(),
@@ -994,8 +1137,31 @@ fn resolve_label(
             actual,
         });
     }
-    uses.insert((sentence.clone(), path.to_vec()), symbol);
-    Ok(())
+    insert_resolved_symbol_use(
+        uses,
+        NativeTermUseId {
+            sentence: sentence.clone(),
+            root,
+            path: path.to_vec(),
+        },
+        symbol,
+    )
+}
+
+fn insert_resolved_symbol_use(
+    uses: &mut BTreeMap<NativeTermUseId, NativeSymbolId>,
+    identity: NativeTermUseId,
+    symbol: NativeSymbolId,
+) -> Result<(), NativeFailure> {
+    match uses.entry(identity) {
+        std::collections::btree_map::Entry::Vacant(entry) => {
+            entry.insert(symbol);
+            Ok(())
+        }
+        std::collections::btree_map::Entry::Occupied(_) => {
+            Err(NativeFailure::DuplicateTermUseIdentity)
+        }
+    }
 }
 
 fn visible_modules(definition: &Definition, root: &str) -> BTreeSet<String> {
@@ -1217,6 +1383,135 @@ mod tests {
     }
 
     #[test]
+    fn root_and_nested_term_paths_are_distinct_across_every_role() {
+        let nested_use = || Term::Apply {
+            label: Label::new("f"),
+            arguments: vec![Term::Apply {
+                label: Label::new("g"),
+                arguments: Vec::new(),
+            }],
+        };
+        let rule = Sentence::Rule {
+            body: nested_use(),
+            requires: nested_use(),
+            ensures: nested_use(),
+            attributes: Attributes::default(),
+        };
+        let index = index_definition(&definition(vec![module(
+            "M",
+            &[],
+            vec![
+                production("f", "S", &["S"]),
+                production("g", "S", &[]),
+                rule,
+            ],
+        )]))
+        .unwrap();
+        let sentence = NativeSentenceId {
+            owner_module: "M".to_owned(),
+            ordinal: 2,
+        };
+        assert_eq!(index.resolved_symbol_uses.len(), 6);
+        for root in [
+            NativeTermRoot::Body,
+            NativeTermRoot::Requires,
+            NativeTermRoot::Ensures,
+        ] {
+            let root_use = NativeTermUseId {
+                sentence: sentence.clone(),
+                root,
+                path: Vec::new(),
+            };
+            let nested_use = NativeTermUseId {
+                sentence: sentence.clone(),
+                root,
+                path: vec![0],
+            };
+            assert_eq!(index.resolved_symbol_uses[&root_use].label, "f");
+            assert_eq!(index.resolved_symbol_uses[&nested_use].label, "g");
+        }
+    }
+
+    #[test]
+    fn duplicate_term_use_identity_rejects_without_replacement() {
+        let identity = NativeTermUseId {
+            sentence: NativeSentenceId {
+                owner_module: "M".to_owned(),
+                ordinal: 1,
+            },
+            root: NativeTermRoot::Body,
+            path: vec![0],
+        };
+        let original = NativeSymbolId {
+            owner_module: "A".to_owned(),
+            label: "f".to_owned(),
+        };
+        let replacement = NativeSymbolId {
+            owner_module: "B".to_owned(),
+            label: "g".to_owned(),
+        };
+        let mut uses = BTreeMap::new();
+        insert_resolved_symbol_use(&mut uses, identity.clone(), original.clone()).unwrap();
+        assert_eq!(
+            insert_resolved_symbol_use(&mut uses, identity.clone(), replacement),
+            Err(NativeFailure::DuplicateTermUseIdentity)
+        );
+        assert_eq!(uses.get(&identity), Some(&original));
+    }
+
+    #[test]
+    fn unknown_label_rejects() {
+        let use_unknown = Sentence::Context {
+            body: Term::Apply {
+                label: Label::new("unknown"),
+                arguments: Vec::new(),
+            },
+            requires: Term::Token {
+                token: "true".to_owned(),
+                sort: Sort::new("Bool"),
+            },
+            attributes: Attributes::default(),
+        };
+        let error =
+            index_definition(&definition(vec![module("M", &[], vec![use_unknown])])).unwrap_err();
+        assert_eq!(
+            error,
+            NativeFailure::UnknownSymbol {
+                module: "M".to_owned(),
+                label: "unknown".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn label_declared_only_by_non_visible_owner_rejects() {
+        let use_f = Sentence::Context {
+            body: Term::Apply {
+                label: Label::new("f"),
+                arguments: Vec::new(),
+            },
+            requires: Term::Token {
+                token: "true".to_owned(),
+                sort: Sort::new("Bool"),
+            },
+            attributes: Attributes::default(),
+        };
+        let error = index_definition(&definition(vec![
+            module("OWNER", &[], vec![production("f", "S", &[])]),
+            module("USE", &[], vec![use_f]),
+        ]))
+        .unwrap_err();
+        assert_eq!(
+            error,
+            NativeFailure::NonVisibleSymbol {
+                module: "USE".to_owned(),
+                label: "f".to_owned(),
+                owners: vec!["OWNER".to_owned()],
+            }
+        );
+    }
+
+    #[test]
     fn application_arity_mismatch_rejects() {
         let use_f = Sentence::Context {
             body: Term::Apply {
@@ -1381,9 +1676,106 @@ mod tests {
     }
 
     #[test]
+    fn exact_structured_krs_frontend_dependency_accepts() {
+        let manifest = format!(
+            r#"
+[package]
+name = "krs-k-rust"
+
+[dependencies]
+k-rust = {{ version = "={K_RUST_CRATE_VERSION}", path = "{KRS_K_RUST_DEPENDENCY_PATH}", default-features = false, features = ["z3-inference"] }}
+unrelated = "1"
+"#
+        );
+        verify_krs_frontend_manifest(&manifest).unwrap();
+    }
+
+    #[test]
+    fn comments_unrelated_strings_and_wrong_tables_do_not_satisfy_frontend_pin() {
+        let exact_dependency_text = format!(
+            "version = \"={K_RUST_CRATE_VERSION}\", path = \"{KRS_K_RUST_DEPENDENCY_PATH}\", default-features = false, features = [\"z3-inference\"]"
+        );
+        for manifest in [
+            format!(
+                "[package]\nname = \"decoy\"\ndescription = '{exact_dependency_text}'\n# k-rust = {{ {exact_dependency_text} }}\n"
+            ),
+            format!("[dependencies]\ndecoy = {{ {exact_dependency_text} }}\n"),
+            format!("[dev-dependencies]\nk-rust = {{ {exact_dependency_text} }}\n"),
+        ] {
+            assert!(matches!(
+                verify_krs_frontend_manifest(&manifest),
+                Err(NativeFailure::DeclaredFrontendMismatch(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn duplicate_wrong_or_extended_frontend_tables_reject() {
+        let valid_fields = format!(
+            "version = \"={K_RUST_CRATE_VERSION}\"\npath = \"{KRS_K_RUST_DEPENDENCY_PATH}\"\ndefault-features = false\nfeatures = [\"z3-inference\"]\n"
+        );
+        let duplicate =
+            format!("[dependencies.k-rust]\n{valid_fields}\n[dependencies.k-rust]\n{valid_fields}");
+        assert!(matches!(
+            verify_krs_frontend_manifest(&duplicate),
+            Err(NativeFailure::DeclaredFrontendMismatch(_))
+        ));
+
+        for dependency in [
+            format!(
+                "{{ version = \"0.4.0\", path = \"{KRS_K_RUST_DEPENDENCY_PATH}\", default-features = false, features = [\"z3-inference\"] }}"
+            ),
+            format!(
+                "{{ version = \"={K_RUST_CRATE_VERSION}\", path = \"wrong\", default-features = false, features = [\"z3-inference\"] }}"
+            ),
+            format!(
+                "{{ version = \"={K_RUST_CRATE_VERSION}\", path = \"{KRS_K_RUST_DEPENDENCY_PATH}\", default-features = true, features = [\"z3-inference\"] }}"
+            ),
+            format!(
+                "{{ version = \"={K_RUST_CRATE_VERSION}\", path = \"{KRS_K_RUST_DEPENDENCY_PATH}\", default-features = false, features = [] }}"
+            ),
+            format!(
+                "{{ version = \"={K_RUST_CRATE_VERSION}\", path = \"{KRS_K_RUST_DEPENDENCY_PATH}\", default-features = false, features = [\"z3-inference\", \"extra\"] }}"
+            ),
+            format!(
+                "{{ version = \"={K_RUST_CRATE_VERSION}\", path = \"{KRS_K_RUST_DEPENDENCY_PATH}\", default-features = false, features = [\"z3-inference\"], optional = true }}"
+            ),
+        ] {
+            let manifest = format!("[dependencies]\nk-rust = {dependency}\n");
+            assert!(matches!(
+                verify_krs_frontend_manifest(&manifest),
+                Err(NativeFailure::DeclaredFrontendMismatch(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn native_frontend_profile_is_exact_and_solver_feature_is_not_inherited() {
+        assert!(
+            verify_native_frontend_rustc(
+                "rustc 1.98.0 (test)\nrelease: 1.98.0\nLLVM version: test"
+            )
+            .is_ok()
+        );
+        assert!(verify_native_frontend_rustc("release: 1.98.1").is_err());
+
+        let manifest = include_str!("../Cargo.toml")
+            .parse::<toml::Table>()
+            .unwrap();
+        let package = manifest["package"].as_table().unwrap();
+        assert_eq!(package["rust-version"].as_str(), Some("1.98"));
+        let dependency = manifest["dependencies"].as_table().unwrap()["k-rust"]
+            .as_table()
+            .unwrap();
+        assert_eq!(dependency["default-features"].as_bool(), Some(false));
+        assert!(!dependency.contains_key("features"));
+    }
+
+    #[test]
     fn frontend_constant_matches_work_package_pin() {
-        assert_eq!(K_RUST_REVISION.len(), 40);
-        assert_eq!(KRS_REVISION.len(), 40);
+        assert_eq!(KRS_REVISION, "cff5e10b77a24a58590f59b5379f9f77ebd19f4d");
+        assert_eq!(K_RUST_REVISION, "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c");
+        assert_eq!(NATIVE_FRONTEND_RUST_VERSION, "1.98.0");
     }
 
     #[test]
@@ -1392,12 +1784,47 @@ mod tests {
             Ok(pins) => {
                 assert_eq!(pins.krs_revision, KRS_REVISION);
                 assert_eq!(pins.k_rust_revision, K_RUST_REVISION);
+                assert_eq!(
+                    pins.native_frontend_rust_version,
+                    NATIVE_FRONTEND_RUST_VERSION
+                );
             }
             Err(NativeFailure::DirtyRepository { repository: "KRS" }) => {
-                // The shared checkout is currently modified by unrelated KEVM work. Rejection is
-                // the required production behavior, not a test skip or an accepted pin.
+                // Concurrent shared-checkout dirtiness is rejected rather than accepted as pin
+                // evidence.
             }
             Err(error) => panic!("unexpected pin failure: {error}"),
         }
+    }
+
+    #[test]
+    #[ignore = "run explicitly with NR_05R_CLEAN_KRS and NR_05R_CLEAN_K_RUST"]
+    fn exact_clean_pin_pair_passes_the_complete_binding_gate() {
+        let sources = PinnedSources {
+            krs: PathBuf::from(
+                std::env::var_os("NR_05R_CLEAN_KRS")
+                    .expect("NR_05R_CLEAN_KRS must name the clean KRS checkout"),
+            ),
+            k_rust: PathBuf::from(
+                std::env::var_os("NR_05R_CLEAN_K_RUST")
+                    .expect("NR_05R_CLEAN_K_RUST must name the clean dedicated k-rust checkout"),
+            ),
+        };
+        let pins = verify_pins(&sources).unwrap();
+        assert_eq!(pins.krs_revision, KRS_REVISION);
+        assert_eq!(pins.k_rust_revision, K_RUST_REVISION);
+        assert_eq!(pins.k_rust_crate_version, K_RUST_CRATE_VERSION);
+        assert_eq!(
+            pins.declared_krs_feature_profile,
+            "default-features=false,z3-inference"
+        );
+        assert_eq!(
+            pins.integration_feature_profile,
+            "default-features=false,structured-no-z3-inference"
+        );
+        assert_eq!(
+            pins.native_frontend_rust_version,
+            NATIVE_FRONTEND_RUST_VERSION
+        );
     }
 }

@@ -21,7 +21,7 @@ krs_clean_capability_change = "Clean KRS cff5e10 qualifies complete nested cells
 status_effect = "NR-U2 changes no gate authority or implementation status. NR-R3 subsequently accepted the already-completed NR-01R, NR-02R, and NR-R2 local repair work without granting upstream native authority."
 
 [agent_protocol]
-execution = "NR-R3 independently accepted the completed NR-01R, NR-02R, and NR-R2 repair wave. NR-04 and NR-05R are now independent, but memory-bounded builds must be serialized. NR-06 follows NR-05R. NR-07 follows NR-03, NR-05R, and NR-06. NR-08 is last."
+execution = "NR-R3 independently accepted the completed NR-01R, NR-02R, and NR-R2 repair wave. NR-05R completed its local repair without granting upstream native authority. NR-04 and the positive-bounded NR-06 packet are now ready independently, but memory-bounded builds must be serialized. NR-07 follows NR-03, NR-05R, and NR-06. NR-08 is last."
 worktree = "Agents share this worktree. Preserve investigations/k-rust-target/k-rust-agent-requests.toml exactly. Do not edit KRS or k-rust unless a later packet explicitly grants ownership."
 handoff_directory = "handoffs"
 failure_rule = "Blocked authority remains not-proven. No empty or bounded result becomes exhaustive, and no schema-shaped record becomes native authority."
@@ -93,7 +93,7 @@ acceptance = ["Unsupported forms fail closed.", "Type, sort, subsort, ownership,
 [[packet]]
 id = "NR-06"
 title = "Branch-local observation and positive bounded search adapter"
-status = "blocked-on-NR-05R-positive-bounded"
+status = "ready-positive-bounded"
 depends_on = ["NR-05R"]
 owns = ["native integration observation/search modules", "focused tests", "handoffs/NR-06.toml"]
 deliverables = ["Atomic selector installation.", "Committed transition to portable event adaptation.", "State/path search with branches, constraints, observations, solver profile, and typed incomplete reasons.", "Positive witnesses with fail-closed absence."]
@@ -102,7 +102,7 @@ acceptance = ["Isolation, rollback, erasure, selector, event-order, and replay t
 [[packet]]
 id = "NR-05R"
 title = "Pinned adapter index and manifest repair"
-status = "ready"
+status = "complete-local-repair"
 depends_on = ["NR-05", "NR-R3"]
 owns = ["kink-native term-use identities", "kink-native symbol resolution", "structured KRS manifest verification", "focused adversarial tests", "handoffs/NR-05R.toml"]
 deliverables = ["Role-qualified body/requires/ensures term paths with duplicate rejection.", "Fail-closed unknown and invisible label resolution.", "TOML-structural exact k-rust dependency verification.", "Repin KRS to clean cff5e10 and record an honest Rust 1.98 native/frontend profile.", "Retained sidecar-only provenance and zero native authority."]

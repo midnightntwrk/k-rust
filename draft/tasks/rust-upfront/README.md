@@ -12,9 +12,10 @@ The post-upstream reassessment is [`native-capability-reassessment.toml`](native
 The active dependency-ordered implementation wave is [`native-readiness-work-package.toml`](native-readiness-work-package.toml), beginning with `handoffs/NR-00.toml`.
 The first-wave acceptance repairs are specified by [`native-readiness-repair-work-package.toml`](native-readiness-repair-work-package.toml).
 `handoffs/NR-01R.toml`, `handoffs/NR-02R.toml`, and the transaction-closure hardening in `handoffs/NR-R2.toml` passed the independent `NR-R3` gate recorded in `handoffs/NR-R3.toml`.
-`NR-04` and `NR-05R` are now ready; `NR-06` remains blocked on `NR-05R`, and no upstream native authority was granted.
+`NR-05R` completed its local adapter-index and pin-verification repair; `NR-04` and the positive-bounded `NR-06` packet are now ready, with no search-exhaustion or other upstream native authority granted.
 The latest read-only upstream snapshot is `handoffs/NR-U2.toml`: clean KRS `cff5e10` qualifies complete nested cells against its dedicated k-rust pin, while shared k-rust `4fef6d7` changes parser performance without granting evidence authority.
-The pinned adapter pre-consumer audit is `handoffs/NR-05A.toml`; its local `NR-05R` repairs must complete before the positive-bounded `NR-06` adapter begins.
+The pinned adapter pre-consumer audit is `handoffs/NR-05A.toml`, and its accepted local repair evidence is `handoffs/NR-05R.toml`.
+The original `NR-05` provenance boundary remains upstream-blocked: its KRS sidecar is non-authoritative until a qualified KRS-to-k-rust provenance bridge exists.
 
 Agents must read the complete packet, the relevant sections of [`rust-stack-handoff.md`](../../../investigations/backend-agnostic-goal-closure/rust-stack-handoff.md), and directly applicable sections of [`contracts.md`](../../../investigations/backend-agnostic-goal-closure/contracts.md) before editing.
 Each packet writes `handoffs/<packet-id>.toml` with the fields declared by `agent_protocol.handoff_fields`.
