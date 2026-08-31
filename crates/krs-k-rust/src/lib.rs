@@ -70,7 +70,7 @@ pub struct FrontendPin {
 /// The native frontend compatibility unit verified by this adapter.
 pub const FRONTEND_PIN: FrontendPin = FrontendPin {
     crate_version: "0.4.0",
-    source_revision: "3cce7a47941c4dc0664e6e870d4e0529d74753c6",
+    source_revision: "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c",
     k_version: "7.1.337",
     k_source_revision: "4a46d1231473b599c699160132fd6e76a5c46406",
 };
@@ -1021,6 +1021,7 @@ pub fn compile_loaded_definition(
             backend,
             kore_width: options.kore_width,
             default_claims_to_all_path: false,
+            hook_namespaces: None,
         },
     )
     .map_err(CompileError::from)?;

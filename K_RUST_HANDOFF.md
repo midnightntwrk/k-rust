@@ -1,10 +1,30 @@
 # KRS k-rust handoff
 
-Status: KRS dependency boundary established and qualified, 2026-08-27 JST
+Status: KRS migrated to a clean main-based integration branch, 2026-08-31 JST
 
-## Decision
+## Current decision
 
-KRS uses k-rust `0.4.0` from the dedicated worktree at `../inspirations/midnightntwrk/k-rust-krs`.
+KRS uses k-rust `0.4.0` from the dedicated worktree at `../inspirations/midnightntwrk/k-rust-krs-main`.
+That worktree owns branch `krs-integration-main` and is pinned at clean local-main commit `0de7983f76f87ce93b91f5d3e994f0a2c3ff710c`.
+KRS must not depend directly on the shared `../inspirations/midnightntwrk/k-rust` main worktree because that branch may continue advancing independently.
+
+The active dedicated worktree has no KRS-only source or manifest changes.
+Current upstream supports external Z3 acquisition through `default-features = false, features = ["z3-inference"]`, so KRS retains the Nix-pinned Z3 4.12.5 policy without editing k-rust.
+Current upstream also contains the structured-definition, deep-result, repeated-cell, plugin-hook, raw-digest, ECDSA, BN128, simplification-budget, parser, and real-semantics work that previously required the old KRS checkout or blocked its corpora.
+
+The KRS adapter supplies `hook_namespaces = None` to the strengthened `CompileOptions` API.
+For the Rust backend this deliberately selects k-rust's audited backend-default namespace inventory; it is not a compatibility bypass or an unrestricted hook policy.
+
+The prior `../inspirations/midnightntwrk/k-rust-krs` checkout remains detached at `3cce7a47941c4dc0664e6e870d4e0529d74753c6` with its eight recovered local modifications.
+It is rollback and comparison evidence only and is not an active KRS input.
+Do not clean, rebase, or delete that checkout during the migration.
+
+The focused migration qualification passes all 24 `krs-k-rust` adapter tests with the externally pinned solver.
+The KEVM, KMIR, and KWasm native gates must be rerun serially in the next session before semantic development resumes; do not run those three memory-heavy gates concurrently.
+
+## Historical baseline
+
+KRS previously used k-rust `0.4.0` from the dedicated worktree at `../inspirations/midnightntwrk/k-rust-krs`.
 That worktree is detached at upstream commit `3cce7a47941c4dc0664e6e870d4e0529d74753c6`.
 KRS must not depend on the shared `../inspirations/midnightntwrk/k-rust` main worktree.
 
@@ -48,9 +68,7 @@ The BN128 implementation uses `substrate-bn` 0.6.0, preserves Ethereum's point-a
 Focused regressions cover standard raw digest and ECDSA vectors plus the selected ECADD, ECMUL, and ECPAIRING validity and evaluation boundaries.
 The complete upstream follow-up is recorded in `K_RUST_UPSTREAM.toml`.
 
-The shared k-rust main checkout is upstream-clean.
-Its manifest and lockfile are not KRS inputs.
-Do not apply KRS-specific Z3 policy or backend changes to the shared checkout.
+This section records the retired patched baseline and must not be read as the active dependency decision.
 
 ## KRS integration
 
@@ -59,9 +77,11 @@ The active dependency paths are owned by:
 - `crates/krs-k-rust/Cargo.toml`;
 - `crates/krs-k-rust/src/bin/krs-native-runner.rs`;
 - `tests/kevm/native.py` and `tests/kevm/verify.py`;
-- `tests/m4/native/Cargo.toml`;
-- `tests/m4/oracle/artifact-probe/Cargo.toml`;
-- `tests/m4/verify.py` and `tests/m4/pins.json`.
+- `tests/kmir/native.py` and `tests/kmir/verify.py`;
+- `tests/kwasm/native.py` and `tests/kwasm/verify.py`.
+
+The M4 IMP comparator manifests and `tests/m4/pins.json` intentionally retain the retired exact-checkout path as historical compatibility evidence.
+They are not the active KEVM, KMIR, or KWasm dependency boundary and must not be silently repinned as part of this migration.
 
 The adapter preserves its historical public `Backend::Haskell` name as a compatibility spelling and maps it to k-rust 0.4's `CompilationBackend::Rust` symbolic backend.
 KRS claims carry explicit modalities, so the adapter sets `default_claims_to_all_path = false` rather than changing unqualified claim semantics implicitly.
@@ -71,12 +91,12 @@ KRS claims carry explicit modalities, so the adapter sets `default_claims_to_all
 ```toml
 [k_rust]
 version = "0.4.0"
-commit = "3cce7a47941c4dc0664e6e870d4e0529d74753c6"
-tracked_crate_sha256 = "b8b6b6ced6e8e3203109a7d8baf2c7e012b9260795db3b0db618561f3a8511a7"
+commit = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
+tracked_crate_sha256 = "6d54edfea5283a52191931d565b092af7b8cca0ec1d33862d9a58faa9c557afd"
 backend_version = "0.3.0"
-tracked_backend_sha256 = "ce0371bda1af696567bfce8418e4519607ed42b44a482f38f527b5f2d42842e4"
+tracked_backend_sha256 = "5473653dfa734b91dd55336e9d655ad7599befdb3981f1ff11d70d52876a1cf6"
 kore_version = "0.3.0"
-tracked_kore_sha256 = "64e8e0088d13f76b266cff9237378fba100347a13c30e700cd85bf38130b7be7"
+tracked_kore_sha256 = "ef091185b019168924bd6730d6d0ef2c71784414a706f74f8f047dc46ed0f655"
 ```
 
 ## Qualification evidence
@@ -159,5 +179,6 @@ The upstream design opportunity is to make Z3 acquisition selectable without edi
 - reproducible consumers such as KRS must be able to select an externally pinned solver;
 - reproducible downloadable-solver builds should use an exact checksummed artifact or exact source-built Z3.
 
-Current k-rust missing features, defects, and performance findings are recorded in `K_RUST_UPSTREAM.toml` with the exact revision, reproducer, impact, workaround status, and requested upstream action.
+Historical k-rust missing features, defects, and performance findings are recorded in `K_RUST_UPSTREAM.toml` with their exact audited revision, reproducer, impact, workaround status, and requested upstream action.
+Those entries must be requalified against the active pin before being described as current; the main migration does not carry the retired local patches forward.
 Future findings must follow the same structured record before they are passed upstream.

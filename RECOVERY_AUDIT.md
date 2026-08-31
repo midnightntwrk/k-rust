@@ -2239,6 +2239,24 @@ The normative formatter target remains:
 `draft/readability/result/` is historical design evolution, not the
 implementation authority.
 
+### Phase 89 — migrate the native dependency to clean k-rust main — complete
+
+KRS now depends on the dedicated `../inspirations/midnightntwrk/k-rust-krs-main` worktree on branch `krs-integration-main`, pinned at clean local-main commit `0de7983f76f87ce93b91f5d3e994f0a2c3ff710c`.
+The shared main worktree may continue advancing and is not a direct KRS dependency.
+The retired patched `../inspirations/midnightntwrk/k-rust-krs` checkout remains unchanged as rollback and comparison evidence.
+
+No retired KRS-only k-rust patch was copied onto the new integration branch.
+Upstream's selectable `z3-inference` feature preserves the externally pinned Z3 4.12.5 policy without a manifest override.
+The only KRS source adaptation supplies `hook_namespaces = None` to the strengthened `CompileOptions` API, selecting the Rust backend's explicit default plugin namespace inventory.
+
+The regenerated KRS lock graph and `Krs.lock` pin the active commit and complete tracked crate identities.
+The KEVM, KMIR, and KWasm source ledgers pin the changed adapter boundary.
+All 24 focused `krs-k-rust` adapter tests pass with the pinned external solver.
+
+The full native semantic gates were deliberately not run concurrently during this handoff because the device was already under substantial memory pressure.
+The next session must run KWasm, KMIR, and KEVM serially against the exact pin before extending any port.
+The optional Java/Haskell reference gates remain deferred final validation.
+
 ### Current goal completion audit
 
 | Requirement | Authoritative evidence | Status |

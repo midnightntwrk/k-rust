@@ -6,7 +6,7 @@ definition_ir = 26
 kast_json = 4
 
 [cargo]
-lock_sha256 = "8280e903546e9d60827c127ec89ee6733c0e8962e1eac217ce23cd0a14f42786"
+lock_sha256 = "50859782257669ec271ce97a9d244381560c2bfebd9df66ef51c6089481c4821"
 msrv = "1.88.0"
 
 [k]
@@ -19,12 +19,12 @@ pyk_source_sha256 = "2b6ebc05e7c110927d2cab7d1bd08e0a1f80c9090a621ee541e82665147
 
 [k_rust]
 version = "0.4.0"
-commit = "3cce7a47941c4dc0664e6e870d4e0529d74753c6"
-tracked_crate_sha256 = "b8b6b6ced6e8e3203109a7d8baf2c7e012b9260795db3b0db618561f3a8511a7"
+commit = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
+tracked_crate_sha256 = "6d54edfea5283a52191931d565b092af7b8cca0ec1d33862d9a58faa9c557afd"
 backend_version = "0.3.0"
-tracked_backend_sha256 = "ce0371bda1af696567bfce8418e4519607ed42b44a482f38f527b5f2d42842e4"
+tracked_backend_sha256 = "5473653dfa734b91dd55336e9d655ad7599befdb3981f1ff11d70d52876a1cf6"
 kore_version = "0.3.0"
-tracked_kore_sha256 = "64e8e0088d13f76b266cff9237378fba100347a13c30e700cd85bf38130b7be7"
+tracked_kore_sha256 = "ef091185b019168924bd6730d6d0ef2c71784414a706f74f8f047dc46ed0f655"
 
 [builtin_registry]
 source_sha256 = "7076fb0bcf4667b8e819445995b1055d55b10d9fc4f7a5b8e037189556c2910a"
