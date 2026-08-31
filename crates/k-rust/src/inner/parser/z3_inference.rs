@@ -107,7 +107,9 @@ impl Grammar {
                 z3_error("Z3 produced no well-typed parse after model substitution")
             }));
         }
-        Ok(PackedTerm::ambiguity(candidates).unpack())
+        let inferred =
+            self.factor_pre_inference_packed_ambiguities(PackedTerm::ambiguity(candidates));
+        Ok(inferred.unpack())
     }
 
     fn packed_lhs_is_function_or_macro(&self, root: &Rc<PackedTerm>) -> bool {

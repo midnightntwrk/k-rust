@@ -411,7 +411,7 @@ impl PackedTerm {
         })
     }
 
-    #[cfg(feature = "z3-inference")]
+    #[cfg_attr(not(feature = "z3-inference"), allow(dead_code))]
     fn instantiated_production(
         production: usize,
         parameters: Vec<Sort>,

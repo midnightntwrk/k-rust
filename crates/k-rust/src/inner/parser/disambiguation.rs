@@ -51,8 +51,30 @@ impl Grammar {
             return Rc::clone(factored);
         }
         let factored = match &term.node {
-            PackedNode::InstantiatedProduction { .. } => {
-                unreachable!("instantiated productions are created after packed factoring")
+            PackedNode::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            } => {
+                let factored_children = children
+                    .iter()
+                    .map(|child| self.factor_packed_ambiguities(Rc::clone(child), memo))
+                    .collect::<Vec<_>>();
+                if factored_children
+                    .iter()
+                    .zip(children)
+                    .all(|(factored, original)| Rc::ptr_eq(factored, original))
+                {
+                    Rc::clone(&term)
+                } else {
+                    PackedTerm::instantiated_production(
+                        *production,
+                        parameters.clone(),
+                        factored_children,
+                        metadata.clone(),
+                    )
+                }
             }
             PackedNode::Term(_) => Rc::clone(&term),
             PackedNode::Production {
@@ -126,6 +148,72 @@ impl Grammar {
             metadata,
         } = &first.node
         else {
+            if let PackedNode::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            } = &first.node
+            {
+                let production = *production;
+                let parameters = parameters.clone();
+                let children = children.clone();
+                let metadata = metadata.clone();
+                if !alternatives.iter().all(|alternative| {
+                    matches!(
+                        &alternative.node,
+                        PackedNode::InstantiatedProduction {
+                            production: candidate,
+                            parameters: candidate_parameters,
+                            children: candidate_children,
+                            ..
+                        } if *candidate == production
+                            && candidate_parameters == &parameters
+                            && candidate_children.len() == children.len()
+                    )
+                }) {
+                    return PackedTerm::ambiguity(alternatives);
+                }
+                let differing = (0..children.len())
+                    .filter(|index| {
+                        alternatives.iter().any(|alternative| {
+                            let PackedNode::InstantiatedProduction {
+                                children: candidate_children,
+                                ..
+                            } = &alternative.node
+                            else {
+                                unreachable!()
+                            };
+                            candidate_children[*index] != children[*index]
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                let [index] = differing.as_slice() else {
+                    return PackedTerm::ambiguity(alternatives);
+                };
+                let mut factored_children = children;
+                let child_alternatives = alternatives
+                    .iter()
+                    .map(|alternative| {
+                        let PackedNode::InstantiatedProduction {
+                            children: candidate_children,
+                            ..
+                        } = &alternative.node
+                        else {
+                            unreachable!()
+                        };
+                        Rc::clone(&candidate_children[*index])
+                    })
+                    .collect();
+                factored_children[*index] =
+                    self.factor_packed_ambiguities(PackedTerm::ambiguity(child_alternatives), memo);
+                return PackedTerm::instantiated_production(
+                    production,
+                    parameters,
+                    factored_children,
+                    metadata,
+                );
+            }
             return PackedTerm::ambiguity(alternatives);
         };
         if !alternatives.iter().all(|alternative| {
