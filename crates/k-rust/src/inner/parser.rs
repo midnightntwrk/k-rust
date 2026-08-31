@@ -9,6 +9,8 @@ mod scanner;
 #[cfg(feature = "z3-inference")]
 mod z3_inference;
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 use std::rc::Rc;
@@ -318,7 +320,184 @@ enum ParsedTerm {
     Ambiguity(BTreeSet<ParsedTerm>),
 }
 
-type Derivation = Vec<Rc<ParsedTerm>>;
+/// Shared parse-forest node used only while the Earley chart is growing.
+///
+/// The owned [`ParsedTerm`] tree remains the disambiguation and sort-inference boundary. Keeping
+/// chart children behind `Rc` prevents every completed parent from cloning its descendants; the
+/// successful forest is materialized once, after the final completed roots have been selected.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum PackedNode {
+    Production {
+        production: usize,
+        children: Vec<Rc<PackedTerm>>,
+        metadata: TermMetadata,
+    },
+    Term(Term),
+    Ambiguity(BTreeSet<Rc<PackedTerm>>),
+}
+
+#[derive(Clone, Debug)]
+struct PackedTerm {
+    fingerprint: u64,
+    node: PackedNode,
+}
+
+#[cfg(test)]
+thread_local! {
+    static PACKED_STRUCTURAL_COMPARISONS: Cell<usize> = const { Cell::new(0) };
+}
+
+impl PartialEq for PackedTerm {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+
+impl Eq for PackedTerm {}
+
+impl PartialOrd for PackedTerm {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PackedTerm {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // The fingerprint is a fast ordering key, not an identity. Equal keys still compare the
+        // complete structure, so even an FNV collision cannot merge distinct parses.
+        self.fingerprint.cmp(&other.fingerprint).then_with(|| {
+            #[cfg(test)]
+            PACKED_STRUCTURAL_COMPARISONS.set(PACKED_STRUCTURAL_COMPARISONS.get() + 1);
+            self.node.cmp(&other.node)
+        })
+    }
+}
+
+impl PackedTerm {
+    fn leaf(term: Term) -> Rc<Self> {
+        let mut fingerprint = Fingerprint::new(2);
+        fingerprint.write(term.to_string().as_bytes());
+        Rc::new(Self {
+            fingerprint: fingerprint.finish(),
+            node: PackedNode::Term(term),
+        })
+    }
+
+    fn production(production: usize, children: Vec<Rc<Self>>, metadata: TermMetadata) -> Rc<Self> {
+        let mut fingerprint = Fingerprint::new(0);
+        fingerprint.write_usize(production);
+        fingerprint.write_metadata(&metadata);
+        for child in &children {
+            fingerprint.write_u64(child.fingerprint);
+        }
+        Rc::new(Self {
+            fingerprint: fingerprint.finish(),
+            node: PackedNode::Production {
+                production,
+                children,
+                metadata,
+            },
+        })
+    }
+
+    fn ambiguity(alternatives: BTreeSet<Rc<Self>>) -> Rc<Self> {
+        if alternatives.len() == 1 {
+            return alternatives
+                .into_iter()
+                .next()
+                .expect("one packed alternative exists");
+        }
+        let mut fingerprint = Fingerprint::new(3);
+        for alternative in &alternatives {
+            fingerprint.write_u64(alternative.fingerprint);
+        }
+        Rc::new(Self {
+            fingerprint: fingerprint.finish(),
+            node: PackedNode::Ambiguity(alternatives),
+        })
+    }
+
+    fn unpack(&self) -> ParsedTerm {
+        match &self.node {
+            PackedNode::Production {
+                production,
+                children,
+                metadata,
+            } => ParsedTerm::Production {
+                production: *production,
+                children: children.iter().map(|child| child.unpack()).collect(),
+                metadata: metadata.clone(),
+            },
+            PackedNode::Term(term) => ParsedTerm::Term(term.clone()),
+            PackedNode::Ambiguity(alternatives) => {
+                ParsedTerm::Ambiguity(alternatives.iter().map(|term| term.unpack()).collect())
+            }
+        }
+    }
+}
+
+struct Fingerprint(u64);
+
+impl Fingerprint {
+    const OFFSET: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x100000001b3;
+
+    fn new(kind: u8) -> Self {
+        let mut fingerprint = Self(Self::OFFSET);
+        fingerprint.write(&[kind]);
+        fingerprint
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.0 ^= u64::from(*byte);
+            self.0 = self.0.wrapping_mul(Self::PRIME);
+        }
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.write(&value.to_le_bytes());
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        self.write_u64(value as u64);
+    }
+
+    fn write_metadata(&mut self, metadata: &TermMetadata) {
+        if let Some(span) = metadata.span {
+            self.write(&[1]);
+            self.write_usize(span.source.0);
+            self.write_usize(span.start);
+            self.write_usize(span.end);
+        }
+        if let Some(production) = metadata.production {
+            self.write(&[2]);
+            self.write_usize(production.0);
+        }
+        if let Some(sort) = &metadata.sort {
+            self.write(&[3]);
+            self.write(sort.to_string().as_bytes());
+        }
+        // Chart-produced metadata never carries compiler-origin receipts. Omitting that optional
+        // field remains collision-safe because equal fingerprints still compare full metadata.
+    }
+
+    fn finish(self) -> u64 {
+        self.0
+    }
+}
+
+#[cfg(test)]
+fn reset_packed_structural_comparisons() {
+    PACKED_STRUCTURAL_COMPARISONS.set(0);
+}
+
+#[cfg(test)]
+fn packed_structural_comparisons() -> usize {
+    PACKED_STRUCTURAL_COMPARISONS.get()
+}
+
+type Derivation = Vec<Rc<PackedTerm>>;
 
 impl ParsedTerm {
     fn leaf(&self) -> Option<&Term> {
@@ -723,8 +902,9 @@ impl Grammar {
                             });
                         }
                         let mut nodes = BTreeSet::new();
+                        let mut invalid = Vec::new();
                         for children in &derivations {
-                            let term = build_parsed_term(
+                            let term = build_packed_term(
                                 state.production,
                                 production,
                                 children,
@@ -733,14 +913,17 @@ impl Grammar {
                                 position,
                                 provenance,
                             );
-                            match filter_or_defer_priority(self, term) {
+                            match self.filter_or_defer_packed_priority(Rc::clone(&term)) {
                                 Ok(term) => {
-                                    nodes.insert(Rc::new(term));
+                                    nodes.insert(term);
                                 }
                                 Err(error) => {
-                                    first_violation.get_or_insert(error);
+                                    invalid.push((term, error));
                                 }
                             }
+                        }
+                        if first_violation.is_none() && !invalid.is_empty() {
+                            first_violation = Some(canonical_packed_error(invalid));
                         }
                         let callers = charts[state.origin]
                             .waiting
@@ -786,7 +969,7 @@ impl Grammar {
                 input,
                 provenance,
             );
-            parses.extend(completed.into_iter().map(|term| term.as_ref().clone()));
+            parses.extend(completed.into_iter().map(|term| term.unpack()));
             if first_violation.is_none() {
                 first_violation = violation;
             }
@@ -1351,7 +1534,7 @@ impl Chart {
     }
 }
 
-fn derivation_covers(existing: &[Rc<ParsedTerm>], candidate: &[Rc<ParsedTerm>]) -> bool {
+fn derivation_covers(existing: &[Rc<PackedTerm>], candidate: &[Rc<PackedTerm>]) -> bool {
     existing.len() == candidate.len()
         && existing
             .iter()
@@ -1359,13 +1542,13 @@ fn derivation_covers(existing: &[Rc<ParsedTerm>], candidate: &[Rc<ParsedTerm>]) 
             .all(|(existing, candidate)| parsed_term_covers(existing.as_ref(), candidate.as_ref()))
 }
 
-fn parsed_term_covers(existing: &ParsedTerm, candidate: &ParsedTerm) -> bool {
-    match (existing, candidate) {
-        (ParsedTerm::Ambiguity(existing), ParsedTerm::Ambiguity(candidate)) => {
+fn parsed_term_covers(existing: &PackedTerm, candidate: &PackedTerm) -> bool {
+    match (&existing.node, &candidate.node) {
+        (PackedNode::Ambiguity(existing), PackedNode::Ambiguity(candidate)) => {
             candidate.is_subset(existing)
         }
-        (ParsedTerm::Ambiguity(existing), candidate) => existing.contains(candidate),
-        (existing, ParsedTerm::Ambiguity(candidate)) => {
+        (PackedNode::Ambiguity(existing), _) => existing.contains(candidate),
+        (_, PackedNode::Ambiguity(candidate)) => {
             candidate.len() == 1 && candidate.contains(existing)
         }
         (existing, candidate) => existing == candidate,
@@ -1392,7 +1575,7 @@ fn factor_derivations(derivations: &mut BTreeSet<Derivation>) {
     loop {
         let before = derivations.len();
         for index in 0..width {
-            let mut groups = BTreeMap::<Derivation, BTreeSet<Rc<ParsedTerm>>>::new();
+            let mut groups = BTreeMap::<Derivation, BTreeSet<Rc<PackedTerm>>>::new();
             for derivation in std::mem::take(derivations) {
                 let mut key = derivation;
                 let node = key.remove(index);
@@ -1409,20 +1592,20 @@ fn factor_derivations(derivations: &mut BTreeSet<Derivation>) {
     }
 }
 
-fn pack_alternatives(mut nodes: BTreeSet<Rc<ParsedTerm>>) -> Rc<ParsedTerm> {
+fn pack_alternatives(mut nodes: BTreeSet<Rc<PackedTerm>>) -> Rc<PackedTerm> {
     if nodes.len() == 1 {
         return nodes.pop_first().expect("one alternative exists");
     }
     let mut alternatives = BTreeSet::new();
     for node in nodes {
-        match node.as_ref() {
-            ParsedTerm::Ambiguity(nested) => alternatives.extend(nested.iter().cloned()),
-            node => {
-                alternatives.insert(node.clone());
+        match &node.node {
+            PackedNode::Ambiguity(nested) => alternatives.extend(nested.iter().cloned()),
+            _ => {
+                alternatives.insert(node);
             }
         }
     }
-    Rc::new(ParsedTerm::Ambiguity(alternatives))
+    PackedTerm::ambiguity(alternatives)
 }
 
 fn unary_reachable(start: &Sort, target: &Sort, edges: &BTreeSet<(Sort, Sort)>) -> bool {
@@ -1453,9 +1636,9 @@ fn completed_nodes(
     end: usize,
     input: &str,
     provenance: ParseProvenance,
-) -> (BTreeSet<Rc<ParsedTerm>>, Option<ParseError>) {
+) -> (BTreeSet<Rc<PackedTerm>>, Option<ParseError>) {
     let mut nodes = BTreeSet::new();
-    let mut first_violation = None;
+    let mut invalid = Vec::new();
     for state in chart.completed.get(sort).into_iter().flatten() {
         if state.origin != origin {
             continue;
@@ -1463,7 +1646,7 @@ fn completed_nodes(
         let derivations = &chart.states[state];
         let production = &grammar.productions[state.production];
         for children in derivations {
-            let term = build_parsed_term(
+            let term = build_packed_term(
                 state.production,
                 production,
                 children,
@@ -1472,38 +1655,31 @@ fn completed_nodes(
                 end,
                 provenance,
             );
-            match filter_or_defer_priority(grammar, term) {
+            match grammar.filter_or_defer_packed_priority(Rc::clone(&term)) {
                 Ok(term) => {
-                    nodes.insert(Rc::new(term));
+                    nodes.insert(term);
                 }
                 Err(error) => {
-                    first_violation.get_or_insert(error);
+                    invalid.push((term, error));
                 }
             }
         }
     }
-    (nodes, first_violation)
+    let violation = (!invalid.is_empty()).then(|| canonical_packed_error(invalid));
+    (nodes, violation)
 }
 
-fn filter_or_defer_priority(grammar: &Grammar, term: ParsedTerm) -> Result<ParsedTerm, ParseError> {
-    match grammar.filter_priority(term.clone()) {
-        Ok(term) => Ok(term),
-        // A locally invalid nested rewrite/sequence/let may be the losing view of an ambiguity
-        // whose sibling has that operation at the root. Java retains the packed forest until its
-        // root-preference rule can select the sibling. Other priority and associativity failures
-        // are safe to prune eagerly, which keeps long associative chains bounded.
-        Err(ParseError::Scope { child, .. })
-            if matches!(child.as_str(), "#KRewrite" | "#KSequence" | "#let") =>
-        {
-            Ok(term)
-        }
-        Err(error) => Err(error),
-    }
+fn canonical_packed_error(errors: Vec<(Rc<PackedTerm>, ParseError)>) -> ParseError {
+    errors
+        .into_iter()
+        .min_by(|(left, _), (right, _)| left.unpack().cmp(&right.unpack()))
+        .map(|(_, error)| error)
+        .expect("an empty packed ambiguity had no invalid alternative")
 }
 
 fn append_nodes(
     derivations: &Derivations,
-    nodes: &BTreeSet<Rc<ParsedTerm>>,
+    nodes: &BTreeSet<Rc<PackedTerm>>,
 ) -> BTreeSet<Derivation> {
     let node = (!nodes.is_empty()).then(|| pack_alternatives(nodes.clone()));
     derivations
@@ -1516,18 +1692,18 @@ fn append_nodes(
         .collect()
 }
 
-fn build_parsed_term(
+fn build_packed_term(
     production_index: usize,
     production: &Production,
-    children: &[Rc<ParsedTerm>],
+    children: &[Rc<PackedTerm>],
     input: &str,
     start: usize,
     end: usize,
     provenance: ParseProvenance,
-) -> ParsedTerm {
+) -> Rc<PackedTerm> {
     if production.token {
         if production.result.name == "#KVariable" {
-            return ParsedTerm::Term(
+            return PackedTerm::leaf(
                 Term::Variable {
                     name: input[start..end].to_owned(),
                     sort: None,
@@ -1540,7 +1716,7 @@ fn build_parsed_term(
                 )),
             );
         }
-        return ParsedTerm::Term(
+        return PackedTerm::leaf(
             Term::Token {
                 token: input[start..end].to_owned(),
                 sort: production.result.clone(),
@@ -1558,21 +1734,18 @@ fn build_parsed_term(
         && (production.transparent || production.label.is_none())
         && let [child] = children
     {
-        return child.as_ref().clone();
+        return Rc::clone(child);
     }
-    ParsedTerm::Production {
-        production: production.term_production.unwrap_or(production_index),
-        children: children
-            .iter()
-            .map(|child| child.as_ref().clone())
-            .collect(),
-        metadata: term_metadata(
+    PackedTerm::production(
+        production.term_production.unwrap_or(production_index),
+        children.to_vec(),
+        term_metadata(
             production,
             provenance.source,
             provenance.base_offset + start,
             provenance.base_offset + end,
         ),
-    }
+    )
 }
 
 fn term_metadata(
@@ -1655,7 +1828,126 @@ mod chart_tests {
     }
 
     fn derivation(term: ParsedTerm) -> Derivation {
-        vec![Rc::new(term)]
+        fn pack(term: ParsedTerm) -> Rc<PackedTerm> {
+            match term {
+                ParsedTerm::Term(term) => PackedTerm::leaf(term),
+                ParsedTerm::Production {
+                    production,
+                    children,
+                    metadata,
+                } => PackedTerm::production(
+                    production,
+                    children.into_iter().map(pack).collect(),
+                    metadata,
+                ),
+                ParsedTerm::Ambiguity(alternatives) => {
+                    PackedTerm::ambiguity(alternatives.into_iter().map(pack).collect())
+                }
+                ParsedTerm::InstantiatedProduction { .. } => {
+                    panic!("chart tests do not construct post-inference productions")
+                }
+            }
+        }
+        vec![pack(term)]
+    }
+
+    #[test]
+    fn completed_parent_reuses_its_packed_child_allocation() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("Parent"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Child"),
+                    name: None,
+                }],
+                Some(Label::new("parent")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .add(
+                Sort::new("Child"),
+                Vec::new(),
+                Some(Label::new("child")),
+                false,
+                false,
+            )
+            .unwrap();
+        let child = PackedTerm::production(1, Vec::new(), TermMetadata::default());
+        let parent = build_packed_term(
+            0,
+            &grammar.productions[0],
+            std::slice::from_ref(&child),
+            "child",
+            0,
+            5,
+            ParseProvenance {
+                source: SourceId(0),
+                base_offset: 0,
+            },
+        );
+        let parent = grammar
+            .filter_or_defer_packed_priority(parent)
+            .expect("packed parent satisfies priority");
+        let PackedNode::Production { children, .. } = &parent.node else {
+            panic!("expected packed production");
+        };
+
+        assert!(Rc::ptr_eq(&children[0], &child));
+    }
+
+    #[test]
+    fn unequal_deep_packed_nodes_compare_without_walking_their_children() {
+        let chain = |name| {
+            let ParsedTerm::Term(leaf) = variable(name) else {
+                unreachable!()
+            };
+            let mut node = PackedTerm::leaf(leaf);
+            for production in 0..256 {
+                node = PackedTerm::production(production, vec![node], TermMetadata::default());
+            }
+            node
+        };
+        let left = chain("left");
+        let right = chain("right");
+        reset_packed_structural_comparisons();
+
+        assert_ne!(left.cmp(&right), std::cmp::Ordering::Equal);
+        assert_eq!(packed_structural_comparisons(), 0);
+    }
+
+    #[test]
+    fn production_metadata_participates_in_packed_fingerprints() {
+        let metadata = |production| TermMetadata {
+            production: Some(ResolvedProductionId(production)),
+            ..TermMetadata::default()
+        };
+        let left = PackedTerm::production(0, Vec::new(), metadata(1));
+        let right = PackedTerm::production(0, Vec::new(), metadata(2));
+
+        assert_ne!(left.fingerprint, right.fingerprint);
+        assert_ne!(left, right);
+    }
+
+    #[test]
+    fn packed_fingerprint_collisions_fall_back_to_complete_structure() {
+        let PackedTerm { node: left, .. } =
+            Rc::unwrap_or_clone(derivation(variable("left")).pop().unwrap());
+        let PackedTerm { node: right, .. } =
+            Rc::unwrap_or_clone(derivation(variable("right")).pop().unwrap());
+        let left = PackedTerm {
+            fingerprint: 0,
+            node: left,
+        };
+        let right = PackedTerm {
+            fingerprint: 0,
+            node: right,
+        };
+
+        assert_ne!(left.cmp(&right), std::cmp::Ordering::Equal);
+        assert_ne!(left, right);
     }
 
     #[test]
@@ -1875,8 +2167,8 @@ mod chart_tests {
         let stored = &chart.states[&state];
         assert_eq!(stored.len(), 1);
         assert!(matches!(
-            stored.iter().next().expect("one derivation exists")[0].as_ref(),
-            ParsedTerm::Ambiguity(alternatives)
+            &stored.iter().next().expect("one derivation exists")[0].node,
+            PackedNode::Ambiguity(alternatives)
                 if alternatives.len() == MAX_DERIVATIONS_PER_STATE + 1
         ));
     }
@@ -1891,8 +2183,8 @@ mod chart_tests {
         let mut chart = Chart::default();
         let derivations = (0..=MAX_DERIVATIONS_PER_STATE).map(|index| {
             vec![
-                Rc::new(variable(&format!("L{index}"))),
-                Rc::new(variable(&format!("R{index}"))),
+                derivation(variable(&format!("L{index}"))).pop().unwrap(),
+                derivation(variable(&format!("R{index}"))).pop().unwrap(),
             ]
         });
 
