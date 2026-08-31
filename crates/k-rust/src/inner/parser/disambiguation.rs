@@ -1,6 +1,6 @@
 //! Priority and associativity filtering over production-bearing parse trees.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
 
 use super::parametric::substitute_sort;
@@ -23,6 +23,224 @@ fn packed_sets_share_nodes(
 }
 
 impl Grammar {
+    /// Apply the ambiguity factoring that normally follows application resolution while the
+    /// retained parse is still a DAG.
+    ///
+    /// This pass deliberately leaves any subtree containing generated record syntax untouched.
+    /// Record collapse allocates names in traversal order, so moving factoring across that pass
+    /// could change observable generated names. Factoring also stops at an ambiguity whose common
+    /// production is `#KApply` or `#KRewrite`: application resolution reconstructs applications,
+    /// while exact rewrite-sibling preference must inspect each root alternative before factoring
+    /// can expose a child ambiguity. Those nodes may remain as identical shared children of a
+    /// factored ordinary production because the earlier transformations traverse that surrounding
+    /// production structurally. This conservative boundary removes shared diamonds without
+    /// changing stateful record processing, application distribution, or rewrite selection.
+    pub(super) fn factor_materialization_safe_packed_ambiguities(
+        &self,
+        term: Rc<PackedTerm>,
+    ) -> Rc<PackedTerm> {
+        let mut sensitive = HashMap::new();
+        if self.packed_subtree_is_materialization_sensitive(&term, &mut sensitive) {
+            return term;
+        }
+        let mut factored = HashMap::new();
+        self.factor_safe_packed_ambiguities(term, &mut factored)
+    }
+
+    fn packed_subtree_is_materialization_sensitive(
+        &self,
+        term: &Rc<PackedTerm>,
+        memo: &mut HashMap<*const PackedTerm, bool>,
+    ) -> bool {
+        let identity = Rc::as_ptr(term);
+        if let Some(sensitive) = memo.get(&identity) {
+            return *sensitive;
+        }
+        let sensitive = match &term.node {
+            PackedNode::Term(_) => false,
+            PackedNode::Ambiguity(alternatives) => alternatives.iter().any(|alternative| {
+                self.packed_subtree_is_materialization_sensitive(alternative, memo)
+            }),
+            PackedNode::Production {
+                production,
+                children,
+                ..
+            } => {
+                let descriptor = &self.productions[*production];
+                descriptor.record.is_some()
+                    || children
+                        .iter()
+                        .any(|child| self.packed_subtree_is_materialization_sensitive(child, memo))
+            }
+        };
+        memo.insert(identity, sensitive);
+        sensitive
+    }
+
+    fn factor_safe_packed_ambiguities(
+        &self,
+        term: Rc<PackedTerm>,
+        memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
+    ) -> Rc<PackedTerm> {
+        let identity = Rc::as_ptr(&term);
+        if let Some((_, factored)) = memo.get(&identity) {
+            return Rc::clone(factored);
+        }
+        let factored = match &term.node {
+            PackedNode::Term(_) => Rc::clone(&term),
+            PackedNode::Production {
+                production,
+                children,
+                metadata,
+            } => {
+                let factored_children = children
+                    .iter()
+                    .map(|child| self.factor_safe_packed_ambiguities(Rc::clone(child), memo))
+                    .collect::<Vec<_>>();
+                if factored_children
+                    .iter()
+                    .zip(children)
+                    .all(|(factored, original)| Rc::ptr_eq(factored, original))
+                {
+                    Rc::clone(&term)
+                } else {
+                    PackedTerm::production(*production, factored_children, metadata.clone())
+                }
+            }
+            PackedNode::Ambiguity(alternatives) => {
+                let mut flattened = BTreeSet::new();
+                for alternative in alternatives {
+                    let alternative =
+                        self.factor_safe_packed_ambiguities(Rc::clone(alternative), memo);
+                    match &alternative.node {
+                        PackedNode::Ambiguity(nested) => {
+                            flattened.extend(nested.iter().cloned());
+                        }
+                        _ => {
+                            flattened.insert(alternative);
+                        }
+                    }
+                }
+                let factored = self.factor_packed_production_alternatives(flattened, memo);
+                if matches!(
+                    &factored.node,
+                    PackedNode::Ambiguity(factored_alternatives)
+                        if packed_sets_share_nodes(factored_alternatives, alternatives)
+                ) {
+                    Rc::clone(&term)
+                } else {
+                    factored
+                }
+            }
+        };
+        // Retain the input allocation as part of the entry. Factoring recursively creates
+        // temporary ambiguity nodes; allowing one to drop while its raw address remains a key
+        // would let a later allocation reuse the address and receive the wrong cached result.
+        memo.insert(identity, (term, Rc::clone(&factored)));
+        factored
+    }
+
+    fn factor_packed_production_alternatives(
+        &self,
+        alternatives: BTreeSet<Rc<PackedTerm>>,
+        memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
+    ) -> Rc<PackedTerm> {
+        if alternatives.len() <= 1 {
+            return PackedTerm::ambiguity(alternatives);
+        }
+        let Some(first) = alternatives.first() else {
+            return PackedTerm::ambiguity(alternatives);
+        };
+        let PackedNode::Production {
+            production,
+            children,
+            metadata,
+        } = &first.node
+        else {
+            return PackedTerm::ambiguity(alternatives);
+        };
+        if self.productions[*production]
+            .label
+            .as_ref()
+            .is_some_and(|label| matches!(label.name.as_str(), "#KApply" | "#KRewrite"))
+        {
+            return PackedTerm::ambiguity(alternatives);
+        }
+        if !alternatives.iter().all(|alternative| {
+            matches!(
+                &alternative.node,
+                PackedNode::Production {
+                    production: candidate,
+                    children: candidate_children,
+                    metadata: candidate_metadata,
+                } if candidate == production
+                    && candidate_children.len() == children.len()
+                    && candidate_metadata == metadata
+            )
+        }) {
+            return PackedTerm::ambiguity(alternatives);
+        }
+        let differing = (0..children.len())
+            .filter(|index| {
+                alternatives.iter().any(|alternative| {
+                    let PackedNode::Production {
+                        children: candidate_children,
+                        ..
+                    } = &alternative.node
+                    else {
+                        unreachable!()
+                    };
+                    candidate_children[*index] != children[*index]
+                })
+            })
+            .collect::<Vec<_>>();
+        let [index] = differing.as_slice() else {
+            return PackedTerm::ambiguity(alternatives);
+        };
+        if alternatives.iter().any(|alternative| {
+            let PackedNode::Production {
+                children: candidate_children,
+                ..
+            } = &alternative.node
+            else {
+                unreachable!()
+            };
+            match &candidate_children[*index].node {
+                // The existing per-ambiguity limit applies independently before the owned
+                // factoring pass. Combining two valid child sets here can manufacture one set
+                // over that limit and make application resolution fail where the original forest
+                // succeeds.
+                PackedNode::Ambiguity(_) => true,
+                // Application resolution is not a structural traversal of `#KApply`; leave
+                // differing application roots distributed beneath their original parents.
+                PackedNode::Production { production, .. } => self.productions[*production]
+                    .label
+                    .as_ref()
+                    .is_some_and(|label| label.name == "#KApply"),
+                PackedNode::Term(_) => false,
+            }
+        }) {
+            return PackedTerm::ambiguity(alternatives);
+        }
+        let mut factored_children = children.clone();
+        let child_alternatives = alternatives
+            .iter()
+            .map(|alternative| {
+                let PackedNode::Production {
+                    children: candidate_children,
+                    ..
+                } = &alternative.node
+                else {
+                    unreachable!()
+                };
+                Rc::clone(&candidate_children[*index])
+            })
+            .collect();
+        factored_children[*index] =
+            self.factor_safe_packed_ambiguities(PackedTerm::ambiguity(child_alternatives), memo);
+        PackedTerm::production(*production, factored_children, metadata.clone())
+    }
+
     pub(super) fn filter_or_defer_packed_priority(
         &self,
         term: Rc<PackedTerm>,

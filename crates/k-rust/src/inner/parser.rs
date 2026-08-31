@@ -1052,6 +1052,7 @@ impl Grammar {
     fn materialize_packed_forest(&self, forest: Rc<PackedTerm>) -> Result<ParsedTerm, ParseError> {
         let reserved_names = packed_variable_names(&forest);
         let forest = self.filter_packed_priority(forest)?;
+        let forest = self.factor_materialization_safe_packed_ambiguities(forest);
         let forest = self.collapse_record_productions(forest.unpack(), reserved_names)?;
         self.filter_priority(forest)
     }
@@ -2000,6 +2001,273 @@ mod chart_tests {
             ParsedTerm::Production { production: 0, .. }
         ));
         assert_eq!(unpacked_nodes(), 1);
+    }
+
+    #[test]
+    fn materialization_factors_a_retained_packed_diamond_before_unpacking() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("Node"),
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("Node"),
+                        name: None,
+                    },
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("Leaf"),
+                        name: None,
+                    },
+                ],
+                Some(Label::new("node")),
+                false,
+                false,
+            )
+            .unwrap();
+        let left = PackedTerm::leaf(Term::Variable {
+            name: "left".to_owned(),
+            sort: None,
+        });
+        let right = PackedTerm::leaf(Term::Variable {
+            name: "right".to_owned(),
+            sort: None,
+        });
+        let mut shared = PackedTerm::leaf(Term::Variable {
+            name: "root".to_owned(),
+            sort: None,
+        });
+        let depth = 12;
+        for _ in 0..depth {
+            let alternatives = [Rc::clone(&left), Rc::clone(&right)]
+                .into_iter()
+                .map(|choice| {
+                    PackedTerm::production(
+                        0,
+                        vec![Rc::clone(&shared), choice],
+                        TermMetadata::default(),
+                    )
+                })
+                .collect();
+            shared = PackedTerm::ambiguity(alternatives);
+        }
+        let baseline_names = packed_variable_names(&shared);
+        let baseline = grammar
+            .filter_packed_priority(Rc::clone(&shared))
+            .expect("the packed diamond satisfies priority")
+            .unpack();
+        let baseline = grammar
+            .collapse_record_productions(baseline, baseline_names)
+            .expect("the packed diamond contains no records");
+        let baseline = grammar
+            .filter_priority(baseline)
+            .expect("the owned diamond satisfies priority");
+        let baseline = grammar
+            .resolve_applications(baseline)
+            .expect("the packed diamond contains no applications");
+        let baseline = grammar.prefer_exact_rewrite_sibling_sorts(baseline);
+        let baseline = grammar.push_top_lhs_ambiguity_up(grammar.factor_ambiguities(baseline));
+        reset_unpacked_nodes();
+
+        let materialized = grammar
+            .materialize_packed_forest(shared)
+            .expect("the retained packed diamond satisfies post-parse checks");
+        let materialized = grammar
+            .resolve_applications(materialized)
+            .expect("the factored diamond contains no applications");
+        let materialized = grammar.prefer_exact_rewrite_sibling_sorts(materialized);
+        let materialized =
+            grammar.push_top_lhs_ambiguity_up(grammar.factor_ambiguities(materialized));
+
+        assert_eq!(unpacked_nodes(), 1 + depth * 4);
+        assert_eq!(materialized, baseline);
+    }
+
+    #[test]
+    fn packed_prefactoring_does_not_merge_independently_bounded_ambiguities() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("Node"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Leaf"),
+                    name: None,
+                }],
+                Some(Label::new("node")),
+                false,
+                false,
+            )
+            .unwrap();
+        let alternatives = |prefix: &str| {
+            PackedTerm::ambiguity(
+                (0..40)
+                    .map(|index| {
+                        PackedTerm::leaf(Term::Variable {
+                            name: format!("{prefix}{index}"),
+                            sort: None,
+                        })
+                    })
+                    .collect(),
+            )
+        };
+        let forest = PackedTerm::ambiguity(BTreeSet::from([
+            PackedTerm::production(0, vec![alternatives("left")], TermMetadata::default()),
+            PackedTerm::production(0, vec![alternatives("right")], TermMetadata::default()),
+        ]));
+        let baseline = grammar
+            .resolve_applications(forest.unpack())
+            .expect("each nested ambiguity is independently below the limit");
+
+        let factored = grammar.factor_materialization_safe_packed_ambiguities(Rc::clone(&forest));
+
+        assert!(Rc::ptr_eq(&factored, &forest));
+        assert_eq!(
+            grammar
+                .resolve_applications(factored.unpack())
+                .expect("prefactoring must preserve independently bounded ambiguities"),
+            baseline
+        );
+    }
+
+    #[test]
+    fn packed_prefactoring_respects_record_application_and_rewrite_boundaries() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("Record"),
+                Vec::new(),
+                Some(Label::new("record")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[0].record = Some(RecordProduction {
+            original: 0,
+            kind: RecordProductionKind::Zero,
+        });
+        grammar
+            .add(
+                Sort::new("K"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("K"),
+                    name: None,
+                }],
+                Some(Label::new("#KApply")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .add(
+                Sort::new("K"),
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("K"),
+                        name: None,
+                    },
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("K"),
+                        name: None,
+                    },
+                ],
+                Some(Label::new("#KRewrite")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .add(
+                Sort::new("K"),
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("K"),
+                        name: None,
+                    },
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("K"),
+                        name: None,
+                    },
+                ],
+                Some(Label::new("ordinary")),
+                false,
+                false,
+            )
+            .unwrap();
+        let left = PackedTerm::leaf(Term::Variable {
+            name: "left".to_owned(),
+            sort: None,
+        });
+        let right = PackedTerm::leaf(Term::Variable {
+            name: "right".to_owned(),
+            sort: None,
+        });
+        let record = PackedTerm::production(0, Vec::new(), TermMetadata::default());
+        let left_application =
+            PackedTerm::production(1, vec![Rc::clone(&left)], TermMetadata::default());
+        let right_application =
+            PackedTerm::production(1, vec![Rc::clone(&right)], TermMetadata::default());
+        let application_ambiguity = PackedTerm::ambiguity(BTreeSet::from([
+            Rc::clone(&left_application),
+            Rc::clone(&right_application),
+        ]));
+        let rewrite_ambiguity = PackedTerm::ambiguity(BTreeSet::from([
+            PackedTerm::production(
+                2,
+                vec![Rc::clone(&left), Rc::clone(&right)],
+                TermMetadata::default(),
+            ),
+            PackedTerm::production(
+                2,
+                vec![Rc::clone(&right), Rc::clone(&right)],
+                TermMetadata::default(),
+            ),
+        ]));
+        let forest = PackedTerm::ambiguity(BTreeSet::from([record, Rc::clone(&left_application)]));
+
+        let factored = grammar.factor_materialization_safe_packed_ambiguities(Rc::clone(&forest));
+        let applications = grammar
+            .factor_materialization_safe_packed_ambiguities(Rc::clone(&application_ambiguity));
+        let rewrites =
+            grammar.factor_materialization_safe_packed_ambiguities(Rc::clone(&rewrite_ambiguity));
+        let around_application = PackedTerm::ambiguity(BTreeSet::from([
+            PackedTerm::production(
+                3,
+                vec![Rc::clone(&applications), Rc::clone(&left)],
+                TermMetadata::default(),
+            ),
+            PackedTerm::production(
+                3,
+                vec![Rc::clone(&applications), right],
+                TermMetadata::default(),
+            ),
+        ]));
+        let around_application =
+            grammar.factor_materialization_safe_packed_ambiguities(around_application);
+        let differing_applications = PackedTerm::ambiguity(BTreeSet::from([
+            PackedTerm::production(
+                3,
+                vec![left_application, Rc::clone(&left)],
+                TermMetadata::default(),
+            ),
+            PackedTerm::production(3, vec![right_application, left], TermMetadata::default()),
+        ]));
+        let retained_differing_applications = grammar
+            .factor_materialization_safe_packed_ambiguities(Rc::clone(&differing_applications));
+
+        assert!(Rc::ptr_eq(&factored, &forest));
+        assert!(Rc::ptr_eq(&applications, &application_ambiguity));
+        assert!(Rc::ptr_eq(&rewrites, &rewrite_ambiguity));
+        assert!(Rc::ptr_eq(
+            &retained_differing_applications,
+            &differing_applications
+        ));
+        assert!(matches!(
+            applications.node,
+            PackedNode::Ambiguity(ref alternatives) if alternatives.len() == 2
+        ));
+        assert!(matches!(
+            around_application.node,
+            PackedNode::Production { production: 3, .. }
+        ));
     }
 
     #[test]
