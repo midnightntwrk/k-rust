@@ -20,7 +20,7 @@ Readable layer 1 is the surface used throughout the IMP chapters: open-sort bloc
 `krs expand` produces deterministic explicit layer 2, where those conveniences become ordinary attributed Rust items.
 
 Layer 2 is an audit and escape-hatch representation, not a second tutorial dialect.
-The executable M4 expanded fixture and parity tests decide whether readable and explicit forms preserve the same theory.
+The executable complete IMP fixture and its parity tests decide whether readable and explicit forms preserve the same theory.
 
 ## Follow one rule through the pipeline
 
@@ -71,8 +71,8 @@ Use an explicit output directory:
 
 ```sh
 krs emit-k \
-  --manifest-path tests/m4/rust-definition/Cargo.toml \
-  --package krs-m4-complete-imp \
+  --manifest-path tests/tour-imp/Cargo.toml \
+  --package krs-tour-imp \
   --definition main \
   --output /tmp/krs-imp-emitted
 ```

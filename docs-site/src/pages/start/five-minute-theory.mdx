@@ -101,14 +101,14 @@ krs check \
   --definition main
 ```
 
-The tour's fixture gate also checks formatting, deterministic lowering and emission, and the same bounded structural projection as the M2 `foo → bar` oracle:
+The tour's fixture gate also checks formatting, deterministic lowering and emission, and the same bounded structural projection as the repository's minimal `foo → bar` oracle:
 
 ```sh
 python3 tests/tour-minimal/verify.py
 ```
 
 The checked artifacts describe the same theory at each layer: the initial computation contains `foo`, the sole transition rewrites it to `bar`, and no rule rewrites `bar`.
-Actual execution belongs to the stronger pinned M2 consumer gate; that gate is capability-gated rather than silently treated as passing when its K tools are unavailable.
+Actual execution belongs to a stronger pinned consumer gate; that gate is capability-gated rather than silently treated as passing when its K tools are unavailable.
 
 That is the complete tour in miniature.
 Return to [current boundaries](/reference/boundaries) for the exact qualification limits, or start the dependency-ordered path again with [what KRS defines](/start/what-krs-defines).
