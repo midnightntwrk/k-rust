@@ -1,0 +1,52 @@
+---
+title: IMP expressions—sorts and values
+description: Declare open symbolic categories, membership, framework results, and builtin values.
+---
+
+# IMP expressions: sorts and values
+
+{/* tour-concepts: open-sorts subsort-membership framework-sorts core-builtins */}
+
+Sorts classify symbolic object-language terms without turning them into a closed Rust enum hierarchy.
+IMP begins with expressions, evaluated values, and statements:
+
+```rust [tests/tour-imp/chapters/01-sorts.rs]
+// [!include ~/snippets/imp-sorts.rs]
+```
+
+## Open sorts
+
+Each entry in `k::sorts!` declares an open sort.
+Other declarations may add constructors or existing types to that sort later, including from another Rust module or composed package.
+
+`Value: Expr + KResult` declares two membership edges.
+Every `Value` is therefore both an `Expr` and a framework result.
+`KResult` is KRS's stopping category for evaluated terms; it is imported from the facade rather than redeclared by the language.
+
+This resembles Rust supertraits syntactically, but the result is a symbolic subsort graph.
+It does not give `Value` host methods or cause Rust values to be evaluated.
+
+## Existing builtin members
+
+An `impl` line adds an existing type to an open sort:
+
+- `Id` is admitted directly to `Expr`;
+- `Int` and `Bool` are admitted to `Value`;
+- membership is transitive, so integers and Booleans are expressions and results as well.
+
+These builtin names are zero-sized authoring markers for K sorts.
+Operations such as integer addition later construct symbolic applications; they do not call host arithmetic functions.
+
+## Grouping without an AST node
+
+`#[k::bracket("(", ")")]` declares expression grouping syntax.
+Parsing `(e)` produces the same term as `e`; parentheses affect parsing but do not introduce an `Expr` constructor.
+
+Declaration order is presentation, not precedence or semantic priority.
+The Rust names supply inferred identities here; no public symbol spelling is pinned.
+Unknown parent sorts, duplicate declarations, or an invalid membership graph fail during expansion or semantic checking at the authored declaration.
+
+Run `python3 tests/tour-imp/verify.py` from the repository root to check this exact slice, the complete capstone, canonical formatting, deterministic expansion and K emission, and authored source maps.
+The [language reference](/reference/language) indexes the explicit sort and membership forms after this narrative introduction.
+
+Next, [concrete grammar](/imp/concrete-grammar) adds a closed expression-constructor family to the open `Expr` sort.

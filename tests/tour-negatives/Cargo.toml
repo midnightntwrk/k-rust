@@ -1,0 +1,31 @@
+[package]
+name = "krs-tour-negatives"
+description = "Focused analysis-stage negative controls for the KRS language tour"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[lib]
+name = "krs_tour_negatives"
+path = "src/lib.rs"
+
+[dependencies]
+k = { package = "krs", path = "../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-TOUR-NEGATIVES"
+
+[package.metadata.krs.definitions.main]
+root = "crate"
+syntax-root = "crate"
+
+[workspace]
+resolver = "3"
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"

@@ -1,0 +1,37 @@
+---
+title: KRS language tour
+description: Learn to define, inspect, and verify programming-language semantics in Rust.
+---
+
+# Define languages, not interpreters
+
+KRS is a declarative language for writing programming-language semantics in Rust.
+You declare syntax, machine state, rewrite rules, static semantics, and verification claims; KRS checks and lowers that definition for the K toolchain.
+
+The dependency-ordered tour grows IMP, a small imperative language with expressions, variables, and control flow, then explains lowering, verification, large state configurations, composition, and current boundaries.
+Its final five-minute synthesis compresses the model back to one rewrite—`foo` becomes `bar`—with generated explanations for direct readers.
+
+[Start with what KRS defines →](/start/what-krs-defines)
+
+:::info
+The tour documents the current implementation.
+Qualified features are labeled with their exact boundary, and proposed syntax is kept on the boundaries pages rather than presented as usable KRS.
+:::
+
+{/* generated:compatibility:start */}
+
+:::info Current checked baseline
+This tour targets KRS descriptor protocol **35**, Definition IR **27**, K **7.1.337**, and k-rust **0.4.0**.
+The values are generated from `Krs.lock`; examples outside this baseline are not silently treated as equivalent.
+:::
+
+| Boundary | Checked compatibility |
+| --- | --- |
+| Authoring toolchain | Rust 1.88.0 or newer within the repository's qualified range |
+| Descriptor protocol | Schema 35 |
+| Definition IR | Schema 27 |
+| K toolchain | 7.1.337 at `4a46d1231473b599c699160132fd6e76a5c46406` |
+| Native frontend | k-rust 0.4.0 at `0de7983f76f87ce93b91f5d3e994f0a2c3ff710c` |
+| Solver profile | Z3 4.12.5 |
+
+{/* generated:compatibility:end */}

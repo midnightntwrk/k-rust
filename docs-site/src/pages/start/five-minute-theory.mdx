@@ -1,0 +1,114 @@
+---
+title: The five-minute theory
+description: Read a complete KRS definition whose only transition rewrites foo to bar.
+---
+
+import { ConceptGloss } from '../../components/ConceptGloss'
+
+# The five-minute theory
+
+{/* synthesis-concepts: host-object-split symbolic-terms declarative-relational-rules open-sorts subsort-membership framework-sorts core-builtins constructor-families syntax-templates precedence-associativity fixed-configurations configuration-init single-item-sequence rule-tables */}
+
+This synthesis returns to an object language with two terms—`foo` and `bar`—and one transition from the first to the second.
+After the dependency-ordered tour, the example is small enough to show how every part of a complete definition fits together at once.
+
+:::info
+If you landed here directly, focus first on the host/object-language distinction and the `foo → bar` behavior.
+Every unfamiliar construct has a generated hover/focus explanation and a link to the chapter that introduces it in context.
+:::
+
+## A map for unfamiliar names
+
+Hover or keyboard-focus any dotted label for a one-sentence explanation; selecting it opens the canonical chapter.
+These glosses and destinations are generated from the same curriculum ledger as the full tour.
+
+<ConceptGloss concept="host-object-split">Rust ↔ object language</ConceptGloss>
+ · <ConceptGloss concept="symbolic-terms">symbolic terms</ConceptGloss>
+ · <ConceptGloss concept="declarative-relational-rules">unordered rules</ConceptGloss>
+
+<ConceptGloss concept="open-sorts">M2Obj</ConceptGloss>
+ · <ConceptGloss concept="subsort-membership">M2Obj: KResult</ConceptGloss>
+ · <ConceptGloss concept="framework-sorts">KResult</ConceptGloss>
+ · <ConceptGloss concept="core-builtins">KSequence</ConceptGloss>
+
+<ConceptGloss concept="constructor-families">k::constructors</ConceptGloss>
+ · <ConceptGloss concept="syntax-templates">k::syntax</ConceptGloss>
+ · <ConceptGloss concept="precedence-associativity">k::precedence</ConceptGloss>
+
+<ConceptGloss concept="fixed-configurations">k::configuration</ConceptGloss>
+ · <ConceptGloss concept="configuration-init">k::init</ConceptGloss>
+ · <ConceptGloss concept="single-item-sequence">k::k![foo]</ConceptGloss>
+ · <ConceptGloss concept="rule-tables">k::rules!</ConceptGloss>
+
+```rust [tests/tour-minimal/src/lib.rs]
+// [!include ~/snippets/tour-minimal.rs:definition]
+```
+
+This is the readable, idiomatic KRS surface.
+The file is compiled as Rust, but the declarations describe symbolic syntax and semantics.
+
+Ordinary Rust-visible positions still behave like Rust.
+For example, rust-analyzer can resolve the computation-sequence marker imported by the fixture:
+
+```rust twoslash
+use k::builtin::KSequence;
+
+fn accepts_computation(_: KSequence) {}
+```
+
+This supplementary editor check does not validate the KRS macro islands in the complete specimen; the fixture gate below does.
+
+## Read it from the outside in
+
+`M2Obj` is an open object-language sort.
+Because `M2Obj` is a subsort of `KResult`, every `M2Obj` term counts as a result; later strict constructs may use `KResult` as their stopping category.
+
+`Object` is a closed constructor family on that open sort.
+Its two nullary variants produce the concrete terminals `foo` and `bar`.
+Writing `Object::Foo()` in the initializer constructs a symbolic application; it does not call an interpreter for `foo`.
+
+`Machine` gives the language one computation cell named `k`.
+The initializer places `foo` in that cell as a single-item K sequence.
+Configuration initialization is declarative: collecting the definition does not execute `Machine::init` as ordinary Rust runtime setup.
+
+Finally, `foo_to_bar` relates the two object terms: conceptually, the computation changes from `<k> foo … </k>` to `<k> bar … </k>`.
+
+The `for M2Obj` header anchors this term rule at the head of the computation cell and leaves any sequence tail framed.
+When `foo` is at the head, the rule can replace it with `bar`.
+When it is not, this rule is simply inapplicable.
+
+## Rust analogy—and its limit
+
+The constructor variants and rule patterns borrow Rust's naming and destructuring vocabulary.
+Rust therefore checks paths and much of the term shape early.
+
+The rule is not a Rust function call or an ordered `match` arm, however.
+KRS collects it as an unordered transition sentence.
+Adding another rule above or below it does not assign either rule a priority.
+In particular, KRS declarations do not execute Rust, and `foo_to_bar` does not call an imperative rewrite function.
+
+The Rust item names provide the definition's identities here; no public symbol name is pinned with `#[k::symbol]` in this example.
+Misspelled paths and impossible Rust shapes fail during Rust compilation, while malformed KRS islands and inconsistent semantic declarations produce authored-source KRS diagnostics.
+
+## Check the specimen
+
+With the KRS CLI available, run this from the KRS repository root:
+
+```sh
+krs check \
+  --manifest-path tests/tour-minimal/Cargo.toml \
+  --package krs-tour-minimal \
+  --definition main
+```
+
+The tour's fixture gate also checks formatting, deterministic lowering and emission, and the same bounded structural projection as the M2 `foo → bar` oracle:
+
+```sh
+python3 tests/tour-minimal/verify.py
+```
+
+The checked artifacts describe the same theory at each layer: the initial computation contains `foo`, the sole transition rewrites it to `bar`, and no rule rewrites `bar`.
+Actual execution belongs to the stronger pinned M2 consumer gate; that gate is capability-gated rather than silently treated as passing when its K tools are unavailable.
+
+That is the complete tour in miniature.
+Return to [current boundaries](/reference/boundaries) for the exact qualification limits, or start the dependency-ordered path again with [what KRS defines](/start/what-krs-defines).

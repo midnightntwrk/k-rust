@@ -1,0 +1,68 @@
+---
+title: What KRS defines
+description: Understand the boundary between Rust authoring code and the symbolic language defined by KRS.
+---
+
+# What KRS defines
+
+{/* tour-concepts: host-object-split declarative-relational-rules symbolic-terms */}
+
+KRS lets a Rust package describe an object language: its terms, concrete syntax, machine configuration, and the relations that transform one symbolic state into another.
+These are symbolic object-language terms and relations, even though Rust organizes their declarations.
+
+The most important boundary is simple:
+
+- **Rust is the host language.** Its modules, paths, imports, visibility, types, and macros organize and check the definition.
+- **Your terms form the object language.** A constructor such as `Add` or `While` denotes syntax; it does not perform host arithmetic or run a Rust loop.
+- **KRS clauses are semantic sentences.** Rules, equations, contexts, and claims are collected and lowered; calling them as ordinary Rust functions is not the execution model.
+
+## A definition has observable outputs
+
+The authoring package is only the first layer.
+KRS can format and check it, show its explicit expansion, emit K, and build backend artifacts.
+Those stages make the definition inspectable without pretending that symbolic KRS values execute as Rust values.
+
+| Command | What it establishes |
+| --- | --- |
+| `krs fmt --check` | Authored KRS files are at the formatter fixed point. |
+| `krs check` | Rust collection and KRS semantic checks succeed. |
+| `krs expand` | The readable surface lowers to deterministic explicit Rust. |
+| `krs emit-k` | The checked definition emits K source and source mappings. |
+| `krs build` | A selected backend accepts the definition and produces artifacts. |
+
+KRS does not currently provide a `krs run` command.
+Execution and proof examples in this tour name the generated artifact consumer or repository harness that performs the operation.
+
+## Rules describe relations
+
+A transition rule says that a matching symbolic term or machine state may rewrite to another one.
+Transition rules are declarative and unordered: source order is presentation, not a tie-breaker or implicit priority.
+Applicability comes from the pattern, its object-language Boolean condition, and explicit fallback constructs introduced later in the tour.
+
+This differs from a Rust `match` expression, whose arms are tried in source order and whose body executes immediately.
+The Rust resemblance makes patterns readable; it does not change the relational meaning.
+
+Here is the semantic line at the heart of the checked `tour-minimal` fixture:
+
+```rust [tests/tour-minimal/src/lib.rs]
+// [!include ~/snippets/tour-minimal.rs:orientation-rule]
+```
+
+Read it as “a `Foo` term may become a `Bar` term.”
+`Foo()` and `Bar()` are symbolic constructor patterns, not host calls performed when Rust reaches this line.
+The surrounding rule-table syntax and those constructors are intentionally hidden here; the dependency-ordered chapters introduce them before asking you to author this shape.
+
+The fixture gate checks the complete source and asserts that its emitted K contains the observable transition:
+
+```text
+rule [foo-to-bar]: <k> foo => bar ... </k>
+```
+
+Run `python3 tests/tour-minimal/verify.py` from the repository root to compile, format-check, lower, and emit the owning fixture.
+The gate also verifies that this emitted sentence maps back to the authored source.
+Moving the rule in its source file does not change its priority; a malformed constructor path fails during Rust or KRS checking rather than becoming an inert host expression.
+
+## What comes next
+
+Next, [create the definition package](/start/definition-package) and build IMP in dependency order.
+After the complete narrative and reference chapters, the [five-minute synthesis](/start/five-minute-theory) compresses the whole model back into one definition; generated hover/focus glosses also keep it usable as a direct landing page.

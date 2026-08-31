@@ -1,0 +1,26 @@
+{
+  "id": "eval_add",
+  "kind": "head_rule",
+  "sentence_kind": "transition",
+  "label": "eval-add",
+  "configuration": "Machine",
+  "cell": "k",
+  "bindings": [
+    "lhs",
+    "rhs"
+  ],
+  "subject": {
+    "application": "Add",
+    "arguments": [
+      "lhs",
+      "rhs"
+    ]
+  },
+  "result": {
+    "application": "builtin:int_add",
+    "arguments": [
+      "lhs",
+      "rhs"
+    ]
+  }
+}

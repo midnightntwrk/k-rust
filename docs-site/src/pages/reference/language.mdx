@@ -1,0 +1,90 @@
+---
+title: Feature and builtin reference
+description: Find the current KRS declaration macros, helpers, term islands, framework sorts, and builtin operations.
+---
+
+# Feature and builtin reference
+
+{/* tour-concepts: standalone-constructors cross-family-grammar explicit-rule-functions term-islands */}
+
+This page is a lookup index for surfaces introduced by the tour.
+It is not an alternate learning order: follow each link back to the chapter that establishes the semantic model first.
+
+## Declarations and sentence forms
+
+| Surface | Meaning | Tour |
+| --- | --- | --- |
+| `#[k::sort]`, `k::sorts!` | open object-language sorts | [Sorts and values](/imp/sorts-and-values) |
+| `#[k::subsort]` | direct sort membership; KRS computes transitive closure | [Sorts and values](/imp/sorts-and-values) |
+| `#[k::constructor]`, `#[k::constructors]` | standalone or enum-family constructors | [Concrete grammar](/imp/concrete-grammar) |
+| `#[k::token]`, `#[k::bracket]` | lexical tokens and grouping-only productions | [Language scale](/advanced/language-scale) |
+| `#[k::configuration]`, `#[k::cell]`, `#[k::init]` | configuration schema, cells, and declarative initialization | [Configuration and state](/imp/configuration-and-state) |
+| `#[k::rule]`, `k::rules!` | explicit rule functions or readable term-rule tables | [Evaluation](/imp/evaluation) |
+| `#[k::function]`, `#[k::equation]` | total/partial functions and defining equations | [Static semantics](/semantics/static-semantics) |
+| `#[k::alias]`, `#[k::context_alias]` | reversible static aliases and named evaluation contexts | [Static semantics](/semantics/static-semantics) |
+| `#[k::simplification]` | logical normalization lemma | [Static semantics](/semantics/static-semantics) |
+| `#[k::claim]` | reachability proof sentence | [Reachability claims](/verification/reachability-claims) |
+| `#[k::symbol("public::Name")]` | pinned public identity for a sort or standalone constructor; place it immediately before that KRS declaration attribute | [Composition](/advanced/composition) |
+
+Standalone constructors are structs annotated with `#[k::constructor(sort = ..., syntax = ...)]`.
+Constructor families put `#[k::constructors(sort = ...)]` on an enum and attach syntax to its variants.
+The family form is preferred when a closed set of alternatives shares an open result sort; the standalone form remains useful for declarations owned independently.
+
+## Helper attributes
+
+`#[k::strict]` and `#[k::seqstrict]` add strict or left-to-right evaluation positions to constructor declarations.
+Enum helper `#[k::precedence(...)]` names intra-family tiers, using explicit `left`, `right`, or `non_assoc` and leaving bare groups unconstrained.
+Cross-family constraints are declarations: `k::precedence! { pair > atoms; }` and `k::associativity! { left: pair; non_associative: atoms; }`.
+
+Variant helpers include `#[k::syntax("...", group = "...", format = "...")]`, the equivalent separate `#[k::format("...")]`, and the `avoid` syntax flag.
+Initializer parameters may use `#[k::config_var(name = "PGM", main)]`.
+Readable rule clauses can carry `#[k::rule(owise, label = "...")]` when they are an explicit fallback.
+
+`#[k::requires]` guards rules, equations, and claims with an object-language Bool as allowed by the containing sentence.
+`#[k::priority(N)]` is numeric equation priority, not transition-rule ordering.
+`#[k::exists(...)]` and `#[k::ensures]` bind and constrain claim results.
+Cell-field helpers carry names, colors, nesting, multiplicity, and cell collection type only in the supported shapes described by [current boundaries](/reference/boundaries).
+
+## Checked islands
+
+| Island | Result |
+| --- | --- |
+| `k::term![...]` | checked symbolic term/pattern application |
+| `k::id![...]` | claim-only builtin identifier literal |
+| `k::bytes![...]` | claim-only builtin Bytes literal |
+| `k::anonymous!(Sort, "_Name")` | typed anonymous value allowed only in a claim subject, never its result |
+| `k::or_bool!(lhs, rhs, ...)` | claim-only Boolean disjunction of at least two symbolic operands |
+| `k::fragment![...]` | nominal nested-cell fragment |
+| `k::k![...]` | K sequence, including tails/splice/erase notation |
+| `k::map![...]` | framed builtin Map pattern or value |
+| `k::cells![...]` | explicit multi-cell rule body |
+
+These are restricted object-language grammars embedded in Rust tokens.
+They do not evaluate arbitrary Rust expressions, methods, closures, or control flow.
+The claim-only boundary is enforced during macro expansion rather than being a style convention.
+
+## Framework and builtin sorts
+
+`KItem` is the framework top sort for computation items.
+`KResult` marks terms that count as evaluated results for strictness.
+`KSequence` is the symbolic computation sequence sort.
+The facade also exposes `Id`, `Int`, `Bool`, `Bytes`, `Map<K, V>`, `List<T>`, and `Set<T>`, plus `Cell<T>`, `KCell<T>`, and `CellFragment<Parent>` authoring wrappers.
+
+## Builtin operation catalog
+
+Operation paths below are tuple-struct constructor aliases.
+Calling them constructs a typed symbolic application; it does not run a Rust implementation.
+
+| Module | Operations |
+| --- | --- |
+| `builtin::int` | `add`, `sub`, `mul`, `div`, `modulo`, `pow_mod`, `log2`, `shift_right`, `shift_left`, `bit_and`, `bit_xor`, `bit_or`, `ge`, `gt`, `le`, `lt`, `eq`, `ne` |
+| `builtin::bool` | `not`, `eq`, `ne`, `or`, `and` |
+| `builtin::map` | `update`, `get`, `in_keys` |
+| `builtin::list` | `empty`, `item`, `concat`, `get`, `update`, `size`, `make`, `range`, `update_all` |
+| `builtin::set` | `empty`, `item`, `concat`, `contains` |
+| `builtin::bytes` | `empty`, `length`, `get`, `update`, `pad_right`, `substr` |
+
+Function hooks are a separate typed catalog selected in `#[k::function(..., hook = ...)]`.
+They are intentionally not arbitrary strings or raw attributes.
+
+For accepted-but-unqualified, open, and absent shapes, continue to [current boundaries and open questions](/reference/boundaries).

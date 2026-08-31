@@ -1,0 +1,66 @@
+---
+title: Daily workflow
+description: Format, check, inspect, emit, and build a KRS definition while keeping diagnostic boundaries visible.
+---
+
+# Daily workflow
+
+{/* tour-concepts: diagnostics-lsp formatter-comments */}
+
+KRS has a short, staged command line.
+Use the earliest command that can answer the question you have; later stages add generated artifacts and backend prerequisites.
+
+## Edit and check
+
+```console
+krs fmt --check --manifest-path Cargo.toml
+krs check --package my-semantics --definition main
+```
+
+`fmt` canonicalizes KRS DSL islands while leaving ordinary Rust to the Rust formatter.
+It can format paths or stdin, and `--check` reports drift without rewriting files.
+Inside DSL macro bodies, use line comments: non-doc `/* ... */` comments are rejected because procedural macros cannot recover them reliably.
+The default aligned trailing-comment layout is provisional; `--trailing-comments gutter` selects the other implemented policy.
+
+`check` resolves Cargo metadata and selected facets, compiles the generated collector, validates descriptors, performs semantic analysis, and stops before K emission.
+Keep ordinary `cargo check` in the loop too: it remains the authority for Rust names, types, imports, and macro expansion.
+
+## Inspect the lowering
+
+```console
+krs expand --package my-semantics --definition main
+krs emit-k --package my-semantics --definition main --output target/krs-k
+```
+
+`expand` prints the deterministic explicit Rust-facing reference surface.
+`emit-k` writes the generated K definition and sidecars, including stable symbol and source attribution data.
+These outputs are audit artifacts, not a second source file to edit.
+
+The lowering page names the descriptor, semantic, definition, K, symbol, source, and KORE boundaries in detail.
+When a generated K range has an exact source-map entry, diagnostics should point back to the hash-checked authored bytes rather than expose a generated collector path.
+
+## Build a backend target
+
+```console
+krs build \
+  --package my-semantics \
+  --definition main \
+  --backend llvm \
+  --output target/krs-native
+```
+
+`build` continues through K frontend and selected backend compilation.
+The current commands are `fmt`, `check`, `expand`, `emit-k`, and `build`.
+There is no `krs run` command and no `krs prove` command; execution and proof are owned by named downstream K/KORE tools or repository harnesses.
+
+## Read failures by stage
+
+- Rust/rust-analyzer errors cover ordinary syntax, imports, types, macro expansion, and some precisely authored attribute spans.
+- KRS analysis errors cover definition-wide identities, sort and grammar consistency, rule shapes, and overlap.
+- K frontend errors are translated through emitted source maps when an exact authored interval exists.
+- backend-capability diagnostics report a valid definition that the selected backend cannot compile.
+
+Macro islands are not ordinary Rust expressions, so editor behavior is bounded.
+The M4 probes establish exact rustc and rust-analyzer selection for authored syntax tokens and exact K/source-sidecar translation for covered cases; they do not promise IDE understanding of every generated symbol or every DSL token.
+
+Next, the [feature and builtin reference](/reference/language) provides a findable inventory once the narrative chapters have established the concepts.

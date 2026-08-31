@@ -1,0 +1,69 @@
+---
+title: Current boundaries and open questions
+description: Distinguish supported KRS, qualified subsets, unresolved design questions, and syntax that does not exist.
+---
+
+# Current boundaries and open questions
+
+{/* tour-concepts: simplification-priority one-path-claims incremental-semantics open-cell-questions open-grammar-style open-initialization open-formatter-style deferred-term-format-sugar open-rule-doc-style unsupported-logic unsupported-grammar unsupported-cells restricted-rust */}
+
+KRS deliberately exposes less than arbitrary Rust and less than the full K language.
+The status words below are part of the tour contract:
+
+- **current** has an implemented public surface and production or canonical positive evidence;
+- **qualified** is supported only for the stated bounded shape;
+- **unqualified** is accepted below some layer but lacks a positive end-to-end specimen;
+- **open** is a recorded design question; and
+- **unsupported** is not current public syntax.
+
+## Restricted Rust is intentional
+
+Term islands, readable rule bodies, and configuration initializers accept a checked symbolic subset.
+Constructor applications, literals, binders, collection notation, and the documented builtin calls are available where their grammar permits them.
+Arbitrary operators, method calls, closures, host `if`/loops, mutation, and generic constructor shapes are not silently interpreted as semantics.
+
+This boundary keeps object-language meaning deterministic and collectable.
+If an expression is ordinary Rust, rustc executes or type-checks it as host code; if it is inside a KRS island, the island parser must recognize it as symbolic syntax.
+
+## Qualified or unqualified today
+
+| Surface | Status | Exact boundary |
+| --- | --- | --- |
+| repeated cells | qualified | `multiplicity = "*"` parses with Bag/List/Map/Set; only Map has language-scale end-to-end evidence |
+| typed hooks | qualified | only the typed catalog exported by KRS; no arbitrary hook or raw-attribute escape hatch |
+| KWasm, KMIR, KEVM | qualified | incremental extracts tracked in `semantics/coverage.toml`, not complete ports |
+| one-path claims | unqualified | grammar acceptance exists, but no positive end-to-end authored fixture currently qualifies the backend route |
+| simplification priority | unqualified | parsing and lowering accept `simplification(priority = N)`; no positive authored macro specimen was found |
+
+Traps need no special KRS construct.
+A language defines an ordinary object-language trap state and transitions to it; backend hook/capability failure is a different outcome.
+
+## Open design questions
+
+The following questions remain recorded rather than answered by this tour:
+
+- whether `{ .. }` in a cell position means only a tail map pattern or an all-framed cell record;
+- the layer-2 spelling for a machine rule with no computation-cell head;
+- the style rule for naming cross-family precedence groups;
+- whether a future const-style configuration initializer should complement `#[k::init]`;
+- aligned-column versus fixed-gutter trailing comments (aligned is only the provisional default); and
+- the documentation style for individual readable rule clauses.
+
+An implementation or example that depends on one of these must surface the decision; source order and formatter output must not decide it accidentally.
+
+## Unsupported surface
+
+Optional cells and multiplicities other than the qualified star shape are unsupported.
+General matching logic, fresh-variable sentences, `anywhere`, semantic casts, syntactic-list declarations, overload declarations, and arbitrary raw grammar are not current public features.
+
+Method-call term sugar and exact `% ` formatting sugar are deferred.
+Non-doc block comments inside DSL macro bodies are rejected.
+There is no numeric priority for transition rules, and source order is never a rule tie-breaker.
+There is also no `krs run` or `krs prove` command.
+
+When an example needs an unsupported feature, state the semantic gap and use a checked adapter only if its limitation is recorded.
+Do not present parser acceptance, a historical draft, or a generated reference spelling as a supported idiom.
+
+The dependency-ordered language tour is complete here.
+Finish with its [five-minute synthesis](/start/five-minute-theory), which compresses the model into one definition.
+The synthesis intentionally stays compact; unfamiliar terms link or expose focused explanations, while these canonical chapters own the full treatment.

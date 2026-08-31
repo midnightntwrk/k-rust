@@ -1,0 +1,59 @@
+---
+title: IMP expressions—concrete grammar
+description: Define constructor families, syntax templates, precedence, associativity, and evaluation annotations.
+---
+
+# IMP expressions: concrete grammar
+
+{/* tour-concepts: constructor-families syntax-templates format-avoid-docs brackets precedence-associativity */}
+
+A constructor family connects symbolic term shapes to the concrete programs users write.
+IMP's expression family is:
+
+```rust [tests/tour-imp/chapters/02-concrete-grammar.rs]
+// [!include ~/snippets/imp-grammar.rs]
+```
+
+## A closed family on an open sort
+
+`#[k::constructors(sort = Expr, result = KResult)]` says every `Op` variant constructs an `Expr` and that strict evaluation may stop when a child reaches `KResult`.
+The `Op` enum is closed—its variants are listed here—while `Expr` remains open to other families and members.
+
+Rust checks variant names and field shapes.
+KRS interprets the enum and its attributes as grammar and symbolic constructor declarations; constructing `Add { lhs, rhs }` does not add host integers.
+
+## Syntax templates
+
+Each `#[k::syntax]` string is concrete syntax with placeholders named after fields.
+For example, the `Add` template places `lhs` and `rhs` around a literal `+`.
+Every field must be represented consistently, and placeholder names are checked against the Rust variant.
+
+## One exhaustive precedence chain
+
+The precedence attribute lists every variant exactly once.
+Higher groups bind more tightly than groups below them, so multiplication binds more tightly than addition, which binds more tightly than comparisons and Boolean operators.
+
+`left` makes repeated members of a group left-associative.
+The unary group is deliberately bare: a bare group adds no associativity constraint.
+Variant source order and blank lines are presentation only; the explicit chain owns precedence.
+
+The `strict` and `seqstrict` attributes visible here are a one-page-ahead preview.
+They derive evaluation contexts rather than grammar precedence: `strict` permits any selected child order, while `seqstrict` evaluates selected children from left to right.
+The [evaluation chapter](/imp/evaluation) gives them their operational meaning.
+
+## Formatting, avoid, and explicit non-associativity
+
+The checked statement grammar on the [configuration page](/imp/configuration-and-state) supplies the remaining production helpers.
+`#[k::format(...)]` controls canonical rendering without changing the parsed term, and the `avoid` flag makes a production lose an otherwise ambiguous parse—for IMP, it resolves the dangling `else`.
+Production doc comments become generated grammar documentation.
+
+When same-tier nesting must be rejected, write `non_assoc` explicitly in an enum precedence group.
+Bare groups do not mean non-associative.
+Cross-family declarations use the reference forms `k::precedence!` and `k::associativity!`, whose exact spellings are indexed in the [language reference](/reference/language).
+
+Missing, duplicated, or unknown precedence members are expansion errors.
+Malformed templates are attributed to their authored attribute rather than silently repaired from the Rust enum.
+
+Run `python3 tests/tour-imp/verify.py` from the repository root to check this exact grammar slice, the complete capstone, canonical formatting, deterministic expansion and K emission, and authored source maps.
+
+Next, [evaluation](/imp/evaluation) supplies the rules and symbolic builtin operations behind these expressions.

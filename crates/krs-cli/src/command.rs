@@ -162,15 +162,42 @@ fn prepare(
     let collector = GeneratedCollector::from_plan(plan)?;
     let collector_directory = collector_directory(target, &collector);
     collector.write_to(&collector_directory)?;
+    // Cargo discovers hierarchical config from its working directory, not from
+    // an arbitrary `--manifest-path`; this activates the generated cfg rustflags.
     let output = cargo(
         "collector execution",
         Command::new("cargo")
+            .current_dir(&collector_directory)
             .args(["run", "--quiet", "--manifest-path"])
             .arg(collector_directory.join("Cargo.toml")),
     )?;
     let bundle: DescriptorBundle =
         serde_json::from_slice(&output.stdout).map_err(CommandError::DescriptorProtocol)?;
-    let semantic = lower_descriptor_bundle(&bundle)?;
+    let semantic = lower_descriptor_bundle(&bundle).map_err(|error| {
+        if let DescriptorLoweringError::OverlappingRules { first, second } = &error
+            && let Some(descriptor) = bundle
+                .descriptors
+                .iter()
+                .find(|descriptor| &descriptor.id == second.as_ref())
+            && let Some(head_origin) = descriptor.provenance.origins().iter().find(|node| {
+                node.key.role() == "rule_left_application_head" && node.key.ordinal() == 0
+            })
+            && let Some(range) = exact_authored_range_from_origin(&head_origin.origin)
+        {
+            let mut diagnostic = DiagnosticEnvelope::error(
+                DiagnosticStage::Analysis,
+                "overlapping-rule-heads",
+                error.to_string(),
+                range,
+            );
+            diagnostic.notes = vec![
+                format!("first rule: {first:?}"),
+                format!("second rule: {second:?}"),
+            ];
+            return CommandError::Diagnostics(vec![diagnostic]);
+        }
+        CommandError::DescriptorLowering(error)
+    })?;
     let lowered = lower_semantic_theory(&semantic).map_err(|error| {
         if let LoweringError::NameCollision {
             namespace,

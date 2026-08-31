@@ -1,0 +1,23 @@
+[package]
+name = "root-semantics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "root_language_api"
+
+[dependencies]
+language-host = { package = "krs", path = "../../../../crates/krs" }
+semantic-base = { package = "base-semantics", path = "../base-semantics" }
+
+[package.metadata.krs]
+k-namespace = "ORG-KRS-M1-ROOT"
+
+[package.metadata.krs.definitions.main]
+root = "crate"
+syntax-root = "crate"
+
+[lints]
+workspace = true

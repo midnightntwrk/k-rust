@@ -1,0 +1,50 @@
+---
+title: IMP control flow
+description: Define sequencing, branches, loops, blocks, K-sequence splice, and erase.
+---
+
+# IMP control flow
+
+Control-flow rules turn structured statements into the computation sequence that drives the machine.
+
+```rust [tests/tour-imp/chapters/05-control-flow.rs]
+// [!include ~/snippets/imp-control.rs]
+```
+
+## Splice work into the computation
+
+`Sequence(s1, s2) => k::k![s1, s2]` replaces one statement with two ordered computation items.
+Similarly, a nonempty block exposes its body followed by an explicit empty block.
+
+`k::k![…]` is checked K-sequence notation.
+It describes symbolic sequencing; it is not a Rust vector or iterator.
+
+## Select evaluated branches
+
+The `IfThenElse` rules match object-language Boolean results and select one branch.
+The no-else constructor normalizes to an explicit empty alternative.
+
+The condition field was marked strict in the grammar, so derived contexts evaluate it before these rules can match `true` or `false`.
+The loop constructor is deliberately not strict: its rule unfolds one test into an `IfThen` containing the body and next loop iteration.
+
+## Erase completed syntax
+
+Returning `()` from `done` denotes the empty K sequence, removing `EmptyBlock()` from the computation head.
+This is symbolic erase syntax, not the host unit value returned from an executing Rust function.
+
+The clauses are unordered even though their table reads like an operational checklist.
+Their names identify the authored rule sentences; moving a clause does not change constructor or cell identity.
+Unexpected symbolic states become normal forms or stuck states according to applicability; they do not fall through to a hidden Rust interpreter.
+
+## Complete IMP capstone
+
+The documentation fixture assembles the six chapter slices into this complete checked definition:
+
+```rust [tests/tour-imp/src/lib.rs]
+// [!include ~/snippets/tour-imp-capstone.rs]
+```
+
+`tests/tour-imp/verify.py` proves that these capstone bytes and every slice are synchronized with M4's operational authority, then checks KRS formatting, collection, deterministic expansion, deterministic K emission, all 83 descriptors, and authored source-map attribution.
+
+This completes the IMP spine: expressions evaluate through builtins, statements manipulate state, and structured control becomes ordered computation.
+Next, [applicability and failure](/semantics/applicability-and-failure) distinguishes guards, fallback, overlap, stuckness, traps, and backend errors.
