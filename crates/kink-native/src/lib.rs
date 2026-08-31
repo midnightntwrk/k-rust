@@ -27,11 +27,11 @@ use kink_patch::StagedNativeInput;
 /// Native definition type accepted by the exact k-rust pin.
 pub type NativeDefinition = Definition;
 
-/// Exact clean KRS source revision reviewed by NR-05R.
-pub const KRS_REVISION: &str = "cff5e10b77a24a58590f59b5379f9f77ebd19f4d";
+/// Exact clean KRS source revision selected by NR-U5.
+pub const KRS_REVISION: &str = "be5f8449854567f198e841d2a96fbe188cfa96ac";
 
 /// Exact k-rust source revision declared by the reviewed KRS checkout.
-pub const K_RUST_REVISION: &str = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c";
+pub const K_RUST_REVISION: &str = "c41caa8bede96e279e0b058577dce504e4144f65";
 
 /// Exact published k-rust crate version declared by KRS.
 pub const K_RUST_CRATE_VERSION: &str = "0.4.0";
@@ -1776,8 +1776,8 @@ unrelated = "1"
 
     #[test]
     fn frontend_constant_matches_work_package_pin() {
-        assert_eq!(KRS_REVISION, "cff5e10b77a24a58590f59b5379f9f77ebd19f4d");
-        assert_eq!(K_RUST_REVISION, "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c");
+        assert_eq!(KRS_REVISION, "be5f8449854567f198e841d2a96fbe188cfa96ac");
+        assert_eq!(K_RUST_REVISION, "c41caa8bede96e279e0b058577dce504e4144f65");
         assert_eq!(NATIVE_FRONTEND_RUST_VERSION, "1.98.0");
     }
 

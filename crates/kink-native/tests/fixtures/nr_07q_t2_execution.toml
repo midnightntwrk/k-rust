@@ -1,0 +1,43 @@
+schema_version = 1
+tranche_id = "k-in-k2/nr-07q-t2-continuous-expression/v1"
+status = "passed-continuous-evidence-no-qualification-authority"
+selected_surface_manifest = "crates/kink-native/tests/fixtures/nr_07q_selected_surface.toml"
+fixture_manifest = "crates/kink-native/tests/fixtures/nr_07q_t2_continuous/Cargo.toml"
+fixture_manifest_sha256 = "04a5f294362587887cf4ce8cb45b1e85fb805b94ed9df1be1fadb58fa2f00f52"
+fixture_lock_sha256 = "4a17709ba149682b3bf564db6827d1dccaee31933af33a40f1a50e56c4f627a7"
+fixture_source_sha256 = "6511a468245c2ced9867e4674cb0dbde57163f120de4dba8f4d421a1f07548b7"
+krs_revision = "be5f8449854567f198e841d2a96fbe188cfa96ac"
+k_rust_revision = "c41caa8bede96e279e0b058577dce504e4144f65"
+rust_version = "1.98.0"
+z3_version = "4.12.5"
+nr_07a_required_status = "accepted-fixture-only-positive-transport"
+provenance_status = "sidecar-only-missing-bridge"
+component_chain_continuous = true
+raw_k_escape = false
+qualification_authority = false
+krs_qual_001_closed = false
+provenance_authority = false
+production_authority = false
+nr_07i_unblocked = false
+
+[closure]
+case_ids = ["application", "literal", "reference"]
+stages = [
+  "syntax_parse",
+  "descriptor_collection",
+  "semantic_ir",
+  "definition_ir",
+  "origin_mapping",
+  "native_adaptation",
+  "native_preparation",
+  "frontend_compile",
+  "kore_reparse",
+]
+outcomes = ["success"]
+fixture_files = ["Cargo.lock", "Cargo.toml", "src/main.rs"]
+
+[route]
+artifact = "and_true"
+syntax = "And { lhs: true, rhs } -> rhs"
+driver = "kink-nr-07q-t2-continuous"
+summary = "One process carries one KRS-authored typed rule through exact source reparsing and descriptor collection, checked Semantic and Definition IR, exact OriginMapping roles, the native source model, public structured preparation, public frontend compilation, and public KORE reparsing."

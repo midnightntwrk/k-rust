@@ -1,0 +1,77 @@
+schema_version = 1
+tranche_id = "k-in-k2/nr-07q-t1-expression-component-evidence/v1"
+status = "passed-component-evidence-no-qualification-authority"
+selected_surface_manifest = "crates/kink-native/tests/fixtures/nr_07q_selected_surface.toml"
+krs_revision = "be5f8449854567f198e841d2a96fbe188cfa96ac"
+k_rust_revision = "c41caa8bede96e279e0b058577dce504e4144f65"
+rust_version = "1.98.0"
+z3_version = "4.12.5"
+nr_07a_required_status = "accepted-fixture-only-positive-transport"
+provenance_status = "sidecar-only-missing-bridge"
+component_chain_continuous = false
+qualification_authority = false
+krs_qual_001_closed = false
+production_authority = false
+nr_07i_unblocked = false
+
+[closure]
+case_ids = ["application", "literal", "reference"]
+stages = ["syntax_parse", "semantic_ir", "definition_ir", "native_adaptation"]
+packages = ["krs-ir", "krs-k-rust", "krs-syntax"]
+target_kinds = ["integration", "lib"]
+outcomes = ["success"]
+
+[[exercise]]
+id = "01-syntax-named-call"
+case_ids = ["application", "reference"]
+stage = "syntax_parse"
+expected_outcome = "success"
+evidence = "crates/krs-syntax/tests/terms.rs#named_call_terms_preserve_preorder_paths_and_exact_endpoints"
+package = "krs-syntax"
+target_kind = "integration"
+target = "terms"
+test_name = "named_call_terms_preserve_preorder_paths_and_exact_endpoints"
+
+[[exercise]]
+id = "02-syntax-literals"
+case_ids = ["literal"]
+stage = "syntax_parse"
+expected_outcome = "success"
+evidence = "crates/krs-syntax/tests/terms.rs#int_and_bool_literals_are_root_and_nested_nodes"
+package = "krs-syntax"
+target_kind = "integration"
+target = "terms"
+test_name = "int_and_bool_literals_are_root_and_nested_nodes"
+
+[[exercise]]
+id = "03-semantic-expression-contract"
+case_ids = ["application", "literal", "reference"]
+stage = "semantic_ir"
+expected_outcome = "success"
+evidence = "crates/krs-ir/tests/m3_expression_ir.rs#semantic_expression_contract_resolves_builtin_sorts_and_applications"
+package = "krs-ir"
+target_kind = "integration"
+target = "m3_expression_ir"
+test_name = "semantic_expression_contract_resolves_builtin_sorts_and_applications"
+
+[[exercise]]
+id = "04-definition-expression-canonical"
+case_ids = ["application", "literal", "reference"]
+stage = "definition_ir"
+expected_outcome = "success"
+evidence = "crates/krs-ir/tests/m3_expression_ir.rs#representative_expression_definition_has_canonical_bytes"
+package = "krs-ir"
+target_kind = "integration"
+target = "m3_expression_ir"
+test_name = "representative_expression_definition_has_canonical_bytes"
+
+[[exercise]]
+id = "05-native-adaptation-structural"
+case_ids = ["application", "literal", "reference"]
+stage = "native_adaptation"
+expected_outcome = "success"
+evidence = "crates/krs-k-rust/src/tests.rs#definition_ir_maps_structurally_without_frontend_metadata"
+package = "krs-k-rust"
+target_kind = "lib"
+target = "-"
+test_name = "tests::definition_ir_maps_structurally_without_frontend_metadata"

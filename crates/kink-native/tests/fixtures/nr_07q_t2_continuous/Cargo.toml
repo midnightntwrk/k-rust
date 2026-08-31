@@ -1,0 +1,23 @@
+[package]
+name = "kink-nr-07q-t2-continuous"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98"
+publish = false
+
+[dependencies]
+k = { package = "krs", path = "../../../../../../krs/crates/krs" }
+k-rust = { version = "=0.4.0", path = "../../../../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust", default-features = false, features = ["z3-inference"] }
+krs-compiler = { path = "../../../../../../krs/crates/krs-compiler" }
+krs-ir = { path = "../../../../../../krs/crates/krs-ir" }
+krs-k-rust = { path = "../../../../../../krs/crates/krs-k-rust" }
+
+[workspace]
+resolver = "3"
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"

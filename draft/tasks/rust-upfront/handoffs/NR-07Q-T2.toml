@@ -1,0 +1,99 @@
+schema_version = 1
+packet_id = "NR-07Q-T2"
+title = "Continuous expression component-evidence route"
+status = "passed-continuous-evidence-no-qualification-authority"
+protected_artifact_sha256 = "dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec"
+
+[scope]
+owned = [
+  "crates/kink-native/tests/fixtures/nr_07q_t2_continuous/",
+  "crates/kink-native/tests/fixtures/nr_07q_t2_execution.toml",
+  "draft/tasks/rust-upfront/verify-nr-07q-t2.sh",
+  "draft/tasks/rust-upfront/handoffs/NR-07Q-T2.toml",
+]
+untouched = [
+  "KRS",
+  "shared k-rust",
+  "dedicated k-rust",
+  "Cargo dependency graphs outside the fixture",
+  "crates/kink-native/tests/fixtures/nr_07q_selected_surface.toml authority state",
+  "investigations/k-rust-target/k-rust-agent-requests.toml",
+]
+
+[pins]
+krs_revision = "be5f8449854567f198e841d2a96fbe188cfa96ac"
+k_rust_revision = "c41caa8bede96e279e0b058577dce504e4144f65"
+rust_version = "1.98.0"
+z3_version = "4.12.5"
+nr_07a_status = "accepted-fixture-only-positive-transport"
+provenance_status = "SidecarOnlyMissingBridge"
+
+[implemented]
+fixture = "A closed downstream Rust package authors one typed and_true rule and carries that same in-memory artifact through descriptor collection, checked Semantic IR, checked Definition IR, native adaptation, public structured preparation, frontend compilation, and public KORE reparsing."
+origin_evidence = "The fixture checks exact authored ranges for the And application, true literal, reference, and result in Semantic and Definition IR. It then requires exact OriginMapping term paths [0], [0,0], [0,1], and [1], plus the mapped sentence identity."
+native_evidence = "The adapted native rule must remain one rewrite whose lhs is a two-argument application containing the true token and a variable, and whose rhs is a variable with the same non-empty normalized native name."
+escape_controls = "The route calls prepare_definition on the exact adapted native definition and compile_loaded_definition on the exact prepared value. It contains no raw-K emission and no compile_definition re-adaptation escape."
+clean_source = "The gate treats the live repositories only as local Git object sources, checks out exact commits into ordinary clones under one validated mktemp-created /var/tmp root, mirrors the fixture at its repository-relative location, requires both clones to remain clean, and validates the protected artifact before and after execution."
+serialization = "The gate refuses concurrent Cargo or rustc, fixes CARGO_BUILD_JOBS=1, disables incremental compilation, and uses one tranche-local target directory."
+manifest = "The execution manifest closes the selected cases, ordered stages, expected outcome, fixture files, dependency graph, route identity, content hashes, pins, and non-authority fields."
+
+[coverage]
+selected_cases = ["application", "literal", "reference"]
+case_count = 3
+selected_surface_case_count = 36
+stages = [
+  "syntax_parse",
+  "descriptor_collection",
+  "semantic_ir",
+  "definition_ir",
+  "origin_mapping",
+  "native_adaptation",
+  "native_preparation",
+  "frontend_compile",
+  "kore_reparse",
+]
+artifact = "and_true"
+syntax = "And { lhs: true, rhs } -> rhs"
+
+[commands_run]
+runtime = "CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 draft/tasks/rust-upfront/verify-nr-07q-t2.sh"
+static = [
+  "bash -n draft/tasks/rust-upfront/verify-nr-07q-t2.sh",
+  "shellcheck draft/tasks/rust-upfront/verify-nr-07q-t2.sh",
+  "cargo +1.98.0 fmt --manifest-path crates/kink-native/tests/fixtures/nr_07q_t2_continuous/Cargo.toml",
+  "Python stdlib tomllib parse and closed execution-manifest audit",
+  "sha256sum investigations/k-rust-target/k-rust-agent-requests.toml",
+  "git diff --check",
+]
+
+[results]
+runtime = "PASS: the clean-clone gate carried one KRS-authored and_true artifact through all nine ordered stages at exact aligned pins, matched the closed summary, left both source clones clean, and revalidated the protected artifact."
+summary = "PASS NR-07Q-T2 continuous cases=application,literal,reference stages=9 provenance=sidecar-only-missing-bridge authority=false"
+qualification = "NOT ACCEPTED: continuous component evidence does not bind KRS OriginMapping to k-rust source/provenance carriers and does not qualify the full selected expression inventory."
+
+[development_diagnostics]
+first = "An initial assertion expected the application node to cover the whole authored expression. KRS correctly maps that node to the authored constructor token And; the evidence now checks that exact range."
+second = "An initial native-stage assertion expected the authored spelling rhs. k-rust normalizes native variable names; the evidence now checks the stage-appropriate invariant that the reference and result are variables with the same non-empty normalized name, while exact authored rhs ranges remain checked in Semantic IR, Definition IR, and OriginMapping."
+effect = "Both diagnostics corrected test expectations. Neither changed KRS, k-rust, the authored route, nor any authority field."
+
+[known_limits]
+items = [
+  "The tranche covers 3 of 36 inventory rows and only one positive expression rule shape.",
+  "No structured negative-failure row runs in this tranche.",
+  "KRS OriginMapping remains a sidecar and is not bound to public k-rust SourceTable, TermSpan, production metadata, or OriginRecord carriers.",
+  "CompiledArtifacts returns KORE and diagnostics without a checked relation back to the KRS OriginMapping sidecar.",
+  "Backend execution and behavior claims are outside this tranche.",
+]
+
+[next]
+runtime_gate = "PASS; rerun draft/tasks/rust-upfront/verify-nr-07q-t2.sh only after sustained Cargo/rustc quiet and safe memory headroom."
+after_pass = "Use this continuous route as component evidence for the remaining selected expression forms and structured-failure tranche, while treating the provenance bridge as a separate upstream blocker."
+
+[authority]
+component_chain_continuous = true
+qualification_accepted = false
+krs_qual_001_closed = false
+provenance_authority = false
+production_authority = false
+receipts_issued = false
+nr_07i_unblocked = false

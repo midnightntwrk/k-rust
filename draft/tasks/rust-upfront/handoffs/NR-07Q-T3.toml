@@ -1,0 +1,99 @@
+schema_version = 1
+packet_id = "NR-07Q-T3"
+title = "Aligned complete-cell and collection-projection component evidence"
+status = "passed-component-evidence-no-qualification-authority"
+protected_artifact_sha256 = "dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec"
+
+[scope]
+owned = [
+  "crates/kink-native/tests/fixtures/nr_07q_t3_execution.toml",
+  "draft/tasks/rust-upfront/verify-nr-07q-t3.sh",
+  "draft/tasks/rust-upfront/handoffs/NR-07Q-T3.toml",
+]
+untouched = [
+  "KRS",
+  "shared k-rust",
+  "dedicated k-rust",
+  "existing roadmap, register, README, and fixture files",
+  "crates/kink-native/tests/fixtures/nr_07q_selected_surface.toml authority state",
+  "investigations/k-rust-target/k-rust-agent-requests.toml",
+]
+
+[pins]
+krs_revision = "be5f8449854567f198e841d2a96fbe188cfa96ac"
+k_rust_revision = "c41caa8bede96e279e0b058577dce504e4144f65"
+rust_version = "1.98.0"
+z3_version = "4.12.5"
+nr_07a_status = "accepted-fixture-only-positive-transport"
+provenance_status = "SidecarOnlyMissingBridge"
+
+[implemented]
+manifest = "A closed execution manifest binds three disabled selected-surface cases to four exact tests at the aligned KRS and k-rust pins, with exact route identities, stages, targets, contracts, and non-authority fields."
+gate = "The serialized gate validates every manifest key and exact exercise record, validates selected-surface bindings, creates fresh exact-commit clones, confirms exact registered test names, runs each exact test with one Cargo job and incremental compilation disabled, requires both clones to remain clean, and validates the protected artifact before and after."
+application_exclusion = "The tranche does not bind the application row. Although projection wrappers are applications, neither projection test is listed as evidence for the selected-surface application inventory row."
+
+[coverage]
+selected_cases = ["cell", "list", "map"]
+case_count = 3
+selected_surface_case_count = 36
+stages = ["native_adaptation", "native_preparation"]
+outcome = "success"
+component_routes = 4
+
+[routes.krs_complete_cell_compatibility]
+test = "krs-k-rust lib tests::complete_cell_terms_use_the_pinned_frontend_concretization_shape"
+evidence = "KRS lowers complete Definition IR cells into the pinned frontend's parser-compatible closed #noDots shape."
+boundary = "This is compatibility lowering and does not exercise upstream's direct complete-cell input."
+
+[routes.upstream_direct_complete_cell]
+test = "k-rust integration kompile_passes::preserves_already_complete_nested_cells"
+evidence = "The upstream concretization pass directly preserves a complete fixed-arity nested parent and leaf cells without #dots."
+boundary = "This does not prove that KRS emits the direct upstream shape or permit removing KRS compatibility lowering."
+
+[routes.krs_collection_projection_mapping]
+test = "krs-k-rust lib tests::builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports"
+evidence = "KRS maps typed Map lookup and List get Definition IR terms to project:Int around Map:lookup and List:get."
+boundary = "This is direct adapter component evidence and does not continuously traverse upstream semantic-cast resolution."
+
+[routes.upstream_semantic_cast_projection]
+test = "k-rust integration sort_injections::semantic_casts_project_heterogeneous_collection_results"
+evidence = "The upstream semantic-cast and sort-injection pipeline projects heterogeneous Map and List results through project:Int and injects Int into KItem."
+boundary = "This is an upstream-authored K input route and does not continuously consume the KRS Definition IR artifact."
+
+[commands_run]
+runtime = "CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 draft/tasks/rust-upfront/verify-nr-07q-t3.sh"
+static = [
+  "bash -n draft/tasks/rust-upfront/verify-nr-07q-t3.sh",
+  "shellcheck draft/tasks/rust-upfront/verify-nr-07q-t3.sh",
+  "Python stdlib tomllib parse and closed execution-manifest audit",
+  "sha256sum investigations/k-rust-target/k-rust-agent-requests.toml",
+  "git diff --check",
+]
+
+[results]
+runtime = "PASS: all four exact registered tests succeeded in fresh exact-commit clones; both clones remained clean and the protected artifact matched before and after execution."
+summary = "PASS NR-07Q-T3 aligned cell and collection-projection component evidence at exact pins."
+qualification = "NOT ACCEPTED: the four exact component routes remain distinct and grant no continuous artifact, provenance, full selected-surface, or production authority."
+
+[known_limits]
+items = [
+  "The tranche covers 3 of 36 inventory rows and only positive complete-cell and collection-projection behavior.",
+  "No one artifact continuously crosses KRS syntax, Semantic IR, Definition IR, adapter mapping, and either aligned upstream pass in this tranche.",
+  "KRS still uses compatibility lowering for complete cells even though aligned upstream k-rust now accepts direct complete fixed-arity cells.",
+  "No structured negative-failure row runs in this tranche.",
+  "KRS OriginMapping remains a sidecar and is not bound to public k-rust provenance carriers.",
+]
+
+[next]
+after_pass = "Use these paired component receipts to design a continuous KRS-authored cell and heterogeneous-collection route before considering removal of compatibility lowering or broader selected-surface acceptance."
+
+[authority]
+aligned_upstream_capabilities_present = true
+component_routes_distinct = true
+component_chain_continuous = false
+qualification_accepted = false
+krs_qual_001_closed = false
+provenance_authority = false
+production_authority = false
+receipts_issued = false
+nr_07i_unblocked = false

@@ -1,0 +1,1224 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>K-in-K2 — Project status and blocker report</title>
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --surface: #fffdf8;
+      --surface-2: #ebe6dc;
+      --ink: #1e2927;
+      --muted: #64706c;
+      --line: #d7d0c4;
+      --accent: #076c67;
+      --accent-2: #0a4c68;
+      --good: #20744a;
+      --warn: #9a5b10;
+      --bad: #9c3d32;
+      --info: #315c8b;
+      --good-bg: #e5f3e9;
+      --warn-bg: #fff1d8;
+      --bad-bg: #fae8e4;
+      --info-bg: #e6eef8;
+      --shadow: 0 14px 36px rgb(42 48 45 / 9%);
+      --radius: 18px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101817;
+        --surface: #17211f;
+        --surface-2: #202c29;
+        --ink: #edf3ef;
+        --muted: #adbab5;
+        --line: #35413d;
+        --accent: #68c9c2;
+        --accent-2: #82b9d4;
+        --good: #77d39a;
+        --warn: #efbc70;
+        --bad: #ed9488;
+        --info: #8bb8e6;
+        --good-bg: #173426;
+        --warn-bg: #382b16;
+        --bad-bg: #3a211f;
+        --info-bg: #1c2c3e;
+        --shadow: none;
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 1.25rem;
+    }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 8% -5%, rgb(7 108 103 / 13%), transparent 32rem),
+        radial-gradient(circle at 96% 4%, rgb(10 76 104 / 10%), transparent 28rem),
+        var(--bg);
+      color: var(--ink);
+      font: 16px/1.62 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    a { color: var(--accent-2); }
+    a:hover { color: var(--accent); }
+
+    code, .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: .91em;
+    }
+
+    code {
+      padding: .12rem .34rem;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface-2);
+      overflow-wrap: anywhere;
+    }
+
+    h1, h2, h3, h4 {
+      line-height: 1.18;
+      letter-spacing: -.025em;
+    }
+
+    h1 {
+      max-width: 17ch;
+      margin: .3rem 0 1rem;
+      font-size: clamp(2.35rem, 6vw, 4.8rem);
+      font-weight: 760;
+    }
+
+    h2 {
+      margin: 0 0 1rem;
+      font-size: clamp(1.7rem, 3vw, 2.5rem);
+    }
+
+    h3 { margin: 0 0 .55rem; font-size: 1.2rem; }
+    h4 { margin: 0 0 .4rem; font-size: 1rem; }
+    p { margin: .5rem 0 1rem; }
+    ul, ol { padding-left: 1.25rem; }
+    li + li { margin-top: .32rem; }
+
+    .shell {
+      width: min(1180px, calc(100% - 2rem));
+      margin: 0 auto;
+    }
+
+    .hero {
+      padding: clamp(3.2rem, 8vw, 7.5rem) 0 3rem;
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      font-size: .76rem;
+      font-weight: 800;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+
+    .lede {
+      max-width: 72ch;
+      margin-bottom: 1.5rem;
+      color: var(--muted);
+      font-size: clamp(1.05rem, 2vw, 1.28rem);
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .65rem;
+      margin-top: 1.4rem;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: .45rem;
+      padding: .4rem .7rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: .78rem;
+      font-weight: 700;
+    }
+
+    .dot {
+      width: .62rem;
+      height: .62rem;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .good { color: var(--good); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+    .info { color: var(--info); }
+
+    nav {
+      position: sticky;
+      z-index: 5;
+      top: 0;
+      border-block: 1px solid var(--line);
+      background: color-mix(in srgb, var(--bg) 86%, transparent);
+      backdrop-filter: blur(16px);
+    }
+
+    nav .shell {
+      display: flex;
+      gap: 1rem;
+      overflow-x: auto;
+      padding-block: .72rem;
+      scrollbar-width: thin;
+    }
+
+    nav a {
+      flex: 0 0 auto;
+      color: var(--muted);
+      font-size: .8rem;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    nav a:hover { color: var(--accent); }
+
+    main section { padding: 4.5rem 0; }
+    main section + section { border-top: 1px solid var(--line); }
+
+    .section-intro {
+      max-width: 76ch;
+      margin-bottom: 1.8rem;
+      color: var(--muted);
+      font-size: 1.05rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 1rem;
+    }
+
+    .card {
+      grid-column: span 4;
+      padding: 1.25rem;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .card.wide { grid-column: span 6; }
+    .card.full { grid-column: 1 / -1; }
+
+    .card p:last-child,
+    .card ul:last-child { margin-bottom: 0; }
+
+    .number {
+      color: var(--accent);
+      font-size: 2.25rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .number-label {
+      margin-top: .4rem;
+      color: var(--muted);
+      font-size: .82rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+
+    .callout {
+      margin: 1.5rem 0;
+      padding: 1.2rem 1.25rem;
+      border-left: 5px solid var(--accent);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      background: color-mix(in srgb, var(--surface) 90%, var(--accent) 10%);
+    }
+
+    .callout strong { color: var(--accent); }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      align-items: stretch;
+      gap: .65rem;
+      margin: 1.5rem 0;
+    }
+
+    .stage {
+      position: relative;
+      min-height: 9.5rem;
+      padding: 1rem .85rem;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--surface);
+    }
+
+    .stage:not(:last-child)::after {
+      position: absolute;
+      z-index: 2;
+      top: 50%;
+      right: -.62rem;
+      width: .65rem;
+      color: var(--accent);
+      content: "›";
+      font-size: 1.8rem;
+      font-weight: 800;
+      transform: translateY(-55%);
+    }
+
+    .stage-index {
+      color: var(--accent);
+      font-size: .7rem;
+      font-weight: 800;
+      letter-spacing: .08em;
+    }
+
+    .stage h3 { margin: .35rem 0; font-size: .98rem; }
+    .stage p { margin: 0; color: var(--muted); font-size: .78rem; line-height: 1.45; }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .6rem 1rem;
+      margin: 1rem 0;
+      color: var(--muted);
+      font-size: .82rem;
+    }
+
+    .legend span { display: inline-flex; align-items: center; gap: .4rem; }
+
+    .swatch {
+      width: .75rem;
+      height: .75rem;
+      border-radius: 3px;
+      background: currentColor;
+    }
+
+    .proof-ladder {
+      display: grid;
+      gap: .65rem;
+      margin-top: 1.4rem;
+    }
+
+    .proof-step {
+      display: grid;
+      grid-template-columns: 9rem 1fr auto;
+      align-items: center;
+      gap: 1rem;
+      padding: .9rem 1rem;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: var(--surface);
+    }
+
+    .proof-step strong { font-size: .92rem; }
+    .proof-step p { margin: 0; color: var(--muted); font-size: .86rem; }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      padding: .25rem .56rem;
+      border-radius: 999px;
+      font-size: .69rem;
+      font-weight: 850;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .status.good { background: var(--good-bg); }
+    .status.warn { background: var(--warn-bg); }
+    .status.bad { background: var(--bad-bg); }
+    .status.info { background: var(--info-bg); }
+
+    .timeline {
+      position: relative;
+      display: grid;
+      gap: 1rem;
+      margin-top: 2rem;
+      padding-left: 2.3rem;
+    }
+
+    .timeline::before {
+      position: absolute;
+      top: .8rem;
+      bottom: .8rem;
+      left: .78rem;
+      width: 2px;
+      background: var(--line);
+      content: "";
+    }
+
+    .milestone {
+      position: relative;
+      padding: 1.1rem 1.2rem;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .milestone::before {
+      position: absolute;
+      top: 1.25rem;
+      left: -2.02rem;
+      width: 1rem;
+      height: 1rem;
+      border: 3px solid var(--bg);
+      border-radius: 50%;
+      background: currentColor;
+      content: "";
+    }
+
+    .milestone-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .milestone h3 { margin: 0; color: var(--ink); }
+    .milestone p { margin: .45rem 0 0; color: var(--muted); }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .88rem;
+    }
+
+    th, td {
+      padding: .88rem 1rem;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: .7rem;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .blocker-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+      counter-reset: blockers;
+    }
+
+    .blocker {
+      position: relative;
+      padding: 1.3rem 1.3rem 1.3rem 4.1rem;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      counter-increment: blockers;
+    }
+
+    .blocker::before {
+      position: absolute;
+      top: 1.15rem;
+      left: 1.15rem;
+      display: grid;
+      width: 2.25rem;
+      height: 2.25rem;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--bad-bg);
+      color: var(--bad);
+      content: counter(blockers);
+      font-weight: 850;
+    }
+
+    .owner {
+      color: var(--muted);
+      font-size: .75rem;
+      font-weight: 750;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .blocker h3 { margin-top: .2rem; }
+    .blocker p { color: var(--muted); font-size: .9rem; }
+
+    details {
+      margin: .75rem 0;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: var(--surface);
+    }
+
+    summary {
+      padding: .9rem 1rem;
+      cursor: pointer;
+      font-weight: 750;
+    }
+
+    details > div { padding: 0 1rem 1rem; color: var(--muted); }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1rem;
+      counter-reset: steps;
+    }
+
+    .next-step {
+      padding: 1.15rem;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      counter-increment: steps;
+    }
+
+    .next-step::before {
+      display: block;
+      margin-bottom: .8rem;
+      color: var(--accent);
+      content: "0" counter(steps);
+      font-size: 1.4rem;
+      font-weight: 850;
+    }
+
+    .next-step p { color: var(--muted); font-size: .88rem; }
+
+    .glossary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1rem;
+    }
+
+    .term {
+      padding: 1rem;
+      border-top: 3px solid var(--accent);
+      background: var(--surface);
+    }
+
+    .term dt { font-weight: 800; }
+    .term dd { margin: .35rem 0 0; color: var(--muted); font-size: .88rem; }
+
+    .sources {
+      columns: 2;
+      column-gap: 2rem;
+      color: var(--muted);
+      font-size: .86rem;
+    }
+
+    .sources li { break-inside: avoid; }
+
+    footer {
+      padding: 2.5rem 0 4rem;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: .82rem;
+    }
+
+    @media (max-width: 940px) {
+      .card, .card.wide { grid-column: span 6; }
+      .pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .stage:not(:last-child)::after { display: none; }
+      .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .glossary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 650px) {
+      .shell { width: min(100% - 1.1rem, 1180px); }
+      main section { padding: 3rem 0; }
+      .card, .card.wide { grid-column: 1 / -1; }
+      .pipeline, .steps, .glossary, .blocker-list { grid-template-columns: 1fr; }
+      .proof-step { grid-template-columns: 1fr; gap: .3rem; }
+      .milestone-head { align-items: flex-start; flex-direction: column; }
+      .sources { columns: 1; }
+    }
+
+    @media print {
+      :root { color-scheme: light; }
+      body { background: #fff; color: #111; font-size: 10pt; }
+      nav { display: none; }
+      .hero { padding-top: 1.5rem; }
+      main section { padding: 1.5rem 0; break-inside: avoid; }
+      .card, .table-wrap, .milestone { box-shadow: none; }
+      details > div { display: block; }
+      .pipeline { grid-template-columns: repeat(4, 1fr); }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero shell">
+    <div class="eyebrow">First-principles project report · 2 September 2026</div>
+    <h1>Where K-in-K2 stands</h1>
+    <p class="lede">
+      K-in-K2 is building a trustworthy Rust product around formal language definitions: inspect them as typed data, transform them safely, observe their behavior, search their executions, and use those capabilities for semantic mutation testing and execution-pattern matching. The portable product core works. A narrow native path also works. The remaining work is chiefly about proving that native results are complete, traceable, and safe enough to authorize production decisions.
+    </p>
+    <div class="meta">
+      <span class="pill good"><span class="dot"></span>Portable foundation complete</span>
+      <span class="pill good"><span class="dot"></span>Bounded native path working</span>
+      <span class="pill warn"><span class="dot"></span>Full KRS surface not yet qualified</span>
+      <span class="pill bad"><span class="dot"></span>Production authority blocked</span>
+    </div>
+    <div class="meta mono">
+      <span class="pill">KRS be5f84498545</span>
+      <span class="pill">k-rust c41caa8bede9</span>
+      <span class="pill">Analyzed baseline 6016a4cf35bd</span>
+    </div>
+  </header>
+
+  <nav aria-label="Report sections">
+    <div class="shell">
+      <a href="#executive">Executive view</a>
+      <a href="#purpose">What this is</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#evidence">Evidence model</a>
+      <a href="#status">Current status</a>
+      <a href="#milestones">Milestones</a>
+      <a href="#blockers">Blockers</a>
+      <a href="#next">Recommended work</a>
+      <a href="#glossary">Glossary</a>
+      <a href="#sources">Sources</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="executive">
+      <div class="shell">
+        <div class="eyebrow">Executive view</div>
+        <h2>The shortest accurate explanation</h2>
+        <p class="section-intro">
+          The project is past the “paper design” stage. Its backend-neutral contracts and Rust implementations are substantial and tested. It can also compile and execute a deliberately small KRS-authored rule through k-rust and recover a positive state/path witness. What it cannot yet do is turn arbitrary native success, empty search results, or unlinked source metadata into a trustworthy production receipt.
+        </p>
+
+        <div class="grid">
+          <article class="card">
+            <div class="number">23</div>
+            <div class="number-label">Selected language-surface rows</div>
+            <p>The KRS qualification inventory selects 23 forms that K-in-K2 intends to use.</p>
+          </article>
+          <article class="card">
+            <div class="number">6</div>
+            <div class="number-label">Rows with current focused evidence</div>
+            <p>Application, literal, reference, cell, list, and map have current-pin tranche evidence.</p>
+          </article>
+          <article class="card">
+            <div class="number">3</div>
+            <div class="number-label">Rows on one continuous route</div>
+            <p>Application, literal, and reference cross nine stages as the same in-memory artifact.</p>
+          </article>
+          <article class="card wide">
+            <h3>What works now</h3>
+            <ul>
+              <li>Deterministic portable identities, canonical data, artifact ingress, typed patching, pattern evaluation, receipts, caches, replay, and reporting.</li>
+              <li>Exact-pin KRS → k-rust structured compilation for selected fixtures.</li>
+              <li>Positive bounded state, path, pattern, and pattern-path witnesses.</li>
+              <li>Ordered branch-local committed-rule observations.</li>
+              <li>Fail-closed handling of unknown, bounded, cancelled, unsupported, or unproven outcomes.</li>
+            </ul>
+          </article>
+          <article class="card wide">
+            <h3>What does not work at an accepted production level</h3>
+            <ul>
+              <li>Full qualification of every KRS form the product intends to use.</li>
+              <li>End-to-end source provenance that survives into k-rust’s native provenance objects.</li>
+              <li>Proof that an empty symbolic result means “nothing exists” rather than “the search stopped.”</li>
+              <li>A checked proof that frontend lowering preserved the required relation.</li>
+              <li>Qualified K-authored discovery/compiler and independent evaluator integration.</li>
+              <li>Hard resource isolation and the sealed issuer that would authorize production receipts.</li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="callout">
+          <strong>Bottom line:</strong> development is not globally blocked. The project can continue building and testing positive, bounded functionality. Final native acceptance is blocked because the system cannot yet prove provenance, completeness, lowering correctness, isolation, and issuer prerequisites together.
+        </div>
+      </div>
+    </section>
+
+    <section id="purpose">
+      <div class="shell">
+        <div class="eyebrow">From first principles</div>
+        <h2>What problem is this project trying to solve?</h2>
+        <p class="section-intro">
+          A programming-language definition is more than source text. It contains syntax, types, configuration cells, rewrite rules, claims, conditions, and metadata. K-in-K2 wants to treat that definition as typed, identity-bearing data that a product can inspect and transform without losing meaning or silently guessing.
+        </p>
+
+        <div class="grid">
+          <article class="card wide">
+            <h3>Product goal 1: execution-pattern matching</h3>
+            <p>Observe semantic events on one execution branch and answer questions such as “did rule A occur before event B?” The product must preserve branch order, bindings, and uncertainty. A truncated search cannot be reported as a definite no-match.</p>
+          </article>
+          <article class="card wide">
+            <h3>Product goal 2: semantic mutation testing</h3>
+            <p>Generate controlled edits to a language definition, apply each mutation atomically, run a corpus, and report whether behavior changed. Coupled edits must apply as one transaction, and every result must be traceable to the original definition and exact mutation.</p>
+          </article>
+          <article class="card full">
+            <h3>The shared foundation</h3>
+            <p>Both goals need stable semantic identities, source provenance, typed patch paths, deterministic serialization, validation, backend execution, honest search completeness, resource isolation, replay, and machine-readable receipts. Most of the backend-neutral form of this foundation has been implemented in Rust. The open work is connecting it to native K execution with evidence strong enough for production decisions.</p>
+          </article>
+        </div>
+
+        <div class="callout">
+          <strong>Important historical distinction:</strong> the old K-in-K repository was a partial 2018–2020 experiment that expressed parts of K’s frontend in K itself. K-in-K2 preserves the metaprogramming/product goals, but the active implementation is a modern Rust-based portable core plus a new KRS/k-rust native path. It is not an attempt to revive the retired Java/Haskell/OCaml-era stack.
+        </div>
+      </div>
+    </section>
+
+    <section id="architecture">
+      <div class="shell">
+        <div class="eyebrow">Architecture</div>
+        <h2>How a definition reaches execution</h2>
+        <p class="section-intro">
+          Think of this as a compiler pipeline surrounded by an evidence and orchestration product. KRS supplies the authoring language and typed compiler stages. k-rust supplies the K frontend and execution/search backend. K-in-K2 supplies portable contracts, validation, product behavior, and rules about what evidence is strong enough to accept.
+        </p>
+
+        <div class="pipeline" role="img" aria-label="Pipeline from Rust-authored KRS source through typed intermediate representations and k-rust to K-in-K2 results">
+          <article class="stage">
+            <div class="stage-index">01 · AUTHOR</div>
+            <h3>KRS Rust source</h3>
+            <p>Typed macros and Rust items describe sorts, terms, cells, rules, and claims.</p>
+          </article>
+          <article class="stage">
+            <div class="stage-index">02 · COLLECT</div>
+            <h3>Descriptors</h3>
+            <p>KRS reparses exact authored regions and collects a deterministic package theory.</p>
+          </article>
+          <article class="stage">
+            <div class="stage-index">03 · CHECK</div>
+            <h3>Semantic IR</h3>
+            <p>Names, sorts, rules, and terms are resolved into checked semantic data.</p>
+          </article>
+          <article class="stage">
+            <div class="stage-index">04 · LOWER</div>
+            <h3>Definition IR</h3>
+            <p>A target-neutral structured definition and source-origin sidecar are produced.</p>
+          </article>
+          <article class="stage">
+            <div class="stage-index">05 · ADAPT</div>
+            <h3>k-rust model</h3>
+            <p>KRS maps Definition IR into k-rust’s native structured frontend representation.</p>
+          </article>
+          <article class="stage">
+            <div class="stage-index">06 · EXECUTE</div>
+            <h3>KORE/backend</h3>
+            <p>k-rust prepares, lowers, compiles, executes, proves, or searches the definition.</p>
+          </article>
+          <article class="stage">
+            <div class="stage-index">07 · DECIDE</div>
+            <h3>K-in-K2 product</h3>
+            <p>Adapters produce typed witnesses, receipts, cache records, replay, and reports.</p>
+          </article>
+        </div>
+
+        <div class="grid">
+          <article class="card">
+            <h3>KRS owns</h3>
+            <p>The Rust authoring language, source collection, Semantic IR, Definition IR, and the structural adapter into k-rust.</p>
+          </article>
+          <article class="card">
+            <h3>k-rust owns</h3>
+            <p>The K frontend/backend engine: preparation, lowering, compilation, execution, proof, search, observations, and primitive provenance storage.</p>
+          </article>
+          <article class="card">
+            <h3>K-in-K2 owns</h3>
+            <p>Portable semantics, mutation contracts, adapters, validation policy, receipts, cache/replay, worker orchestration, reporting, and sealed acceptance.</p>
+          </article>
+        </div>
+
+        <details>
+          <summary>Why KORE appears in the pipeline</summary>
+          <div>
+            KORE is K’s lower-level Matching Logic representation. Human-friendly language-definition constructs are transformed into KORE declarations and axioms that execution and proof backends consume. Producing parseable KORE proves useful transport, but it does not by itself prove that the transformation preserved all required semantics or provenance.
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section id="evidence">
+      <div class="shell">
+        <div class="eyebrow">Evidence model</div>
+        <h2>“It ran” and “we may trust it” are different claims</h2>
+        <p class="section-intro">
+          The codebase deliberately uses a proof ladder. A lower rung is still useful, but it cannot be relabeled as a higher rung merely because a test passed or a JSON receipt has the right shape.
+        </p>
+
+        <div class="proof-ladder">
+          <article class="proof-step">
+            <strong>Portable contract</strong>
+            <p>Backend-neutral data, algorithms, and conformance vectors behave deterministically.</p>
+            <span class="status good">Accepted</span>
+          </article>
+          <article class="proof-step">
+            <strong>Component evidence</strong>
+            <p>Individual compiler or adapter stages pass exact tests, possibly on different artifacts.</p>
+            <span class="status good">T1 / T3 pass</span>
+          </article>
+          <article class="proof-step">
+            <strong>Continuous evidence</strong>
+            <p>The same authored artifact crosses every named stage without a raw-text escape or re-adaptation shortcut.</p>
+            <span class="status warn">3 rows only</span>
+          </article>
+          <article class="proof-step">
+            <strong>Positive bounded witness</strong>
+            <p>A concrete state, path, match, or rule observation was actually found under explicit bounds.</p>
+            <span class="status good">Available</span>
+          </article>
+          <article class="proof-step">
+            <strong>Exhaustive result</strong>
+            <p>The engine proves all reachable work was visited, so absence or complete denotation is justified.</p>
+            <span class="status bad">Blocked</span>
+          </article>
+          <article class="proof-step">
+            <strong>Production authority</strong>
+            <p>Provenance, lowering, completeness, evaluator, isolation, and exact-profile evidence all validate through a sealed issuer.</p>
+            <span class="status bad">Blocked</span>
+          </article>
+        </div>
+
+        <div class="callout">
+          <strong>Fail-closed rule:</strong> when evidence is missing, bounded, cancelled, ambiguous, or unsupported, the system must say <em>unknown</em> or <em>not proven</em>. It must not manufacture a negative conclusion or production receipt.
+        </div>
+      </div>
+    </section>
+
+    <section id="status">
+      <div class="shell">
+        <div class="eyebrow">Current status</div>
+        <h2>What has actually been built and validated?</h2>
+        <p class="section-intro">
+          The active native pair is KRS <code>be5f844</code> and k-rust <code>c41caa8</code>. Both local k-rust worktrees and KRS’s declared dependency align on that engine commit. K-in-K2 re-ran its own gates rather than relying only on upstream reports.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Area</th>
+                <th>Status</th>
+                <th>Evidence</th>
+                <th>Claim boundary</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Portable Rust product core</strong></td>
+                <td><span class="status good">Complete</span></td>
+                <td>Canonical values/IDs, artifact ingress, atomic patches, pattern evaluation, receipts, cache, replay, scheduling, and reports.</td>
+                <td>Does not prove a native backend implemented the semantics.</td>
+              </tr>
+              <tr>
+                <td><strong>Pinned native adapter/index</strong></td>
+                <td><span class="status good">Local repair complete</span></td>
+                <td>Exact clean revisions, structural manifest verification, typed symbol/sort/subsort checks, and fail-closed indexes.</td>
+                <td>Provenance remains a sidecar, not native authority.</td>
+              </tr>
+              <tr>
+                <td><strong>Observation and bounded search</strong></td>
+                <td><span class="status good">Positive only</span></td>
+                <td>Ordered branch-local committed transitions plus positive state/path/pattern witnesses and replay.</td>
+                <td>Empty or truncated search is always unknown.</td>
+              </tr>
+              <tr>
+                <td><strong>NR-07A transport fixture</strong></td>
+                <td><span class="status good">Pass</span></td>
+                <td>A KRS Definition-IR Boolean rule compiles through k-rust and produces matching positive state/path observations.</td>
+                <td>One fixture; no full language qualification or production receipt.</td>
+              </tr>
+              <tr>
+                <td><strong>NR-07Q-T1 component route</strong></td>
+                <td><span class="status good">Pass</span></td>
+                <td>Five exact tests for application, literal, and reference across syntax, Semantic IR, Definition IR, and adaptation.</td>
+                <td>Stages were originally independent, not one artifact chain.</td>
+              </tr>
+              <tr>
+                <td><strong>NR-07Q-T2 continuous route</strong></td>
+                <td><span class="status good">Pass</span></td>
+                <td>One typed <code>And { lhs: true, rhs } → rhs</code> artifact crosses nine stages and reparses as KORE.</td>
+                <td>Covers 3 selected rows; still sidecar-only provenance.</td>
+              </tr>
+              <tr>
+                <td><strong>NR-07Q-T3 aligned features</strong></td>
+                <td><span class="status good">Pass</span></td>
+                <td>Four distinct routes for complete cells and List/Map semantic projections.</td>
+                <td>Component evidence only; no continuous cell/collection artifact.</td>
+              </tr>
+              <tr>
+                <td><strong>Full selected KRS surface</strong></td>
+                <td><span class="status warn">Incomplete</span></td>
+                <td>Closed inventory exists: 23 selected successes, 8 named gaps, and 5 required structured failures.</td>
+                <td>KRS-QUAL-001 remains open.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 style="margin-top:2rem">How to interpret the 36-row inventory</h3>
+        <div class="grid">
+          <article class="card">
+            <div class="number">23</div>
+            <div class="number-label">Selected successes</div>
+            <p>Forms the product plans to depend on, such as rules, claims, sorts, cells, sequences, collections, and declarations.</p>
+          </article>
+          <article class="card">
+            <div class="number">8</div>
+            <div class="number-label">Named gaps</div>
+            <p>Known cross-layer or not-selected cases, including wildcard, anonymous terms, equation/simplification rules, and context aliases.</p>
+          </article>
+          <article class="card">
+            <div class="number">5</div>
+            <div class="number-label">Structured failures</div>
+            <p>Negative cases the system must reject predictably, such as undefined labels, dangling variables, and unsupported host expressions.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="milestones">
+      <div class="shell">
+        <div class="eyebrow">Milestone map</div>
+        <h2>Progress toward useful product functionality</h2>
+        <p class="section-intro">
+          “Complete” below means complete at that milestone’s stated evidence level. It does not automatically imply final native or production authority.
+        </p>
+
+        <div class="timeline">
+          <article class="milestone good">
+            <div class="milestone-head">
+              <h3>M0 · Portable product foundation</h3>
+              <span class="status good">Complete</span>
+            </div>
+            <p>Backend-neutral contracts and Rust implementations for deterministic identity, patching, patterns, candidate protocols, receipts, cache, replay, scheduling, and reporting.</p>
+          </article>
+          <article class="milestone good">
+            <div class="milestone-head">
+              <h3>M1 · Narrow positive native vertical slice</h3>
+              <span class="status good">Working</span>
+            </div>
+            <p>Exact pins validate, structured KRS content compiles through k-rust, a concrete rule executes, and positive branch-local observations/state/path witnesses can be adapted honestly.</p>
+          </article>
+          <article class="milestone warn">
+            <div class="milestone-head">
+              <h3>M2 · Accepted KRS authoring surface (NR-07Q)</h3>
+              <span class="status warn">Partial</span>
+            </div>
+            <p>Six selected rows have current focused evidence, but only three are continuous. Remaining selected forms, structured failures, and continuous cell/collection routes must pass.</p>
+          </article>
+          <article class="milestone bad">
+            <div class="milestone-head">
+              <h3>M3 · Positive-only discovery/compiler/evaluator integration (NR-07I)</h3>
+              <span class="status bad">Blocked by M2</span>
+            </div>
+            <p>K-authored discovery must emit mutation sites and joined tuples; a K-authored pattern compiler and an independent evaluator must then be qualified separately.</p>
+          </article>
+          <article class="milestone bad">
+            <div class="milestone-head">
+              <h3>M4 · Native production authority (NR-07)</h3>
+              <span class="status bad">Hard blocked</span>
+            </div>
+            <p>Requires the provenance bridge, honest search completion where absence matters, checked lowering proof, qualified compiler/evaluator evidence, exact profiles, and sealed issuance.</p>
+          </article>
+          <article class="milestone bad">
+            <div class="milestone-head">
+              <h3>M5 · Final native readiness (NR-08)</h3>
+              <span class="status bad">Blocked</span>
+            </div>
+            <p>Requires both M4 and NR-04’s hard process/resource isolation, durable publication, replay, and adversarial audit.</p>
+          </article>
+        </div>
+
+        <div class="callout">
+          <strong>Practical reading:</strong> concrete experiments and positive-only feature development can continue today. A product feature that says “I found this witness” is much closer than one that says “I proved this never happens” or “this native mutation result is safe to publish as authoritative.”
+        </div>
+      </div>
+    </section>
+
+    <section id="blockers">
+      <div class="shell">
+        <div class="eyebrow">Blockers</div>
+        <h2>What prevents the key milestones?</h2>
+        <p class="section-intro">
+          The blockers are deliberately assigned to the component that can actually resolve them. Some are ordinary local implementation work. Others require new upstream evidence APIs or host-level authority that this repository cannot manufacture.
+        </p>
+
+        <div class="blocker-list">
+          <article class="blocker">
+            <div class="owner">K-in-K2 / KRS qualification</div>
+            <h3>Incomplete selected-surface qualification</h3>
+            <p>The inventory is closed, but most selected forms do not yet have an exact continuous fixture. Negative structured failures also need runtime proof. Until this closes, KRS is not accepted as the complete authoring surface K-in-K2 intends to use.</p>
+            <p><strong>Blocks:</strong> full NR-07Q and therefore NR-07I.</p>
+          </article>
+
+          <article class="blocker">
+            <div class="owner">KRS · KRS-BRIDGE-001</div>
+            <h3>Provenance sidecar is not connected to native carriers</h3>
+            <p>KRS knows where authored nodes came from, and k-rust has native provenance structures. The adapter returns these as separate worlds. It does not prove that a KRS source node became a particular native term, production, generated rule, or final KORE entity.</p>
+            <p><strong>Blocks:</strong> provenance-complete receipts, portable emitting-sentence provenance, and production authority.</p>
+          </article>
+
+          <article class="blocker">
+            <div class="owner">k-rust · KRUST-UP-003</div>
+            <h3>No explicit proof of successful search exhaustion</h3>
+            <p>k-rust reports positive witnesses and several stop reasons. But <code>ResultBound</code> has no retained frontier or unvisited-work count, and there is no explicit <code>Exhausted</code> record. Therefore an empty result cannot prove absence.</p>
+            <p><strong>Blocks:</strong> exhaustive no-match, finite not-reached, complete denotation, and symbolic absence claims.</p>
+          </article>
+
+          <article class="blocker">
+            <div class="owner">k-rust · KRUST-UP-004</div>
+            <h3>No checked lowering proof and registered checker</h3>
+            <p>A compiler successfully producing KORE or executing a result is operational evidence, not a proof that the lowering relation was correct. The project requires a versioned proof artifact bound to exact source/output/profile identities and an independent checker.</p>
+            <p><strong>Blocks:</strong> checked native validation and final production authority.</p>
+          </article>
+
+          <article class="blocker">
+            <div class="owner">K-in-K2 · after NR-07Q</div>
+            <h3>K-owned discovery/compiler/evaluator not qualified</h3>
+            <p>The desired product must use K-produced mutation sites and joined tuples rather than a host-side Cartesian substitute. Its pattern compiler and independent evaluator also need separate conformance subjects and receipts.</p>
+            <p><strong>Blocks:</strong> NR-07I and the compiler/evaluator prerequisites of production issuance.</p>
+          </article>
+
+          <article class="blocker">
+            <div class="owner">Host/product environment · NR-04</div>
+            <h3>No delegated hard isolation authority</h3>
+            <p>The design requires one fresh child per attempt with enforced wall time, resident memory, swap, process count, output bytes, and writable-disk quotas. The current agent sandbox cannot supply a delegated cgroup-v2 subtree and quota-backed writable root.</p>
+            <p><strong>Blocks:</strong> trustworthy campaign execution and final native readiness.</p>
+          </article>
+
+          <article class="blocker">
+            <div class="owner">K-in-K2 · final integration</div>
+            <h3>Production issuers intentionally remain sealed</h3>
+            <p>Even schema-valid evidence must not create authority until every prerequisite validates together: pins, provenance, lowering, completeness, compiler, evaluator, execution profile, and isolation. Constructors remain unavailable by design.</p>
+            <p><strong>Blocks:</strong> publishing native mutation/materialization or oracle outcomes as authoritative.</p>
+          </article>
+
+          <article class="blocker">
+            <div class="owner">Scope control</div>
+            <h3>Compatibility fixes are not authority</h3>
+            <p>The aligned k-rust adds direct complete-cell handling, semantic downcast projections, Rust 1.88 support, and better parser behavior. KRS still retains some compatibility lowerings. These fixes improve feasibility but do not solve provenance, exhaustion, or checked lowering.</p>
+            <p><strong>Blocks:</strong> nothing new by itself; prevents overclaiming what the repin achieved.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="functionality">
+      <div class="shell">
+        <div class="eyebrow">Functionality forecast</div>
+        <h2>What can a user reasonably expect at each stage?</h2>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Functionality</th>
+                <th>Now</th>
+                <th>Next milestone needed</th>
+                <th>Final blocker</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Deterministic portable mutation/report pipeline</td>
+                <td><span class="status good">Available</span></td>
+                <td>Native adapters may be added behind not-proven gates.</td>
+                <td>None for portable behavior.</td>
+              </tr>
+              <tr>
+                <td>Compile and run selected KRS-authored fixtures</td>
+                <td><span class="status good">Available</span></td>
+                <td>Broaden NR-07Q for product-selected forms.</td>
+                <td>Full-surface qualification.</td>
+              </tr>
+              <tr>
+                <td>Report a positive rule/path/pattern witness</td>
+                <td><span class="status good">Available, bounded</span></td>
+                <td>NR-07I for product discovery/compiler/evaluator integration.</td>
+                <td>Provenance bridge for production receipt.</td>
+              </tr>
+              <tr>
+                <td>Report definite no-match / not-reached</td>
+                <td><span class="status bad">Not available</span></td>
+                <td>k-rust explicit exhaustion and frontier evidence.</td>
+                <td>KRUST-UP-003.</td>
+              </tr>
+              <tr>
+                <td>Trace result exactly to authored/generated source</td>
+                <td><span class="status warn">Sidecar only</span></td>
+                <td>Bridge KRS origins into k-rust carriers.</td>
+                <td>KRS-BRIDGE-001.</td>
+              </tr>
+              <tr>
+                <td>Approve a native mutation result for production use</td>
+                <td><span class="status bad">Sealed</span></td>
+                <td>NR-07 after all semantic receipts exist.</td>
+                <td>Provenance + exhaustion + lowering + evaluator + issuer.</td>
+              </tr>
+              <tr>
+                <td>Run adversarial resource-bounded campaigns safely</td>
+                <td><span class="status bad">Not authorized</span></td>
+                <td>NR-04 product implementation and host delegation.</td>
+                <td>cgroup-v2 and quota authority.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="next">
+      <div class="shell">
+        <div class="eyebrow">Recommended work</div>
+        <h2>The shortest credible path forward</h2>
+        <p class="section-intro">
+          The best local sequence is to finish qualification before building product integration on top of an unstable surface. Upstream and environment work can proceed in parallel because those blockers are independent.
+        </p>
+
+        <div class="steps">
+          <article class="next-step">
+            <h3>Finish NR-07Q positive rows</h3>
+            <p>Add exact current-pin tranches for the remaining selected forms: declarations, imports, rules/claims, conditions, sequences, sets, attributes, configurations, and backend execution.</p>
+          </article>
+          <article class="next-step">
+            <h3>Add continuous cell/collection routes</h3>
+            <p>Carry one KRS-authored cell artifact and one heterogeneous List/Map artifact continuously through collection, both IRs, adaptation, preparation, compilation, and KORE reparse/execution.</p>
+          </article>
+          <article class="next-step">
+            <h3>Run structured failures</h3>
+            <p>Prove undefined labels, dangling variables, unsupported host expressions, initializer drift, and adapter-specific fields stop at the correct stage with typed diagnostics and no output.</p>
+          </article>
+          <article class="next-step">
+            <h3>Accept full NR-07Q</h3>
+            <p>Audit the complete 36-row inventory. Accept only the declared selected surface; retain every named gap and SidecarOnlyMissingBridge boundary.</p>
+          </article>
+          <article class="next-step">
+            <h3>Build NR-07I</h3>
+            <p>Integrate K-produced discovery sites/joined tuples, the K-authored pattern compiler, and an independently qualified evaluator as positive-only evidence.</p>
+          </article>
+          <article class="next-step">
+            <h3>Land upstream evidence APIs</h3>
+            <p>Implement the KRS provenance bridge, explicit k-rust search exhaustion/frontier accounting, and a checked lowering proof/checker.</p>
+          </article>
+          <article class="next-step">
+            <h3>Implement NR-04 isolation</h3>
+            <p>Provide delegated cgroup-v2 and disk-quota authority, fresh workers, closed stop mapping, durable publication, and replay-before-acceptance.</p>
+          </article>
+          <article class="next-step">
+            <h3>Unseal NR-07 and audit NR-08</h3>
+            <p>Only after all prerequisite receipts validate, expose the production issuer and run an independent final audit over exact pins and profiles.</p>
+          </article>
+        </div>
+
+        <div class="grid" style="margin-top:1.5rem">
+          <article class="card wide">
+            <h3>Can run in parallel</h3>
+            <ul>
+              <li>Remaining NR-07Q local tranches.</li>
+              <li>KRS provenance-bridge design and implementation.</li>
+              <li>k-rust search-completion and lowering-proof APIs.</li>
+              <li>NR-04 host/product authority planning.</li>
+            </ul>
+          </article>
+          <article class="card wide">
+            <h3>Must remain sequential</h3>
+            <ul>
+              <li>Full NR-07Q acceptance before NR-07I.</li>
+              <li>NR-07I qualification before final NR-07 issuance.</li>
+              <li>All semantic and isolation prerequisites before unsealing production constructors.</li>
+              <li>NR-04 and final NR-07 before the NR-08 readiness verdict.</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="glossary">
+      <div class="shell">
+        <div class="eyebrow">Glossary</div>
+        <h2>Terms used in this report</h2>
+
+        <dl class="glossary">
+          <div class="term"><dt>K Framework</dt><dd>A system for defining programming-language syntax and semantics as rewrite rules, then executing or proving properties about programs.</dd></div>
+          <div class="term"><dt>KRS</dt><dd>A Rust-based language and compiler for authoring K definitions as typed Rust constructs.</dd></div>
+          <div class="term"><dt>k-rust</dt><dd>The Rust K frontend/backend engine used to prepare, lower, execute, prove, and search definitions.</dd></div>
+          <div class="term"><dt>IR</dt><dd>Intermediate representation: structured compiler data between source code and backend form.</dd></div>
+          <div class="term"><dt>KORE</dt><dd>K’s lower-level Matching Logic representation consumed by execution and proof backends.</dd></div>
+          <div class="term"><dt>Provenance</dt><dd>Evidence that says where a semantic node came from and how generated nodes relate to authored source.</dd></div>
+          <div class="term"><dt>OriginMapping</dt><dd>KRS’s deterministic sidecar mapping from authored/Definition-IR origins to structural native destinations.</dd></div>
+          <div class="term"><dt>Continuous route</dt><dd>One exact artifact passes through every stage in one chain; results from separate tests are not spliced together.</dd></div>
+          <div class="term"><dt>Positive witness</dt><dd>Concrete evidence that something was found: a state, execution path, match, or rule observation.</dd></div>
+          <div class="term"><dt>Exhaustion</dt><dd>Evidence that all reachable work was visited. Required before absence can be concluded.</dd></div>
+          <div class="term"><dt>Fail closed</dt><dd>Missing or uncertain evidence yields unknown/not-proven and publishes no authority-bearing result.</dd></div>
+          <div class="term"><dt>Receipt</dt><dd>A machine-readable record binding an operation and its outputs to exact inputs, identities, versions, and profiles.</dd></div>
+          <div class="term"><dt>Production authority</dt><dd>Permission for validated native evidence to create an accepted artifact or decision rather than only an experimental result.</dd></div>
+          <div class="term"><dt>Sealed issuer</dt><dd>A constructor deliberately inaccessible until all required evidence has validated together.</dd></div>
+          <div class="term"><dt>NR-07Q</dt><dd>The full selected KRS surface qualification milestone.</dd></div>
+          <div class="term"><dt>NR-07I</dt><dd>Positive-only K-owned discovery/compiler/evaluator integration after NR-07Q.</dd></div>
+          <div class="term"><dt>NR-04 / NR-07 / NR-08</dt><dd>Hard isolation; final production authority; and final independent native-readiness audit, respectively.</dd></div>
+          <div class="term"><dt>Exact pin</dt><dd>An immutable Git commit and tool/profile identity used to make evidence reproducible.</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section id="sources">
+      <div class="shell">
+        <div class="eyebrow">Evidence sources</div>
+        <h2>Where the conclusions come from</h2>
+        <p class="section-intro">
+          This report is explanatory, not a new acceptance authority. Machine-readable TOML registers and executable gates remain the source of truth.
+        </p>
+
+        <p>
+          The analyzed upstream snapshot uses KRS exact pin <code>be5f8449854567f198e841d2a96fbe188cfa96ac</code> and k-rust exact pin <code>c41caa8bede96e279e0b058577dce504e4144f65</code>.
+        </p>
+
+        <ul class="sources mono">
+          <li>investigations/k-rust-target/capability-matrix.toml</li>
+          <li>investigations/k-rust-target/upstream-issues.toml</li>
+          <li>draft/tasks/rust-upfront/native-capability-reassessment.toml</li>
+          <li>draft/tasks/rust-upfront/native-readiness-work-package.toml</li>
+          <li>draft/tasks/rust-upfront/completion-report.toml</li>
+          <li>draft/tasks/rust-upfront/handoffs/NR-U5.toml</li>
+          <li>draft/tasks/rust-upfront/handoffs/NR-07A.toml</li>
+          <li>draft/tasks/rust-upfront/handoffs/NR-07Q-T1.toml</li>
+          <li>draft/tasks/rust-upfront/handoffs/NR-07Q-T2.toml</li>
+          <li>draft/tasks/rust-upfront/handoffs/NR-07Q-T3.toml</li>
+          <li>crates/kink-native/tests/fixtures/nr_07q_selected_surface.toml</li>
+          <li>draft/goal/README.md</li>
+          <li>draft/k-in-k-summary.md</li>
+          <li>investigations/backend-agnostic-goal-closure/README.md</li>
+        </ul>
+
+        <details>
+          <summary>Validation represented by the current baseline</summary>
+          <div>
+            The aligned-pin NR-07A, NR-07Q-T1, NR-07Q-T2, and NR-07Q-T3 serialized gates passed. The <code>kink-native</code> test suite, formatting, Clippy with warnings denied, ShellCheck, TOML parsing, and protected-artifact hash checks also passed before this report was generated. The protected untracked request file remained unchanged.
+          </div>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="shell">
+      <p><strong>K-in-K2 project status and blocker report.</strong> Generated from the selected current pins and roadmap state on 2 September 2026.</p>
+      <p>Interpret every “pass” at its stated evidence level. Full KRS qualification, provenance-complete authority, exhaustive absence, checked lowering, hard isolation, and final production authority remain open.</p>
+    </div>
+  </footer>
+</body>
+</html>

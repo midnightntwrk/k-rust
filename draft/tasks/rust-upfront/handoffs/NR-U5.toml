@@ -1,0 +1,115 @@
+schema_version = 1
+packet_id = "NR-U5"
+title = "Aligned KRS and k-rust current-pin migration"
+status = "current-pins-selected-local-gates-pass-full-qualification-blocked"
+audited_on = 2026-09-02
+purpose = "Select the aligned more-features KRS and k-rust pair, record the passing current K-in-K2 local qualification gates, and preserve every full-qualification and native-authority blocker."
+protected_artifact = "investigations/k-rust-target/k-rust-agent-requests.toml"
+protected_artifact_sha256 = "dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec"
+
+[candidate]
+krs_revision = "be5f8449854567f198e841d2a96fbe188cfa96ac"
+krs_subject = "/home/sebastiengllmt/git/workspaces/starstream-fv/krs"
+krs_state = "clean"
+k_rust_revision = "c41caa8bede96e279e0b058577dce504e4144f65"
+dedicated_k_rust_subject = "/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust-krs-main"
+dedicated_k_rust_state = "clean"
+shared_k_rust_subject = "/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust"
+shared_k_rust_state = "clean"
+alignment = "KRS Krs.lock and adapter constant select c41caa8; both observed k-rust worktrees resolve to that exact commit."
+previous_krs_revision = "cff5e10b77a24a58590f59b5379f9f77ebd19f4d"
+previous_selected_k_rust_revision = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
+selected_k_rust_range = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c..c41caa8bede96e279e0b058577dce504e4144f65"
+
+[selection]
+decision = "Select KRS be5f844 and k-rust c41caa8 as the current K-in-K2 pins."
+reason = "KRS has migrated to the exact more-features head and records successful upstream requalification. The engine delta contains frontend fixes directly relevant to previously qualified KRS compatibility lowerings, so keeping the former pair as the active subject would no longer represent the user's aligned local stack."
+authority_effect = "none"
+sidecar_status = "SidecarOnlyMissingBridge"
+prior_gate_policy = "Prior cff5e10/0de7983 passes remain immutable historical evidence. Current be5f844/c41caa8 gates are recorded separately below and do not widen authority."
+
+[[k_rust_delta]]
+commit = "701ed1b4be16bc380b6635b8237018b028e8c7d0"
+subject = "feat(kompile): accept already-complete cell applications"
+files = ["crates/k-rust/src/kompile/passes/concretize_cells.rs", "crates/k-rust/tests/kompile_passes.rs"]
+tests = ["preserves_already_complete_nested_cells"]
+effect = "Makes complete leaf and parent cell applications an upstream-supported frontend shape. KRS retains its compatibility lowering until removal is separately qualified."
+
+[[k_rust_delta]]
+commit = "758a3a9d13f08c748869b4245a14b79e2e44084e"
+subject = "fix(msrv): enforce Rust 1.88 compatibility"
+files = [".github/workflows/ci.yml", "crates/k-rust/Cargo.toml", "crates/k-rust-backend/Cargo.toml", "crates/k-rust-kore/Cargo.toml", "crates/k-rust-napi/Cargo.toml", "crates/k-rust-wasm/Cargo.toml"]
+tests = ["cargo +1.88.0 check --all-targets --locked"]
+effect = "Closes KRS's recorded if-let-guard MSRV discrepancy upstream. K-in-K2 retains its current native/frontend Rust 1.98 profile until separately requalified."
+
+[[k_rust_delta]]
+commit = "6ad2ea985c8ad2f3021d84e6c5adcaebe053a74f"
+subject = "fix(kompile): project semantic downcasts"
+files = ["crates/k-rust/src/kompile/module_to_kore.rs", "crates/k-rust/src/kompile/sort_injections.rs", "crates/k-rust/tests/sort_injections.rs"]
+tests = ["semantic_casts_project_heterogeneous_collection_results"]
+effect = "Materializes project:<Sort> for strict-subsort cast metadata. KRS retains its direct project:<Sort> lowering until removal is separately qualified."
+
+[[k_rust_delta]]
+commit = "c41caa8bede96e279e0b058577dce504e4144f65"
+subject = "test(backend): pin deep simplification budget behavior"
+files = ["crates/k-rust-backend/src/rewrite.rs"]
+tests = ["deep_concrete_recursion_has_bounded_linear_productive_work"]
+effect = "Turns KRS's deep simplification budget workaround into pinned engine behavior; the default remains 100 and KRS retains its 4,096 override."
+
+[krs_migration]
+commit = "be5f8449854567f198e841d2a96fbe188cfa96ac"
+subject = "Migrate KRS to the ported k-rust more-features head"
+files = ["K_RUST_HANDOFF.md", "K_RUST_UPSTREAM.toml", "Krs.lock", "RECOVERY_AUDIT.md", "crates/krs-k-rust/src/lib.rs", "docs-site/src/pages/index.mdx", "tests/kevm/pins.toml", "tests/kmir/pins.toml", "tests/kwasm/pins.toml", "tests/m4/README.md", "tests/m4/pins.json", "tests/m4/verify.py"]
+preserved_lowerings = ["complete-cell closed parser-shape lowering", "direct project:<Sort> lowering"]
+follow_up = "Removing either compatibility lowering is separate KRS qualification work and is not implied by this repin."
+
+[upstream_reported_requalification]
+authority = "KRS commit message and tracked handoff evidence; not rerun by NR-U5"
+adapter = "25 krs-k-rust adapter tests pass."
+m4 = "M4.1-M4.8 passes at descriptor protocol 35 and Definition IR schema 27 with 1,206/1,206 native KORE parity and all 21 proofs."
+kevm = "The serial 240-case native gate passes with unchanged behavior hashes."
+kmir = "The serial 184-case native gate passes with unchanged behavior hashes."
+kwasm = "The serial 32-case native gate passes with unchanged behavior hashes."
+exact_evidence_files = ["Krs.lock", "K_RUST_HANDOFF.md", "K_RUST_UPSTREAM.toml", "tests/m4/pins.json", "tests/m4/verify.py", "tests/kevm/pins.toml", "tests/kmir/pins.toml", "tests/kwasm/pins.toml"]
+
+[current_kink2_requalification]
+status = "current-local-gates-pass-full-nr-07q-blocked"
+serialization = "Run no unrelated Cargo or rustc concurrently; set CARGO_BUILD_JOBS=1 and CARGO_INCREMENTAL=0."
+ordered_gates = [
+  "Parse every changed TOML document and validate current constants/manifests structurally without Cargo.",
+  "Run the kink-native exact-pin and selected-surface structural tests at be5f844/c41caa8.",
+  "Run draft/tasks/rust-upfront/verify-nr-07a.sh at be5f844/c41caa8.",
+  "Run draft/tasks/rust-upfront/verify-nr-07q-t1.sh at be5f844/c41caa8.",
+  "Run draft/tasks/rust-upfront/verify-nr-07q-t2.sh at be5f844/c41caa8.",
+  "Run draft/tasks/rust-upfront/verify-nr-07q-t3.sh at be5f844/c41caa8.",
+  "After each runtime gate passes, record only its exact local evidence without changing authority boundaries.",
+]
+current_results = [
+  "PASS: exact-pin and selected-surface structural tests at KRS be5f844 and k-rust c41caa8.",
+  "PASS: NR-07A current-pin fixture-only positive transport gate.",
+  "PASS: NR-07Q-T1 current-pin five-exercise application/literal/reference component gate; stages remain independent.",
+  "PASS: NR-07Q-T2 one application/literal/reference artifact traversed all nine ordered stages continuously; 3 of 36 rows, no structured failure, SidecarOnlyMissingBridge.",
+  "PASS: NR-07Q-T3 four distinct component routes for cell/list/map; no continuous cell or collection artifact and compatibility lowerings remain.",
+]
+remaining = ["Remaining selected-surface rows.", "Structured failure cases.", "Continuous KRS-authored cell routes.", "Continuous KRS-authored collection routes."]
+
+[unchanged_authority_blockers]
+provenance = "KRS OriginMapping is not bound to applicable public k-rust provenance carriers or an equivalent checked relation."
+search_completion = "ResultBound has no frontier or exact unvisited-work accounting and there is no explicit Exhausted record."
+lowering = "No stable checked lowering proof artifact and registered checker is available."
+discovery = "No qualified K-owned discovery definition emits the required sites and joined tuples."
+compiler_evaluator = "No separately qualified K-authored pattern compiler and independent evaluator subject is accepted."
+issuance = "Production issuers remain sealed."
+isolation = "NR-04 still lacks delegated cgroup-v2 and quota-backed writable-root authority."
+
+[acceptance]
+selected_candidate = true
+current_runtime_gates_passed = true
+selected_pins_accepted_for_local_gates = true
+full_nr_07q_accepted = false
+qualification_authority = false
+provenance_authority = false
+search_exhaustion_authority = false
+lowering_authority = false
+production_authority = false
+nr_07i_unblocked = false

@@ -1,0 +1,59 @@
+schema_version = 1
+packet_id = "NR-07A"
+title = "Pinned KRS fixture to positive-bounded native search"
+status = "accepted-fixture-only-positive-transport"
+protected_artifact_sha256 = "dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec"
+
+[scope]
+owned = ["crates/kink-native/tests/nr_07a_krs_fixture.rs", "draft/tasks/rust-upfront/verify-nr-07a.sh", "handoffs/NR-07A.toml", "native-readiness roadmap status"]
+untouched = ["KRS", "shared k-rust", "dedicated k-rust", "Cargo dependency graphs", "investigations/k-rust-target/k-rust-agent-requests.toml"]
+
+[pins]
+krs_revision = "cff5e10b77a24a58590f59b5379f9f77ebd19f4d"
+krs_definition_ir_fixture = "crates/krs-ir/tests/golden/definition_expr.json"
+krs_adapter = "crates/krs-k-rust/src/bin/krs-native-compile.rs"
+k_rust_revision = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
+k_rust_crate_version = "=0.4.0"
+krs_process_profile = "default-features=false,z3-inference"
+kink_native_profile = "default-features=false,structured-no-z3-inference,solver=NoSolver"
+
+[implementation]
+structured_route = "The tracked schema-27 DefinitionIr JSON is deserialized by KRS's existing krs-native-compile binary, structurally adapted and prepared by krs-k-rust, and compiled by its exact dedicated k-rust pin. The gate never emits or parses K source. The local test parses only the resulting KORE through the pinned public KORE parser."
+feature_isolation = "KRS compilation and kink-native testing run as two sequential Cargo processes with distinct target directories and dependency graphs. kink-native adds no krs-k-rust or KRS dependency, so KRS's z3-inference feature cannot unify into NR-06's NoSolver graph."
+fixture_assertion = "The test structurally selects compiled rule EXPR.expr.and-true and its UNIQUE_ID. Independently of that rule body, it constructs and checks the LblLblAnd(Expr, Expr) -> Expr declaration signature, VarV62 element variable, true and false Bool domain values, LblLblAnd(inj{SortBool, SortExpr}(true), inj{SortBool, SortExpr}(VarV62)) LHS core, and the K frontend's direct subsort-closure injection inj{SortBool, SortKItem}(VarV62) RHS core. It rejects reversed and same-side cores, retains GeneratedTopCell rewrite/conjunction/top sorts, substitutes false exactly once, and grounds the generated K continuation to dotk and generated counter to zero exactly once on both full states so unrelated heat/cool matching cannot defer to unavailable SMT. It then checks the concrete LHS to inj{SortBool, SortKItem}(false) direction before search. Fresh observed state and path searches retain transition identity, depth, state, event order, before/after values, the backend-normalized Rule#VarV62-to-false binding once among any generated bindings, empty predicates/effects, and exact full-order replay."
+authority = "Every result remains SidecarOnlyMissingBridge with native_authority=false, exhaustive_absence=false, and production_receipt=false. The fixture is transport and positive-witness evidence only."
+
+[blocked_fixtures]
+foo_bar = "The tracked definition_foo_bar.json declares initializer initMachine, but pinned KRS preparation generates and requires initKCell. It therefore fails honestly during Preparation and is not positive fixture evidence. NR-07A does not bypass or mutate KRS to admit it."
+
+[clean_source_strategy]
+live_krs_state = "The default KRS checkout is exact cff5e10 but has unrelated untracked docs-plan/ and therefore remains correctly rejected by verify_pins."
+binding = "The harness uses the live repositories only as local Git object sources, then checks out exact commits into ordinary local clones below one mktemp-created /var/tmp root. Untracked files cannot enter either clone."
+validation = "The product verify_pins gate validates the exact clean disposable KRS and dedicated k-rust clones, the KRS manifest profile, canonical relative dependency target, and exact stable Rust version before accepting fixture evidence."
+cleanup = "An EXIT trap removes only the exact mktemp root after validating its kink-nr07a prefix. No git worktree metadata, source checkout, or external repository content is changed."
+
+[validation]
+static = "PASS after the Expr fixture repair: direct stable rustfmt check, shell syntax, ShellCheck, TOML parse, git diff --check, and exact protected SHA validation."
+format = "PASS: cargo +stable fmt --all -- --check."
+focused_compile = "PASS: CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 cargo +stable test --locked -p kink-native --test nr_07a_krs_fixture --no-run."
+fixture_gate = "PASS: draft/tasks/rust-upfront/verify-nr-07a.sh built exact clean KRS cff5e10 and dedicated k-rust 0de7983 in the isolated z3-inference graph, then passed the no-Z3 positive state/path/replay gate and both protected-artifact checks."
+clippy = "PASS: CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 cargo +stable clippy --locked -p kink-native --test nr_07a_krs_fixture -- -D warnings."
+toml = "PASS"
+
+[exclusions]
+items = [
+  "pattern search and pattern compilation",
+  "K-owned discovery, joins, and tuples",
+  "MutationMaterialization",
+  "oracle decisions or evaluator conformance",
+  "production, operation, collection, or compiler receipts",
+  "cache, durable publication, and isolated-worker authority",
+  "Z3, solver, or SMT-relative authority",
+  "native issuer constructors",
+  "portable provenance promotion",
+  "exhaustive absence or search exhaustion",
+]
+
+[roadmap]
+unblocks = ["repeatable fixture-level KRS-to-NR-06 positive transport experiments"]
+does_not_unblock = ["full KRS-QUAL-001 language-surface qualification", "NR-07 K-owned discovery and oracle authority", "NR-08", "NR-04"]

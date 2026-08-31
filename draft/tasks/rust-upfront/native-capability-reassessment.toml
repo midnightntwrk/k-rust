@@ -1,87 +1,100 @@
 schema_version = 1
-reassessment_id = "k-in-k2/native-readiness/2026-08-31"
+reassessment_id = "k-in-k2/native-readiness/2026-09-02"
 status = "actionable-local-wave"
-audited_on = "2026-08-31"
+audited_on = "2026-09-02"
 portable_package = "k-in-k2/rust-upfront/v1"
-k_rust_shared_revision = "e71dd8aaa72a26c8db0c437b4cf0ac866efc6d49"
+k_rust_shared_revision = "c41caa8bede96e279e0b058577dce504e4144f65"
 k_rust_shared_state = "clean-read-only-evidence"
-krs_revision = "cff5e10b77a24a58590f59b5379f9f77ebd19f4d"
-krs_state = "clean-at-audit-snapshot-dirty-after-snapshot"
-krs_k_rust_revision = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
+krs_revision = "be5f8449854567f198e841d2a96fbe188cfa96ac"
+krs_state = "clean-aligned-selected-pin"
+krs_k_rust_revision = "c41caa8bede96e279e0b058577dce504e4144f65"
 krs_k_rust_state = "clean-dedicated-pin"
-summary = "Clean KRS cff5e10 makes complete nested-cell frontend admission reproducible against its unchanged dedicated k-rust pin. Shared k-rust e71dd8a retains packed sharing through Z3 sort inference and factors model results before unpacking, but exposes no new public solver, provenance, lowering, search, or evidence API. The clean KRS pair is locally bindable after structural pin verification and an honest Rust 1.98 toolchain profile. Exhaustive absence, the KRS provenance bridge, checked lowering proofs, K-owned discovery, and independent K-authored evaluator authority remain blocked."
+summary = "Aligned KRS be5f844 and dedicated/shared k-rust c41caa8 are the selected current pins. K-in-K2's current-pin structural gate, NR-07A runtime gate, NR-07Q-T1 five-exercise component gate, NR-07Q-T2 continuous application/literal/reference route, and NR-07Q-T3 distinct cell/list/map component routes pass. Full NR-07Q remains blocked on the remaining selected rows, structured failures, and continuous cell and collection routes. KRS-QUAL-001 remains open; KRS OriginMapping remains unbridged; ResultBound still has no frontier and no explicit Exhausted record exists; checked lowering, K-owned discovery/compiler/evaluator fixtures, sealed issuance, and NR-04 isolation authority remain absent."
 
 [upstream_delta_audit]
-handoff = "handoffs/NR-U3.toml"
-previous_shared_k_rust_revision = "4fef6d7beee5e95495b3ff42272703b957d80c29"
-current_shared_k_rust_revision = "e71dd8aaa72a26c8db0c437b4cf0ac866efc6d49"
-commits = ["ce852d537bd8d8c8a2d5ec44a1739f7b0bede255", "e71dd8aaa72a26c8db0c437b4cf0ac866efc6d49"]
-shared_k_rust_effect = "Private packed parser terms now survive Z3 sort inference, apply model results over the DAG, and factor compatible instantiated-production alternatives before owned materialization. Public parse, solver-profile, lowering, provenance, search, and evidence contracts are unchanged."
-krs_clean_effect = "DefinitionTermKind::Cell now presents complete nested cells through k-rust's closed three-argument parser shape at clean KRS cff5e10. The focused regression preserves child ordering and leaf bodies."
-authority_effect = "No upstream hold is discharged."
+handoff = "handoffs/NR-U5.toml"
+previous_shared_k_rust_revision = "e71dd8aaa72a26c8db0c437b4cf0ac866efc6d49"
+current_shared_k_rust_revision = "c41caa8bede96e279e0b058577dce504e4144f65"
+range = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c..c41caa8bede96e279e0b058577dce504e4144f65"
+shared_k_rust_effect = "The full selected range retains the packed-parser, provenance-sharing, and differential-containment changes from NR-U4 and adds already-complete cell acceptance at 701ed1b, workspace Rust 1.88 compatibility at 758a3a9, semantic-downcast projection at 6ad2ea9, and a deep simplification budget regression at c41caa8. It adds no KRS provenance bridge, explicit Exhausted record, ResultBound frontier, checked lowering proof/checker, K-owned fixture, sealed issuer, or isolation authority."
+krs_clean_effect = "KRS be5f844 pins c41caa8 and records successful upstream requalification without removing its closed-parser-shape complete-cell or direct project:<Sort> compatibility lowerings. Those removals remain separate qualification work."
+authority_effect = "NR-U5 selects the aligned pair and records passing current local gates through NR-07Q-T3. Those gates discharge no KRS-QUAL-001 clause and none of the final authority holds."
 
 [source_policy]
 integration_subject = "/home/sebastiengllmt/git/workspaces/starstream-fv/krs and its declared k-rust-krs-main dependency"
 shared_k_rust = "/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust"
-rule = "The clean shared k-rust audit snapshot and the clean dedicated k-rust pin are read-only evidence. The KRS cff5e10 commit is accepted snapshot evidence, while its current untracked docs-plan directory remains excluded and makes the default checkout inadmissibly dirty. Integration must bind immutable clean KRS and dedicated k-rust checkouts."
+rule = "The clean shared and dedicated k-rust worktrees at c41caa8 and clean KRS be5f844 are the selected current pins. Passing local evidence binds immutable clean clones; each later tranche must retain exact pins, cleanliness, serialization, and fail-closed authority."
 
 [[gate]]
 id = "NATIVE-01"
-classification = "partially-unblocked"
-local_work = ["Fail-closed native sentence/term index.", "Native declaration, signature, sort, and subsort validation.", "Owner-qualified symbol identity with ambiguous-owner rejection.", "Bind and requalify the clean KRS complete-nested-cell compatibility shape."]
-blocked = ["KRS does not bind OriginMapping into k-rust SourceTable, TermSpan, production metadata, and OriginRecord or retain an equivalent provenance-bearing compilation result."]
+classification = "engine-surface-available-krs-bridge-blocked"
+local_work = ["The selected-surface structural gate, current-pin NR-07A, NR-07Q-T1, continuous expression NR-07Q-T2, and distinct cell/list/map component NR-07Q-T3 gates pass.", "Complete the remaining selected rows and structured failures, plus continuous cell and collection routes; none of the passing tranches closes KRS-QUAL-001.", "Fail-closed native sentence/term index.", "Native declaration, signature, sort, and subsort validation.", "Owner-qualified symbol identity with ambiguous-owner rejection."]
+blocked = ["KRS does not bind OriginMapping into the applicable k-rust source, term, production, sentence, or generated-origin carrier, and does not retain an equivalent checked provenance relation in its compilation result."]
 
 [[gate]]
 id = "NATIVE-02"
 classification = "partially-unblocked"
-local_work = ["Atomic staged-validator seam.", "After NATIVE-01 indexing, clone, patch, resolve, check, lower, and commit the native definition as one transaction.", "Requalify complete nested-cell validation against clean KRS cff5e10 and k-rust 0de7983."]
+local_work = ["Atomic staged-validator seam.", "After NATIVE-01 indexing, clone, patch, resolve, check, lower, and commit the native definition as one transaction.", "Requalify complete nested-cell validation against clean KRS be5f844 and k-rust c41caa8."]
 blocked = ["Provenance-complete receipts depend on the NATIVE-01 bridge."]
 
 [[gate]]
 id = "NATIVE-03"
-classification = "partially-unblocked"
-local_work = ["Atomic selector resolution through exact-rule ObservationOptions.", "Branch-local committed transition adaptation.", "Manifest-ordered RuleApplied and domain-event derivation."]
+classification = "engine-capable-positive-adapter-complete-production-blocked"
+local_work = ["NR-06 completed atomic selector resolution through exact-rule ObservationOptions.", "NR-06 completed branch-local committed transition adaptation.", "Manifest-ordered RuleApplied and domain-event derivation may be retained as positive-bounded evidence."]
 blocked = ["Portable emitting-sentence provenance depends on the NATIVE-01 bridge unless the retained KRS sidecar is qualified as authoritative."]
 
 [[gate]]
 id = "NATIVE-04"
 classification = "positive-bounded-only"
-local_work = ["Adapt branch paths, constraints, observations, solver-relative matches, and every typed incomplete reason.", "Retain positive witnesses and map every incomplete or external stop to unknown."]
-blocked = ["No positive closed exhausted completion record.", "ResultBound has no frontier or equivalent unvisited-work accounting.", "An empty incomplete list cannot prove exhaustion."]
+local_work = ["NR-06 adapts state and path search, and NR-07I may add pattern and pattern-path positive-only consumers.", "Retain positive witnesses and map every empty, incomplete, cancelled, or external stop to unknown."]
+blocked = ["No explicit Exhausted completion record.", "ResultBound is a unit variant with no frontier or equivalent unvisited-work accounting.", "An empty incomplete list cannot prove exhaustion."]
 
 [[gate]]
 id = "NATIVE-05"
-classification = "partially-unblocked"
-local_work = ["Execute a KRS-authored discovery definition producing ordered sites and joined tuples.", "Decode K-produced tuples without host Cartesian construction.", "Feed validated registries into MutationMaterialization."]
-blocked = ["Native-proven materialization receipts depend on NATIVE-01 and NATIVE-02."]
+classification = "positive-integration-ready-after-nr-07q-production-blocked"
+local_work = ["NR-07I must execute a KRS-authored discovery definition producing ordered sites and joined tuples.", "Decode only K-produced sites and joined tuples without host Cartesian construction.", "Retain positive witnesses behind a sealed non-authoritative boundary."]
+blocked = ["No KRS-authored K-in-K2 discovery and joined-tuple fixture exists.", "Native-proven materialization receipts depend on the provenance bridge, checked lowering, and final sealed authority."]
 
 [[gate]]
 id = "NATIVE-06"
-classification = "validator-upfront-native-authority-blocked"
-local_work = ["Schema-exact compiler-receipt and evaluator-conformance validators.", "Pinned query compiler and differential evaluator qualification."]
-blocked = ["No current KRS pattern-source to normalized-plan/query binding.", "No independent native evaluator conformance suite or sealed issuer."]
+classification = "validators-complete-positive-integration-ready-production-blocked"
+local_work = ["NR-03 supplies schema-exact compiler-receipt and evaluator-conformance validators.", "NR-07I must qualify the K-authored pattern compiler and independent evaluator separately and keep their constructors sealed."]
+blocked = ["No current K pattern compiler binds source to normalized plan and query.", "No independent native evaluator conformance subject or sealed issuer exists."]
 
 [[gate]]
 id = "NATIVE-07"
-classification = "partially-unblocked"
-local_work = ["One isolated child per attempt.", "External resource enforcement and typed stop mapping.", "Replay execution and artifact comparison."]
-blocked = ["No stable checked native lowering relation or proof artifact."]
+classification = "local-replay-ready-lowering-and-isolation-blocked"
+local_work = ["Replay execution and artifact comparison are locally implementable.", "NR-04 must supply one isolated child per attempt, external resource enforcement, and typed stop mapping."]
+blocked = ["No stable checked native lowering proof artifact or registered checker.", "No NR-04 delegated cgroup-v2 and quota-backed isolation authority."]
 
 [[gate]]
 id = "NATIVE-08"
-classification = "unblocked-local"
-local_work = ["Durable rust-artifact-store-v1.", "Cross-process atomic compare-and-publish.", "Output-before-record visibility, recovery, resolver transport, and conflict remediation."]
+classification = "implemented-local-awaiting-interim-audit"
+local_work = ["NR-01 implemented durable rust-artifact-store-v1.", "NR-01 implemented cross-process atomic compare-and-publish, output-before-record visibility, recovery, resolver transport, and conflict remediation.", "NR-08A must audit the retained local evidence."]
 blocked = []
 
-[upstream_requirements]
-items = [
-  "Freeze KRS on the accepted final k-rust provenance revision and bridge KRS OriginMapping into complete k-rust provenance.",
+[authority_requirements]
+upstream = [
+  "Bridge KRS OriginMapping into the public provenance surface of selected dedicated k-rust c41caa8.",
   "Return explicit exhausted or incomplete search completion with frontier or equivalent unvisited-work evidence.",
-  "Expose a stable lowering relation/proof artifact and registered checker.",
-  "Qualify K-authored pattern compilation and independent evaluator conformance.",
+  "Expose a stable checked lowering proof artifact and registered checker.",
 ]
+local = ["Qualify K-authored pattern compilation and independent evaluator conformance separately.", "Validate every prerequisite through sealed production issuers."]
+external = ["Supply the delegated cgroup-v2 and quota-backed authority required by NR-04."]
+
+[roadmap]
+nr_07a = "The complete current-pin runtime gate passes at KRS be5f844 and k-rust c41caa8 as fixture-only positive transport. It grants no provenance, exhaustion, or production authority."
+nr_07q_s = "The current-pin closed selected-surface manifest and structural gate pass structure and coverage only. They grant no qualification evidence and cannot unblock NR-07I."
+nr_07q_t1 = "The current-pin five-exercise application/literal/reference component gate passes, but its independently executed stages are not a continuous artifact route."
+nr_07q_t2 = "The continuous application/literal/reference route passes through all nine stages, covers 3 of 36 selected rows, and retains sidecar-only provenance with no qualification authority."
+nr_07q_t3 = "Distinct current-pin component routes for cell/list/map pass, but no one KRS-authored cell or collection artifact traverses the complete route."
+nr_07q = "Blocked on remaining selected rows, structured failures, and continuous cell and collection routes. KRS-QUAL-001 and provenance-complete acceptance remain open."
+nr_07i = "Follows NR-07Q and owns positive-only K-produced discovery plus separately qualified compiler/evaluator integration. Host Cartesian construction and production issuance are forbidden."
+nr_07 = "Final production authority remains blocked on the provenance bridge, explicit search completion where required, checked lowering proof/checker, qualified compiler/evaluator evidence, and sealed issuance."
+nr_08a = "Interim audit follows the local and positive-only packets and records all residual holds without waiving them."
+nr_08 = "Final audit follows both NR-04 isolation authority and final NR-07 production authority."
 
 [binding_requalification]
-clean_krs_revision = "cff5e10b77a24a58590f59b5379f9f77ebd19f4d"
-clean_k_rust_revision = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
-local_repairs = ["Use a clean KRS cff5e10 checkout; the current default checkout has an untracked docs-plan directory and fails the existing cleanliness gate.", "Update the kink-native KRS revision only with NR-05R structural manifest verification.", "Record and test the exact frontend toolchain profile; KRS qualifies native/frontend helpers with Rust 1.98 while kink-native currently declares Rust 1.88.", "Retain SidecarOnlyMissingBridge and issue no native authority."]
+clean_krs_revision = "be5f8449854567f198e841d2a96fbe188cfa96ac"
+clean_k_rust_revision = "c41caa8bede96e279e0b058577dce504e4144f65"
+local_repairs = ["Retain the passing aligned-pin structural, NR-07A, NR-07Q-T1, NR-07Q-T2, and NR-07Q-T3 gates as local evidence only.", "Implement the remaining selected rows and structured failures, then continuous KRS-authored cell and collection routes.", "Retain the exact Rust 1.98 native/frontend profile until K-in-K2 separately qualifies a toolchain change; upstream Rust 1.88 compatibility does not silently repin this profile.", "Retain SidecarOnlyMissingBridge and issue no native authority."]
