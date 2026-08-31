@@ -3816,7 +3816,7 @@ fn fabricated_collection_units_replace_spans_with_generation_origins() {
         .as_deref()
         .expect("fabricated unit has an origin");
     assert_eq!(origin.pass, GeneratingPass::RemoveUnit);
-    assert_eq!(origin.origins, [ProvenanceLink::Source { span }]);
+    assert_eq!(origin.origins.as_ref(), [ProvenanceLink::Source { span }]);
 }
 
 #[test]

@@ -341,7 +341,8 @@ pub struct DestinationAnchor {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct OriginRecord {
     pub pass: GeneratingPass,
-    pub origins: Vec<ProvenanceLink>,
+    /// Immutable derivation links shared by generated descendants with the same origin set.
+    pub origins: Arc<[ProvenanceLink]>,
     pub destination: Option<DestinationAnchor>,
 }
 
@@ -409,10 +410,11 @@ pub fn record_generated_origins(
             if origins.is_empty() {
                 origins.clone_from(&module_origins);
             }
+            let origins: Arc<[ProvenanceLink]> = origins.into();
             if generated {
                 let record = OriginRecord {
                     pass,
-                    origins: origins.clone(),
+                    origins: Arc::clone(&origins),
                     destination: Some(DestinationAnchor {
                         module: module.name.clone(),
                         sentence: sentence_name.clone(),
@@ -596,7 +598,7 @@ pub(crate) fn seed_generated_sentence_origin(
         ORIGIN_ATTRIBUTE,
         OriginRecord {
             pass,
-            origins,
+            origins: origins.into(),
             destination: None,
         }
         .to_value(),
@@ -699,7 +701,7 @@ fn annotate_sentence_terms(
     sentence: &mut Sentence,
     before: Option<&Sentence>,
     pass: GeneratingPass,
-    origins: &[ProvenanceLink],
+    origins: &Arc<[ProvenanceLink]>,
     module: &str,
     sentence_name: &str,
     sentence_index: u32,
@@ -779,7 +781,7 @@ fn annotate_term(
     term: &mut Term,
     before: Option<&Term>,
     context: AnnotationContext<'_>,
-    inherited_origins: &[ProvenanceLink],
+    inherited_origins: &Arc<[ProvenanceLink]>,
     path: Vec<u32>,
 ) {
     if before.is_some_and(|candidate| term == candidate) {
@@ -791,7 +793,7 @@ fn annotate_term(
         *term = taken.with_metadata(TermMetadata {
             origin: Some(Arc::new(OriginRecord {
                 pass: context.pass,
-                origins: own_origins.clone(),
+                origins: Arc::clone(&own_origins),
                 destination: Some(DestinationAnchor {
                     module: context.module.into(),
                     sentence: context.sentence.into(),
@@ -895,20 +897,20 @@ fn annotate_term(
 fn term_origin_links(
     before: Option<&Term>,
     after: &Term,
-    inherited: &[ProvenanceLink],
-) -> Vec<ProvenanceLink> {
+    inherited: &Arc<[ProvenanceLink]>,
+) -> Arc<[ProvenanceLink]> {
     let before_metadata = before.and_then(Term::metadata);
     let after_metadata = after.metadata();
     let mut links = Vec::new();
     for link in before_metadata
         .and_then(|metadata| metadata.origin.as_deref())
         .into_iter()
-        .flat_map(|origin| &origin.origins)
+        .flat_map(|origin| origin.origins.iter())
         .chain(
             after_metadata
                 .and_then(|metadata| metadata.origin.as_deref())
                 .into_iter()
-                .flat_map(|origin| &origin.origins),
+                .flat_map(|origin| origin.origins.iter()),
         )
         .cloned()
     {
@@ -923,10 +925,17 @@ fn term_origin_links(
     {
         push_unique(&mut links, ProvenanceLink::Source { span });
     }
-    for link in inherited {
+    if links.is_empty() {
+        return Arc::clone(inherited);
+    }
+    for link in inherited.iter() {
         push_unique(&mut links, link.clone());
     }
-    links
+    if links == inherited.as_ref() {
+        Arc::clone(inherited)
+    } else {
+        links.into()
+    }
 }
 
 fn only_child_mut(term: &mut Term) -> Option<&mut Term> {
@@ -953,7 +962,7 @@ fn annotate_child(
     before: Option<&Term>,
     child: u32,
     context: AnnotationContext<'_>,
-    origins: &[ProvenanceLink],
+    origins: &Arc<[ProvenanceLink]>,
     parent_path: &[u32],
 ) {
     let mut path = parent_path.to_vec();
@@ -1051,7 +1060,7 @@ mod tests {
 
         assert_eq!(metadata.span, Some(span));
         assert_eq!(origin.pass, GeneratingPass::MacroExpansion);
-        assert_eq!(origin.origins, [ProvenanceLink::Source { span }]);
+        assert_eq!(origin.origins.as_ref(), [ProvenanceLink::Source { span }]);
         assert_eq!(
             origin.destination,
             Some(DestinationAnchor {
@@ -1060,6 +1069,51 @@ mod tests {
                 sentence_index: 0,
                 path: vec![0],
             }),
+        );
+    }
+
+    #[test]
+    fn generated_descendants_share_identical_origin_link_storage() {
+        let span = TermSpan {
+            source: SourceId(0),
+            start: 10,
+            end: 20,
+        };
+        let before = definition(
+            Term::apply("before", Vec::new()).with_metadata(TermMetadata {
+                span: Some(span),
+                ..TermMetadata::default()
+            }),
+        );
+        let after = record_generated_origins(
+            &before,
+            definition(Term::apply(
+                "after",
+                vec![Term::apply("generated-child", Vec::new())],
+            )),
+            GeneratingPass::MacroExpansion,
+        );
+        let Sentence::Rule { body, .. } = &after.main_module().unwrap().local_sentences[0] else {
+            panic!("expected rule");
+        };
+        let parent = body
+            .metadata()
+            .and_then(|metadata| metadata.origin.as_deref())
+            .expect("generated parent has an origin");
+        let Term::Apply { arguments, .. } = body.unannotated() else {
+            panic!("expected application");
+        };
+        let child = arguments[0]
+            .metadata()
+            .and_then(|metadata| metadata.origin.as_deref())
+            .expect("generated child has an origin");
+
+        assert_eq!(parent.origins.as_ref(), [ProvenanceLink::Source { span }]);
+        assert_eq!(child.origins, parent.origins);
+        assert_eq!(
+            child.origins.as_ptr(),
+            parent.origins.as_ptr(),
+            "identical inherited origin sets must not be cloned into every generated term",
         );
     }
 
@@ -1086,7 +1140,7 @@ mod tests {
         };
         let prior = Arc::new(OriginRecord {
             pass: GeneratingPass::ConfigurationExpansion,
-            origins: vec![source.clone()],
+            origins: vec![source.clone()].into(),
             destination: Some(DestinationAnchor {
                 module: "MAIN".into(),
                 sentence: "MAIN.rule".into(),
@@ -1115,7 +1169,7 @@ mod tests {
             .expect("changed node has an origin");
 
         assert_eq!(origin.pass, GeneratingPass::MacroExpansion);
-        assert_eq!(origin.origins, [source]);
+        assert_eq!(origin.origins.as_ref(), [source]);
         assert_eq!(
             origin.destination,
             Some(DestinationAnchor {
@@ -1143,10 +1197,10 @@ mod tests {
             end: 40,
         };
         let shared = sentence("shared");
-        let origin = |links| {
+        let origin = |links: Vec<ProvenanceLink>| {
             Arc::new(OriginRecord {
                 pass: GeneratingPass::ConfigurationExpansion,
-                origins: links,
+                origins: links.into(),
                 destination: None,
             })
         };
@@ -1161,8 +1215,9 @@ mod tests {
             ..TermMetadata::default()
         });
 
+        let inherited = vec![shared, sentence("inherited")].into();
         assert_eq!(
-            term_origin_links(Some(&before), &after, &[shared, sentence("inherited")]),
+            term_origin_links(Some(&before), &after, &inherited).as_ref(),
             [
                 sentence("before"),
                 sentence("shared"),
@@ -1363,11 +1418,11 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(
-            receipts[0].origins,
+            receipts[0].origins.as_ref(),
             [ProvenanceLink::Source { span: span(0, 10) }]
         );
         assert_eq!(
-            receipts[1].origins,
+            receipts[1].origins.as_ref(),
             [ProvenanceLink::Source { span: span(1, 30) }]
         );
         assert_ne!(receipts[0].origins, receipts[1].origins);
