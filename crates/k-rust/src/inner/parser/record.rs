@@ -175,9 +175,8 @@ impl Grammar {
     pub(super) fn collapse_record_productions(
         &self,
         term: ParsedTerm,
+        mut names: BTreeSet<String>,
     ) -> Result<ParsedTerm, ParseError> {
-        let mut names = BTreeSet::new();
-        collect_variable_names(&term, &mut names);
         let mut next = 0;
         let mut generated = BTreeMap::new();
         self.collapse_records(term, &mut names, &mut generated, &mut next)
@@ -412,29 +411,6 @@ fn is_prefix_production(production: &super::Production) -> bool {
         }
     }
     state == 4
-}
-
-fn collect_variable_names(term: &ParsedTerm, names: &mut BTreeSet<String>) {
-    match term {
-        ParsedTerm::Term(term) => {
-            if let Term::Variable { name, .. } = term.unannotated() {
-                names.insert(name.clone());
-            }
-        }
-        ParsedTerm::Production { children, .. } => {
-            for child in children {
-                collect_variable_names(child, names);
-            }
-        }
-        ParsedTerm::InstantiatedProduction { .. } => {
-            unreachable!("record variables are collected before sort inference")
-        }
-        ParsedTerm::Ambiguity(alternatives) => {
-            for alternative in alternatives {
-                collect_variable_names(alternative, names);
-            }
-        }
-    }
 }
 
 fn insert_field(
