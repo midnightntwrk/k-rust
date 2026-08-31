@@ -290,7 +290,7 @@ fn frontend_differentials_guard_rust_resident_memory_without_constraining_the_re
     let guard_path = workspace.join("scripts/reference-memory-guard.sh");
     let guard = fs::read_to_string(&guard_path).expect("shared resident-memory guard");
     for contract in [
-        "RUST_DIFFERENTIAL_MEMORY_HIGH_KIB:-6291456",
+        "RUST_DIFFERENTIAL_MEMORY_HIGH_KIB:-8388608",
         "RUST_DIFFERENTIAL_MEMORY_MAX_KIB:-8388608",
         "RUST_DIFFERENTIAL_FALLBACK_VIRTUAL_MEMORY_KIB:-12582912",
         "MemoryHigh=${rust_memory_high_kib}K",
@@ -366,7 +366,7 @@ exec "$@"
     assert_eq!(scoped.stdout, b"scoped-out", "preserve scoped stdout");
     assert_eq!(scoped.stderr, b"scoped-err", "preserve scoped stderr");
     let scoped_calls = fs::read_to_string(&calls).expect("scoped call log");
-    assert!(scoped_calls.contains("MemoryHigh=6291456K"));
+    assert!(scoped_calls.contains("MemoryHigh=8388608K"));
     assert!(scoped_calls.contains("MemoryMax=8388608K"));
     assert!(scoped_calls.contains("MemorySwapMax=0"));
     assert_eq!(
