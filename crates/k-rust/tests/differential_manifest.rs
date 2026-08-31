@@ -11,7 +11,21 @@ use toml::Value;
 const MANIFEST: &str = include_str!("../../../scripts/reference-differential.toml");
 const COMPILE_SCRIPT: &str = include_str!("../../../scripts/reference-differential.sh");
 const KAST_SCRIPT: &str = include_str!("../../../scripts/reference-kast-differential.sh");
+const EXECUTION_SCRIPT: &str =
+    include_str!("../../../scripts/reference-non-imp-execution-differential.sh");
+const PROOF_SCRIPT: &str = include_str!("../../../scripts/reference-proof-differential.sh");
+const RPC_SCRIPT: &str = include_str!("../../../scripts/reference-rpc-differential.sh");
+const MIR_EXECUTION_SCRIPT: &str =
+    include_str!("../../../scripts/reference-mir-execution-differential.sh");
 const SECTIONS: [&str; 5] = ["compile", "kast", "execution", "proof", "rpc"];
+const JAVA_BACKED_DIFFERENTIAL_SCRIPTS: [&str; 6] = [
+    COMPILE_SCRIPT,
+    KAST_SCRIPT,
+    EXECUTION_SCRIPT,
+    PROOF_SCRIPT,
+    RPC_SCRIPT,
+    MIR_EXECUTION_SCRIPT,
+];
 
 #[test]
 fn differential_manifest_is_complete_and_unambiguous() {
@@ -248,26 +262,38 @@ fn manual_certification_protocol_names_all_imp_families() {
 }
 
 #[test]
-fn frontend_differentials_guard_rust_resident_memory_without_constraining_the_reference_jvm() {
+fn java_backed_differentials_guard_the_whole_job_without_nested_sibling_scopes() {
+    for script in JAVA_BACKED_DIFFERENTIAL_SCRIPTS {
+        let source = script
+            .find("source \"$workspace/scripts/reference-memory-guard.sh\"")
+            .expect("every Java-backed differential must source the shared guard");
+        let enter = script
+            .find("reference_enter_whole_job \"$@\"")
+            .expect("every Java-backed differential must enter one whole-job guard");
+        assert!(
+            source < enter,
+            "the shared guard must be sourced before entering it",
+        );
+        assert!(
+            enter
+                < script
+                    .find("source \"$workspace/scripts/reference-pins.sh\"")
+                    .unwrap(),
+            "the whole-job guard must be entered before manifest and pin processing",
+        );
+    }
+
     for script in [COMPILE_SCRIPT, KAST_SCRIPT] {
         assert!(
             script.contains("reference_memory_kib=${REFERENCE_DIFFERENTIAL_MEMORY_KIB:-}"),
             "the reference JVM must retain its independently optional virtual-memory ceiling",
-        );
-        assert!(
-            script.contains("source \"$workspace/scripts/reference-memory-guard.sh\""),
-            "the Rust frontend must use the shared resident-memory guard",
         );
         assert_eq!(
             script
                 .matches("reference_run_rust_frontend cargo run")
                 .count(),
             1,
-            "each frontend script must route its one Rust process through the guard",
-        );
-        assert!(
-            !script.contains("ulimit -v \"$rust_memory_kib\""),
-            "the Rust frontend must not confuse virtual address space with resident memory",
+            "each frontend script must route its one Rust process through the aggregate-aware helper",
         );
     }
 
@@ -288,15 +314,15 @@ fn frontend_differentials_guard_rust_resident_memory_without_constraining_the_re
 
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let guard_path = workspace.join("scripts/reference-memory-guard.sh");
-    let guard = fs::read_to_string(&guard_path).expect("shared resident-memory guard");
+    let guard = fs::read_to_string(&guard_path).expect("shared whole-job memory guard");
     for contract in [
-        "RUST_DIFFERENTIAL_MEMORY_HIGH_KIB:-8388608",
-        "RUST_DIFFERENTIAL_MEMORY_MAX_KIB:-8388608",
-        "RUST_DIFFERENTIAL_FALLBACK_VIRTUAL_MEMORY_KIB:-12582912",
-        "MemoryHigh=${rust_memory_high_kib}K",
-        "MemoryMax=${rust_memory_max_kib}K",
+        "REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB:-8388608",
+        "REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB:-8388608",
+        "REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB:-12582912",
+        "MemoryHigh=${reference_job_memory_high_kib}K",
+        "MemoryMax=${reference_job_memory_max_kib}K",
         "MemorySwapMax=0",
-        "ulimit -v \"$rust_fallback_virtual_memory_kib\"",
+        "ulimit -v \"$reference_job_fallback_virtual_memory_kib\"",
     ] {
         assert!(
             guard.contains(contract),
@@ -314,6 +340,7 @@ fn frontend_differentials_guard_rust_resident_memory_without_constraining_the_re
     ));
     fs::create_dir(&fixture).expect("create guard fixture");
     let fake_systemd_run = fixture.join("systemd-run");
+    let fixture_script = fixture.join("whole-job-fixture.sh");
     fs::write(
         &fake_systemd_run,
         r#"#!/usr/bin/env bash
@@ -329,6 +356,24 @@ exec "$@"
 "#,
     )
     .expect("write fake systemd-run");
+    fs::write(
+        &fixture_script,
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+source "$REFERENCE_GUARD_PATH"
+reference_enter_whole_job "$@"
+reference_run_rust_frontend bash -c '
+  printf x >>"$PAYLOAD_RUNS"
+  printf "%s\n" "$REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND"
+  if [[ "$REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND" == rlimit-as ]]; then
+    ulimit -v
+  fi
+  printf payload-err >&2
+  exit "$PAYLOAD_STATUS"
+'
+"#,
+    )
+    .expect("write whole-job fixture");
     let mut permissions = fs::metadata(&fake_systemd_run)
         .expect("fake systemd-run metadata")
         .permissions();
@@ -339,6 +384,7 @@ exec "$@"
     }
     fs::set_permissions(&fake_systemd_run, permissions).expect("make fake systemd-run executable");
     let calls = fixture.join("calls");
+    let payload_runs = fixture.join("payload-runs");
     let path = format!(
         "{}:{}",
         fixture.display(),
@@ -346,25 +392,23 @@ exec "$@"
     );
 
     let scoped = Command::new("bash")
-        .arg("-c")
-        .arg("source \"$1\"; shift; reference_run_rust_frontend \"$@\"")
-        .arg("guard-test")
-        .arg(&guard_path)
-        .arg("bash")
-        .arg("-c")
-        .arg("printf scoped-out; printf scoped-err >&2; exit 23")
+        .arg(&fixture_script)
         .env("PATH", &path)
         .env("GUARD_CALLS", &calls)
+        .env("PAYLOAD_RUNS", &payload_runs)
+        .env("PAYLOAD_STATUS", "23")
+        .env("REFERENCE_GUARD_PATH", &guard_path)
         .env("SYSTEMD_PROBE_STATUS", "0")
+        .env_remove("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND")
         .output()
         .expect("run scoped guard fixture");
     assert_eq!(
         scoped.status.code(),
         Some(23),
-        "preserve scoped exit status"
+        "preserve whole-job scoped exit status"
     );
-    assert_eq!(scoped.stdout, b"scoped-out", "preserve scoped stdout");
-    assert_eq!(scoped.stderr, b"scoped-err", "preserve scoped stderr");
+    assert_eq!(scoped.stdout, b"systemd-scope\n", "preserve scoped stdout",);
+    assert_eq!(scoped.stderr, b"payload-err", "preserve scoped stderr");
     let scoped_calls = fs::read_to_string(&calls).expect("scoped call log");
     assert!(scoped_calls.contains("MemoryHigh=8388608K"));
     assert!(scoped_calls.contains("MemoryMax=8388608K"));
@@ -372,33 +416,44 @@ exec "$@"
     assert_eq!(
         scoped_calls.lines().count(),
         2,
-        "probe once and execute once"
+        "probe once and execute the whole job once without an inner sibling scope"
+    );
+    assert_eq!(
+        fs::read_to_string(&payload_runs).expect("scoped payload runs"),
+        "x",
+        "a nonzero child must never be retried",
     );
 
     fs::write(&calls, "").expect("clear call log");
+    fs::write(&payload_runs, "").expect("clear payload run log");
     let fallback = Command::new("bash")
-        .arg("-c")
-        .arg("source \"$1\"; shift; reference_run_rust_frontend \"$@\"")
-        .arg("guard-test")
-        .arg(&guard_path)
-        .arg("bash")
-        .arg("-c")
-        .arg("ulimit -v; printf fallback-err >&2; exit 29")
+        .arg(&fixture_script)
         .env("PATH", &path)
         .env("GUARD_CALLS", &calls)
+        .env("PAYLOAD_RUNS", &payload_runs)
+        .env("PAYLOAD_STATUS", "29")
+        .env("REFERENCE_GUARD_PATH", &guard_path)
         .env("SYSTEMD_PROBE_STATUS", "1")
-        .env("RUST_DIFFERENTIAL_FALLBACK_VIRTUAL_MEMORY_KIB", "10485760")
+        .env(
+            "REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB",
+            "10485760",
+        )
+        .env_remove("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND")
         .output()
         .expect("run fallback guard fixture");
     assert_eq!(
         fallback.status.code(),
         Some(29),
-        "preserve fallback exit status"
+        "preserve whole-job fallback exit status"
     );
-    assert_eq!(fallback.stdout, b"10485760\n", "apply fallback ulimit");
-    assert!(
-        fallback.stderr.ends_with(b"fallback-err"),
-        "preserve fallback stderr"
+    assert_eq!(
+        fallback.stdout, b"rlimit-as\n10485760\n",
+        "apply the fallback virtual-address limit to the entire job",
+    );
+    assert_eq!(
+        fallback.stderr,
+        b"warning: user systemd scopes unavailable; applying the 10485760 KiB whole-job virtual-address fallback (RLIMIT_AS), not a resident-memory limit\npayload-err",
+        "identify the fallback semantics and otherwise preserve stderr exactly",
     );
     assert_eq!(
         fs::read_to_string(&calls)
@@ -407,6 +462,41 @@ exec "$@"
             .count(),
         1,
         "an unavailable scope must probe once and execute only through the fallback",
+    );
+    assert_eq!(
+        fs::read_to_string(&payload_runs).expect("fallback payload runs"),
+        "x",
+        "a nonzero fallback child must never be retried",
+    );
+
+    fs::write(&calls, "").expect("clear call log");
+    fs::write(&payload_runs, "").expect("clear payload run log");
+    let invalid = Command::new("bash")
+        .arg(&fixture_script)
+        .env("PATH", &path)
+        .env("GUARD_CALLS", &calls)
+        .env("PAYLOAD_RUNS", &payload_runs)
+        .env("PAYLOAD_STATUS", "0")
+        .env("REFERENCE_GUARD_PATH", &guard_path)
+        .env("SYSTEMD_PROBE_STATUS", "0")
+        .env("REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB", "eight-gib")
+        .env_remove("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND")
+        .output()
+        .expect("run invalid guard configuration");
+    assert_eq!(invalid.status.code(), Some(2));
+    assert_eq!(
+        invalid.stderr,
+        b"error: REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB must be a positive KiB integer\n",
+    );
+    assert_eq!(
+        fs::read_to_string(&calls).expect("invalid call log"),
+        "",
+        "invalid configuration must fail before probing",
+    );
+    assert_eq!(
+        fs::read_to_string(&payload_runs).expect("invalid payload runs"),
+        "",
+        "invalid configuration must fail before executing the job",
     );
 
     fs::remove_dir_all(fixture).expect("remove guard fixture");
