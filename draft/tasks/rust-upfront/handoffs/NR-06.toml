@@ -1,0 +1,79 @@
+schema_version = 1
+packet_id = "NR-06"
+title = "Branch-local observation and positive bounded search adapter"
+status = "complete-positive-bounded-upstream-blocked"
+protected_artifact_sha256 = "dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec"
+
+[scope]
+owned = ["crates/kink-native observation/search modules", "focused tests", "Cargo.lock dependency edge", "handoffs/NR-06.toml", "native-readiness roadmap status"]
+untouched = ["KRS", "shared k-rust", "k-rust-krs-main", "NR-04A", "investigations/k-rust-target/k-rust-agent-requests.toml", "other Rust crates"]
+
+[pins]
+krs_revision = "cff5e10b77a24a58590f59b5379f9f77ebd19f4d"
+k_rust_revision = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
+k_rust_crate_version = "=0.4.0"
+kink_native_default_features = false
+kink_native_solver_features = []
+solver_profile = "k-rust=0.4.0,default-features=false,no-z3-inference,solver=NoSolver"
+later_solver_requirement = "k-rust=0.4.0,z3-inference plus an exact solver profile and conformance receipt"
+
+[implementation]
+selector_installation = "RuleObservationSpec binds an exact label to the exact backend identity required by public k_rust::backend::ObservedRequest. Local duplicate label, duplicate identity, empty identity, empty constructor, and duplicate manifest-event checks are all-or-none and mutate no backend. Payload indices cannot be prevalidated because binding, predicate, and effect cardinalities exist only in transition-runtime wire data; any missing indexed source rejects the complete response and returns no adapted branch. Each of the four public observed-search calls passes the complete identity vector; the pinned facade invokes ObservationOptions::with_rules against the selected module before search, so an unknown, ambiguous, or invisible identity returns no adapted result."
+observation = "The adapter exhaustively matches public ObservationEventOutput. Every committed Transition must match its full {rule,target} identity as an ordered subsequence of the branch identity; transitionOrdinal is the actual branch position, and absent, out-of-order, or duplicate-occurrence mismatches reject the response. Committed transitions become manifest-ordered RuleApplied then domain DTOs. Branch identity, target identity, class, label, binding order, introduced predicates, before/after state, effects, source transition order, and emission order are preserved. Uncommitted events remain typed rollback evidence and never become committed events. Erasure removes only adapted observation state."
+search = "The adapter consumes the exact public SearchResponse, PathSearchResponse, PatternSearchResponse, and PathPatternSearchResponse types. It preserves facade result order, state/path identities, traces, bindings, residual constraints, effects, and branch-local observations. All eight IncompleteSearchOutput variants are matched without a wildcard and retain their typed state and nested public failure evidence."
+positive_boundary = "Any nonempty state, path witness, pattern match, or pattern-path match is Positive even when siblings are incomplete. Every empty response is UnknownNotProven, including an empty incomplete vector. ResultBound is always incomplete and never supplies frontier, completion, exhaustion, or absence evidence."
+solver_boundary = "The only accepted profile is default-features=false with NoSolver and no z3-inference. SMT and solver-relative incomplete evidence is retained as SolverDeferred with the exact later qualified-profile requirement. A caller requesting the later profile is rejected before adaptation."
+replay = "Replay comparison is exact equality over the adapted response union, including branches, witnesses, events, incomplete evidence, order, effects, and authority fields. Mismatch returns only ReplayMismatch and publishes no candidate. No durable publication or cache claim is introduced."
+authority = "Every adapted result carries SidecarOnlyMissingBridge, native_authority=false, exhaustive_absence=false, and production_receipt=false. Backend labels and transition IDs remain supplemental sidecar identities and never become portable emitting-sentence provenance."
+
+[tests]
+focused = [
+  "duplicate selector and duplicate backend identity atomic rejection",
+  "public facade unknown and invisible selector rejection",
+  "public facade ambiguous backend identity rejection",
+  "committed branch-local observation adaptation",
+  "selected observations retain actual positions across unselected prefix and middle transitions",
+  "fabricated target, misordered identity, and duplicate observation occurrence rejection",
+  "sibling branch isolation and fixed event/manifest order",
+  "rollback distinction and observation erasure",
+  "all eight incomplete variants in source order",
+  "empty success and ResultBound remain UnknownNotProven",
+  "positive result survives a breadth-truncated sibling",
+  "state, path, pattern, and pattern-path order and data preservation",
+  "solver-profile mismatch and SMT defer",
+  "replay equality and mismatch",
+  "zero provenance, completeness, receipt, or native-authority promotion",
+  "runtime payload cardinality mismatch returns no adapted branch",
+]
+
+[validation]
+format = "PASS: cargo +stable fmt --all -- --check."
+compile = "PASS: CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 cargo +stable test -p kink-native --locked --no-run completed in 45.49 seconds while the shared slice remained below memory.max with zero OOM/max events."
+focused_tests = "PASS after one fixture-only repair: CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 cargo +stable test -p kink-native --locked passed 39 active unit tests and doc tests, with only the explicit NR-05R clean-pair gate ignored. The first run had 36 passes and three fixture failures because bare rewrite sides were rejected as UnsupportedAliasRewrite before selector validation; parser-form conjunctions repaired the fixture, and the unchanged adapter tests then passed."
+clippy = "PASS after removing one redundant iterator must_use annotation: CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 cargo +stable clippy -p kink-native --all-targets --locked -- -D warnings."
+toml = "PASS: Python stdlib tomllib parsed Cargo.lock, crates/kink-native/Cargo.toml, this handoff, and native-readiness-work-package.toml."
+diff = "PASS: git diff --check."
+protected_sha = "PASS: investigations/k-rust-target/k-rust-agent-requests.toml retained SHA-256 dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec."
+
+[limitations]
+items = [
+  "No empty or bounded result is exhaustive; the pinned facade exposes no positive exhausted record or ResultBound frontier.",
+  "No Z3 feature, solver profile, solver receipt, or SMT authority is enabled by kink-native.",
+  "The KRS sidecar still lacks the qualified bridge into complete k-rust source, production, and generated-origin records.",
+  "No adapter result is a BAG-15 production receipt, BAG-16 native collection receipt, reusable cache record, portable provenance record, or native authority token.",
+  "NR-04 remains independently blocked; this packet adds no durable publication, isolation, or cache claim.",
+]
+
+[unblocking]
+ready_after_acceptance = ["NR-07 local positive-result consumers, subject to all existing upstream qualification holds"]
+still_blocked = ["exhaustive native absence", "qualified KRS-to-k-rust provenance", "qualified solver-relative evidence", "BAG-15/BAG-16 production authority", "NR-04 isolated durable publication"]
+
+[acceptance]
+decision = "NR-06 is accepted only as a positive-bounded observation/search adapter. Its focused compile, unit/doc test, warnings-denied Clippy, format, TOML, diff, protected-artifact, and two-stage independent static-review gates pass."
+retained_boundary = "No empty or incomplete response proves absence or exhaustion; no backend identity becomes portable provenance; and no solver, production, receipt, cache, publication, or native authority is issued."
+
+[independent_review]
+result = "accepted-after-repair-no-findings"
+first_review = "A fresh Sol reviewer rejected the initial implementation because filtered observations were not correlated with full branch transition identities."
+repair = "The adapter now matches full {rule,target} identities as an ordered subsequence, emits actual branch ordinals, and rejects absent, out-of-order, and excess duplicate observations. Runtime-only payload cardinality claims were narrowed and tested."
+second_review = "A second fresh Sol reviewer accepted the repaired implementation with no findings before Cargo validation."

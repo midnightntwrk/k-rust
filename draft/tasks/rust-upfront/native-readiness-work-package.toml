@@ -21,7 +21,7 @@ krs_clean_capability_change = "Clean KRS cff5e10 qualifies complete nested cells
 status_effect = "NR-U3 changes no gate authority, packet status, dependency, or acceptance criterion. NR-R3 and NR-05R retain their accepted local status without granting upstream native authority."
 
 [agent_protocol]
-execution = "NR-R3 independently accepted the completed NR-01R, NR-02R, and NR-R2 repair wave. NR-05R completed its local repair without granting upstream native authority. NR-04A proved the external isolation profile required by NR-04 and found that the current sandbox cannot supply its delegated cgroup-v2 and quota authorities, so NR-04 is blocked without product implementation. The positive-bounded NR-06 packet remains ready independently. NR-07 follows NR-03, NR-05R, and NR-06. NR-08 is last."
+execution = "NR-R3 independently accepted the completed NR-01R, NR-02R, and NR-R2 repair wave. NR-05R completed its local repair without granting upstream native authority. NR-04A proved the external isolation profile required by NR-04 and found that the current sandbox cannot supply its delegated cgroup-v2 and quota authorities, so NR-04 is blocked without product implementation. NR-06 completed and is accepted only as positive-bounded work. NR-07 follows NR-03, NR-05R, and NR-06 but remains upstream-qualification blocked. NR-08 is last."
 worktree = "Agents share this worktree. Preserve investigations/k-rust-target/k-rust-agent-requests.toml exactly. Do not edit KRS or k-rust unless a later packet explicitly grants ownership."
 handoff_directory = "handoffs"
 failure_rule = "Blocked authority remains not-proven. No empty or bounded result becomes exhaustive, and no schema-shaped record becomes native authority."
@@ -102,7 +102,7 @@ acceptance = ["Unsupported forms fail closed.", "Type, sort, subsort, ownership,
 [[packet]]
 id = "NR-06"
 title = "Branch-local observation and positive bounded search adapter"
-status = "ready-positive-bounded"
+status = "complete-positive-bounded-upstream-blocked"
 depends_on = ["NR-05R"]
 owns = ["native integration observation/search modules", "focused tests", "handoffs/NR-06.toml"]
 deliverables = ["Atomic selector installation.", "Committed transition to portable event adaptation.", "State/path search with branches, constraints, observations, solver profile, and typed incomplete reasons.", "Positive witnesses with fail-closed absence."]
@@ -120,7 +120,7 @@ acceptance = ["Root and nested cross-role path collisions remain distinct.", "Un
 [[packet]]
 id = "NR-07"
 title = "K-owned discovery and native pattern qualification"
-status = "blocked-on-local-packets-and-upstream-qualification"
+status = "blocked-on-upstream-qualification"
 depends_on = ["NR-03", "NR-05R", "NR-06"]
 owns = ["native KRS fixtures", "native issuer boundary", "integration tests", "handoffs/NR-07.toml"]
 deliverables = ["KRS-authored discovery emitting sites and joined tuples.", "K-authored compiler and independent evaluator qualification.", "Sealed MutationMaterialization and oracle receipt issuance after every prerequisite validates."]

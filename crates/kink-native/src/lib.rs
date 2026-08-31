@@ -5,6 +5,9 @@
 //! term span, source-table entry, and generated origin. Consequently no type in this crate grants
 //! native provenance authority.
 
+pub mod observation;
+pub mod search;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
