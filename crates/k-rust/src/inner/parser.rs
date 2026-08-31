@@ -11,7 +11,7 @@ mod z3_inference;
 
 #[cfg(test)]
 use std::cell::Cell;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::fmt;
 use std::rc::Rc;
 
@@ -345,6 +345,7 @@ struct PackedTerm {
 #[cfg(test)]
 thread_local! {
     static PACKED_STRUCTURAL_COMPARISONS: Cell<usize> = const { Cell::new(0) };
+    static UNPACKED_NODES: Cell<usize> = const { Cell::new(0) };
 }
 
 impl PartialEq for PackedTerm {
@@ -418,6 +419,8 @@ impl PackedTerm {
     }
 
     fn unpack(&self) -> ParsedTerm {
+        #[cfg(test)]
+        UNPACKED_NODES.set(UNPACKED_NODES.get() + 1);
         match &self.node {
             PackedNode::Production {
                 production,
@@ -434,6 +437,31 @@ impl PackedTerm {
             }
         }
     }
+}
+
+fn packed_variable_names(root: &Rc<PackedTerm>) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    let mut visited = HashSet::new();
+    let mut pending = vec![Rc::clone(root)];
+    while let Some(term) = pending.pop() {
+        if !visited.insert(Rc::as_ptr(&term)) {
+            continue;
+        }
+        match &term.node {
+            PackedNode::Term(term) => {
+                if let Term::Variable { name, .. } = term.unannotated() {
+                    names.insert(name.clone());
+                }
+            }
+            PackedNode::Production { children, .. } => {
+                pending.extend(children.iter().cloned());
+            }
+            PackedNode::Ambiguity(alternatives) => {
+                pending.extend(alternatives.iter().cloned());
+            }
+        }
+    }
+    names
 }
 
 struct Fingerprint(u64);
@@ -495,6 +523,16 @@ fn reset_packed_structural_comparisons() {
 #[cfg(test)]
 fn packed_structural_comparisons() -> usize {
     PACKED_STRUCTURAL_COMPARISONS.get()
+}
+
+#[cfg(test)]
+fn reset_unpacked_nodes() {
+    UNPACKED_NODES.set(0);
+}
+
+#[cfg(test)]
+fn unpacked_nodes() -> usize {
+    UNPACKED_NODES.get()
 }
 
 type Derivation = Vec<Rc<PackedTerm>>;
@@ -969,7 +1007,7 @@ impl Grammar {
                 input,
                 provenance,
             );
-            parses.extend(completed.into_iter().map(|term| term.unpack()));
+            parses.extend(completed);
             if first_violation.is_none() {
                 first_violation = violation;
             }
@@ -977,12 +1015,16 @@ impl Grammar {
         if parses.is_empty() {
             return Err(first_violation.unwrap_or_else(|| self.no_parse(&charts)));
         }
+        // The chart can retain the whole packed forest through its states. Release it before any
+        // post-parse allocation, then apply the root priority preference while alternatives still
+        // share their descendants. In particular, do not expand losing non-rewrite parses before
+        // Java's root rewrite/sequence/let preference has selected the corresponding sibling.
+        drop(charts);
         // Java applies `PriorityVisitor` to the packed root ambiguity. Its rewrite/sequence/let
         // preference must therefore run before descending into losing alternatives; filtering
         // each root independently incorrectly rejects inputs whose winning interpretation is a
         // top-level rewrite (for example a rewrite inside a competing map-item parse).
-        let forest = self.collapse_record_productions(ParsedTerm::Ambiguity(parses))?;
-        let forest = self.filter_priority(forest)?;
+        let forest = self.materialize_packed_forest(PackedTerm::ambiguity(parses))?;
         let forest = self.resolve_applications(forest)?;
         let forest = self.prefer_exact_rewrite_sibling_sorts(forest);
         let forest = self.push_top_lhs_ambiguity_up(self.factor_ambiguities(forest));
@@ -998,6 +1040,20 @@ impl Grammar {
         } else {
             Ok(self.lower(cleaned))
         }
+    }
+
+    /// Cross the shared packed-forest boundary only after Java-compatible root preference.
+    ///
+    /// Record collapse allocates generated variables against every name in the original forest,
+    /// including losing root interpretations. Collect that small context before pruning so the
+    /// allocation remains stable without materializing those losing trees. A second priority pass
+    /// is required after collapse because generated record productions deliberately defer edge
+    /// checks until they have exposed their original production.
+    fn materialize_packed_forest(&self, forest: Rc<PackedTerm>) -> Result<ParsedTerm, ParseError> {
+        let reserved_names = packed_variable_names(&forest);
+        let forest = self.filter_packed_priority(forest)?;
+        let forest = self.collapse_record_productions(forest.unpack(), reserved_names)?;
+        self.filter_priority(forest)
     }
 
     pub(crate) fn add(
@@ -1896,6 +1952,188 @@ mod chart_tests {
         };
 
         assert!(Rc::ptr_eq(&children[0], &child));
+    }
+
+    #[test]
+    fn root_priority_filters_a_losing_packed_dag_before_materialization() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("Rule"),
+                Vec::new(),
+                Some(Label::new("#KRewrite")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .add(
+                Sort::new("Rule"),
+                Vec::new(),
+                Some(Label::new("ordinary")),
+                false,
+                false,
+            )
+            .unwrap();
+        let mut losing = PackedTerm::leaf(Term::Variable {
+            name: "leaf".to_owned(),
+            sort: None,
+        });
+        let depth = 12;
+        for _ in 0..depth {
+            losing = PackedTerm::production(
+                1,
+                vec![Rc::clone(&losing), Rc::clone(&losing)],
+                TermMetadata::default(),
+            );
+        }
+        let preferred = PackedTerm::production(0, Vec::new(), TermMetadata::default());
+        let forest = PackedTerm::ambiguity(BTreeSet::from([losing, preferred]));
+        reset_unpacked_nodes();
+
+        let materialized = grammar
+            .materialize_packed_forest(forest)
+            .expect("the preferred packed root satisfies post-parse checks");
+
+        assert!(matches!(
+            materialized,
+            ParsedTerm::Production { production: 0, .. }
+        ));
+        assert_eq!(unpacked_nodes(), 1);
+    }
+
+    #[test]
+    fn record_collapse_exposes_edges_to_owned_priority_filtering() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("Rule"),
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("Rule"),
+                        name: None,
+                    },
+                    ProductionItem::Terminal(";".to_owned()),
+                ],
+                Some(Label::new("ordinary")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[0].field_names = vec![Some("body".to_owned())];
+        grammar
+            .add(
+                Sort::new("Rule"),
+                Vec::new(),
+                Some(Label::new("#KRewrite")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .add(
+                Sort::new("Rule"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Rule"),
+                    name: None,
+                }],
+                Some(Label::new("ordinary")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[2].record = Some(RecordProduction {
+            original: 0,
+            kind: RecordProductionKind::One("body".to_owned()),
+        });
+        let rewrite = PackedTerm::production(1, Vec::new(), TermMetadata::default());
+        let record = PackedTerm::production(2, vec![rewrite], TermMetadata::default());
+
+        assert_eq!(
+            grammar.materialize_packed_forest(record),
+            Err(ParseError::Scope {
+                parent: "ordinary".to_owned(),
+                child: "#KRewrite".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn losing_packed_roots_still_reserve_record_generated_names() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("Record"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Value"),
+                    name: None,
+                }],
+                Some(Label::new("record")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[0].field_names = vec![Some("body".to_owned())];
+        grammar
+            .add(
+                Sort::new("Record"),
+                Vec::new(),
+                Some(Label::new("record")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[1].record = Some(RecordProduction {
+            original: 0,
+            kind: RecordProductionKind::Zero,
+        });
+        grammar
+            .add(
+                Sort::new("Rule"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Record"),
+                    name: None,
+                }],
+                Some(Label::new("#KRewrite")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .add(
+                Sort::new("Rule"),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Value"),
+                    name: None,
+                }],
+                Some(Label::new("ordinary")),
+                false,
+                false,
+            )
+            .unwrap();
+        let record = PackedTerm::production(1, Vec::new(), TermMetadata::default());
+        let preferred = PackedTerm::production(2, vec![record], TermMetadata::default());
+        let reserved = PackedTerm::leaf(Term::Variable {
+            name: "_body0".to_owned(),
+            sort: None,
+        });
+        let losing = PackedTerm::production(3, vec![reserved], TermMetadata::default());
+        let forest = PackedTerm::ambiguity(BTreeSet::from([preferred, losing]));
+
+        let materialized = grammar
+            .materialize_packed_forest(forest)
+            .expect("the preferred root and collapsed record satisfy priority");
+        let ParsedTerm::Production { children, .. } = materialized else {
+            panic!("expected preferred root production");
+        };
+        let ParsedTerm::Production { children, .. } = &children[0] else {
+            panic!("expected collapsed record production");
+        };
+        let ParsedTerm::Term(Term::Variable { name, .. }) = &children[0] else {
+            panic!("expected generated record variable");
+        };
+
+        assert_eq!(name, "_body1");
     }
 
     #[test]

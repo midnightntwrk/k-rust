@@ -41,7 +41,10 @@ impl Grammar {
         }
     }
 
-    fn filter_packed_priority(&self, term: Rc<PackedTerm>) -> Result<Rc<PackedTerm>, ParseError> {
+    pub(super) fn filter_packed_priority(
+        &self,
+        term: Rc<PackedTerm>,
+    ) -> Result<Rc<PackedTerm>, ParseError> {
         match &term.node {
             PackedNode::Term(_) => Ok(term),
             PackedNode::Ambiguity(original_alternatives) => {
@@ -353,6 +356,8 @@ impl Grammar {
     /// Java's `SetsTransformerWithErrors` removes only the invalid alternatives beneath an
     /// ambiguity. Treating a packed child as one opaque node either retained invalid associations
     /// or discarded valid siblings, so this transformation performs the same branch-wise filter.
+    /// This owned pass remains necessary after generated record productions collapse and expose
+    /// edges which their parser-only wrappers deliberately exempt from priority checking.
     pub(super) fn filter_priority(&self, term: ParsedTerm) -> Result<ParsedTerm, ParseError> {
         match term {
             ParsedTerm::Term(_) => Ok(term),
