@@ -3731,13 +3731,13 @@ mod tests {
         let shared = ProvenanceLink::Sentence {
             unique_id: "shared".into(),
         };
-        let sentence = |origins| {
+        let sentence = |origins: Vec<crate::provenance::ProvenanceLink>| {
             let mut attributes = KAttributes::default();
             attributes.insert(
                 crate::provenance::ORIGIN_ATTRIBUTE,
                 crate::provenance::OriginRecord {
                     pass: GeneratingPass::MacroExpansion,
-                    origins,
+                    origins: origins.into(),
                     destination: None,
                 }
                 .to_value(),

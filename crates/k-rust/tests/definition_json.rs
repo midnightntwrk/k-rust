@@ -235,7 +235,7 @@ fn provenance_export_round_trips_sources_attributes_and_term_metadata() {
     };
     let origin = Arc::new(OriginRecord {
         pass: GeneratingPass::MacroExpansion,
-        origins: vec![ProvenanceLink::Source { span }],
+        origins: vec![ProvenanceLink::Source { span }].into(),
         destination: Some(DestinationAnchor {
             module: "MAIN".into(),
             sentence: "subject".into(),
@@ -433,7 +433,8 @@ fn provenance_decoder_rejects_malformed_wire_forms() {
                 start: 0,
                 end: 1,
             },
-        }],
+        }]
+        .into(),
         destination: None,
     };
     let definition = complete_definition(vec![Sentence::Rule {
