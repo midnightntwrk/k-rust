@@ -18,10 +18,10 @@ protected_artifact_sha256 = "dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e7
 commits = ["1f9110c5a2c5afcc39a0f39d821b35de41091e60", "1b786e66e2acc1c9a8bd4d8bea573d4fc5203be3", "55f74d635de7822f3a927eff88318533596208fa", "4fef6d7beee5e95495b3ff42272703b957d80c29"]
 shared_k_rust_capability_change = "No NATIVE-01 through NATIVE-07 authority change. Parser charts retain and factor sharing internally, but public parse, evidence, provenance, lowering, and search APIs are unchanged."
 krs_clean_capability_change = "Clean KRS cff5e10 qualifies complete nested cells through the closed frontend parser shape. This is a reproducible narrow NATIVE-01 and NATIVE-02 improvement against dedicated k-rust 0de7983."
-status_effect = "NR-U2 changes no gate authority or implementation status. This package revision separately records the already-completed NR-01R, NR-02R, and NR-R2 local repair work as awaiting NR-R3."
+status_effect = "NR-U2 changes no gate authority or implementation status. NR-R3 subsequently accepted the already-completed NR-01R, NR-02R, and NR-R2 local repair work without granting upstream native authority."
 
 [agent_protocol]
-execution = "NR-R3 independently accepts the completed NR-01R, NR-02R, and NR-R2 repair wave. After acceptance, NR-04 and NR-05R are independent, but memory-bounded builds must be serialized. NR-06 follows NR-05R. NR-07 follows NR-03, NR-05R, and NR-06. NR-08 is last."
+execution = "NR-R3 independently accepted the completed NR-01R, NR-02R, and NR-R2 repair wave. NR-04 and NR-05R are now independent, but memory-bounded builds must be serialized. NR-06 follows NR-05R. NR-07 follows NR-03, NR-05R, and NR-06. NR-08 is last."
 worktree = "Agents share this worktree. Preserve investigations/k-rust-target/k-rust-agent-requests.toml exactly. Do not edit KRS or k-rust unless a later packet explicitly grants ownership."
 handoff_directory = "handoffs"
 failure_rule = "Blocked authority remains not-proven. No empty or bounded result becomes exhaustive, and no schema-shaped record becomes native authority."
@@ -48,7 +48,7 @@ acceptance = ["Every native gate has an exact classification, local packet, and 
 [[packet]]
 id = "NR-01"
 title = "Durable artifact and cache publication"
-status = "repair-complete-awaiting-NR-R3"
+status = "complete"
 depends_on = ["NR-00"]
 owns = ["kink-portable durable artifact-store modules", "kink-campaign durable cache modules", "focused tests", "handoffs/NR-01.toml"]
 deliverables = ["Durable rust-artifact-store-v1.", "Cross-process compare-and-publish.", "Strict artifact:// ingress.", "Output-before-record visibility and interruption recovery.", "Versioned conflict ledger and remediation states."]
@@ -57,7 +57,7 @@ acceptance = ["Concurrent identical writers are idempotent and conflicts quarant
 [[packet]]
 id = "NR-02"
 title = "Atomic staged native-validation transaction seam"
-status = "repair-complete-awaiting-NR-R3"
+status = "complete"
 depends_on = ["NR-00"]
 owns = ["kink-patch native validation boundary", "focused tests", "handoffs/NR-02.toml"]
 deliverables = ["Closed generic native validator without an upstream dependency.", "Preserve ordinary apply_patch and RustProofPending.", "Return portable plus opaque validated native output only on success.", "Expose no staged output or committed edits on failure."]
@@ -75,7 +75,7 @@ acceptance = ["Bundled nonconformant evaluator fixture rejects.", "Refreshed out
 [[packet]]
 id = "NR-04"
 title = "Isolated worker, resource enforcement, durable transaction, and replay"
-status = "blocked-on-NR-R3"
+status = "ready"
 depends_on = ["NR-01", "NR-02", "NR-R3"]
 owns = ["kink-campaign worker/replay modules", "integration tests", "handoffs/NR-04.toml"]
 deliverables = ["One fresh child per attempt.", "Wall-time, resident-memory, swap, process-count, output-byte, and writable-disk enforcement.", "Closed BAG-10 stop mapping.", "Replay execution and comparison before publication."]
@@ -102,7 +102,7 @@ acceptance = ["Isolation, rollback, erasure, selector, event-order, and replay t
 [[packet]]
 id = "NR-05R"
 title = "Pinned adapter index and manifest repair"
-status = "ready-after-NR-R3"
+status = "ready"
 depends_on = ["NR-05", "NR-R3"]
 owns = ["kink-native term-use identities", "kink-native symbol resolution", "structured KRS manifest verification", "focused adversarial tests", "handoffs/NR-05R.toml"]
 deliverables = ["Role-qualified body/requires/ensures term paths with duplicate rejection.", "Fail-closed unknown and invisible label resolution.", "TOML-structural exact k-rust dependency verification.", "Repin KRS to clean cff5e10 and record an honest Rust 1.98 native/frontend profile.", "Retained sidecar-only provenance and zero native authority."]

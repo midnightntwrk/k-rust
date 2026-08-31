@@ -11,7 +11,8 @@ The dependency-ordered [`repair-work-package.toml`](repair-work-package.toml) is
 The post-upstream reassessment is [`native-capability-reassessment.toml`](native-capability-reassessment.toml).
 The active dependency-ordered implementation wave is [`native-readiness-work-package.toml`](native-readiness-work-package.toml), beginning with `handoffs/NR-00.toml`.
 The first-wave acceptance repairs are specified by [`native-readiness-repair-work-package.toml`](native-readiness-repair-work-package.toml).
-`handoffs/NR-01R.toml`, `handoffs/NR-02R.toml`, and the transaction-closure hardening in `handoffs/NR-R2.toml` are complete and await the independent `NR-R3` gate.
+`handoffs/NR-01R.toml`, `handoffs/NR-02R.toml`, and the transaction-closure hardening in `handoffs/NR-R2.toml` passed the independent `NR-R3` gate recorded in `handoffs/NR-R3.toml`.
+`NR-04` and `NR-05R` are now ready; `NR-06` remains blocked on `NR-05R`, and no upstream native authority was granted.
 The latest read-only upstream snapshot is `handoffs/NR-U2.toml`: clean KRS `cff5e10` qualifies complete nested cells against its dedicated k-rust pin, while shared k-rust `4fef6d7` changes parser performance without granting evidence authority.
 The pinned adapter pre-consumer audit is `handoffs/NR-05A.toml`; its local `NR-05R` repairs must complete before the positive-bounded `NR-06` adapter begins.
 
