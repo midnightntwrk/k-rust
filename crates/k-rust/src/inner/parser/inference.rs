@@ -1,11 +1,12 @@
 //! Portable sort inference for unambiguous, non-parametric parse trees.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::rc::Rc;
 
 use crate::definition::PartialOrder;
 use crate::kast::{Sort, Term};
 
-use super::{Grammar, Item, ParseError, ParsedTerm, Production};
+use super::{Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum SortRef {
@@ -34,6 +35,117 @@ struct Solver<'a> {
 }
 
 impl Grammar {
+    pub(super) fn infer_packed_sorts(
+        &self,
+        term: Rc<PackedTerm>,
+        top_sort: &Sort,
+        explicitly_anywhere: bool,
+    ) -> Result<ParsedTerm, ParseError> {
+        if !self.packed_sort_inference_supported(&term) {
+            #[cfg(feature = "z3-inference")]
+            return self.infer_packed_sorts_z3(term, top_sort, explicitly_anywhere);
+            #[cfg(not(feature = "z3-inference"))]
+            {
+                let (ambiguity, parametric_sorts) = self.packed_z3_reasons(&term);
+                return Err(ParseError::Z3InferenceRequired {
+                    ambiguity,
+                    parametric_sorts,
+                });
+            }
+        }
+        self.infer_sorts(term.unpack(), top_sort, explicitly_anywhere)
+    }
+
+    fn packed_sort_inference_supported(&self, term: &Rc<PackedTerm>) -> bool {
+        fn supported(
+            grammar: &Grammar,
+            term: &Rc<PackedTerm>,
+            visited: &mut HashSet<*const PackedTerm>,
+        ) -> bool {
+            if !visited.insert(Rc::as_ptr(term)) {
+                return true;
+            }
+            match &term.node {
+                PackedNode::Ambiguity(_) => false,
+                PackedNode::Term(term) => match term.unannotated() {
+                    Term::Token { sort, .. } => sort.parameters.is_empty(),
+                    _ => true,
+                },
+                PackedNode::Production {
+                    production,
+                    children,
+                    ..
+                } => {
+                    let production = &grammar.productions[*production];
+                    production.parametric_origin.is_none()
+                        && production.result.parameters.is_empty()
+                        && production.items.iter().all(|item| {
+                            !matches!(item, Item::NonTerminal(sort) if !sort.parameters.is_empty())
+                        })
+                        && children
+                            .iter()
+                            .all(|child| supported(grammar, child, visited))
+                }
+                PackedNode::InstantiatedProduction { .. } => {
+                    unreachable!("sort support is checked before inference")
+                }
+            }
+        }
+
+        supported(self, term, &mut HashSet::new())
+    }
+
+    #[cfg(not(feature = "z3-inference"))]
+    fn packed_z3_reasons(&self, term: &Rc<PackedTerm>) -> (bool, bool) {
+        fn reasons(
+            grammar: &Grammar,
+            term: &Rc<PackedTerm>,
+            visited: &mut HashSet<*const PackedTerm>,
+        ) -> (bool, bool) {
+            if !visited.insert(Rc::as_ptr(term)) {
+                return (false, false);
+            }
+            match &term.node {
+                PackedNode::Ambiguity(alternatives) => alternatives.iter().fold(
+                    (true, false),
+                    |(ambiguity, parametric), alternative| {
+                        let (child_ambiguity, child_parametric) =
+                            reasons(grammar, alternative, visited);
+                        (ambiguity || child_ambiguity, parametric || child_parametric)
+                    },
+                ),
+                PackedNode::Production {
+                    production,
+                    children,
+                    ..
+                } => {
+                    let descriptor = &grammar.productions[*production];
+                    let local = descriptor.parametric_origin.is_some()
+                        || !descriptor.result.parameters.is_empty()
+                        || descriptor.items.iter().any(|item| {
+                            matches!(item, Item::NonTerminal(sort) if !sort.parameters.is_empty())
+                        });
+                    children
+                        .iter()
+                        .fold((false, local), |(ambiguity, parametric), child| {
+                            let (child_ambiguity, child_parametric) =
+                                reasons(grammar, child, visited);
+                            (ambiguity || child_ambiguity, parametric || child_parametric)
+                        })
+                }
+                PackedNode::Term(term) => match term.unannotated() {
+                    Term::Token { sort, .. } => (false, !sort.parameters.is_empty()),
+                    _ => (false, false),
+                },
+                PackedNode::InstantiatedProduction { .. } => {
+                    unreachable!("Z3 reasons are computed before inference")
+                }
+            }
+        }
+
+        reasons(self, term, &mut HashSet::new())
+    }
+
     pub(super) fn infer_sorts(
         &self,
         term: ParsedTerm,

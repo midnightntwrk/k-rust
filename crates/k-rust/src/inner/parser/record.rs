@@ -216,6 +216,9 @@ impl Grammar {
             return collapsed.clone();
         }
         let collapsed = match &term.node {
+            PackedNode::InstantiatedProduction { .. } => {
+                unreachable!("instantiated productions are created after record collapse")
+            }
             PackedNode::Term(_) => Ok(Rc::clone(&term)),
             PackedNode::Ambiguity(alternatives) => {
                 let mut retained = BTreeSet::new();

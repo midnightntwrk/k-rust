@@ -51,6 +51,9 @@ impl Grammar {
             return Rc::clone(factored);
         }
         let factored = match &term.node {
+            PackedNode::InstantiatedProduction { .. } => {
+                unreachable!("instantiated productions are created after packed factoring")
+            }
             PackedNode::Term(_) => Rc::clone(&term),
             PackedNode::Production {
                 production,
@@ -213,6 +216,9 @@ impl Grammar {
         super::PACKED_PRIORITY_COMPUTATIONS.set(super::PACKED_PRIORITY_COMPUTATIONS.get() + 1);
         let filtered = (|| -> PackedTransformResult {
             match &term.node {
+                PackedNode::InstantiatedProduction { .. } => {
+                    unreachable!("instantiated productions are created after packed priority")
+                }
                 PackedNode::Term(_) => Ok(Rc::clone(&term)),
                 PackedNode::Ambiguity(original_alternatives) => {
                     let mut alternatives = original_alternatives.clone();
@@ -449,6 +455,9 @@ impl Grammar {
             return Rc::clone(preferred);
         }
         let mut preferred = match &term.node {
+            PackedNode::InstantiatedProduction { .. } => {
+                unreachable!("instantiated productions are created after packed rewrite preference")
+            }
             PackedNode::Term(_) => Rc::clone(&term),
             PackedNode::Ambiguity(alternatives) => PackedTerm::ambiguity(
                 alternatives
@@ -546,6 +555,9 @@ impl Grammar {
         match &term.node {
             PackedNode::Production { production, .. } => {
                 Some(self.productions[*production].result.clone())
+            }
+            PackedNode::InstantiatedProduction { .. } => {
+                unreachable!("instantiated productions are created after rewrite preference")
             }
             PackedNode::Term(term) => match term.unannotated() {
                 Term::Variable { sort, .. } => sort.clone(),
@@ -1091,6 +1103,11 @@ impl Grammar {
         }
         let resolved = (|| -> PackedTransformResult {
             match &term.node {
+                PackedNode::InstantiatedProduction { .. } => {
+                    unreachable!(
+                        "instantiated productions are created after application resolution"
+                    )
+                }
                 PackedNode::Term(_) => Ok(Rc::clone(&term)),
                 PackedNode::Ambiguity(alternatives) => {
                     let mut resolved = BTreeSet::new();
@@ -1219,6 +1236,9 @@ impl Grammar {
         term: &Rc<PackedTerm>,
     ) -> Result<Vec<Vec<Rc<PackedTerm>>>, ParseError> {
         let flattened = match &term.node {
+            PackedNode::InstantiatedProduction { .. } => {
+                unreachable!("instantiated productions are created after K-list flattening")
+            }
             PackedNode::Ambiguity(alternatives) => {
                 let mut flattened = Vec::new();
                 for alternative in packed_terms_in_structural_order(alternatives) {

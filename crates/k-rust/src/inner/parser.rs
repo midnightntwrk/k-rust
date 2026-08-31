@@ -320,15 +320,23 @@ enum ParsedTerm {
     Ambiguity(BTreeSet<ParsedTerm>),
 }
 
-/// Shared parse-forest node used through the ordering-sensitive pre-inference pipeline.
+/// Shared parse-forest node used through the ordering-sensitive parser and Z3-inference pipeline.
 ///
 /// Keeping children behind `Rc` prevents chart diamonds from expanding while record syntax,
-/// priority, applications, rewrite preferences, and ambiguities are normalized. The compressed
-/// forest is materialized as an owned [`ParsedTerm`] only at the sort-inference boundary.
+/// priority, applications, rewrite preferences, ambiguities, and sort constraints are normalized.
+/// Ambiguous forests are materialized as an owned [`ParsedTerm`] only after Z3 model application
+/// has discarded ill-sorted branches.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum PackedNode {
     Production {
         production: usize,
+        children: Vec<Rc<PackedTerm>>,
+        metadata: TermMetadata,
+    },
+    #[cfg_attr(not(feature = "z3-inference"), allow(dead_code))]
+    InstantiatedProduction {
+        production: usize,
+        parameters: Vec<Sort>,
         children: Vec<Rc<PackedTerm>>,
         metadata: TermMetadata,
     },
@@ -403,6 +411,33 @@ impl PackedTerm {
         })
     }
 
+    #[cfg(feature = "z3-inference")]
+    fn instantiated_production(
+        production: usize,
+        parameters: Vec<Sort>,
+        children: Vec<Rc<Self>>,
+        metadata: TermMetadata,
+    ) -> Rc<Self> {
+        let mut fingerprint = Fingerprint::new(1);
+        fingerprint.write_usize(production);
+        fingerprint.write_metadata(&metadata);
+        for parameter in &parameters {
+            fingerprint.write(parameter.to_string().as_bytes());
+        }
+        for child in &children {
+            fingerprint.write_u64(child.fingerprint);
+        }
+        Rc::new(Self {
+            fingerprint: fingerprint.finish(),
+            node: PackedNode::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            },
+        })
+    }
+
     fn ambiguity(alternatives: BTreeSet<Rc<Self>>) -> Rc<Self> {
         if alternatives.len() == 1 {
             return alternatives
@@ -430,6 +465,17 @@ impl PackedTerm {
                 metadata,
             } => ParsedTerm::Production {
                 production: *production,
+                children: children.iter().map(|child| child.unpack()).collect(),
+                metadata: metadata.clone(),
+            },
+            PackedNode::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            } => ParsedTerm::InstantiatedProduction {
+                production: *production,
+                parameters: parameters.clone(),
                 children: children.iter().map(|child| child.unpack()).collect(),
                 metadata: metadata.clone(),
             },
@@ -482,8 +528,35 @@ fn cmp_packed_structurally(left: &Rc<PackedTerm>, right: &Rc<PackedTerm>) -> std
                         .unwrap_or_else(|| left_children.len().cmp(&right_children.len()))
                 })
                 .then_with(|| left_metadata.cmp(right_metadata)),
+            (
+                PackedNode::InstantiatedProduction {
+                    production: left_production,
+                    parameters: left_parameters,
+                    children: left_children,
+                    metadata: left_metadata,
+                },
+                PackedNode::InstantiatedProduction {
+                    production: right_production,
+                    parameters: right_parameters,
+                    children: right_children,
+                    metadata: right_metadata,
+                },
+            ) => left_production
+                .cmp(right_production)
+                .then_with(|| left_parameters.cmp(right_parameters))
+                .then_with(|| {
+                    left_children
+                        .iter()
+                        .zip(right_children)
+                        .map(|(left, right)| compare(left, right, memo))
+                        .find(|ordering| !ordering.is_eq())
+                        .unwrap_or_else(|| left_children.len().cmp(&right_children.len()))
+                })
+                .then_with(|| left_metadata.cmp(right_metadata)),
             (PackedNode::Production { .. }, _) => Ordering::Less,
             (_, PackedNode::Production { .. }) => Ordering::Greater,
+            (PackedNode::InstantiatedProduction { .. }, _) => Ordering::Less,
+            (_, PackedNode::InstantiatedProduction { .. }) => Ordering::Greater,
             (PackedNode::Term(left), PackedNode::Term(right)) => left.cmp(right),
             (PackedNode::Term(_), PackedNode::Ambiguity(_)) => Ordering::Less,
             (PackedNode::Ambiguity(_), PackedNode::Term(_)) => Ordering::Greater,
@@ -522,6 +595,9 @@ fn packed_variable_names(root: &Rc<PackedTerm>) -> BTreeSet<String> {
             continue;
         }
         match &term.node {
+            PackedNode::InstantiatedProduction { .. } => {
+                unreachable!("instantiated productions are created after variable reservation")
+            }
             PackedNode::Term(term) => {
                 if let Term::Variable { name, .. } = term.unannotated() {
                     names.insert(name.clone());
@@ -1119,8 +1195,8 @@ impl Grammar {
         // preference must therefore run before descending into losing alternatives; filtering
         // each root independently incorrectly rejects inputs whose winning interpretation is a
         // top-level rewrite (for example a rewrite inside a competing map-item parse).
-        let forest = self.materialize_packed_forest(PackedTerm::ambiguity(parses))?;
-        let inferred = self.infer_sorts(forest, start, is_anywhere)?;
+        let forest = self.prepare_packed_forest(PackedTerm::ambiguity(parses))?;
+        let inferred = self.infer_packed_sorts(forest, start, is_anywhere)?;
         let resolved = self.resolve_overloaded_terminators(inferred)?;
         let filtered = self.filter_overloads_prefer_avoid(resolved);
         let listed = self.add_empty_lists(filtered, start)?;
@@ -1142,7 +1218,7 @@ impl Grammar {
     /// before inference operates on the identity-shared DAG, matching Java's memoizing visitors.
     /// Priority runs after collapse because generated record productions deliberately defer edge
     /// checks until they have exposed their original production.
-    fn materialize_packed_forest(&self, forest: Rc<PackedTerm>) -> Result<ParsedTerm, ParseError> {
+    fn prepare_packed_forest(&self, forest: Rc<PackedTerm>) -> Result<Rc<PackedTerm>, ParseError> {
         let reserved_names = packed_variable_names(&forest);
         let forest = self.collapse_packed_record_productions(forest, reserved_names)?;
         let forest = self.filter_packed_priority(forest)?;
@@ -1150,7 +1226,12 @@ impl Grammar {
         let forest = self.prefer_exact_packed_rewrite_sibling_sorts(forest);
         let forest = self.factor_pre_inference_packed_ambiguities(forest);
         let forest = self.push_top_lhs_packed_ambiguity_up(forest);
-        Ok(forest.unpack())
+        Ok(forest)
+    }
+
+    #[cfg(test)]
+    fn materialize_packed_forest(&self, forest: Rc<PackedTerm>) -> Result<ParsedTerm, ParseError> {
+        Ok(self.prepare_packed_forest(forest)?.unpack())
     }
 
     pub(crate) fn add(
@@ -2583,6 +2664,59 @@ mod chart_tests {
             }
         );
         assert_eq!(unpacked_nodes(), 0);
+    }
+
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn z3_inference_prunes_a_shared_dag_before_owned_materialization() {
+        let mut grammar = Grammar::default();
+        for (result, child, label) in [
+            ("Good", "Good", "good"),
+            ("Bad", "Good", "bad"),
+            ("Good", "K", "#SemanticCastToGood"),
+        ] {
+            grammar
+                .add(
+                    Sort::new(result),
+                    vec![ProductionItem::NonTerminal {
+                        sort: Sort::new(child),
+                        name: None,
+                    }],
+                    Some(Label::new(label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        grammar
+            .syntactic_subsort_relations
+            .remove(&(Sort::new("Good"), Sort::new("Good")));
+        let mut shared = PackedTerm::leaf(Term::Variable {
+            name: "_".to_owned(),
+            sort: None,
+        });
+        let depth = 12;
+        for _ in 0..depth {
+            shared = PackedTerm::ambiguity(BTreeSet::from([
+                PackedTerm::production(0, vec![Rc::clone(&shared)], TermMetadata::default()),
+                PackedTerm::production(1, vec![shared], TermMetadata::default()),
+            ]));
+        }
+        reset_unpacked_nodes();
+        let baseline = grammar
+            .infer_sorts_z3(shared.unpack(), &Sort::new("Good"), false)
+            .expect("the owned baseline retains the recursively well-sorted alternative");
+        let baseline_unpack_visits = unpacked_nodes();
+        reset_unpacked_nodes();
+
+        let inferred = grammar
+            .infer_packed_sorts(Rc::clone(&shared), &Sort::new("Good"), false)
+            .expect("Z3 retains the recursively well-sorted alternative");
+
+        assert_eq!(inferred, baseline);
+        assert_eq!(Grammar::ambiguity_count(&inferred), 1);
+        assert_eq!(baseline_unpack_visits, (1 << (depth + 2)) - 3);
+        assert_eq!(unpacked_nodes(), depth + 2);
     }
 
     #[test]
