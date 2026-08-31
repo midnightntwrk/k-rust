@@ -1,0 +1,138 @@
+schema_version = 1
+packet_id = "NR-04A"
+title = "Isolated-worker enforcement feasibility and external authority profile"
+status = "complete-feasibility-no-acceptance-authority"
+audited_head = "dad51ee357e1c8647e3c6df4999a00bf3cbbca6e"
+protected_artifact_sha256 = "dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec"
+source_contracts = [
+  "investigations/backend-agnostic-goal-closure/contracts.md",
+  "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md",
+  "investigations/backend-agnostic-goal-closure/failure-taxonomy.json",
+  "handoffs/NR-01R.toml",
+  "handoffs/NR-02R.toml",
+  "handoffs/NR-R2.toml",
+  "handoffs/NR-R3.toml",
+]
+
+[decision]
+classification = "nr-04-blocked-on-delegated-isolation-profile"
+summary = "The current sandbox cannot supply or exercise the kernel authorities required for complete process-tree and writable-disk enforcement. NR-04 must not substitute process-group killing, /proc sampling, directory-size sampling, or raw child claims for those authorities."
+product_code = "No worker, replay, dependency, or lockfile product change was made."
+authority = "This feasibility result grants no execution, replay, lowering, publication, cache, receipt, compiler, evaluator, or native-conformance authority."
+
+[required_external_authority]
+cgroup = "The launcher must receive a fresh delegated cgroup-v2 subtree for every attempt with memory, swap, and pids controllers enabled and writable cgroup.procs, cgroup.kill, memory.max, memory.swap.max, and pids.max controls. The subtree must not contain any process from another attempt."
+writable_storage = "The launcher must receive a fresh quota-backed writable root for every attempt. Its hard quota must cover the complete writable filesystem view, and the quota authority must provide an attempt-attributable hard-limit event or counter; directory sampling is not authority."
+filesystem_confinement = "A pinned util-linux setpriv/Landlock profile must deny write, create, remove, rename, link, device, socket, FIFO, and truncate rights outside the fresh quota-backed root. The launcher and child must not inherit another writable file descriptor."
+namespace_and_mount = "The trusted helper must drop every ambient, inheritable, permitted, effective, and bounding capability and install a pinned seccomp profile before exec. That profile must prevent creation or entry of another user or mount namespace and every mount-topology operation that could introduce storage outside the quota authority; the implementation must select a published seccomp compiler or the installed util-linux enosys/setpriv implementation rather than author raw BPF bindings."
+tool_binding = "The isolation profile must bind the exact launcher, kernel/cgroup profile, filesystem/quota profile, setpriv and seccomp-tool executable bytes and versions, Landlock ABI and rules, seccomp program, pipe policy, and every declared limit. Tool paths or names alone are not evidence."
+failure_rule = "If any controller, hard quota, attributable limit event, Landlock right, tool identity, or membership verification is unavailable, the attempt must fail before untrusted exec and publish nothing."
+
+[launcher_handshake]
+requirements = [
+  "The trusted launcher must allocate the fresh cgroup and quota-backed writable root and install every hard limit before it creates the untrusted attempt process.",
+  "The launcher must create a close-on-exec gate pipe and start only a pinned trusted gate helper. The helper may block on the gate and prepare fixed descriptors, but it must not execute or interpret untrusted code before release.",
+  "The launcher must place the gate-helper PID in the fresh cgroup by writing cgroup.procs, then verify membership from both the target cgroup and the PID's kernel cgroup identity.",
+  "The launcher must verify the configured memory.max, memory.swap.max, and pids.max values after membership and before releasing exactly one gate token.",
+  "After the token, the trusted helper must drop all capabilities, apply no-new-privileges, the exact Landlock rules, and the exact namespace/mount seccomp policy, close the gate and every undesignated descriptor, clear the environment except the closed invocation profile, and exec the requested absolute executable without an intervening untrusted shell.",
+  "A failed write, short read, PID reuse, membership disagreement, early helper exit, or unexpected gate byte must cancel the scope through cgroup.kill and remain an infrastructure failure with no accepted output.",
+]
+race_closed = "The untrusted executable cannot run before verified cgroup membership. Descendants inherit the cgroup, and an untrusted setsid or setpgid cannot escape cgroup accounting or cgroup.kill."
+
+[resource_enforcement]
+wall_time = "A monotonic deadline must cause cgroup.kill for the complete attempt subtree. The resulting BAG-10 classification is time-limit at the exact admitted lowering or execution placement."
+resident_memory = "memory.max must provide kernel-enforced aggregate attempt memory accounting. memory.events evidence attributable to the fresh cgroup selects the resident-memory resource stop; process RSS sampling is supplemental only."
+swap = "memory.swap.max must provide a separate hard swap limit. Fresh-cgroup memory.swap.events evidence selects the swap resource stop and must not collapse into resident memory or generic child loss."
+process_count = "pids.max must bound all tasks in the attempt cgroup. Fresh-cgroup pids.events evidence selects the process-count stop; RLIMIT_NPROC is not a substitute because it is real-UID-wide and unrelated processes share this agent UID."
+output_bytes = "The parent must count stdout and stderr through capped pipes under one declared combined limit or two separately declared limits. The first byte beyond a cap closes collection, invokes cgroup.kill, erases collected bytes, and selects only the corresponding output resource stop."
+writable_disk = "The quota authority must reject allocation beyond the exact hard quota and expose an attributable limit event. Landlock must make the quota root the complete writable view, so burst-write-and-unlink, sparse-file, hard-link, alternate-mount, and inherited-descriptor paths cannot bypass the budget."
+cleanup = "Every stop and every success path must invoke or verify the cgroup-v2 populated transition. Acceptance requires populated=0; cgroup.kill is mandatory on failure, stop, timeout, cancellation, and any cleanup uncertainty."
+
+[narrow_optional_profile]
+single_file = "A deliberately narrow adapter may expose exactly one precreated writable regular file, deny every create/remove/link/rename right with Landlock, and apply RLIMIT_FSIZE to that one file. SIGXFSZ then supplies a hard file-budget stop."
+limit = "This single-file profile is not a general writable-filesystem or aggregate-disk substitute and cannot qualify an adapter that needs multiple files, directories, sockets, atomic renames, or other writable state."
+
+[bag10_mapping]
+closed_stops = [
+  "wall-time -> time-limit",
+  "resident-memory -> resource-limit",
+  "swap -> resource-limit",
+  "process-count -> resource-limit",
+  "stdout/stderr-or-total-output-bytes -> resource-limit",
+  "writable-disk -> resource-limit",
+]
+distinctness = "The native worker result must retain the exact native resource-stop discriminator in supplemental process evidence while constructing only the taxonomy-authorized time-limit or resource-limit semantic failure. Infrastructure launch, I/O, artifact corruption, worker loss, internal failure, child crash, malformed output, and replay mismatch remain distinct and must not be rewritten as a resource stop."
+admitted_placements = "The active taxonomy admits lowering/time-limit and lowering/resource-limit for mutant-validation and mutant-execution, and execution/time-limit and execution/resource-limit for mutant-execution plus the declared pattern contexts. It admits no baseline time-limit or resource-limit placement. A worker must select an exact admitted stage/context/scope before launch and must reject a requested placement with no taxonomy entry; it must not fabricate a baseline placement or fall back to infrastructure/internal."
+lowering = "A lowering deadline maps to lowering/time-limit and a non-time resource stop maps to lowering/resource-limit only at an admitted BAG-10 placement. No bounded stop, repeated identical result, child claim, or schema-shaped receipt may construct lowering-nontermination."
+nontermination = "Lowering nontermination remains not-proven until the registered native checker validates a resolvable receipt bound to the exact subject, lowering profile, execution profile, proof kind, and frozen relation."
+
+[output_protocol]
+requirements = [
+  "The child protocol must be closed, versioned, length-bounded, strict UTF-8 where JSON is required, duplicate-key rejecting, and byte-canonical.",
+  "The parent must reject unknown fields, missing fields, trailing bytes, truncated framing, malformed canonical JSON, extra or missing outputs, reordered outputs, content-hash drift, semantic-identity drift, and a nonzero or signaled child exit.",
+  "Child stdout, stderr, paths, diagnostics, exit status, and resource claims are infrastructure evidence and never semantic operands or publication authority.",
+  "Expected output roles, digests, media types, content models, locators, and order must come from the bound DurableArtifactAuthority, never from child-selected raw store paths or schema-shaped metadata.",
+]
+
+[replay_and_publication]
+sequence = [
+  "Run the original attempt in one fresh cgroup and one fresh quota-backed writable root.",
+  "Erase that complete scope after trustworthy collection and verify its cgroup is empty.",
+  "Run replay by executing the same closed invocation again in a second fresh cgroup and second fresh quota-backed writable root.",
+  "Independently canonicalize and validate both results, then compare the complete canonical result bytes and every ordered output byte sequence.",
+  "On an exact match, re-ingress every output through the repaired DurableArtifactAuthority and call only the complete DurableArtifactStore transaction boundary.",
+  "Commit the one exact complete transaction as the final operation and return success immediately; no earlier output, cache record, wrapper, or receipt is accepted.",
+]
+failure = "Resource stop, launch failure, transaction failure, child crash, malformed or truncated output, unknown output, cleanup uncertainty, replay failure, or replay mismatch publishes no accepted artifact, reusable cache record, wrapper, or receipt. Uncommitted raw evidence may exist only as permitted by the repaired durable store and is never selected through transaction-aware ingress."
+receipts = "NR-04 must not fabricate BAG-15 production receipts. Native receipt and cache publication remain unavailable until their sealed production and conformance prerequisites validate."
+
+[rejected_shortcuts]
+items = [
+  "A process group does not contain descendants that call setsid or setpgid and therefore cannot prove complete-tree termination.",
+  "Periodic /proc RSS, swap, or descendant sampling has unavoidable overshoot and observation races and therefore cannot replace hard cgroup controllers.",
+  "RLIMIT_RSS is not enforced by Linux, and RLIMIT_AS is virtual-address-space accounting rather than resident-memory or swap accounting.",
+  "RLIMIT_NPROC is scoped to the real UID, so it couples unrelated agent processes and cannot express a fresh per-attempt process budget.",
+  "Landlock confines filesystem access but does not count bytes and therefore cannot enforce a writable-disk budget by itself.",
+  "Periodic directory-size sampling is bypassable by burst-write-and-unlink, open-unlinked files, alternate writable descriptors, sparse files, and activity between samples.",
+  "A child-reported resource label, raw cgroup path, raw store path, or schema-valid record is not resource, publication, receipt, or native authority.",
+]
+
+[required_adversarial_gate]
+linux_subprocess_tests = [
+  "Each wall-time, resident-memory, swap, process-count, output-byte, and writable-disk limit must trigger its distinct stop through the real kernel authority.",
+  "A setsid/setpgid descendant, double-fork descendant, fork burst, and parent-exit daemon must all remain in the attempt cgroup and be gone after cgroup.kill.",
+  "Burst-write-and-unlink, open-unlinked, sparse-file, hard-link, rename, user-namespace, alternate-mount, and inherited-writable-descriptor probes must not exceed or escape the quota authority.",
+  "Concurrent stdout/stderr writers must not race past the exact combined cap, and every stopped attempt must erase both collected streams.",
+  "Every attempt and replay must observe a fresh PID/cgroup/writable-root identity and zero writable-state inheritance.",
+  "Success, mismatch, child crash, malformed framing, truncated framing, unknown fields, output drift, cleanup failure, and every durable failpoint must prove the expected transaction-aware artifact and cache ingress remains empty.",
+  "Replay match must publish one exact complete durable transaction; replay mismatch must publish none.",
+  "Lowering time and resource limits must remain distinct from lowering-nontermination without the registered checker.",
+]
+
+[environment_evidence]
+identity = "The implementation session ran as agent-1, UID 966, on Linux 6.18.40.1-microsoft-standard-WSL2."
+cgroup = "/proc/self/cgroup placed the session at /wsl-user/distro-313/systemd/agent.slice/agent-1.slice/agent-1-session-77805-14036.service, but /sys/fs/cgroup was a read-only cgroup2 bind. cgroup.procs and cgroup.subtree_control were not writable, and no writable per-attempt memory.max, memory.swap.max, pids.max, or cgroup.kill existed."
+user_manager = "systemd-run --user could not connect because the sandbox has neither DBUS_SESSION_BUS_ADDRESS nor XDG_RUNTIME_DIR."
+mount_namespace = "bubblewrap 0.11.2 failed its unprivileged mount-namespace setup with 'Failed to make / slave: Operation not permitted'."
+disk = "/tmp was an ordinary ext4 mount with no quota or project-quota option in its mount profile; it could not supply a fresh hard-bounded writable filesystem."
+available_tools = "util-linux setpriv, prlimit, and enosys 2.42.2 were installed; setpriv exposed native Landlock and raw-filter loading and enosys exposed published syscall-filter construction, but those tools do not create delegated cgroups or quota-backed filesystems."
+observed_tool_sha256 = "The observed executable SHA-256 values were setpriv c3c6d22611a395c01415aaea90878f73900222d0d959901eae8968f8cd0b4761, prlimit 886bccfdefc6afb7cf319327e6c23f539da71496df5afd20a6a6efe2d85b5a17, and enosys 603cfd7f181ea8dbdb3b554dd772a9a325426b7247f3ed0066ee72def95e3ad0. These observations do not qualify a future isolation profile by themselves."
+memory_gate = "agent-self reported 28G used at the 28G MemoryHigh throttle, swap denied, and more than 500 tasks in the shared agent slice."
+consequence = "The environment can review static contracts and exercise Landlock syntax, but it cannot run the mandatory complete NR-04 resource and process-tree acceptance gate."
+
+[validation]
+commands = [
+  "read-only cgroup, mount, tool-version, user-manager, bubblewrap, and agent-self probes",
+  "python3 stdlib tomllib parse of the NR-04A handoff and native-readiness work package",
+  "git diff --check",
+  "sha256sum investigations/k-rust-target/k-rust-agent-requests.toml",
+]
+not_run = [
+  "No Cargo, rustc, Clippy, Rustfmt, workspace verifier, or subprocess product test was run.",
+  "No unexercised worker/replay product code was added.",
+]
+
+[unblocking]
+nr_04 = "Provide the exact delegated cgroup-v2 and quota-backed isolation authority described above in a serialized Linux test environment, then implement and pass the complete adversarial gate before changing NR-04 to complete."
+nr_06 = "NR-06 remains ready-positive-bounded and independent of this environment blocker."
+nr_07 = "NR-07 remains blocked on its declared local and upstream prerequisites; NR-04A grants it no authority."

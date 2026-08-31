@@ -21,7 +21,7 @@ krs_clean_capability_change = "Clean KRS cff5e10 qualifies complete nested cells
 status_effect = "NR-U3 changes no gate authority, packet status, dependency, or acceptance criterion. NR-R3 and NR-05R retain their accepted local status without granting upstream native authority."
 
 [agent_protocol]
-execution = "NR-R3 independently accepted the completed NR-01R, NR-02R, and NR-R2 repair wave. NR-05R completed its local repair without granting upstream native authority. NR-04 and the positive-bounded NR-06 packet are now ready independently, but memory-bounded builds must be serialized. NR-07 follows NR-03, NR-05R, and NR-06. NR-08 is last."
+execution = "NR-R3 independently accepted the completed NR-01R, NR-02R, and NR-R2 repair wave. NR-05R completed its local repair without granting upstream native authority. NR-04A proved the external isolation profile required by NR-04 and found that the current sandbox cannot supply its delegated cgroup-v2 and quota authorities, so NR-04 is blocked without product implementation. The positive-bounded NR-06 packet remains ready independently. NR-07 follows NR-03, NR-05R, and NR-06. NR-08 is last."
 worktree = "Agents share this worktree. Preserve investigations/k-rust-target/k-rust-agent-requests.toml exactly. Do not edit KRS or k-rust unless a later packet explicitly grants ownership."
 handoff_directory = "handoffs"
 failure_rule = "Blocked authority remains not-proven. No empty or bounded result becomes exhaustive, and no schema-shaped record becomes native authority."
@@ -73,10 +73,19 @@ deliverables = ["Schema-exact compiler-receipt and evaluator-conformance validat
 acceptance = ["Bundled nonconformant evaluator fixture rejects.", "Refreshed outer IDs cannot hide nested drift.", "Validation grants no native authority."]
 
 [[packet]]
+id = "NR-04A"
+title = "Isolated-worker enforcement feasibility and external authority profile"
+status = "complete-feasibility-no-acceptance-authority"
+depends_on = ["NR-01", "NR-02", "NR-R3"]
+owns = ["handoffs/NR-04A.toml", "native-readiness-work-package.toml", "README.md"]
+deliverables = ["Exact delegated cgroup-v2 and quota-backed writable-root authority profile.", "Placement-before-exec launcher handshake.", "Closed resource, replay, and durable-publication boundary.", "Current-environment feasibility evidence and rejected bypasses."]
+acceptance = ["No sampling or process-group shortcut is represented as hard enforcement.", "NR-04 remains blocked until the real Linux authority and adversarial gate are available."]
+
+[[packet]]
 id = "NR-04"
 title = "Isolated worker, resource enforcement, durable transaction, and replay"
-status = "ready"
-depends_on = ["NR-01", "NR-02", "NR-R3"]
+status = "blocked-on-delegated-isolation-profile"
+depends_on = ["NR-01", "NR-02", "NR-R3", "NR-04A"]
 owns = ["kink-campaign worker/replay modules", "integration tests", "handoffs/NR-04.toml"]
 deliverables = ["One fresh child per attempt.", "Wall-time, resident-memory, swap, process-count, output-byte, and writable-disk enforcement.", "Closed BAG-10 stop mapping.", "Replay execution and comparison before publication."]
 acceptance = ["Worker stops remain distinct.", "Failure or mismatch publishes nothing.", "Lowering nontermination stays not-proven without a checker."]
