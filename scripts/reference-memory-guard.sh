@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-rust_memory_high_kib=${RUST_DIFFERENTIAL_MEMORY_HIGH_KIB:-6291456}
+rust_memory_high_kib=${RUST_DIFFERENTIAL_MEMORY_HIGH_KIB:-8388608}
 rust_memory_max_kib=${RUST_DIFFERENTIAL_MEMORY_MAX_KIB:-8388608}
 rust_fallback_virtual_memory_kib=${RUST_DIFFERENTIAL_FALLBACK_VIRTUAL_MEMORY_KIB:-12582912}
 

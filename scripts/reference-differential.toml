@@ -4,7 +4,7 @@ version = 1
 # Run every command below after a landing that changes frontend, definition, kompile, or KORE emission behavior.
 # The scripts must use the clean manifest-pinned checkouts and matching K release enforced by reference-pins.sh.
 # Record each named case's pass/fail result, wall time, and peak RSS in the landing PR description.
-# Rust frontends run in a user systemd scope with 6 GiB MemoryHigh, 8 GiB MemoryMax, and no swap.
+# Rust frontends run in a user systemd scope with equal 8 GiB MemoryHigh and MemoryMax limits and no swap.
 # RUST_DIFFERENTIAL_MEMORY_HIGH_KIB and RUST_DIFFERENTIAL_MEMORY_MAX_KIB tune those resident-memory thresholds.
 # RUST_DIFFERENTIAL_FALLBACK_VIRTUAL_MEMORY_KIB defaults to 12 GiB and applies only when user scopes are unavailable.
 # REFERENCE_DIFFERENTIAL_MEMORY_KIB independently controls the reference JVM's virtual memory and is unset by default.

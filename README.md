@@ -433,7 +433,8 @@ scripts/reference-rpc-differential.sh imp
 The scripts enforce clean checkouts at the manifest revisions and require the matching K release.
 Set `K_CHECKOUT`, `IMP_SEMANTICS_CHECKOUT`, `WASM_SEMANTICS_CHECKOUT`, `EVM_SEMANTICS_CHECKOUT`, `EVM_EQUIVALENCE_CHECKOUT`, or `MIR_SEMANTICS_CHECKOUT` when a checkout is not at its ignored workspace-default path.
 Frontend differential runs give k-rust an independent resident-memory guard through a transient user systemd scope.
-`RUST_DIFFERENTIAL_MEMORY_HIGH_KIB` defaults to a 6 GiB soft throttle, `RUST_DIFFERENTIAL_MEMORY_MAX_KIB` defaults to an 8 GiB hard stop, and swap is disabled for the scope.
+`RUST_DIFFERENTIAL_MEMORY_HIGH_KIB` and `RUST_DIFFERENTIAL_MEMORY_MAX_KIB` both default to 8 GiB, and swap is disabled for the scope.
+The equal defaults make the hard stop authoritative for anonymous-memory-heavy compiler workloads; operators may still configure an earlier soft throttle when the workload can reclaim or swap memory under pressure.
 When user scopes are unavailable, `RUST_DIFFERENTIAL_FALLBACK_VIRTUAL_MEMORY_KIB` supplies a separate 12 GiB virtual-address ceiling; the fallback is deliberately larger because a healthy process can reserve substantially more address space than it keeps resident.
 `REFERENCE_DIFFERENTIAL_MEMORY_KIB` independently controls only the reference JVM's virtual memory and remains unset by default for the same reservation reason.
 Raise a hard ceiling only after checking current machine headroom.
