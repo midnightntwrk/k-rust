@@ -1,0 +1,55 @@
+packet_id = "RU-03"
+implemented = [
+  "Implemented a digest-checked closed flat nonrecursive DNF pattern-plan model with exact variable grammar/order, per-arm bind/use discipline, constructor arity/sorts, next-event and eventually-after relations, optional declaration-order side-condition subsets, and fail-closed extension rejection.",
+  "Implemented named-query validation over the exact pattern-source, pattern-plan, entry-module, and exported-name roots while leaving K source parsing, lookup, and compilation outside the crate.",
+  "Implemented finite path-local occurrence evaluation for single atoms, ordered alternatives, next-event, eventually-after, gaps, overlaps, prefix/suffix events, typed term equality, supplied symbolic equivalence/inequality relations, and exact finite side-condition table lookup.",
+  "Preserved declaration-order typed bindings, every armOrdinal including zero, complete matched events, path predicates, stop reasons, stable replay keys, all normalized witnesses, and canonical primary-witness selection only when stable path keys exist.",
+  "Kept match, exhaustive finite no-match, incomplete or indeterminate unknown, and input error distinct; a match remains conclusive over an incomplete sibling while absence never becomes no-match without complete finite paths.",
+  "Implemented exact/each/tuple-each/all-matches folding over K-supplied discovery tuples, canonical definition ordering, symmetric tuple deduplication with retained origins, cap-before-patch-dedup, incomplete-generation status, and unscored incomplete prefixes.",
+  "Implemented canonical binding, site, instance, candidate, and mutant identities; identical-patch candidate folding retains every originating instance in derived order.",
+  "Implemented edit-origin receipt validation for exact edit order, operator/template roots, complete operator-selector coverage, template operation/source roles, tuple/site order, exact tuple bindings, and target-lineage authorization.",
+  "Attached finite-vector or incomplete evidence and native not-proven status to every portable evaluation/generation result; no code path can emit NativeProven.",
+]
+files_changed = [
+  "crates/kink-pattern/Cargo.toml",
+  "crates/kink-pattern/src/candidate.rs",
+  "crates/kink-pattern/src/lib.rs",
+  "crates/kink-pattern/src/pattern.rs",
+  "crates/kink-pattern/tests/frozen_vectors.rs",
+  "draft/tasks/rust-upfront/handoffs/RU-03.toml",
+]
+commands_run = [
+  "cargo test -p kink-pattern --locked",
+  "cargo fmt --package kink-pattern",
+  "cargo fmt --all -- --check",
+  "cargo clippy -p kink-pattern --all-targets --locked -- -D warnings",
+  "cargo test --workspace --locked",
+  "cargo clippy --workspace --all-targets --locked -- -D warnings",
+  "git -c safe.directory=/home/sebastiengllmt/git/workspaces/starstream-fv/k-in-k2 diff --check",
+  "sha256sum investigations/k-rust-target/k-rust-agent-requests.toml",
+]
+results = [
+  "PASS: all applicable unchanged execution-pattern vectors passed, covering single, prefix/suffix, next-event, gap, eventually-after, reverse, mismatch, typed alias equality, earliest/overlapping witnesses, alternatives with armOrdinal zero, keyed and unkeyed path ordering, incomplete siblings, supplied symbolic relations, exact side-condition inputs, and a second counter fixture family.",
+  "PASS: every applicable unchanged mutation selection vector passed, covering exact zero/one/excess and arity, each, K-supplied joined tuples, symmetric tuple deduplication, all-matches aggregation, caps, incomplete generation, identical-patch origin retention, duplicate rejection, and binding-order normalization.",
+  "PASS: frozen site, instance, candidate, and mutant identity vectors matched byte-for-byte, including same-lineage/different-typed-path site identity.",
+  "PASS: plan/query adversaries rejected unknown fields, invalid public binding names, duplicate payload positions, noncanonical side-condition subsets, and stale query identities.",
+  "PASS: receipt adversaries rejected missing complete bindings and a cross-origin target; template/source order and interface coverage are checked structurally.",
+  "PASS: focused kink-pattern tests completed with 7 passed and 0 failed.",
+  "PASS: focused kink-pattern formatting and Clippy with warnings denied exited 0.",
+  "PASS: full-workspace formatting, tests, and Clippy with warnings denied exited 0 after the concurrent RU-02 files settled; 34 workspace tests passed and 0 failed.",
+  "PASS: investigations/k-rust-target/k-rust-agent-requests.toml retained SHA-256 dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec.",
+]
+known_limits = [
+  "The evaluator consumes already-normalized plans and supplied finite traces only; K pattern parsing, imports, named export lookup, compiler conformance, native event production, branch isolation, and exhaustive native search remain not-proven.",
+  "Symbolic equivalences and inequalities are supplied path evidence, and side conditions use only the exact frozen finite lookup table. The crate contains no solver and a missing relation or table row is indeterminate rather than false.",
+  "Mutation sites, joined tuples, deterministic patch values, and semantic receipts are supplied by the future K-owned discovery/template boundary. Rust validates, orders, folds, identifies, and checks their provenance but does not recreate discovery or interpret opaque K patch-template meaning.",
+  "Irrelevant trace events whose constructors are outside the selected plan vocabulary remain nonmatching gap events, as required by the counter-family occurrence vector; constructors referenced by a plan and known trace payloads are validated against the exact vocabulary.",
+  "Finite/scripted agreement is conformance input only and never proves native K semantics, native compiler behavior, solver behavior, or semantic equivalence.",
+]
+next_packet_preconditions = [
+  "RU-04 may consume Evaluation and CandidateGeneration only as typed portable/finite evidence and must preserve NativeConformance::NotProven unless a future native production receipt closes the separate gate.",
+  "RU-04 must treat no-match as reusable absence only when complete_coverage is true and must retain unknown, error, incomplete-generation, and unscored candidate prefixes distinctly.",
+  "RU-04 may use normalized witnesses, canonical primary-witness selection, replay keys, and ordered candidate origins without changing their ordering or identity projections.",
+  "A future native adapter must supply normalized plans, branch-local traces, symbolic relations, K-owned discovery tuples, patches, and receipts; it must not add host discovery, Cartesian products, K parsing, or solver substitutes to kink-pattern.",
+  "The unrelated investigations/k-rust-target/k-rust-agent-requests.toml remains unmodified with SHA-256 dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec.",
+]

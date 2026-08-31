@@ -1,0 +1,52 @@
+packet_id = "NR-02"
+audit_role = "atomic-staged-native-validation-transaction-seam"
+status = "complete"
+implemented = [
+  "Added apply_patch_with_native_validation as a generic upstream-independent seam that delegates all portable application behavior to apply_patch.",
+  "Added immutable StagedNativeInput access to the baseline, canonical patch, and privately staged AppliedPatch for one native validator invocation.",
+  "Restricted NativeValidatedPatch construction to successful portable staging plus successful validator completion and returned its portable and opaque native outputs together.",
+  "Added closed portable/native NativeTransactionFailure branches with zero committed edits and no boundary-owned staged output or output identity.",
+  "Preserved ordinary apply_patch behavior and NativeIrValidation::RustProofPending, including inside the portable component of a successful staged transaction.",
+  "Added focused success, typed post-staging rejection, and portable pre-staging rejection tests without changing frozen vectors.",
+]
+files_changed = [
+  "crates/kink-patch/src/apply.rs",
+  "crates/kink-patch/src/lib.rs",
+  "crates/kink-patch/tests/native_validation.rs",
+  "draft/tasks/rust-upfront/handoffs/NR-02.toml",
+]
+commands_run = [
+  "cargo fmt --package kink-patch",
+  "cargo test -p kink-patch --locked",
+  "cargo clippy -p kink-patch --all-targets --locked -- -D warnings",
+  "cargo fmt --package kink-patch -- --check",
+  "git -c safe.directory=/home/sebastiengllmt/git/workspaces/starstream-fv/k-in-k2 diff --check",
+  "sha256sum investigations/k-rust-target/k-rust-agent-requests.toml",
+  "python3 -c 'import tomllib; tomllib.load(open(\"draft/tasks/rust-upfront/handoffs/NR-02.toml\", \"rb\"))'",
+  "rg -n '[[:blank:]]+$' crates/kink-patch draft/tasks/rust-upfront/handoffs/NR-02.toml",
+]
+results = [
+  "PASS: focused kink-patch tests completed with 3 native-validation integration tests and 5 unchanged patch-vector integration tests passed and 0 failed.",
+  "PASS: native success publishes the portable result and validator-produced opaque output together while the embedded portable native state remains rust-proof-pending.",
+  "PASS: typed native rejection occurs after portable staging, exposes only the validator failure through the boundary, and reports zero committed edits.",
+  "PASS: portable rejection prevents validator invocation, preserves stale-precondition classification, exposes no output, and reports zero committed edits.",
+  "PASS: focused kink-patch formatting and Clippy with warnings denied exited 0.",
+  "PASS: git diff --check exited 0.",
+  "PASS: investigations/k-rust-target/k-rust-agent-requests.toml retained SHA-256 dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec.",
+  "PASS: NR-02 handoff parsed as TOML and the owned files contain no trailing whitespace.",
+]
+known_limits = [
+  "The generic seam does not itself parse, validate, resolve, type-check, lower, or execute native K IR.",
+  "NativeValidatedPatch records successful validator completion but grants no native-proof receipt, issuer authority, evaluator authority, or production acceptance.",
+  "The seam does not bind KRS or k-rust pins, toolchain versions, profiles, lowering provenance, or receipt identities.",
+  "Atomicity is in-memory ownership and publication atomicity; durable storage, cross-process isolation, interruption recovery, and worker rollback remain outside kink-patch.",
+  "Validator panics are not converted into typed NativeTransactionFailure values.",
+  "The validator owns its opaque output and typed failure representations; later integrations must not embed staged transaction output or output identities in their failure values.",
+]
+next_packet_preconditions = [
+  "NR-04 may consume NativeValidatedPatch only after its validator succeeds and must add isolated-worker and durable-publication atomicity without treating this in-memory seam as storage or process isolation.",
+  "NR-05 must supply the pinned native validator implementation and opaque native output type from a new integration crate without adding an upstream dependency to kink-patch.",
+  "NR-05 must clone, patch, resolve, type-check, lower, and validate the native definition before returning success; every unsupported or failed native path must return a typed failure with no staged output or output identity.",
+  "NR-05 must retain NativeIrValidation::RustProofPending in the portable record and use separately reviewed native evidence rather than promoting that historical portable field.",
+  "KRS, k-rust, package status/work-package TOML, and investigations/k-rust-target/k-rust-agent-requests.toml remain outside NR-02 ownership and unmodified.",
+]

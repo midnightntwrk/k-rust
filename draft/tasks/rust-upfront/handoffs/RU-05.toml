@@ -1,0 +1,46 @@
+packet_id = "RU-05"
+implemented = [
+  "Audited the complete work package, all prior handoffs, contracts.md, and rust-stack-handoff.md.",
+  "Ran the integrated Rust gates, nested/root conformance checks, Python authority, and unrelated-file integrity check.",
+  "Published completion-report.toml with one result for every packet deliverable/acceptance clause and separate deferred-native gates.",
+  "Separated real upstream-native deferrals from unfinished portable validation and evidence-authority work.",
+]
+files_changed = [
+  "draft/tasks/rust-upfront/completion-report.toml",
+  "draft/tasks/rust-upfront/handoffs/RU-05.toml",
+]
+commands_run = [
+  "python3 investigations/backend-agnostic-goal-closure/verify.py",
+  "cargo fmt --all -- --check",
+  "cargo test --workspace --locked",
+  "cargo clippy --workspace --all-targets --locked -- -D warnings",
+  "cargo run --locked --quiet -p kink-conformance -- list",
+  "cargo run --locked --quiet --manifest-path ../../../Cargo.toml -p kink-conformance -- check (from crates/kink-portable/src)",
+  "git -c safe.directory=/home/sebastiengllmt/git/workspaces/starstream-fv/k-in-k2 diff --check",
+  "sha256sum investigations/k-rust-target/k-rust-agent-requests.toml",
+]
+results = [
+  "PASS: cargo fmt --all -- --check exited 0.",
+  "PASS: cargo test --workspace --locked exited 0; 46 tests passed and 0 failed.",
+  "PASS: cargo clippy --workspace --all-targets --locked -- -D warnings exited 0.",
+  "PASS: root list and nested check resolved the package and reported 9 canonicalization, 7 identity, and 4 portable-definition fixtures.",
+  "PASS: git diff --check exited 0.",
+  "ENVIRONMENT FAILURE: Python verifier exited 1 because the official Draft 2020-12 jsonschema validator is unavailable.",
+  "AUDIT FAILURE: RU-01 in-memory JSON closure and definition-ingress semantic recomputation remain incomplete.",
+  "AUDIT FAILURE: RU-03 empty-search, supplied trace/site validation, and evidence-authority boundaries remain incomplete.",
+  "AUDIT FAILURE: RU-04 is a reduced shell and does not implement the frozen portable BAG-12/14/15/16 key, record, receipt, oracle, replay, report, or adversary closure.",
+  "PASS: unrelated k-rust-agent-requests.toml retained SHA-256 dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec.",
+]
+known_limits = [
+  "completion-report.toml is an audit result, not a completion certificate; package status is portable-repair-required.",
+  "Native parsed-K, provenance, observation, search, discovery, solver/evaluator, isolation, storage, and cache authority remain deferred-native.",
+  "Portable failures are enumerated at clause granularity in completion-report.toml and must not be relabeled as upstream blockers.",
+  "The Python gate installed nothing; setup triage is required before adding its missing official validator.",
+]
+next_packet_preconditions = [
+  "Repair RU-01-D1 and RU-01-D4 before accepting the portable value/artifact boundary.",
+  "Repair RU-03-D2/D4/D5 and expand exact frozen assertions before accepting portable pattern/candidate behavior.",
+  "Replace the RU-04 shell with schema- and identity-exact portable implementations and run all BAG-12/14/15/16, replay, mutation-status, and cross-feature adversaries.",
+  "Repeat all integrated gates and update completion-report.toml only from observed evidence.",
+  "Preserve investigations/k-rust-target/k-rust-agent-requests.toml exactly.",
+]

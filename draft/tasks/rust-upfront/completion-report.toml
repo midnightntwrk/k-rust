@@ -1,0 +1,405 @@
+schema_version = 1
+package_id = "k-in-k2/rust-upfront/v1"
+audit_packet = "RP-05"
+status = "portable-complete-native-deferred"
+audited_on = "2026-08-31"
+accepted_portable_summary = "All portable clauses in RU-00 through RU-04 are accepted after independent RP-05 audit of the RP-01 through RP-04 repairs. Checked semantic JSON and definition ingress, portable patch algebra, trace/pattern/candidate authority, and the frozen receipt/cache/oracle/campaign/publication/replay/collection/closure contracts execute through Rust validation with refreshed-identity adversaries."
+deferred_native_summary = "Native parsed-K coverage, provenance, observation production, branch/search completeness, K-authored discovery/evaluation, solver authority, process isolation, durable atomic storage, locking, and native cache authority remain deferred until KRS and k-rust expose evidence-bearing APIs."
+failed_portable_summary = "None. The only non-pass acceptance item is RU-05-A1, recorded as failed-environment because the official Draft 2020-12 Python jsonschema validator is unavailable; it is not a portable implementation failure."
+
+[gates]
+python_authority = "failed-environment"
+python_authority_evidence = "python3 investigations/backend-agnostic-goal-closure/verify.py ran for approximately 106 seconds and exited 1: official Draft 2020-12 jsonschema validator is required; python3 import jsonschema raised ModuleNotFoundError; machine-pkg check jsonschema found no installed provider and no software was installed"
+format = "pass"
+format_evidence = "cargo fmt --all -- --check exited 0"
+tests = "pass"
+tests_evidence = "cargo test --workspace --locked exited 0; 71 non-doc tests passed"
+clippy = "pass"
+clippy_evidence = "cargo clippy --workspace --all-targets --locked -- -D warnings exited 0"
+diff_check = "pass"
+diff_check_evidence = "git -c safe.directory=/home/sebastiengllmt/git/workspaces/starstream-fv/k-in-k2 diff --check exited 0; the package is untracked, so direct trailing-whitespace checks over Rust/TOML and parsing of all 25 workspace TOML files also passed"
+unrelated_request_sha256 = "dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec"
+
+[[deferred_native_gate]]
+id = "NATIVE-01"
+status = "deferred-native"
+requirement = "Injective parsed-K/native-IR coverage, declaration/subsort checking, fully qualified symbol identity, and complete source/generated provenance."
+evidence = "draft/tasks/rust-upfront/handoffs/RU-01.toml known_limits; investigations/backend-agnostic-goal-closure/rust-stack-handoff.md RS-01"
+
+[[deferred_native_gate]]
+id = "NATIVE-02"
+status = "deferred-native"
+requirement = "Native IR/type validation and atomic native commit for portable patches."
+evidence = "crates/kink-patch/src/apply.rs retains NativeIrValidation::RustProofPending"
+
+[[deferred_native_gate]]
+id = "NATIVE-03"
+status = "deferred-native"
+requirement = "Conservative observation installation and typed branch-local native event production."
+evidence = "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md RS-03 and RS-04"
+
+[[deferred_native_gate]]
+id = "NATIVE-04"
+status = "deferred-native"
+requirement = "Branch isolation, solver-relative symbolic feasibility, stop fidelity, frontier accounting, and exhaustive search proof."
+evidence = "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md RS-05 and BAG-16 native collection handoff"
+
+[[deferred_native_gate]]
+id = "NATIVE-05"
+status = "deferred-native"
+requirement = "K-owned mutation discovery, joined tuples, and production receipts."
+evidence = "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md RS-06"
+
+[[deferred_native_gate]]
+id = "NATIVE-06"
+status = "deferred-native"
+requirement = "K-authored pattern compiler/evaluator conformance and independent native production authority."
+evidence = "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md RS-04, BAG-12 native oracle handoff"
+
+[[deferred_native_gate]]
+id = "NATIVE-07"
+status = "deferred-native"
+requirement = "Process isolation, resource enforcement, native lowering proof, and replay execution."
+evidence = "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md RS-07 and BAG-10 native lowering proof handoff"
+
+[[deferred_native_gate]]
+id = "NATIVE-08"
+status = "deferred-native"
+requirement = "Durable atomic artifact/cache publication, locking, resolver transport, and conflict remediation."
+evidence = "investigations/backend-agnostic-goal-closure/rust-stack-handoff.md Artifact ingress boundary and BAG-14 native cache handoff"
+
+[[clause]]
+id = "RU-00-D1"
+status = "pass"
+requirement = "Create the workspace and six declared crates."
+evidence = "Cargo.toml workspace members; cargo test --workspace --locked"
+
+[[clause]]
+id = "RU-00-D2"
+status = "pass"
+requirement = "Locate the frozen conformance package independent of process working directory."
+evidence = "crates/kink-conformance/tests/cli.rs default_discovery_is_independent_of_process_working_directory; nested cargo run check exited 0"
+
+[[clause]]
+id = "RU-00-D3"
+status = "pass"
+requirement = "Provide list/check CLI entry points and stable typed failures."
+evidence = "crates/kink-conformance/src/lib.rs and tests/cli.rs; 8 conformance tests passed"
+
+[[clause]]
+id = "RU-00-D4"
+status = "pass"
+requirement = "Import canonicalization vectors and establish the frozen-expected test pattern."
+evidence = "cargo run --locked --quiet -p kink-conformance -- check reported 9 canonicalization and 7 identity cases"
+
+[[clause]]
+id = "RU-00-D5"
+status = "pass"
+requirement = "Document workspace and zero-backend conformance commands."
+evidence = "draft/tasks/rust-upfront/README.md"
+
+[[clause]]
+id = "RU-00-A1"
+status = "pass"
+requirement = "Workspace tests pass."
+evidence = "cargo test --workspace --locked exited 0"
+
+[[clause]]
+id = "RU-00-A2"
+status = "pass"
+requirement = "CLI package discovery works from root and nested crate directory."
+evidence = "root list and crates/kink-portable/src check exited 0"
+
+[[clause]]
+id = "RU-00-A3"
+status = "pass"
+requirement = "Malformed, absent, and unexpected inputs return typed failures without panics."
+evidence = "crates/kink-conformance/tests/cli.rs malformed_vector, missing_vector, unexpected_envelope_field, and unexpected_cli_argument tests"
+
+[[clause]]
+id = "RU-00-A4"
+status = "pass"
+requirement = "No existing investigation artifact is modified."
+evidence = "unrelated request SHA-256 remains dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec"
+
+[[clause]]
+id = "RU-01-D1"
+status = "pass"
+requirement = "Implement restricted JSON parsing/canonicalization for textual and in-memory values."
+evidence = "RP-01: every public canonicalization, serde conversion, domain digest, and self-ID path validates the complete in-memory value; nested non-NFC string/key adversaries reject before publication."
+
+[[clause]]
+id = "RU-01-D2"
+status = "pass"
+requirement = "Implement domain-separated SHA-256 digests and self-ID helpers."
+evidence = "crates/kink-portable/src/json.rs; unchanged canonicalization/identity cases pass"
+
+[[clause]]
+id = "RU-01-D3"
+status = "pass"
+requirement = "Implement the closed portable term, sentence, module, provenance, and definition surface used by reviewed fixtures."
+evidence = "crates/kink-portable/src/definition.rs; four reviewed definition fixtures and unsupported-form tests pass"
+
+[[clause]]
+id = "RU-01-D4"
+status = "pass"
+requirement = "Implement strict artifact ingress and an immutable in-memory store seam."
+evidence = "RP-01: definition-summary artifact roles enter through PortableDefinition parsing and complete semantic recomputation; refreshed outer identities cannot hide a stale nested content fingerprint."
+
+[[clause]]
+id = "RU-01-D5"
+status = "pass"
+requirement = "Implement closed capability/disposition types defaulting native conformance to not-proven."
+evidence = "crates/kink-contracts/src/lib.rs native_conformance_fails_closed test"
+
+[[clause]]
+id = "RU-01-A1"
+status = "pass"
+requirement = "Selected canonicalization and identity vectors pass unchanged."
+evidence = "kink-conformance check reports canonicalization 9/9 and identity 7/7"
+
+[[clause]]
+id = "RU-01-A2"
+status = "pass"
+requirement = "Checkout relocation and duplicate labels retain expected stable/distinct identities."
+evidence = "crates/kink-conformance/src/lib.rs identity-vector checks"
+
+[[clause]]
+id = "RU-01-A3"
+status = "pass"
+requirement = "Artifact ingress rejects invalid repo locators and symlink escape."
+evidence = "kink-contracts locator_registry_rejects_nonportable_tails and kink-portable repo_resolver tests"
+
+[[clause]]
+id = "RU-01-A4"
+status = "pass"
+requirement = "Alternate but decodable JSON bytes reject when canonical bytes are required."
+evidence = "kink-portable artifact::alternate_json_bytes_reject_before_semantic_acceptance"
+
+[[clause]]
+id = "RU-01-A5"
+status = "pass"
+requirement = "Unsupported portable forms return a typed UnsupportedForm."
+evidence = "kink-portable definition::rejects_unsupported_term_and_sentence_forms_explicitly"
+
+[[clause]]
+id = "RU-02-D1"
+status = "pass"
+requirement = "Implement closed v1 typed paths and edits required by patch vectors."
+evidence = "crates/kink-patch/src/model.rs; all 22 patch vector cases pass"
+
+[[clause]]
+id = "RU-02-D2"
+status = "pass"
+requirement = "Validate every patch precondition against one immutable baseline."
+evidence = "crates/kink-patch/src/apply.rs and atomic adversary tests"
+
+[[clause]]
+id = "RU-02-D3"
+status = "pass"
+requirement = "Reject duplicate/overlap/stale/sort/scope/ambiguous insertions."
+evidence = "patch model and application adversaries pass"
+
+[[clause]]
+id = "RU-02-D4"
+status = "pass"
+requirement = "Apply disjoint edits atomically and derive portable identities."
+evidence = "all_frozen_patch_application_vectors_pass_unchanged and identity assertions"
+
+[[clause]]
+id = "RU-02-D5"
+status = "pass"
+requirement = "Return local portable success with native IR validation rust-proof-pending."
+evidence = "crates/kink-patch/src/apply.rs AppliedPatch boundary"
+
+[[clause]]
+id = "RU-02-A1"
+status = "pass"
+requirement = "Applicable patch vectors pass including atomic failure and ordering adversaries."
+evidence = "5 integration tests cover 22 unchanged cases"
+
+[[clause]]
+id = "RU-02-A2"
+status = "pass"
+requirement = "Failure exposes no partial definition or output identity."
+evidence = "invalid vectors assert zero applied edits and absent AppliedPatch"
+
+[[clause]]
+id = "RU-02-A3"
+status = "pass"
+requirement = "Repeated and unordered-input-permuted applications are byte-identical."
+evidence = "patch vector repetition/permutation assertions"
+
+[[clause]]
+id = "RU-02-A4"
+status = "pass"
+requirement = "Single-edit and atomic two-edit fixtures pass end to end."
+evidence = "all_frozen_patch_application_vectors_pass_unchanged"
+
+[[clause]]
+id = "RU-03-D1"
+status = "pass"
+requirement = "Implement flat nonrecursive DNF plan and named-query validation."
+evidence = "crates/kink-pattern/src/pattern.rs; normalized_plan_and_query_adversaries_fail_closed"
+
+[[clause]]
+id = "RU-03-D2"
+status = "pass"
+requirement = "Evaluate supported arms over supplied traces with contract-complete portable validation."
+evidence = "RP-02: supplied paths validate independently resolved definition, terminal, bounds, constructor, signature, variable, trace, and provenance roots; unresolved nested symbolic relations remain indeterminate."
+
+[[clause]]
+id = "RU-03-D3"
+status = "pass"
+requirement = "Preserve variable order, typed bindings, arm ordinal zero, earliest witnesses, and exact side-condition inputs."
+evidence = "focused execution-pattern vector assertions and handoff RU-03 results"
+
+[[clause]]
+id = "RU-03-D4"
+status = "pass"
+requirement = "Keep match, exhaustive no-match, incomplete unknown, and input error distinct."
+evidence = "RP-02: typed collection evidence separates match, no-match, unknown, and input failure; clean empty exhaustion additionally requires an exact empty-search decision."
+
+[[clause]]
+id = "RU-03-D5"
+status = "pass"
+requirement = "Implement supplied-binding candidate folding with deterministic validated site/tuple identities, caps, and receipts."
+evidence = "RP-02: discovery registry/site/tuple identity, membership, canonical order, completeness, authority, caps, and edit origins are rederived before candidate selection."
+
+[[clause]]
+id = "RU-03-A1"
+status = "pass"
+requirement = "Applicable execution-pattern vectors pass completely."
+evidence = "RP-02: all 32 applicable execution-pattern cases assert exact outcome, completeness, failure, search policy/stops, path predicate, replay key, matched events, bindings, arm, order, and permutation invariance."
+
+[[clause]]
+id = "RU-03-A2"
+status = "pass"
+requirement = "No-match occurs only for explicitly complete traces."
+evidence = "RP-02: no-match requires validated complete collection evidence, including exact empty-search evidence for an empty collection."
+
+[[clause]]
+id = "RU-03-A3"
+status = "pass"
+requirement = "Applicable mutation vectors pass for repetitions, tuples, caps, and receipt adversaries."
+evidence = "RP-02: all applicable mutation rows and refreshed registry, ordering, completeness, binding, tuple, membership, and receipt adversaries execute through validated finite selection."
+
+[[clause]]
+id = "RU-03-A4"
+status = "pass"
+requirement = "The crate contains no K parser, solver, or host discovery substitute."
+evidence = "Source audit confirms evaluator consumes normalized plans, supplied relations, supplied tables, and supplied tuples only."
+
+[[clause]]
+id = "RU-04-D1"
+status = "pass"
+requirement = "Define a typed scripted boundary with closed terminal/result failures and completeness."
+evidence = "RP-03: closed BAG-10 bounded, diagnostic unknown/error, semantic-crash, infrastructure, normal, and stuck placements validate with completeness independent and scripted authority fixed not-proven."
+
+[[clause]]
+id = "RU-04-D2"
+status = "pass"
+requirement = "Implement cycle-free invocations, operation-specific wrappers, receipts, and all-or-none publication."
+evidence = "RP-03/RP-05: all seven operation receipt/wrapper families validate schema, identity, invocation, terminal/failure, input and child correspondence; BAG-15 derivation/publication receipt DAGs and selected production sequences validate recursively."
+
+[[clause]]
+id = "RU-04-D3"
+status = "pass"
+requirement = "Implement exact per-attempt/oracle immutable keys and records, reuse/material gates, and conflict quarantine."
+evidence = "RP-03/RP-05: exact request keys and cache records rederive identities, kind/terminal/completion, outputs, material, reuse, and finite/receipt production authority; conflicts quarantine and failed/forged producers publish nothing reusable."
+
+[[clause]]
+id = "RU-04-D4"
+status = "pass"
+requirement = "Implement scheduling, baseline admission, typed oracle outcomes, reports, scoring, and replay manifests."
+evidence = "RP-04/RP-05: all 22 BAG-12 oracle rows, both BAG-14 schedules, exact status/scoring and first-kill suffix rules, BAG-15 publication graphs, BAG-16 collections/closure roots, and registered recursive replay manifests validate through Rust."
+
+[[clause]]
+id = "RU-04-D5"
+status = "pass"
+requirement = "Prevent scripted/native-unavailable evidence from becoming native-proven."
+evidence = "RP-03/RP-04/RP-05: public construction issues only scripted/not-proven evidence; finite authority is exact registered evidence, and no public native Producer or evaluator authority arm exists."
+
+[[clause]]
+id = "RU-04-A1"
+status = "pass"
+requirement = "Applicable BAG-12/14/15/16, mutation-status, replay, and cross-feature vectors pass or are typed deferred-native gates."
+evidence = "RP-03 through RP-05 tests execute frozen BAG-12/14/15/16 receipt, cache, oracle, campaign, publication, replay, collection, and closure semantics plus refreshed-identity adversaries through Rust logic."
+
+[[clause]]
+id = "RU-04-A2"
+status = "pass"
+requirement = "Uncached, partial-hit, and full-hit folds produce byte-identical reports."
+evidence = "RP-03: actual CacheStore publication/lookup folds for uncached, partial-hit, and full-hit plans select the exact same records and produce byte-identical report/invocation identities."
+
+[[clause]]
+id = "RU-04-A3"
+status = "pass"
+requirement = "First-kill creates no suffix records and full completes the suffix."
+evidence = "RP-05: both BAG-14 schedules validate exact requested-plan status coverage; first-kill has the exact skipped suffix and no suffix records, full has no skips, and BAG-15 publication names the exact selected records/receipts in order."
+
+[[clause]]
+id = "RU-04-A4"
+status = "pass"
+requirement = "Invalid, timeout, unknown, error, killed, and survived remain distinct and bounded agreement is not equivalence."
+evidence = "RP-05: report status is derived from exact selected terminal/result evidence, reduced score and exclusion counts are recomputed, all six classifications remain distinct, and bounded agreement remains survived rather than equivalence."
+
+[[clause]]
+id = "RU-04-A5"
+status = "pass"
+requirement = "Failed producers publish no reusable record."
+evidence = "RP-03/RP-05: failed or forged producers construct no CacheRecord; reusable records require registered finite evidence or an exact reviewed receipt-wrapper pair, and publication validates selected record/receipt/registry closure."
+
+[[clause]]
+id = "RU-05-D1"
+status = "pass"
+requirement = "Audit coverage against the package, contracts, and Rust handoff."
+evidence = "completion-report.toml records all 56 packet clauses plus eight deferred-native gates."
+
+[[clause]]
+id = "RU-05-D2"
+status = "pass"
+requirement = "Run Python/Rust gates and repair implementation defects without weakening vectors."
+evidence = "RP-05 independently repaired remaining oracle, campaign publication, collection, replay, and BAG-16 closure defects without changing frozen vectors; all Rust gates pass and the Python gate is separately classified failed-environment."
+
+[[clause]]
+id = "RU-05-D3"
+status = "pass"
+requirement = "Publish a machine-readable report separating accepted portable behavior, deferred native gates, and limitations."
+evidence = "draft/tasks/rust-upfront/completion-report.toml"
+
+[[clause]]
+id = "RU-05-A1"
+status = "failed-environment"
+requirement = "Python verifier passes."
+evidence = "python3 investigations/backend-agnostic-goal-closure/verify.py ran approximately 106 seconds and exited 1 because the official Draft 2020-12 jsonschema validator is unavailable; import jsonschema raises ModuleNotFoundError and machine-pkg check jsonschema confirmed no installed provider."
+
+[[clause]]
+id = "RU-05-A2"
+status = "pass"
+requirement = "Rust formatting gate passes."
+evidence = "cargo fmt --all -- --check exited 0"
+
+[[clause]]
+id = "RU-05-A3"
+status = "pass"
+requirement = "Rust workspace tests pass."
+evidence = "cargo test --workspace --locked exited 0; 71 non-doc tests passed"
+
+[[clause]]
+id = "RU-05-A4"
+status = "pass"
+requirement = "Rust Clippy gate passes with warnings denied."
+evidence = "cargo clippy --workspace --all-targets --locked -- -D warnings exited 0"
+
+[[clause]]
+id = "RU-05-A5"
+status = "pass"
+requirement = "git diff --check passes."
+evidence = "git -c safe.directory=/home/sebastiengllmt/git/workspaces/starstream-fv/k-in-k2 diff --check exited 0; because this package is untracked, direct Rust/TOML trailing-whitespace and TOML parse checks also passed"
+
+[[clause]]
+id = "RU-05-A6"
+status = "pass"
+requirement = "Every packet clause maps to pass, deferred-native, or failed with exact evidence."
+evidence = "This report contains RU-00-D1 through RU-05-A6 and separate NATIVE-01 through NATIVE-08 entries."

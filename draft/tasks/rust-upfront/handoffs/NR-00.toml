@@ -1,0 +1,9 @@
+packet_id = "NR-00"
+audit_role = "native-capability-reassessment-and-dependency-split"
+status = "complete"
+implemented = ["Audited NATIVE-01 through NATIVE-08 against current KRS and k-rust.", "Separated the clean KRS pin from dirty shared k-rust.", "Published dependency-ordered NR-01 through NR-08 packets without weakening native gates."]
+files_changed = ["native-capability-reassessment.toml", "native-readiness-work-package.toml", "handoffs/NR-00.toml"]
+commands_run = ["read-only API inspection", "git revision and status checks", "protected artifact SHA-256 check"]
+results = ["PASS: KRS clean at 9a10f89e04cf4bc48ba42046569b31644bd0f55e.", "PASS: KRS pins clean k-rust-krs-main at 0de7983f76f87ce93b91f5d3e994f0a2c3ff710c.", "PRESERVED: shared k-rust main at 4faf017527e9bd3deda6ea44968ae7c2c6eb2fca was not modified.", "PASS: protected request SHA-256 dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec."]
+known_limits = ["Inspection proves packet viability, not native production acceptance.", "Provenance bridge, explicit exhaustion, lowering proof, and evaluator authority remain held."]
+next_packet_preconditions = ["NR-01, NR-02, and NR-03 may start concurrently.", "Agents must not edit KRS or k-rust."]

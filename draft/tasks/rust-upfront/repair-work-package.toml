@@ -1,0 +1,110 @@
+schema_version = 1
+package_id = "k-in-k2/rust-upfront-repair/v1"
+status = "complete"
+source_audit = "completion-report.toml"
+objective = "Close the portable defects found by RU-05 without relabeling them as upstream-native blockers or weakening frozen vectors."
+
+[agent_protocol]
+execution = "RP-01 is sequential. After RP-01 review, RP-02 and RP-03 may run concurrently in disjoint crates. RP-04 follows both. RP-05 is the final independent audit."
+worktree = "Agents share this worktree and must preserve investigations/k-rust-target/k-rust-agent-requests.toml exactly."
+handoff_directory = "handoffs"
+failure_rule = "A failed portable clause remains failed with an exact regression; it must not be deferred as native work."
+
+[global_invariants]
+requirements = [
+  "Only validated semantic JSON values may be canonicalized or hashed.",
+  "Claimant-supplied identities, summaries, authority labels, ordering keys, and completeness labels are rederived before use.",
+  "No-match requires explicit complete finite evidence; empty supplied collections are not vacuous exhaustion.",
+  "Finite and scripted evidence cannot construct or imply native-proven authority.",
+  "Frozen fixtures and expected identities remain unchanged.",
+  "Failed validation publishes no accepted value, record, wrapper, receipt, report, or reusable cache entry.",
+]
+
+[[packet]]
+id = "RP-01"
+title = "Validated semantic JSON and semantic artifact ingress"
+depends_on = []
+owns = ["crates/kink-portable", "dependent call-site repairs required by the semantic JSON API", "handoffs/RP-01.toml"]
+deliverables = [
+  "Close the in-memory SemanticJson construction boundary so non-NFC strings, invalid object keys, and any other invalid semantic value cannot be canonicalized or hashed.",
+  "Make canonical encoding and digest APIs consume a validated value or return a closed typed validation failure.",
+  "Update all workspace call sites without introducing unchecked escape hatches.",
+  "For portable-definition artifact roles, parse the semantic definition and rederive the complete summary and linked identities instead of trusting nested claimant fingerprints.",
+  "Add adversaries for invalid in-memory values and refreshed outer artifacts containing stale nested definition identities.",
+]
+acceptance = [
+  "RU-01-D1 and RU-01-D4 in completion-report.toml are demonstrably repaired.",
+  "Canonicalization and identity vectors remain byte-identical.",
+  "All workspace format, test, and Clippy gates pass.",
+]
+
+[[packet]]
+id = "RP-02"
+title = "Closed finite trace and supplied-discovery validation"
+depends_on = ["RP-01"]
+owns = ["crates/kink-pattern", "handoffs/RP-02.toml"]
+deliverables = [
+  "Validate supplied traces against exact definition, terminal, bounds, event-origin, signature, variable, and provenance roots required by the portable contract.",
+  "Treat unsupported or unresolved nested symbolic term relations as indeterminate or typed input failure, never fabricated inequality.",
+  "Require explicit complete-finite evidence for no-match and reject or return unknown for empty path/component collections without an exhaustion witness.",
+  "Rederive discovery site identity, membership, canonical order, tuple identity, completeness, and finite authority before selection.",
+  "Expand frozen execution and mutation assertions to cover failures, stops/policies, predicates, replay keys, matched events, receipts, and ordering adversaries.",
+]
+acceptance = [
+  "RU-03-D2/D4/D5 and RU-03-A1/A2/A3 are demonstrably repaired.",
+  "No K parser, solver, Cartesian discovery substitute, or native evidence promotion is added.",
+  "All workspace format, test, and Clippy gates pass.",
+]
+
+[[packet]]
+id = "RP-03"
+title = "Typed worker, receipt, and cache publication foundation"
+depends_on = ["RP-01"]
+owns = ["crates/kink-campaign worker/receipt/cache modules and focused tests", "handoffs/RP-03.toml"]
+deliverables = [
+  "Replace free-form bounded/error causes with closed typed BAG-10-compatible result and failure placements.",
+  "Parse and validate the seven frozen operation-specific invocation, wrapper, terminal, input, child-receipt, and publication shapes.",
+  "Parse and rederive exact execution-attempt and oracle-evaluation keys instead of accepting arbitrary objects.",
+  "Validate exact cache-record shape, bounds, result, terminal, output, receipt, material, production-authority, and reuse correspondence.",
+  "Make finite/native authority unforgeable through the public safe API and retain permanent same-key conflict quarantine.",
+  "Exercise actual uncached, partial-hit, full-hit, failed-producer, drift, and conflict folds rather than comparing fixture annotations.",
+]
+acceptance = [
+  "RU-04-D1/D2/D3/D5 and RU-04-A2/A5 foundations are demonstrably repaired.",
+  "Failed or forged producers expose no reusable record.",
+  "All workspace format, test, and Clippy gates pass.",
+]
+
+[[packet]]
+id = "RP-04"
+title = "Exact oracle, campaign, replay, and report closure"
+depends_on = ["RP-02", "RP-03"]
+owns = ["crates/kink-campaign oracle/campaign/replay/collection modules and integration tests", "handoffs/RP-04.toml"]
+deliverables = [
+  "Implement kind-specific portable BAG-12 validation and comparison for all six registered oracle families with baseline gates that cannot be bypassed.",
+  "Validate exact BAG-14/15/16 selected-record and receipt closures, first-kill/full suffix behavior, statuses, scoring, and publication identities.",
+  "Validate exact replay manifests, recursive version registries, reports, and cross-feature roots instead of accepting reduced internal shells.",
+  "Run all applicable frozen positive and adversarial vectors through Rust logic and leave only genuinely native production/evaluator gates deferred.",
+  "Prove uncached, partial-hit, and full-hit execution through the cache/report APIs produces byte-identical semantic reports.",
+]
+acceptance = [
+  "Every RU-04 deliverable and acceptance clause is pass or an exact genuinely native deferred gate.",
+  "Bounded agreement remains survived, never equivalence; all excluded statuses remain distinct.",
+  "All workspace format, test, and Clippy gates pass.",
+]
+
+[[packet]]
+id = "RP-05"
+title = "Independent repair audit"
+depends_on = ["RP-01", "RP-02", "RP-03", "RP-04"]
+owns = ["completion-report.toml", "handoffs/RP-05.toml", "audit-only repairs"]
+deliverables = [
+  "Re-audit every previously failed portable clause against code paths and adversarial tests.",
+  "Run the exact Python, Rust, conformance, diff, and protected-file gates.",
+  "Update completion-report.toml from observed evidence while preserving every deferred-native distinction.",
+]
+acceptance = [
+  "No portable clause is failed or mislabeled deferred-native.",
+  "Rust formatting, tests, Clippy, conformance, and diff gates pass.",
+  "The Python authority passes or remains an explicitly environment-failed gate with machine-package triage evidence.",
+]

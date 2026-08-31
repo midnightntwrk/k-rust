@@ -1,0 +1,12 @@
+[package]
+name = "kink-patch"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+kink-portable.workspace = true
+
+[lints]
+workspace = true

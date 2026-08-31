@@ -1,0 +1,60 @@
+packet_id = "RU-00"
+implemented = [
+  "Created the Rust workspace and the six declared crates.",
+  "Pinned the already-installed Rust 1.96.1 toolchain with rustfmt and Clippy components.",
+  "Added repository-relative frozen-package discovery independent of process working directory.",
+  "Added list and check CLI entry points with closed typed nonzero failure classifications.",
+  "Imported the canonicalization vector envelope and retained every expected field as frozen input data.",
+  "Added unit and CLI adversaries for root and nested discovery plus missing, malformed, and unexpected inputs.",
+  "Documented workspace, conformance, and RU-00 gate commands.",
+]
+files_changed = [
+  "Cargo.lock",
+  "Cargo.toml",
+  "rust-toolchain.toml",
+  "crates/kink-campaign/Cargo.toml",
+  "crates/kink-campaign/src/lib.rs",
+  "crates/kink-conformance/Cargo.toml",
+  "crates/kink-conformance/src/lib.rs",
+  "crates/kink-conformance/src/main.rs",
+  "crates/kink-conformance/tests/cli.rs",
+  "crates/kink-contracts/Cargo.toml",
+  "crates/kink-contracts/src/lib.rs",
+  "crates/kink-patch/Cargo.toml",
+  "crates/kink-patch/src/lib.rs",
+  "crates/kink-pattern/Cargo.toml",
+  "crates/kink-pattern/src/lib.rs",
+  "crates/kink-portable/Cargo.toml",
+  "crates/kink-portable/src/lib.rs",
+  "draft/tasks/rust-upfront/README.md",
+  "draft/tasks/rust-upfront/handoffs/RU-00.toml",
+]
+commands_run = [
+  "python3 investigations/backend-agnostic-goal-closure/verify.py",
+  "cargo fmt --all -- --check",
+  "cargo test --workspace --locked",
+  "cargo clippy --workspace --all-targets --locked -- -D warnings",
+  "cargo run --locked --quiet -p kink-conformance -- list",
+  "cargo run --locked --quiet -p kink-conformance -- check",
+  "git -c safe.directory=/home/sebastiengllmt/git/workspaces/starstream-fv/k-in-k2 diff --check",
+]
+results = [
+  "PASS: cargo fmt --all -- --check exited 0.",
+  "PASS: cargo test --workspace --locked exited 0; 8 tests passed and 0 failed.",
+  "PASS: cargo clippy --workspace --all-targets --locked -- -D warnings exited 0.",
+  "PASS: list and check produced identical successful output from the repository root and crates/kink-portable/src.",
+  "PASS: malformed, absent, and unexpected-input CLI adversaries returned typed nonzero failures without panics.",
+  "PASS: git diff --check exited 0.",
+  "ENVIRONMENT LIMIT: the Python authority exited 1 with 'official Draft 2020-12 jsonschema validator is required'.",
+]
+known_limits = [
+  "Restricted JSON semantic validation, canonical serialization, and digest evaluation are deliberately deferred to RU-01.",
+  "The zero-backend Python authority cannot run in this sandbox until its already-declared official jsonschema dependency is available; RU-00 installed nothing.",
+  "The non-conformance crates contain only documented workspace seams owned by their later packets.",
+]
+next_packet_preconditions = [
+  "RU-01 may consume CanonicalizationVectors and must preserve its frozen expected fields unchanged.",
+  "RU-01 must replace envelope-only import with the restricted JSON, canonical encoding, digest, identity, and artifact-ingress semantics declared by its packet.",
+  "RU-01 must retain ConformanceFailureKind stability or version any external failure-code change deliberately.",
+  "The unrelated investigations/k-rust-target/k-rust-agent-requests.toml must remain unmodified.",
+]

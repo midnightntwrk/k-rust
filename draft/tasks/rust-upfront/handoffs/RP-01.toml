@@ -1,0 +1,70 @@
+packet_id = "RP-01"
+implemented = [
+  "Made every public semantic JSON canonicalization, UTF-8 encoding, serde conversion, domain digest, and self-ID digest path validate the complete in-memory value before encoding or hashing.",
+  "Added deterministic recursive in-memory validation in array-index and Unicode object-key order with structural locations and closed JsonFailure classifications.",
+  "Added checked SemanticJson string, array, and object constructors while retaining typed rejection at the canonicalization boundary for values assembled directly through enum variants.",
+  "Changed canonical_json, canonical_json_bytes, digest, digest_without_field, and to_serde_value to return validation failures; no public unchecked semantic encoder or hash function remains.",
+  "Updated portable identity derivation and every dependent workspace call site for the checked JSON API without changing any digest projection or frozen bytes.",
+  "Replaced claimant-field walking for definition-summary artifact roles with PortableDefinition parsing, complete lineage/body/content/module/definition recomputation, linkage validation, and identity_summary projection.",
+  "Added a positive catalog-driven definition-ingress test and an adversary that refreshes canonical bytes, contentSha256, embedded definitionDigest, and catalog digest around a stale nested contentFingerprint for definition, instrumented-definition, and mutant-definition roles.",
+  "Added in-memory adversaries proving nested non-NFC strings, non-NFC object keys, self-ID projections, checked constructors, serde conversion, canonical text/bytes, and domain hashes all reject before publication.",
+]
+files_changed = [
+  "crates/kink-portable/src/json.rs",
+  "crates/kink-portable/src/artifact.rs",
+  "crates/kink-portable/src/definition.rs",
+  "crates/kink-portable/src/identity.rs",
+  "crates/kink-conformance/src/lib.rs",
+  "crates/kink-patch/src/apply.rs",
+  "crates/kink-patch/src/model.rs",
+  "crates/kink-patch/tests/patch_vectors.rs",
+  "crates/kink-pattern/src/candidate.rs",
+  "crates/kink-pattern/src/pattern.rs",
+  "crates/kink-pattern/tests/frozen_vectors.rs",
+  "crates/kink-campaign/src/cache.rs",
+  "crates/kink-campaign/src/campaign.rs",
+  "crates/kink-campaign/src/receipt.rs",
+  "crates/kink-campaign/src/replay.rs",
+  "draft/tasks/rust-upfront/handoffs/RP-01.toml",
+]
+commands_run = [
+  "cargo check -p kink-portable --locked",
+  "cargo check --workspace --locked",
+  "cargo test --workspace --locked --no-run",
+  "cargo test -p kink-portable --locked",
+  "cargo run --locked --quiet -p kink-conformance -- check",
+  "cargo fmt --all -- --check",
+  "cargo fmt --all",
+  "cargo test --workspace --locked",
+  "cargo clippy --workspace --all-targets --locked -- -D warnings",
+  "git -c safe.directory=/home/sebastiengllmt/git/workspaces/starstream-fv/k-in-k2 diff --check",
+  "sha256sum investigations/k-rust-target/k-rust-agent-requests.toml",
+  "python3 -c 'import tomllib; tomllib.load(open(\"draft/tasks/rust-upfront/handoffs/RP-01.toml\", \"rb\"))'",
+  "rg -n '[[:blank:]]+$' over every RP-01 changed source and handoff file",
+]
+results = [
+  "PASS: focused kink-portable tests completed with 14 passed and 0 failed, including exact in-memory rejection and refreshed-outer/stale-nested definition adversaries.",
+  "PASS: all three definition-summary roles reject the stale nested claimant fingerprint even when canonical bytes, raw content hash, embedded self-ID, and catalog semantic digest are refreshed consistently around the stale claim.",
+  "PASS: bundled BAG-14 definition ingress passes official schema validation and complete PortableDefinition semantic recomputation.",
+  "PASS: kink-conformance checked all 9 canonicalization vectors, 7 identity vectors, and 4 portable-definition fixtures unchanged.",
+  "PASS: cargo test --workspace --locked completed with 49 passed and 0 failed.",
+  "PASS: cargo fmt --all -- --check exited 0.",
+  "PASS: cargo clippy --workspace --all-targets --locked -- -D warnings exited 0.",
+  "PASS: git diff --check exited 0.",
+  "PASS: investigations/k-rust-target/k-rust-agent-requests.toml retained SHA-256 dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec.",
+  "PASS: RU-01-D1 is repaired because invalid in-memory values now return a typed JsonFailure before every canonicalization, conversion, or semantic hash path.",
+  "PASS: RU-01-D4 is repaired because definition artifact projection now accepts only a semantically rederived PortableDefinition graph rather than nested claimant fingerprints.",
+]
+known_limits = [
+  "SemanticJson enum variants remain useful as a typed staging representation, but directly assembled invalid values cannot cross any public canonicalization, serde-conversion, domain-digest, or self-ID-digest boundary.",
+  "PortableDefinition closes the declared portable v1 semantic slice only; native parsed-K coverage, native symbol derivation, declaration/subsort proof, and native provenance remain deferred-native exactly as before.",
+  "Parentless generated module anchors still require the separately reviewed transformation-input boundary documented by RU-01; RP-01 does not fabricate that native/patch evidence.",
+  "The immutable in-memory artifact store remains a seam; durable storage, locking, and native transport are outside RP-01.",
+]
+next_packet_preconditions = [
+  "RP-02 and RP-03 may consume the checked canonical_json, canonical_json_bytes, digest, digest_without_field, and to_serde_value results; they must propagate or deliberately map JsonFailure before publishing any value.",
+  "All future portable-definition artifact consumers must enter through ingest_artifact with a repository-loaded RoleSpecRegistry so schema and complete PortableDefinition recomputation both execute.",
+  "No later packet may restore an infallible or unchecked public semantic JSON encoding or hash path.",
+  "Frozen canonicalization and identity bytes are unchanged and remain the acceptance authority.",
+  "The unrelated investigations/k-rust-target/k-rust-agent-requests.toml remains unmodified with SHA-256 dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec.",
+]

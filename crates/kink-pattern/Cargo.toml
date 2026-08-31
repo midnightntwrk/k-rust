@@ -1,0 +1,16 @@
+[package]
+name = "kink-pattern"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+kink-contracts.workspace = true
+kink-portable.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

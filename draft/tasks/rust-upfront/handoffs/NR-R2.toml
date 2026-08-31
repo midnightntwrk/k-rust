@@ -1,0 +1,41 @@
+schema_version = 1
+packet_id = "NR-R2"
+title = "Transaction-closure pre-audit hardening"
+status = "repair-complete-awaiting-independent-audit"
+source_audits = ["handoffs/NR-R0.toml", "handoffs/NR-01R.toml", "handoffs/NR-02R.toml"]
+protected_artifact_sha256 = "dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec"
+
+[finding]
+classification = "critical-before-repair"
+artifact_transaction = "A transaction identity committed its complete JSON payload, but the public membership check previously inspected only whether one queried row matched. A canonical rehashed transaction could contain an authorized queried row plus an unauthorized or malformed sibling without the sibling participating in acceptance."
+cache_sidecar = "A canonical record sidecar previously needed only to name some committed artifact transaction. If the record outputs were accepted through other transactions, a sidecar redirected to an unrelated committed subset transaction could still authorize reuse."
+
+[repair]
+artifact_transaction = "Every committed transaction now parses a nonempty ordered output list, validates exact row fields, sealed artifact locators, content digests, unique normalized locators, and membership in the store-bound catalog authority before membership or commitment succeeds."
+cache_sidecar = "Cache publication and reuse now require the sidecar transaction to commit exactly the record's ordered catalog entries. A merely committed unrelated transaction is a corrupt record, even when each requested output is accepted elsewhere."
+compatibility = "Existing misordered or incomplete caller-supplied output closures retain MissingOutput classification because the portable record and catalog sequence validate before the durable transaction-closure comparison."
+
+[adversarial_evidence]
+artifact = "committed_transaction_rejects_an_unauthorized_sibling_row installs a canonical correctly self-identified transaction with one authorized row and one out-of-authority sibling; transaction commitment rejects as Corrupt."
+cache = "canonical_record_sidecar_cannot_borrow_an_unrelated_committed_transaction publishes the complete record, commits a separate one-output subset transaction, redirects the canonical sidecar, and observes CorruptRecord rather than reuse."
+
+[validation]
+commands = [
+  "CARGO_BUILD_JOBS=1 cargo test -p kink-portable --test durable_artifact --locked",
+  "CARGO_BUILD_JOBS=1 cargo test -p kink-campaign --test durable_cache --locked",
+  "CARGO_BUILD_JOBS=1 cargo clippy -p kink-contracts -p kink-portable -p kink-campaign --all-targets --locked -- -D warnings",
+  "CARGO_BUILD_JOBS=1 cargo test -p kink-patch --locked",
+]
+results = [
+  "PASS: 13 durable artifact tests passed.",
+  "PASS: 11 durable cache tests passed.",
+  "PASS: the three repaired crates passed warnings-denied all-target Clippy.",
+  "PASS: three staged-native tests, five portable patch vectors, and the compile-fail leak adversary passed.",
+]
+
+[next_packet]
+id = "NR-R3"
+requirements = [
+  "A fresh auditor must independently reproduce the original NR-R0 exploits and both NR-R2 transaction-closure adversaries.",
+  "No downstream packet may treat this pre-audit hardening record as independent acceptance.",
+]

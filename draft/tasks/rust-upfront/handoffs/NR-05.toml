@@ -1,0 +1,79 @@
+schema_version = 1
+packet_id = "NR-05"
+title = "Pinned semantic index and native patch validator"
+status = "complete-strongest-local-subset-upstream-blocked"
+protected_artifact_sha256 = "dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec"
+
+[scope]
+owned = ["crates/kink-native", "Cargo.toml", "Cargo.lock", "draft/tasks/rust-upfront/handoffs/NR-05.toml"]
+untouched = ["KRS", "k-rust-krs-main", "crates/kink-campaign", "crates/kink-portable", "existing crates/kink-patch files", "investigations/k-rust-target/k-rust-agent-requests.toml", "native-readiness-work-package.toml"]
+
+[pins]
+krs_expected_revision = "9a10f89e04cf4bc48ba42046569b31644bd0f55e"
+krs_observed_revision = "9a10f89e04cf4bc48ba42046569b31644bd0f55e"
+krs_observed_state = "dirty-rejected: tests/kevm/lsp_probe.py, tests/kevm/pins.toml, and tests/kevm/verify.py are modified"
+k_rust_expected_revision = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
+k_rust_observed_revision = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
+k_rust_observed_state = "clean"
+declared_k_rust_profile = "version =0.4.0, default-features=false, features=[z3-inference]"
+implemented_integration_profile = "version =0.4.0, default-features=false, structured-no-z3-inference"
+pin_rule = "PinnedNativeValidator construction reruns exact HEAD, full porcelain cleanliness, KRS manifest version/path/feature, declared canonical-path, compiled path, and rustc --version --verbose identity checks. Any mismatch returns a typed failure before a baseline is captured."
+
+[implementation]
+inventory = "Exhaustive matches cover all 12 k-rust Sentence variants and all 8 Term variants. The admitted source subset contains every structured sentence and term variant; unresolved textual Bubble sentences fail closed."
+semantic_index = "NativeIndex records module-name-qualified sentence declarations, sort declarations and synonyms, production signatures, direct semantic subsort edges using k-rust's published compute_subsorts implementation, nested term inventory, and resolved symbol uses keyed by deterministic term paths."
+ownership = "NativeSymbolId is owner-module plus label. Duplicate labels in one owner reject, and an unqualified use that sees the same label from multiple imported owners rejects with the exact sorted owner set. Module-vector relocation does not change symbol or use identity."
+sidecar = "ProvenanceSidecarIndex keys copied KRS OriginMapping summaries by module name, optional sentence ordinal, and a closed NativeNodeRole mirror. Missing modules, out-of-bounds ordinals, module-role/index inconsistency, and duplicate destinations reject. This sidecar is explicitly non-authoritative."
+native_transaction = "PinnedNativeValidator accepts NR-02 StagedNativeInput, clones its immutable native baseline, invokes one caller-supplied native patch function, inventories and indexes the candidate, prepares it with k-rust load_structured plus the pinned prelude and backend exclusion, runs the full k-rust compilation/check/transformation/KORE-lowering pipeline, and constructs ValidatedNativeOutput only after success."
+failure_boundary = "NativeFailure contains no staged native definition, portable output, KORE artifact, or output-derived identity. committed_edit_count is always zero. ValidatedNativeOutput binds exact pins, rustc verbose identity, the full CompileOptions backend/profile, semantic index, committed native definition, and lowered artifacts while retaining SidecarOnlyMissingBridge provenance status."
+nr02_connection = "The validator's public validate method consumes kink_patch::StagedNativeInput and is suitable as the closure passed to apply_patch_with_native_validation. Existing kink-patch files and NativeIrValidation::RustProofPending remain unchanged."
+
+[tests]
+passed = [
+  "closed inventory visits InjectedLabel, Rewrite, As, Variable, Sequence, Apply, Token, and Annotated terms",
+  "Bubble rejection",
+  "duplicate label rejection",
+  "duplicate sort rejection",
+  "circular subsort rejection",
+  "application arity mismatch rejection",
+  "ambiguous visible owner rejection",
+  "module-vector relocation stability",
+  "direct subsort and signature indexing",
+  "sidecar destination bounds rejection",
+  "default exact-clean pin gate accepts exact clean pins or specifically rejects the observed dirty KRS checkout",
+]
+
+[validation]
+focused_tests = "cargo test -p kink-native --locked: 11 unit tests passed; doc tests passed"
+clippy = "cargo clippy -p kink-native --all-targets --locked -- -D warnings: passed"
+format = "cargo fmt --package kink-native -- --check: passed"
+protected_sha = "sha256sum investigations/k-rust-target/k-rust-agent-requests.toml: dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec"
+initial_declared_profile_probe = "cargo test -p kink-native with the KRS wrapper dependency compiled Rust successfully but final linking failed because rust-lld could not find -lz3"
+
+[exact_blockers]
+items = [
+  "The selected KRS checkout is at the exact revision but is currently dirty in three KEVM test files. The production pin gate correctly rejects it, so no validated native output was issued from that checkout.",
+  "The KRS wrapper's declared z3-inference feature requires system libz3, which is absent in this sandbox. No software was installed. The implemented structured native path therefore uses the exact k-rust checkout without z3-inference and records that distinct profile.",
+  "KRS still does not bind OriginMapping into k-rust SourceTable, TermSpan, production metadata, and OriginRecord across compilation. Sidecar indexing cannot become complete native provenance, and ProvenanceStatus remains SidecarOnlyMissingBridge.",
+  "No generic portable SemanticJson-to-KRS DefinitionIr/native edit translator exists. NR-05 supplies the atomic clone/patch/validate/lower transaction and requires the caller to provide the native edit mapping for each admitted patch family.",
+  "The no-z3 structured profile fails closed on inputs whose source parsing requires Z3 parametric ambiguity inference. The path is strongest for already-structured KRS definitions and is not equivalent to the KRS wrapper's declared source-parser profile.",
+]
+
+[not_claimed]
+items = [
+  "complete source or generated provenance",
+  "native proof or production issuer authority",
+  "durable or cross-process atomic publication",
+  "independent evaluator conformance",
+  "generic portable-to-native patch correspondence",
+  "successful production validation while the exact KRS checkout is dirty",
+]
+
+[next_packet]
+id = "NR-06"
+preconditions = [
+  "Use only ValidatedNativeOutput from a successful NR-02 transaction; never promote the sidecar to provenance authority.",
+  "Retain the exact CompileOptions and integration feature profile in observation/search evidence.",
+  "Map no-z3 parametric inference requirements and every external/incomplete stop to unknown.",
+  "Do not issue native-proven observations until the KRS-to-k-rust provenance bridge is supplied and qualified.",
+]

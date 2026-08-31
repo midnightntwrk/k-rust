@@ -1,0 +1,96 @@
+schema_version = 1
+packet_id = "NR-U1"
+title = "Read-only upstream delta audit"
+status = "complete-audit-only"
+audited_on = "2026-08-31"
+protected_artifact_sha256 = "dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec"
+
+[scope]
+owned = ["draft/tasks/rust-upfront/handoffs/NR-U1.toml", "draft/tasks/rust-upfront/native-capability-reassessment.toml", "draft/tasks/rust-upfront/native-readiness-work-package.toml"]
+read_only = ["/home/sebastiengllmt/git/workspaces/starstream-fv/krs", "/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust", "/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust-krs-main", "investigations/k-rust-target/k-rust-agent-requests.toml"]
+
+[revisions]
+previous_shared_k_rust = "4faf017527e9bd3deda6ea44968ae7c2c6eb2fca"
+current_shared_k_rust = "96bbe9d6b4d486f907e72cdc01ee0d9580e4757b"
+current_shared_k_rust_state = "clean-at-audit-snapshot"
+krs_head = "9a10f89e04cf4bc48ba42046569b31644bd0f55e"
+krs_state = "dirty"
+krs_declared_k_rust = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
+
+[[delta]]
+commit = "da8890aff28774176e1ee8e32f8cc2e6ccef14d8"
+subject = "fix(reference): contain complete differential jobs"
+files = ["README.md", "crates/k-rust/tests/differential_manifest.rs", "scripts/reference-differential.toml", "scripts/reference-memory-guard.sh", "six Java-backed differential entry scripts"]
+effect = "The complete Java-backed differential process tree now runs inside one systemd scope or one explicit RLIMIT_AS fallback. This is operational containment and does not add semantic authority."
+tests = ["java_backed_differentials_guard_the_whole_job_without_nested_sibling_scopes"]
+
+[[delta]]
+commit = "96bbe9d6b4d486f907e72cdc01ee0d9580e4757b"
+subject = "perf(provenance): share inherited origin links"
+files = ["crates/k-rust/src/provenance.rs", "crates/k-rust/src/kompile/module_to_kore.rs", "crates/k-rust/tests/definition_json.rs", "crates/k-rust/tests/kompile_passes.rs"]
+effect = "OriginRecord.origins changes from Vec<ProvenanceLink> to Arc<[ProvenanceLink]>. Generated descendants share identical inherited links. Link content, destination identity, ordering, and JSON wire form remain unchanged."
+symbols = ["OriginRecord", "record_generated_origins", "term_origin_links"]
+tests = ["generated_descendants_share_identical_origin_link_storage"]
+
+[krs_dirty_delta]
+files = ["crates/krs-k-rust/src/lib.rs", "crates/krs-k-rust/src/tests.rs"]
+symbols = ["Adapter::term", "incomplete_cell", "native_cells"]
+tests = ["complete_cell_terms_use_the_pinned_frontend_concretization_shape"]
+effect = "DefinitionTermKind::Cell presents complete parent and leaf cells through k-rust's closed three-argument parser representation while retaining ordered nested contents."
+qualification = "This is read-only dirty-worktree evidence. It may improve NATIVE-01 term coverage and NATIVE-02 pipeline admission only after an accepted clean pin contains and requalifies it."
+
+[[gate]]
+id = "NATIVE-01"
+classification = "partial-narrow-improvement"
+newly_available = ["A compatibility representation for complete nested cells exists in the dirty KRS adapter."]
+still_blocked = ["KRS OriginMapping is not bound into k-rust SourceTable, TermSpan, production metadata, and OriginRecord or retained in an equivalent provenance-bearing compilation result."]
+evidence = ["k-rust crates/k-rust/src/provenance.rs: SourceTable, OriginRecord, record_generated_origins", "k-rust crates/k-rust/src/kast/ast.rs: TermSpan, ResolvedProductionId, TermMetadata", "KRS crates/krs-k-rust/src/lib.rs: OriginMapping, AdaptedDefinition, compile_definition, Adapter::term"]
+
+[[gate]]
+id = "NATIVE-02"
+classification = "partial-narrow-improvement"
+newly_available = ["The dirty KRS compatibility shape can admit complete nested-cell terms to the existing native validation pipeline."]
+still_blocked = ["Provenance-complete receipts depend on NATIVE-01.", "CompiledKoreArtifacts is output from an ordered pipeline, not a checked lowering relation or proof artifact."]
+evidence = ["k-rust crates/k-rust/src/kompile/compile.rs: CompiledKoreArtifacts, compile_loaded_definition", "KRS crates/krs-k-rust/src/lib.rs: compile_definition"]
+
+[[gate]]
+id = "NATIVE-03"
+classification = "partial-unchanged"
+newly_available = []
+still_blocked = ["Portable emitting-sentence provenance depends on the NATIVE-01 bridge unless the KRS sidecar is independently qualified as authoritative."]
+evidence = ["k-rust-backend crates/k-rust-backend/src/transition.rs: TransitionObservation, ObservationOptions::with_rules", "k-rust crates/k-rust/src/backend.rs: search_observed, search_paths_observed, search_pattern_observed, search_pattern_paths_observed"]
+
+[[gate]]
+id = "NATIVE-04"
+classification = "positive-bounded-only-unchanged"
+newly_available = []
+still_blocked = ["IncompleteSearch::ResultBound has no frontier or equivalent unvisited-work accounting.", "Successful exhaustion is represented only by an empty incomplete vector, not a positive closed completion record."]
+evidence = ["k-rust-backend crates/k-rust-backend/src/search.rs: IncompleteSearch, SearchResult, PathSearchResult, PatternSearchResult, PatternPathSearchResult", "tests: result_bound_stops_the_breadth_first_search, exhausting_the_graph_exactly_at_the_result_bound_is_complete, breadth_bound_reports_the_live_search_frontier"]
+
+[[gate]]
+id = "NATIVE-05"
+classification = "authority-blocked-unchanged"
+newly_available = []
+still_blocked = ["Neither audited delta adds K-owned mutation discovery, K-produced joined tuples, tuple decoding, or native production receipts.", "Native-proven materialization depends on NATIVE-01 and NATIVE-02."]
+evidence = ["No semantic discovery file changed in either audited delta."]
+
+[[gate]]
+id = "NATIVE-06"
+classification = "authority-blocked-unchanged"
+newly_available = []
+still_blocked = ["No K-authored pattern-source to normalized-plan or query binding exists.", "No independent native evaluator conformance suite or sealed issuer exists."]
+evidence = ["Existing search_pattern adapters accept backend patterns and do not constitute a K-authored compiler or independent evaluator qualification."]
+
+[kink_native]
+superseded = false
+reason = "kink-native correctly retains SidecarOnlyMissingBridge. Its exact k-rust revision and dedicated path remain the integration pin, and its validator rejects the dirty KRS worktree. The shared-main Arc storage change and dirty nested-cell compatibility change do not grant provenance or lowering authority."
+symbols = ["K_RUST_REVISION", "K_RUST_PATH", "ProvenanceStatus::SidecarOnlyMissingBridge", "PinnedNativeValidator::validate", "index_sidecar"]
+
+[upstream_holds]
+items = ["Positive explicit search exhaustion.", "Provenance-bearing KRS-to-k-rust bridge.", "Checked lowering proof artifact.", "Qualified K-authored compiler and independent evaluator."]
+discharged = []
+
+[validation]
+required = ["Parse all three edited TOML files.", "Verify the protected request SHA-256.", "Confirm no KRS or k-rust file was modified."]
+result = ["All three edited TOML files parsed.", "The protected request retained SHA-256 dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec.", "This audit did not modify KRS or either k-rust checkout."]
+concurrent_state_note = "After the clean shared-main audit snapshot, a concurrent session modified crates/k-rust/src/kompile/compile.rs while HEAD remained 96bbe9d6b4d486f907e72cdc01ee0d9580e4757b. That later change is outside this audit and was not inspected, altered, or treated as evidence."

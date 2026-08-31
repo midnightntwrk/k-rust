@@ -1,0 +1,57 @@
+schema_version = 1
+package_id = "k-in-k2/native-readiness-repair/v1"
+status = "active"
+source_audit = "handoffs/NR-R0.toml"
+objective = "Repair first-wave acceptance failures before any downstream native worker or adapter consumes the affected seams."
+
+[agent_protocol]
+execution = "NR-01R and NR-02R run concurrently in disjoint modules. NR-R3 independently audits both before NR-04 and NR-06 resume."
+worktree = "Preserve the protected request exactly. Do not edit KRS or k-rust."
+failure_rule = "Do not weaken the durable atomicity or no-output-on-failure clauses to fit the current implementation."
+
+[[packet]]
+id = "NR-01R"
+title = "Durable publication authority and locking repair"
+status = "ready"
+depends_on = []
+owns = ["kink-contracts locator boundary as required", "kink-portable durable artifact modules", "kink-campaign durable cache modules", "focused adversarial tests", "handoffs/NR-01R.toml"]
+deliverables = [
+  "Revalidate or seal locator construction and derive path and lock identity from one canonical validated value.",
+  "Durably quarantine artifact-locator conflicts and block reads until explicit versioned remediation.",
+  "Add a commit/transaction visibility boundary so a failed multi-output cache publication exposes no publicly accepted output.",
+  "Remove incomplete-lock ABA deletion through ownership-token rechecks or a selected proven primitive.",
+  "Bind publication and reuse to exact validated registry/catalog authority rather than an arbitrary caller-constructed registry.",
+  "Parse and revalidate canonical conflict ledgers while retaining fail-closed quarantine on corruption.",
+  "Either qualify supported platforms or explicitly type the durable implementation as Linux-only.",
+]
+acceptance = [
+  "Direct-construction alias locators and concurrent alias writers reject before touching storage.",
+  "Artifact and record conflicts persist both observations and select neither value.",
+  "A late-output failure leaves no output accepted through the public transaction-aware read boundary.",
+  "Failpoint tests cover ownerless locks, paused-writer ABA, staging, sync, rename, multi-output, and ledger boundaries.",
+]
+
+[[packet]]
+id = "NR-02R"
+title = "Closed native validator rejection boundary"
+status = "ready"
+depends_on = []
+owns = ["kink-patch staged validator API and adversarial tests", "handoffs/NR-02R.toml"]
+deliverables = [
+  "Prevent validator-owned errors from carrying staged portable output or output identities across failure.",
+  "Return one closed boundary-owned native rejection classification with supplemental diagnostics only.",
+  "Preserve opaque native success output and ordinary apply_patch behavior.",
+]
+acceptance = [
+  "A validator may clone staged data internally but cannot recover it or its identities through the failed transaction result.",
+  "Portable and native failure paths expose zero committed edits and no staged output.",
+]
+
+[[packet]]
+id = "NR-R3"
+title = "Independent first-wave repair audit"
+status = "ready"
+depends_on = ["NR-01R", "NR-02R"]
+owns = ["repair completion report", "handoffs/NR-R3.toml", "audit-only repairs"]
+deliverables = ["Reproduce every NR-R0 exploit against the repaired public API.", "Reproduce the NR-R2 unauthorized transaction sibling and unrelated committed sidecar adversaries.", "Run full workspace and protected-artifact gates."]
+acceptance = ["Every exploit rejects and all original portable behavior remains green.", "NR-04 and NR-06 resume only after this audit passes."]

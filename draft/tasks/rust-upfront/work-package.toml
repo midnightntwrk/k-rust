@@ -1,0 +1,182 @@
+schema_version = 1
+package_id = "k-in-k2/rust-upfront/v1"
+status = "portable-complete-native-deferred"
+objective = "Implement the backend-neutral Rust product layers that can be accepted before KRS and k-rust expose every native evidence capability."
+normative_contract = "../../../investigations/backend-agnostic-goal-closure/contracts.md"
+handoff = "../../../investigations/backend-agnostic-goal-closure/rust-stack-handoff.md"
+portable_verifier = "../../../investigations/backend-agnostic-goal-closure/verify.py"
+
+[scope]
+included = [
+  "A Rust workspace and zero-backend conformance runner.",
+  "Restricted portable JSON values, canonical encoding, and domain-separated digests.",
+  "Strict repository artifact ingress and an in-memory artifact-store seam.",
+  "Portable semantic values and identities over an explicitly closed supported subset.",
+  "Original-relative typed patches with immutable-baseline validation and atomic application.",
+  "Finite trace-reference pattern evaluation and supplied-binding candidate protocols.",
+  "Backend-neutral worker results, receipts, cache records, replay, scheduling, and reports.",
+  "Capability gates preventing portable or scripted evidence from becoming native proof.",
+]
+excluded = [
+  "Pretty K or KORE parsing as semantic ingress.",
+  "Host approximations of K matching, discovery, side-condition evaluation, or proof.",
+  "Native KRS or k-rust adapters before immutable revisions and evidence APIs exist.",
+  "Native provenance, branch observation, exhaustive search, solver, lowering, or evaluator-conformance claims.",
+  "The held RS-08 streaming optimization.",
+  "Extensions or reinterpretations of frozen portable v1 contracts.",
+]
+
+[workspace]
+root_manifest = "../../../Cargo.toml"
+dependency_policy = "Prefer the standard library and existing dependencies. Select a published implementation when it covers a published contract. Do not install software."
+format_gate = "cargo fmt --all -- --check"
+test_gate = "cargo test --workspace --locked"
+clippy_gate = "cargo clippy --workspace --all-targets --locked -- -D warnings"
+
+[layout]
+contracts = "crates/kink-contracts"
+portable = "crates/kink-portable"
+patch = "crates/kink-patch"
+pattern = "crates/kink-pattern"
+campaign = "crates/kink-campaign"
+conformance = "crates/kink-conformance"
+
+[global_invariants]
+requirements = [
+  "Semantic JSON admits only null, boolean, signed-64 integer, NFC string, array, and string-keyed object; floats and duplicate keys reject.",
+  "Canonical JSON and every imported digest agree byte-for-byte with the frozen Python authority.",
+  "Semantic errors are closed typed values; diagnostics are never decision inputs.",
+  "Every operation is deterministic under repetition and permutation of fields declared unordered.",
+  "Failed validation or production publishes no accepted artifact, wrapper, receipt, cache record, or report.",
+  "Portable, finite-vector, scripted, incomplete, unknown, and native-proven evidence remain distinct.",
+  "An empty result never proves exhaustion without explicit complete-finite evidence.",
+  "Semantic identity excludes checkout paths, cache locations, timestamps, scheduling order, allocation identity, and diagnostics.",
+  "Rust must not rewrite frozen fixtures or expected results to make a test pass.",
+]
+
+[agent_protocol]
+execution = "RU-00 and RU-01 are sequential. After RU-01 review, independent packets may run concurrently when they edit disjoint crates. RU-04 follows RU-02 and RU-03. RU-05 is last."
+worktree = "Agents share this worktree and preserve unrelated changes, especially investigations/k-rust-target/k-rust-agent-requests.toml."
+handoff_directory = "draft/tasks/rust-upfront/handoffs"
+handoff_fields = ["packet_id", "implemented", "files_changed", "commands_run", "results", "known_limits", "next_packet_preconditions"]
+failure_rule = "Leave a failing regression and typed known limit when a requirement cannot close; never weaken or delete it."
+
+[[packet]]
+id = "RU-00"
+title = "Workspace bootstrap and conformance spine"
+depends_on = []
+deliverables = [
+  "Create the workspace and six crates named by layout.",
+  "Locate the frozen conformance package relative to the repository, independent of process working directory.",
+  "Provide a conformance CLI with list and check entry points and stable typed failures.",
+  "Import canonicalization vectors and establish the frozen-expected test pattern used later.",
+  "Document workspace and zero-backend conformance commands.",
+]
+acceptance = [
+  "cargo test --workspace --locked passes.",
+  "The CLI finds the package from the repository root and a nested crate directory.",
+  "Malformed, absent, and unexpected inputs return typed nonzero failures without panics.",
+  "No existing investigation artifact is modified.",
+]
+
+[[packet]]
+id = "RU-01"
+title = "Portable values, identities, and artifact ingress"
+depends_on = ["RU-00"]
+deliverables = [
+  "Implement restricted JSON parsing/canonicalization with duplicate-key, float, non-NFC, invalid integer, and trailing-data rejection.",
+  "Implement domain-separated SHA-256 digests and self-ID helpers.",
+  "Implement closed portable term, sentence, module, provenance, and definition values sufficient for bundled identity fixtures.",
+  "Implement repo-v1 normalization, regular-file/symlink checks, content hashes, canonical-byte equality, role/media checks, and an in-memory store seam.",
+  "Implement capability/disposition types defaulting native conformance to not-proven.",
+]
+acceptance = [
+  "Selected canonicalization and identity vectors pass unchanged.",
+  "Checkout relocation and duplicate labels retain expected stable/distinct identities.",
+  "Artifact ingress rejects absolute, dot, empty, non-ASCII/control, backslash, percent-escaped, and symlink-escaping repo locators.",
+  "Alternate but decodable JSON bytes reject when canonical bytes are required.",
+  "Unsupported forms return typed UnsupportedForm rather than being dropped.",
+]
+
+[[packet]]
+id = "RU-02"
+title = "Atomic portable patch algebra"
+depends_on = ["RU-01"]
+deliverables = [
+  "Implement closed v1 typed paths and edits required by patch-application-vectors.json.",
+  "Validate every precondition against one immutable baseline.",
+  "Reject duplicates, overlaps, stale preconditions, declared subset sort/scope violations, and ambiguous insertions.",
+  "Apply disjoint edits atomically and derive patch, transformation, and definition identities.",
+  "Return applied-and-locally-well-formed with nativeIrValidation rust-proof-pending on success.",
+]
+acceptance = [
+  "Applicable patch vectors pass, including atomic failure and ordering adversaries.",
+  "Failure exposes no partial definition or output identity.",
+  "Repeated and unordered-input-permuted applications are byte-identical.",
+  "Single-edit and atomic two-edit fixtures pass end to end.",
+]
+
+[[packet]]
+id = "RU-03"
+title = "Finite pattern evaluator and supplied-binding candidate protocol"
+depends_on = ["RU-01"]
+deliverables = [
+  "Implement the flat nonrecursive DNF pattern-plan and named-query validator.",
+  "Evaluate single, alternatives, next-event, and eventually-after arms over supplied traces.",
+  "Preserve variable order, typed bindings, armOrdinal including zero, earliest witnesses, and exact side-condition inputs.",
+  "Keep match, exhaustive no-match, incomplete unknown, and input error distinct.",
+  "Implement exact/each/tuple-each/all-matches folding over supplied bindings, deterministic ordering, deduplication, caps, incomplete generation, and edit-origin receipts.",
+]
+acceptance = [
+  "Applicable execution-pattern vectors pass for prefix, suffix, gap, reverse, mismatch, overlap, alternatives, and earliest witnesses.",
+  "No-match occurs only for explicitly complete traces.",
+  "Applicable mutation vectors pass for repeated/permuted input, tuples, caps, and receipt adversaries.",
+  "The crate contains no K parser, solver, or host substitute for K-owned discovery.",
+]
+
+[[packet]]
+id = "RU-04"
+title = "Worker, receipt, cache, replay, and reporting shell"
+depends_on = ["RU-01", "RU-02", "RU-03"]
+deliverables = [
+  "Define a scripted boundary returning typed normal, stuck, semantic-crash, bounded, unknown, error, or infrastructure results with completeness.",
+  "Implement cycle-free invocations, operation-specific wrappers, receipts, and all-or-none publication.",
+  "Implement per-attempt/oracle immutable keys and records, reuse classes, material gates, and same-key conflict quarantine.",
+  "Implement first-kill/full scheduling, baseline admission, typed oracle outcomes, reports, scoring, and replay manifests.",
+  "Prevent scripted/native-unavailable evidence from becoming native-proven.",
+]
+acceptance = [
+  "Applicable BAG-12/14/15/16, mutation-status, replay, and cross-feature vectors pass or are typed deferred-native gates.",
+  "Uncached, partial-hit, and full-hit folds over the same records produce byte-identical reports.",
+  "First-kill creates no suffix records; full completes the suffix.",
+  "Invalid, timeout, unknown, error, killed, and survived remain distinct; bounded agreement is not equivalence.",
+  "Failed producers publish no reusable record.",
+]
+
+[[packet]]
+id = "RU-05"
+title = "Integrated audit and repair"
+depends_on = ["RU-00", "RU-01", "RU-02", "RU-03", "RU-04"]
+deliverables = [
+  "Audit coverage against this package, contracts.md, and rust-stack-handoff.md.",
+  "Run the Python and Rust gates and repair implementation defects without weakening vectors.",
+  "Publish a machine-readable completion report separating accepted portable behavior, deferred native gates, and limitations.",
+]
+acceptance = [
+  "python3 investigations/backend-agnostic-goal-closure/verify.py passes.",
+  "cargo fmt --all -- --check passes.",
+  "cargo test --workspace --locked passes.",
+  "cargo clippy --workspace --all-targets --locked -- -D warnings passes.",
+  "git diff --check passes.",
+  "Every packet clause maps to pass, deferred-native, or failed with exact evidence.",
+]
+
+[native_handoff]
+required_later = [
+  "Committed immutable KRS and KRS-QUAL-001 fixture.",
+  "Clean k-rust with complete nested/generated provenance.",
+  "Branch-local observations with rule provenance and proof/claim coverage.",
+  "Explicit exhaustive or typed-incomplete search with stop/frontier accounting.",
+  "Native K-authored discovery/query/evaluator receipts and differentials.",
+]
+adapter_rule = "A later adapter may implement this boundary but must not change portable identities or results; semantic changes require a new version."
