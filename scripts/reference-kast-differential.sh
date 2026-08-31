@@ -3,6 +3,7 @@ set -euo pipefail
 
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$workspace/scripts/reference-pins.sh"
+source "$workspace/scripts/reference-memory-guard.sh"
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
 imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
 wasm_checkout=${WASM_SEMANTICS_CHECKOUT:-"$workspace/wasm-semantics"}
@@ -12,7 +13,6 @@ mir_checkout=${MIR_SEMANTICS_CHECKOUT:-"$workspace/mir-semantics"}
 kompile=${K_KOMPILE:-}
 kast=${K_KAST:-}
 reference_memory_kib=${REFERENCE_DIFFERENTIAL_MEMORY_KIB:-}
-rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}
 reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-}
 manifest_json=$(
   WORKSPACE="$workspace" \
@@ -187,21 +187,17 @@ for fixture in "${cases[@]}"; do
   done
 
   echo "[$name] parsing the corpus with one krust kast frontend session"
-  (
-    if [[ -n "$rust_memory_kib" ]]; then
-      ulimit -v "$rust_memory_kib"
-    fi
-    cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust -- \
-      kast "$source" \
-      --module "$parser_module" \
-      "${rust_batch_args[@]}" \
-      --output json \
-      --backend rust \
-      "${include_args[@]}" \
-      "${selector_args[@]}" \
-      --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin" \
-      >"$work/$name/rust-batch.json"
-  )
+  reference_run_rust_frontend cargo run --quiet --release \
+    --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust -- \
+    kast "$source" \
+    --module "$parser_module" \
+    "${rust_batch_args[@]}" \
+    --output json \
+    --backend rust \
+    "${include_args[@]}" \
+    "${selector_args[@]}" \
+    --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin" \
+    >"$work/$name/rust-batch.json"
 
   for parse_fixture in "${parse_cases[@]}"; do
     IFS=$'\x1f' read -r parse_name _ <<<"$parse_fixture"

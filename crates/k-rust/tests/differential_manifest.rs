@@ -1,6 +1,9 @@
 use std::{
     collections::BTreeSet,
+    fs,
     path::{Path, PathBuf},
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use toml::Value;
@@ -245,15 +248,26 @@ fn manual_certification_protocol_names_all_imp_families() {
 }
 
 #[test]
-fn frontend_differentials_limit_rust_without_constraining_the_reference_jvm() {
+fn frontend_differentials_guard_rust_resident_memory_without_constraining_the_reference_jvm() {
     for script in [COMPILE_SCRIPT, KAST_SCRIPT] {
         assert!(
             script.contains("reference_memory_kib=${REFERENCE_DIFFERENTIAL_MEMORY_KIB:-}"),
             "the reference JVM must retain its independently optional virtual-memory ceiling",
         );
         assert!(
-            script.contains("rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}"),
-            "the Rust frontend must default to a 6 GiB virtual-memory ceiling",
+            script.contains("source \"$workspace/scripts/reference-memory-guard.sh\""),
+            "the Rust frontend must use the shared resident-memory guard",
+        );
+        assert_eq!(
+            script
+                .matches("reference_run_rust_frontend cargo run")
+                .count(),
+            1,
+            "each frontend script must route its one Rust process through the guard",
+        );
+        assert!(
+            !script.contains("ulimit -v \"$rust_memory_kib\""),
+            "the Rust frontend must not confuse virtual address space with resident memory",
         );
     }
 
@@ -265,26 +279,137 @@ fn frontend_differentials_limit_rust_without_constraining_the_reference_jvm() {
         "the reference compile must use only the reference ceiling",
     );
     assert_eq!(
-        COMPILE_SCRIPT
-            .matches("ulimit -v \"$rust_memory_kib\"")
-            .count(),
-        1,
-        "the Rust compile must use only the Rust ceiling",
-    );
-    assert_eq!(
         KAST_SCRIPT
             .matches("ulimit -v \"$reference_memory_kib\"")
             .count(),
         3,
         "reference compile, acceptance, and rejection checks must use the reference ceiling",
     );
+
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let guard_path = workspace.join("scripts/reference-memory-guard.sh");
+    let guard = fs::read_to_string(&guard_path).expect("shared resident-memory guard");
+    for contract in [
+        "RUST_DIFFERENTIAL_MEMORY_HIGH_KIB:-6291456",
+        "RUST_DIFFERENTIAL_MEMORY_MAX_KIB:-8388608",
+        "RUST_DIFFERENTIAL_FALLBACK_VIRTUAL_MEMORY_KIB:-12582912",
+        "MemoryHigh=${rust_memory_high_kib}K",
+        "MemoryMax=${rust_memory_max_kib}K",
+        "MemorySwapMax=0",
+        "ulimit -v \"$rust_fallback_virtual_memory_kib\"",
+    ] {
+        assert!(
+            guard.contains(contract),
+            "memory guard is missing `{contract}`"
+        );
+    }
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time after Unix epoch")
+        .as_nanos();
+    let fixture = std::env::temp_dir().join(format!(
+        "k-rust-memory-guard-{}-{unique}",
+        std::process::id()
+    ));
+    fs::create_dir(&fixture).expect("create guard fixture");
+    let fake_systemd_run = fixture.join("systemd-run");
+    fs::write(
+        &fake_systemd_run,
+        r#"#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$GUARD_CALLS"
+if [[ "${*: -1}" == true ]]; then
+  exit "$SYSTEMD_PROBE_STATUS"
+fi
+while (($#)) && [[ "$1" != -- ]]; do
+  shift
+done
+shift
+exec "$@"
+"#,
+    )
+    .expect("write fake systemd-run");
+    let mut permissions = fs::metadata(&fake_systemd_run)
+        .expect("fake systemd-run metadata")
+        .permissions();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        permissions.set_mode(0o755);
+    }
+    fs::set_permissions(&fake_systemd_run, permissions).expect("make fake systemd-run executable");
+    let calls = fixture.join("calls");
+    let path = format!(
+        "{}:{}",
+        fixture.display(),
+        std::env::var("PATH").expect("PATH")
+    );
+
+    let scoped = Command::new("bash")
+        .arg("-c")
+        .arg("source \"$1\"; shift; reference_run_rust_frontend \"$@\"")
+        .arg("guard-test")
+        .arg(&guard_path)
+        .arg("bash")
+        .arg("-c")
+        .arg("printf scoped-out; printf scoped-err >&2; exit 23")
+        .env("PATH", &path)
+        .env("GUARD_CALLS", &calls)
+        .env("SYSTEMD_PROBE_STATUS", "0")
+        .output()
+        .expect("run scoped guard fixture");
     assert_eq!(
-        KAST_SCRIPT
-            .matches("ulimit -v \"$rust_memory_kib\"")
+        scoped.status.code(),
+        Some(23),
+        "preserve scoped exit status"
+    );
+    assert_eq!(scoped.stdout, b"scoped-out", "preserve scoped stdout");
+    assert_eq!(scoped.stderr, b"scoped-err", "preserve scoped stderr");
+    let scoped_calls = fs::read_to_string(&calls).expect("scoped call log");
+    assert!(scoped_calls.contains("MemoryHigh=6291456K"));
+    assert!(scoped_calls.contains("MemoryMax=8388608K"));
+    assert!(scoped_calls.contains("MemorySwapMax=0"));
+    assert_eq!(
+        scoped_calls.lines().count(),
+        2,
+        "probe once and execute once"
+    );
+
+    fs::write(&calls, "").expect("clear call log");
+    let fallback = Command::new("bash")
+        .arg("-c")
+        .arg("source \"$1\"; shift; reference_run_rust_frontend \"$@\"")
+        .arg("guard-test")
+        .arg(&guard_path)
+        .arg("bash")
+        .arg("-c")
+        .arg("ulimit -v; printf fallback-err >&2; exit 29")
+        .env("PATH", &path)
+        .env("GUARD_CALLS", &calls)
+        .env("SYSTEMD_PROBE_STATUS", "1")
+        .env("RUST_DIFFERENTIAL_FALLBACK_VIRTUAL_MEMORY_KIB", "10485760")
+        .output()
+        .expect("run fallback guard fixture");
+    assert_eq!(
+        fallback.status.code(),
+        Some(29),
+        "preserve fallback exit status"
+    );
+    assert_eq!(fallback.stdout, b"10485760\n", "apply fallback ulimit");
+    assert!(
+        fallback.stderr.ends_with(b"fallback-err"),
+        "preserve fallback stderr"
+    );
+    assert_eq!(
+        fs::read_to_string(&calls)
+            .expect("fallback call log")
+            .lines()
             .count(),
         1,
-        "the batched Rust parser must use only the Rust ceiling",
+        "an unavailable scope must probe once and execute only through the fallback",
     );
+
+    fs::remove_dir_all(fixture).expect("remove guard fixture");
 }
 
 fn collect_workspace_paths(value: &Value, output: &mut BTreeSet<PathBuf>) {
