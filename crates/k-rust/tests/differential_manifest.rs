@@ -6,6 +6,8 @@ use std::{
 use toml::Value;
 
 const MANIFEST: &str = include_str!("../../../scripts/reference-differential.toml");
+const COMPILE_SCRIPT: &str = include_str!("../../../scripts/reference-differential.sh");
+const KAST_SCRIPT: &str = include_str!("../../../scripts/reference-kast-differential.sh");
 const SECTIONS: [&str; 5] = ["compile", "kast", "execution", "proof", "rpc"];
 
 #[test]
@@ -240,6 +242,49 @@ fn manual_certification_protocol_names_all_imp_families() {
             "manual certification protocol must name `{command}`",
         );
     }
+}
+
+#[test]
+fn frontend_differentials_limit_rust_without_constraining_the_reference_jvm() {
+    for script in [COMPILE_SCRIPT, KAST_SCRIPT] {
+        assert!(
+            script.contains("reference_memory_kib=${REFERENCE_DIFFERENTIAL_MEMORY_KIB:-}"),
+            "the reference JVM must retain its independently optional virtual-memory ceiling",
+        );
+        assert!(
+            script.contains("rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}"),
+            "the Rust frontend must default to a 6 GiB virtual-memory ceiling",
+        );
+    }
+
+    assert_eq!(
+        COMPILE_SCRIPT
+            .matches("ulimit -v \"$reference_memory_kib\"")
+            .count(),
+        1,
+        "the reference compile must use only the reference ceiling",
+    );
+    assert_eq!(
+        COMPILE_SCRIPT
+            .matches("ulimit -v \"$rust_memory_kib\"")
+            .count(),
+        1,
+        "the Rust compile must use only the Rust ceiling",
+    );
+    assert_eq!(
+        KAST_SCRIPT
+            .matches("ulimit -v \"$reference_memory_kib\"")
+            .count(),
+        3,
+        "reference compile, acceptance, and rejection checks must use the reference ceiling",
+    );
+    assert_eq!(
+        KAST_SCRIPT
+            .matches("ulimit -v \"$rust_memory_kib\"")
+            .count(),
+        1,
+        "the batched Rust parser must use only the Rust ceiling",
+    );
 }
 
 fn collect_workspace_paths(value: &Value, output: &mut BTreeSet<PathBuf>) {

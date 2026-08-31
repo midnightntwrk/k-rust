@@ -10,7 +10,8 @@ evm_checkout=${EVM_SEMANTICS_CHECKOUT:-"$workspace/evm-semantics"}
 evm_equivalence_checkout=${EVM_EQUIVALENCE_CHECKOUT:-"$workspace/evm-equivalence"}
 mir_checkout=${MIR_SEMANTICS_CHECKOUT:-"$workspace/mir-semantics"}
 kompile=${K_KOMPILE:-}
-memory_limit_kib=${REFERENCE_DIFFERENTIAL_MEMORY_KIB:-}
+reference_memory_kib=${REFERENCE_DIFFERENTIAL_MEMORY_KIB:-}
+rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}
 reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-}
 manifest_json=$(
   WORKSPACE="$workspace" \
@@ -141,8 +142,8 @@ for fixture in "${cases[@]}"; do
 
   echo "[$name] compiling with reference frontend"
   (
-    if [[ -n "$memory_limit_kib" ]]; then
-      ulimit -v "$memory_limit_kib"
+    if [[ -n "$reference_memory_kib" ]]; then
+      ulimit -v "$reference_memory_kib"
     fi
     if [[ -n "$reference_k_opts" ]]; then
       export K_OPTS="$reference_k_opts"
@@ -162,8 +163,8 @@ for fixture in "${cases[@]}"; do
 
   echo "[$name] compiling with k-rust"
   (
-    if [[ -n "$memory_limit_kib" ]]; then
-      ulimit -v "$memory_limit_kib"
+    if [[ -n "$rust_memory_kib" ]]; then
+      ulimit -v "$rust_memory_kib"
     fi
     cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust -- \
       kcompile "$source" \

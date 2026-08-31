@@ -432,6 +432,9 @@ scripts/reference-rpc-differential.sh imp
 `scripts/reference-differential.toml` is the source of truth for pins, checkout paths, compiler options, compared artifacts, parser cases, execution/search programs, proof claims, RPC cases, and the six adjudicated oracle exclusions.
 The scripts enforce clean checkouts at the manifest revisions and require the matching K release.
 Set `K_CHECKOUT`, `IMP_SEMANTICS_CHECKOUT`, `WASM_SEMANTICS_CHECKOUT`, `EVM_SEMANTICS_CHECKOUT`, `EVM_EQUIVALENCE_CHECKOUT`, or `MIR_SEMANTICS_CHECKOUT` when a checkout is not at its ignored workspace-default path.
+Frontend differential runs give k-rust an independent 6 GiB virtual-memory ceiling by default through `RUST_DIFFERENTIAL_MEMORY_KIB`.
+`REFERENCE_DIFFERENTIAL_MEMORY_KIB` controls only the reference JVM and remains unset by default because its reserved address space is larger than its resident set.
+Raise either ceiling only after checking current machine headroom; do not run large semantics with both ceilings disabled.
 
 The backend acceptance gate compiles, executes, and proves with the in-process Rust backend:
 
