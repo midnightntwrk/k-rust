@@ -183,7 +183,9 @@ PASS readable KEVM operational slice: 1100 descriptors; 240 K-Rust executions; 8
 
 The behavior matrix additionally covers present and absent accounts, EIP-161 account emptiness across code, nonce, and balance, warm and cold account access, byte-exact external code copying and hashing, log memory extraction and zero padding, ordered topics, SHA3 empty and expanded-memory hashing, successful/reverted/exceptional warm-account nonempty-code `STATICCALL`, child access-list rollback, revert returndata copying, ECREC/SHA-256/RIPEMD-160/identity/MODEXP/ECADD/ECMUL/ECPAIRING-precompile success and forwarded-gas failure, invalid-signature ECREC success with empty returndata, MODEXP modulus-zero and zero-output-width results, the 200-gas EIP-2565 floor, an above-floor long-exponent vector, ECADD infinity and invalid-point behavior, ECMUL generator-times-two and zero-scalar infinity behavior, ECPAIRING empty-product identity, non-identity generator product, malformed length, invalid G1/G2 points, post-charge mutation, atomic out-of-gas behavior, static rejection, all selected stack-underflow partitions, and self-balance lookup.
 The structured K-Rust behavior SHA-256 is `7d7fd9dac9d3088682fa3ea27686c2a431219ded26f8a13400d2f4025f024673`.
-The native K-Rust `definition.kore` SHA-256 is `b9244153684ae6cb40f17954d5e67c5590a1e52fdcff54e14fadea87d819ffb0`.
+The native K-Rust `definition.kore` SHA-256 is `2556ffc8c15b4c341be3e0a9b08b35015eae266617c742813db7bd142d19b3e1`.
+Clean k-rust main still rejects already-complete nested configuration cells, so the KRS adapter presents those IR terms through the frontend's equivalent closed parser shape.
+This compatibility encoding changes the native KORE bytes while retaining the pinned 240-case behavior SHA-256.
 Six focused definition/hover probes pass with zero rust-analyzer diagnostics.
 
 The K-Rust backend executes all 240 cases through persistent worker processes.

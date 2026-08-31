@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 import behavior
 import proofs
@@ -362,6 +363,24 @@ class SourceDefinitionTests(unittest.TestCase):
 
 
 class BehaviorTests(unittest.TestCase):
+    def test_llvm_route_lifts_only_the_address_space_limit(self) -> None:
+        with patch.object(behavior.shutil, "which", return_value="/usr/bin/prlimit"):
+            self.assertEqual(
+                behavior._without_address_space_limit(["krun", "program.imp"]),
+                [
+                    "/usr/bin/prlimit",
+                    "--as=unlimited",
+                    "--",
+                    "krun",
+                    "program.imp",
+                ],
+            )
+
+    def test_llvm_route_requires_prlimit(self) -> None:
+        with patch.object(behavior.shutil, "which", return_value=None):
+            with self.assertRaisesRegex(behavior.BehaviorError, "prlimit is required"):
+                behavior._without_address_space_limit(["krun"])
+
     def test_search_is_compared_as_a_set(self) -> None:
         policy = behavior.TermPolicy(
             identity_labels=frozenset({"#Or", "a", "b"}),

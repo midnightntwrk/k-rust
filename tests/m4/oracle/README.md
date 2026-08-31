@@ -61,6 +61,9 @@ pretend that the aggregate pin selects them independently.
 - division by zero as a `FailureCase` with the exact frozen
   `[hook_INT_tdiv]: Division by zero: 1 / 0` fragment.
 
+The LLVM failure routes require `prlimit`.
+They restore an unlimited soft address-space limit only for the LLVM interpreter because its collector reserves a sparse 2 TiB virtual region; the root gate may keep every resident-memory-heavy route under a soft `RLIMIT_AS` ceiling.
+
 Each case needs both its upstream module and KRS module.  `TermPolicy` must map
 every KRS-generated label/sort to the upstream identity; identities are also
 explicit. Unparse differences are permitted only as complete, case-named

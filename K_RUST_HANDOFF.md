@@ -1,6 +1,6 @@
 # KRS k-rust handoff
 
-Status: KRS migrated to a clean main-based integration branch, 2026-08-31 JST
+Status: KRS migrated to a clean main-based integration branch; semantic requalification in progress, 2026-08-31 JST
 
 ## Current decision
 
@@ -12,6 +12,16 @@ The active dedicated worktree has no KRS-only source or manifest changes.
 Current upstream supports external Z3 acquisition through `default-features = false, features = ["z3-inference"]`, so KRS retains the Nix-pinned Z3 4.12.5 policy without editing k-rust.
 Current upstream also contains the structured-definition, deep-result, repeated-cell, plugin-hook, raw-digest, ECDSA, BN128, simplification-budget, parser, and real-semantics work that previously required the old KRS checkout or blocked its corpora.
 
+Clean main still rejects compiler-owned already-complete nested cells during concretization.
+The current KEVM corpus reproduces four `Expected incomplete cell with 3 arguments, found 15` diagnostics for complete 15-child `CallState` terms.
+KRS keeps complete cells in Definition IR and lowers only the native compatibility form to k-rust's equivalent closed parser representation.
+The focused adapter regression covers a two-child parent and both leaves; `K_RUST_UPSTREAM.toml` records the active-pin reproducer and requested upstream fix.
+The clean k-rust worktree remains unmodified.
+
+Clean main also uses chained if-let guards in `crates/k-rust/src/inner/parser.rs` which Rust 1.88 rejects with E0658.
+KRS retains Rust 1.88 qualification for authored semantics and non-native packages, and qualifies native/frontend helpers on exact stable Rust 1.98.0.
+`K_RUST_UPSTREAM.toml` records the active-pin reproducer and requests either stable syntax or an enforced higher k-rust MSRV.
+
 The KRS adapter supplies `hook_namespaces = None` to the strengthened `CompileOptions` API.
 For the Rust backend this deliberately selects k-rust's audited backend-default namespace inventory; it is not a compatibility bypass or an unrestricted hook policy.
 
@@ -19,8 +29,8 @@ The prior `../inspirations/midnightntwrk/k-rust-krs` checkout remains detached a
 It is rollback and comparison evidence only and is not an active KRS input.
 Do not clean, rebase, or delete that checkout during the migration.
 
-The focused migration qualification passes all 24 `krs-k-rust` adapter tests with the externally pinned solver.
-The KEVM, KMIR, and KWasm native gates must be rerun serially in the next session before semantic development resumes; do not run those three memory-heavy gates concurrently.
+The focused migration qualification passes all 25 `krs-k-rust` adapter tests with the externally pinned solver.
+The KEVM, KMIR, and KWasm native gates are being rerun serially before semantic development resumes; do not run those three memory-heavy gates concurrently.
 
 ## Historical baseline
 
@@ -80,8 +90,8 @@ The active dependency paths are owned by:
 - `tests/kmir/native.py` and `tests/kmir/verify.py`;
 - `tests/kwasm/native.py` and `tests/kwasm/verify.py`.
 
-The M4 IMP comparator manifests and `tests/m4/pins.json` intentionally retain the retired exact-checkout path as historical compatibility evidence.
-They are not the active KEVM, KMIR, or KWasm dependency boundary and must not be silently repinned as part of this migration.
+The M4 IMP comparator manifests and `tests/m4/pins.json` use the active clean `k-rust-krs-main` checkout.
+The M4 gate separately pins Rust 1.88.0 for authored IMP packages and Rust 1.98.0 for native/frontend helpers while the upstream MSRV discrepancy remains open.
 
 The adapter preserves its historical public `Backend::Haskell` name as a compatibility spelling and maps it to k-rust 0.4's `CompilationBackend::Rust` symbolic backend.
 KRS claims carry explicit modalities, so the adapter sets `default_claims_to_all_path = false` rather than changing unqualified claim semantics implicitly.
@@ -117,6 +127,9 @@ The Definition IR compiles directly through the KRS adapter, K-Rust frontend, an
 The complete corpus, including builtin-List `BLOCKHASH`, the selected memory/copy family, Shanghai current-account `SLOAD`/`SSTORE`, account queries through `EXTCODEHASH`, `SHA3`, `LOG0` through `LOG4`, absent/present-empty `STATICCALL`, successful/reverted/exceptional nonempty-code `STATICCALL`, and address-1 ECREC/address-2 SHA-256/address-3 RIPEMD-160/address-4 identity/address-5 MODEXP/address-6 ECADD/address-7 ECMUL/address-8 ECPAIRING-precompile `STATICCALL`, passes with behavior hash `7d7fd9dac9d3088682fa3ea27686c2a431219ded26f8a13400d2f4025f024673`.
 The runner uses a bounded 4,096-iteration simplification budget because K-Rust's default budget of 100 causes repeated partial work on the 1,024-word recursive stack-size boundary.
 The normal gate retains the full corpus and defers the pinned Java behavior and eight-proof authority run to the explicit `tests/kevm/verify.py --java-reference` mode.
+
+The clean-main complete-cell compatibility encoding produces native KORE SHA-256 `2556ffc8c15b4c341be3e0a9b08b35015eae266617c742813db7bd142d19b3e1`.
+All 240 native executions retain behavior SHA-256 `7d7fd9dac9d3088682fa3ea27686c2a431219ded26f8a13400d2f4025f024673`.
 
 KMIR and KWasm now follow the same policy.
 Their default gates compile Definition IR directly through K-Rust, execute 11 and 32 concrete cases through persistent workers, and defer their reference proof to `--java-reference`.

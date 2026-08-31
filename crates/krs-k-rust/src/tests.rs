@@ -1465,6 +1465,84 @@ fn fixed_configuration_preserves_config_variables_and_cell_properties() {
 }
 
 #[test]
+fn complete_cell_terms_use_the_pinned_frontend_concretization_shape() {
+    fn closed_cell_body<'a>(term: &'a Term, expected_label: &str) -> &'a Term {
+        let Term::Apply { label, arguments } = term else {
+            panic!("cell term must remain an application")
+        };
+        assert_eq!(label.name, expected_label);
+        let [
+            Term::Apply {
+                label: left,
+                arguments: left_arguments,
+            },
+            body,
+            Term::Apply {
+                label: right,
+                arguments: right_arguments,
+            },
+        ] = arguments.as_slice()
+        else {
+            panic!("cell term must use the parser-compatible closed shape")
+        };
+        assert_eq!(left.name, "#noDots");
+        assert!(left_arguments.is_empty());
+        assert_eq!(right.name, "#noDots");
+        assert!(right_arguments.is_empty());
+        body
+    }
+
+    let definition = m2_definition();
+    let mut adapter = Adapter::new(&definition);
+    let parent = SymbolId::new("schema26.cell.parent").unwrap();
+    let left = SymbolId::new("schema26.cell.left").unwrap();
+    let right = SymbolId::new("schema26.cell.right").unwrap();
+    adapter.cells.extend([
+        (parent.clone(), "parent".to_owned()),
+        (left.clone(), "left".to_owned()),
+        (right.clone(), "right".to_owned()),
+    ]);
+    let leaf = |key: &str, cell: SymbolId, value: &str| {
+        DefinitionTerm::cell(
+            node(key),
+            DefinitionSortRef::int(),
+            cell,
+            vec![
+                DefinitionTerm::token(
+                    node(&format!("{key}.body")),
+                    DefinitionSortRef::int(),
+                    value,
+                )
+                .unwrap(),
+            ],
+        )
+    };
+    let term = DefinitionTerm::cell(
+        node("schema26.cell.parent.term"),
+        DefinitionSortRef::int(),
+        parent,
+        vec![
+            leaf("schema26.cell.left.term", left, "1"),
+            leaf("schema26.cell.right.term", right, "2"),
+        ],
+    );
+    let native = adapter
+        .term(&term, MODULE, 0, Vec::new(), TermContext::Normal, None)
+        .unwrap();
+    let Term::Apply { label, arguments } = closed_cell_body(&native, "<parent>") else {
+        panic!("a multi-child parent must retain the #cells grouping")
+    };
+    assert_eq!(label.name, "#cells");
+    let [left, right] = arguments.as_slice() else {
+        panic!("the parent must retain both ordered children")
+    };
+    assert!(matches!(closed_cell_body(left, "<left>"), Term::Token { token, .. } if token == "1"));
+    assert!(
+        matches!(closed_cell_body(right, "<right>"), Term::Token { token, .. } if token == "2")
+    );
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn claims_and_context_aliases_preserve_native_forms_and_origin_roles() {
     let definition = m2_definition();

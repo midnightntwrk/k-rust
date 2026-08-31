@@ -236,6 +236,15 @@ def _run(
     return subprocess.CompletedProcess(list(command), process.returncode, stdout, stderr)
 
 
+def _without_address_space_limit(command: Sequence[str]) -> list[str]:
+    """Permit the LLVM runtime's sparse semispace without lifting RAM limits."""
+
+    prlimit = shutil.which("prlimit")
+    if prlimit is None:
+        raise BehaviorError("prlimit is required for the LLVM failure route")
+    return [prlimit, "--as=unlimited", "--", *command]
+
+
 def _compact(process: subprocess.CompletedProcess[str], limit: int = 1200) -> str:
     text = "\n".join(part.strip() for part in (process.stdout, process.stderr) if part.strip())
     return text[:limit] + ("…" if len(text) > limit else "")
@@ -372,6 +381,7 @@ def _execute(
     depth: int | None = None,
     search: bool = False,
     kill_after: int | None = None,
+    unlimited_address_space: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     # krun parses with the syntax/main modules frozen into the compiled
     # definition; unlike kast, it has no --module option.
@@ -383,6 +393,12 @@ def _execute(
     command.extend(["--output", "json"])
     command.extend(f"-c{configuration}" for configuration in configurations)
     command.append(str(path))
+    if unlimited_address_space:
+        # The pinned LLVM runtime reserves a sparse 2 TiB region for two
+        # aligned 1 TiB semispaces. RLIMIT_AS measures that reservation, not
+        # resident memory, so only this LLVM route may restore the inherited
+        # unlimited soft address-space limit.
+        command = _without_address_space_limit(command)
     if kill_after is not None:
         watchdog = shutil.which("timeout")
         if watchdog is None:
@@ -590,6 +606,7 @@ def compare_behavior(
                     case.configurations,
                     plan.timeout_seconds,
                     kill_after=8,
+                    unlimited_address_space=True,
                 )
                 if process.returncode == 0:
                     raise BehaviorError(

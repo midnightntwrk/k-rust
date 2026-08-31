@@ -1386,6 +1386,7 @@ Focused backend regressions cover G2 generator and infinity validity, off-curve 
 
 Address 8 implements Istanbul `ECPAIRING` with exact 192-byte tuple validation, upstream-compatible imaginary/real G2 byte decoding, G1/G2 infinity encoding, exact 32-byte Boolean output, `45,000 + 34,000 * pair-count` gas charging, invalid-length and invalid-point precompile failure, EIP-150 forwarded-gas failure, bounded caller-memory copying, access warming, touched-account tracking, and empty call/world stack postconditions.
 The complete native-only corpus passes 1,100 descriptors and 240 K-Rust executions with behavior SHA-256 `7d7fd9dac9d3088682fa3ea27686c2a431219ded26f8a13400d2f4025f024673` and direct KORE SHA-256 `b9244153684ae6cb40f17954d5e67c5590a1e52fdcff54e14fadea87d819ffb0`.
+The later clean-main migration preserves that behavior hash through a KRS-side complete-cell compatibility encoding and produces direct KORE SHA-256 `2556ffc8c15b4c341be3e0a9b08b35015eae266617c742813db7bd142d19b3e1`.
 The definition contains 321 equations, 280 machine rules, and 8 claims across 1,100 descriptors.
 No Java or Haskell backend was run; eight Java reference proofs remain explicitly deferred to the optional `--java-reference` final gate.
 

@@ -2,6 +2,23 @@ schema = 1
 k_rust_commit = "3cce7a47941c4dc0664e6e870d4e0529d74753c6"
 k_release = "7.1.337"
 
+[active_requalification]
+k_rust_commit = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
+date = "2026-08-31"
+scope = "Issues are historical unless an issue carries requalified_at_active_commit. Requalification uses the clean dedicated k-rust-krs-main worktree without modifying it."
+
+[[issue]]
+id = "rust-1.88-if-let-guards"
+status = "upstream-request"
+area = "crates/k-rust/src/inner/parser.rs"
+summary = "The clean frontend uses if-let guards even though its published dependency surface is consumed by Rust 1.88 projects"
+reproduction = "Run `cargo +1.88.0 check --locked --offline` for either KRS M4 native helper against clean k-rust commit 0de7983f76f87ce93b91f5d3e994f0a2c3ff710c. Rust rejects the chained if-let guard at inner/parser.rs:1609 with E0658."
+observed = "The same checkout compiles on stable Rust 1.98.0, but Rust 1.88 reports that if-let guards are experimental before compiling the KRS native adapter or comparator."
+impact = "KRS can retain Rust 1.88 for authored semantics and non-native packages, but native frontend consumers cannot honestly claim the same MSRV at the active k-rust pin."
+local_fix = "KRS qualifies authored and expanded IMP packages on Rust 1.88.0 and qualifies native/frontend helpers on exact stable Rust 1.98.0. The shared k-rust checkout remains unchanged."
+upstream_action = "Rewrite the guard as stable nested matching or raise and enforce k-rust's rust-version; add a CI check using the declared minimum Rust toolchain."
+requalified_at_active_commit = "Clean k-rust main commit 0de7983f76f87ce93b91f5d3e994f0a2c3ff710c reproduces E0658 at crates/k-rust/src/inner/parser.rs:1609 under rustc 1.88.0."
+
 [[issue]]
 id = "persistent-api-deep-result"
 status = "locally-fixed"
@@ -69,14 +86,15 @@ upstream_action = "Expose a public structured-definition loading path that estab
 
 [[issue]]
 id = "complete-nested-cell-concretization"
-status = "locally-fixed"
+status = "local-workaround"
 area = "crates/k-rust/src/kompile/passes/concretize_cells.rs"
 summary = "Cell concretization rejects already-complete fixed-arity cell applications as malformed parser-style incomplete cells"
 reproduction = "Compile the KRS KEVM STATICCALL rules containing a complete CallState cell with its 15 declared child-cell arguments on both call-stack push and restoration through K-Rust's structured frontend."
-observed = "K-Rust emits two InvalidCellConcretization diagnostics stating `Expected incomplete cell with 3 arguments, found 15`. The concretizer unconditionally interprets every recognized cell application as the three-argument `#dots, body, #noDots` parser representation."
+observed = "K-Rust emits InvalidCellConcretization diagnostics stating `Expected incomplete cell with 3 arguments, found 15`. The concretizer unconditionally interprets every recognized cell application as the three-argument `#dots, body, #noDots` parser representation."
 impact = "Compiler-owned complete nested cell terms cannot pass through the structured frontend, which blocks KEVM call-frame save and restoration even though their fixed-arity shape already matches the expanded cell production."
-local_fix = "The dedicated k-rust-krs checkout recognizes a complete leaf by its single body argument and a complete parent only when its arity and ordered child sorts match the expanded cell production. It recursively closes those arguments while retaining the existing incomplete-cell path. The focused regression exercises a complete two-child parent and its complete leaf children inside a semantic rule."
+local_fix = "The KRS adapter preserves complete cells in Definition IR but presents each DefinitionTermKind::Cell to k-rust as the equivalent closed parser shape `<cell>(#noDots, body-or-#cells, #noDots)`. A focused adapter regression covers a complete two-child parent and its complete leaf children without changing the k-rust checkout. The retired k-rust-krs checkout instead fixed the concretizer directly and remains comparison evidence."
 upstream_action = "Accept and recursively process already-complete leaf and parent cell applications when their arguments match the expanded cell production, and add a regression containing a complete nested parent cell in a semantic rule."
+requalified_at_active_commit = "Clean k-rust main commit 0de7983f76f87ce93b91f5d3e994f0a2c3ff710c reproduces four diagnostics for the current KEVM corpus at Definition IR schema 26. The frontend still routes every recognized non-leaf cell through incomplete_parts, which requires exactly three arguments."
 
 [[issue]]
 id = "krypto-sha256raw-not-implemented"

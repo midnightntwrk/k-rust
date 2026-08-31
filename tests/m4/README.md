@@ -16,6 +16,10 @@ all 15 upstream IMP claims, and five independently selectable adjunct claims.
 Its only normal dependency is the author-facing `krs` facade renamed to `k`.
 Every authored source file is rustc-valid Rust.
 
+The authored and independently expanded IMP packages are checked on Rust 1.88.0.
+Native/frontend helpers are checked on exact stable Rust 1.98.0 because clean k-rust `0de7983f76f87ce93b91f5d3e994f0a2c3ff710c` uses if-let guards rejected by Rust 1.88.
+`K_RUST_UPSTREAM.toml` records that active upstream discrepancy; the M4 gate must not describe native/frontend code as Rust 1.88-compatible until it is resolved.
+
 ## Evidence layers
 
 `verify.py` owns the ordered top-level gate and stops at the first failed
@@ -75,9 +79,19 @@ Use a filesystem with sufficient build space. Generated Cargo targets,
 kompiled directories, and proof workspaces are disposable and are never
 checked in.
 
+The LLVM runtime reserves a sparse 2 TiB virtual region for its semispace allocator.
+This reservation does not consume 2 TiB of resident memory, but a hard `RLIMIT_AS` prevents the interpreter from starting.
+For a memory-bounded run, set only the soft address-space limit and leave its hard limit unlimited.
+The behavior oracle uses `prlimit` to restore the unlimited soft limit only for the two LLVM division-by-zero executions; Cargo, the K frontend, Haskell, and all proof routes retain the 12.5 GB ceiling.
+
 ```bash
+ulimit -S -v 12500000
 TMPDIR=/tmp \
 KRS_M4_ORACLE_WORKERS=1 \
+CARGO_BUILD_JOBS=1 \
+RUST_TEST_THREADS=1 \
+GHCRTS=-N1 \
+K_OPTS='-Xmx4096m -Xss2m -XX:ActiveProcessorCount=1' \
 PYTHONDONTWRITEBYTECODE=1 \
 python3 tests/m4/verify.py
 ```

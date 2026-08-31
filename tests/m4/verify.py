@@ -177,6 +177,18 @@ def executable(name: str) -> str:
     return value
 
 
+def z3_library_directory() -> Path:
+    """Locate the qualified Z3 4.12.5 shared library directory."""
+
+    configured = os.environ.get("KRS_Z3_LIB")
+    candidates = [Path(configured)] if configured else []
+    candidates.extend(Path("/nix/store").glob("*-z3-4.12.5-lib/lib"))
+    for candidate in candidates:
+        if candidate.joinpath("libz3.so").is_file():
+            return candidate
+    raise GateError("could not locate the qualified Z3 4.12.5 library")
+
+
 def exact_directory(left: Path, right: Path, names: Sequence[str]) -> dict[str, str]:
     left_names = sorted(path.name for path in left.iterdir() if path.is_file())
     right_names = sorted(path.name for path in right.iterdir() if path.is_file())
@@ -517,11 +529,11 @@ def expected_source_ledger_paths() -> set[str]:
 
     paths.update(
         {
-            "../inspirations/midnightntwrk/k-rust-krs/Cargo.lock",
-            "../inspirations/midnightntwrk/k-rust-krs/Cargo.toml",
-            "../inspirations/midnightntwrk/k-rust-krs/crates/k-rust/Cargo.toml",
-            "../inspirations/midnightntwrk/k-rust-krs/crates/k-rust/src/backend.rs",
-            "../inspirations/midnightntwrk/k-rust-krs/crates/k-rust/src/kompile/compile.rs",
+            "../inspirations/midnightntwrk/k-rust-krs-main/Cargo.lock",
+            "../inspirations/midnightntwrk/k-rust-krs-main/Cargo.toml",
+            "../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust/Cargo.toml",
+            "../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust/src/backend.rs",
+            "../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust/src/kompile/compile.rs",
             "../inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/calc.k",
             "../inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k",
             "../inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/imp-verification.k",
@@ -579,6 +591,7 @@ class Context:
     workspace: Path
     target: Path
     tools: dict[str, str] = field(default_factory=dict)
+    environment: dict[str, str] = field(default_factory=dict)
     krs: Path | None = None
     artifacts: Path | None = None
     reference_definition: Path | None = None
@@ -645,7 +658,7 @@ def phase_preflight(context: Context) -> str:
     revisions = require_mapping(pins.get("revisions"), "pins.revisions")
     imp = ROOT.parent / "inspirations/runtimeverification/imp-semantics"
     k_checkout = ROOT.parent / "inspirations/runtimeverification/k"
-    native = ROOT.parent / "inspirations/midnightntwrk/k-rust-krs"
+    native = ROOT.parent / "inspirations/midnightntwrk/k-rust-krs-main"
     observed = {
         "k": git_revision(k_checkout),
         "imp": git_revision(imp),
@@ -683,9 +696,11 @@ def phase_preflight(context: Context) -> str:
         "schema": 1,
         "backends": ["haskell", "llvm"],
         "msrv": "1.88.0",
+        "native_frontend_rust": "1.98.0",
+        "native_frontend_msrv_status": "blocked-upstream-k-rust-if-let-guards",
         "builtin_sorts": ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "List", "Set"],
-        "descriptor_protocol": 25,
-        "definition_ir_schema": 17,
+        "descriptor_protocol": 35,
+        "definition_ir_schema": 27,
         "k_commit": expected["k"],
         "k_rust_commit": expected["k_rust"],
         "llvm_existential_policy": "typed-backend-capability-error",
@@ -696,8 +711,13 @@ def phase_preflight(context: Context) -> str:
     lock_path = ROOT / "Krs.lock"
     expected_lock = {
         "schema": 1,
-        "schemas": {"descriptor_protocol": 25, "definition_ir": 17, "kast_json": 4},
-        "cargo": {"lock_sha256": sha256(ROOT / "Cargo.lock"), "msrv": "1.88.0"},
+        "schemas": {"descriptor_protocol": 35, "definition_ir": 27, "kast_json": 4},
+        "cargo": {
+            "lock_sha256": sha256(ROOT / "Cargo.lock"),
+            "msrv": "1.88.0",
+            "native_frontend_rust": "1.98.0",
+            "native_frontend_msrv_status": "blocked-upstream-k-rust-if-let-guards",
+        },
         "k": {
             "version": "7.1.337",
             "commit": expected["k"],
@@ -730,13 +750,15 @@ def phase_preflight(context: Context) -> str:
     expected_lock_text = '''schema = 1
 
 [schemas]
-descriptor_protocol = 25
-definition_ir = 17
+descriptor_protocol = 35
+definition_ir = 27
 kast_json = 4
 
 [cargo]
-lock_sha256 = "779594e8b6530c251123beaeb14302634a26b77e9bdd8697ca93892c034a9193"
+lock_sha256 = "50859782257669ec271ce97a9d244381560c2bfebd9df66ef51c6089481c4821"
 msrv = "1.88.0"
+native_frontend_rust = "1.98.0"
+native_frontend_msrv_status = "blocked-upstream-k-rust-if-let-guards"
 
 [k]
 version = "7.1.337"
@@ -748,15 +770,15 @@ pyk_source_sha256 = "2b6ebc05e7c110927d2cab7d1bd08e0a1f80c9090a621ee541e82665147
 
 [k_rust]
 version = "0.4.0"
-commit = "3cce7a47941c4dc0664e6e870d4e0529d74753c6"
-tracked_crate_sha256 = "0bca8c1e822fe9cb0e4d3722c013e9c7ebc8b5d9e94c0e6818ba3076b29fddc4"
+commit = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
+tracked_crate_sha256 = "6d54edfea5283a52191931d565b092af7b8cca0ec1d33862d9a58faa9c557afd"
 backend_version = "0.3.0"
-tracked_backend_sha256 = "539816715fdca02419b9d8632075c0e324e900706ca2cd7f321e9c04ba505fef"
+tracked_backend_sha256 = "5473653dfa734b91dd55336e9d655ad7599befdb3981f1ff11d70d52876a1cf6"
 kore_version = "0.3.0"
-tracked_kore_sha256 = "64e8e0088d13f76b266cff9237378fba100347a13c30e700cd85bf38130b7be7"
+tracked_kore_sha256 = "ef091185b019168924bd6730d6d0ef2c71784414a706f74f8f047dc46ed0f655"
 
 [builtin_registry]
-source_sha256 = "e1da0f4c316fea9bdccde80d0df8ea198d7a5abd05ad71c0f98cd7bb5adf1569"
+source_sha256 = "7076fb0bcf4667b8e819445995b1055d55b10d9fc4f7a5b8e037189556c2910a"
 sorts = ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "List", "Set"]
 
 [solver]
@@ -792,16 +814,31 @@ llvm_existential_claims = "typed-backend-capability-error"
     z3 = run([context.tools["z3"], "--version"], timeout=30).stdout.strip()
     if z3 != f"Z3 version {lock['solver']['version']} - 64 bit":
         raise GateError(f"Z3 version differs from Krs.lock: {z3}")
+    z3_lib = os.fspath(z3_library_directory())
+    context.environment = {
+        "LIBRARY_PATH": os.pathsep.join(
+            [z3_lib, os.environ.get("LIBRARY_PATH", "")]
+        ).rstrip(os.pathsep),
+        "LD_LIBRARY_PATH": os.pathsep.join(
+            [z3_lib, os.environ.get("LD_LIBRARY_PATH", "")]
+        ).rstrip(os.pathsep),
+    }
     context.tools["pyk_python"] = os.fspath(pyk_python)
     context.tools["python"] = os.fspath(pyk_python)
     msrv = run(["rustc", "+1.88.0", "--version"], timeout=30).stdout.strip()
     if not msrv.startswith("rustc 1.88.0 "):
         raise GateError(f"MSRV toolchain differs from Krs.lock: {msrv}")
-    return "exact sources, ledgers, tools, revisions, protocol 25, and IR schema 17"
+    native_rust = run(["rustc", "+stable", "--version"], timeout=30).stdout.strip()
+    if not native_rust.startswith("rustc 1.98.0 "):
+        raise GateError(f"native frontend toolchain differs from Krs.lock: {native_rust}")
+    return (
+        "exact sources, ledgers, tools, revisions, protocol 35, IR schema 27, "
+        "authored MSRV 1.88.0, and native frontend Rust 1.98.0"
+    )
 
 
 def phase_rust(context: Context) -> str:
-    env = {"CARGO_TARGET_DIR": os.fspath(context.target)}
+    env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
     # Rust 1.98 added these style lints after the project's 1.88 MSRV gate.
     # Keep every other warning denied without rewriting recovered test logic.
     clippy_lints = [
@@ -830,12 +867,11 @@ def phase_rust(context: Context) -> str:
     ]
     for command in commands:
         run(command, timeout=900, environment=env)
-    for manifest in (
-        ROOT / "Cargo.toml",
-        RUST_MANIFEST,
-        EXPANDED_MANIFEST,
-        NATIVE_MANIFEST,
-    ):
+    # Clean k-rust 0de7983 uses if-let guards which Rust 1.88 rejects.
+    # Keep the authored and expanded IMP packages on the project MSRV while
+    # qualifying native/frontend helpers on the exact stable toolchain pinned
+    # by preflight. K_RUST_UPSTREAM.toml owns the upstream compatibility request.
+    for manifest in (RUST_MANIFEST, EXPANDED_MANIFEST):
         run(
             [
                 "cargo", "+1.88.0", "check", "--manifest-path", manifest,
@@ -906,14 +942,23 @@ def phase_rust(context: Context) -> str:
     run(
         [context.tools["python"], HERE / "compatibility/diagnostics/rust-expansion/lsp_probe.py"],
         timeout=240,
-        environment={"CARGO_TARGET_DIR": os.fspath(context.target / "lsp")},
+        environment={
+            **context.environment,
+            "CARGO_TARGET_DIR": os.fspath(context.target / "lsp"),
+        },
     )
     run(
         [context.tools["python"], HERE / "rust-definition/tools/lsp_probe.py"],
         timeout=240,
-        environment={"CARGO_TARGET_DIR": os.fspath(context.target / "readable-lsp")},
+        environment={
+            **context.environment,
+            "CARGO_TARGET_DIR": os.fspath(context.target / "readable-lsp"),
+        },
     )
-    return "workspace/package fmt, check, Clippy, tests, docs, diagnostic and readable IMP LSP"
+    return (
+        "workspace/package fmt, check, Clippy, tests, docs, authored IMP MSRV, "
+        "stable native frontend, diagnostic and readable IMP LSP"
+    )
 
 
 ARTIFACT_NAMES = (
@@ -939,7 +984,7 @@ def krs_base(krs: Path) -> list[str]:
 def phase_artifacts(context: Context) -> str:
     if context.krs is None:
         raise GateError("artifact phase lacks the phase-2 KRS binary")
-    env = {"CARGO_TARGET_DIR": os.fspath(context.target)}
+    env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
     check = run([context.krs, "check", *krs_base(context.krs)[1:]], timeout=300, environment=env)
     if "KRS check passed: 124 descriptors, 2 semantic modules" not in check.stdout:
         raise GateError(f"KRS check summary differs: {compact(check)}")
@@ -1209,7 +1254,7 @@ def phase_source_definition(context: Context) -> str:
 def phase_native(context: Context) -> str:
     if context.krs is None or context.artifacts is None or context.actual_definition is None:
         raise GateError("native phase lacks CLI, artifacts, or source definition")
-    env = {"CARGO_TARGET_DIR": os.fspath(context.target)}
+    env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
     llvm_evidence: list[subprocess.CompletedProcess[str]] = []
     for name in ("llvm-failure-a", "llvm-failure-b"):
         output = context.workspace / name
@@ -1401,7 +1446,10 @@ def phase_proofs(context: Context) -> str:
     result = run(
         [context.tools["python"], harness, "--pins", PINS_PATH, "--workspace", context.workspace / "proofs"],
         timeout=7200,
-        environment={"CARGO_TARGET_DIR": os.fspath(context.target)},
+        environment={
+            **context.environment,
+            "CARGO_TARGET_DIR": os.fspath(context.target),
+        },
     )
     expected_summary = (
         "PASS M4 proofs: reference_source=21 actual_source=21 "
@@ -1414,7 +1462,7 @@ def phase_proofs(context: Context) -> str:
 def phase_compatibility(context: Context) -> str:
     if context.krs is None or context.artifacts is None:
         raise GateError("compatibility phase lacks CLI and deterministic artifacts")
-    env = {"CARGO_TARGET_DIR": os.fspath(context.target)}
+    env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
     commands = [
         [context.tools["python"], HERE / "compatibility/stable-names/probe.py", "--krs", context.krs],
         [context.tools["python"], HERE / "compatibility/diagnostics/rust-expansion/probe.py"],

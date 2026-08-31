@@ -2120,7 +2120,13 @@ impl Adapter {
                         self.term(child, module, sentence_index, child_path, context, rule)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(NativeTerm::apply(format!("<{name}>"), arguments))
+                // k-rust 0.4 at the pinned clean-main revision still routes every
+                // recognized cell application through its parser-only
+                // three-argument concretization path. Preserve KRS's complete
+                // structured IR while presenting the equivalent closed source
+                // shape at this compatibility boundary. See
+                // K_RUST_UPSTREAM.toml#complete-nested-cell-concretization.
+                Ok(incomplete_cell(&name, native_cells(arguments), false))
             }
             DefinitionTermKind::Rewrite { from, to } => {
                 let mut left_path = path.clone();

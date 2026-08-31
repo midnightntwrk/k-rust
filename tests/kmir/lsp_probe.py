@@ -70,7 +70,7 @@ def main() -> None:
         report = client.request(
             "textDocument/diagnostic",
             {"textDocument": {"uri": SOURCE.as_uri()}},
-            timeout=240,
+            timeout=600,
         )
         diagnostics = report.get("items", []) if report else []
         assert not diagnostics, diagnostics

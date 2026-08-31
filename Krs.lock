@@ -1,13 +1,15 @@
 schema = 1
 
 [schemas]
-descriptor_protocol = 34
-definition_ir = 26
+descriptor_protocol = 35
+definition_ir = 27
 kast_json = 4
 
 [cargo]
 lock_sha256 = "50859782257669ec271ce97a9d244381560c2bfebd9df66ef51c6089481c4821"
 msrv = "1.88.0"
+native_frontend_rust = "1.98.0"
+native_frontend_msrv_status = "blocked-upstream-k-rust-if-let-guards"
 
 [k]
 version = "7.1.337"

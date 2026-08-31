@@ -188,7 +188,7 @@ def rust_gate(environment: Mapping[str, str]) -> tuple[Path, Path, Path]:
     run(["cargo", "+1.88.0", "check", *common, "--all-targets"], environment=fixture_env, timeout=900)
     analyzer = support.find_rust_analyzer()
     lsp_env = {**environment, "PATH": os.pathsep.join([os.fspath(analyzer.parent), os.environ["PATH"]])}
-    run([sys.executable, HERE / "lsp_probe.py"], environment=lsp_env)
+    run([sys.executable, HERE / "lsp_probe.py"], environment=lsp_env, timeout=900)
     return (
         root_target / "debug/krs",
         root_target / "release/krs-native-compile",
