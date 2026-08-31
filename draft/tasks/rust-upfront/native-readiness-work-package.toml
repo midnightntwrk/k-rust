@@ -2,23 +2,23 @@ schema_version = 1
 package_id = "k-in-k2/native-readiness/v1"
 status = "active"
 source_audit = "native-capability-reassessment.toml"
-latest_upstream_delta_audit = "handoffs/NR-U2.toml"
+latest_upstream_delta_audit = "handoffs/NR-U3.toml"
 objective = "Implement every sound local native-readiness layer exposed by the current clean KRS and k-rust pins while keeping upstream-blocked authority fail closed."
 
 [pins]
 krs_revision = "cff5e10b77a24a58590f59b5379f9f77ebd19f4d"
 krs_k_rust_revision = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
-shared_k_rust_previous_audit_revision = "96bbe9d6b4d486f907e72cdc01ee0d9580e4757b"
-shared_k_rust_observed_revision = "4fef6d7beee5e95495b3ff42272703b957d80c29"
-shared_k_rust_observed_state = "clean-at-audit-snapshot-dirty-after-snapshot"
+shared_k_rust_previous_audit_revision = "4fef6d7beee5e95495b3ff42272703b957d80c29"
+shared_k_rust_observed_revision = "e71dd8aaa72a26c8db0c437b4cf0ac866efc6d49"
+shared_k_rust_observed_state = "clean-read-only-evidence"
 krs_observed_state = "clean-at-audit-snapshot-dirty-after-snapshot"
 protected_artifact_sha256 = "dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec"
 
 [upstream_delta]
-commits = ["1f9110c5a2c5afcc39a0f39d821b35de41091e60", "1b786e66e2acc1c9a8bd4d8bea573d4fc5203be3", "55f74d635de7822f3a927eff88318533596208fa", "4fef6d7beee5e95495b3ff42272703b957d80c29"]
-shared_k_rust_capability_change = "No NATIVE-01 through NATIVE-07 authority change. Parser charts retain and factor sharing internally, but public parse, evidence, provenance, lowering, and search APIs are unchanged."
+commits = ["ce852d537bd8d8c8a2d5ec44a1739f7b0bede255", "e71dd8aaa72a26c8db0c437b4cf0ac866efc6d49"]
+shared_k_rust_capability_change = "No NATIVE-01 through NATIVE-08 authority change. Packed terms survive private Z3 sort inference and compatible model results are factored before materialization, but no public solver profile, proof, provenance, lowering, search, or evidence API changes."
 krs_clean_capability_change = "Clean KRS cff5e10 qualifies complete nested cells through the closed frontend parser shape. This is a reproducible narrow NATIVE-01 and NATIVE-02 improvement against dedicated k-rust 0de7983."
-status_effect = "NR-U2 changes no gate authority or implementation status. NR-R3 subsequently accepted the already-completed NR-01R, NR-02R, and NR-R2 local repair work without granting upstream native authority."
+status_effect = "NR-U3 changes no gate authority, packet status, dependency, or acceptance criterion. NR-R3 and NR-05R retain their accepted local status without granting upstream native authority."
 
 [agent_protocol]
 execution = "NR-R3 independently accepted the completed NR-01R, NR-02R, and NR-R2 repair wave. NR-05R completed its local repair without granting upstream native authority. NR-04 and the positive-bounded NR-06 packet are now ready independently, but memory-bounded builds must be serialized. NR-07 follows NR-03, NR-05R, and NR-06. NR-08 is last."

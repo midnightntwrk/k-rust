@@ -3,27 +3,27 @@ reassessment_id = "k-in-k2/native-readiness/2026-08-31"
 status = "actionable-local-wave"
 audited_on = "2026-08-31"
 portable_package = "k-in-k2/rust-upfront/v1"
-k_rust_shared_revision = "4fef6d7beee5e95495b3ff42272703b957d80c29"
-k_rust_shared_state = "clean-at-audit-snapshot-dirty-after-snapshot"
+k_rust_shared_revision = "e71dd8aaa72a26c8db0c437b4cf0ac866efc6d49"
+k_rust_shared_state = "clean-read-only-evidence"
 krs_revision = "cff5e10b77a24a58590f59b5379f9f77ebd19f4d"
 krs_state = "clean-at-audit-snapshot-dirty-after-snapshot"
 krs_k_rust_revision = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
 krs_k_rust_state = "clean-dedicated-pin"
-summary = "Clean KRS cff5e10 makes complete nested-cell frontend admission reproducible against its unchanged dedicated k-rust pin. Shared k-rust 4fef6d7 adds parser sharing, pruning, factoring, and memoization without changing public evidence APIs. The clean KRS pair is locally bindable after structural pin verification and an honest Rust 1.98 toolchain profile. Exhaustive absence, the KRS provenance bridge, checked lowering proofs, K-owned discovery, and independent K-authored evaluator authority remain blocked."
+summary = "Clean KRS cff5e10 makes complete nested-cell frontend admission reproducible against its unchanged dedicated k-rust pin. Shared k-rust e71dd8a retains packed sharing through Z3 sort inference and factors model results before unpacking, but exposes no new public solver, provenance, lowering, search, or evidence API. The clean KRS pair is locally bindable after structural pin verification and an honest Rust 1.98 toolchain profile. Exhaustive absence, the KRS provenance bridge, checked lowering proofs, K-owned discovery, and independent K-authored evaluator authority remain blocked."
 
 [upstream_delta_audit]
-handoff = "handoffs/NR-U2.toml"
-previous_shared_k_rust_revision = "96bbe9d6b4d486f907e72cdc01ee0d9580e4757b"
-current_shared_k_rust_revision = "4fef6d7beee5e95495b3ff42272703b957d80c29"
-commits = ["1f9110c5a2c5afcc39a0f39d821b35de41091e60", "1b786e66e2acc1c9a8bd4d8bea573d4fc5203be3", "55f74d635de7822f3a927eff88318533596208fa", "4fef6d7beee5e95495b3ff42272703b957d80c29"]
-shared_k_rust_effect = "Private parser charts retain packed sharing, prune losing roots, factor retained diamonds, and preserve sharing through pre-inference. Public parse, lowering, term, sentence, provenance, search, and evidence contracts are unchanged."
+handoff = "handoffs/NR-U3.toml"
+previous_shared_k_rust_revision = "4fef6d7beee5e95495b3ff42272703b957d80c29"
+current_shared_k_rust_revision = "e71dd8aaa72a26c8db0c437b4cf0ac866efc6d49"
+commits = ["ce852d537bd8d8c8a2d5ec44a1739f7b0bede255", "e71dd8aaa72a26c8db0c437b4cf0ac866efc6d49"]
+shared_k_rust_effect = "Private packed parser terms now survive Z3 sort inference, apply model results over the DAG, and factor compatible instantiated-production alternatives before owned materialization. Public parse, solver-profile, lowering, provenance, search, and evidence contracts are unchanged."
 krs_clean_effect = "DefinitionTermKind::Cell now presents complete nested cells through k-rust's closed three-argument parser shape at clean KRS cff5e10. The focused regression preserves child ordering and leaf bodies."
 authority_effect = "No upstream hold is discharged."
 
 [source_policy]
 integration_subject = "/home/sebastiengllmt/git/workspaces/starstream-fv/krs and its declared k-rust-krs-main dependency"
 shared_k_rust = "/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust"
-rule = "The clean shared k-rust and KRS audit snapshots and the clean dedicated k-rust pin are read-only evidence. Concurrent dirty shared-parser work and the post-audit KRS docs-plan directory are excluded. Integration must bind immutable clean KRS and dedicated k-rust checkouts."
+rule = "The clean shared k-rust audit snapshot and the clean dedicated k-rust pin are read-only evidence. The KRS cff5e10 commit is accepted snapshot evidence, while its current untracked docs-plan directory remains excluded and makes the default checkout inadmissibly dirty. Integration must bind immutable clean KRS and dedicated k-rust checkouts."
 
 [[gate]]
 id = "NATIVE-01"

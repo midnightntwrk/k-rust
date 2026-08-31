@@ -13,7 +13,7 @@ The active dependency-ordered implementation wave is [`native-readiness-work-pac
 The first-wave acceptance repairs are specified by [`native-readiness-repair-work-package.toml`](native-readiness-repair-work-package.toml).
 `handoffs/NR-01R.toml`, `handoffs/NR-02R.toml`, and the transaction-closure hardening in `handoffs/NR-R2.toml` passed the independent `NR-R3` gate recorded in `handoffs/NR-R3.toml`.
 `NR-05R` completed its local adapter-index and pin-verification repair; `NR-04` and the positive-bounded `NR-06` packet are now ready, with no search-exhaustion or other upstream native authority granted.
-The latest read-only upstream snapshot is `handoffs/NR-U2.toml`: clean KRS `cff5e10` qualifies complete nested cells against its dedicated k-rust pin, while shared k-rust `4fef6d7` changes parser performance without granting evidence authority.
+The latest read-only upstream snapshot is `handoffs/NR-U3.toml`: shared k-rust `e71dd8a` retains packed sharing through Z3 inference and factors model results without changing public evidence authority; KRS remains pinned to its dedicated k-rust `0de7983` checkout.
 The pinned adapter pre-consumer audit is `handoffs/NR-05A.toml`, and its accepted local repair evidence is `handoffs/NR-05R.toml`.
 The original `NR-05` provenance boundary remains upstream-blocked: its KRS sidecar is non-authoritative until a qualified KRS-to-k-rust provenance bridge exists.
 

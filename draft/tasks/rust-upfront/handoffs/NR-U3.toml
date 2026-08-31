@@ -1,0 +1,83 @@
+schema_version = 1
+packet_id = "NR-U3"
+title = "Packed Z3 inference upstream delta audit"
+status = "complete-audit-only"
+audited_on = "2026-08-31"
+protected_artifact_sha256 = "dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec"
+
+[scope]
+range = "4fef6d7beee5e95495b3ff42272703b957d80c29..e71dd8aaa72a26c8db0c437b4cf0ac866efc6d49"
+read_only = ["/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust", "/home/sebastiengllmt/git/workspaces/starstream-fv/krs", "/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust-krs-main", "investigations/k-rust-target/k-rust-agent-requests.toml"]
+
+[snapshots]
+shared_k_rust_revision = "e71dd8aaa72a26c8db0c437b4cf0ac866efc6d49"
+shared_k_rust_state = "clean"
+krs_revision = "cff5e10b77a24a58590f59b5379f9f77ebd19f4d"
+krs_state = "tracked-clean-untracked-docs-plan-excluded"
+dedicated_k_rust_revision = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
+dedicated_k_rust_state = "clean"
+krs_pin = "KRS Cargo metadata, Krs.lock, FRONTEND_PIN, and active native helpers continue to select the dedicated k-rust-krs-main checkout rather than shared main."
+
+[[delta]]
+commit = "ce852d537bd8d8c8a2d5ec44a1739f7b0bede255"
+subject = "perf(parser): preserve sharing through Z3 inference"
+files = ["crates/k-rust/src/inner/parser.rs", "crates/k-rust/src/inner/parser/disambiguation.rs", "crates/k-rust/src/inner/parser/inference.rs", "crates/k-rust/src/inner/parser/record.rs", "crates/k-rust/src/inner/parser/z3_inference.rs"]
+effect = "Packed terms remain shared through private Z3 sort inference. Constraint generation, model application, pruning, casts, instantiated productions, identifiers, and failure reasons operate over the DAG before owned materialization."
+regression = "z3_inference_prunes_a_shared_dag_before_owned_materialization compares the packed result with prior owned inference on a depth-12 irreducible DAG and records 14 packed visits rather than 16,381 owned unpack visits."
+qualification = "The commit did not run the WASM differential, and its first real packed-Z3 retry still reached the exact 8 GiB limit. The motivating workload was not solved by this commit alone."
+
+[[delta]]
+commit = "e71dd8aaa72a26c8db0c437b4cf0ac866efc6d49"
+subject = "perf(parser): factor packed model results"
+files = ["crates/k-rust/src/inner/parser.rs", "crates/k-rust/src/inner/parser/disambiguation.rs", "crates/k-rust/src/inner/parser/z3_inference.rs"]
+effect = "The existing private factoring pass recursively handles instantiated productions and factors compatible model-result alternatives before unpacking."
+qualification = "No new regression or end-to-end WASM retry was recorded, so resolution of the 8 GiB workload remains unqualified."
+
+[api_verdict]
+visibility = "The new surface is private or pub(super). Cargo features, manifests, crate exports, parse signatures, public result types, term and sentence types, provenance, search, and evidence APIs are unchanged."
+solver_boundary = "The existing z3-inference feature is unchanged. Internal parse-sort models expose no solver profile, solver identity, receipt, proof, public model result, frontier, pending work, completion, or exhaustion evidence."
+authority = "Private parser performance and compatibility work only; no upstream authority hold is discharged."
+
+[[gate]]
+id = "NATIVE-01"
+effect = "unchanged-partially-unblocked"
+
+[[gate]]
+id = "NATIVE-02"
+effect = "unchanged-partially-unblocked"
+
+[[gate]]
+id = "NATIVE-03"
+effect = "unchanged-partially-unblocked"
+
+[[gate]]
+id = "NATIVE-04"
+effect = "unchanged-positive-bounded-only"
+
+[[gate]]
+id = "NATIVE-05"
+effect = "unchanged-upstream-authority-blocked"
+
+[[gate]]
+id = "NATIVE-06"
+effect = "unchanged-validator-upfront-native-authority-blocked"
+
+[[gate]]
+id = "NATIVE-07"
+effect = "unchanged-partially-unblocked"
+
+[[gate]]
+id = "NATIVE-08"
+effect = "unchanged-unblocked-local"
+
+[packet_effects]
+nr_04 = "Ready and unaffected."
+nr_06 = "Remains ready-positive-bounded after NR-05R. Any solver-relative adapter must bind an explicit qualified solver feature and profile; no exhaustive absence may be issued."
+nr_07 = "Remains blocked on declared local work and upstream K-authored compiler, independent evaluator, and sealed authority."
+
+[upstream_holds]
+items = ["Positive explicit search exhaustion.", "Provenance-bearing KRS-to-k-rust bridge.", "Checked lowering proof artifact.", "Qualified K-authored compiler and independent evaluator."]
+discharged = []
+
+[validation]
+result = ["The Sol audit inspected the exact two-commit source and test delta without running builds or tests.", "All edits are snapshot metadata only and grant no authority.", "The protected artifact retained SHA-256 dcc35b3bd0c01793c50d3d8096283bd650f591a529d036c79e703ac50fa6d0ec."]
