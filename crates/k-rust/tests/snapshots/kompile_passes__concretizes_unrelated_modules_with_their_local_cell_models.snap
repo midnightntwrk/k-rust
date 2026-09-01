@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule OTHER\n  syntax Int ::= r\"[0-9]+\" [token]\n  configuration\n    <other>\n      <batch> 0 </batch>\n    </other>\nendmodule\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  configuration <top> 0 </top>\nendmodule\n"
+---
+initBatchCell(.KList)=>`<batch>`(#token("0","Int"))

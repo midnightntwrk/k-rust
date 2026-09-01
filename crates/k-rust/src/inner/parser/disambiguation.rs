@@ -269,7 +269,12 @@ impl Grammar {
         &self,
         term: Rc<PackedTerm>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
-        match self.filter_packed_priority(Rc::clone(&term)) {
+        match self.filter_packed_priority_memo(
+            Rc::clone(&term),
+            true,
+            &mut HashMap::new(),
+            &mut HashMap::new(),
+        ) {
             Ok(term) => Ok(term),
             // A locally invalid nested rewrite/sequence/let may be the losing view of an
             // ambiguity whose sibling has that operation at the root. Retain only those failures
@@ -287,12 +292,19 @@ impl Grammar {
         &self,
         term: Rc<PackedTerm>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
-        self.filter_packed_priority_memo(term, &mut HashMap::new(), &mut HashMap::new())
+        self.filter_packed_priority_memo(term, false, &mut HashMap::new(), &mut HashMap::new())
     }
 
+    /// Filter a packed node against the priority and associativity relations.
+    ///
+    /// With `defer_provisional`, a cast boundary violation is retained rather than rejected. A
+    /// cast can complete before the surrounding infix production has been packed, and rejecting
+    /// that provisional boundary at completion time can discard the valid sibling of a large
+    /// ambiguous forest. The complete priority pass repeats the check once the tree is formed.
     fn filter_packed_priority_memo(
         &self,
         term: Rc<PackedTerm>,
+        defer_provisional: bool,
         memo: &mut PackedTransformMemo,
         child_memo: &mut PackedPriorityChildMemo,
     ) -> Result<Rc<PackedTerm>, ParseError> {
@@ -327,6 +339,7 @@ impl Grammar {
                     for alternative in alternatives {
                         match self.filter_packed_priority_memo(
                             Rc::clone(&alternative),
+                            defer_provisional,
                             memo,
                             child_memo,
                         ) {
@@ -397,6 +410,7 @@ impl Grammar {
                                 *production,
                                 Rc::clone(child),
                                 side,
+                                defer_provisional,
                                 memo,
                                 child_memo,
                             )
@@ -422,7 +436,7 @@ impl Grammar {
         filtered
     }
 
-    fn packed_top_parse_label<'a>(&'a self, term: &'a PackedTerm) -> Option<&'a str> {
+    pub(super) fn packed_top_parse_label<'a>(&'a self, term: &'a PackedTerm) -> Option<&'a str> {
         let PackedNode::Production {
             production,
             children,
@@ -450,6 +464,7 @@ impl Grammar {
         parent: usize,
         child: Rc<PackedTerm>,
         side: Option<Side>,
+        defer_provisional: bool,
         memo: &mut PackedTransformMemo,
         child_memo: &mut PackedPriorityChildMemo,
     ) -> Result<Rc<PackedTerm>, ParseError> {
@@ -462,6 +477,7 @@ impl Grammar {
             parent,
             Rc::clone(&child),
             side,
+            defer_provisional,
             memo,
             child_memo,
         );
@@ -474,6 +490,7 @@ impl Grammar {
         parent: usize,
         child: Rc<PackedTerm>,
         side: Option<Side>,
+        defer_provisional: bool,
         memo: &mut PackedTransformMemo,
         child_memo: &mut PackedPriorityChildMemo,
     ) -> Result<Rc<PackedTerm>, ParseError> {
@@ -485,6 +502,7 @@ impl Grammar {
                     parent,
                     Rc::clone(alternative),
                     side,
+                    defer_provisional,
                     memo,
                     child_memo,
                 ) {
@@ -515,11 +533,13 @@ impl Grammar {
                 children: Vec::new(),
                 metadata: crate::kast::TermMetadata::default(),
             };
-            if let Some(error) = self.child_violation(&self.productions[parent], &shallow, side) {
+            if let Some(error) = self.child_violation(&self.productions[parent], &shallow, side)
+                && !(defer_provisional && matches!(error, ParseError::CastPriority { .. }))
+            {
                 return Err(error);
             }
         }
-        self.filter_packed_priority_memo(child, memo, child_memo)
+        self.filter_packed_priority_memo(child, defer_provisional, memo, child_memo)
     }
 
     /// Prefer an ambiguous rewrite operand whose declared result exactly matches its concrete

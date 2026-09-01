@@ -682,6 +682,63 @@ fn local_function_singleton_user_list_patterns_are_not_total() {
 }
 
 #[test]
+fn gives_generated_lambdas_definition_wide_unique_labels() {
+    let local_function = || {
+        application(
+            "#fun3",
+            vec![
+                Term::variable("X"),
+                Term::variable("X"),
+                Term::Token {
+                    token: "1".into(),
+                    sort: Sort::new("Int"),
+                },
+            ],
+        )
+    };
+    let syntax = || Sentence::SyntaxSort {
+        parameters: Vec::new(),
+        sort: Sort::new("Int"),
+        attributes: Attributes::default(),
+    };
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![
+            module(
+                "LIB",
+                vec![syntax(), rule(local_function(), Attributes::default())],
+            ),
+            FlatModule {
+                name: "MAIN".into(),
+                imports: vec![FlatImport {
+                    name: "LIB".into(),
+                    public: true,
+                }],
+                local_sentences: vec![syntax(), rule(local_function(), Attributes::default())],
+                attributes: Attributes::default(),
+            },
+        ],
+        attributes: Attributes::default(),
+    };
+
+    let transformed = resolve_fun(&definition).unwrap();
+    let labels = transformed
+        .modules
+        .iter()
+        .flat_map(|module| &module.local_sentences)
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label), ..
+            } if label.name.starts_with("#lambda") => Some(label.name.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(labels, ["#lambda__", "#lambda__2"]);
+    add_sort_injections_to_definition(&transformed)
+        .expect("generated lambda calls should remain unambiguous across imports");
+}
+
+#[test]
 fn lowers_k_non_matching_to_a_negated_predicate_with_owise_rule() {
     let pattern = rewrite(
         Term::Variable {
@@ -1821,6 +1878,35 @@ fn macro_expansion_combines_call_site_and_macro_rule_sources() {
 }
 
 #[test]
+fn expands_smt_lemma_aliases_before_backend_validation() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+                       | "constant" [alias, symbol(constant)]
+                       | "f(" Int ")" [function, total, smtlib(f), symbol(f)]
+          rule constant => 2
+          rule f(I:Int) => f(constant) [smt-lemma]
+        endmodule
+    "#};
+    let definition = propagate_macro_attributes(&parsed(source)).unwrap();
+    let transformed = expand_macros(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("smt-lemma").is_some() => Some(body),
+            _ => None,
+        })
+        .unwrap();
+
+    assert!(!Printer::new().print_term(body).contains("constant"));
+}
+
+#[test]
 fn macro_matching_reuses_repeated_variables_and_freshens_unbound_rhs_variables() {
     let source = indoc! {r#"
         module MAIN
@@ -2888,6 +2974,135 @@ fn clears_repeated_cell_contents_without_removing_the_parent() {
         body.contains("=>`.ItemCellMap`"),
         "the repeated contents were not cleared: {body}"
     );
+}
+
+#[test]
+fn splits_cell_fragment_variables_on_both_sides_of_a_rewrite() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <callState>
+                <program> 0 </program>
+                <status> 1 </status>
+              </callState>
+            </top>
+          rule <callState> _ => CALLSTATE </callState>
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_none() => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .unwrap();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_snapshot!(body);
+    });
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn concretizes_cells_inside_simplification_rules_without_adding_a_top_cell() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <batch> 0 </batch>
+            </top>
+          rule <batch> 0 => 1 </batch>
+            requires <batch> 0 </batch> :=K <batch> 0 </batch>
+            [simplification]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let transformed = concretize_cells(&definition).unwrap();
+    let output = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body,
+                requires,
+                attributes,
+                ..
+            } if attributes.get("simplification").is_some() => Some((
+                Printer::new().print_term(body),
+                Printer::new().print_term(requires),
+            )),
+            _ => None,
+        })
+        .unwrap();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(output);
+    });
+}
+
+#[test]
+fn concretizes_unrelated_modules_with_their_local_cell_models() {
+    let source = indoc! {r#"
+        module OTHER
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <other>
+              <batch> 0 </batch>
+            </other>
+        endmodule
+
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <top> 0 </top>
+        endmodule
+    "#};
+    let transformed = concretize_cells(&parsed(source)).unwrap();
+    let initializer = transformed
+        .modules
+        .iter()
+        .find(|module| module.name == "OTHER")
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_some()
+                && Printer::new().print_term(body).starts_with("initBatchCell") =>
+            {
+                Some(Printer::new().print_term(body))
+            }
+            _ => None,
+        })
+        .unwrap();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_snapshot!(initializer);
+    });
 }
 
 #[test]

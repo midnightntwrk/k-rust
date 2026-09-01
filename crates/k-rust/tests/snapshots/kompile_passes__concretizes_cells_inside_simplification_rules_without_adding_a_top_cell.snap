@@ -1,0 +1,8 @@
+---
+source: crates/k-rust/tests/kompile_passes.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  configuration\n    <top>\n      <batch> 0 </batch>\n    </top>\n  rule <batch> 0 => 1 </batch>\n    requires <batch> 0 </batch> :=K <batch> 0 </batch>\n    [simplification]\nendmodule\n"
+---
+(
+    "`<batch>`(#token(\"0\",\"Int\")=>#token(\"1\",\"Int\"))",
+    "`_:=K_`(`<batch>`(#token(\"0\",\"Int\")),`<batch>`(#token(\"0\",\"Int\")))",
+)

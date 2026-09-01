@@ -252,14 +252,17 @@ impl Grammar {
     }
 
     pub(super) fn lhs_is_function_or_macro(&self, term: &ParsedTerm) -> bool {
-        let Some(rewrite) = self.top_rewrite(term) else {
-            return false;
-        };
-        let ParsedTerm::Production { production, .. } = strip_brackets(self, rewrite.0) else {
-            return false;
+        self.function_lhs(term).is_some()
+    }
+
+    pub(super) fn function_lhs<'a>(&self, term: &'a ParsedTerm) -> Option<&'a ParsedTerm> {
+        let rewrite = self.top_rewrite(term)?;
+        let lhs = strip_brackets(self, rewrite.0);
+        let ParsedTerm::Production { production, .. } = lhs else {
+            return None;
         };
         let production = &self.productions[*production];
-        production.function || production.macro_like
+        (production.function || production.macro_like).then_some(lhs)
     }
 
     fn top_rewrite<'a>(&self, term: &'a ParsedTerm) -> Option<(&'a ParsedTerm, &'a ParsedTerm)> {
