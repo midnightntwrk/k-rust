@@ -192,6 +192,96 @@ fn semantic_casts_instantiate_parametric_production_results() {
     assert_eq!(rendered.matches("inj{B,C}").count(), 2, "{rendered}");
 }
 
+#[test]
+fn semantic_casts_project_heterogeneous_collection_results() {
+    let mut definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Bool ::= "true" [token]
+          syntax Int ::= r"[0-9]+" [token]
+          syntax List
+          syntax Map
+          syntax KItem ::= List "[" Int "]" [function, hook(LIST.get), symbol(List:get)]
+          syntax KItem ::= Map "[" Int "]" [function, hook(MAP.lookup), symbol(Map:lookup)]
+        endmodule
+    "#});
+    let truth = || Term::Token {
+        token: "true".into(),
+        sort: Sort::new("Bool"),
+    };
+    let get = |label: &str, collection_sort: &str| {
+        Term::apply(
+            "#SemanticCastToInt",
+            vec![Term::apply(
+                label,
+                vec![
+                    Term::Variable {
+                        name: "COLLECTION".into(),
+                        sort: Some(Sort::new(collection_sort)),
+                    },
+                    Term::Token {
+                        token: "0".into(),
+                        sort: Sort::new("Int"),
+                    },
+                ],
+            )],
+        )
+    };
+    let module = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == definition.main_module)
+        .unwrap();
+    module.local_sentences.extend([
+        Sentence::Rule {
+            body: get("List:get", "List"),
+            requires: truth(),
+            ensures: truth(),
+            attributes: Attributes::default(),
+        },
+        Sentence::Rule {
+            body: get("Map:lookup", "Map"),
+            requires: truth(),
+            ensures: truth(),
+            attributes: Attributes::default(),
+        },
+    ]);
+
+    let definition = k_rust::kompile::resolve_semantic_casts(&definition);
+    let definition = k_rust::kompile::subsort_kitem(&definition).unwrap();
+    let definition = generate_sort_projections(&definition).unwrap();
+    let definition = add_sort_injections_to_definition(&definition).unwrap();
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let summaries = definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("projection").is_none() => Some((
+                body.to_string(),
+                Printer::pretty(100)
+                    .print_pattern(&term_to_kore_from_resolved(&resolved, "MAIN", body).unwrap()),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    insta::assert_debug_snapshot!(summaries, @r###"
+    [
+        (
+            "inj{Int,KItem}(`project:Int`(`List:get`(COLLECTION,#token(\"0\",\"Int\"))))",
+            "inj{SortInt{}, SortKItem{}}(\n  Lblproject'Coln'Int{}(\n    kseq{}(LblList'Coln'get{}(VarCOLLECTION:SortList{}, \\dv{SortInt{}}(\"0\")), dotk{}())\n  )\n)",
+        ),
+        (
+            "inj{Int,KItem}(`project:Int`(`Map:lookup`(COLLECTION,#token(\"0\",\"Int\"))))",
+            "inj{SortInt{}, SortKItem{}}(\n  Lblproject'Coln'Int{}(\n    kseq{}(LblMap'Coln'lookup{}(VarCOLLECTION:SortMap{}, \\dv{SortInt{}}(\"0\")), dotk{}())\n  )\n)",
+        ),
+    ]
+    "###);
+}
+
 injection_snapshot!(
     injects_sequence_items_through_kitem,
     r#"

@@ -411,6 +411,9 @@ impl<'a> SortInjector<'a> {
         is_lhs: bool,
     ) -> Result<Term, SortInjectionError> {
         let actual = self.term_sort(term, Some(expected))?;
+        if let Some(projected) = self.semantic_projection(term, &actual) {
+            return self.inject_with_position(&projected, expected, is_lhs);
+        }
         if actual == *expected {
             return self.visit_children(term, &actual, is_lhs);
         }
@@ -435,6 +438,24 @@ impl<'a> SortInjector<'a> {
             return Ok(wrapped);
         }
         Ok(injection(actual, expected.clone(), visited))
+    }
+
+    fn semantic_projection(&self, term: &Term, actual: &Sort) -> Option<Term> {
+        let target = term.metadata()?.sort.as_ref()?;
+        // Semantic-cast resolution stores a non-variable cast target in metadata. Upcasts remain
+        // ordinary injections (or K sequences), but a cast from a heterogeneous super-sort such
+        // as KItem to Int needs the runtime projection generated for the target sort.
+        if actual == target || !self.subsorts.less_than_eq(target, actual) {
+            return None;
+        }
+
+        let mut argument_metadata = term.metadata()?.clone();
+        argument_metadata.sort = None;
+        let argument = term
+            .clone()
+            .into_unannotated()
+            .with_metadata(argument_metadata);
+        Some(Term::apply(format!("project:{target}"), vec![argument]))
     }
 
     fn user_list_wrapper(&self, actual: &Sort, expected: &Sort, visited: Term) -> Option<Term> {
