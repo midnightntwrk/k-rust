@@ -1,0 +1,15 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax WordStack ::= \".WordStack\"\n                     | Int \":\" WordStack\n  syntax Bytes ::= Int \":\" Bytes [function]\n  syntax WordStackCell ::= \"<wordStack>\" WordStack \"</wordStack>\" [cell]\n  rule <wordStack> ( ( W0:Int => 1 ) : _WS:WordStack ) </wordStack>\nendmodule\n"
+---
+[
+    SentenceSummary {
+        kind: "rule",
+        body: "`<wordStack>_</wordStack>_MAIN_WordStackCell_WordStack`(#noDots(.KList),`_:__MAIN_WordStack_Int_WordStack`(#SemanticCastToInt(W0)=>#token(\"1\",\"Int\"),#SemanticCastToWordStack(_WS)),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+]

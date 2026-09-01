@@ -1075,6 +1075,11 @@ impl Grammar {
                         if first_violation.is_none() {
                             first_violation = violation;
                         }
+                        let completed = self.filter_associative_boundary(
+                            state,
+                            &completed,
+                            &mut first_violation,
+                        );
                         if !completed.is_empty() {
                             let advanced = append_nodes(&derivations, &completed);
                             self.add_chart_state(
@@ -1147,13 +1152,21 @@ impl Grammar {
                             })
                             .collect::<Vec<_>>();
                         for (caller, caller_derivations) in callers {
+                            let completed = self.filter_associative_boundary(
+                                caller,
+                                &nodes,
+                                &mut first_violation,
+                            );
+                            if completed.is_empty() {
+                                continue;
+                            }
                             self.add_chart_state(
                                 &mut charts[position],
                                 State {
                                     dot: caller.dot + 1,
                                     ..caller
                                 },
-                                append_nodes(&caller_derivations, &nodes),
+                                append_nodes(&caller_derivations, &completed),
                             )?;
                         }
                     }
@@ -1208,6 +1221,47 @@ impl Grammar {
         } else {
             Ok(self.lower(cleaned))
         }
+    }
+
+    /// Drop completed nodes whose top label violates the caller's associativity on the side they
+    /// would occupy. Rejecting those boundaries before the caller packs its derivations keeps a
+    /// long associative chain from expanding into a Catalan-sized forest. Every other boundary
+    /// check waits for the priority pass over the completed caller.
+    fn filter_associative_boundary(
+        &self,
+        caller: State,
+        nodes: &BTreeSet<Rc<PackedTerm>>,
+        first_violation: &mut Option<ParseError>,
+    ) -> BTreeSet<Rc<PackedTerm>> {
+        let production = &self.productions[caller.production];
+        let Some(parent) = production.parse_label.as_deref() else {
+            return nodes.clone();
+        };
+        let (relation, side) = if caller.dot == 0 {
+            (&self.associativities.right, "left")
+        } else if caller.dot + 1 == production.items.len() {
+            (&self.associativities.left, "right")
+        } else {
+            return nodes.clone();
+        };
+        nodes
+            .iter()
+            .filter(|node| {
+                let Some(child) = self.packed_top_parse_label(node) else {
+                    return true;
+                };
+                if !relation.contains(&(parent.to_owned(), child.to_owned())) {
+                    return true;
+                }
+                first_violation.get_or_insert_with(|| ParseError::Associativity {
+                    parent: parent.to_owned(),
+                    child: child.to_owned(),
+                    side,
+                });
+                false
+            })
+            .cloned()
+            .collect()
     }
 
     /// Cross the shared packed-forest boundary only after Java's pre-inference transforms.
@@ -1789,39 +1843,70 @@ fn parsed_term_covers(existing: &PackedTerm, candidate: &PackedTerm) -> bool {
     }
 }
 
-/// Pack derivations that differ at only one child position.
+/// Pack derivations that use the same child boundaries.
 ///
-/// Earley completion revisits callers as a completed node gains alternatives. Without replacing
-/// the previously observed subset, a state retains `{a}`, `{a,b}`, `{a,b,c}`, and so on as
-/// distinct derivations. Those sets denote the same choice once the largest set is present. This
-/// fixed-point factoring preserves correlations between children while sharing every choice whose
-/// surrounding children are identical.
+/// For a fixed production and a fixed sequence of child spans, every parse of one child can be
+/// combined independently with every parse of the other children. Keeping those combinations as
+/// separate vectors materializes the Cartesian product that a packed parse forest is meant to
+/// share. Different boundary sequences remain separate because combining those could splice
+/// overlapping parses into a tree the grammar never recognized. A derivation with an unspanned
+/// child has no boundaries to compare and is retained as it is.
 ///
 /// Coverage-aware insertion and factoring are complementary: coverage removes whole derivations
 /// subsumed by an existing ambiguity, while factoring creates that shared ambiguity from sibling
-/// derivations which differ at one child position.
+/// derivations with identical boundaries.
 fn factor_derivations(derivations: &mut BTreeSet<Derivation>) {
-    let width = derivations.first().map_or(0, Vec::len);
-    if derivations.len() < 2 || width == 0 {
+    if derivations.len() < 2 {
         return;
     }
 
-    loop {
-        let before = derivations.len();
-        for index in 0..width {
-            let mut groups = BTreeMap::<Derivation, BTreeSet<Rc<PackedTerm>>>::new();
-            for derivation in std::mem::take(derivations) {
-                let mut key = derivation;
-                let node = key.remove(index);
-                groups.entry(key).or_default().insert(node);
-            }
-            for (mut key, nodes) in groups {
-                key.insert(index, pack_alternatives(nodes));
-                derivations.insert(key);
+    let mut groups = BTreeMap::<Vec<TermSpan>, Vec<Derivation>>::new();
+    let mut unspanned = BTreeSet::new();
+    for derivation in std::mem::take(derivations) {
+        match derivation
+            .iter()
+            .map(|node| packed_term_span(node))
+            .collect::<Option<Vec<_>>>()
+        {
+            Some(spans) => groups.entry(spans).or_default().push(derivation),
+            None => {
+                unspanned.insert(derivation);
             }
         }
-        if derivations.len() == before {
-            break;
+    }
+    for (spans, group) in groups {
+        if group.len() == 1 {
+            derivations.extend(group);
+            continue;
+        }
+        let packed = (0..spans.len())
+            .map(|index| {
+                pack_alternatives(
+                    group
+                        .iter()
+                        .map(|derivation| Rc::clone(&derivation[index]))
+                        .collect(),
+                )
+            })
+            .collect();
+        derivations.insert(packed);
+    }
+    derivations.extend(unspanned);
+}
+
+fn packed_term_span(term: &PackedTerm) -> Option<TermSpan> {
+    match &term.node {
+        PackedNode::Production { metadata, .. }
+        | PackedNode::InstantiatedProduction { metadata, .. } => metadata.span,
+        PackedNode::Term(term) => term.metadata().and_then(|metadata| metadata.span),
+        PackedNode::Ambiguity(alternatives) => {
+            let mut spans = alternatives
+                .iter()
+                .map(|alternative| packed_term_span(alternative));
+            let span = spans.next().flatten()?;
+            spans
+                .all(|candidate| candidate == Some(span))
+                .then_some(span)
         }
     }
 }
@@ -3750,6 +3835,48 @@ mod chart_tests {
                 limit: MAX_DERIVATIONS_PER_STATE,
             })
         );
+    }
+
+    fn spanned_node(production: usize, start: usize, end: usize) -> Rc<PackedTerm> {
+        PackedTerm::production(
+            production,
+            Vec::new(),
+            TermMetadata {
+                span: Some(TermSpan {
+                    source: SourceId(0),
+                    start,
+                    end,
+                }),
+                ..TermMetadata::default()
+            },
+        )
+    }
+
+    #[test]
+    fn packs_independent_child_choices_with_matching_boundaries() {
+        let mut derivations = BTreeSet::from([
+            vec![spanned_node(0, 0, 1), spanned_node(2, 1, 2)],
+            vec![spanned_node(1, 0, 1), spanned_node(3, 1, 2)],
+        ]);
+
+        factor_derivations(&mut derivations);
+
+        let packed = derivations.first().expect("one packed derivation");
+        assert_eq!(derivations.len(), 1);
+        assert!(matches!(&packed[0].node, PackedNode::Ambiguity(items) if items.len() == 2));
+        assert!(matches!(&packed[1].node, PackedNode::Ambiguity(items) if items.len() == 2));
+    }
+
+    #[test]
+    fn keeps_different_child_boundaries_correlated() {
+        let mut derivations = BTreeSet::from([
+            vec![spanned_node(0, 0, 1), spanned_node(1, 1, 3)],
+            vec![spanned_node(2, 0, 2), spanned_node(3, 2, 3)],
+        ]);
+
+        factor_derivations(&mut derivations);
+
+        assert_eq!(derivations.len(), 2);
     }
 
     #[test]

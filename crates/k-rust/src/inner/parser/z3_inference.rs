@@ -1,5 +1,6 @@
 //! Native Z3-backed sort inference for ambiguous and parametric parse forests.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
@@ -30,6 +31,9 @@ struct Encoding<'a> {
     ground_sorts: BTreeSet<Sort>,
     semantic: PartialOrder<Sort>,
     syntactic: PartialOrder<Sort>,
+    ground_values: RefCell<BTreeMap<Sort, Datatype>>,
+    semantic_relation: Vec<(Datatype, Datatype)>,
+    syntactic_relation: Vec<(Datatype, Datatype)>,
     variables: BTreeMap<String, Datatype>,
     parameters: BTreeSet<String>,
     packed_ids: HashMap<*const PackedTerm, usize>,
@@ -113,6 +117,13 @@ impl Grammar {
     }
 
     fn packed_lhs_is_function_or_macro(&self, root: &Rc<PackedTerm>) -> bool {
+        self.packed_function_lhs(root).is_some()
+    }
+
+    /// The left-hand side of a function or macro rule, looking through the rule-content and
+    /// configuration wrappers. Its inferred sort, rather than the declared rule-body sort, bounds
+    /// the whole rewrite.
+    fn packed_function_lhs<'t>(&self, root: &'t Rc<PackedTerm>) -> Option<&'t Rc<PackedTerm>> {
         let mut term = strip_packed_brackets(self, root);
         loop {
             let PackedNode::Production {
@@ -121,14 +132,11 @@ impl Grammar {
                 ..
             } = &term.node
             else {
-                return false;
+                return None;
             };
             let descriptor = &self.productions[*production];
             if descriptor.result.name == "#RuleContent" {
-                let Some(child) = children.first() else {
-                    return false;
-                };
-                term = strip_packed_brackets(self, child);
+                term = strip_packed_brackets(self, children.first()?);
                 continue;
             }
             if descriptor.result.name == "#RuleBody"
@@ -137,10 +145,7 @@ impl Grammar {
                     .as_ref()
                     .is_some_and(|label| label.name == "#withConfig")
             {
-                let Some(child) = children.first() else {
-                    return false;
-                };
-                term = strip_packed_brackets(self, child);
+                term = strip_packed_brackets(self, children.first()?);
                 continue;
             }
             if !descriptor
@@ -149,14 +154,14 @@ impl Grammar {
                 .is_some_and(|label| label.name == "#KRewrite")
                 || children.len() != 2
             {
-                return false;
+                return None;
             }
             let lhs = strip_packed_brackets(self, &children[0]);
             let PackedNode::Production { production, .. } = &lhs.node else {
-                return false;
+                return None;
             };
-            let lhs = &self.productions[*production];
-            return lhs.function || lhs.macro_like;
+            let production = &self.productions[*production];
+            return (production.function || production.macro_like).then_some(lhs);
         }
     }
 
@@ -314,7 +319,7 @@ impl<'a> Encoding<'a> {
             builder = builder.variant(&format!("KSort{index}"), fields);
         }
         let datatype = builder.finish();
-        Ok(Self {
+        let mut encoding = Self {
             grammar,
             datatype,
             heads,
@@ -322,11 +327,20 @@ impl<'a> Encoding<'a> {
             ground_sorts,
             semantic,
             syntactic,
+            ground_values: RefCell::new(BTreeMap::new()),
+            semantic_relation: Vec::new(),
+            syntactic_relation: Vec::new(),
             variables: BTreeMap::new(),
             parameters: BTreeSet::new(),
             packed_ids: HashMap::new(),
             anywhere,
-        })
+        };
+        for sort in encoding.ground_sorts.iter() {
+            encoding.sort_value(sort, &BTreeMap::new())?;
+        }
+        encoding.semantic_relation = encoding.order_relation(false)?;
+        encoding.syntactic_relation = encoding.order_relation(true)?;
+        Ok(encoding)
     }
 
     fn constraint(
@@ -418,7 +432,15 @@ impl<'a> Encoding<'a> {
                     children.iter().zip(expected_children).enumerate()
                 {
                     let child_path = format!("{path}_c{index}");
-                    let child_expected = if self.anywhere
+                    let function_child_sort =
+                        if index == 0 && descriptor.result.name == "#RuleContent" {
+                            self.grammar.function_lhs(child)
+                        } else {
+                            None
+                        };
+                    let child_expected = if let Some(lhs) = function_child_sort {
+                        self.actual_sort(lhs, &format!("{child_path}_c0"))?
+                    } else if self.anywhere
                         && descriptor
                             .label
                             .as_ref()
@@ -432,8 +454,13 @@ impl<'a> Encoding<'a> {
                     } else {
                         self.sort_value(child_sort, &parameters)?
                     };
+                    let formal_child = descriptor
+                        .parametric_origin
+                        .as_ref()
+                        .is_some_and(|origin| origin.parameters.contains(child_sort));
                     let child_context = match cast_context_for(descriptor) {
-                        CastContext::None if !is_real_ground_sort(child_sort) => {
+                        CastContext::None if function_child_sort.is_some() => CastContext::None,
+                        CastContext::None if !formal_child && !is_real_ground_sort(child_sort) => {
                             CastContext::Parser
                         }
                         context => context,
@@ -537,7 +564,12 @@ impl<'a> Encoding<'a> {
                 for (index, (child, child_sort)) in
                     children.iter().zip(expected_children).enumerate()
                 {
-                    let child_expected = if self.anywhere
+                    let function_lhs = (index == 0 && descriptor.result.name == "#RuleContent")
+                        .then(|| self.grammar.packed_function_lhs(child))
+                        .flatten();
+                    let child_expected = if let Some(lhs) = function_lhs {
+                        self.actual_packed_sort(lhs)?
+                    } else if self.anywhere
                         && descriptor
                             .label
                             .as_ref()
@@ -551,8 +583,13 @@ impl<'a> Encoding<'a> {
                     } else {
                         self.sort_value(child_sort, &parameters)?
                     };
+                    let formal_child = descriptor
+                        .parametric_origin
+                        .as_ref()
+                        .is_some_and(|origin| origin.parameters.contains(child_sort));
                     let child_context = match cast_context_for(descriptor) {
-                        CastContext::None if !is_real_ground_sort(child_sort) => {
+                        CastContext::None if function_lhs.is_some() => CastContext::None,
+                        CastContext::None if !formal_child && !is_real_ground_sort(child_sort) => {
                             CastContext::Parser
                         }
                         context => context,
@@ -727,6 +764,10 @@ impl<'a> Encoding<'a> {
         if let Some(value) = parameters.get(sort) {
             return Ok(value.clone());
         }
+        let cacheable = parameters.is_empty() && self.ground_sorts.contains(sort);
+        if cacheable && let Some(value) = self.ground_values.borrow().get(sort) {
+            return Ok(value.clone());
+        }
         let head = SortHead::from(sort);
         let index =
             self.head_indexes.get(&head).copied().ok_or_else(|| {
@@ -741,11 +782,17 @@ impl<'a> Encoding<'a> {
             .iter()
             .map(|argument| argument as &dyn Ast)
             .collect::<Vec<_>>();
-        self.datatype.variants[index]
+        let value = self.datatype.variants[index]
             .constructor
             .apply(&references)
             .as_datatype()
-            .ok_or_else(|| z3_error(format!("failed to construct Z3 value for sort {sort}")))
+            .ok_or_else(|| z3_error(format!("failed to construct Z3 value for sort {sort}")))?;
+        if cacheable {
+            self.ground_values
+                .borrow_mut()
+                .insert(sort.clone(), value.clone());
+        }
+        Ok(value)
     }
 
     fn less_than_eq(
@@ -754,28 +801,42 @@ impl<'a> Encoding<'a> {
         greater: &Datatype,
         syntactic: bool,
     ) -> Result<Bool, ParseError> {
+        let relation = if syntactic {
+            &self.syntactic_relation
+        } else {
+            &self.semantic_relation
+        };
+        Ok(or_all(
+            &relation
+                .iter()
+                .map(|(left, right)| Bool::and(&[lesser.eq(left), greater.eq(right)]))
+                .collect::<Vec<_>>(),
+        ))
+    }
+
+    fn order_relation(&self, syntactic: bool) -> Result<Vec<(Datatype, Datatype)>, ParseError> {
         let order = if syntactic {
             &self.syntactic
         } else {
             &self.semantic
         };
-        let mut relations = Vec::new();
+        let mut relation = Vec::new();
         for left in &self.ground_sorts {
             if !is_real_ground_sort(left) {
                 continue;
             }
+            let left_value = self.sort_value(left, &BTreeMap::new())?;
             for right in &self.ground_sorts {
                 if !is_real_ground_sort(right) {
                     continue;
                 }
                 if left == right || order.less_than_eq(left, right) {
-                    let left = self.sort_value(left, &BTreeMap::new())?;
-                    let right = self.sort_value(right, &BTreeMap::new())?;
-                    relations.push(Bool::and(&[lesser.eq(&left), greater.eq(&right)]));
+                    let right_value = self.sort_value(right, &BTreeMap::new())?;
+                    relation.push((left_value.clone(), right_value));
                 }
             }
         }
-        Ok(or_all(&relations))
+        Ok(relation)
     }
 
     fn exclude_klabel_parameters(&self, solver: &Solver) -> Result<(), ParseError> {
@@ -1102,12 +1163,25 @@ impl<'a> Encoding<'a> {
                         .is_some_and(|label| label.name == "#KRewrite")
                     && children.len() == 2)
                     .then(|| self.declared_packed_model_sort(&children[0], model));
+                let function_body_sort = (descriptor.result.name == "#RuleContent")
+                    .then(|| {
+                        children.first().and_then(|child| {
+                            self.grammar
+                                .packed_function_lhs(child)
+                                .map(|lhs| self.declared_packed_model_sort(lhs, model))
+                        })
+                    })
+                    .flatten();
                 let transformed_children = children
                     .iter()
                     .zip(expected_children)
                     .enumerate()
                     .map(|(index, (child, child_sort))| {
-                        let child_expected = if index == 1
+                        let child_expected = if index == 0
+                            && let Some(function_sort) = &function_body_sort
+                        {
+                            function_sort.clone()
+                        } else if index == 1
                             && let Some(lhs_sort) = &anywhere_lhs_sort
                         {
                             lhs_sort.clone()
@@ -1116,8 +1190,17 @@ impl<'a> Encoding<'a> {
                         } else {
                             substitute_sort(child_sort, &parameter_values)
                         };
+                        let formal_child = descriptor
+                            .parametric_origin
+                            .as_ref()
+                            .is_some_and(|origin| origin.parameters.contains(child_sort));
                         let child_context = match cast_context_for(descriptor) {
-                            CastContext::None if !is_real_ground_sort(child_sort) => {
+                            CastContext::None if index == 0 && function_body_sort.is_some() => {
+                                CastContext::None
+                            }
+                            CastContext::None
+                                if !formal_child && !is_real_ground_sort(child_sort) =>
+                            {
                                 CastContext::Parser
                             }
                             context => context,
@@ -1372,12 +1455,30 @@ impl<'a> Encoding<'a> {
                             &format!("{path}_c0"),
                         )
                     });
+                let function_body_sort = (descriptor.result.name == "#RuleContent")
+                    .then(|| {
+                        children.first().and_then(|child| {
+                            self.grammar.function_lhs(child).map(|lhs| {
+                                declared_model_sort(
+                                    self.grammar,
+                                    lhs,
+                                    model,
+                                    &format!("{path}_c0_c0"),
+                                )
+                            })
+                        })
+                    })
+                    .flatten();
                 let children = children
                     .into_iter()
                     .zip(expected_children)
                     .enumerate()
                     .map(|(index, (child, child_sort))| {
-                        let child_expected = if index == 1
+                        let child_expected = if index == 0
+                            && let Some(function_sort) = &function_body_sort
+                        {
+                            function_sort.clone()
+                        } else if index == 1
                             && let Some(lhs_sort) = &anywhere_lhs_sort
                         {
                             lhs_sort.clone()
@@ -1386,8 +1487,17 @@ impl<'a> Encoding<'a> {
                         } else {
                             substitute_sort(child_sort, &parameter_values)
                         };
+                        let formal_child = descriptor
+                            .parametric_origin
+                            .as_ref()
+                            .is_some_and(|origin| origin.parameters.contains(child_sort));
                         let child_context = match cast_context_for(descriptor) {
-                            CastContext::None if !is_real_ground_sort(child_sort) => {
+                            CastContext::None if index == 0 && function_body_sort.is_some() => {
+                                CastContext::None
+                            }
+                            CastContext::None
+                                if !formal_child && !is_real_ground_sort(child_sort) =>
+                            {
                                 CastContext::Parser
                             }
                             context => context,

@@ -1,0 +1,15 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax WordStack ::= \".WordStack\" [symbol(.WordStack)]\n                     | Int \":\" WordStack [symbol(_:_)]\n  syntax CallOp ::= \"CALL\" [symbol(CALL)]\n  syntax InternalOp ::= CallOp Int Int Int Int Int Int Int [symbol(call)]\n  syntax KItem ::= \"#exec\" \"[\" CallOp \"]\" [symbol(exec)]\n                 | \"#gas\" \"[\" CallOp \",\" InternalOp \"]\" [symbol(gas)]\n                 | InternalOp\n  syntax KCell ::= \"<k>\" K \"</k>\" [cell]\n  syntax WordStackCell ::= \"<wordStack>\" WordStack \"</wordStack>\" [cell]\n  rule <k> #exec [ CO:CallOp ] => #gas [ CO, CO W0 W1 W2 W3 W4 W5 W6 ] ~> CO W0 W1 W2 W3 W4 W5 W6 ... </k>\n       <wordStack> W0 : W1 : W2 : W3 : W4 : W5 : W6 : WS => WS </wordStack>\nendmodule\n"
+---
+[
+    SentenceSummary {
+        kind: "rule",
+        body: "#cells(`<k>_</k>_MAIN_KCell_K`(#noDots(.KList),exec(#SemanticCastToCallOp(CO))=>gas(#SemanticCastToCallOp(CO),call(#SemanticCastToCallOp(CO),#SemanticCastToInt(W0),#SemanticCastToInt(W1),#SemanticCastToInt(W2),#SemanticCastToInt(W3),#SemanticCastToInt(W4),#SemanticCastToInt(W5),#SemanticCastToInt(W6)))~>call(#SemanticCastToCallOp(CO),#SemanticCastToInt(W0),#SemanticCastToInt(W1),#SemanticCastToInt(W2),#SemanticCastToInt(W3),#SemanticCastToInt(W4),#SemanticCastToInt(W5),#SemanticCastToInt(W6)),#dots(.KList)),`<wordStack>_</wordStack>_MAIN_WordStackCell_WordStack`(#noDots(.KList),`_:_`(#SemanticCastToInt(W0),`_:_`(#SemanticCastToInt(W1),`_:_`(#SemanticCastToInt(W2),`_:_`(#SemanticCastToInt(W3),`_:_`(#SemanticCastToInt(W4),`_:_`(#SemanticCastToInt(W5),`_:_`(#SemanticCastToInt(W6),#SemanticCastToWordStack(WS))))))))=>#SemanticCastToWordStack(WS),#noDots(.KList)))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+]

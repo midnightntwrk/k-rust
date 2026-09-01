@@ -390,6 +390,20 @@ impl<'a> Parser<'a> {
         raw_start: usize,
     ) -> Result<(String, Vec<Attribute>, usize), ParseError> {
         for index in attribute_starts(raw).into_iter().rev() {
+            if index > 0
+                && !raw[..index]
+                    .chars()
+                    .next_back()
+                    .is_some_and(char::is_whitespace)
+            {
+                continue;
+            }
+            // A bracketed term can be the entire RHS of a rewrite. Without this guard, a term
+            // such as `lhs => [item]` is accepted by the permissive attribute parser and removed
+            // from the bubble as though it were `[item]` sentence metadata.
+            if raw[..index].trim_end().ends_with("=>") {
+                continue;
+            }
             let mut parser = self.subparser(raw_start + index, raw_start + raw.len());
             if let Ok(attributes) = parser.attributes() {
                 parser.skip_trivia()?;

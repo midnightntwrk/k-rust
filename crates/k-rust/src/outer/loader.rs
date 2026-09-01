@@ -208,9 +208,45 @@ pub fn load_with_options(
     resolver: &mut impl SourceResolver,
     options: &LoadOptions,
 ) -> Result<LoadedDefinition, LoadError> {
+    load_impl(entry, main_module, resolver, options, None, &[])
+}
+
+/// Load a new source graph against an already parsed definition.
+///
+/// Requirements whose paths identify `provided_sources` are satisfied by `base` instead of being
+/// read again. This is the frontend boundary used to compile a proof specification against a
+/// prepared semantics definition.
+pub fn load_with_base(
+    entry: ResolvedSource,
+    main_module: impl Into<String>,
+    resolver: &mut impl SourceResolver,
+    options: &LoadOptions,
+    base: &Definition,
+    provided_sources: &[String],
+) -> Result<LoadedDefinition, LoadError> {
+    load_impl(
+        entry,
+        main_module,
+        resolver,
+        options,
+        Some(base),
+        provided_sources,
+    )
+}
+
+fn load_impl(
+    entry: ResolvedSource,
+    main_module: impl Into<String>,
+    resolver: &mut impl SourceResolver,
+    options: &LoadOptions,
+    base: Option<&Definition>,
+    provided_sources: &[String],
+) -> Result<LoadedDefinition, LoadError> {
+    let main_module = main_module.into();
     let mut loader = Loader {
         resolver,
         options,
+        provided_sources,
         states: BTreeMap::new(),
         files: Vec::new(),
         source_table: SourceTable::default(),
@@ -221,8 +257,25 @@ pub fn load_with_options(
     loader.visit(entry)?;
     validate_unique_modules(&loader.files)?;
 
-    let definition =
-        lower_files(&loader.files, main_module).map_err(LoadError::SourceDiagnostics)?;
+    let mut definition =
+        lower_files(&loader.files, &main_module).map_err(LoadError::SourceDiagnostics)?;
+    if let Some(base) = base {
+        let base_modules = base
+            .modules
+            .iter()
+            .map(|module| module.name.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        definition.modules.retain(|module| {
+            !base_modules.contains(module.name.as_str())
+                || !module.attributes.source().is_some_and(|source| {
+                    provided_sources.iter().any(|provided| provided == source)
+                })
+        });
+        let mut modules = base.modules.clone();
+        modules.append(&mut definition.modules);
+        definition.modules = modules;
+        definition.main_module = main_module;
+    }
     finish_load(
         definition,
         loader.files,
@@ -249,6 +302,7 @@ pub fn load_structured(
     let mut loader = Loader {
         resolver: &mut resolver,
         options,
+        provided_sources: &[],
         states: BTreeMap::new(),
         files: Vec::new(),
         source_table: SourceTable::default(),
@@ -454,6 +508,7 @@ enum VisitState {
 struct Loader<'a, R> {
     resolver: &'a mut R,
     options: &'a LoadOptions,
+    provided_sources: &'a [String],
     states: BTreeMap<String, VisitState>,
     files: Vec<SourceFile>,
     source_table: SourceTable,
@@ -509,6 +564,9 @@ impl<R: SourceResolver> Loader<'_, R> {
                     span: requirement.span,
                     message,
                 })?;
+            if self.provided_sources.contains(&required.source) {
+                continue;
+            }
             self.visit(required)?;
         }
 

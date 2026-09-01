@@ -599,6 +599,55 @@ fn loader_parses_parenthesized_rewrites_between_bags_before_cell_dots() {
     );
 }
 
+#[cfg(feature = "z3-inference")]
+#[test]
+fn loader_parses_parenthesized_cell_deletion_inside_collection_cells() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <accounts>
+              <account multiplicity="*" type="Map">
+                <acctID> 0 </acctID>
+              </account>
+            </accounts>
+
+          rule <accounts>
+            ( <account>
+                <acctID> ACCT </acctID>
+                ...
+              </account>
+           => .Bag
+            )
+            ...
+          </accounts>
+        endmodule
+    "#};
+    let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+    let loaded = load(
+        ResolvedSource::new("collection-cell-deletion.k", source),
+        "MAIN",
+        &mut resolver,
+    )
+    .unwrap();
+    let rules = loaded
+        .definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(sentence_summary)
+        .collect::<Vec<_>>();
+
+    insta::with_settings!({
+        description => format!("K definition:\n\n{source}"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_debug_snapshot!(rules);
+    });
+}
+
 #[test]
 fn rejects_ensures_on_contexts_and_aliases() {
     for source in [
@@ -1320,6 +1369,178 @@ fn reports_unknown_generic_k_applications() {
         "{error:?}"
     );
 }
+
+rule_snapshot!(
+    retains_concrete_syntax_when_a_generic_application_is_invalid,
+    r##"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Stack ::= ".Stack" [symbol(.Stack)]
+          syntax Int ::= "#size" "(" Stack ")" [symbol(#size), function]
+                       | "#size" "(" Stack "," Int ")" [symbol(sizeAux), function]
+          rule #size(.Stack, 0) => 0
+        endmodule
+    "##
+);
+
+rule_snapshot!(
+    does_not_duplicate_generated_sort_lattice_productions,
+    r#"
+        module MAIN
+          syntax KBott
+          syntax KItem
+          syntax {Sort} Sort ::= KBott
+          syntax {Sort} KItem ::= Sort
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bool ::= Int "<Int" Int [symbol(_<Int_)]
+          syntax Buf ::= ".Buf" [symbol(.Buf)]
+          syntax Buf ::= Buf "[" Int ":=" Buf "]" [symbol(write), function]
+          rule _ [ START := _ ] => .Buf requires START <Int 0
+        endmodule
+    "#
+);
+
+rule_snapshot!(
+    does_not_duplicate_explicit_kitem_subsorts,
+    r##"
+        module MAIN
+          syntax KItem
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bytes ::= "bytes" [symbol(bytes)]
+          syntax String ::= "\"\"" [symbol(emptyString)]
+          syntax Map ::= ".Map" [symbol(.Map)]
+          syntax Int ::= "lengthBytes" "(" Bytes ")" [symbol(lengthBytes), function]
+                       | Bytes "[" Int "]" [symbol(bytesGet), function]
+          syntax Bool ::= Int ">Int" Int [symbol(_>Int_), function]
+                        | Int "=/=Int" Int [symbol(_=/=Int_), function]
+                        | Bool "andBool" Bool [symbol(_andBool_), function, left]
+          syntax Tree ::= ".Tree" [symbol(.Tree)]
+                        | "branch" "(" Map "," String ")" [symbol(branch)]
+                        | "leaf" "(" Bytes "," String ")" [symbol(leaf)]
+          syntax KItem ::= Tree
+          syntax Tree ::= "put" "(" Tree "," Bytes "," String ")" [symbol(put), function]
+          rule put(leaf(LEAFPATH, LEAFVALUE), PATH, VALUE)
+            => put(put(branch(.Map, ""), LEAFPATH, LEAFVALUE), PATH, VALUE)
+            requires lengthBytes(LEAFPATH) >Int 0
+             andBool lengthBytes(PATH) >Int 0
+             andBool LEAFPATH[0] =/=Int PATH[0]
+        endmodule
+    "##
+);
+
+rule_snapshot!(
+    #[cfg(feature = "z3-inference")]
+    uses_the_shared_rewrite_sort_to_prune_syntax_alternatives,
+    r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bool ::= Int "<Int" Int [symbol(_<Int_)]
+          syntax Buf ::= ".Buf" [symbol(.Buf)]
+          syntax Buf ::= Buf "[" Int ":=" Buf "]" [symbol(writeBuf), function]
+          syntax Stack ::= ".Stack" [symbol(.Stack)]
+          syntax Stack ::= Stack "[" Int ":=" Stack "]" [symbol(writeStack), function]
+          rule _ [ START := _ ] => .Buf requires START <Int 0
+        endmodule
+    "#
+);
+
+rule_snapshot!(
+    parses_large_generic_application_argument_lists_without_forest_truncation,
+    r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+          syntax Exp ::= "declared-f" "(" Exp "," Exp "," Exp "," Exp "," Exp "," Exp "," Exp "," Exp "," Exp "," Exp "," Exp ")" [symbol(f)]
+          rule f(a, a, a, a, a, a, a, a, a, a, a) => a
+        endmodule
+    "#
+);
+
+rule_snapshot!(
+    scans_adjacent_closing_brackets_as_separate_terminals,
+    r#"
+        module MAIN
+          syntax Item ::= "x" [symbol(x)]
+                        | "[" Items "]" [symbol(list)]
+          syntax Items ::= List{Item, ","} [symbol(items)]
+          syntax Out ::= "declared-f" "(" Item ")" [symbol(f)]
+          rule f([x, [x]]) => f(x)
+        endmodule
+    "#
+);
+
+rule_snapshot!(
+    parses_named_anonymous_variables_in_nested_prefix_syntax,
+    r##"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bytes ::= "bytes" [symbol(bytes)]
+          syntax PrefixType ::= "#str" | "#list"
+          syntax Prefix ::= PrefixType "(" Int "," Int ")"
+          syntax JSONs ::= List{JSON, ","} [symbol(jsons)]
+          syntax JSON ::= Bytes | "[" JSONs "]" [symbol(jsonList)]
+          syntax JSON ::= "#decode" "(" Bytes "," Prefix ")" [symbol(decode)]
+          syntax JSONs ::= "#decodeList" "(" Bytes "," Int ")" [symbol(decodeList)]
+          rule #decode(BYTES, #list(_LEN, POS)) => [#decodeList(BYTES, POS)]
+        endmodule
+    "##
+);
+
+rule_snapshot!(
+    records_variables_inferred_as_the_builtin_bag_sort,
+    r#"
+        module MAIN
+          syntax StateCell ::= "<state>" Bag "</state>" [cell]
+          rule <state> ITEMS => .Bag </state>
+        endmodule
+    "#
+);
+
+rule_snapshot!(
+    #[cfg(feature = "z3-inference")]
+    parses_seven_argument_operations_over_long_word_stacks,
+    r##"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax WordStack ::= ".WordStack" [symbol(.WordStack)]
+                             | Int ":" WordStack [symbol(_:_)]
+          syntax CallOp ::= "CALL" [symbol(CALL)]
+          syntax InternalOp ::= CallOp Int Int Int Int Int Int Int [symbol(call)]
+          syntax KItem ::= "#exec" "[" CallOp "]" [symbol(exec)]
+                         | "#gas" "[" CallOp "," InternalOp "]" [symbol(gas)]
+                         | InternalOp
+          syntax KCell ::= "<k>" K "</k>" [cell]
+          syntax WordStackCell ::= "<wordStack>" WordStack "</wordStack>" [cell]
+          rule <k> #exec [ CO:CallOp ] => #gas [ CO, CO W0 W1 W2 W3 W4 W5 W6 ] ~> CO W0 W1 W2 W3 W4 W5 W6 ... </k>
+               <wordStack> W0 : W1 : W2 : W3 : W4 : W5 : W6 : WS => WS </wordStack>
+        endmodule
+    "##
+);
+
+rule_snapshot!(
+    #[cfg(feature = "z3-inference")]
+    parses_a_rewrite_followed_by_a_cast_word_stack_tail,
+    r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax WordStack ::= ".WordStack"
+                             | Int ":" WordStack
+          syntax Bytes ::= Int ":" Bytes [function]
+          syntax WordStackCell ::= "<wordStack>" WordStack "</wordStack>" [cell]
+          rule <wordStack> ( ( W0:Int => 1 ) : _WS:WordStack ) </wordStack>
+        endmodule
+    "#
+);
+
+rule_snapshot!(
+    parses_generated_sort_projection_syntax,
+    r#"
+        module MAIN
+          syntax Set ::= ".Set" [symbol(.Set)]
+          syntax SetCell ::= "<set>" Set "</set>" [cell]
+          rule <set> project:Set ( .K ) => .Set </set>
+        endmodule
+    "#
+);
 
 #[cfg(feature = "z3-inference")]
 rule_snapshot!(
