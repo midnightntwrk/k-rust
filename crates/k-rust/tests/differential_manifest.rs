@@ -323,6 +323,10 @@ fn java_backed_differentials_guard_the_whole_job_without_nested_sibling_scopes()
         "MemoryMax=${reference_job_memory_max_kib}K",
         "MemorySwapMax=0",
         "ulimit -v \"$reference_job_fallback_virtual_memory_kib\"",
+        // The virtual-address fallback must bound the reference JVM itself:
+        // default ergonomics on a many-core host exceed the RLIMIT_AS ceiling.
+        "if [[ -z \"${REFERENCE_DIFFERENTIAL_K_OPTS:-}\" ]]; then",
+        "export REFERENCE_DIFFERENTIAL_K_OPTS='-Xmx2048m -Xss1m -XX:+UseSerialGC",
     ] {
         assert!(
             guard.contains(contract),
@@ -452,8 +456,37 @@ reference_run_rust_frontend bash -c '
     );
     assert_eq!(
         fallback.stderr,
+        b"warning: user systemd scopes unavailable; applying the 10485760 KiB whole-job virtual-address fallback (RLIMIT_AS), not a resident-memory limit\n\
+          warning: bounding the reference JVM with REFERENCE_DIFFERENTIAL_K_OPTS=-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m under the virtual-address fallback\n\
+          payload-err",
+        "identify the fallback semantics, bound the reference JVM, and otherwise preserve stderr exactly",
+    );
+
+    // A caller-provided JVM bound is respected: the fallback must neither
+    // override it nor announce a default it did not apply.
+    fs::write(&calls, "").expect("clear call log");
+    fs::write(&payload_runs, "").expect("clear payload run log");
+    let bounded = Command::new("bash")
+        .arg(&fixture_script)
+        .env("PATH", &path)
+        .env("GUARD_CALLS", &calls)
+        .env("PAYLOAD_RUNS", &payload_runs)
+        .env("PAYLOAD_STATUS", "29")
+        .env("REFERENCE_GUARD_PATH", &guard_path)
+        .env("SYSTEMD_PROBE_STATUS", "1")
+        .env(
+            "REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB",
+            "10485760",
+        )
+        .env("REFERENCE_DIFFERENTIAL_K_OPTS", "-Xmx1g")
+        .env_remove("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND")
+        .output()
+        .expect("run fallback guard fixture with a caller-bounded JVM");
+    assert_eq!(bounded.status.code(), Some(29));
+    assert_eq!(
+        bounded.stderr,
         b"warning: user systemd scopes unavailable; applying the 10485760 KiB whole-job virtual-address fallback (RLIMIT_AS), not a resident-memory limit\npayload-err",
-        "identify the fallback semantics and otherwise preserve stderr exactly",
+        "a caller-provided REFERENCE_DIFFERENTIAL_K_OPTS is kept without a default announcement",
     );
     assert_eq!(
         fs::read_to_string(&calls)

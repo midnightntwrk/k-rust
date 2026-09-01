@@ -14,12 +14,16 @@ crates/k-rust-wasm/dist/
 crates/k-rust-wasm/generated/
 
 # reference checkouts at the differential scripts' default paths
-evm-equivalence/
-evm-semantics/
-imp-semantics/
-k/
-mir-semantics/
-scala-kore/
-wasm-semantics/
-k-framework-ts/
-haskell-backend/
+/evm-equivalence
+/evm-semantics
+/imp-semantics
+/k
+/mir-semantics
+/scala-kore
+/wasm-semantics
+/k-framework-ts
+/haskell-backend
+
+# machine-local agent notes
+AGENTS.local.md
+CLAUDE.local.md
