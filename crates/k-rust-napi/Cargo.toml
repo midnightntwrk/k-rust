@@ -2,7 +2,7 @@
 name = "k-rust-napi"
 version = "0.3.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Node-API bindings for the k-rust frontend"
 repository = "https://github.com/midnightntwrk/k-rust"
 license = "BSD-3-Clause"

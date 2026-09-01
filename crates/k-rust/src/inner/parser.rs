@@ -2011,17 +2011,18 @@ fn lower_term(production: &Production, children: &[Term]) -> Term {
     if label.name == "#OuterCast" {
         label = Label::new(format!("project:{}", production.result));
     }
+    if label.name == "#KToken"
+        && let [value, sort] = children
+        && let (Some(value), Some(sort)) = (kstring_token(value), kstring_token(sort))
+        && let (Ok(value), Ok(sort)) = (
+            crate::kast::string::unquote(value),
+            crate::kast::string::unquote(sort),
+        )
+        && let Ok(sort) = crate::kast::parser::parse_sort_text(&sort)
+    {
+        return Term::Token { token: value, sort };
+    }
     match (label.name.as_str(), children) {
-        ("#KToken", [value, sort])
-            if let (Some(value), Some(sort)) = (kstring_token(value), kstring_token(sort))
-                && let (Ok(value), Ok(sort)) = (
-                    crate::kast::string::unquote(value),
-                    crate::kast::string::unquote(sort),
-                )
-                && let Ok(sort) = crate::kast::parser::parse_sort_text(&sort) =>
-        {
-            Term::Token { token: value, sort }
-        }
         ("#EmptyK", []) => Term::Sequence(Vec::new()),
         ("#KSequence", items) => Term::sequence(items.iter().cloned()),
         ("#KRewrite", [left, right]) => Term::Rewrite {

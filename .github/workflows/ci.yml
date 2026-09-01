@@ -11,6 +11,20 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  msrv:
+    name: Rust 1.88 MSRV
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust 1.88
+        uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Check all targets at the declared minimum
+        run: cargo check --workspace --all-targets --locked
+
   rust:
     name: Rust
     runs-on: ubuntu-latest
