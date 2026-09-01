@@ -6136,6 +6136,79 @@ mod tests {
         theory
     }
 
+    fn deep_concrete_recursion_definition() -> BackendDefinition {
+        definition(
+            r#"
+            sort SortElement{} [hasDomainValues{}()]
+            sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortList{}
+                [hook{}("LIST.List"), unit{}(listUnit{}()), element{}(listItem{}()), concat{}(listConcat{}())]
+            symbol listUnit{}() : SortList{}
+                [function{}(), total{}(), hook{}("LIST.unit")]
+            symbol listItem{}(SortElement{}) : SortList{}
+                [function{}(), total{}(), hook{}("LIST.element")]
+            symbol listConcat{}(SortList{}, SortList{}) : SortList{}
+                [function{}(), hook{}("LIST.concat"), assoc{}()]
+            symbol intAdd{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.add")]
+            symbol size{}(SortList{}) : SortInt{} [function{}()]
+            symbol stackState{}(SortList{}) : SortS{} [constructor{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortInt{}, R}(
+                    size{}(listUnit{}()),
+                    \and{SortInt{}}(
+                        \dv{SortInt{}}("0"),
+                        \top{SortInt{}}()
+                    )
+                )
+            ) [label{}("size-unit"), simplification{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortInt{}, R}(
+                    size{}(
+                        listConcat{}(
+                            listItem{}(Head:SortElement{}),
+                            Tail:SortList{}
+                        )
+                    ),
+                    \and{SortInt{}}(
+                        intAdd{}(
+                            \dv{SortInt{}}("1"),
+                            size{}(Tail:SortList{})
+                        ),
+                        \top{SortInt{}}()
+                    )
+                )
+            ) [label{}("size-cons"), simplification{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    stackState{}(Stack:SortList{}),
+                    \equals{SortInt{}, SortS{}}(
+                        size{}(Stack:SortList{}),
+                        \dv{SortInt{}}("1024")
+                    )
+                ),
+                \dv{SortS{}}("done")
+            ) [label{}("conditional")]
+            "#,
+        )
+    }
+
+    fn concrete_chain(definition: &BackendDefinition, depth: usize) -> Term {
+        let definition = match internal_term(definition, "listUnit{}()").kind() {
+            TermKind::List { definition, .. } => definition.clone(),
+            term => panic!("expected native list unit, found {term:?}"),
+        };
+        Term::list(
+            definition,
+            (0..depth)
+                .map(|index| Term::domain_value(Sort::simple("SortElement"), index.to_string()))
+                .collect(),
+            None,
+        )
+    }
+
     #[test]
     fn execution_reports_default_budget_exhaustion_as_a_simplification_leaf() {
         let definition = definition(&long_requires_chain());
@@ -6152,6 +6225,113 @@ mod tests {
             );
         };
         assert_iteration_limit(&leaf.halt_reason);
+    }
+
+    #[test]
+    fn deep_concrete_recursion_has_bounded_linear_productive_work() {
+        std::thread::Builder::new()
+            .name("deep-concrete-recursion".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(deep_concrete_recursion_has_bounded_linear_productive_work_inner)
+            .expect("the regression thread should start")
+            .join()
+            .expect("the regression thread should complete");
+    }
+
+    fn deep_concrete_recursion_has_bounded_linear_productive_work_inner() {
+        const DEPTH: usize = 1_024;
+        const OVERRIDE: usize = 4_096;
+
+        let definition = deep_concrete_recursion_definition();
+        let stack = concrete_chain(&definition, DEPTH);
+        let size = Term::application(
+            definition.symbols["size"].clone(),
+            Vec::new(),
+            vec![stack.clone()],
+        );
+        let simplified = crate::simplify::simplify(
+            &definition,
+            &size,
+            SimplificationOptions {
+                max_iterations: OVERRIDE,
+            },
+        )
+        .expect("the request-level override should complete finite concrete recursion");
+
+        assert_eq!(
+            simplified.term,
+            Term::domain_value(Sort::simple("SortInt"), DEPTH.to_string())
+        );
+        assert_eq!(simplified.applied_rules.len(), 2 * DEPTH + 1);
+        assert_eq!(
+            simplified
+                .applied_rules
+                .iter()
+                .filter(|rule| rule.as_str() == "size-cons")
+                .count(),
+            DEPTH
+        );
+        assert_eq!(
+            simplified
+                .applied_rules
+                .iter()
+                .filter(|rule| rule.as_str() == "builtin:INT.add")
+                .count(),
+            DEPTH
+        );
+        assert_eq!(
+            simplified
+                .applied_rules
+                .iter()
+                .filter(|rule| rule.as_str() == "size-unit")
+                .count(),
+            1
+        );
+
+        let subject = Pattern {
+            term: Term::application(
+                definition.symbols["stackState"].clone(),
+                Vec::new(),
+                vec![stack],
+            ),
+            constraints: Vec::new(),
+        };
+        let exhausted = execute(&definition, subject.clone(), ExecutionOptions::default());
+        let [leaf] = exhausted.leaves.as_slice() else {
+            panic!(
+                "expected one exhausted execution leaf, found {:?}",
+                exhausted.leaves
+            );
+        };
+        assert_eq!(leaf.depth, 0);
+        assert!(matches!(
+            leaf.halt_reason,
+            HaltReason::Simplification(SimplificationError::IterationLimit {
+                limit: DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
+                ..
+            })
+        ));
+
+        let completed = execute(
+            &definition,
+            subject,
+            ExecutionOptions {
+                max_simplification_iterations: OVERRIDE,
+                ..ExecutionOptions::default()
+            },
+        );
+        let [leaf] = completed.leaves.as_slice() else {
+            panic!(
+                "expected one completed execution leaf, found {:?}",
+                completed.leaves
+            );
+        };
+        assert_eq!(leaf.depth, 1);
+        assert_eq!(leaf.halt_reason, HaltReason::Stuck);
+        assert!(matches!(
+            leaf.pattern.term.kind(),
+            TermKind::DomainValue { value, .. } if value.as_ref() == "done"
+        ));
     }
 
     #[test]
