@@ -2426,6 +2426,102 @@ fn concretizes_nested_cells_to_declared_fixed_arities() {
 }
 
 #[test]
+fn preserves_already_complete_nested_cells() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bool ::= "inspect" "(" TopCell ")" [function, symbol(inspect)]
+          configuration
+            <top>
+              <k> 0 </k>
+              <state> 1 </state>
+            </top>
+          rule inspect(T:TopCell) => inspect(T:TopCell)
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let mut definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let complete_top = application(
+        "<top>",
+        vec![
+            application(
+                "<k>",
+                vec![Term::Token {
+                    token: "0".into(),
+                    sort: Sort::new("Int"),
+                }],
+            ),
+            application(
+                "<state>",
+                vec![Term::Token {
+                    token: "1".into(),
+                    sort: Sort::new("Int"),
+                }],
+            ),
+        ],
+    );
+    let mut replaced = false;
+    let module = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .expect("the main module should be present");
+    for sentence in &mut module.local_sentences {
+        if let Sentence::Rule { body, .. } = sentence
+            && Printer::new().print_term(body).contains("inspect")
+        {
+            let inspection = application("inspect", vec![complete_top.clone()]);
+            *body = rewrite(inspection.clone(), inspection);
+            replaced = true;
+            break;
+        }
+    }
+    assert!(replaced, "the authored inspect rule should be present");
+
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } if Printer::new().print_term(body).contains("inspect") => {
+                Some(body)
+            }
+            _ => None,
+        })
+        .expect("the inspect rule should survive concretization");
+    let Term::Rewrite { left, .. } = body.unannotated() else {
+        panic!("the inspect rule should remain a rewrite")
+    };
+    let Term::Apply {
+        label,
+        arguments: inspect_arguments,
+    } = left.unannotated()
+    else {
+        panic!("the rewrite left side should remain an application")
+    };
+    assert_eq!(label.name, "inspect");
+    let [top] = inspect_arguments.as_slice() else {
+        panic!("inspect should retain one argument")
+    };
+    let Term::Apply {
+        label,
+        arguments: top_arguments,
+    } = top.unannotated()
+    else {
+        panic!("inspect should retain its complete top cell")
+    };
+    assert_eq!(label.name, "<top>");
+    assert_eq!(top_arguments.len(), 2);
+    assert!(top_arguments.iter().all(|argument| {
+        matches!(argument.unannotated(), Term::Apply { arguments, .. } if arguments.len() == 1)
+    }));
+    assert!(!Printer::new().print_term(body).contains("#dots"));
+}
+
+#[test]
 fn complete_cells_are_rejected_with_a_typed_error() {
     let source = indoc! {r#"
         module MAIN
