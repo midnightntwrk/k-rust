@@ -44,10 +44,21 @@ fn concretize_cells_inner(definition: &Definition) -> Result<Definition, Concret
             diagnostics: vec![plain_error(error.to_string())],
         })?;
     let main_id = resolved.main_module_id();
-    let model = CellModel::new(&resolved, main_id).map_err(|message| ConcretizeCellsError {
-        diagnostics: vec![plain_error(message)],
-    })?;
-    if model.cells.is_empty() {
+    let main_modules = resolved
+        .transitive_imports(main_id)
+        .into_iter()
+        .chain(std::iter::once(main_id))
+        .collect::<BTreeSet<_>>();
+    let main_model =
+        CellModel::new(&resolved, main_id).map_err(|message| ConcretizeCellsError {
+            diagnostics: vec![plain_error(message)],
+        })?;
+    if main_model.cells.is_empty()
+        && resolved.modules().all(|(module_id, _)| {
+            main_modules.contains(&module_id)
+                || CellModel::new(&resolved, module_id).is_ok_and(|model| model.cells.is_empty())
+        })
+    {
         return Ok(definition.clone());
     }
 
@@ -58,9 +69,19 @@ fn concretize_cells_inner(definition: &Definition) -> Result<Definition, Concret
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
         let productions = resolved.production_catalog(module_id);
+        let local_model;
+        let model = if main_modules.contains(&module_id) {
+            &main_model
+        } else {
+            local_model =
+                CellModel::new(&resolved, module_id).map_err(|message| ConcretizeCellsError {
+                    diagnostics: vec![plain_error(message)],
+                })?;
+            &local_model
+        };
         for sentence in &mut module.local_sentences {
             let original = sentence.clone();
-            match Concretizer::new(&model, &productions).sentence(original) {
+            match Concretizer::new(model, &productions).sentence(original) {
                 Ok(transformed) => *sentence = transformed,
                 Err(message) => diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InvalidCellConcretization,
@@ -490,6 +511,8 @@ impl<'a> Concretizer<'a> {
                 attributes,
             } => {
                 let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
+                let requires = self.close(requires, false)?;
+                let ensures = self.close(ensures, false)?;
                 self.analyze_fragments([&body, &requires, &ensures])?;
                 Ok(Sentence::Rule {
                     body: self.sort_cells(body)?,
@@ -505,6 +528,8 @@ impl<'a> Concretizer<'a> {
                 attributes,
             } => {
                 let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
+                let requires = self.close(requires, false)?;
+                let ensures = self.close(ensures, false)?;
                 self.analyze_fragments([&body, &requires, &ensures])?;
                 Ok(Sentence::Claim {
                     body: self.sort_cells(body)?,
@@ -519,8 +544,23 @@ impl<'a> Concretizer<'a> {
                 attributes,
             } => {
                 let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
+                let requires = self.close(requires, false)?;
                 self.analyze_fragments([&body, &requires])?;
                 Ok(Sentence::Context {
+                    body: self.sort_cells(body)?,
+                    requires: self.sort_cells(requires)?,
+                    attributes,
+                })
+            }
+            Sentence::ContextAlias {
+                body,
+                requires,
+                attributes,
+            } => {
+                let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
+                let requires = self.close(requires, false)?;
+                self.analyze_fragments([&body, &requires])?;
+                Ok(Sentence::ContextAlias {
                     body: self.sort_cells(body)?,
                     requires: self.sort_cells(requires)?,
                     attributes,
@@ -1196,14 +1236,17 @@ impl<'a> Concretizer<'a> {
                 self.insert_child(&mut split, sort, item.clone(), parent)?;
                 continue;
             }
-            let Term::Variable { name, .. } = item.unannotated() else {
+            let Term::Variable { name, sort } = item.unannotated() else {
                 continue;
             };
-            let Some(fragment) = self.fragments.get(name) else {
-                continue;
-            };
-            for (sort, term) in &fragment.split {
-                self.insert_child(&mut split, sort.clone(), term.clone(), parent)?;
+            if let Some(fragment) = self.fragments.get(name) {
+                for (sort, term) in &fragment.split {
+                    self.insert_child(&mut split, sort.clone(), term.clone(), parent)?;
+                }
+            } else if let Some(sort) = sort
+                && self.model.cells.contains_key(sort)
+            {
+                self.insert_child(&mut split, sort.clone(), item.clone(), parent)?;
             }
         }
         Ok(split)
@@ -1536,7 +1579,8 @@ fn sentence_roots(sentence: &Sentence) -> Vec<&Term> {
             ensures,
             ..
         } => vec![body, requires, ensures],
-        Sentence::Context { body, requires, .. } => vec![body, requires],
+        Sentence::Context { body, requires, .. }
+        | Sentence::ContextAlias { body, requires, .. } => vec![body, requires],
         _ => Vec::new(),
     }
 }

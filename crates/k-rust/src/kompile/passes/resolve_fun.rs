@@ -48,6 +48,17 @@ fn resolve_fun_inner(definition: &Definition) -> Result<Definition, ResolveFunEr
     })?;
     let mut output = definition.clone();
     let mut diagnostics = Vec::new();
+    let mut labels = definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.local_sentences)
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label), ..
+            } => Some(label.name.clone()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
 
     for module in &mut output.modules {
         let injector = match SortInjector::new(&resolved, &module.name) {
@@ -57,19 +68,6 @@ fn resolve_fun_inner(definition: &Definition) -> Result<Definition, ResolveFunEr
                 continue;
             }
         };
-        let module_id = resolved
-            .module_id(&module.name)
-            .expect("resolved definition contains source module");
-        let mut labels = resolved
-            .production_catalog(module_id)
-            .productions()
-            .filter_map(|(_, production)| match production {
-                Sentence::Production {
-                    label: Some(label), ..
-                } => Some(label.name.clone()),
-                _ => None,
-            })
-            .collect::<BTreeSet<_>>();
         let mut resolver = Resolver {
             injector,
             labels: &mut labels,
