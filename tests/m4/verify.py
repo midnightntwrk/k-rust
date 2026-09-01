@@ -697,7 +697,7 @@ def phase_preflight(context: Context) -> str:
         "backends": ["haskell", "llvm"],
         "msrv": "1.88.0",
         "native_frontend_rust": "1.98.0",
-        "native_frontend_msrv_status": "blocked-upstream-k-rust-if-let-guards",
+        "native_frontend_msrv_status": "msrv-compatible",
         "builtin_sorts": ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "List", "Set"],
         "descriptor_protocol": 35,
         "definition_ir_schema": 27,
@@ -716,7 +716,7 @@ def phase_preflight(context: Context) -> str:
             "lock_sha256": sha256(ROOT / "Cargo.lock"),
             "msrv": "1.88.0",
             "native_frontend_rust": "1.98.0",
-            "native_frontend_msrv_status": "blocked-upstream-k-rust-if-let-guards",
+            "native_frontend_msrv_status": "msrv-compatible",
         },
         "k": {
             "version": "7.1.337",
@@ -758,7 +758,7 @@ kast_json = 4
 lock_sha256 = "50859782257669ec271ce97a9d244381560c2bfebd9df66ef51c6089481c4821"
 msrv = "1.88.0"
 native_frontend_rust = "1.98.0"
-native_frontend_msrv_status = "blocked-upstream-k-rust-if-let-guards"
+native_frontend_msrv_status = "msrv-compatible"
 
 [k]
 version = "7.1.337"
@@ -770,12 +770,12 @@ pyk_source_sha256 = "2b6ebc05e7c110927d2cab7d1bd08e0a1f80c9090a621ee541e82665147
 
 [k_rust]
 version = "0.4.0"
-commit = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
-tracked_crate_sha256 = "6d54edfea5283a52191931d565b092af7b8cca0ec1d33862d9a58faa9c557afd"
+commit = "c41caa8bede96e279e0b058577dce504e4144f65"
+tracked_crate_sha256 = "a3ef4e44ecd387bd85dd0e2027d6f9fdac29916e0e842488ddf6f95e51915add"
 backend_version = "0.3.0"
-tracked_backend_sha256 = "5473653dfa734b91dd55336e9d655ad7599befdb3981f1ff11d70d52876a1cf6"
+tracked_backend_sha256 = "656fc56585c6368b0894483d299869fef06ab08273c82ed571ae1d0d0581f714"
 kore_version = "0.3.0"
-tracked_kore_sha256 = "ef091185b019168924bd6730d6d0ef2c71784414a706f74f8f047dc46ed0f655"
+tracked_kore_sha256 = "1f68eec08de77921f521321d67aa2cace9323c86bfe37a05c8561e3ea7f572e6"
 
 [builtin_registry]
 source_sha256 = "7076fb0bcf4667b8e819445995b1055d55b10d9fc4f7a5b8e037189556c2910a"
@@ -867,11 +867,18 @@ def phase_rust(context: Context) -> str:
     ]
     for command in commands:
         run(command, timeout=900, environment=env)
-    # Clean k-rust 0de7983 uses if-let guards which Rust 1.88 rejects.
-    # Keep the authored and expanded IMP packages on the project MSRV while
-    # qualifying native/frontend helpers on the exact stable toolchain pinned
-    # by preflight. K_RUST_UPSTREAM.toml owns the upstream compatibility request.
-    for manifest in (RUST_MANIFEST, EXPANDED_MANIFEST):
+    # Clean k-rust enforces MSRV 1.88 since 758a3a9, so the exact-MSRV check
+    # now covers the workspace and every helper beside the stable-toolchain
+    # qualification above. K_RUST_UPSTREAM.toml records the closed request.
+    run(
+        [
+            "cargo", "+1.88.0", "check", "--workspace",
+            "--all-targets", "--locked",
+        ],
+        timeout=900,
+        environment=env,
+    )
+    for manifest in (RUST_MANIFEST, EXPANDED_MANIFEST, NATIVE_MANIFEST):
         run(
             [
                 "cargo", "+1.88.0", "check", "--manifest-path", manifest,

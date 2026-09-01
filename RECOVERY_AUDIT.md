@@ -2258,6 +2258,20 @@ The full native semantic gates were deliberately not run concurrently during thi
 The next session must run KWasm, KMIR, and KEVM serially against the exact pin before extending any port.
 The optional Java/Haskell reference gates remain deferred final validation.
 
+### Phase 90 — migrate the native dependency to the ported `more-features` head — complete
+
+KRS now pins the dedicated `../inspirations/midnightntwrk/k-rust-krs-main` worktree at local `more-features` head commit `c41caa8bede96e279e0b058577dce504e4144f65`.
+Branch `krs-integration-main` was fast-forwarded from `0de7983f76f87ce93b91f5d3e994f0a2c3ff710c` with no local modifications; the worktree remains clean.
+The ported branch carries the previously requested upstream work: the enforced Rust 1.88 MSRV with the if-let guard removed (`758a3a9`), acceptance of already-complete cell applications (`701ed1b`), semantic downcast projection through `project:<Sort>` (`6ad2ea9`), the deep simplification budget regression (`c41caa8`), and the parser sharing series.
+
+`Krs.lock`, `tests/m4/pins.json`, `tests/m4/verify.py`, and the KEVM/KMIR/KWasm ledgers pin the new commit and tracked crate digests.
+Because upstream now declares and enforces MSRV 1.88, `native_frontend_msrv_status` is `msrv-compatible` and the M4 gate additionally checks the workspace and native helpers on exact Rust 1.88.0; native helpers remain qualified on exact stable Rust 1.98.0.
+The M4 compatibility report hash was re-pinned to `bd5e835ecaf2f3342ab8fedfa2a8d238a05ae41fcb0bf70b57a8aa266d7463d3` because the LSP probe embeds the rust-analyzer version, now 1.98.0; all seven live probes pass.
+The M4 source ledger also absorbed the committed `crates/krs-cli/src/command.rs` diagnostic change from the prior doc-work commit, which had drifted from the ledger.
+
+Requalification evidence: all 25 `krs-k-rust` adapter tests pass; the complete M4.1-M4.8 gate passes at protocol 35 and IR schema 27 with 1,206/1,206 native KORE parity, unchanged behavior evidence `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, and all 21 proofs; the KEVM (240), KMIR (184), and KWasm (32) native gates pass serially with their pinned behavior hashes unchanged.
+KRS retains its complete-cell compatibility lowering and direct `project:<Sort>` List lookup lowering; removing either now-redundant workaround requires its own qualification run and is recorded as open follow-up in `K_RUST_UPSTREAM.toml`.
+
 ### Current goal completion audit
 
 | Requirement | Authoritative evidence | Status |

@@ -3,13 +3,13 @@ k_rust_commit = "3cce7a47941c4dc0664e6e870d4e0529d74753c6"
 k_release = "7.1.337"
 
 [active_requalification]
-k_rust_commit = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
-date = "2026-08-31"
-scope = "Issues are historical unless an issue carries requalified_at_active_commit. Requalification uses the clean dedicated k-rust-krs-main worktree without modifying it."
+k_rust_commit = "c41caa8bede96e279e0b058577dce504e4144f65"
+date = "2026-09-01"
+scope = "Issues are historical unless an issue carries requalified_at_active_commit. Requalification uses the clean dedicated k-rust-krs-main worktree without modifying it. The active pin is the local more-features head, which ports the previously requested fixes onto clean main."
 
 [[issue]]
 id = "rust-1.88-if-let-guards"
-status = "upstream-request"
+status = "fixed-upstream"
 area = "crates/k-rust/src/inner/parser.rs"
 summary = "The clean frontend uses if-let guards even though its published dependency surface is consumed by Rust 1.88 projects"
 reproduction = "Run `cargo +1.88.0 check --locked --offline` for either KRS M4 native helper against clean k-rust commit 0de7983f76f87ce93b91f5d3e994f0a2c3ff710c. Rust rejects the chained if-let guard at inner/parser.rs:1609 with E0658."
@@ -17,7 +17,7 @@ observed = "The same checkout compiles on stable Rust 1.98.0, but Rust 1.88 repo
 impact = "KRS can retain Rust 1.88 for authored semantics and non-native packages, but native frontend consumers cannot honestly claim the same MSRV at the active k-rust pin."
 local_fix = "KRS qualifies authored and expanded IMP packages on Rust 1.88.0 and qualifies native/frontend helpers on exact stable Rust 1.98.0. The shared k-rust checkout remains unchanged."
 upstream_action = "Rewrite the guard as stable nested matching or raise and enforce k-rust's rust-version; add a CI check using the declared minimum Rust toolchain."
-requalified_at_active_commit = "Clean k-rust main commit 0de7983f76f87ce93b91f5d3e994f0a2c3ff710c reproduces E0658 at crates/k-rust/src/inner/parser.rs:1609 under rustc 1.88.0."
+requalified_at_active_commit = "Active pin c41caa8bede96e279e0b058577dce504e4144f65 contains upstream fix 758a3a9, which rewrites the guard as a stable let-chain and declares plus CI-enforces rust-version 1.88 across the workspace. `cargo +1.88.0 check --all-targets --locked` passes for krs-k-rust and both M4 native helpers, so the M4 gate now also checks the workspace and native helpers on exact Rust 1.88.0."
 
 [[issue]]
 id = "persistent-api-deep-result"
@@ -39,6 +39,7 @@ observed = "resolve_semantic_casts removes the cast and records Int only as appl
 impact = "The native frontend cannot compile otherwise valid function equations that project a heterogeneous collection element to a concrete result sort."
 local_fix = "The KRS structural adapter lowers typed List.get directly to the generated `project:<Sort>` function; K-Rust then inserts the required KItem-to-K sequence wrapper and emits the same projection shape used by the Java frontend."
 upstream_action = "Make resolve_semantic_casts materialize `project:<Sort>` for non-variable casts whose operand does not already have the cast sort, and add a frontend-to-KORE regression covering an Int-returning function equation over List:get."
+requalified_at_active_commit = "Active pin c41caa8bede96e279e0b058577dce504e4144f65 contains upstream fix 6ad2ea9, which materializes `project:<Sort>` during sort injection for strict-subsort cast metadata and adds the requested List:get and Map:lookup KORE regression. KRS still emits its direct `project:<Sort>` lowering; removing it requires its own qualification run and remains open follow-up."
 
 [[issue]]
 id = "deep-functional-simplification-budget"
@@ -50,6 +51,7 @@ observed = "A debug runner exceeded 600 seconds and an optimized runner remained
 impact = "A valid deep concrete term can appear to be an interpreter performance problem when the backend is repeatedly exhausting its default simplification budget."
 local_fix = "The KRS persistent runner sets max_simplification_iterations to 4,096, with an optional per-request override."
 upstream_action = "Add a benchmark with a recursive concrete function deeper than the default budget, determine whether exhausted partial simplification repeats work, and consider an adaptive budget or a diagnostic that exposes budget exhaustion."
+requalified_at_active_commit = "Active pin c41caa8bede96e279e0b058577dce504e4144f65 adds the requested regression: a 1,024-element recursive fixture proving the default 100 budget yields a typed IterationLimit stop and a 4,096 override completes with bounded linear work. The default budget itself is unchanged, so the KRS 4,096 runner override remains required."
 
 [[issue]]
 id = "parameterized-repeated-cell-initializer-concretization"
@@ -94,7 +96,7 @@ observed = "K-Rust emits InvalidCellConcretization diagnostics stating `Expected
 impact = "Compiler-owned complete nested cell terms cannot pass through the structured frontend, which blocks KEVM call-frame save and restoration even though their fixed-arity shape already matches the expanded cell production."
 local_fix = "The KRS adapter preserves complete cells in Definition IR but presents each DefinitionTermKind::Cell to k-rust as the equivalent closed parser shape `<cell>(#noDots, body-or-#cells, #noDots)`. A focused adapter regression covers a complete two-child parent and its complete leaf children without changing the k-rust checkout. The retired k-rust-krs checkout instead fixed the concretizer directly and remains comparison evidence."
 upstream_action = "Accept and recursively process already-complete leaf and parent cell applications when their arguments match the expanded cell production, and add a regression containing a complete nested parent cell in a semantic rule."
-requalified_at_active_commit = "Clean k-rust main commit 0de7983f76f87ce93b91f5d3e994f0a2c3ff710c reproduces four diagnostics for the current KEVM corpus at Definition IR schema 26. The frontend still routes every recognized non-leaf cell through incomplete_parts, which requires exactly three arguments."
+requalified_at_active_commit = "Active pin c41caa8bede96e279e0b058577dce504e4144f65 contains upstream fix 701ed1b, which accepts complete leaf cells by their declared body argument and complete parents by arity plus ordered child sorts, with the preserves_already_complete_nested_cells regression. KRS still presents cells through the equivalent closed parser shape; removing that compatibility lowering requires its own qualification run and remains open follow-up."
 
 [[issue]]
 id = "krypto-sha256raw-not-implemented"

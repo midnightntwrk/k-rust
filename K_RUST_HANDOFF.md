@@ -1,26 +1,25 @@
 # KRS k-rust handoff
 
-Status: KRS migrated to a clean main-based integration branch; semantic requalification in progress, 2026-08-31 JST
+Status: KRS migrated to the ported local `more-features` head; requalification of the adapter and gates against that pin, 2026-09-01 JST
 
 ## Current decision
 
 KRS uses k-rust `0.4.0` from the dedicated worktree at `../inspirations/midnightntwrk/k-rust-krs-main`.
-That worktree owns branch `krs-integration-main` and is pinned at clean local-main commit `0de7983f76f87ce93b91f5d3e994f0a2c3ff710c`.
+That worktree owns branch `krs-integration-main` and is pinned at local `more-features` head commit `c41caa8bede96e279e0b058577dce504e4144f65`, a fast-forward descendant of the previous clean-main pin `0de7983f76f87ce93b91f5d3e994f0a2c3ff710c`.
 KRS must not depend directly on the shared `../inspirations/midnightntwrk/k-rust` main worktree because that branch may continue advancing independently.
 
 The active dedicated worktree has no KRS-only source or manifest changes.
 Current upstream supports external Z3 acquisition through `default-features = false, features = ["z3-inference"]`, so KRS retains the Nix-pinned Z3 4.12.5 policy without editing k-rust.
 Current upstream also contains the structured-definition, deep-result, repeated-cell, plugin-hook, raw-digest, ECDSA, BN128, simplification-budget, parser, and real-semantics work that previously required the old KRS checkout or blocked its corpora.
 
-Clean main still rejects compiler-owned already-complete nested cells during concretization.
-The current KEVM corpus reproduces four `Expected incomplete cell with 3 arguments, found 15` diagnostics for complete 15-child `CallState` terms.
-KRS keeps complete cells in Definition IR and lowers only the native compatibility form to k-rust's equivalent closed parser representation.
-The focused adapter regression covers a two-child parent and both leaves; `K_RUST_UPSTREAM.toml` records the active-pin reproducer and requested upstream fix.
+The active pin's upstream commit `701ed1b` accepts compiler-owned already-complete nested cells during concretization, closing the previously reproduced `Expected incomplete cell with 3 arguments, found 15` diagnostics at their source.
+KRS still keeps complete cells in Definition IR and still lowers the native compatibility form to k-rust's equivalent closed parser representation; removing that lowering requires its own qualification run and remains open follow-up.
+The focused adapter regression covers a two-child parent and both leaves; `K_RUST_UPSTREAM.toml` records the requalified state.
 The clean k-rust worktree remains unmodified.
 
-Clean main also uses chained if-let guards in `crates/k-rust/src/inner/parser.rs` which Rust 1.88 rejects with E0658.
-KRS retains Rust 1.88 qualification for authored semantics and non-native packages, and qualifies native/frontend helpers on exact stable Rust 1.98.0.
-`K_RUST_UPSTREAM.toml` records the active-pin reproducer and requests either stable syntax or an enforced higher k-rust MSRV.
+The active pin's upstream commit `758a3a9` removes the chained if-let guard and declares plus CI-enforces workspace `rust-version` 1.88, closing the E0658 MSRV discrepancy.
+KRS retains Rust 1.88 qualification for authored semantics and non-native packages, qualifies native/frontend helpers on exact stable Rust 1.98.0, and the M4 gate now additionally checks the workspace and native helpers on exact Rust 1.88.0.
+`Krs.lock` records `native_frontend_msrv_status = "msrv-compatible"`.
 
 The KRS adapter supplies `hook_namespaces = None` to the strengthened `CompileOptions` API.
 For the Rust backend this deliberately selects k-rust's audited backend-default namespace inventory; it is not a compatibility bypass or an unrestricted hook policy.
@@ -30,7 +29,7 @@ It is rollback and comparison evidence only and is not an active KRS input.
 Do not clean, rebase, or delete that checkout during the migration.
 
 The focused migration qualification passes all 25 `krs-k-rust` adapter tests with the externally pinned solver.
-The KEVM, KMIR, and KWasm native gates are being rerun serially before semantic development resumes; do not run those three memory-heavy gates concurrently.
+The complete M4.1-M4.8 IMP gate and the KEVM (240 executions), KMIR (184 executions), and KWasm (32 executions) native gates were rerun serially against the active pin and all pass; do not run those three memory-heavy gates concurrently.
 
 ## Historical baseline
 
@@ -101,22 +100,22 @@ KRS claims carry explicit modalities, so the adapter sets `default_claims_to_all
 ```toml
 [k_rust]
 version = "0.4.0"
-commit = "0de7983f76f87ce93b91f5d3e994f0a2c3ff710c"
-tracked_crate_sha256 = "6d54edfea5283a52191931d565b092af7b8cca0ec1d33862d9a58faa9c557afd"
+commit = "c41caa8bede96e279e0b058577dce504e4144f65"
+tracked_crate_sha256 = "a3ef4e44ecd387bd85dd0e2027d6f9fdac29916e0e842488ddf6f95e51915add"
 backend_version = "0.3.0"
-tracked_backend_sha256 = "5473653dfa734b91dd55336e9d655ad7599befdb3981f1ff11d70d52876a1cf6"
+tracked_backend_sha256 = "656fc56585c6368b0894483d299869fef06ab08273c82ed571ae1d0d0581f714"
 kore_version = "0.3.0"
-tracked_kore_sha256 = "ef091185b019168924bd6730d6d0ef2c71784414a706f74f8f047dc46ed0f655"
+tracked_kore_sha256 = "1f68eec08de77921f521321d67aa2cace9323c86bfe37a05c8561e3ea7f572e6"
 ```
 
 ## Qualification evidence
 
 The k-rust 0.4 migration passes all 24 `krs-k-rust` adapter tests.
-The complete IMP M4.1-M4.8 gate last passed at descriptor protocol 20 and Definition IR schema 13 before the later Bytes and collection-catalog extensions.
+The complete IMP M4.1-M4.8 gate last passed at descriptor protocol 35 and Definition IR schema 27 against the active `more-features` pin.
 Native frontend parity remains 1,206/1,206 KORE sentences.
 The behavior evidence remains `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`.
 All 21 proof specifications and 20 unique native claims pass.
-The compatibility evidence remains `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6`.
+The compatibility evidence is `bd5e835ecaf2f3342ab8fedfa2a8d238a05ae41fcb0bf70b57a8aa266d7463d3`; it was re-pinned from `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6` because the LSP probe report embeds the rust-analyzer version, which is now 1.98.0, while all seven live probes continue to pass.
 
 The dependency-path isolation was subsequently qualified by rerunning the complete M4.1-M4.8 gate from `k-rust-krs` with the same results.
 The final KEVM, KWasm, and KMIR gates also pass against the isolated setup.

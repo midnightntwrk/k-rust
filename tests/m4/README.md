@@ -17,8 +17,9 @@ Its only normal dependency is the author-facing `krs` facade renamed to `k`.
 Every authored source file is rustc-valid Rust.
 
 The authored and independently expanded IMP packages are checked on Rust 1.88.0.
-Native/frontend helpers are checked on exact stable Rust 1.98.0 because clean k-rust `0de7983f76f87ce93b91f5d3e994f0a2c3ff710c` uses if-let guards rejected by Rust 1.88.
-`K_RUST_UPSTREAM.toml` records that active upstream discrepancy; the M4 gate must not describe native/frontend code as Rust 1.88-compatible until it is resolved.
+Native/frontend helpers are additionally qualified on exact stable Rust 1.98.0.
+Clean k-rust `c41caa8bede96e279e0b058577dce504e4144f65` declares and enforces MSRV 1.88, so the gate also checks the workspace and every helper on exact Rust 1.88.0.
+`K_RUST_UPSTREAM.toml` records the closed if-let-guard discrepancy that previously blocked this alignment.
 
 ## Evidence layers
 
