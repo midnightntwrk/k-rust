@@ -629,6 +629,7 @@ impl<'a> Concretizer<'a> {
                 };
                 if let Some(cell) = self.model.cell_for_label(&label)
                     && !cell.children.is_empty()
+                    && !self.is_complete_cell(&application, cell)
                 {
                     self.complete_parent(application, cell)?
                 } else {
@@ -786,6 +787,15 @@ impl<'a> Concretizer<'a> {
         let Term::Apply { label, arguments } = application else {
             unreachable!()
         };
+        if self.complete_cell_arguments(&arguments, cell) {
+            return Ok(Term::Apply {
+                label,
+                arguments: arguments
+                    .into_iter()
+                    .map(|argument| self.close(argument, on_rhs))
+                    .collect::<Result<_, _>>()?,
+            });
+        }
         let (open_left, body, open_right) = incomplete_parts(&arguments)?;
         let contents = flatten_cells(body)
             .into_iter()
@@ -936,6 +946,31 @@ impl<'a> Concretizer<'a> {
             label,
             arguments: vec![body],
         })
+    }
+
+    fn is_complete_cell(&self, application: &Term, cell: &Cell) -> bool {
+        let Term::Apply { arguments, .. } = application.unannotated() else {
+            return false;
+        };
+        self.complete_cell_arguments(arguments, cell)
+    }
+
+    // A structured producer may supply a cell that already matches its expanded
+    // production: the declared single body for a leaf, or every declared child
+    // sort in declared order for a parent. The parser-shaped representation can
+    // never satisfy this check because its outer arguments are the reserved
+    // nullary #dots/#noDots markers, which have no cell sort.
+    fn complete_cell_arguments(&self, arguments: &[Term], cell: &Cell) -> bool {
+        if cell.children.is_empty() {
+            return arguments.len() == 1;
+        }
+        arguments.len() == cell.children.len()
+            && arguments
+                .iter()
+                .zip(&cell.children)
+                .all(|(argument, child)| {
+                    self.model.sort_for_term(argument).as_ref() == Some(&child.sort)
+                })
     }
 
     fn sort_cells(&mut self, term: Term) -> Result<Term, String> {
