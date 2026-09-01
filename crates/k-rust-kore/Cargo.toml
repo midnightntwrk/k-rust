@@ -2,7 +2,7 @@
 name = "k-rust-kore"
 version = "0.3.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "KORE syntax, parsing, printing, and serialization for k-rust"
 repository = "https://github.com/midnightntwrk/k-rust"
 license = "BSD-3-Clause"
