@@ -1,6 +1,7 @@
 //! Pure compilation passes and KORE emission.
 
 mod compile;
+mod fresh_names;
 mod module_to_kore;
 mod passes;
 mod sort_injections;

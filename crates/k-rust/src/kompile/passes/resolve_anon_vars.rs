@@ -1,10 +1,9 @@
 //! Give every anonymous variable occurrence a collision-free sentence-local name.
 
-use std::collections::BTreeSet;
-
 use crate::{
     definition::{Definition, Sentence},
     kast::Term,
+    kompile::fresh_names::FreshNames,
     provenance::{GeneratingPass, record_generated_origins},
 };
 
@@ -24,6 +23,7 @@ pub fn resolve_anon_vars(definition: &Definition) -> Definition {
 }
 
 fn resolve_sentence(sentence: &mut Sentence) {
+    let mut fresh = FreshNames::for_sentence(sentence);
     let roots = match sentence {
         Sentence::Rule {
             body,
@@ -41,58 +41,41 @@ fn resolve_sentence(sentence: &mut Sentence) {
         | Sentence::ContextAlias { body, requires, .. } => vec![body, requires],
         _ => return,
     };
-    let mut used = BTreeSet::new();
-    for root in &roots {
-        root.visit_preorder(&mut |term| {
-            if let Term::Variable { name, .. } = term.unannotated() {
-                used.insert(name.clone());
-            }
-        });
-    }
-    let mut counter = 0usize;
     for root in roots {
         let taken = std::mem::replace(root, Term::Sequence(Vec::new()));
-        *root = transform(taken, &mut used, &mut counter);
+        *root = transform(taken, &mut fresh);
     }
 }
 
-fn transform(term: Term, used: &mut BTreeSet<String>, counter: &mut usize) -> Term {
+fn transform(term: Term, fresh: &mut FreshNames) -> Term {
     match term {
-        Term::Annotated { term, metadata } => {
-            transform(*term, used, counter).with_metadata(metadata)
-        }
+        Term::Annotated { term, metadata } => transform(*term, fresh).with_metadata(metadata),
         Term::Variable { name, sort } if anonymous_prefix(&name).is_some() => {
             let prefix = anonymous_prefix(&name).expect("guard checked the prefix");
-            loop {
-                let candidate = format!("{prefix}_Gen{counter}");
-                *counter += 1;
-                if used.insert(candidate.clone()) {
-                    return Term::Variable {
-                        name: candidate,
-                        sort,
-                    };
-                }
+            Term::Variable {
+                name: fresh.mint(&format!("{prefix}_Gen")),
+                sort,
             }
         }
         Term::Rewrite { left, right } => Term::Rewrite {
-            left: Box::new(transform(*left, used, counter)),
-            right: Box::new(transform(*right, used, counter)),
+            left: Box::new(transform(*left, fresh)),
+            right: Box::new(transform(*right, fresh)),
         },
         Term::As { pattern, alias } => Term::As {
-            pattern: Box::new(transform(*pattern, used, counter)),
-            alias: Box::new(transform(*alias, used, counter)),
+            pattern: Box::new(transform(*pattern, fresh)),
+            alias: Box::new(transform(*alias, fresh)),
         },
         Term::Sequence(items) => Term::Sequence(
             items
                 .into_iter()
-                .map(|item| transform(item, used, counter))
+                .map(|item| transform(item, fresh))
                 .collect(),
         ),
         Term::Apply { label, arguments } => Term::Apply {
             label,
             arguments: arguments
                 .into_iter()
-                .map(|argument| transform(argument, used, counter))
+                .map(|argument| transform(argument, fresh))
                 .collect(),
         },
         leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,

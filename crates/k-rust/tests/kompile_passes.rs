@@ -4102,6 +4102,40 @@ fn reuses_lhs_subterms_on_rule_right_hand_sides() {
 }
 
 #[test]
+fn alias_names_avoid_every_sort_of_an_existing_name() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int
+          syntax Cell ::= "cell" [symbol(cell)]
+          syntax Root ::= "root" "(" Cell "," Int ")" [symbol(root)]
+          rule root(cell, _Gen0:Int) => root(cell, _Gen0:Int)
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let transformed = minimize_term_construction(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    let mut aliases = Vec::new();
+    body.visit_preorder(&mut |term| {
+        if let Term::As { alias, .. } = term
+            && let Term::Variable { name, sort } = alias.unannotated()
+        {
+            aliases.push((name.clone(), sort.clone()));
+        }
+    });
+
+    assert_eq!(aliases, [("_Gen1".into(), Some(Sort::new("Cell")))]);
+}
+
+#[test]
 fn minimizes_imported_aliases_with_symbols_generated_in_the_main_module() {
     let generated_top = Sentence::Production {
         label: Some(Label::new("<generatedTop>")),
