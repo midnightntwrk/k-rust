@@ -81,20 +81,39 @@ impl Grammar {
         // concrete variants of parametric productions.
         //
         // When the separator is also empty, `X sep Xs` with an empty tail already derives
-        // every lone element, so neither the split nor the singleton injection is needed;
-        // both would make each element parse twice (as `X` and as `[X]`).
+        // every lone element for `List`; neither the split nor the singleton injection is
+        // needed there. `NeList` hides its empty terminator, however, so it needs the
+        // singleton injection to retain that derivation without admitting an empty list.
         let mut injections = Vec::new();
         let mut splits = Vec::new();
+        let mut nonempty_terminators = Vec::new();
         for (sort, list) in &lists {
             let terminator = &self.productions[list.terminator_production];
             let recursive = &self.productions[list.list_production];
-            if !terminator.items.is_empty() {
+            if terminator.items.is_empty() {
+                if terminator.user_list_nonempty {
+                    nonempty_terminators.push((sort.clone(), list.terminator_production));
+                }
+                if has_visible_terminal(recursive) {
+                    splits.push((sort.clone(), list.clone()));
+                } else if terminator.user_list_nonempty {
+                    // With an empty separator, the recursive production has no base once
+                    // the NeList terminator is hidden, so retain its singleton injection.
+                    injections.push((sort.clone(), list.child_sort.clone()));
+                }
+            } else {
                 injections.push((sort.clone(), list.child_sort.clone()));
-            } else if has_visible_terminal(recursive) {
-                splits.push((sort.clone(), list.clone()));
             }
         }
         self.user_lists = lists;
+        // The erased terminator still provides the empty-list production needed by `List`,
+        // but `NeList` must not retain that `Sort ::= ""` alternative. Keep its production
+        // identity for list reconstruction while removing it from the parse index.
+        for (sort, terminator) in nonempty_terminators {
+            if let Some(indices) = self.by_result.get_mut(&sort) {
+                indices.retain(|index| *index != terminator);
+            }
+        }
         for (sort, list) in splits {
             self.split_program_list(&sort, &list)?;
         }

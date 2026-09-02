@@ -337,6 +337,54 @@ fn rejects_an_empty_nonempty_user_list() {
 }
 
 #[test]
+fn treats_user_list_terminators_as_invisible_in_programs() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Id ::= r"[a-z]+" [token]
+              syntax Ids ::= NeList{Id, ","} [symbol(ids)]
+              syntax Pgm ::= Ids [symbol(pgm)]
+              syntax Items ::= List{Id, ","} [symbol(items)]
+              syntax ListPgm ::= Items [symbol(listPgm)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parser = ProgramParser::new(&definition, "MAIN").expect("program grammar should build");
+
+    for source in ["a", "a, b"] {
+        parser
+            .parse(&Sort::new("Pgm"), source)
+            .unwrap_or_else(|error| panic!("NeList program {source:?} should parse: {error}"));
+    }
+    for source in [".Ids", "a, .Ids", "a,"] {
+        let error = parser
+            .parse(&Sort::new("Pgm"), source)
+            .expect_err("invalid NeList program should be rejected");
+        assert!(
+            matches!(*error.error, ParseError::NoParse { .. }),
+            "{source:?}: {error:?}"
+        );
+    }
+
+    parser
+        .parse(&Sort::new("ListPgm"), "")
+        .expect("List program should accept the empty list");
+    for source in ["a", "a, b"] {
+        parser
+            .parse(&Sort::new("ListPgm"), source)
+            .unwrap_or_else(|error| panic!("List program {source:?} should parse: {error}"));
+    }
+    let error = parser
+        .parse(&Sort::new("ListPgm"), ".Items")
+        .expect_err("list terminator should be invisible in programs");
+    assert!(
+        matches!(*error.error, ParseError::NoParse { .. }),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn rejects_a_trailing_separator_in_a_program_user_list() {
     // K's program grammar is `Ints ::= Ne#Ints | ""` with `Ne#Ints ::= Int "," Ne#Ints | Int`,
     // so the empty list is only the whole list, never the tail after a separator.

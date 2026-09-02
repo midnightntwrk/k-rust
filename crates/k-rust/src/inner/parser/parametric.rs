@@ -258,6 +258,7 @@ fn production_options(attributes: &Attributes) -> ProductionOptions<'_> {
         avoid: attributes.get("avoid").is_some(),
         source_production: None,
         user_list: attributes.get("userList").is_some(),
+        user_list_nonempty: attributes.get_str("userList") == Some("+"),
         precedence: attributes.get_str("prec"),
     }
 }
