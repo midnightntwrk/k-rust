@@ -15,8 +15,8 @@ use crate::{
     definedness::ceil_term,
     definition::{BackendDefinition, ConstructorHead, constructor_head},
     matching::{
-        FailReason, MatchMode, MatchResult, match_terms_in_definition,
-        unify_collection_remainders_all_in_definition,
+        CollectionSolution, FailReason, MatchMode, MatchResult, Narrowing,
+        match_terms_in_definition, solve_collection_pairs_in_definition,
     },
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
     simplify::{
@@ -1594,6 +1594,34 @@ enum GeneralUnificationRecovery {
     Unsupported,
 }
 
+fn solve_collection_remainders_with_narrowing(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    substitution: Substitution,
+    remainder: &[(Term, Term)],
+    fresh_counter: &mut u64,
+) -> Option<Vec<CollectionSolution>> {
+    let mut names_to_avoid = pattern_variable_names(pattern);
+    let mut fresh_frame = |sort: &Sort| {
+        let seed = Variable::new("Ex#Frame", sort.clone());
+        let fresh = fresh_variable(&seed, &mut names_to_avoid, fresh_counter);
+        let TermKind::Variable(variable) = fresh.kind() else {
+            unreachable!("fresh terms are variables")
+        };
+        variable.clone()
+    };
+    let mut narrowing = Narrowing {
+        fresh_frame: &mut fresh_frame,
+    };
+    solve_collection_pairs_in_definition(
+        MatchMode::Rewrite,
+        definition,
+        substitution,
+        remainder,
+        Some(&mut narrowing),
+    )
+}
+
 fn recover_general_unification(
     definition: &BackendDefinition,
     rule: &RewriteRule,
@@ -1609,11 +1637,12 @@ fn recover_general_unification(
             constraints,
             remainder,
         } => {
-            let Some(solutions) = unify_collection_remainders_all_in_definition(
-                MatchMode::Rewrite,
+            let Some(solutions) = solve_collection_remainders_with_narrowing(
                 definition,
+                pattern,
                 substitution,
                 &remainder,
+                fresh_counter,
             ) else {
                 return GeneralUnificationRecovery::Unsupported;
             };
@@ -1635,7 +1664,11 @@ fn recover_general_unification(
                 definition,
                 rule,
                 pattern,
-                vec![unified.substitution],
+                vec![CollectionSolution {
+                    substitution: unified.substitution,
+                    constraints: Vec::new(),
+                    fresh: BTreeSet::new(),
+                }],
                 &unified.constraints,
                 &[],
                 fresh_counter,
@@ -1648,17 +1681,19 @@ fn finalize_general_unification(
     definition: &BackendDefinition,
     rule: &RewriteRule,
     pattern: &Pattern,
-    solutions: Vec<Substitution>,
+    solutions: Vec<CollectionSolution>,
     constraints: &[Predicate],
     collection_pairs: &[(Term, Term)],
     fresh_counter: &mut u64,
 ) -> Vec<(Substitution, Vec<Predicate>)> {
     solutions
         .into_iter()
-        .map(|substitution| {
+        .map(|solution| {
             let (substitution, _) =
-                freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter);
-            let mut constraints = substitute_predicates(constraints, &substitution);
+                freshen_unbound_rule_variables(rule, pattern, solution.substitution, fresh_counter);
+            let mut all_constraints = constraints.to_vec();
+            extend_unique(&mut all_constraints, solution.constraints);
+            let mut constraints = substitute_predicates(&all_constraints, &substitution);
             extend_unique(
                 &mut constraints,
                 collection_unification_definedness(definition, collection_pairs, &substitution),
@@ -2136,23 +2171,28 @@ fn apply_rule_with_match(
                             )
                         }));
                     }
-                    if let Some(matches) = unify_collection_remainders_all_in_definition(
-                        MatchMode::Rewrite,
+                    if let Some(matches) = solve_collection_remainders_with_narrowing(
                         definition,
+                        pattern,
                         substitution.clone(),
                         &remainder,
+                        fresh_counter,
                     ) {
                         if matches.is_empty() {
                             return RuleAttempt::NotApplicable;
                         }
-                        return combine_rule_attempts(matches.into_iter().map(|substitution| {
+                        return combine_rule_attempts(matches.into_iter().map(|solution| {
                             let (substitution, _) = freshen_unbound_rule_variables(
                                 rule,
                                 pattern,
-                                substitution,
+                                solution.substitution,
                                 fresh_counter,
                             );
                             let mut conditions = inherited_conditions.clone();
+                            extend_unique(
+                                &mut conditions,
+                                substitute_predicates(&solution.constraints, &substitution),
+                            );
                             extend_unique(
                                 &mut conditions,
                                 collection_unification_definedness(
@@ -8050,6 +8090,27 @@ mod tests {
                 ),
             ),
         ];
+        let fresh_frame = Variable::new("Ex#Frame!0", Sort::simple("SortSet"));
+        let fresh_element = Variable::new("Ex#ELEMENT!1", Sort::simple("SortElement"));
+        let fresh_terms = Substitution::from([
+            (
+                Variable::new("FRAME", Sort::simple("SortSet")),
+                Term::variable(fresh_frame.clone()),
+            ),
+            (
+                Variable::new("RULEELEMENT", Sort::simple("SortElement")),
+                Term::variable(fresh_element.clone()),
+            ),
+        ]);
+        expected.push(substitute(
+            &internal_term(
+                &definition,
+                &format!(
+                    "picked{{}}(RULEELEMENT:SortElement{{}}, setConcat{{}}(setConcat{{}}(setItem{{}}({first}), setItem{{}}({second})), FRAME:SortSet{{}}))"
+                ),
+            ),
+            &fresh_terms,
+        ));
         expected.sort();
 
         assert_eq!(actual, expected);
@@ -8058,6 +8119,56 @@ mod tests {
                 .iter()
                 .all(|branch| !branch.pattern.constraints.is_empty())
         );
+        let frame_branch = branches
+            .iter()
+            .find(|branch| {
+                branch
+                    .pattern
+                    .term
+                    .attributes()
+                    .variables
+                    .contains(&fresh_frame)
+            })
+            .expect("one branch should move the rule element into the subject frame");
+        let assigned_frame = substitute(
+            &internal_term(
+                &definition,
+                "setConcat{}(setItem{}(RULEELEMENT:SortElement{}), FRAME:SortSet{})",
+            ),
+            &fresh_terms,
+        );
+        assert!(
+            frame_branch
+                .pattern
+                .constraints
+                .contains(&Predicate::Equals(
+                    internal_term(&definition, "SUBJECTREST:SortSet{}"),
+                    assigned_frame,
+                ))
+        );
+        let first = internal_term(&definition, first);
+        let second = internal_term(&definition, second);
+        let fresh_element_term = Term::variable(fresh_element.clone());
+        let fresh_frame_term = Term::variable(fresh_frame.clone());
+        for explicit in [&first, &second] {
+            assert!(frame_branch.pattern.constraints.iter().any(|predicate| {
+                matches!(predicate, Predicate::Not(inner)
+                    if matches!(inner.as_ref(), Predicate::Equals(left, right)
+                        if (left == explicit && right == &fresh_element_term)
+                            || (left == &fresh_element_term && right == explicit)))
+            }));
+        }
+        for element in [&first, &second, &fresh_element_term] {
+            assert!(
+                frame_branch
+                    .pattern
+                    .constraints
+                    .contains(&Predicate::Not(Box::new(Predicate::In(
+                        element.clone(),
+                        fresh_frame_term.clone()
+                    ),)))
+            );
+        }
         assert!(remainder.is_some());
     }
 
@@ -8093,15 +8204,13 @@ mod tests {
             panic!("rewrite result should be selected(RULE)");
         };
         assert_eq!(symbol.name.as_ref(), "selected");
-        let [fresh_rule] = arguments.as_slice() else {
-            panic!("selected should retain one fresh rule variable");
+        let [selected] = arguments.as_slice() else {
+            panic!("selected should retain one element");
         };
-        assert!(matches!(fresh_rule.kind(), TermKind::Variable(variable)
-            if variable.name.starts_with("Ex#RULE")));
-        assert!(branch.pattern.constraints.contains(&Predicate::Equals(
-            internal_term(&definition, "CONFIG:SortElement{}"),
-            fresh_rule.clone(),
-        )));
+        assert_eq!(
+            selected,
+            &internal_term(&definition, "CONFIG:SortElement{}")
+        );
         assert!(
             branch.pattern.constraints.contains(&Predicate::Equals(
                 internal_term(&definition, "REST:SortSet{}"),
@@ -8373,20 +8482,22 @@ mod tests {
         let mut fresh = 0;
 
         let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
-        let RewriteResult::Finished(applied) = result else {
-            panic!("the disequality rule should be uniquely applicable: {result:?}");
+        let RewriteResult::Branch { branches, .. } = result else {
+            panic!("explicit and subject-frame selections should branch: {result:?}");
         };
 
-        assert_eq!(
-            applied.pattern.term,
-            internal_term(&definition, "different{}()")
-        );
+        assert_eq!(branches.len(), 3);
         assert!(
-            applied
+            branches
+                .iter()
+                .any(|branch| branch.pattern.term == internal_term(&definition, "different{}()"))
+        );
+        assert!(branches.iter().all(|branch| {
+            branch
                 .substitution
                 .keys()
                 .all(|variable| variable.name.starts_with("Rule#"))
-        );
+        }));
     }
 
     #[cfg(feature = "z3")]
@@ -8439,6 +8550,32 @@ mod tests {
                 ),
             ),
         ];
+        let fresh_frame = Variable::new("Ex#Frame!0", Sort::simple("SortMap"));
+        let fresh_key = Variable::new("Ex#KEY!1", Sort::simple("SortKey"));
+        let fresh_value = Variable::new("Ex#VALUE!2", Sort::simple("SortValue"));
+        let fresh_terms = Substitution::from([
+            (
+                Variable::new("FRAME", Sort::simple("SortMap")),
+                Term::variable(fresh_frame.clone()),
+            ),
+            (
+                Variable::new("RULEKEY", Sort::simple("SortKey")),
+                Term::variable(fresh_key.clone()),
+            ),
+            (
+                Variable::new("RULEVALUE", Sort::simple("SortValue")),
+                Term::variable(fresh_value.clone()),
+            ),
+        ]);
+        expected.push(substitute(
+            &internal_term(
+                &definition,
+                &format!(
+                    "mapPicked{{}}(RULEKEY:SortKey{{}}, RULEVALUE:SortValue{{}}, mapConcat{{}}(mapConcat{{}}(mapItem{{}}({first_key}, {first_value}), mapItem{{}}({second_key}, {second_value})), FRAME:SortMap{{}}))"
+                ),
+            ),
+            &fresh_terms,
+        ));
         expected.sort();
 
         assert_eq!(actual, expected);
@@ -8447,7 +8584,126 @@ mod tests {
                 .iter()
                 .all(|branch| !branch.pattern.constraints.is_empty())
         );
-        assert!(remainder.is_some());
+        let frame_branch = branches
+            .iter()
+            .find(|branch| {
+                branch
+                    .pattern
+                    .term
+                    .attributes()
+                    .variables
+                    .contains(&fresh_frame)
+            })
+            .expect("one branch should move the rule entry into the subject frame");
+        let assigned_frame = substitute(
+            &internal_term(
+                &definition,
+                "mapConcat{}(mapItem{}(RULEKEY:SortKey{}, RULEVALUE:SortValue{}), FRAME:SortMap{})",
+            ),
+            &fresh_terms,
+        );
+        assert!(
+            frame_branch
+                .pattern
+                .constraints
+                .contains(&Predicate::Equals(
+                    internal_term(&definition, "SUBJECTREST:SortMap{}"),
+                    assigned_frame,
+                ))
+        );
+        let first = internal_term(&definition, first_key);
+        let second = internal_term(&definition, second_key);
+        let fresh_key_term = Term::variable(fresh_key.clone());
+        let fresh_frame_term = Term::variable(fresh_frame.clone());
+        for explicit in [&first, &second] {
+            assert!(frame_branch.pattern.constraints.iter().any(|predicate| {
+                matches!(predicate, Predicate::Not(inner)
+                    if matches!(inner.as_ref(), Predicate::Equals(left, right)
+                        if (left == explicit && right == &fresh_key_term)
+                            || (left == &fresh_key_term && right == explicit)))
+            }));
+        }
+        for key in [&first, &second, &fresh_key_term] {
+            assert!(
+                frame_branch
+                    .pattern
+                    .constraints
+                    .contains(&Predicate::Not(Box::new(Predicate::In(
+                        key.clone(),
+                        fresh_frame_term.clone()
+                    ),)))
+            );
+        }
+        let remainder = remainder.expect("symbolic selection should retain a complement");
+        let quantified = remainder
+            .pattern
+            .constraints
+            .iter()
+            .filter_map(|predicate| {
+                let Predicate::Not(complement) = predicate else {
+                    return None;
+                };
+                let mut quantified = BTreeSet::new();
+                let mut complement = complement.as_ref();
+                while let Predicate::Exists(variable, body) = complement {
+                    quantified.insert(variable.clone());
+                    complement = body;
+                }
+                quantified.contains(&fresh_frame).then_some(quantified)
+            })
+            .next()
+            .unwrap_or_else(|| panic!("the frame complement should be quantified: {remainder:#?}"));
+        assert_eq!(
+            quantified,
+            BTreeSet::from([fresh_frame, fresh_key, fresh_value])
+        );
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn emits_frame_definedness_on_the_single_entry_path() {
+        let definition = map_selection_definition();
+        let first_key = r#"\dv{SortKey{}}("first")"#;
+        let first_value = r#"\dv{SortValue{}}("first-value")"#;
+        let subject_rest = internal_term(&definition, "SUBJECTREST:SortMap{}");
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                &format!(
+                    "mapState{{}}(mapConcat{{}}(mapItem{{}}({first_key}, {first_value}), SUBJECTREST:SortMap{{}}))"
+                ),
+            ),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(_),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("the explicit and subject-frame selections should both be retained");
+        };
+        assert_eq!(branches.len(), 2);
+        let explicit_term = internal_term(
+            &definition,
+            &format!("mapPicked{{}}({first_key}, {first_value}, SUBJECTREST:SortMap{{}})"),
+        );
+        let explicit = branches
+            .iter()
+            .find(|branch| branch.pattern.term == explicit_term)
+            .expect("one branch should select the explicit entry");
+        assert!(
+            explicit
+                .pattern
+                .constraints
+                .contains(&Predicate::Not(Box::new(Predicate::In(
+                    internal_term(&definition, first_key),
+                    subject_rest
+                ),)))
+        );
     }
 
     #[cfg(feature = "z3")]

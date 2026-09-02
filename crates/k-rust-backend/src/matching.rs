@@ -7,8 +7,10 @@ use std::{
 
 use crate::{
     definition::BackendDefinition,
+    rule::Predicate,
     substitution::{Substitution, compose, substitute},
     term::{ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind, Variable},
+    unification::{UnificationResult, unify_term_pairs},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -275,6 +277,797 @@ fn match_terms_with_context(
     }
 }
 
+/// One solution for a set of deferred collection pairs.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct CollectionSolution {
+    /// Rule-variable bindings plus any subject variables narrowed by the solution.
+    pub substitution: Substitution,
+    /// Irreducible equalities discovered while pairing collection elements.
+    pub constraints: Vec<Predicate>,
+    /// Fresh collection remainders introduced while narrowing a subject frame.
+    pub fresh: BTreeSet<Variable>,
+}
+
+/// Rewrite-side support for narrowing subject collection frames.
+pub(crate) struct Narrowing<'a> {
+    /// Mint a variable of the requested collection sort which is fresh in the current pattern.
+    pub fresh_frame: &'a mut dyn FnMut(&Sort) -> Variable,
+}
+
+enum PairSolution {
+    Solved(CollectionSolution),
+    NoSolution,
+    Indeterminate,
+}
+
+/// Solve deferred collection pairs in their original, pattern-oriented order.
+///
+/// `None` means at least one pair needs collection or term theory outside the supported fragment;
+/// an empty vector means the equation is decidably bottom. Supplying [`Narrowing`] additionally
+/// permits a variable frame on the subject side to absorb pattern entries.
+pub(crate) fn solve_collection_pairs_in_definition(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    initial: Substitution,
+    pairs: &[(Term, Term)],
+    mut narrowing: Option<&mut Narrowing<'_>>,
+) -> Option<Vec<CollectionSolution>> {
+    let mut solutions = vec![CollectionSolution {
+        substitution: initial,
+        constraints: Vec::new(),
+        fresh: BTreeSet::new(),
+    }];
+    for (pattern, subject) in pairs {
+        let mut next = Vec::new();
+        for solution in solutions {
+            next.extend(solve_collection_pair(
+                mode,
+                definition,
+                pattern,
+                subject,
+                solution,
+                &mut narrowing,
+            )?);
+        }
+        solutions = next;
+    }
+    for solution in &mut solutions {
+        solution.constraints.sort();
+        solution.constraints.dedup();
+    }
+    solutions.sort();
+    solutions.dedup();
+    Some(solutions)
+}
+
+fn solve_collection_pair(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+    solution: CollectionSolution,
+    narrowing: &mut Option<&mut Narrowing<'_>>,
+) -> Option<Vec<CollectionSolution>> {
+    let pattern = substitute(pattern, &solution.substitution);
+    let subject = substitute(subject, &solution.substitution);
+    match (pattern.kind(), subject.kind()) {
+        (TermKind::Map { .. }, TermKind::Map { .. }) => {
+            solve_map_pair(mode, definition, &pattern, &subject, solution, narrowing)
+        }
+        (TermKind::Set { .. }, TermKind::Set { .. }) => {
+            solve_set_pair(mode, definition, &pattern, &subject, solution, narrowing)
+        }
+        (TermKind::List { .. }, TermKind::List { .. }) => {
+            let direct = match_list_terms_all_in_definition(
+                mode,
+                definition,
+                &pattern,
+                &subject,
+                &solution.substitution,
+            );
+            let found = match direct {
+                Some(found) if !found.is_empty() => found,
+                direct => {
+                    let reverse = match_list_terms_all_in_definition(
+                        mode,
+                        definition,
+                        &subject,
+                        &pattern,
+                        &solution.substitution,
+                    );
+                    match (direct, reverse) {
+                        (_, Some(found)) => found,
+                        (Some(found), None) => found,
+                        (None, None) => return None,
+                    }
+                }
+            };
+            Some(
+                found
+                    .into_iter()
+                    .map(|substitution| CollectionSolution {
+                        substitution,
+                        constraints: solution.constraints.clone(),
+                        fresh: solution.fresh.clone(),
+                    })
+                    .collect(),
+            )
+        }
+        _ => None,
+    }
+}
+
+fn solve_term_pair(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    solution: CollectionSolution,
+    pattern: &Term,
+    subject: &Term,
+    allow_narrowing: bool,
+) -> PairSolution {
+    let pattern = substitute(pattern, &solution.substitution);
+    let subject = substitute(subject, &solution.substitution);
+    match match_terms_with_context(
+        mode,
+        &definition.sort_graph,
+        Some(definition),
+        &pattern,
+        &subject,
+    ) {
+        MatchResult::Success(found) => PairSolution::Solved(CollectionSolution {
+            substitution: compose(&found, &solution.substitution),
+            ..solution
+        }),
+        MatchResult::Failed(_) => PairSolution::NoSolution,
+        MatchResult::Indeterminate {
+            substitution,
+            remainder,
+        } if allow_narrowing => {
+            let substitution = compose(&substitution, &solution.substitution);
+            match unify_term_pairs(definition, substitution, remainder) {
+                UnificationResult::Unified(unified) => {
+                    let mut constraints = solution.constraints;
+                    constraints.extend(unified.constraints);
+                    PairSolution::Solved(CollectionSolution {
+                        substitution: unified.substitution,
+                        constraints,
+                        fresh: solution.fresh,
+                    })
+                }
+                UnificationResult::Bottom(_) => PairSolution::NoSolution,
+                UnificationResult::Unsupported { .. } => PairSolution::Indeterminate,
+            }
+        }
+        MatchResult::Indeterminate { .. } => PairSolution::Indeterminate,
+    }
+}
+
+fn solve_map_pair(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+    solution: CollectionSolution,
+    narrowing: &mut Option<&mut Narrowing<'_>>,
+) -> Option<Vec<CollectionSolution>> {
+    let (
+        TermKind::Map {
+            definition: pattern_definition,
+            entries: pattern_entries,
+            rest: pattern_rest,
+        },
+        TermKind::Map {
+            definition: subject_definition,
+            entries: subject_entries,
+            rest: subject_rest,
+        },
+    ) = (pattern.kind(), subject.kind())
+    else {
+        unreachable!()
+    };
+    if pattern_definition != subject_definition {
+        return Some(Vec::new());
+    }
+    let pattern_entry_count = pattern_entries.len();
+    let subject_entry_count = subject_entries.len();
+    let mut pattern_entries = pattern_entries.iter().cloned().collect::<BTreeMap<_, _>>();
+    let mut subject_entries = subject_entries.iter().cloned().collect::<BTreeMap<_, _>>();
+    if pattern_entries.len() != pattern_entry_count || subject_entries.len() != subject_entry_count
+    {
+        return None;
+    }
+    let (pattern_rest, subject_rest) = cancel_common_opaque_chunks(
+        pattern_rest.clone(),
+        subject_rest.clone(),
+        &pattern_definition.symbols.concat,
+    );
+
+    let common_keys = pattern_entries
+        .keys()
+        .filter(|key| subject_entries.contains_key(*key))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut solutions = vec![solution];
+    for key in common_keys {
+        let pattern_value = pattern_entries.remove(&key).unwrap();
+        let subject_value = subject_entries.remove(&key).unwrap();
+        let mut next = Vec::new();
+        for solution in solutions {
+            match solve_term_pair(
+                mode,
+                definition,
+                solution,
+                &pattern_value,
+                &subject_value,
+                narrowing.is_some(),
+            ) {
+                PairSolution::Solved(solution) => next.push(solution),
+                PairSolution::NoSolution => {}
+                PairSolution::Indeterminate => return None,
+            }
+        }
+        solutions = next;
+    }
+
+    let problem = MapCollectionProblem {
+        mode,
+        backend: definition,
+        definition: pattern_definition.clone(),
+        entries: pattern_entries.into_iter().collect(),
+        rest: pattern_rest,
+        subject_rest,
+    };
+    let remaining = subject_entries.into_iter().collect::<Vec<_>>();
+    let mut found = Vec::new();
+    let mut indeterminate = false;
+    for solution in solutions {
+        problem.search(
+            0,
+            remaining.clone(),
+            Vec::new(),
+            solution,
+            narrowing,
+            &mut found,
+            &mut indeterminate,
+        );
+    }
+    (!indeterminate).then_some(found)
+}
+
+struct MapCollectionProblem<'a> {
+    mode: MatchMode,
+    backend: &'a BackendDefinition,
+    definition: Arc<MapDefinition>,
+    entries: Vec<(Term, Term)>,
+    rest: Option<Term>,
+    subject_rest: Option<Term>,
+}
+
+impl MapCollectionProblem<'_> {
+    #[allow(clippy::too_many_arguments)]
+    fn search(
+        &self,
+        index: usize,
+        remaining: Vec<(Term, Term)>,
+        frame_entries: Vec<(Term, Term)>,
+        solution: CollectionSolution,
+        narrowing: &mut Option<&mut Narrowing<'_>>,
+        solutions: &mut Vec<CollectionSolution>,
+        indeterminate: &mut bool,
+    ) {
+        if index == self.entries.len() {
+            self.finish(
+                remaining,
+                frame_entries,
+                solution,
+                narrowing,
+                solutions,
+                indeterminate,
+            );
+            return;
+        }
+
+        let (key, value) = &self.entries[index];
+        for subject_index in 0..remaining.len() {
+            let (subject_key, subject_value) = &remaining[subject_index];
+            let solution = match solve_term_pair(
+                self.mode,
+                self.backend,
+                solution.clone(),
+                key,
+                subject_key,
+                narrowing.is_some(),
+            ) {
+                PairSolution::Solved(solution) => solution,
+                PairSolution::NoSolution => continue,
+                PairSolution::Indeterminate => {
+                    *indeterminate = true;
+                    continue;
+                }
+            };
+            let solution = match solve_term_pair(
+                self.mode,
+                self.backend,
+                solution,
+                value,
+                subject_value,
+                narrowing.is_some(),
+            ) {
+                PairSolution::Solved(solution) => solution,
+                PairSolution::NoSolution => continue,
+                PairSolution::Indeterminate => {
+                    *indeterminate = true;
+                    continue;
+                }
+            };
+            let mut next_remaining = remaining.clone();
+            next_remaining.remove(subject_index);
+            self.search(
+                index + 1,
+                next_remaining,
+                frame_entries.clone(),
+                solution,
+                narrowing,
+                solutions,
+                indeterminate,
+            );
+        }
+
+        if narrowing.is_some()
+            && matches!(
+                self.subject_rest.as_ref().map(Term::kind),
+                Some(TermKind::Variable(_))
+            )
+        {
+            let mut frame_entries = frame_entries;
+            frame_entries.push((key.clone(), value.clone()));
+            self.search(
+                index + 1,
+                remaining,
+                frame_entries,
+                solution,
+                narrowing,
+                solutions,
+                indeterminate,
+            );
+        } else if self.subject_rest.is_some() {
+            *indeterminate = true;
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn finish(
+        &self,
+        remaining: Vec<(Term, Term)>,
+        frame_entries: Vec<(Term, Term)>,
+        solution: CollectionSolution,
+        narrowing: &mut Option<&mut Narrowing<'_>>,
+        solutions: &mut Vec<CollectionSolution>,
+        indeterminate: &mut bool,
+    ) {
+        if frame_entries.is_empty() {
+            if let Some(rest) = &self.rest {
+                let subject = Term::map(
+                    self.definition.clone(),
+                    remaining,
+                    self.subject_rest.clone(),
+                );
+                match solve_term_pair(
+                    self.mode,
+                    self.backend,
+                    solution,
+                    rest,
+                    &subject,
+                    narrowing.is_some(),
+                ) {
+                    PairSolution::Solved(solution) => solutions.push(solution),
+                    PairSolution::NoSolution => {}
+                    PairSolution::Indeterminate => *indeterminate = true,
+                }
+                return;
+            }
+            match &self.subject_rest {
+                None if remaining.is_empty() => solutions.push(solution),
+                Some(subject_rest) if remaining.is_empty() && narrowing.is_some() => {
+                    if let TermKind::Variable(variable) = subject_rest.kind() {
+                        let empty = Term::map(self.definition.clone(), Vec::new(), None);
+                        match solve_term_pair(
+                            self.mode,
+                            self.backend,
+                            solution,
+                            subject_rest,
+                            &empty,
+                            true,
+                        ) {
+                            PairSolution::Solved(solution) => solutions.push(solution),
+                            PairSolution::NoSolution => {}
+                            PairSolution::Indeterminate => *indeterminate = true,
+                        }
+                        debug_assert_eq!(variable.sort, empty.sort());
+                    } else {
+                        *indeterminate = true;
+                    }
+                }
+                Some(_) => *indeterminate = true,
+                None => {}
+            }
+            return;
+        }
+
+        let Some(subject_rest) = &self.subject_rest else {
+            return;
+        };
+        let TermKind::Variable(frame) = subject_rest.kind() else {
+            *indeterminate = true;
+            return;
+        };
+        if self.rest.is_none() {
+            if remaining.is_empty() {
+                let value = Term::map(
+                    self.definition.clone(),
+                    frame_entries
+                        .into_iter()
+                        .map(|(key, value)| {
+                            (
+                                substitute(&key, &solution.substitution),
+                                substitute(&value, &solution.substitution),
+                            )
+                        })
+                        .collect(),
+                    None,
+                );
+                match solve_term_pair(
+                    self.mode,
+                    self.backend,
+                    solution,
+                    subject_rest,
+                    &value,
+                    true,
+                ) {
+                    PairSolution::Solved(solution) => solutions.push(solution),
+                    PairSolution::NoSolution => {}
+                    PairSolution::Indeterminate => *indeterminate = true,
+                }
+            }
+            return;
+        }
+        let Some(narrowing) = narrowing.as_deref_mut() else {
+            *indeterminate = true;
+            return;
+        };
+        let fresh = (narrowing.fresh_frame)(&frame.sort);
+        let fresh_term = Term::variable(fresh.clone());
+        let assigned = Term::map(
+            self.definition.clone(),
+            frame_entries
+                .into_iter()
+                .map(|(key, value)| {
+                    (
+                        substitute(&key, &solution.substitution),
+                        substitute(&value, &solution.substitution),
+                    )
+                })
+                .collect(),
+            Some(fresh_term.clone()),
+        );
+        let solution = match solve_term_pair(
+            self.mode,
+            self.backend,
+            solution,
+            subject_rest,
+            &assigned,
+            true,
+        ) {
+            PairSolution::Solved(mut solution) => {
+                solution.fresh.insert(fresh);
+                solution
+            }
+            PairSolution::NoSolution => return,
+            PairSolution::Indeterminate => {
+                *indeterminate = true;
+                return;
+            }
+        };
+        let remainder = Term::map(self.definition.clone(), remaining, Some(fresh_term));
+        match solve_term_pair(
+            self.mode,
+            self.backend,
+            solution,
+            self.rest.as_ref().expect("pattern frame checked above"),
+            &remainder,
+            true,
+        ) {
+            PairSolution::Solved(solution) => solutions.push(solution),
+            PairSolution::NoSolution => {}
+            PairSolution::Indeterminate => *indeterminate = true,
+        }
+    }
+}
+
+fn solve_set_pair(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+    solution: CollectionSolution,
+    narrowing: &mut Option<&mut Narrowing<'_>>,
+) -> Option<Vec<CollectionSolution>> {
+    let (
+        TermKind::Set {
+            definition: pattern_definition,
+            elements: pattern_elements,
+            rest: pattern_rest,
+        },
+        TermKind::Set {
+            definition: subject_definition,
+            elements: subject_elements,
+            rest: subject_rest,
+        },
+    ) = (pattern.kind(), subject.kind())
+    else {
+        unreachable!()
+    };
+    if pattern_definition != subject_definition {
+        return Some(Vec::new());
+    }
+    let (pattern_rest, subject_rest) = cancel_common_opaque_chunks(
+        pattern_rest.clone(),
+        subject_rest.clone(),
+        &pattern_definition.symbols.concat,
+    );
+    let mut pattern_elements = pattern_elements.iter().cloned().collect::<BTreeSet<_>>();
+    let mut subject_elements = subject_elements.iter().cloned().collect::<BTreeSet<_>>();
+    let common = pattern_elements
+        .intersection(&subject_elements)
+        .cloned()
+        .collect::<Vec<_>>();
+    for element in common {
+        pattern_elements.remove(&element);
+        subject_elements.remove(&element);
+    }
+    let problem = SetCollectionProblem {
+        mode,
+        backend: definition,
+        definition: pattern_definition.clone(),
+        elements: pattern_elements.into_iter().collect(),
+        rest: pattern_rest,
+        subject_rest,
+    };
+    let mut found = Vec::new();
+    let mut indeterminate = false;
+    problem.search(
+        0,
+        subject_elements.into_iter().collect(),
+        Vec::new(),
+        solution,
+        narrowing,
+        &mut found,
+        &mut indeterminate,
+    );
+    (!indeterminate).then_some(found)
+}
+
+struct SetCollectionProblem<'a> {
+    mode: MatchMode,
+    backend: &'a BackendDefinition,
+    definition: Arc<crate::term::SetDefinition>,
+    elements: Vec<Term>,
+    rest: Option<Term>,
+    subject_rest: Option<Term>,
+}
+
+impl SetCollectionProblem<'_> {
+    #[allow(clippy::too_many_arguments)]
+    fn search(
+        &self,
+        index: usize,
+        remaining: Vec<Term>,
+        frame_elements: Vec<Term>,
+        solution: CollectionSolution,
+        narrowing: &mut Option<&mut Narrowing<'_>>,
+        solutions: &mut Vec<CollectionSolution>,
+        indeterminate: &mut bool,
+    ) {
+        if index == self.elements.len() {
+            self.finish(
+                remaining,
+                frame_elements,
+                solution,
+                narrowing,
+                solutions,
+                indeterminate,
+            );
+            return;
+        }
+
+        let element = &self.elements[index];
+        for subject_index in 0..remaining.len() {
+            match solve_term_pair(
+                self.mode,
+                self.backend,
+                solution.clone(),
+                element,
+                &remaining[subject_index],
+                narrowing.is_some(),
+            ) {
+                PairSolution::Solved(solution) => {
+                    let mut next_remaining = remaining.clone();
+                    next_remaining.remove(subject_index);
+                    self.search(
+                        index + 1,
+                        next_remaining,
+                        frame_elements.clone(),
+                        solution,
+                        narrowing,
+                        solutions,
+                        indeterminate,
+                    );
+                }
+                PairSolution::NoSolution => {}
+                PairSolution::Indeterminate => *indeterminate = true,
+            }
+        }
+
+        if narrowing.is_some()
+            && matches!(
+                self.subject_rest.as_ref().map(Term::kind),
+                Some(TermKind::Variable(_))
+            )
+        {
+            let mut frame_elements = frame_elements;
+            frame_elements.push(element.clone());
+            self.search(
+                index + 1,
+                remaining,
+                frame_elements,
+                solution,
+                narrowing,
+                solutions,
+                indeterminate,
+            );
+        } else if self.subject_rest.is_some() {
+            *indeterminate = true;
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn finish(
+        &self,
+        remaining: Vec<Term>,
+        frame_elements: Vec<Term>,
+        solution: CollectionSolution,
+        narrowing: &mut Option<&mut Narrowing<'_>>,
+        solutions: &mut Vec<CollectionSolution>,
+        indeterminate: &mut bool,
+    ) {
+        if frame_elements.is_empty() {
+            if let Some(rest) = &self.rest {
+                let subject = Term::set(
+                    self.definition.clone(),
+                    remaining,
+                    self.subject_rest.clone(),
+                );
+                match solve_term_pair(
+                    self.mode,
+                    self.backend,
+                    solution,
+                    rest,
+                    &subject,
+                    narrowing.is_some(),
+                ) {
+                    PairSolution::Solved(solution) => solutions.push(solution),
+                    PairSolution::NoSolution => {}
+                    PairSolution::Indeterminate => *indeterminate = true,
+                }
+                return;
+            }
+            match &self.subject_rest {
+                None if remaining.is_empty() => solutions.push(solution),
+                Some(subject_rest) if remaining.is_empty() && narrowing.is_some() => {
+                    if matches!(subject_rest.kind(), TermKind::Variable(_)) {
+                        let empty = Term::set(self.definition.clone(), Vec::new(), None);
+                        match solve_term_pair(
+                            self.mode,
+                            self.backend,
+                            solution,
+                            subject_rest,
+                            &empty,
+                            true,
+                        ) {
+                            PairSolution::Solved(solution) => solutions.push(solution),
+                            PairSolution::NoSolution => {}
+                            PairSolution::Indeterminate => *indeterminate = true,
+                        }
+                    } else {
+                        *indeterminate = true;
+                    }
+                }
+                Some(_) => *indeterminate = true,
+                None => {}
+            }
+            return;
+        }
+
+        let Some(subject_rest) = &self.subject_rest else {
+            return;
+        };
+        let TermKind::Variable(frame) = subject_rest.kind() else {
+            *indeterminate = true;
+            return;
+        };
+        if self.rest.is_none() {
+            if remaining.is_empty() {
+                let value = Term::set(
+                    self.definition.clone(),
+                    frame_elements
+                        .into_iter()
+                        .map(|element| substitute(&element, &solution.substitution))
+                        .collect(),
+                    None,
+                );
+                match solve_term_pair(
+                    self.mode,
+                    self.backend,
+                    solution,
+                    subject_rest,
+                    &value,
+                    true,
+                ) {
+                    PairSolution::Solved(solution) => solutions.push(solution),
+                    PairSolution::NoSolution => {}
+                    PairSolution::Indeterminate => *indeterminate = true,
+                }
+            }
+            return;
+        }
+        let Some(narrowing) = narrowing.as_deref_mut() else {
+            *indeterminate = true;
+            return;
+        };
+        let fresh = (narrowing.fresh_frame)(&frame.sort);
+        let fresh_term = Term::variable(fresh.clone());
+        let assigned = Term::set(
+            self.definition.clone(),
+            frame_elements
+                .into_iter()
+                .map(|element| substitute(&element, &solution.substitution))
+                .collect(),
+            Some(fresh_term.clone()),
+        );
+        let solution = match solve_term_pair(
+            self.mode,
+            self.backend,
+            solution,
+            subject_rest,
+            &assigned,
+            true,
+        ) {
+            PairSolution::Solved(mut solution) => {
+                solution.fresh.insert(fresh);
+                solution
+            }
+            PairSolution::NoSolution => return,
+            PairSolution::Indeterminate => {
+                *indeterminate = true;
+                return;
+            }
+        };
+        let remainder = Term::set(self.definition.clone(), remaining, Some(fresh_term));
+        match solve_term_pair(
+            self.mode,
+            self.backend,
+            solution,
+            self.rest.as_ref().expect("pattern frame checked above"),
+            &remainder,
+            true,
+        ) {
+            PairSolution::Solved(solution) => solutions.push(solution),
+            PairSolution::NoSolution => {}
+            PairSolution::Indeterminate => *indeterminate = true,
+        }
+    }
+}
+
 /// Enumerate complete matches for an internal Set pattern against a normalized Set subject.
 ///
 /// Set element selection is genuinely nondeterministic: `SetItem(X) REST` has one solution for
@@ -292,7 +1085,8 @@ fn match_set_terms_all(
     match_set_terms_all_with_context(mode, sorts, None, pattern, subject, initial)
 }
 
-pub(crate) fn match_set_terms_all_in_definition(
+#[cfg(test)]
+fn match_set_terms_all_in_definition(
     mode: MatchMode,
     definition: &BackendDefinition,
     pattern: &Term,
@@ -309,6 +1103,7 @@ pub(crate) fn match_set_terms_all_in_definition(
     )
 }
 
+#[cfg(test)]
 fn match_set_terms_all_with_context(
     mode: MatchMode,
     sorts: &SortGraph,
@@ -405,7 +1200,8 @@ fn match_map_terms_all(
     match_map_terms_all_with_context(mode, sorts, None, pattern, subject, initial)
 }
 
-pub(crate) fn match_map_terms_all_in_definition(
+#[cfg(test)]
+fn match_map_terms_all_in_definition(
     mode: MatchMode,
     definition: &BackendDefinition,
     pattern: &Term,
@@ -433,27 +1229,14 @@ pub(crate) fn match_collection_remainders_all_in_definition(
     initial: Substitution,
     remainder: &[(Term, Term)],
 ) -> Option<Vec<Substitution>> {
-    let mut solutions = vec![initial];
-    for (pattern, subject) in remainder {
-        let mut next = Vec::new();
-        for substitution in solutions {
-            let matches = match_set_terms_all_in_definition(
-                mode,
-                definition,
-                pattern,
-                subject,
-                &substitution,
-            )
-            .or_else(|| {
-                match_map_terms_all_in_definition(mode, definition, pattern, subject, &substitution)
-            })?;
-            next.extend(matches);
-        }
-        solutions = next;
-    }
-    solutions.sort();
-    solutions.dedup();
-    Some(solutions)
+    solve_collection_pairs_in_definition(mode, definition, initial, remainder, None).map(
+        |solutions| {
+            solutions
+                .into_iter()
+                .map(|solution| solution.substitution)
+                .collect()
+        },
+    )
 }
 
 /// Enumerate symmetric collection unifiers for every deferred pair.
@@ -464,7 +1247,8 @@ pub(crate) fn match_collection_remainders_all_in_definition(
 /// reference backend's rule-variable bias, and try the reverse orientation only when it cannot
 /// decide the equation. Lists have a deterministic concatenation theory; Sets and Maps retain all
 /// AC permutations.
-pub(crate) fn unify_collection_remainders_all_in_definition(
+#[cfg(test)]
+fn unify_collection_remainders_all_in_definition(
     mode: MatchMode,
     definition: &BackendDefinition,
     initial: Substitution,
@@ -507,6 +1291,7 @@ pub(crate) fn unify_collection_remainders_all_in_definition(
     Some(solutions)
 }
 
+#[cfg(test)]
 fn match_collection_pair_all_in_definition(
     mode: MatchMode,
     definition: &BackendDefinition,
@@ -774,6 +1559,7 @@ impl ClosedMapImplicationProblem<'_> {
     }
 }
 
+#[cfg(test)]
 fn match_map_terms_all_with_context(
     mode: MatchMode,
     sorts: &SortGraph,
@@ -883,6 +1669,7 @@ fn match_map_terms_all_with_context(
     }
 }
 
+#[cfg(test)]
 struct MapMatchProblem<'a> {
     mode: MatchMode,
     sorts: &'a SortGraph,
@@ -893,6 +1680,7 @@ struct MapMatchProblem<'a> {
     subject_rest: Option<Term>,
 }
 
+#[cfg(test)]
 impl MapMatchProblem<'_> {
     fn search(
         &self,
@@ -968,6 +1756,7 @@ impl MapMatchProblem<'_> {
     }
 }
 
+#[cfg(test)]
 struct SetMatchProblem<'a> {
     mode: MatchMode,
     sorts: &'a SortGraph,
@@ -978,6 +1767,7 @@ struct SetMatchProblem<'a> {
     subject_rest: Option<Term>,
 }
 
+#[cfg(test)]
 impl SetMatchProblem<'_> {
     fn search(
         &self,
@@ -1642,10 +2432,7 @@ impl Matcher<'_> {
             return Err(FailReason::DifferentSymbols(set(Vec::new(), None), subject));
         }
 
-        if pattern_symbolic.len() == 1
-            && subject_elements.len() == 1
-            && (subject_rest.is_none() || pattern_rest.is_some())
-        {
+        if pattern_symbolic.len() == 1 && subject_elements.len() == 1 && subject_rest.is_none() {
             self.enqueue(
                 pattern_symbolic.into_iter().next().unwrap(),
                 subject_elements.into_iter().next().unwrap(),
@@ -1698,7 +2485,7 @@ impl Matcher<'_> {
         }
         if pattern.symbolic.len() == 1
             && subject.concrete.len() + subject.symbolic.len() == 1
-            && (subject.rest.is_none() || pattern.rest.is_some())
+            && subject.rest.is_none()
         {
             let (pattern_key, pattern_value) = pattern.symbolic[0].clone();
             let (subject_key, subject_value) = subject
@@ -2350,6 +3137,8 @@ mod tests {
                 symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
                 symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{} [function{}(), total{}(), hook{}("MAP.element")]
                 symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{} [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                symbol opaqueMap{}(SortElement{}) : SortMap{} [function{}(), total{}()]
+                symbol opaqueSet{}(SortElement{}) : SortSet{} [function{}(), total{}()]
             endmodule []"#,
         )
         .expect("collection definition should parse");
@@ -2361,6 +3150,28 @@ mod tests {
         definition
             .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
             .expect("term should internalize")
+    }
+
+    fn solve_with_test_frames(
+        definition: &BackendDefinition,
+        pairs: &[(Term, Term)],
+    ) -> Option<Vec<CollectionSolution>> {
+        let mut counter = 0;
+        let mut fresh_frame = |sort: &Sort| {
+            let variable = Variable::new(format!("Ex#Frame!{counter}"), sort.clone());
+            counter += 1;
+            variable
+        };
+        let mut narrowing = Narrowing {
+            fresh_frame: &mut fresh_frame,
+        };
+        solve_collection_pairs_in_definition(
+            MatchMode::Rewrite,
+            definition,
+            Substitution::new(),
+            pairs,
+            Some(&mut narrowing),
+        )
     }
 
     fn expected(mode: MatchMode) -> [[Outcome; 9]; 9] {
@@ -2944,7 +3755,7 @@ mod tests {
     }
 
     #[test]
-    fn matches_symbolic_map_entries_and_preserves_the_subject_frame() {
+    fn defers_a_symbolic_map_entry_against_a_subject_frame() {
         let definition = map_definition();
         let key_variable = variable("KEY", Sort::simple("MapKey"));
         let value_variable = variable("VALUE", Sort::simple("MapValue"));
@@ -2969,17 +3780,21 @@ mod tests {
             Some(Term::variable(subject_rest.clone())),
         );
 
-        assert_eq!(
+        assert!(matches!(
             match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
-            MatchResult::Success(Substitution::from([
-                (key_variable, Term::variable(subject_key)),
-                (
-                    rest_variable,
-                    Term::map(definition, Vec::new(), Some(Term::variable(subject_rest)),),
-                ),
-                (value_variable, Term::variable(subject_value)),
-            ]))
+            MatchResult::Indeterminate { substitution, remainder }
+                if substitution.is_empty()
+                    && remainder == vec![(pattern.clone(), subject.clone())]
+        ));
+        let closed_subject = Term::map(
+            definition,
+            vec![(Term::variable(subject_key), Term::variable(subject_value))],
+            None,
         );
+        assert!(matches!(
+            match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &closed_subject,),
+            MatchResult::Success(_)
+        ));
     }
 
     #[test]
@@ -3044,66 +3859,262 @@ mod tests {
 
     #[test]
     fn carries_an_open_map_subject_frame_through_every_selection() {
-        let definition = map_definition();
-        let key_variable = variable("KEY", Sort::simple("MapKey"));
-        let value_variable = variable("VALUE", Sort::simple("MapValue"));
-        let rest_variable = variable("REST", Sort::simple("MapSort"));
-        let subject_rest = variable("SUBJECT_REST", Sort::simple("MapSort"));
-        let first_key = domain_value(Sort::simple("MapKey"), "first");
-        let first_value = domain_value(Sort::simple("MapValue"), "first-value");
-        let second_key = domain_value(Sort::simple("MapKey"), "second");
-        let second_value = domain_value(Sort::simple("MapValue"), "second-value");
-        let pattern = Term::map(
-            definition.clone(),
-            vec![(
-                Term::variable(key_variable.clone()),
-                Term::variable(value_variable.clone()),
-            )],
-            Some(Term::variable(rest_variable.clone())),
+        let definition = collection_definition();
+        let first_key = r#"\dv{SortKey{}}("first")"#;
+        let first_value = r#"\dv{SortValue{}}("first-value")"#;
+        let second_key = r#"\dv{SortKey{}}("second")"#;
+        let second_value = r#"\dv{SortValue{}}("second-value")"#;
+        let pattern = internal_term(
+            &definition,
+            "mapConcat{}(mapItem{}(KEY:SortKey{}, VALUE:SortValue{}), REST:SortMap{})",
         );
-        let subject = Term::map(
-            definition.clone(),
-            vec![
-                (first_key.clone(), first_value.clone()),
-                (second_key.clone(), second_value.clone()),
-            ],
-            Some(Term::variable(subject_rest.clone())),
+        let subject = internal_term(
+            &definition,
+            &format!(
+                "mapConcat{{}}(mapConcat{{}}(mapItem{{}}({first_key}, {first_value}), mapItem{{}}({second_key}, {second_value})), SUBJECTREST:SortMap{{}})"
+            ),
         );
 
+        let solutions = solve_with_test_frames(&definition, &[(pattern, subject)])
+            .expect("the open Map selection should be decidable");
+        assert_eq!(solutions.len(), 3);
+        let subject_rest = Variable::new("SUBJECTREST", Sort::simple("SortMap"));
+        let key = Variable::new("KEY", Sort::simple("SortKey"));
+        let rest = Variable::new("REST", Sort::simple("SortMap"));
+        let explicit = solutions
+            .iter()
+            .filter(|solution| solution.fresh.is_empty())
+            .collect::<Vec<_>>();
+        assert_eq!(explicit.len(), 2);
         assert_eq!(
-            match_map_terms_all(
-                MatchMode::Rewrite,
-                &sort_graph(),
-                &pattern,
-                &subject,
-                &Substitution::new(),
-            ),
-            Some(vec![
-                Substitution::from([
-                    (key_variable.clone(), first_key.clone()),
-                    (
-                        rest_variable.clone(),
-                        Term::map(
-                            definition.clone(),
-                            vec![(second_key.clone(), second_value.clone())],
-                            Some(Term::variable(subject_rest.clone())),
-                        ),
-                    ),
-                    (value_variable.clone(), first_value.clone()),
-                ]),
-                Substitution::from([
-                    (key_variable, second_key),
-                    (
-                        rest_variable,
-                        Term::map(
-                            definition,
-                            vec![(first_key, first_value)],
-                            Some(Term::variable(subject_rest)),
-                        ),
-                    ),
-                    (value_variable, second_value),
-                ]),
+            explicit
+                .iter()
+                .map(|solution| solution.substitution[&key].clone())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([
+                internal_term(&definition, first_key),
+                internal_term(&definition, second_key),
             ])
+        );
+        assert!(explicit.iter().all(|solution| {
+            solution.substitution[&rest]
+                .attributes()
+                .variables
+                .contains(&subject_rest)
+        }));
+        assert!(solutions.iter().any(|solution| !solution.fresh.is_empty()));
+    }
+
+    #[test]
+    fn solves_the_frame_branch_for_a_symbolic_map_key() {
+        let definition = collection_definition();
+        let pattern = internal_term(
+            &definition,
+            "mapConcat{}(mapItem{}(KEY:SortKey{}, VALUE:SortValue{}), REST:SortMap{})",
+        );
+        let TermKind::Map {
+            definition: map_definition,
+            ..
+        } = pattern.kind()
+        else {
+            unreachable!()
+        };
+        let map_definition = map_definition.clone();
+        let subject = internal_term(
+            &definition,
+            r#"mapConcat{}(mapItem{}(\dv{SortKey{}}("first"), \dv{SortValue{}}("first-value")), mapConcat{}(mapItem{}(\dv{SortKey{}}("second"), \dv{SortValue{}}("second-value")), SUBJECTREST:SortMap{}))"#,
+        );
+        let fresh = Variable::new("Ex#Frame!0", Sort::simple("SortMap"));
+
+        let solutions = solve_with_test_frames(&definition, &[(pattern, subject)])
+            .expect("the supported map shape should be decidable");
+
+        assert_eq!(solutions.len(), 3);
+        let frame_solution = solutions
+            .iter()
+            .find(|solution| !solution.fresh.is_empty())
+            .expect("one solution should assign the symbolic entry to the subject frame");
+        assert_eq!(frame_solution.fresh, BTreeSet::from([fresh.clone()]));
+        assert!(frame_solution.constraints.is_empty());
+        assert_eq!(
+            frame_solution.substitution,
+            Substitution::from([
+                (
+                    Variable::new("REST", Sort::simple("SortMap")),
+                    Term::map(
+                        map_definition.clone(),
+                        vec![
+                            (
+                                internal_term(&definition, r#"\dv{SortKey{}}("first")"#,),
+                                internal_term(&definition, r#"\dv{SortValue{}}("first-value")"#,),
+                            ),
+                            (
+                                internal_term(&definition, r#"\dv{SortKey{}}("second")"#,),
+                                internal_term(&definition, r#"\dv{SortValue{}}("second-value")"#,),
+                            ),
+                        ],
+                        Some(Term::variable(fresh.clone())),
+                    ),
+                ),
+                (
+                    Variable::new("SUBJECTREST", Sort::simple("SortMap")),
+                    Term::map(
+                        map_definition,
+                        vec![(
+                            internal_term(&definition, "KEY:SortKey{}"),
+                            internal_term(&definition, "VALUE:SortValue{}"),
+                        )],
+                        Some(Term::variable(fresh)),
+                    ),
+                ),
+            ])
+        );
+    }
+
+    #[test]
+    fn solves_the_frame_branch_for_a_symbolic_set_element() {
+        let definition = collection_definition();
+        let pattern = internal_term(
+            &definition,
+            "setConcat{}(setItem{}(ELEMENT:SortElement{}), REST:SortSet{})",
+        );
+        let TermKind::Set {
+            definition: set_definition,
+            ..
+        } = pattern.kind()
+        else {
+            unreachable!()
+        };
+        let set_definition = set_definition.clone();
+        let subject = internal_term(
+            &definition,
+            r#"setConcat{}(setItem{}(\dv{SortElement{}}("first")), setConcat{}(setItem{}(\dv{SortElement{}}("second")), SUBJECTREST:SortSet{}))"#,
+        );
+        let fresh = Variable::new("Ex#Frame!0", Sort::simple("SortSet"));
+
+        let solutions = solve_with_test_frames(&definition, &[(pattern, subject)])
+            .expect("the supported set shape should be decidable");
+
+        assert_eq!(solutions.len(), 3);
+        let frame_solution = solutions
+            .iter()
+            .find(|solution| !solution.fresh.is_empty())
+            .expect("one solution should assign the symbolic element to the subject frame");
+        assert_eq!(frame_solution.fresh, BTreeSet::from([fresh.clone()]));
+        assert!(frame_solution.constraints.is_empty());
+        assert_eq!(
+            frame_solution.substitution,
+            Substitution::from([
+                (
+                    Variable::new("REST", Sort::simple("SortSet")),
+                    Term::set(
+                        set_definition.clone(),
+                        vec![
+                            internal_term(&definition, r#"\dv{SortElement{}}("first")"#,),
+                            internal_term(&definition, r#"\dv{SortElement{}}("second")"#,),
+                        ],
+                        Some(Term::variable(fresh.clone())),
+                    ),
+                ),
+                (
+                    Variable::new("SUBJECTREST", Sort::simple("SortSet")),
+                    Term::set(
+                        set_definition,
+                        vec![internal_term(&definition, "ELEMENT:SortElement{}")],
+                        Some(Term::variable(fresh)),
+                    ),
+                ),
+            ])
+        );
+    }
+
+    #[test]
+    fn reports_indeterminate_for_an_opaque_function_frame() {
+        let definition = collection_definition();
+        let pattern = internal_term(
+            &definition,
+            "mapConcat{}(mapItem{}(KEY:SortKey{}, VALUE:SortValue{}), REST:SortMap{})",
+        );
+        let subject = internal_term(
+            &definition,
+            r#"mapConcat{}(mapItem{}(\dv{SortKey{}}("first"), \dv{SortValue{}}("first-value")), opaqueMap{}(Y:SortElement{}))"#,
+        );
+
+        assert!(
+            solve_collection_pairs_in_definition(
+                MatchMode::Rewrite,
+                &definition,
+                Substitution::new(),
+                &[(pattern.clone(), subject.clone())],
+                None,
+            )
+            .is_none()
+        );
+        assert!(solve_with_test_frames(&definition, &[(pattern, subject)]).is_none());
+    }
+
+    #[test]
+    fn narrows_a_symbolic_subject_key_against_a_concrete_pattern_key_with_a_frame() {
+        let definition = collection_definition();
+        let pattern = internal_term(
+            &definition,
+            r#"mapConcat{}(mapItem{}(\dv{SortKey{}}("wanted"), VALUE:SortValue{}), REST:SortMap{})"#,
+        );
+        let subject = internal_term(
+            &definition,
+            r#"mapConcat{}(mapItem{}(SUBJECTKEY:SortKey{}, \dv{SortValue{}}("selected")), SUBJECTREST:SortMap{})"#,
+        );
+
+        assert!(
+            solve_collection_pairs_in_definition(
+                MatchMode::Rewrite,
+                &definition,
+                Substitution::new(),
+                &[(pattern.clone(), subject.clone())],
+                None,
+            )
+            .is_none()
+        );
+        let solutions = solve_with_test_frames(&definition, &[(pattern, subject)])
+            .expect("a variable subject key and frame are both narrowable");
+        assert_eq!(solutions.len(), 2);
+        let explicit_solution = solutions
+            .iter()
+            .find(|solution| {
+                solution
+                    .substitution
+                    .contains_key(&Variable::new("SUBJECTKEY", Sort::simple("SortKey")))
+            })
+            .expect("one branch should select the explicit symbolic subject key");
+        assert_eq!(
+            explicit_solution
+                .substitution
+                .get(&Variable::new("SUBJECTKEY", Sort::simple("SortKey"))),
+            Some(&internal_term(&definition, r#"\dv{SortKey{}}("wanted")"#,))
+        );
+        assert!(solutions.iter().any(|solution| !solution.fresh.is_empty()));
+    }
+
+    #[test]
+    fn keeps_evaluate_mode_one_directional() {
+        let definition = collection_definition();
+        let pattern = internal_term(
+            &definition,
+            "mapConcat{}(mapItem{}(KEY:SortKey{}, VALUE:SortValue{}), REST:SortMap{})",
+        );
+        let subject = internal_term(
+            &definition,
+            r#"mapConcat{}(mapItem{}(\dv{SortKey{}}("first"), \dv{SortValue{}}("first-value")), SUBJECTREST:SortMap{})"#,
+        );
+
+        assert!(
+            match_collection_remainders_all_in_definition(
+                MatchMode::Evaluate,
+                &definition,
+                Substitution::new(),
+                &[(pattern, subject)],
+            )
+            .is_none()
         );
     }
 
@@ -3332,7 +4343,7 @@ mod tests {
     }
 
     #[test]
-    fn matches_symbolic_set_elements_and_preserves_the_subject_frame() {
+    fn defers_a_symbolic_set_element_against_a_subject_frame() {
         let definition = set_definition();
         let element_variable = variable("ELEMENT", Sort::simple("SetElement"));
         let rest_variable = variable("REST", Sort::simple("SetSort"));
@@ -3349,16 +4360,17 @@ mod tests {
             Some(Term::variable(subject_rest.clone())),
         );
 
-        assert_eq!(
+        assert!(matches!(
             match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
-            MatchResult::Success(Substitution::from([
-                (element_variable, Term::variable(subject_element)),
-                (
-                    rest_variable,
-                    Term::set(definition, Vec::new(), Some(Term::variable(subject_rest)),),
-                ),
-            ]))
-        );
+            MatchResult::Indeterminate { substitution, remainder }
+                if substitution.is_empty()
+                    && remainder == vec![(pattern.clone(), subject.clone())]
+        ));
+        let closed_subject = Term::set(definition, vec![Term::variable(subject_element)], None);
+        assert!(matches!(
+            match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &closed_subject,),
+            MatchResult::Success(_)
+        ));
     }
 
     #[test]
@@ -3428,52 +4440,48 @@ mod tests {
 
     #[test]
     fn carries_an_open_set_subject_frame_through_every_selection() {
-        let definition = set_definition();
-        let element_variable = variable("ELEMENT", Sort::simple("SetElement"));
-        let rest_variable = variable("REST", Sort::simple("SetSort"));
-        let subject_rest = variable("SUBJECT_REST", Sort::simple("SetSort"));
-        let first = domain_value(Sort::simple("SetElement"), "first");
-        let second = domain_value(Sort::simple("SetElement"), "second");
-        let pattern = Term::set(
-            definition.clone(),
-            vec![Term::variable(element_variable.clone())],
-            Some(Term::variable(rest_variable.clone())),
+        let definition = collection_definition();
+        let first = r#"\dv{SortElement{}}("first")"#;
+        let second = r#"\dv{SortElement{}}("second")"#;
+        let pattern = internal_term(
+            &definition,
+            "setConcat{}(setItem{}(ELEMENT:SortElement{}), REST:SortSet{})",
         );
-        let subject = Term::set(
-            definition.clone(),
-            vec![first.clone(), second.clone()],
-            Some(Term::variable(subject_rest.clone())),
+        let subject = internal_term(
+            &definition,
+            &format!(
+                "setConcat{{}}(setConcat{{}}(setItem{{}}({first}), setItem{{}}({second})), SUBJECTREST:SortSet{{}})"
+            ),
         );
 
+        let solutions = solve_with_test_frames(&definition, &[(pattern, subject)])
+            .expect("the open Set selection should be decidable");
+        assert_eq!(solutions.len(), 3);
+        let subject_rest = Variable::new("SUBJECTREST", Sort::simple("SortSet"));
+        let element = Variable::new("ELEMENT", Sort::simple("SortElement"));
+        let rest = Variable::new("REST", Sort::simple("SortSet"));
+        let explicit = solutions
+            .iter()
+            .filter(|solution| solution.fresh.is_empty())
+            .collect::<Vec<_>>();
+        assert_eq!(explicit.len(), 2);
         assert_eq!(
-            match_set_terms_all(
-                MatchMode::Rewrite,
-                &sort_graph(),
-                &pattern,
-                &subject,
-                &Substitution::new(),
-            ),
-            Some(vec![
-                Substitution::from([
-                    (element_variable.clone(), first.clone()),
-                    (
-                        rest_variable.clone(),
-                        Term::set(
-                            definition.clone(),
-                            vec![second.clone()],
-                            Some(Term::variable(subject_rest.clone())),
-                        ),
-                    ),
-                ]),
-                Substitution::from([
-                    (element_variable, second),
-                    (
-                        rest_variable,
-                        Term::set(definition, vec![first], Some(Term::variable(subject_rest)),),
-                    ),
-                ]),
+            explicit
+                .iter()
+                .map(|solution| solution.substitution[&element].clone())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([
+                internal_term(&definition, first),
+                internal_term(&definition, second),
             ])
         );
+        assert!(explicit.iter().all(|solution| {
+            solution.substitution[&rest]
+                .attributes()
+                .variables
+                .contains(&subject_rest)
+        }));
+        assert!(solutions.iter().any(|solution| !solution.fresh.is_empty()));
     }
 
     #[test]
