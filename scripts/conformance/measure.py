@@ -32,6 +32,7 @@ with open(a.log + ".meta.toml", "w") as f:
     f.write(f"exit_code = {rc}\n")
     f.write(f"timed_out = {str(timed_out).lower()}\n")
     f.write(f"wall_seconds = {wall:.1f}\n")
+    f.write(f"peak_rss_kib = {int(ru.ru_maxrss)}\n")
     f.write(f"peak_rss_mib = {ru.ru_maxrss / 1024:.0f}\n")
     f.write(f"user_seconds = {ru.ru_utime:.1f}\n")
     f.write(f"system_seconds = {ru.ru_stime:.1f}\n")

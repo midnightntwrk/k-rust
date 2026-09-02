@@ -564,7 +564,7 @@ pub fn declaration_modules_from_resolved_with_options(
 
     let module_name = encode_kore_identifier(module);
     let module_attributes = emit_attributes(
-        definition.module(module_id).attributes.entries(),
+        definition.module(module_id).attributes.semantic_entries(),
         &valued_attributes,
         &BTreeMap::new(),
     );
@@ -2223,7 +2223,7 @@ fn emit_rule_or_claim(
             right: Box::new(right),
         }
     };
-    let attributes = emit_attributes(attributes.entries(), valued, &attribute_overrides);
+    let attributes = emit_attributes(attributes.semantic_entries(), valued, &attribute_overrides);
     Ok(if claim {
         KoreSentence::Claim {
             parameters: Vec::new(),
@@ -2813,7 +2813,7 @@ fn equation_sentence(
     parameters: Vec<String>,
 ) -> Result<KoreSentence, ModuleToKoreError> {
     let overrides = variable_list_attribute_overrides(attributes, &pattern)?;
-    let attributes = emit_attributes(attributes.entries(), valued, &overrides);
+    let attributes = emit_attributes(attributes.semantic_entries(), valued, &overrides);
     Ok(if claim {
         KoreSentence::Claim {
             parameters,
@@ -3143,7 +3143,7 @@ fn sort_declarations(
             continue;
         }
         let source_attributes = sorts.attributes_for(head).cloned().unwrap_or_default();
-        let mut entries = source_attributes.entries().clone();
+        let mut entries = source_attributes.semantic_entries().clone();
         entries.remove("hasDomainValues");
         if token_heads.contains(head) {
             entries.insert("hasDomainValues".into(), Value::String(String::new()));
@@ -3229,7 +3229,7 @@ fn symbol_attributes(
     syntax_relations: &SyntaxRelations,
     hook_namespaces: &[String],
 ) -> Attributes {
-    let mut entries = source.entries().clone();
+    let mut entries = source.semantic_entries().clone();
     for key in [
         "constructor",
         "hook",
@@ -3476,7 +3476,7 @@ fn valued_attributes(sentences: &[&Sentence]) -> BTreeSet<String> {
         .map(str::to_owned)
         .collect::<BTreeSet<_>>();
     for attributes in sentences.iter().map(|sentence| sentence.attributes()) {
-        for (key, value) in attributes.entries() {
+        for (key, value) in attributes.semantic_entries() {
             if !attribute_value_string(key, value).is_empty() {
                 valued.insert(key.clone());
             }
@@ -3919,7 +3919,7 @@ mod tests {
         let valued = valued_attributes(&[&sentence]);
         assert!(!valued.contains("sortParams"));
         assert_eq!(
-            emit_attributes(attributes.entries(), &valued, &BTreeMap::new()),
+            emit_attributes(attributes.semantic_entries(), &valued, &BTreeMap::new()),
             Attributes::default()
         );
     }
