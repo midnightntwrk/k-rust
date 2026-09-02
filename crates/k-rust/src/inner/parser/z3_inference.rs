@@ -38,6 +38,8 @@ struct Encoding<'a> {
     parameters: BTreeSet<String>,
     packed_ids: HashMap<*const PackedTerm, usize>,
     anywhere: bool,
+    top_rewrite_paths: HashSet<String>,
+    top_rewrite_ids: HashSet<*const PackedTerm>,
 }
 
 type PackedConstraintKey = (*const PackedTerm, Datatype, CastContext);
@@ -56,6 +58,7 @@ impl Grammar {
     ) -> Result<ParsedTerm, ParseError> {
         let anywhere = explicitly_anywhere || self.packed_lhs_is_function_or_macro(&term);
         let mut encoding = Encoding::new_packed(self, &term, top_sort, anywhere)?;
+        encoding.top_rewrite_ids = packed_top_rewrites(self, &term);
         let expected = encoding.sort_value(top_sort, &BTreeMap::new())?;
         let root_context = if !is_real_ground_sort(top_sort) {
             CastContext::Parser
@@ -173,6 +176,7 @@ impl Grammar {
     ) -> Result<ParsedTerm, ParseError> {
         let anywhere = explicitly_anywhere || self.lhs_is_function_or_macro(&term);
         let mut encoding = Encoding::new(self, &term, top_sort, anywhere)?;
+        encoding.top_rewrite_paths = top_rewrite_paths(self, &term);
         let expected = encoding.sort_value(top_sort, &BTreeMap::new())?;
         let root_context = if !is_real_ground_sort(top_sort) {
             CastContext::Parser
@@ -334,6 +338,8 @@ impl<'a> Encoding<'a> {
             parameters: BTreeSet::new(),
             packed_ids: HashMap::new(),
             anywhere,
+            top_rewrite_paths: HashSet::new(),
+            top_rewrite_ids: HashSet::new(),
         };
         for sort in encoding.ground_sorts.iter() {
             encoding.sort_value(sort, &BTreeMap::new())?;
@@ -441,6 +447,7 @@ impl<'a> Encoding<'a> {
                     let child_expected = if let Some(lhs) = function_child_sort {
                         self.actual_sort(lhs, &format!("{child_path}_c0"))?
                     } else if self.anywhere
+                        && self.top_rewrite_paths.contains(path)
                         && descriptor
                             .label
                             .as_ref()
@@ -577,6 +584,7 @@ impl<'a> Encoding<'a> {
                     let child_expected = if let Some(lhs) = function_lhs {
                         self.actual_packed_sort(lhs)?
                     } else if self.anywhere
+                        && self.top_rewrite_ids.contains(&identity)
                         && descriptor
                             .label
                             .as_ref()
@@ -1167,6 +1175,7 @@ impl<'a> Encoding<'a> {
                 }
                 let expected_children = production_nonterminals(descriptor);
                 let anywhere_lhs_sort = (self.anywhere
+                    && self.top_rewrite_ids.contains(&identity)
                     && descriptor
                         .label
                         .as_ref()
@@ -1452,6 +1461,7 @@ impl<'a> Encoding<'a> {
                 }
                 let expected_children = production_nonterminals(descriptor);
                 let anywhere_lhs_sort = (self.anywhere
+                    && self.top_rewrite_paths.contains(path)
                     && descriptor
                         .label
                         .as_ref()
@@ -1831,6 +1841,92 @@ fn packed_term_ids(root: &Rc<PackedTerm>) -> HashMap<*const PackedTerm, usize> {
     ids
 }
 
+/// Locate each rewrite at a rule body's top level. An ambiguous root can contain several such
+/// nodes, so identities are collected per branch while nested rewrites remain excluded.
+fn top_rewrite_paths(grammar: &Grammar, root: &ParsedTerm) -> HashSet<String> {
+    fn visit(grammar: &Grammar, term: &ParsedTerm, path: String, targets: &mut HashSet<String>) {
+        match term {
+            ParsedTerm::Ambiguity(alternatives) => {
+                for (index, alternative) in alternatives.iter().enumerate() {
+                    visit(grammar, alternative, format!("{path}_a{index}"), targets);
+                }
+            }
+            ParsedTerm::Production {
+                production,
+                children,
+                ..
+            } => {
+                let descriptor = &grammar.productions[*production];
+                if (descriptor.bracket && children.len() == 1)
+                    || descriptor.result.name == "#RuleContent"
+                    || (descriptor.result.name == "#RuleBody"
+                        && descriptor
+                            .label
+                            .as_ref()
+                            .is_some_and(|label| label.name == "#withConfig"))
+                {
+                    if let Some(child) = children.first() {
+                        visit(grammar, child, format!("{path}_c0"), targets);
+                    }
+                } else if descriptor
+                    .label
+                    .as_ref()
+                    .is_some_and(|label| label.name == "#KRewrite")
+                    && children.len() == 2
+                {
+                    targets.insert(path);
+                }
+            }
+            ParsedTerm::Term(_) | ParsedTerm::InstantiatedProduction { .. } => {}
+        }
+    }
+    let mut targets = HashSet::new();
+    visit(grammar, root, "root".to_owned(), &mut targets);
+    targets
+}
+
+fn packed_top_rewrites(grammar: &Grammar, root: &Rc<PackedTerm>) -> HashSet<*const PackedTerm> {
+    fn visit(grammar: &Grammar, term: &Rc<PackedTerm>, targets: &mut HashSet<*const PackedTerm>) {
+        match &term.node {
+            PackedNode::Ambiguity(alternatives) => {
+                for alternative in alternatives {
+                    visit(grammar, alternative, targets);
+                }
+            }
+            PackedNode::Production {
+                production,
+                children,
+                ..
+            } => {
+                let descriptor = &grammar.productions[*production];
+                if (descriptor.bracket && children.len() == 1)
+                    || descriptor.result.name == "#RuleContent"
+                    || (descriptor.result.name == "#RuleBody"
+                        && descriptor
+                            .label
+                            .as_ref()
+                            .is_some_and(|label| label.name == "#withConfig"))
+                {
+                    if let Some(child) = children.first() {
+                        visit(grammar, child, targets);
+                    }
+                } else if descriptor
+                    .label
+                    .as_ref()
+                    .is_some_and(|label| label.name == "#KRewrite")
+                    && children.len() == 2
+                {
+                    targets.insert(Rc::as_ptr(term));
+                }
+            }
+            PackedNode::Term(_) | PackedNode::InstantiatedProduction { .. } => {}
+        }
+    }
+    let mut targets = HashSet::new();
+    visit(grammar, root, &mut targets);
+    targets
+}
+
 fn strip_packed_brackets<'a>(
     grammar: &Grammar,
     mut term: &'a Rc<PackedTerm>,
@@ -2039,6 +2135,144 @@ mod tests {
             error.to_string().contains("no well-sorted parse")
                 || error.to_string().contains("unexpected sort"),
             "unexpected inference error: {error}"
+        );
+    }
+
+    #[test]
+    fn top_rewrite_path_tracks_transparent_brackets() {
+        let mut grammar = Grammar::default();
+        let rewrite = grammar.productions.len();
+        grammar
+            .add(
+                Sort::new("#RuleBody"),
+                vec![nonterminal("K"), nonterminal("K")],
+                Some(Label::new("#KRewrite")),
+                false,
+                false,
+            )
+            .unwrap();
+        let bracket = grammar.productions.len();
+        grammar
+            .add(
+                Sort::new("#RuleBody"),
+                vec![nonterminal("#RuleBody")],
+                None,
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[bracket].bracket = true;
+
+        let term = ParsedTerm::Production {
+            production: bracket,
+            children: vec![ParsedTerm::Production {
+                production: rewrite,
+                children: vec![
+                    ParsedTerm::Term(Term::variable("L")),
+                    ParsedTerm::Term(Term::variable("R")),
+                ],
+                metadata: Default::default(),
+            }],
+            metadata: Default::default(),
+        };
+
+        assert_eq!(
+            top_rewrite_paths(&grammar, &term),
+            HashSet::from(["root_c0".to_owned()])
+        );
+    }
+
+    #[test]
+    fn packed_ambiguous_top_rewrites_all_keep_anywhere_bounds() {
+        let mut grammar = Grammar::default();
+        let small_a = grammar.productions.len();
+        grammar
+            .add(
+                Sort::new("Small"),
+                vec![ProductionItem::Terminal("a".into())],
+                Some(Label::new("smallA")),
+                false,
+                false,
+            )
+            .unwrap();
+        let small_b = grammar.productions.len();
+        grammar
+            .add(
+                Sort::new("Small"),
+                vec![ProductionItem::Terminal("b".into())],
+                Some(Label::new("smallB")),
+                false,
+                false,
+            )
+            .unwrap();
+        let big = grammar.productions.len();
+        grammar
+            .add(
+                Sort::new("Big"),
+                vec![ProductionItem::Terminal("big".into())],
+                Some(Label::new("big")),
+                false,
+                false,
+            )
+            .unwrap();
+        let rewrite = grammar.productions.len();
+        grammar
+            .add(
+                Sort::new("K"),
+                vec![nonterminal("K"), nonterminal("K")],
+                Some(Label::new("#KRewrite")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.subsort_relations.extend([
+            (Sort::new("Small"), Sort::new("K")),
+            (Sort::new("Big"), Sort::new("K")),
+        ]);
+
+        let leaf = |production| PackedTerm::production(production, vec![], Default::default());
+        let rhs = leaf(big);
+        let alternative = |lhs| {
+            PackedTerm::production(
+                rewrite,
+                vec![leaf(lhs), Rc::clone(&rhs)],
+                Default::default(),
+            )
+        };
+        let term =
+            PackedTerm::ambiguity(BTreeSet::from([alternative(small_a), alternative(small_b)]));
+
+        grammar
+            .infer_packed_sorts_z3(term, &Sort::new("K"), true)
+            .expect_err("each ambiguous top rewrite must reject Big as an anywhere RHS for Small");
+    }
+
+    #[test]
+    fn unpacked_ambiguous_rewrite_paths_include_branch_indexes() {
+        let mut grammar = Grammar::default();
+        let rewrite = grammar.productions.len();
+        grammar
+            .add(
+                Sort::new("K"),
+                vec![nonterminal("K"), nonterminal("K")],
+                Some(Label::new("#KRewrite")),
+                false,
+                false,
+            )
+            .unwrap();
+        let alternative = |name| ParsedTerm::Production {
+            production: rewrite,
+            children: vec![
+                ParsedTerm::Term(Term::variable(name)),
+                ParsedTerm::Term(Term::variable("R")),
+            ],
+            metadata: Default::default(),
+        };
+        let term = ParsedTerm::Ambiguity(BTreeSet::from([alternative("L1"), alternative("L2")]));
+
+        assert_eq!(
+            top_rewrite_paths(&grammar, &term),
+            HashSet::from(["root_a0".to_owned(), "root_a1".to_owned()])
         );
     }
 }
