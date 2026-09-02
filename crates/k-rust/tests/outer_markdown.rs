@@ -137,8 +137,17 @@ fn selector_supports_java_boolean_syntax_and_tag_spellings() {
 #[test]
 fn rejects_malformed_selectors_and_annotations() {
     assert!(extract_fenced_k_code("```k\nmodule M endmodule\n```", "k|").is_err());
-    assert!(extract_fenced_k_code("```{k a\nmodule M endmodule\n```", "k").is_err());
-    assert!(extract_fenced_k_code("```k a\nmodule M endmodule\n```", "k").is_err());
+    let malformed_braces =
+        extract_fenced_k_code_with_map("```{k a\nmodule M endmodule\n```", "k").unwrap();
+    assert!(!malformed_braces.text.contains("module M endmodule"));
+    assert_eq!(malformed_braces.warnings.len(), 1);
+
+    let malformed_words =
+        extract_fenced_k_code_with_map("```k a\nmodule M endmodule\n```", "k").unwrap();
+    assert!(!malformed_words.text.contains("module M endmodule"));
+    assert_eq!(malformed_words.warnings.len(), 1);
+
+    assert!(extract_fenced_k_code("```k:foo\nmodule M endmodule\n```", "k").is_err());
 }
 
 #[test]

@@ -18,11 +18,18 @@ impl fmt::Display for MarkdownError {
 
 impl std::error::Error for MarkdownError {}
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarkdownWarning {
+    pub offset: usize,
+    pub message: String,
+}
+
 /// Selected semantic K text and its byte mapping into the raw Markdown source.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExtractedKCode {
     pub text: String,
     pub offset_map: SourceOffsetMap,
+    pub warnings: Vec<MarkdownWarning>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -58,6 +65,7 @@ pub fn extract_fenced_k_code_with_map(
 ) -> Result<ExtractedKCode, MarkdownError> {
     let selector = SelectorParser::new(selector).parse()?;
     let mut selected = Vec::<(usize, usize)>::new();
+    let mut warnings = Vec::new();
     let mut offset = 0;
     let mut open: Option<(char, usize, usize, bool)> = None;
 
@@ -71,7 +79,10 @@ pub fn extract_fenced_k_code_with_map(
                 open = None;
             }
         } else if let Some((marker, width, info_offset, info)) = opening_fence(line) {
-            let tags = parse_tags(info, offset + info_offset)?;
+            let (tags, warning) = parse_tags(info, offset + info_offset)?;
+            if let Some(warning) = warning {
+                warnings.push(warning);
+            }
             open = Some((marker, width, line_end, selector.evaluate(&tags)));
         }
         offset = line_end;
@@ -115,6 +126,7 @@ pub fn extract_fenced_k_code_with_map(
     Ok(ExtractedKCode {
         text: output,
         offset_map,
+        warnings,
     })
 }
 
@@ -170,29 +182,61 @@ fn closing_fence(line: &str, marker: char, opening_width: usize) -> bool {
     width >= opening_width && rest[marker.len_utf8() * width..].trim().is_empty()
 }
 
-fn parse_tags(info: &str, offset: usize) -> Result<BTreeSet<String>, MarkdownError> {
+fn parse_tags(
+    info: &str,
+    offset: usize,
+) -> Result<(BTreeSet<String>, Option<MarkdownWarning>), MarkdownError> {
     let info = info.trim();
     if info.is_empty() {
-        return Ok(BTreeSet::new());
+        return Ok((BTreeSet::new(), None));
     }
-    let contents = if let Some(contents) = info.strip_prefix('{') {
-        contents.strip_suffix('}').ok_or_else(|| MarkdownError {
-            offset,
-            message: "malformed Markdown code block annotation".into(),
-        })?
-    } else {
-        if info.split_whitespace().count() != 1 {
+    for character in info.chars() {
+        if !is_tag_character(character) {
             return Err(MarkdownError {
                 offset,
                 message: "malformed Markdown code block annotation".into(),
             });
         }
+    }
+    let contents = if let Some(contents) = info.strip_prefix('{') {
+        let Some(contents) = contents.strip_suffix('}') else {
+            return Ok((
+                BTreeSet::new(),
+                Some(MarkdownWarning {
+                    offset,
+                    message: "malformed Markdown code block annotation".into(),
+                }),
+            ));
+        };
+        contents
+    } else {
+        if info.split_whitespace().count() != 1 || info.contains('{') || info.contains('}') {
+            return Ok((
+                BTreeSet::new(),
+                Some(MarkdownWarning {
+                    offset,
+                    message: "malformed Markdown code block annotation".into(),
+                }),
+            ));
+        }
         info
     };
-    Ok(contents
-        .split_whitespace()
-        .map(|tag| tag.strip_prefix('.').unwrap_or(tag).to_owned())
-        .collect())
+    Ok((
+        contents
+            .split_whitespace()
+            .map(|tag| tag.strip_prefix('.').unwrap_or(tag).to_owned())
+            .collect(),
+        None,
+    ))
+}
+
+fn is_tag_character(character: char) -> bool {
+    character.is_ascii_alphanumeric()
+        || matches!(
+            character,
+            '#' | '$' | '%' | '^' | '*' | '+' | '.' | '-' | '"' | '=' | '_' | '{' | '}'
+        )
+        || character.is_whitespace()
 }
 
 struct SelectorParser<'a> {

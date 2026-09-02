@@ -16,7 +16,8 @@ pub use loader::{
 };
 pub use lower::lower;
 pub use markdown::{
-    ExtractedKCode, MarkdownError, extract_fenced_k_code, extract_fenced_k_code_with_map,
+    ExtractedKCode, MarkdownError, MarkdownWarning, extract_fenced_k_code,
+    extract_fenced_k_code_with_map,
 };
 pub use parser::{ParseError, parse};
 pub use virtual_path::normalize_virtual_path;
