@@ -15,7 +15,7 @@ use crate::{
     definedness::ceil_term,
     definition::{BackendDefinition, ConstructorHead, constructor_head},
     matching::{
-        CollectionSolution, FailReason, MatchMode, MatchResult, Narrowing,
+        CollectionSolution, FailReason, MatchMode, MatchResult, Narrowing, SortGraph,
         match_terms_in_definition, solve_collection_pairs_in_definition,
     },
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
@@ -43,8 +43,8 @@ pub struct Pattern {
 
 /// Apply the acyclic substitution encoded by a pattern's equality constraints while retaining
 /// canonical equality predicates for later RPC projection.
-pub fn normalize_pattern_substitution(pattern: &mut Pattern) -> Substitution {
-    let (substitution, remaining) = extract_substitution(&pattern.constraints);
+pub fn normalize_pattern_substitution(pattern: &mut Pattern, sorts: &SortGraph) -> Substitution {
+    let (substitution, remaining) = extract_substitution(&pattern.constraints, sorts);
     if substitution.is_empty() {
         return substitution;
     }
@@ -69,10 +69,12 @@ fn substitution_predicates(substitution: &Substitution) -> Vec<Predicate> {
 pub(crate) fn retain_substitution_predicates(
     constraints: &mut Vec<Predicate>,
     substitution: &Substitution,
+    sorts: &SortGraph,
 ) {
     for (variable, value) in substitution {
         let represented = constraints.iter().any(|predicate| {
-            substitution_binding(predicate).is_some_and(|(represented, _)| represented == *variable)
+            substitution_binding(predicate, sorts)
+                .is_some_and(|(represented, _)| represented == *variable)
         });
         if !represented {
             constraints.insert(
@@ -371,7 +373,8 @@ fn execute_using(
             };
         }
         finish_if_interrupted!();
-        let retained_substitution = normalize_pattern_substitution(&mut state.pattern);
+        let retained_substitution =
+            normalize_pattern_substitution(&mut state.pattern, &definition.sort_graph);
         let pattern_before_constraint_simplification = state.pattern.clone();
         let mut deferred_initial_vacuity = None;
         let simplified_constraints = simplify_predicates_with_solver(
@@ -386,9 +389,13 @@ fn execute_using(
         finish_if_interrupted!();
         match simplified_constraints {
             Ok(mut constraints) => {
-                retain_substitution_predicates(&mut constraints, &retained_substitution);
+                retain_substitution_predicates(
+                    &mut constraints,
+                    &retained_substitution,
+                    &definition.sort_graph,
+                );
                 state.pattern.constraints = constraints;
-                normalize_pattern_substitution(&mut state.pattern);
+                normalize_pattern_substitution(&mut state.pattern, &definition.sort_graph);
             }
             Err(error) => {
                 leaves.push(state.leaf(HaltReason::Simplification(error), &observation_log));
@@ -422,7 +429,7 @@ fn execute_using(
             Ok(simplified) => {
                 state.pattern.term = simplified.term;
                 state.pattern.constraints.extend(simplified.constraints);
-                normalize_pattern_substitution(&mut state.pattern);
+                normalize_pattern_substitution(&mut state.pattern, &definition.sort_graph);
                 state.observation = observation_log.append_simplification(
                     state.observation,
                     definition,
