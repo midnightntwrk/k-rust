@@ -477,6 +477,33 @@ fn treats_user_list_terminators_as_invisible_in_programs() {
 }
 
 #[test]
+fn reconstructs_a_singleton_nelist_through_a_transparent_start_sort() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Id ::= r"[a-z]+" [token]
+              syntax Ids ::= NeList{Id, ","} [symbol(ids)]
+              syntax Pgm ::= Ids
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parser = ProgramParser::new(&definition, "MAIN").expect("program grammar should build");
+    for (source, expected) in [
+        ("a", r#"ids(#token("a","Id"),`.List{"ids"}`(.KList))"#),
+        (
+            "a,b",
+            r#"ids(#token("a","Id"),ids(#token("b","Id"),`.List{"ids"}`(.KList)))"#,
+        ),
+    ] {
+        let parsed = parser
+            .parse(&Sort::new("Pgm"), source)
+            .unwrap_or_else(|error| panic!("NeList program {source:?} should parse: {error}"));
+        assert_eq!(parsed.to_string(), expected);
+    }
+}
+
+#[test]
 fn rejects_a_trailing_separator_in_a_program_user_list() {
     // K's program grammar is `Ints ::= Ne#Ints | ""` with `Ne#Ints ::= Int "," Ne#Ints | Int`,
     // so the empty list is only the whole list, never the tail after a separator.

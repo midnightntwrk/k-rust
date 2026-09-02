@@ -144,8 +144,11 @@ impl Grammar {
 
     /// Replace a program-grammar list with a visible separator by K's non-empty split.
     fn split_program_list(&mut self, sort: &Sort, list: &UserList) -> Result<(), ParseError> {
-        let nonempty = Sort::new(format!("Ne#{sort}"));
-        let recursive = &self.productions[list.list_production];
+        let nonempty = Sort::with_parameters(format!("Ne#{}", sort.name), sort.parameters.clone());
+        let terminator_sort =
+            Sort::with_parameters(format!("{}#Terminator", sort.name), sort.parameters.clone());
+        let recursive = self.productions[list.list_production].clone();
+        let terminator = self.productions[list.terminator_production].clone();
         let label = recursive.label.clone();
         let source_production = recursive.source_production;
         let items = recursive
@@ -183,16 +186,60 @@ impl Grammar {
             &BTreeMap::new(),
         )?;
         self.productions[split].term_production = Some(list.list_production);
-        self.add(
-            nonempty.clone(),
-            vec![ProductionItem::NonTerminal {
-                sort: list.child_sort.clone(),
-                name: None,
-            }],
-            None,
-            false,
-            true,
+
+        // K's program grammar does not make the singleton branch a transparent
+        // `Ne#Xs ::= X` injection. It generates `Xs#Terminator ::= ""` and parses
+        // the singleton as the original list constructor over `X` and that hidden
+        // terminator. Retaining both original production identities here prevents a
+        // transparent enclosing start sort from erasing the list node altogether.
+        let hidden_terminator = self.productions.len();
+        self.add_production_with_lexical(
+            terminator_sort.clone(),
+            &[ProductionItem::Terminal(String::new())],
+            terminator.label.clone(),
+            ProductionOptions {
+                source_production: terminator.source_production,
+                source_production_text: terminator.source_production_text.as_deref(),
+                ..ProductionOptions::default()
+            },
+            &BTreeMap::new(),
         )?;
+        self.productions[hidden_terminator].term_production = Some(list.terminator_production);
+
+        let child = ProductionItem::NonTerminal {
+            sort: list.child_sort.clone(),
+            name: None,
+        };
+        let hidden_terminator = ProductionItem::NonTerminal {
+            sort: terminator_sort,
+            name: None,
+        };
+        let singleton_items = if list.left_associative {
+            vec![hidden_terminator, child]
+        } else {
+            vec![child, hidden_terminator]
+        };
+        let singleton = self.productions.len();
+        self.add_production_with_lexical(
+            nonempty.clone(),
+            &singleton_items,
+            recursive.label.clone(),
+            ProductionOptions {
+                source_production: recursive.source_production,
+                source_production_text: recursive.source_production_text.as_deref(),
+                ..ProductionOptions::default()
+            },
+            &BTreeMap::new(),
+        )?;
+        self.productions[singleton].term_production = Some(list.list_production);
+        // The former transparent singleton production also made the element a
+        // temporary subsort of `Ne#Xs`. K's generated singleton is a real list
+        // constructor, but its user-list metadata provides the equivalent relation
+        // to sort inference. Preserve that relation without adding a competing parse.
+        self.subsort_relations
+            .insert((list.child_sort.clone(), nonempty.clone()));
+        self.syntactic_subsort_relations
+            .insert((list.child_sort.clone(), nonempty.clone()));
         self.add(
             sort.clone(),
             vec![ProductionItem::NonTerminal {
