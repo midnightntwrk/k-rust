@@ -47,6 +47,8 @@ pub struct ImplicationResult {
     pub status: ImplicationStatus,
     pub condition: Option<ImplicationCondition>,
     pub failure: Option<ImplicationFailure>,
+    /// Whether validity follows only because the antecedent simplifies to bottom.
+    pub vacuous: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -692,6 +694,7 @@ fn valid(substitution: Substitution) -> ImplicationResult {
             substitution,
         }),
         failure: None,
+        vacuous: false,
     }
 }
 
@@ -703,6 +706,7 @@ fn vacuously_valid() -> ImplicationResult {
             substitution: Substitution::new(),
         }),
         failure: None,
+        vacuous: true,
     }
 }
 
@@ -711,6 +715,7 @@ fn invalid() -> ImplicationResult {
         status: ImplicationStatus::Invalid,
         condition: None,
         failure: Some(ImplicationFailure::TermMismatch),
+        vacuous: false,
     }
 }
 
@@ -722,6 +727,7 @@ fn invalid_with_bottom_condition() -> ImplicationResult {
             substitution: Substitution::new(),
         }),
         failure: Some(ImplicationFailure::TermMismatch),
+        vacuous: false,
     }
 }
 
@@ -733,6 +739,7 @@ fn condition_invalid() -> ImplicationResult {
             substitution: Substitution::new(),
         }),
         failure: Some(ImplicationFailure::ConsequentCondition),
+        vacuous: false,
     }
 }
 
@@ -747,6 +754,7 @@ fn condition_invalid_with_substitution(substitution: Substitution) -> Implicatio
             substitution,
         }),
         failure: Some(ImplicationFailure::ConsequentCondition),
+        vacuous: false,
     }
 }
 
@@ -758,6 +766,7 @@ fn counterexample_invalid(substitution: Substitution) -> ImplicationResult {
             substitution,
         }),
         failure: Some(ImplicationFailure::ConsequentCondition),
+        vacuous: false,
     }
 }
 
@@ -789,6 +798,7 @@ fn partial(
             substitution,
         }),
         failure: Some(ImplicationFailure::TermMismatch),
+        vacuous: false,
     }
 }
 
@@ -809,6 +819,7 @@ fn indeterminate() -> ImplicationResult {
         status: ImplicationStatus::Indeterminate,
         condition: None,
         failure: None,
+        vacuous: false,
     }
 }
 
@@ -1191,7 +1202,7 @@ mod tests {
     }
 
     #[test]
-    fn unsatisfiable_antecedent_is_vacuously_valid() {
+    fn vacuously_valid_results_carry_the_vacuous_flag() {
         let definition = definition();
         let antecedent = pattern(&definition, r#"\dv{SortInt{}}("1")"#);
         let consequent = antecedent.clone();
@@ -1200,10 +1211,12 @@ mod tests {
             validity: Ok(Validity::Invalid),
         };
 
-        assert_eq!(
-            check_implication(&definition, &antecedent, &consequent, &solver),
-            Ok(vacuously_valid())
-        );
+        let result = check_implication(&definition, &antecedent, &consequent, &solver).unwrap();
+        assert_eq!(result, vacuously_valid());
+        assert!(result.vacuous);
+
+        let ordinary = check_implication(&definition, &antecedent, &consequent, &NoSolver).unwrap();
+        assert!(!ordinary.vacuous);
     }
 
     #[test]
