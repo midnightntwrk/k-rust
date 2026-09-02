@@ -856,7 +856,11 @@ def do_kprove(case, rec):
         if k == "--md-selector": extra += ["--md-selector", v]
         elif k == "--depth": extra += ["--depth", v]
         elif k in ("--claim", "--claims"):
-            for c in v.split(","): extra += ["--claim", c]
+            for value in vs:
+                for claim in value.split(","): extra += ["--claim", claim]
+        elif k in ("--exclude", "--trusted"):
+            for value in vs:
+                for claim in value.split(","): extra += [k, claim]
         elif k in ("--spec-module", "--def-module"): continue
         else: unsupported.append(f"{k} {v}")
     spec_module = (opts.get("--spec-module") or [os.path.basename(spec).rsplit(".", 1)[0].upper()])[-1]

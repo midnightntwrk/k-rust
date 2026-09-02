@@ -41,6 +41,7 @@ use k_rust::{
 use k_rust_backend::{
     binary as backend_binary,
     builtin::BuiltinEffect,
+    claim::ReachabilityClaim,
     definition::{BackendDefinition, DefinitionError},
     externalize,
     implication::{
@@ -638,6 +639,14 @@ struct KproveArgs {
     #[arg(long = "claim", value_name = "LABEL")]
     claims: Vec<String>,
 
+    /// Exclude claims with these labels from obligations and circularities. May be repeated.
+    #[arg(long = "exclude", value_name = "LABEL")]
+    excluded_claims: Vec<String>,
+
+    /// Keep claims with these labels only as trusted circularities. May be repeated.
+    #[arg(long = "trusted", value_name = "LABEL")]
+    trusted_claims: Vec<String>,
+
     /// Maximum number of rewrite or circularity steps per proof branch.
     #[arg(long, value_name = "STEPS")]
     depth: Option<u64>,
@@ -825,6 +834,8 @@ struct KproveOptions {
     module: String,
     definition_module: String,
     claims: Vec<String>,
+    excluded_claims: Vec<String>,
+    trusted_claims: Vec<String>,
     depth: u64,
     max_simplification_iterations: usize,
     breadth_limit: Option<usize>,
@@ -885,6 +896,13 @@ struct PreparedDefinitionManifest {
     format: String,
     version: u32,
     sources: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+struct ClaimFilter {
+    selected: Vec<String>,
+    excluded: Vec<String>,
+    trusted: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
@@ -1040,6 +1058,8 @@ impl From<KproveArgs> for KproveOptions {
             module,
             definition_module,
             claims: arguments.claims,
+            excluded_claims: arguments.excluded_claims,
+            trusted_claims: arguments.trusted_claims,
             depth: arguments.depth.unwrap_or(u64::MAX),
             max_simplification_iterations: arguments
                 .max_simplification_iterations
@@ -2622,28 +2642,22 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                 error => format!("could not initialize Z3: {error:?}"),
             })
         })?;
-    let claim_labels = backend
-        .reachability_claims
-        .iter()
-        .filter_map(|claim| claim.attributes.label.clone())
-        .collect::<Vec<_>>();
-    let selected_labels = resolve_claim_labels(&claim_labels, &options.claims)?;
-    let selected = backend
-        .reachability_claims
-        .iter()
-        .filter(|claim| {
-            options.claims.is_empty()
-                || claim
-                    .attributes
-                    .label
-                    .as_ref()
-                    .is_some_and(|label| selected_labels.contains(label))
-        })
-        .collect::<Vec<_>>();
+    let kept = filter_claims(
+        &backend.reachability_claims,
+        &ClaimFilter {
+            selected: options.claims,
+            excluded: options.excluded_claims,
+            trusted: options.trusted_claims,
+        },
+    )?;
+    let circularities = kept.iter().collect::<Vec<_>>();
 
     timings.proof_setup_seconds = setup_started.elapsed().as_secs_f64();
     let mut all_proven = true;
-    for (index, claim) in selected.into_iter().enumerate() {
+    for (index, claim) in kept.iter().enumerate() {
+        if claim.attributes.trusted {
+            continue;
+        }
         let name = claim
             .attributes
             .label
@@ -2662,6 +2676,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         let result = prove_claim(
             &backend,
             claim,
+            &circularities,
             ProofOptions {
                 max_depth: options.depth,
                 min_depth: options.min_depth,
@@ -2743,6 +2758,40 @@ fn load_compiled_definition(path: &Path) -> Result<KoreDefinition, Box<dyn Error
         )
         .into()
     })
+}
+
+/// Apply K's proof-module filter while retaining this CLI's suffix label resolution.
+fn filter_claims(
+    claims: &[ReachabilityClaim],
+    filter: &ClaimFilter,
+) -> Result<Vec<ReachabilityClaim>, Box<dyn Error>> {
+    let labels = claims
+        .iter()
+        .filter_map(|claim| claim.attributes.label.clone())
+        .collect::<Vec<_>>();
+    let selected = resolve_claim_labels(&labels, &filter.selected)?;
+    let excluded = resolve_claim_labels(&labels, &filter.excluded)?;
+    let trusted = resolve_claim_labels(&labels, &filter.trusted)?;
+    if let Some(label) = selected.intersection(&excluded).next() {
+        return Err(format!("label `{label}` used for both --claim and --exclude").into());
+    }
+
+    Ok(claims
+        .iter()
+        .filter_map(|claim| {
+            let Some(label) = &claim.attributes.label else {
+                return Some(claim.clone());
+            };
+            if excluded.contains(label) || (!selected.is_empty() && !selected.contains(label)) {
+                return None;
+            }
+            let mut claim = claim.clone();
+            if trusted.contains(label) {
+                claim.attributes.trusted = true;
+            }
+            Some(claim)
+        })
+        .collect())
 }
 
 fn resolve_claim_labels(
@@ -3480,6 +3529,84 @@ mod tests {
     }
 
     #[test]
+    fn filter_claims_follows_k_filter_semantics() {
+        let syntax = parse_kore_definition(
+            r#"[]
+            module SPEC
+                sort SortS{} []
+                symbol a{}() : SortS{} [constructor{}()]
+                claim{} \implies{SortS{}}(
+                    \and{SortS{}}(a{}(), \top{SortS{}}()),
+                    weakAlwaysFinally{SortS{}}(a{}())
+                ) [label{}("SPEC.x")]
+                claim{} \implies{SortS{}}(
+                    \and{SortS{}}(a{}(), \top{SortS{}}()),
+                    weakAlwaysFinally{SortS{}}(a{}())
+                ) [label{}("SPEC.y")]
+                claim{} \implies{SortS{}}(
+                    \and{SortS{}}(a{}(), \top{SortS{}}()),
+                    weakAlwaysFinally{SortS{}}(a{}())
+                ) [label{}("SPEC.z")]
+                claim{} \implies{SortS{}}(
+                    \and{SortS{}}(a{}(), \top{SortS{}}()),
+                    weakAlwaysFinally{SortS{}}(a{}())
+                ) [UNIQUE'Unds'ID{}("unlabelled")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "SPEC").unwrap();
+
+        let kept = filter_claims(
+            &definition.reachability_claims,
+            &ClaimFilter {
+                selected: vec!["x".into()],
+                excluded: vec!["y".into()],
+                trusted: vec!["x".into(), "z".into()],
+            },
+        )
+        .unwrap();
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept[0].attributes.label.as_deref(), Some("SPEC.x"));
+        assert!(kept[0].attributes.trusted);
+        assert_eq!(kept[1].attributes.label, None);
+        assert!(!kept[1].attributes.trusted);
+
+        for filter in [
+            ClaimFilter {
+                selected: vec!["missing".into()],
+                ..ClaimFilter::default()
+            },
+            ClaimFilter {
+                excluded: vec!["missing".into()],
+                ..ClaimFilter::default()
+            },
+            ClaimFilter {
+                trusted: vec!["missing".into()],
+                ..ClaimFilter::default()
+            },
+        ] {
+            let error = filter_claims(&definition.reachability_claims, &filter).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("no modal reachability claim has label `missing`"),
+                "{error}"
+            );
+        }
+
+        let error = filter_claims(
+            &definition.reachability_claims,
+            &ClaimFilter {
+                selected: vec!["x".into()],
+                excluded: vec!["SPEC.x".into()],
+                ..ClaimFilter::default()
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("used for both"), "{error}");
+    }
+
+    #[test]
     fn parses_krun_search_options() {
         let cli = Cli::try_parse_from([
             "krust",
@@ -3856,6 +3983,10 @@ mod tests {
             "first",
             "--claim",
             "second",
+            "--exclude",
+            "excluded",
+            "--trusted",
+            "trusted",
             "--depth",
             "42",
             "--max-simplification-iterations",
@@ -3891,6 +4022,8 @@ mod tests {
         assert_eq!(options.module, "SPEC");
         assert_eq!(options.definition_module, "SEMANTICS");
         assert_eq!(options.claims, ["first", "second"]);
+        assert_eq!(options.excluded_claims, ["excluded"]);
+        assert_eq!(options.trusted_claims, ["trusted"]);
         assert_eq!(options.depth, 42);
         assert_eq!(options.max_simplification_iterations, 23);
         assert_eq!(options.breadth_limit, Some(7));
