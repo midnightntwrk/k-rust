@@ -71,7 +71,7 @@ impl Grammar {
         let solver = Solver::new();
         solver.assert(&constraint);
         encoding.exclude_klabel_parameters(&solver)?;
-        encoding.apply_soft_preferences(&solver)?;
+        let seed = encoding.seed_model(&solver)?;
         match solver.check() {
             SatResult::Unsat => {
                 return Err(z3_error(
@@ -90,7 +90,7 @@ impl Grammar {
             SatResult::Sat => {}
         }
 
-        let models = encoding.maximal_models(&solver)?;
+        let models = encoding.maximal_models(&solver, seed)?;
         let mut candidates = BTreeSet::new();
         let mut first_error = None;
         for model in models {
@@ -191,7 +191,7 @@ impl Grammar {
         let solver = Solver::new();
         solver.assert(&constraint);
         encoding.exclude_klabel_parameters(&solver)?;
-        encoding.apply_soft_preferences(&solver)?;
+        let seed = encoding.seed_model(&solver)?;
         match solver.check() {
             SatResult::Unsat => {
                 return Err(z3_error(
@@ -210,7 +210,7 @@ impl Grammar {
             SatResult::Sat => {}
         }
 
-        let models = encoding.maximal_models(&solver)?;
+        let models = encoding.maximal_models(&solver, seed)?;
         let mut candidates = BTreeSet::new();
         let mut first_error = None;
         for model in models {
@@ -824,12 +824,12 @@ impl<'a> Encoding<'a> {
         } else {
             &self.semantic_relation
         };
-        Ok(or_all(
-            &relation
-                .iter()
-                .map(|(left, right)| Bool::and(&[lesser.eq(left), greater.eq(right)]))
-                .collect::<Vec<_>>(),
-        ))
+        let mut cases = relation
+            .iter()
+            .map(|(left, right)| Bool::and(&[lesser.eq(left), greater.eq(right)]))
+            .collect::<Vec<_>>();
+        cases.push(lesser.eq(greater));
+        Ok(or_all(&cases))
     }
 
     fn order_relation(&self, syntactic: bool) -> Result<Vec<(Datatype, Datatype)>, ParseError> {
@@ -872,7 +872,12 @@ impl<'a> Encoding<'a> {
         Ok(())
     }
 
-    fn apply_soft_preferences(&self, solver: &Solver) -> Result<(), ParseError> {
+    /// Seed maximal-model search with the reference's soft `K`/`KItem`/`Bag` preferences.
+    ///
+    /// The cardinality assertion is scoped to this first model. Maximal-model enumeration runs
+    /// after the pop with only hard constraints, so an incomparable model with fewer preferred
+    /// assignments cannot be pruned.
+    fn seed_model(&self, solver: &Solver) -> Result<Option<BTreeMap<String, Sort>>, ParseError> {
         let mut constraints = Vec::new();
         for preferred in ["K", "KItem", "Bag"] {
             let sort = Sort::new(preferred);
@@ -885,39 +890,57 @@ impl<'a> Encoding<'a> {
             }
         }
         if constraints.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
 
-        // Scala gives these equal-weight soft constraints the same optimization
-        // group. Find and then require the greatest satisfiable cardinality so
-        // the result does not depend on traversal order.
-        let weighted = constraints
-            .iter()
-            .map(|constraint| (constraint, 1))
-            .collect::<Vec<_>>();
-        let mut low = 0;
-        let mut high = constraints.len();
-        while low < high {
-            let candidate = low + (high - low).div_ceil(2);
-            solver.push();
-            solver.assert(Bool::pb_ge(&weighted, candidate as i32));
-            let status = solver.check();
-            solver.pop(1);
-            match status {
-                SatResult::Sat => low = candidate,
-                SatResult::Unsat => high = candidate - 1,
-                SatResult::Unknown => {
-                    return Err(z3_error(
-                        "Z3 returned unknown while applying sort-inference preferences",
-                    ));
+        solver.push();
+        let seed = (|| {
+            let weighted = constraints
+                .iter()
+                .map(|constraint| (constraint, 1))
+                .collect::<Vec<_>>();
+            let mut low = 0;
+            let mut high = constraints.len();
+            while low < high {
+                let candidate = low + (high - low).div_ceil(2);
+                solver.push();
+                solver.assert(Bool::pb_ge(&weighted, candidate as i32));
+                let status = solver.check();
+                solver.pop(1);
+                match status {
+                    SatResult::Sat => low = candidate,
+                    SatResult::Unsat => high = candidate - 1,
+                    SatResult::Unknown => {
+                        return Err(z3_error(
+                            "Z3 returned unknown while applying sort-inference preferences",
+                        ));
+                    }
                 }
             }
-        }
-        solver.assert(Bool::pb_ge(&weighted, low as i32));
-        Ok(())
+            solver.assert(Bool::pb_ge(&weighted, low as i32));
+            match solver.check() {
+                SatResult::Sat => self
+                    .read_model(
+                        &solver
+                            .get_model()
+                            .ok_or_else(|| z3_error("Z3 returned sat without a seed model"))?,
+                    )
+                    .map(Some),
+                SatResult::Unsat => Ok(None),
+                SatResult::Unknown => Err(z3_error(
+                    "Z3 returned unknown while seeding sort-inference preferences",
+                )),
+            }
+        })();
+        solver.pop(1);
+        seed
     }
 
-    fn maximal_models(&self, solver: &Solver) -> Result<Vec<BTreeMap<String, Sort>>, ParseError> {
+    fn maximal_models(
+        &self,
+        solver: &Solver,
+        seed: Option<BTreeMap<String, Sort>>,
+    ) -> Result<Vec<BTreeMap<String, Sort>>, ParseError> {
         let real_variables = self
             .variables
             .keys()
@@ -925,21 +948,26 @@ impl<'a> Encoding<'a> {
             .cloned()
             .collect::<Vec<_>>();
         let mut models = Vec::new();
+        let mut first = seed;
         loop {
-            match solver.check() {
-                SatResult::Unsat => break,
-                SatResult::Unknown => {
-                    return Err(z3_error(
-                        "Z3 returned unknown while enumerating sort models",
-                    ));
+            let mut values = if let Some(seed) = first.take() {
+                seed
+            } else {
+                match solver.check() {
+                    SatResult::Unsat => break,
+                    SatResult::Unknown => {
+                        return Err(z3_error(
+                            "Z3 returned unknown while enumerating sort models",
+                        ));
+                    }
+                    SatResult::Sat => {}
                 }
-                SatResult::Sat => {}
-            }
-            let mut values = self.read_model(
-                &solver
-                    .get_model()
-                    .ok_or_else(|| z3_error("Z3 returned sat without a model"))?,
-            )?;
+                self.read_model(
+                    &solver
+                        .get_model()
+                        .ok_or_else(|| z3_error("Z3 returned sat without a model"))?,
+                )?
+            };
             loop {
                 solver.push();
                 let greater = real_variables

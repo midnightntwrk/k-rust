@@ -257,6 +257,71 @@ fn rule_conditions_can_select_an_overloaded_rewrite_super_sort() {
     assert!(requires.to_string().contains("GCAP"), "{requires}");
 }
 
+#[cfg(feature = "z3-inference")]
+#[test]
+fn incomparable_maximal_typings_are_reported_as_ambiguity() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Foo ::= "foo"
+          syntax A ::= "a" "(" K "," Int ")" [symbol(aK)]
+          syntax B ::= "a" "(" Int "," Foo ")" [symbol(aF)]
+
+          rule a(X, Y) => X ~> Y
+        endmodule
+    "#};
+    let error = resolve_rule_bubbles(&lowered(source))
+        .expect_err("incomparable maximal typings must remain ambiguous");
+    let RuleError::Parse(error) = error else {
+        panic!("expected a parse error, got {error:?}")
+    };
+    let ParseError::Ambiguous { alternatives } = error.error else {
+        panic!("expected an ambiguity, got {:?}", error.error)
+    };
+
+    assert_eq!(alternatives.len(), 2, "{alternatives:#?}");
+    assert!(
+        alternatives
+            .iter()
+            .any(|alternative| alternative.term.contains("aF")),
+        "{alternatives:#?}"
+    );
+    assert!(
+        alternatives
+            .iter()
+            .any(|alternative| alternative.term.contains("aK")),
+        "{alternatives:#?}"
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn a_dominating_typing_still_selects_one_parse() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax A ::= "a" "(" K ")" [symbol(aK)]
+          syntax B ::= "a" "(" Int ")" [symbol(aI)]
+
+          rule a(X) => X
+        endmodule
+    "#};
+    let resolved = resolve_rule_bubbles(&lowered(source)).expect("the maximal K typing should win");
+    let body = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .expect("the rule should be resolved");
+
+    assert!(body.contains("aK"), "{body}");
+    assert!(!body.contains("aI"), "{body}");
+}
+
 #[test]
 fn chooses_the_rewrite_overload_matching_the_rhs_sort() {
     let source = indoc! {r#"

@@ -284,6 +284,25 @@ pairings = ["haskell/rust"]
 comparisons = ["semantic-kore"]
 unique-id-divergence-ceilings = { "haskell/rust" = 32 }
 
+[[compile]]
+name = "softpref"
+requires = ["reference-toolchain"]
+constructs = ["sort-inference", "incomparable-maximal-models"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/softpref/test.k"
+main-module = "TEST"
+pairings = ["haskell/rust"]
+expect = "reject"
+
+[[compile]]
+name = "softpos"
+requires = ["reference-toolchain"]
+constructs = ["sort-inference", "dominating-model"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/softpos/test.k"
+main-module = "TEST"
+pairings = ["haskell/rust"]
+comparisons = ["semantic-kore"]
+unique-id-divergence-ceilings = { "haskell/rust" = 32 }
+
 [[kast]]
 name = "imp"
 requires = ["reference-toolchain"]
