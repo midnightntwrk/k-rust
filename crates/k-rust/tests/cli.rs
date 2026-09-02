@@ -1380,6 +1380,277 @@ endmodule
 }
 
 #[test]
+fn kprove_compiles_only_a_specification_against_prepared_semantics() {
+    let (root, _) = fixture();
+    let timings = root.join("timings.json");
+    let semantics = root.join("semantics.k");
+    let specification = root.join("spec.k");
+    let compiled = root.join("compiled");
+    fs::write(
+        &semantics,
+        r#"
+module SEMANTICS
+  syntax State ::= "a" [symbol(a)] | "b" [symbol(b)]
+  configuration <k> $PGM:State </k>
+  rule <k> a => b </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &specification,
+        r#"
+requires "semantics.k"
+module SPEC
+  imports SEMANTICS
+  claim <k> a => b </k> [label(reaches-b)]
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            semantics.to_str().unwrap(),
+            "--main-module",
+            "SEMANTICS",
+            "--output-directory",
+            compiled.to_str().unwrap(),
+            "--for-proving",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    fs::remove_file(&semantics).unwrap();
+
+    let load = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            "--compiled-definition",
+            compiled.to_str().unwrap(),
+            "--main-module",
+            "SEMANTICS",
+            "--load-only",
+            "--timings",
+            timings.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        load.status.success(),
+        "{}",
+        String::from_utf8_lossy(&load.stderr)
+    );
+    assert!(load.stdout.is_empty());
+    let load_timings: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&timings).unwrap()).unwrap();
+    assert!(load_timings["input_seconds"].as_f64().unwrap() > 0.0);
+    assert!(load_timings["internalize_seconds"].as_f64().unwrap() > 0.0);
+    assert_eq!(load_timings["proof_seconds"], 0.0);
+    assert_eq!(load_timings["proof_setup_seconds"], 0.0);
+    assert_eq!(load_timings["claims"], serde_json::json!([]));
+
+    let proof = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            specification.to_str().unwrap(),
+            "--compiled-definition",
+            compiled.to_str().unwrap(),
+            "--main-module",
+            "SPEC",
+            "--definition-module",
+            "SEMANTICS",
+            "--claim",
+            "reaches-b",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        proof.status.success(),
+        "{}",
+        String::from_utf8_lossy(&proof.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(proof.stdout).unwrap(),
+        "claim reaches-b: proven (2 states, 0 unexplored)\n"
+    );
+
+    let prepared_spec = root.join("prepared-spec");
+    let compile_spec = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            specification.to_str().unwrap(),
+            "--compiled-definition",
+            compiled.to_str().unwrap(),
+            "--main-module",
+            "SPEC",
+            "--definition-module",
+            "SEMANTICS",
+            "--for-proving",
+            "--output-directory",
+            prepared_spec.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        compile_spec.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile_spec.stderr)
+    );
+    fs::remove_file(&specification).unwrap();
+    let prepared_proof = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            "--compiled-definition",
+            prepared_spec.to_str().unwrap(),
+            "--main-module",
+            "SPEC",
+            "--claim",
+            "reaches-b",
+            "--timings",
+            timings.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        prepared_proof.status.success(),
+        "{}",
+        String::from_utf8_lossy(&prepared_proof.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(prepared_proof.stdout).unwrap(),
+        "claim reaches-b: proven (2 states, 0 unexplored)\n"
+    );
+    let proof_timings: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&timings).unwrap()).unwrap();
+    assert!(proof_timings["proof_setup_seconds"].as_f64().unwrap() > 0.0);
+    assert!(proof_timings["proof_seconds"].as_f64().unwrap() > 0.0);
+    assert_eq!(proof_timings["claims"][0]["label"], "reaches-b");
+    assert_eq!(proof_timings["claims"][0]["status"], "proven");
+    assert_eq!(
+        proof_timings["claims"][0]["seconds"],
+        proof_timings["proof_seconds"]
+    );
+
+    let bounded = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            "--compiled-definition",
+            prepared_spec.join("definition.kore").to_str().unwrap(),
+            "--main-module",
+            "SPEC",
+            "--depth",
+            "0",
+            "--timings",
+            timings.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!bounded.status.success());
+    let bounded_timings: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&timings).unwrap()).unwrap();
+    assert_ne!(bounded_timings["claims"][0]["status"], "proven");
+    assert_eq!(bounded_timings["claims"][0]["label"], "reaches-b");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kprove_rejects_unsupported_prepared_manifest_versions() {
+    let (root, definition) = fixture();
+    let compiled = root.join("compiled");
+    fs::create_dir_all(&compiled).unwrap();
+    fs::write(
+        compiled.join("krust.json"),
+        r#"{"format":"krust-prepared-definition","version":999,"sources":[]}"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--compiled-definition",
+            compiled.to_str().unwrap(),
+            "-m",
+            "MAIN",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("unsupported prepared definition manifest")
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kprove_loads_a_new_spec_module_from_the_semantics_entry_file() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module SEMANTICS
+  syntax State ::= "a" | "b"
+  configuration <k> $PGM:State </k>
+  rule <k> a => b </k>
+endmodule
+module SPEC
+  imports SEMANTICS
+  claim <k> a => b </k> [label(reaches-b)]
+endmodule
+"#,
+    )
+    .unwrap();
+    let compiled = root.join("compiled");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "-m",
+            "SEMANTICS",
+            "--for-proving",
+            "-o",
+            compiled.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let parsed = fs::read_to_string(compiled.join("parsed.json")).unwrap();
+    let base = k_rust::definition::json::from_str(&parsed).unwrap();
+    assert!(!base.modules.iter().any(|module| module.name == "SPEC"));
+    let proof = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--compiled-definition",
+            compiled.to_str().unwrap(),
+            "-m",
+            "SPEC",
+            "--definition-module",
+            "SEMANTICS",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        proof.status.success(),
+        "{}",
+        String::from_utf8_lossy(&proof.stderr)
+    );
+    assert!(String::from_utf8_lossy(&proof.stdout).contains("claim reaches-b: proven"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kprove_recalls_the_same_claim_from_another_spec_module() {
     let (root, _) = fixture();
     let saved_proofs = root.join("proofs.kore");

@@ -1,13 +1,14 @@
 //! Native host adapters kept out of the portable frontend build.
 
 use std::{
+    collections::BTreeSet,
     fs, io,
     path::{Path, PathBuf},
 };
 
 use crate::{
     builtin::{embedded, source_name},
-    outer::{ResolvedSource, SourceResolver},
+    outer::{ResolvedSource, SourceResolver, normalize_virtual_path},
 };
 
 /// Filesystem-backed resolution for entry files and recursive `requires`.
@@ -16,6 +17,7 @@ pub struct FileResolver {
     builtin_directory: Option<PathBuf>,
     working_directory: PathBuf,
     lookup_directories: Vec<PathBuf>,
+    prepared_sources: BTreeSet<String>,
 }
 
 impl FileResolver {
@@ -27,6 +29,7 @@ impl FileResolver {
             builtin_directory: None,
             working_directory: working_directory.into(),
             lookup_directories: lookup_directories.into_iter().collect(),
+            prepared_sources: BTreeSet::new(),
         }
     }
 
@@ -42,6 +45,12 @@ impl FileResolver {
 
     pub fn with_builtin_directory(mut self, directory: impl Into<PathBuf>) -> Self {
         self.builtin_directory = Some(directory.into());
+        self
+    }
+
+    /// Satisfy these canonical source identities without reopening their source text.
+    pub fn with_prepared_sources(mut self, sources: impl IntoIterator<Item = String>) -> Self {
+        self.prepared_sources = sources.into_iter().collect();
         self
     }
 
@@ -84,6 +93,14 @@ impl SourceResolver for FileResolver {
     ) -> Result<ResolvedSource, String> {
         let candidates = self.candidates(requiring_source, required);
         for candidate in &candidates {
+            let identity = fs::canonicalize(candidate)
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| {
+                    normalize_virtual_path(&self.working_directory.join(candidate))
+                });
+            if self.prepared_sources.contains(&identity) {
+                return Ok(ResolvedSource::new(identity, ""));
+            }
             match self.read(candidate) {
                 Ok(source) => return Ok(source),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -93,6 +110,9 @@ impl SourceResolver for FileResolver {
             }
         }
         if let Some(source) = embedded(required) {
+            if self.prepared_sources.contains(&source.source) {
+                return Ok(ResolvedSource::new(source.source, ""));
+            }
             return Ok(source);
         }
         Err(format!(
@@ -147,5 +167,61 @@ mod tests {
         assert!(prelude.text.contains("requires \"kast.md\""));
         assert_eq!(legacy_domains.source, "krust-builtin://domains.md");
         assert!(legacy_domains.text.contains("module DOMAINS"));
+    }
+
+    #[test]
+    fn resolves_deleted_prepared_sources_by_identity() {
+        let root = fs::canonicalize(std::env::temp_dir()).unwrap();
+        let path = root.join("deleted-prepared-semantics.k");
+        let identity = path.to_string_lossy().into_owned();
+        let mut resolver = FileResolver::new(&root, []).with_prepared_sources([identity.clone()]);
+        let source = resolver
+            .resolve(
+                &root.join("spec.k").to_string_lossy(),
+                "deleted-prepared-semantics.k",
+            )
+            .unwrap();
+        assert_eq!(source.source, identity);
+        assert!(source.text.is_empty());
+    }
+
+    #[test]
+    fn prepared_sources_do_not_shadow_an_unrelated_same_named_file() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("k-rust-prepared-resolver-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let local = root.join("shared.k");
+        fs::write(&local, "new local source").unwrap();
+        let mut resolver =
+            FileResolver::new(&root, [root.join("prepared")]).with_prepared_sources([root
+                .join("prepared/shared.k")
+                .to_string_lossy()
+                .into_owned()]);
+        let source = resolver
+            .resolve(&root.join("spec.k").to_string_lossy(), "shared.k")
+            .unwrap();
+        assert_eq!(source.source, local.to_string_lossy());
+        assert_eq!(source.text, "new local source");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn resolves_deleted_prepared_sources_through_relative_include_directories() {
+        let root = fs::canonicalize(std::env::temp_dir()).unwrap();
+        let identity = root
+            .join("prepared-semantics/semantics.k")
+            .to_string_lossy()
+            .into_owned();
+        let mut resolver = FileResolver::new(&root, [PathBuf::from("prepared-semantics")])
+            .with_prepared_sources([identity.clone()]);
+        let source = resolver
+            .resolve(&root.join("spec.k").to_string_lossy(), "semantics.k")
+            .unwrap();
+        assert_eq!(source.source, identity);
+        assert!(source.text.is_empty());
     }
 }

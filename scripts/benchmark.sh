@@ -23,7 +23,8 @@ Compare release-mode krust with canonical K's Haskell backend.
 
 Options:
   --suite imp|kevm|all       Benchmark suite (default: all)
-  --phase compile|prove|all  Benchmark phase (default: all)
+  --phase compile|spec-compile|load|execute|prove|all
+                              Benchmark phase (default: all)
   --claim LABEL             Benchmark one claim (requires one suite and a proof phase)
   --runs N                   Override the suite/phase run count
   --warmup N                 Override the suite/phase warmup count
@@ -152,6 +153,7 @@ run_compile() {
       "$KRUST_BIN" kcompile "$compile_source"
       --main-module "$compile_main"
       --syntax-module "$compile_syntax"
+      --for-proving
       --output-directory "$output"
       --builtin-directory "$K_CHECKOUT/k-distribution/include/kframework/builtin"
     )
@@ -188,6 +190,24 @@ prepare_proof() {
   K_OPTS=$REFERENCE_K_OPTS GHCRTS=$GHCRTS "${reference_args[@]}"
 }
 
+prepare_krust_proof() {
+  local work=$1
+  local output="$work/krust-definition"
+  reset_output "$output"
+  rust_args=(
+    "$KRUST_BIN" kcompile "$compile_source"
+    --main-module "$compile_main"
+    --syntax-module "$compile_syntax"
+    --for-proving
+    --output-directory "$output"
+    --builtin-directory "$K_CHECKOUT/k-distribution/include/kframework/builtin"
+  )
+  append_source_args rust
+  [[ -z "$hook_namespaces" ]] || rust_args+=(--hook-namespaces "$hook_namespaces")
+  [[ -z "$markdown_selector" ]] || rust_args+=(--md-selector "$markdown_selector")
+  "${rust_args[@]}"
+}
+
 run_proof() {
   local engine=$1
   local claim=$2
@@ -207,6 +227,7 @@ run_proof() {
   elif [[ "$engine" == krust ]]; then
     rust_args=(
       "$KRUST_BIN" kprove "$specification"
+      --compiled-definition "$work/krust-definition"
       --main-module "$spec_module"
       --definition-module "$definition_module"
       --claim "$claim"
@@ -218,6 +239,46 @@ run_proof() {
   else
     fail "unknown benchmark engine: $engine"
   fi
+}
+
+run_spec_compile() {
+  local work=$1
+  rust_args=(
+    "$KRUST_BIN" kcompile "$specification"
+    --compiled-definition "$work/krust-definition"
+    --main-module "$spec_module"
+    --definition-module "$definition_module"
+    --for-proving
+    --output-directory "$work/krust-specification"
+    --builtin-directory "$K_CHECKOUT/k-distribution/include/kframework/builtin"
+  )
+  append_source_args rust
+  [[ -z "$hook_namespaces" ]] || rust_args+=(--hook-namespaces "$hook_namespaces")
+  [[ -z "$markdown_selector" ]] || rust_args+=(--md-selector "$markdown_selector")
+  "${rust_args[@]}"
+}
+
+run_execute() {
+  local work=$1
+  local claim=$2
+  local timing_file=${3:-}
+  rust_args=(
+    "$KRUST_BIN" kprove
+    --compiled-definition "$work/krust-specification"
+    --main-module "$spec_module"
+    --claim "$claim"
+    --depth "$proof_depth"
+  )
+  [[ -z "$timing_file" ]] || rust_args+=(--timings "$timing_file")
+  "${rust_args[@]}"
+}
+
+run_load() {
+  local work=$1
+  "$KRUST_BIN" kprove \
+    --compiled-definition "$work/krust-specification" \
+    --main-module "$spec_module" \
+    --load-only
 }
 
 shell_command() {
@@ -232,10 +293,10 @@ command_for() {
   local suite=$3
   local work=$4
   local claim=${5:-}
-  if [[ "$phase" == compile ]]; then
-    shell_command "$script" __run compile "$engine" "$suite" "$work"
+  if [[ -n "$claim" ]]; then
+    shell_command "$script" __run "$phase" "$engine" "$suite" "$work" "$claim"
   else
-    shell_command "$script" __run prove "$engine" "$suite" "$work" "$claim"
+    shell_command "$script" __run "$phase" "$engine" "$suite" "$work"
   fi
 }
 
@@ -311,6 +372,7 @@ write_metadata() {
     --arg cpu "$cpu" \
     --arg memory_bytes "$memory" \
     --arg rust_revision "$(git -C "$workspace" rev-parse HEAD)" \
+    --argjson rust_dirty "$([[ -n "$(git -C "$workspace" status --porcelain --untracked-files=no)" ]] && echo true || echo false)" \
     --arg k_revision "$(git -C "$K_CHECKOUT" rev-parse HEAD)" \
     --arg semantics_revision "$(git -C "$source_checkout" rev-parse HEAD)" \
     --arg krust_version "$($KRUST_BIN --version)" \
@@ -324,7 +386,7 @@ write_metadata() {
       phase: $phase,
       timestamp: $timestamp,
       host: {system: $system, cpu: $cpu, memory_bytes: $memory_bytes},
-      revisions: {krust: $rust_revision, k: $k_revision, semantics: $semantics_revision},
+      revisions: {krust: $rust_revision, krust_dirty: $rust_dirty, k: $k_revision, semantics: $semantics_revision},
       tools: {krust: $krust_version, rustc: $rustc_version, canonical: $canonical_version, hyperfine: $hyperfine_version},
       environment: {GHCRTS: $ghcrts, K_OPTS: $k_opts}
     }' >"$result_dir/metadata.json"
@@ -358,13 +420,78 @@ default_runs() {
   case "$1:$2" in
     compile:imp) echo 3 ;;
     compile:kevm) echo 1 ;;
+    spec-compile:imp) echo 3 ;;
+    spec-compile:kevm) echo 1 ;;
+    load:imp) echo 5 ;;
+    load:kevm) echo 3 ;;
     prove:imp) echo 5 ;;
-    prove:kevm) echo 1 ;;
+    prove:kevm) echo 3 ;;
+    execute:imp) echo 5 ;;
+    execute:kevm) echo 3 ;;
   esac
 }
 
 default_warmup() {
-  if [[ "$1:$2" == prove:imp ]]; then echo 1; else echo 0; fi
+  case "$1:$2" in
+    load:*|prove:*|execute:*) echo 1 ;;
+    *) echo 0 ;;
+  esac
+}
+
+append_single_summary() {
+  local suite=$1
+  local case_name=$2
+  local result_json=$3
+  local rust_mean
+  rust_mean=$(jq -r '.results[] | select(.command == "krust") | .mean' "$result_json")
+  printf '| %s | %s | — | %.3f | — |\n' "$suite" "$case_name" "$rust_mean" >>"$results_root/summary.md"
+}
+
+benchmark_single() {
+  local suite=$1
+  local phase=$2
+  local claim=${3:-}
+  local case_name=$phase
+  [[ -z "$claim" ]] || case_name="$phase-${claim##*.}"
+  local result_dir="$results_root/$suite/$case_name"
+  local work="$BENCHMARK_WORK_ROOT/$suite"
+  local selected_runs=${runs_override:-$(default_runs "$phase" "$suite")}
+  local selected_warmup=${warmup_override:-$(default_warmup "$phase" "$suite")}
+  local rust_command
+  rust_command=$(command_for "$phase" krust "$suite" "$work" "$claim")
+  mkdir -p "$result_dir" "$work"
+  printf 'krust: %s\n' "$rust_command" >"$result_dir/commands.txt"
+  if [[ "$dry_run" == 1 ]]; then
+    echo "[$suite:$case_name]"
+    cat "$result_dir/commands.txt"
+    return
+  fi
+  if [[ ! -f "$work/krust-definition/krust.json" || ! -f "$work/krust-definition/parsed.json" ]]; then
+    echo "[$suite] preparing proof-ready krust definition"
+    "$script" __prepare-krust-proof "$suite" "$work"
+  fi
+  if [[ "$phase" != spec-compile && ! -f "$work/krust-specification/krust.json" ]]; then
+    echo "[$suite] compiling the specification against prepared semantics"
+    run_spec_compile "$work"
+  fi
+  if [[ "$skip_preflight" != 1 ]]; then
+    echo "[$suite:$case_name] correctness preflight"
+    "$script" __check "$phase" krust "$suite" "$work" "$claim" >"$result_dir/krust-preflight.log" 2>&1
+  fi
+  write_metadata "$suite" "$case_name" "$result_dir"
+  echo "[$suite:$case_name] benchmarking $selected_runs run(s), $selected_warmup warmup(s)"
+  "$HYPERFINE" \
+    --style basic \
+    --runs "$selected_runs" \
+    --warmup "$selected_warmup" \
+    --command-name krust "$rust_command" \
+    --export-json "$result_dir/results.json" \
+    --export-markdown "$result_dir/results.md"
+  append_single_summary "$suite" "$case_name" "$result_dir/results.json"
+  if [[ "$phase" == execute ]]; then
+    # A separate instrumented run measures prove_claim directly, not by subtracting load times.
+    run_execute "$work" "$claim" "$result_dir/phase-timings.json" >"$result_dir/timed-proof.log" 2>&1
+  fi
 }
 
 benchmark_pair() {
@@ -403,6 +530,10 @@ benchmark_pair() {
     echo "[$suite] preparing canonical Haskell definition"
     "$script" __prepare-proof "$suite" "$work"
   fi
+  if [[ "$phase" == prove && ( ! -f "$work/krust-definition/krust.json" || ! -f "$work/krust-definition/parsed.json" ) ]]; then
+    echo "[$suite] preparing proof-ready krust definition"
+    "$script" __prepare-krust-proof "$suite" "$work"
+  fi
   if [[ "$skip_preflight" != 1 ]]; then
     echo "[$suite:$case_name] correctness preflight"
     "$script" __check "$phase" canonical-haskell "$suite" "$work" "$claim" >"$result_dir/canonical-preflight.log" 2>&1
@@ -435,11 +566,14 @@ if [[ "${1:-}" == __run ]]; then
   internal_claim=${5:-}
   BENCHMARK_WORK_ROOT=${BENCHMARK_WORK_ROOT:?}
   configure_suite "$internal_suite"
-  if [[ "$internal_phase" == compile ]]; then
-    run_compile "$internal_engine" "$internal_work"
-  else
-    run_proof "$internal_engine" "$internal_claim" "$internal_work"
-  fi
+  case "$internal_phase" in
+    compile) run_compile "$internal_engine" "$internal_work" ;;
+    load) run_load "$internal_work" ;;
+    spec-compile) run_spec_compile "$internal_work" ;;
+    execute) run_execute "$internal_work" "$internal_claim" ;;
+    prove) run_proof "$internal_engine" "$internal_claim" "$internal_work" ;;
+    *) fail "unknown internal benchmark phase: $internal_phase" ;;
+  esac
   exit
 fi
 
@@ -448,6 +582,14 @@ if [[ "${1:-}" == __prepare-proof ]]; then
   BENCHMARK_WORK_ROOT=${BENCHMARK_WORK_ROOT:?}
   configure_suite "$1"
   prepare_proof "$2"
+  exit
+fi
+
+if [[ "${1:-}" == __prepare-krust-proof ]]; then
+  shift
+  BENCHMARK_WORK_ROOT=${BENCHMARK_WORK_ROOT:?}
+  configure_suite "$1"
+  prepare_krust_proof "$2"
   exit
 fi
 
@@ -474,9 +616,17 @@ if [[ "${1:-}" == __check ]]; then
   if [[ "$internal_phase" == compile ]]; then
     prepare_compile "$internal_engine" "$internal_work"
     run_compile "$internal_engine" "$internal_work"
+  elif [[ "$internal_phase" == load ]]; then
+    run_load "$internal_work"
+  elif [[ "$internal_phase" == spec-compile ]]; then
+    run_spec_compile "$internal_work"
   elif [[ "$internal_engine" == krust ]]; then
     proof_status=0
-    proof_output=$(run_proof "$internal_engine" "$internal_claim" "$internal_work" 2>&1) || proof_status=$?
+    if [[ "$internal_phase" == execute ]]; then
+      proof_output=$(run_execute "$internal_work" "$internal_claim" 2>&1) || proof_status=$?
+    else
+      proof_output=$(run_proof "$internal_engine" "$internal_claim" "$internal_work" 2>&1) || proof_status=$?
+    fi
     printf '%s\n' "$proof_output"
     [[ "$proof_status" == 0 ]] || exit "$proof_status"
     grep -Fq "claim $internal_claim: proven" <<<"$proof_output" || fail "krust did not prove $internal_claim"
@@ -515,12 +665,12 @@ while (($#)); do
 done
 
 case "$suite" in imp|kevm|all) ;; *) fail "--suite must be imp, kevm, or all" ;; esac
-case "$phase" in compile|prove|all) ;; *) fail "--phase must be compile, prove, or all" ;; esac
+case "$phase" in compile|spec-compile|load|execute|prove|all) ;; *) fail "unknown --phase: $phase" ;; esac
 [[ -z "$runs_override" || "$runs_override" =~ ^[1-9][0-9]*$ ]] || fail "--runs must be positive"
 [[ -z "$warmup_override" || "$warmup_override" =~ ^[0-9]+$ ]] || fail "--warmup must be non-negative"
 if [[ -n "$claim_override" ]]; then
   [[ "$suite" != all ]] || fail "--claim requires --suite imp or --suite kevm"
-  [[ "$phase" != compile ]] || fail "--claim cannot be used with --phase compile"
+  [[ "$phase" == prove || "$phase" == execute || "$phase" == all ]] || fail "--claim requires a proof phase"
   configure_suite "$suite"
   claim_found=0
   for known_claim in "${proof_claims[@]}"; do
@@ -535,10 +685,18 @@ fi
 if [[ "$list_only" == 1 ]]; then
   cat <<'EOF'
 imp/compile
+imp/spec-compile
+imp/load
+imp/execute/IMP-SIMPLE-SPEC.addition-var
+imp/execute/IMP-SIMPLE-SPEC.branching-program
+imp/execute/IMP-SIMPLE-SPEC.sum-loop
 imp/prove/IMP-SIMPLE-SPEC.addition-var
 imp/prove/IMP-SIMPLE-SPEC.branching-program
 imp/prove/IMP-SIMPLE-SPEC.sum-loop
 kevm/compile
+kevm/spec-compile
+kevm/load
+kevm/execute/SLOT-UPDATES-SPEC.gfob-min
 kevm/prove/SLOT-UPDATES-SPEC.gfob-min
 EOF
   exit
@@ -549,14 +707,15 @@ if [[ -z "$results_root" ]]; then
 elif [[ "$results_root" != /* ]]; then
   results_root="$workspace/$results_root"
 fi
-BENCHMARK_WORK_ROOT="$workspace/target/benchmarks/work"
+BENCHMARK_WORK_ROOT=${BENCHMARK_WORK_ROOT:-"$workspace/target/benchmarks/work"}
+[[ "$BENCHMARK_WORK_ROOT" == /* ]] || BENCHMARK_WORK_ROOT="$workspace/$BENCHMARK_WORK_ROOT"
 export K_CHECKOUT IMP_SEMANTICS_CHECKOUT EVM_SEMANTICS_CHECKOUT KRUST_BIN K_KOMPILE K_KPROVE
 export HYPERFINE REFERENCE_K_OPTS GHCRTS BENCHMARK_WORK_ROOT
 
 suites=()
 phases=()
 if [[ "$suite" == all ]]; then suites=(imp kevm); else suites=("$suite"); fi
-if [[ "$phase" == all ]]; then phases=(compile prove); else phases=("$phase"); fi
+if [[ "$phase" == all ]]; then phases=(compile spec-compile load execute prove); else phases=("$phase"); fi
 
 if [[ "$dry_run" != 1 ]]; then
   command -v jq >/dev/null 2>&1 || fail "jq is required to record benchmark metadata"
@@ -581,6 +740,16 @@ for selected_suite in "${suites[@]}"; do
   for selected_phase in "${phases[@]}"; do
     if [[ "$selected_phase" == compile ]]; then
       benchmark_pair "$selected_suite" compile
+    elif [[ "$selected_phase" == load || "$selected_phase" == spec-compile ]]; then
+      benchmark_single "$selected_suite" "$selected_phase"
+    elif [[ "$selected_phase" == execute ]]; then
+      if [[ -n "$claim_override" ]]; then
+        benchmark_single "$selected_suite" execute "$claim_override"
+      else
+        for selected_claim in "${proof_claims[@]}"; do
+          benchmark_single "$selected_suite" execute "$selected_claim"
+        done
+      fi
     elif [[ -n "$claim_override" ]]; then
       benchmark_pair "$selected_suite" prove "$claim_override"
     else

@@ -144,6 +144,37 @@ by the in-process Rust backend. Both modes write:
 - `syntaxDefinition.kore`
 - `macros.kore`
 
+Prepare semantics once, then prove new specifications against that parsed definition:
+
+```console
+krust kcompile semantics.k --main-module SEMANTICS --for-proving -o semantics-kompiled
+krust kprove spec.k --compiled-definition semantics-kompiled \
+  --main-module SPEC --definition-module SEMANTICS
+```
+
+This reuses parsed semantics without reopening their source files. The new specification is
+parsed, then compiler passes run on the combined definition. It is not yet a fully incremental
+compiler: those passes still process the semantics AST.
+
+To move specification compilation outside repeated proofs as well:
+
+```console
+krust kcompile spec.k \
+  --compiled-definition semantics-kompiled \
+  --main-module SPEC \
+  --definition-module SEMANTICS \
+  --for-proving \
+  --output-directory spec-kompiled
+```
+
+`--definition-module` defaults to the main module and is only needed when the specification
+imports the module that owns the configuration. Omit `--compiled-definition` to compile the
+specification and its source dependencies together. `--for-proving` selects all-path semantics
+for bare claims and writes `parsed.json` plus a versioned `krust.json` source-identity manifest
+alongside the KORE files. These extra files allow later specifications to reuse the parsed AST.
+Keep the bundle together and rebuild it when its semantics change; source freshness is not
+automatically checked. Source identities currently refer to their original absolute locations.
+
 Parse a concrete program as textual KAST or KAST JSON v4:
 
 ```console
@@ -261,6 +292,9 @@ krust kprove spec.k --main-module SPEC
 krust kprove spec.k --main-module SPEC --claim reaches-result --depth 1000
 krust kprove spec.k --main-module SPEC --graph-search depth-first
 krust kprove spec.k --main-module SPEC --definition-module SEMANTICS
+krust kprove --compiled-definition spec-kompiled --main-module SPEC
+krust kprove --compiled-definition spec-kompiled --main-module SPEC --load-only
+krust kprove --compiled-definition spec-kompiled --main-module SPEC --timings proof-timings.json
 ```
 
 Bare claims default to all-path semantics, matching the reference Haskell backend. Use
@@ -271,7 +305,21 @@ branching semantic rules, breadth-first or depth-first traversal, depth bounds, 
 conditions entirely in process. A specification can `requires` and import its semantics definition
 in the normal K source layout. The reference stuck-state heuristic is enabled by default; pass
 `--disable-stuck-check` to continue rewriting after destination terms match but their side
-conditions do not.
+conditions do not. `--compiled-definition` accepts either a `kcompile --for-proving` output
+directory or its `definition.kore` file. Without a positional source file, it never reloads the
+original K sources. With a source file, it uses the neighboring `parsed.json` and `krust.json` to
+compile that new specification against the prepared semantics. `--load-only`
+parses, validates, and internalizes that prepared definition without running a claim, which is
+useful for separating artifact-load cost from proof-command latency.
+
+`--timings FILE` writes seconds spent preparing the input (`input_seconds`), internalizing the
+backend (`internalize_seconds`), setting up the solver and selecting claims
+(`proof_setup_seconds`), and inside `prove_claim` (`proof_seconds`, also reported per claim).
+For prepared KORE, input preparation means file reading and KORE parsing; for source input it
+includes frontend compilation. Timings exclude process startup/teardown, output formatting,
+checkpoint writes, and the timing-file write. Load-only runs report zero proof time. Saved claims
+report `saved` with zero execution time. Failed verdicts still write timings; errors that abort
+before a verdict do not.
 
 Common source options:
 
@@ -454,6 +502,9 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
   while working; one-shot third-party cryptographic operations are checked at hook boundaries.
 
 ## TODOs
+
+- Incremental specification compilation: reuse lowered semantics passes as well as parsed KAST;
+  make prepared-source identities relocatable and add artifact freshness validation.
 
 - Map retained inner-parser byte spans back to absolute nested source locations and preserve all
   remaining nested term attributes.
