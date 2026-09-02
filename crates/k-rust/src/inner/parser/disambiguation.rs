@@ -2005,11 +2005,46 @@ impl Grammar {
     }
 
     fn is_preferred(&self, term: &ParsedTerm) -> bool {
-        matches!(term, ParsedTerm::Production { production, .. } | ParsedTerm::InstantiatedProduction { production, .. } if self.productions[*production].prefer)
+        match term {
+            ParsedTerm::Production { production, .. }
+            | ParsedTerm::InstantiatedProduction { production, .. } => {
+                self.productions[*production].prefer
+            }
+            // Token leaves retain the source production in their metadata. Java treats these
+            // constants as ProductionReferences, so token-level prefer must participate in the
+            // same ambiguity filtering as ordinary production nodes.
+            ParsedTerm::Term(term) => term
+                .metadata()
+                .and_then(|metadata| metadata.production)
+                .is_some_and(|source| {
+                    self.productions.iter().any(|production| {
+                        production
+                            .source_production
+                            .is_some_and(|candidate| candidate.0 == source.0 && production.prefer)
+                    })
+                }),
+            ParsedTerm::Ambiguity(_) => false,
+        }
     }
 
     fn is_avoided(&self, term: &ParsedTerm) -> bool {
-        matches!(term, ParsedTerm::Production { production, .. } | ParsedTerm::InstantiatedProduction { production, .. } if self.productions[*production].avoid)
+        match term {
+            ParsedTerm::Production { production, .. }
+            | ParsedTerm::InstantiatedProduction { production, .. } => {
+                self.productions[*production].avoid
+            }
+            ParsedTerm::Term(term) => term
+                .metadata()
+                .and_then(|metadata| metadata.production)
+                .is_some_and(|source| {
+                    self.productions.iter().any(|production| {
+                        production
+                            .source_production
+                            .is_some_and(|candidate| candidate.0 == source.0 && production.avoid)
+                    })
+                }),
+            ParsedTerm::Ambiguity(_) => false,
+        }
     }
 
     /// Lift ambiguity in a top-level rewrite LHS above its `#RuleContent` wrapper.
@@ -2571,6 +2606,53 @@ mod tests {
             "amb{avoided(), alsoAvoided()}"
         );
         assert_eq!(render(&grammar, &nested), "wrapper(preferred())");
+    }
+
+    #[test]
+    fn applies_prefer_and_avoid_to_token_production_metadata() {
+        let mut grammar = Grammar::default();
+        let preferred = grammar.productions.len();
+        grammar
+            .add(
+                Sort::new("TokenA"),
+                vec![ProductionItem::Terminal("x".into())],
+                Some(Label::new("tokenA")),
+                false,
+                false,
+            )
+            .unwrap();
+        let ordinary = grammar.productions.len();
+        grammar
+            .add(
+                Sort::new("TokenB"),
+                vec![ProductionItem::Terminal("x".into())],
+                Some(Label::new("tokenB")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[preferred].source_production = Some(ProductionId(10));
+        grammar.productions[preferred].prefer = true;
+        grammar.productions[ordinary].source_production = Some(ProductionId(11));
+
+        let token = |source, sort| {
+            ParsedTerm::Term(
+                Term::Token {
+                    token: "x".into(),
+                    sort: Sort::new(sort),
+                }
+                .with_metadata(crate::kast::TermMetadata {
+                    production: Some(crate::kast::ResolvedProductionId(source)),
+                    ..Default::default()
+                }),
+            )
+        };
+        let selected =
+            grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
+                token(10, "TokenA"),
+                token(11, "TokenB"),
+            ])));
+        assert_eq!(selected, token(10, "TokenA"));
     }
 
     #[test]
