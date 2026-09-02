@@ -357,41 +357,23 @@ fn solve_collection_pair(
         (TermKind::Set { .. }, TermKind::Set { .. }) => {
             solve_set_pair(mode, definition, &pattern, &subject, solution, narrowing)
         }
-        (TermKind::List { .. }, TermKind::List { .. }) => {
-            let direct = match_list_terms_all_in_definition(
-                mode,
-                definition,
-                &pattern,
-                &subject,
-                &solution.substitution,
-            );
-            let found = match direct {
-                Some(found) if !found.is_empty() => found,
-                direct => {
-                    let reverse = match_list_terms_all_in_definition(
-                        mode,
-                        definition,
-                        &subject,
-                        &pattern,
-                        &solution.substitution,
-                    );
-                    match (direct, reverse) {
-                        (_, Some(found)) => found,
-                        (Some(found), None) => found,
-                        (None, None) => return None,
-                    }
-                }
-            };
-            Some(
-                found
-                    .into_iter()
-                    .map(|substitution| CollectionSolution {
-                        substitution,
-                        constraints: solution.constraints.clone(),
-                        fresh: solution.fresh.clone(),
-                    })
-                    .collect(),
-            )
+        (TermKind::List { .. }, TermKind::List { .. }) => solve_list_pair(
+            mode,
+            definition,
+            &pattern,
+            &subject,
+            solution,
+            narrowing.is_some(),
+        ),
+        (
+            TermKind::Map { .. } | TermKind::Set { .. } | TermKind::List { .. },
+            TermKind::Variable(_),
+        ) if narrowing.is_some() => {
+            match solve_term_pair(mode, definition, solution, &pattern, &subject, true) {
+                PairSolution::Solved(solution) => Some(vec![solution]),
+                PairSolution::NoSolution => Some(Vec::new()),
+                PairSolution::Indeterminate => None,
+            }
         }
         _ => None,
     }
@@ -440,6 +422,243 @@ fn solve_term_pair(
         }
         MatchResult::Indeterminate { .. } => PairSolution::Indeterminate,
     }
+}
+
+fn solve_list_pair(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+    mut solution: CollectionSolution,
+    allow_narrowing: bool,
+) -> Option<Vec<CollectionSolution>> {
+    match match_terms_with_context(
+        mode,
+        &definition.sort_graph,
+        Some(definition),
+        pattern,
+        subject,
+    ) {
+        MatchResult::Success(found) => {
+            solution.substitution = compose(&found, &solution.substitution);
+            return Some(vec![solution]);
+        }
+        MatchResult::Failed(_) => return Some(Vec::new()),
+        MatchResult::Indeterminate { .. } if !allow_narrowing => return None,
+        MatchResult::Indeterminate {
+            substitution,
+            remainder: _,
+        } => {
+            solution.substitution = compose(&substitution, &solution.substitution);
+        }
+    }
+
+    let pattern = substitute(pattern, &solution.substitution);
+    let subject = substitute(subject, &solution.substitution);
+    let (
+        TermKind::List {
+            definition: pattern_definition,
+            heads: pattern_heads,
+            rest: pattern_rest,
+        },
+        TermKind::List {
+            definition: subject_definition,
+            heads: subject_heads,
+            rest: subject_rest,
+        },
+    ) = (pattern.kind(), subject.kind())
+    else {
+        return None;
+    };
+    if pattern_definition != subject_definition {
+        return Some(Vec::new());
+    }
+
+    match (pattern_rest, subject_rest) {
+        (None, Some((subject_middle, subject_tails))) => solve_single_list_frame(
+            mode,
+            definition,
+            pattern_definition,
+            solution,
+            pattern_heads,
+            subject_heads,
+            subject_middle,
+            subject_tails,
+            true,
+        ),
+        (Some((pattern_middle, pattern_tails)), None) => solve_single_list_frame(
+            mode,
+            definition,
+            pattern_definition,
+            solution,
+            subject_heads,
+            pattern_heads,
+            pattern_middle,
+            pattern_tails,
+            false,
+        ),
+        (Some((pattern_middle, pattern_tails)), Some((subject_middle, subject_tails))) => {
+            solve_two_list_frames(
+                mode,
+                definition,
+                pattern_definition,
+                solution,
+                pattern_heads,
+                pattern_middle,
+                pattern_tails,
+                subject_heads,
+                subject_middle,
+                subject_tails,
+            )
+        }
+        (None, None) => None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn solve_single_list_frame(
+    mode: MatchMode,
+    backend: &BackendDefinition,
+    definition: &Arc<ListDefinition>,
+    solution: CollectionSolution,
+    closed: &[Term],
+    framed_heads: &[Term],
+    frame: &Term,
+    framed_tails: &[Term],
+    frame_on_subject: bool,
+) -> Option<Vec<CollectionSolution>> {
+    if !matches!(frame.kind(), TermKind::Variable(_)) {
+        return None;
+    }
+    let Some(frame_end) = closed.len().checked_sub(framed_tails.len()) else {
+        return Some(Vec::new());
+    };
+    if framed_heads.len() > frame_end {
+        return Some(Vec::new());
+    }
+
+    let mut pairs = Vec::with_capacity(framed_heads.len() + framed_tails.len() + 1);
+    if frame_on_subject {
+        pairs.extend(
+            closed[..framed_heads.len()]
+                .iter()
+                .cloned()
+                .zip(framed_heads.iter().cloned()),
+        );
+        pairs.extend(
+            closed[frame_end..]
+                .iter()
+                .cloned()
+                .zip(framed_tails.iter().cloned()),
+        );
+        pairs.push((
+            Term::list(
+                definition.clone(),
+                closed[framed_heads.len()..frame_end].to_vec(),
+                None,
+            ),
+            frame.clone(),
+        ));
+    } else {
+        pairs.extend(
+            framed_heads
+                .iter()
+                .cloned()
+                .zip(closed[..framed_heads.len()].iter().cloned()),
+        );
+        pairs.extend(
+            framed_tails
+                .iter()
+                .cloned()
+                .zip(closed[frame_end..].iter().cloned()),
+        );
+        pairs.push((
+            frame.clone(),
+            Term::list(
+                definition.clone(),
+                closed[framed_heads.len()..frame_end].to_vec(),
+                None,
+            ),
+        ));
+    }
+    solve_ordered_term_pairs(mode, backend, solution, pairs)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn solve_two_list_frames(
+    mode: MatchMode,
+    backend: &BackendDefinition,
+    definition: &Arc<ListDefinition>,
+    solution: CollectionSolution,
+    pattern_heads: &[Term],
+    pattern_middle: &Term,
+    pattern_tails: &[Term],
+    subject_heads: &[Term],
+    subject_middle: &Term,
+    subject_tails: &[Term],
+) -> Option<Vec<CollectionSolution>> {
+    if !matches!(pattern_middle.kind(), TermKind::Variable(_))
+        || !matches!(subject_middle.kind(), TermKind::Variable(_))
+    {
+        return None;
+    }
+    let (mut pairs, head_remainder) = pair_prefix(pattern_heads, subject_heads);
+    let (tail_pairs, tail_remainder) = pair_suffix(pattern_tails, subject_tails);
+    pairs.extend(tail_pairs);
+    let (pattern_extra_heads, subject_extra_heads) = match head_remainder {
+        Some(PairRemainder::Left(terms)) => (terms, Vec::new()),
+        Some(PairRemainder::Right(terms)) => (Vec::new(), terms),
+        None => (Vec::new(), Vec::new()),
+    };
+    let (pattern_extra_tails, subject_extra_tails) = match tail_remainder {
+        Some(PairRemainder::Left(terms)) => (terms, Vec::new()),
+        Some(PairRemainder::Right(terms)) => (Vec::new(), terms),
+        None => (Vec::new(), Vec::new()),
+    };
+    let pattern_has_extra = !pattern_extra_heads.is_empty() || !pattern_extra_tails.is_empty();
+    let subject_has_extra = !subject_extra_heads.is_empty() || !subject_extra_tails.is_empty();
+    if pattern_has_extra && subject_has_extra {
+        return None;
+    }
+    let middle_pair = if pattern_has_extra {
+        (
+            Term::list(
+                definition.clone(),
+                pattern_extra_heads,
+                Some((pattern_middle.clone(), pattern_extra_tails)),
+            ),
+            subject_middle.clone(),
+        )
+    } else if subject_has_extra {
+        (
+            pattern_middle.clone(),
+            Term::list(
+                definition.clone(),
+                subject_extra_heads,
+                Some((subject_middle.clone(), subject_extra_tails)),
+            ),
+        )
+    } else {
+        (pattern_middle.clone(), subject_middle.clone())
+    };
+    pairs.push(middle_pair);
+    solve_ordered_term_pairs(mode, backend, solution, pairs)
+}
+
+fn solve_ordered_term_pairs(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    mut solution: CollectionSolution,
+    pairs: Vec<(Term, Term)>,
+) -> Option<Vec<CollectionSolution>> {
+    for (pattern, subject) in pairs {
+        solution = match solve_term_pair(mode, definition, solution, &pattern, &subject, true) {
+            PairSolution::Solved(solution) => solution,
+            PairSolution::NoSolution => return Some(Vec::new()),
+            PairSolution::Indeterminate => return None,
+        };
+    }
+    Some(vec![solution])
 }
 
 fn solve_map_pair(
@@ -668,8 +887,11 @@ impl MapCollectionProblem<'_> {
             }
             match &self.subject_rest {
                 None if remaining.is_empty() => solutions.push(solution),
-                Some(subject_rest) if remaining.is_empty() && narrowing.is_some() => {
+                Some(subject_rest) if narrowing.is_some() => {
                     if let TermKind::Variable(variable) = subject_rest.kind() {
+                        if !remaining.is_empty() {
+                            return;
+                        }
                         let empty = Term::map(self.definition.clone(), Vec::new(), None);
                         match solve_term_pair(
                             self.mode,
@@ -963,8 +1185,11 @@ impl SetCollectionProblem<'_> {
             }
             match &self.subject_rest {
                 None if remaining.is_empty() => solutions.push(solution),
-                Some(subject_rest) if remaining.is_empty() && narrowing.is_some() => {
+                Some(subject_rest) if narrowing.is_some() => {
                     if matches!(subject_rest.kind(), TermKind::Variable(_)) {
+                        if !remaining.is_empty() {
+                            return;
+                        }
                         let empty = Term::set(self.definition.clone(), Vec::new(), None);
                         match solve_term_pair(
                             self.mode,
@@ -1086,24 +1311,6 @@ fn match_set_terms_all(
 }
 
 #[cfg(test)]
-fn match_set_terms_all_in_definition(
-    mode: MatchMode,
-    definition: &BackendDefinition,
-    pattern: &Term,
-    subject: &Term,
-    initial: &Substitution,
-) -> Option<Vec<Substitution>> {
-    match_set_terms_all_with_context(
-        mode,
-        &definition.sort_graph,
-        Some(definition),
-        pattern,
-        subject,
-        initial,
-    )
-}
-
-#[cfg(test)]
 fn match_set_terms_all_with_context(
     mode: MatchMode,
     sorts: &SortGraph,
@@ -1200,24 +1407,6 @@ fn match_map_terms_all(
     match_map_terms_all_with_context(mode, sorts, None, pattern, subject, initial)
 }
 
-#[cfg(test)]
-fn match_map_terms_all_in_definition(
-    mode: MatchMode,
-    definition: &BackendDefinition,
-    pattern: &Term,
-    subject: &Term,
-    initial: &Substitution,
-) -> Option<Vec<Substitution>> {
-    match_map_terms_all_with_context(
-        mode,
-        &definition.sort_graph,
-        Some(definition),
-        pattern,
-        subject,
-        initial,
-    )
-}
-
 /// Enumerate complete collection matches for every deferred pair from an ordinary match.
 ///
 /// A deferred Set or Map pair may have multiple AC solutions. Returning all substitutions keeps
@@ -1237,109 +1426,6 @@ pub(crate) fn match_collection_remainders_all_in_definition(
                 .collect()
         },
     )
-}
-
-/// Enumerate symmetric collection unifiers for every deferred pair.
-///
-/// Ordinary matching deliberately binds only variables from the pattern. Rewriting can also
-/// narrow a symbolic configuration, so a closed rule-side collection must be allowed to solve an
-/// open subject-side collection. Prefer the ordinary orientation when it succeeds, preserving the
-/// reference backend's rule-variable bias, and try the reverse orientation only when it cannot
-/// decide the equation. Lists have a deterministic concatenation theory; Sets and Maps retain all
-/// AC permutations.
-#[cfg(test)]
-fn unify_collection_remainders_all_in_definition(
-    mode: MatchMode,
-    definition: &BackendDefinition,
-    initial: Substitution,
-    remainder: &[(Term, Term)],
-) -> Option<Vec<Substitution>> {
-    let mut solutions = vec![initial];
-    for (left, right) in remainder {
-        let mut next = Vec::new();
-        for substitution in solutions {
-            let direct = match_collection_pair_all_in_definition(
-                mode,
-                definition,
-                left,
-                right,
-                &substitution,
-            );
-            let found = match direct {
-                Some(found) if !found.is_empty() => found,
-                direct => {
-                    let reverse = match_collection_pair_all_in_definition(
-                        mode,
-                        definition,
-                        right,
-                        left,
-                        &substitution,
-                    );
-                    match (direct, reverse) {
-                        (_, Some(found)) => found,
-                        (Some(found), None) => found,
-                        (None, None) => return None,
-                    }
-                }
-            };
-            next.extend(found);
-        }
-        solutions = next;
-    }
-    solutions.sort();
-    solutions.dedup();
-    Some(solutions)
-}
-
-#[cfg(test)]
-fn match_collection_pair_all_in_definition(
-    mode: MatchMode,
-    definition: &BackendDefinition,
-    pattern: &Term,
-    subject: &Term,
-    initial: &Substitution,
-) -> Option<Vec<Substitution>> {
-    match_list_terms_all_in_definition(mode, definition, pattern, subject, initial)
-        .or_else(|| match_set_terms_all_in_definition(mode, definition, pattern, subject, initial))
-        .or_else(|| match_map_terms_all_in_definition(mode, definition, pattern, subject, initial))
-}
-
-fn match_list_terms_all_in_definition(
-    mode: MatchMode,
-    definition: &BackendDefinition,
-    pattern: &Term,
-    subject: &Term,
-    initial: &Substitution,
-) -> Option<Vec<Substitution>> {
-    let pattern = substitute(pattern, initial);
-    let subject = substitute(subject, initial);
-    let (
-        TermKind::List {
-            definition: pattern_definition,
-            ..
-        },
-        TermKind::List {
-            definition: subject_definition,
-            ..
-        },
-    ) = (pattern.kind(), subject.kind())
-    else {
-        return None;
-    };
-    if pattern_definition != subject_definition {
-        return Some(Vec::new());
-    }
-    match match_terms_with_context(
-        mode,
-        &definition.sort_graph,
-        Some(definition),
-        &pattern,
-        &subject,
-    ) {
-        MatchResult::Success(found) => Some(vec![compose(&found, initial)]),
-        MatchResult::Failed(_) => Some(Vec::new()),
-        MatchResult::Indeterminate { .. } => None,
-    }
 }
 
 #[derive(Clone)]
@@ -2219,14 +2305,26 @@ impl Matcher<'_> {
                 return Err(FailReason::DifferentValues(empty(), list(heads, None)));
             }
             (None, Some(rest), remainder) => {
-                let (left, right) = match remainder {
-                    Some(PairRemainder::Left(heads)) => {
-                        (list(heads, None), list(Vec::new(), Some(rest)))
-                    }
-                    Some(PairRemainder::Right(heads)) => (empty(), list(heads, Some(rest))),
-                    None => (empty(), list(Vec::new(), Some(rest))),
-                };
-                return Err(FailReason::DifferentValues(left, right));
+                let narrowable = self.mode == MatchMode::Rewrite
+                    && !matches!(remainder, Some(PairRemainder::Right(_)));
+                if narrowable {
+                    let pattern_heads = match remainder {
+                        Some(PairRemainder::Left(heads)) => heads,
+                        None => Vec::new(),
+                        Some(PairRemainder::Right(_)) => unreachable!("excluded above"),
+                    };
+                    self.defer(list(pattern_heads, None), list(Vec::new(), Some(rest)))?;
+                    Vec::new()
+                } else {
+                    let (left, right) = match remainder {
+                        Some(PairRemainder::Left(heads)) => {
+                            (list(heads, None), list(Vec::new(), Some(rest)))
+                        }
+                        Some(PairRemainder::Right(heads)) => (empty(), list(heads, Some(rest))),
+                        None => (empty(), list(Vec::new(), Some(rest))),
+                    };
+                    return Err(FailReason::DifferentValues(left, right));
+                }
             }
             (Some((middle, tails)), None, None) if tails.is_empty() => {
                 vec![(middle, empty())]
@@ -2421,6 +2519,7 @@ impl Matcher<'_> {
 
         if pattern_symbolic.is_empty() {
             let subject_is_empty = subject_elements.is_empty() && subject_rest.is_none();
+            let subject_has_rest = subject_rest.is_some();
             let subject = set(subject_elements.into_iter().collect(), subject_rest);
             if let Some(rest) = pattern_rest {
                 self.enqueue(rest, subject);
@@ -2428,6 +2527,9 @@ impl Matcher<'_> {
             }
             if subject_is_empty {
                 return Ok(());
+            }
+            if self.mode == MatchMode::Rewrite && subject_has_rest {
+                return self.defer(set(Vec::new(), None), subject);
             }
             return Err(FailReason::DifferentSymbols(set(Vec::new(), None), subject));
         }
@@ -2478,6 +2580,13 @@ impl Matcher<'_> {
             if subject.is_empty() {
                 return Ok(Vec::new());
             }
+            if self.mode == MatchMode::Rewrite && subject.rest.is_some() {
+                self.defer(
+                    pattern.to_term(definition.clone()),
+                    subject.to_term(definition.clone()),
+                )?;
+                return Ok(Vec::new());
+            }
             return Err(FailReason::DifferentSymbols(
                 pattern.to_term(definition.clone()),
                 subject.to_term(definition.clone()),
@@ -2506,6 +2615,7 @@ impl Matcher<'_> {
         if !pattern.symbolic.is_empty() {
             if subject.is_empty()
                 || (pattern.rest.is_none()
+                    && self.mode != MatchMode::Rewrite
                     && subject.concrete.is_empty()
                     && subject.symbolic.is_empty()
                     && subject
@@ -3131,6 +3241,7 @@ mod tests {
                 symbol listUnit{}() : SortList{} [function{}(), total{}(), hook{}("LIST.unit")]
                 symbol listItem{}(SortElement{}) : SortList{} [function{}(), total{}(), hook{}("LIST.element")]
                 symbol listConcat{}(SortList{}, SortList{}) : SortList{} [function{}(), hook{}("LIST.concat"), assoc{}()]
+                symbol opaqueList{}(SortElement{}) : SortList{} [function{}(), total{}()]
                 symbol setUnit{}() : SortSet{} [function{}(), total{}(), hook{}("SET.unit")]
                 symbol setItem{}(SortElement{}) : SortSet{} [function{}(), total{}(), hook{}("SET.element")]
                 symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{} [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}()]
@@ -3477,6 +3588,50 @@ mod tests {
     }
 
     #[test]
+    fn defers_a_closed_list_pattern_against_a_variable_frame_in_rewrite_mode() {
+        let definition = list_definition();
+        let first = domain_value(sort(), "first");
+        let frame = variable("FRAME", Sort::simple("ListSort"));
+        let pattern = Term::list(definition.clone(), vec![first.clone()], None);
+        let subject = Term::list(
+            definition.clone(),
+            vec![first.clone()],
+            Some((Term::variable(frame.clone()), Vec::new())),
+        );
+
+        assert!(matches!(
+            match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
+            MatchResult::Indeterminate { substitution, remainder }
+                if substitution.is_empty()
+                    && remainder == vec![(
+                        Term::list(definition.clone(), Vec::new(), None),
+                        Term::list(
+                            definition.clone(),
+                            Vec::new(),
+                            Some((Term::variable(frame.clone()), Vec::new())),
+                        ),
+                    )]
+        ));
+        assert!(matches!(
+            match_terms(MatchMode::Evaluate, &sort_graph(), &pattern, &subject),
+            MatchResult::Failed(FailReason::DifferentValues(_, _))
+        ));
+
+        let empty = Term::list(definition.clone(), Vec::new(), None);
+        let longer_subject = Term::list(
+            definition,
+            vec![first],
+            Some((Term::variable(frame), Vec::new())),
+        );
+        for mode in [MatchMode::Rewrite, MatchMode::Evaluate] {
+            assert!(matches!(
+                match_terms(mode, &sort_graph(), &empty, &longer_subject),
+                MatchResult::Failed(FailReason::DifferentValues(_, _))
+            ));
+        }
+    }
+
+    #[test]
     fn symmetrically_unifies_a_closed_list_with_an_open_list() {
         let definition = collection_definition();
         let first = r#"\dv{SortElement{}}("first")"#;
@@ -3492,22 +3647,21 @@ mod tests {
         let expected_rest = internal_term(&definition, &format!("listItem{{}}({second})"));
 
         assert_eq!(
-            unify_collection_remainders_all_in_definition(
-                MatchMode::Rewrite,
-                &definition,
-                Substitution::new(),
-                &[(closed, open)],
-            ),
-            Some(vec![Substitution::from([
-                (
-                    Variable::new("ELEMENT", Sort::simple("SortElement")),
-                    internal_term(&definition, first),
-                ),
-                (
-                    Variable::new("REST", Sort::simple("SortList")),
-                    expected_rest,
-                ),
-            ])])
+            solve_with_test_frames(&definition, &[(closed, open)]),
+            Some(vec![CollectionSolution {
+                substitution: Substitution::from([
+                    (
+                        Variable::new("ELEMENT", Sort::simple("SortElement")),
+                        internal_term(&definition, first),
+                    ),
+                    (
+                        Variable::new("REST", Sort::simple("SortList")),
+                        expected_rest,
+                    ),
+                ]),
+                constraints: Vec::new(),
+                fresh: BTreeSet::new(),
+            }])
         );
     }
 
@@ -3527,30 +3681,33 @@ mod tests {
         let element = Variable::new("ELEMENT", Sort::simple("SortElement"));
         let rest = Variable::new("REST", Sort::simple("SortSet"));
         let mut expected = vec![
-            Substitution::from([
-                (element.clone(), internal_term(&definition, first)),
-                (
-                    rest.clone(),
-                    internal_term(&definition, &format!("setItem{{}}({second})")),
-                ),
-            ]),
-            Substitution::from([
-                (element, internal_term(&definition, second)),
-                (
-                    rest,
-                    internal_term(&definition, &format!("setItem{{}}({first})")),
-                ),
-            ]),
+            CollectionSolution {
+                substitution: Substitution::from([
+                    (element.clone(), internal_term(&definition, first)),
+                    (
+                        rest.clone(),
+                        internal_term(&definition, &format!("setItem{{}}({second})")),
+                    ),
+                ]),
+                constraints: Vec::new(),
+                fresh: BTreeSet::new(),
+            },
+            CollectionSolution {
+                substitution: Substitution::from([
+                    (element, internal_term(&definition, second)),
+                    (
+                        rest,
+                        internal_term(&definition, &format!("setItem{{}}({first})")),
+                    ),
+                ]),
+                constraints: Vec::new(),
+                fresh: BTreeSet::new(),
+            },
         ];
         expected.sort();
 
         assert_eq!(
-            unify_collection_remainders_all_in_definition(
-                MatchMode::Rewrite,
-                &definition,
-                Substitution::new(),
-                &[(closed, open)],
-            ),
+            solve_with_test_frames(&definition, &[(closed, open)]),
             Some(expected)
         );
     }
@@ -3576,38 +3733,41 @@ mod tests {
         let value = Variable::new("VALUE", Sort::simple("SortValue"));
         let rest = Variable::new("REST", Sort::simple("SortMap"));
         let mut expected = vec![
-            Substitution::from([
-                (key.clone(), internal_term(&definition, first_key)),
-                (value.clone(), internal_term(&definition, first_value)),
-                (
-                    rest.clone(),
-                    internal_term(
-                        &definition,
-                        &format!("mapItem{{}}({second_key}, {second_value})"),
+            CollectionSolution {
+                substitution: Substitution::from([
+                    (key.clone(), internal_term(&definition, first_key)),
+                    (value.clone(), internal_term(&definition, first_value)),
+                    (
+                        rest.clone(),
+                        internal_term(
+                            &definition,
+                            &format!("mapItem{{}}({second_key}, {second_value})"),
+                        ),
                     ),
-                ),
-            ]),
-            Substitution::from([
-                (key, internal_term(&definition, second_key)),
-                (value, internal_term(&definition, second_value)),
-                (
-                    rest,
-                    internal_term(
-                        &definition,
-                        &format!("mapItem{{}}({first_key}, {first_value})"),
+                ]),
+                constraints: Vec::new(),
+                fresh: BTreeSet::new(),
+            },
+            CollectionSolution {
+                substitution: Substitution::from([
+                    (key, internal_term(&definition, second_key)),
+                    (value, internal_term(&definition, second_value)),
+                    (
+                        rest,
+                        internal_term(
+                            &definition,
+                            &format!("mapItem{{}}({first_key}, {first_value})"),
+                        ),
                     ),
-                ),
-            ]),
+                ]),
+                constraints: Vec::new(),
+                fresh: BTreeSet::new(),
+            },
         ];
         expected.sort();
 
         assert_eq!(
-            unify_collection_remainders_all_in_definition(
-                MatchMode::Rewrite,
-                &definition,
-                Substitution::new(),
-                &[(closed, open)],
-            ),
+            solve_with_test_frames(&definition, &[(closed, open)]),
             Some(expected)
         );
     }
@@ -3625,22 +3785,21 @@ mod tests {
         );
 
         assert_eq!(
-            unify_collection_remainders_all_in_definition(
-                MatchMode::Rewrite,
-                &definition,
-                Substitution::new(),
-                &[(left, right)],
-            ),
-            Some(vec![Substitution::from([
-                (
-                    Variable::new("T", Sort::simple("SortSet")),
-                    internal_term(&definition, "setUnit{}()"),
-                ),
-                (
-                    Variable::new("Y", Sort::simple("SortElement")),
-                    internal_term(&definition, "X:SortElement{}"),
-                ),
-            ])])
+            solve_with_test_frames(&definition, &[(left, right)]),
+            Some(vec![CollectionSolution {
+                substitution: Substitution::from([
+                    (
+                        Variable::new("T", Sort::simple("SortSet")),
+                        internal_term(&definition, "setUnit{}()"),
+                    ),
+                    (
+                        Variable::new("X", Sort::simple("SortElement")),
+                        internal_term(&definition, "Y:SortElement{}"),
+                    ),
+                ]),
+                constraints: Vec::new(),
+                fresh: BTreeSet::new(),
+            }])
         );
     }
 
@@ -3657,26 +3816,25 @@ mod tests {
         );
 
         assert_eq!(
-            unify_collection_remainders_all_in_definition(
-                MatchMode::Rewrite,
-                &definition,
-                Substitution::new(),
-                &[(left, right)],
-            ),
-            Some(vec![Substitution::from([
-                (
-                    Variable::new("K2", Sort::simple("SortKey")),
-                    internal_term(&definition, "K1:SortKey{}"),
-                ),
-                (
-                    Variable::new("T", Sort::simple("SortMap")),
-                    internal_term(&definition, "mapUnit{}()"),
-                ),
-                (
-                    Variable::new("V2", Sort::simple("SortValue")),
-                    internal_term(&definition, "V1:SortValue{}"),
-                ),
-            ])])
+            solve_with_test_frames(&definition, &[(left, right)]),
+            Some(vec![CollectionSolution {
+                substitution: Substitution::from([
+                    (
+                        Variable::new("K1", Sort::simple("SortKey")),
+                        internal_term(&definition, "K2:SortKey{}"),
+                    ),
+                    (
+                        Variable::new("T", Sort::simple("SortMap")),
+                        internal_term(&definition, "mapUnit{}()"),
+                    ),
+                    (
+                        Variable::new("V1", Sort::simple("SortValue")),
+                        internal_term(&definition, "V2:SortValue{}"),
+                    ),
+                ]),
+                constraints: Vec::new(),
+                fresh: BTreeSet::new(),
+            }])
         );
     }
 
@@ -3697,6 +3855,40 @@ mod tests {
             match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
             MatchResult::Success(Substitution::from([(value_variable, value)]))
         );
+    }
+
+    #[test]
+    fn defers_a_closed_map_pattern_against_a_variable_frame_in_rewrite_mode() {
+        let definition = map_definition();
+        let key = domain_value(Sort::simple("MapKey"), "key");
+        let value = domain_value(Sort::simple("MapValue"), "value");
+        let frame = variable("FRAME", Sort::simple("MapSort"));
+        let pattern = Term::map(definition.clone(), vec![(key.clone(), value.clone())], None);
+        let subject = Term::map(
+            definition.clone(),
+            vec![(key, value)],
+            Some(Term::variable(frame.clone())),
+        );
+
+        assert!(matches!(
+            match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
+            MatchResult::Indeterminate { substitution, remainder }
+                if substitution.is_empty()
+                    && remainder == vec![(
+                        Term::map(definition.clone(), Vec::new(), None),
+                        Term::map(
+                            definition.clone(),
+                            Vec::new(),
+                            Some(Term::variable(frame.clone())),
+                        ),
+                    )]
+        ));
+        for mode in [MatchMode::Evaluate, MatchMode::Implies] {
+            assert!(matches!(
+                match_terms(mode, &sort_graph(), &pattern, &subject),
+                MatchResult::Failed(FailReason::DifferentSymbols(_, _))
+            ));
+        }
     }
 
     #[test]
@@ -4119,6 +4311,175 @@ mod tests {
     }
 
     #[test]
+    fn solves_a_closed_map_pattern_into_a_variable_frame() {
+        let definition = collection_definition();
+        let first_key = r#"\dv{SortKey{}}("first")"#;
+        let first_value = r#"\dv{SortValue{}}("first-value")"#;
+        let second_key = r#"\dv{SortKey{}}("second")"#;
+        let second_value = r#"\dv{SortValue{}}("second-value")"#;
+        let closed_entry = internal_term(
+            &definition,
+            &format!("mapItem{{}}({first_key}, {first_value})"),
+        );
+        let matching_open = internal_term(
+            &definition,
+            &format!("mapConcat{{}}(mapItem{{}}({first_key}, {first_value}), FRAME:SortMap{{}})"),
+        );
+        assert_eq!(
+            solve_with_test_frames(&definition, &[(closed_entry.clone(), matching_open)]),
+            Some(vec![CollectionSolution {
+                substitution: Substitution::from([(
+                    Variable::new("FRAME", Sort::simple("SortMap")),
+                    internal_term(&definition, "mapUnit{}()"),
+                )]),
+                constraints: Vec::new(),
+                fresh: BTreeSet::new(),
+            }])
+        );
+
+        let symbolic_entry =
+            internal_term(&definition, "mapItem{}(KEY:SortKey{}, VALUE:SortValue{})");
+        let bare_frame = internal_term(&definition, "FRAME:SortMap{}");
+        assert_eq!(
+            solve_with_test_frames(&definition, &[(symbolic_entry.clone(), bare_frame)]),
+            Some(vec![CollectionSolution {
+                substitution: Substitution::from([(
+                    Variable::new("FRAME", Sort::simple("SortMap")),
+                    symbolic_entry,
+                )]),
+                constraints: Vec::new(),
+                fresh: BTreeSet::new(),
+            }])
+        );
+
+        let extra_open = internal_term(
+            &definition,
+            &format!(
+                "mapConcat{{}}(mapConcat{{}}(mapItem{{}}({first_key}, {first_value}), mapItem{{}}({second_key}, {second_value})), FRAME:SortMap{{}})"
+            ),
+        );
+        assert_eq!(
+            solve_with_test_frames(&definition, &[(closed_entry, extra_open)]),
+            Some(Vec::new())
+        );
+    }
+
+    #[test]
+    fn solves_a_closed_list_pattern_into_a_variable_frame() {
+        let definition = collection_definition();
+        let first = r#"\dv{SortElement{}}("first")"#;
+        let second = r#"\dv{SortElement{}}("second")"#;
+        let third = r#"\dv{SortElement{}}("third")"#;
+        let closed_one = internal_term(&definition, &format!("listItem{{}}({first})"));
+        let open_one = internal_term(
+            &definition,
+            &format!("listConcat{{}}(listItem{{}}({first}), FRAME:SortList{{}})"),
+        );
+        assert_eq!(
+            solve_with_test_frames(&definition, &[(closed_one.clone(), open_one)]),
+            Some(vec![CollectionSolution {
+                substitution: Substitution::from([(
+                    Variable::new("FRAME", Sort::simple("SortList")),
+                    internal_term(&definition, "listUnit{}()"),
+                )]),
+                constraints: Vec::new(),
+                fresh: BTreeSet::new(),
+            }])
+        );
+
+        let closed_three = internal_term(
+            &definition,
+            &format!(
+                "listConcat{{}}(listItem{{}}({first}), listConcat{{}}(listItem{{}}({second}), listItem{{}}({third})))"
+            ),
+        );
+        let open_ends = internal_term(
+            &definition,
+            &format!(
+                "listConcat{{}}(listItem{{}}({first}), listConcat{{}}(FRAME:SortList{{}}, listItem{{}}({third})))"
+            ),
+        );
+        assert_eq!(
+            solve_with_test_frames(&definition, &[(closed_three, open_ends)]),
+            Some(vec![CollectionSolution {
+                substitution: Substitution::from([(
+                    Variable::new("FRAME", Sort::simple("SortList")),
+                    internal_term(&definition, &format!("listItem{{}}({second})")),
+                )]),
+                constraints: Vec::new(),
+                fresh: BTreeSet::new(),
+            }])
+        );
+
+        let longer_open = internal_term(
+            &definition,
+            &format!(
+                "listConcat{{}}(listItem{{}}({first}), listConcat{{}}(listItem{{}}({second}), FRAME:SortList{{}}))"
+            ),
+        );
+        assert_eq!(
+            solve_with_test_frames(&definition, &[(closed_one.clone(), longer_open)]),
+            Some(Vec::new())
+        );
+
+        let opaque = internal_term(
+            &definition,
+            &format!("listConcat{{}}(listItem{{}}({first}), opaqueList{{}}(Y:SortElement{{}}))"),
+        );
+        assert!(solve_with_test_frames(&definition, &[(closed_one, opaque)]).is_none());
+    }
+
+    #[test]
+    fn solves_one_sided_residuals_between_variable_list_frames() {
+        let definition = collection_definition();
+        let first = r#"\dv{SortElement{}}("first")"#;
+        let second = r#"\dv{SortElement{}}("second")"#;
+        let third = r#"\dv{SortElement{}}("third")"#;
+        let fourth = r#"\dv{SortElement{}}("fourth")"#;
+        let longer_pattern = internal_term(
+            &definition,
+            &format!(
+                "listConcat{{}}(listItem{{}}({first}), listConcat{{}}(listItem{{}}({second}), PATTERN:SortList{{}}))"
+            ),
+        );
+        let shorter_subject = internal_term(
+            &definition,
+            &format!("listConcat{{}}(listItem{{}}({first}), SUBJECT:SortList{{}})"),
+        );
+
+        assert_eq!(
+            solve_with_test_frames(&definition, &[(longer_pattern, shorter_subject)]),
+            Some(vec![CollectionSolution {
+                substitution: Substitution::from([(
+                    Variable::new("SUBJECT", Sort::simple("SortList")),
+                    internal_term(
+                        &definition,
+                        &format!("listConcat{{}}(listItem{{}}({second}), PATTERN:SortList{{}})"),
+                    ),
+                )]),
+                constraints: Vec::new(),
+                fresh: BTreeSet::new(),
+            }])
+        );
+
+        let opposing_pattern = internal_term(
+            &definition,
+            &format!(
+                "listConcat{{}}(listItem{{}}({first}), listConcat{{}}(listItem{{}}({second}), listConcat{{}}(PATTERN:SortList{{}}, listItem{{}}({fourth}))))"
+            ),
+        );
+        let opposing_subject = internal_term(
+            &definition,
+            &format!(
+                "listConcat{{}}(listItem{{}}({first}), listConcat{{}}(SUBJECT:SortList{{}}, listConcat{{}}(listItem{{}}({third}), listItem{{}}({fourth}))))"
+            ),
+        );
+        assert!(
+            solve_with_test_frames(&definition, &[(opposing_pattern, opposing_subject)]).is_none()
+        );
+    }
+
+    #[test]
     fn expands_closed_destination_maps_against_open_current_maps() {
         let definition = map_definition();
         let key = var("KEY", Sort::simple("MapKey"));
@@ -4370,6 +4731,25 @@ mod tests {
         assert!(matches!(
             match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &closed_subject,),
             MatchResult::Success(_)
+        ));
+    }
+
+    #[test]
+    fn defers_a_closed_set_pattern_against_a_variable_frame_in_rewrite_mode() {
+        let definition = set_definition();
+        let first = domain_value(Sort::simple("SetElement"), "first");
+        let frame = variable("FRAME", Sort::simple("SetSort"));
+        let pattern = Term::set(definition.clone(), vec![first.clone()], None);
+        let subject = Term::set(definition, vec![first], Some(Term::variable(frame)));
+
+        assert!(matches!(
+            match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
+            MatchResult::Indeterminate { substitution, remainder }
+                if substitution.is_empty() && remainder.len() == 1
+        ));
+        assert!(matches!(
+            match_terms(MatchMode::Evaluate, &sort_graph(), &pattern, &subject),
+            MatchResult::Failed(FailReason::DifferentSymbols(_, _))
         ));
     }
 

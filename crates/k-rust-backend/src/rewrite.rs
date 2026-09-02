@@ -4220,6 +4220,59 @@ mod tests {
         BackendDefinition::internalize(&syntax, "MAIN").expect("set definition should internalize")
     }
 
+    #[cfg(feature = "z3")]
+    fn closed_collection_frame_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortElement{} [hasDomainValues{}()]
+                hooked-sort SortList{}
+                    [hook{}("LIST.List"), unit{}(listUnit{}()), element{}(listItem{}()), concat{}(listConcat{}())]
+                hooked-sort SortSet{}
+                    [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
+                sort SortListState{} []
+                sort SortSetState{} []
+                symbol listUnit{}() : SortList{}
+                    [function{}(), total{}(), hook{}("LIST.unit")]
+                symbol listItem{}(SortElement{}) : SortList{}
+                    [function{}(), total{}(), hook{}("LIST.element")]
+                symbol listConcat{}(SortList{}, SortList{}) : SortList{}
+                    [function{}(), hook{}("LIST.concat"), assoc{}()]
+                symbol setUnit{}() : SortSet{}
+                    [function{}(), total{}(), hook{}("SET.unit")]
+                symbol setItem{}(SortElement{}) : SortSet{}
+                    [function{}(), total{}(), hook{}("SET.element")]
+                symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{}
+                    [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}()]
+                symbol listState{}(SortList{}) : SortListState{} [constructor{}()]
+                symbol listDone{}() : SortListState{} [constructor{}()]
+                symbol setState{}(SortSet{}) : SortSetState{} [constructor{}()]
+                symbol setDone{}() : SortSetState{} [constructor{}()]
+                axiom{} \rewrites{SortListState{}}(
+                    \and{SortListState{}}(
+                        listState{}(
+                            listItem{}(\dv{SortElement{}}("first"))
+                        ),
+                        \top{SortListState{}}()
+                    ),
+                    listDone{}()
+                ) [label{}("closed-list")]
+                axiom{} \rewrites{SortSetState{}}(
+                    \and{SortSetState{}}(
+                        setState{}(
+                            setItem{}(\dv{SortElement{}}("first"))
+                        ),
+                        \top{SortSetState{}}()
+                    ),
+                    setDone{}()
+                ) [label{}("closed-set")]
+            endmodule []"#,
+        )
+        .expect("closed collection definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("closed collection definition should internalize")
+    }
+
     fn opaque_set_narrowing_definition() -> BackendDefinition {
         let syntax = parse_definition(
             r#"[]
@@ -8039,6 +8092,96 @@ mod tests {
             branches
                 .iter()
                 .all(|branch| branch.pattern.constraints.is_empty())
+        );
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn narrows_a_closed_set_pattern_into_an_empty_subject_frame() {
+        let definition = closed_collection_frame_definition();
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                r#"setState{}(setConcat{}(setItem{}(\dv{SortElement{}}("first")), FRAME:SortSet{}))"#,
+            ),
+            constraints: Vec::new(),
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("closed Set matching should produce applied and complementary branches");
+        };
+        let [branch] = branches.as_slice() else {
+            panic!("the empty-frame assignment should be unique: {branches:?}");
+        };
+        let frame_is_empty = Predicate::Equals(
+            internal_term(&definition, "FRAME:SortSet{}"),
+            internal_term(&definition, "setUnit{}()"),
+        );
+
+        assert_eq!(
+            branch.pattern.term,
+            internal_term(&definition, "setDone{}()")
+        );
+        assert_eq!(
+            branch.pattern.constraints.as_slice(),
+            std::slice::from_ref(&frame_is_empty)
+        );
+        assert_eq!(remainder.pattern.term, subject.term);
+        assert_eq!(
+            remainder.pattern.constraints,
+            [Predicate::Not(Box::new(frame_is_empty))]
+        );
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn narrows_a_closed_list_pattern_into_an_empty_subject_frame() {
+        let definition = closed_collection_frame_definition();
+        let subject = Pattern {
+            term: internal_term(
+                &definition,
+                r#"listState{}(listConcat{}(listItem{}(\dv{SortElement{}}("first")), FRAME:SortList{}))"#,
+            ),
+            constraints: Vec::new(),
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("closed List matching should produce applied and complementary branches");
+        };
+        let [branch] = branches.as_slice() else {
+            panic!("the empty-frame assignment should be unique: {branches:?}");
+        };
+        let frame_is_empty = Predicate::Equals(
+            internal_term(&definition, "FRAME:SortList{}"),
+            internal_term(&definition, "listUnit{}()"),
+        );
+
+        assert_eq!(
+            branch.pattern.term,
+            internal_term(&definition, "listDone{}()")
+        );
+        assert_eq!(
+            branch.pattern.constraints.as_slice(),
+            std::slice::from_ref(&frame_is_empty)
+        );
+        assert_eq!(remainder.pattern.term, subject.term);
+        assert_eq!(
+            remainder.pattern.constraints,
+            [Predicate::Not(Box::new(frame_is_empty))]
         );
     }
 
