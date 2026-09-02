@@ -31,6 +31,7 @@ pub use checks::{
     check_rewrites, check_rhs_variables, check_smt_lemmas, check_sort_top_uniqueness,
     check_streams, check_syntax_groups, check_tokens,
 };
+pub(crate) use configuration::expand_configurations_allowing_reserved_cells;
 pub use configuration::{ConfigurationError, expand_configurations};
 pub use ordering::{
     Error as OrderingError, compare_attributes, compare_sentences, compare_terms,

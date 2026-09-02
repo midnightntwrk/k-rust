@@ -7,7 +7,7 @@ use serde_json::json;
 use crate::{
     definition::{
         Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, ResolvedDefinition,
-        Sentence, expand_configurations, sentence_equivalent,
+        Sentence, expand_configurations_allowing_reserved_cells, sentence_equivalent,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
@@ -126,8 +126,8 @@ fn resolve_fresh_constants_inner(
         return Err(ResolveFreshConstantsError { diagnostics });
     }
 
-    let mut expanded =
-        expand_configurations(&output).map_err(|error| error_from(error.to_string()))?;
+    let mut expanded = expand_configurations_allowing_reserved_cells(&output)
+        .map_err(|error| error_from(error.to_string()))?;
     for module in &mut expanded.modules {
         for sentence in &mut module.local_sentences {
             fix_generated_top_format(sentence);

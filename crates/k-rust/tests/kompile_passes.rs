@@ -2329,6 +2329,32 @@ fn resolves_fresh_variables_and_generates_the_counter_configuration() {
 }
 
 #[test]
+fn expands_the_internally_generated_counter_configuration() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <k> 0 </k>
+        endmodule
+    "#};
+    let definition = add_implicit_computation_cell(&parsed(source)).unwrap();
+    let transformed = resolve_fresh_constants(&definition, 0)
+        .expect("K's generated counter cell must bypass the user-name reservation");
+
+    assert!(
+        transformed
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .any(|sentence| matches!(
+                sentence,
+                Sentence::Production { label: Some(label), .. }
+                    if label.name == "<generatedCounter>"
+            ))
+    );
+}
+
+#[test]
 fn preserves_explicit_cell_variables_while_sorting_cell_fragments() {
     let source = indoc! {r#"
         module MAIN
