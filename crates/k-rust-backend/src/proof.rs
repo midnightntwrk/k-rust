@@ -26,7 +26,7 @@ use crate::{
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
         simplify_predicates_with_solver, simplify_with_solver,
     },
-    smt::{SmtError, SmtSolver, Validity},
+    smt::{Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, substitute},
     term::{Term, TermKind},
     timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
@@ -226,17 +226,8 @@ pub fn prove_claim(
                 continue;
             }
         };
-        // An inconsistent claim antecedent is a valid implication. This is distinct from an
-        // execution branch becoming bottom after a rewrite, which remains governed by
-        // `allow_vacuous` below (matching the reference prover's custom-simplification tests).
-        if state.depth == 0
-            && state.trace.is_empty()
-            && predicates_truth(&state.pattern.constraints) == Truth::False
-        {
-            let outcome = ProofLeafOutcome::Proven(ImplicationCondition {
-                predicates: vec![crate::rule::Predicate::False],
-                substitution: Default::default(),
-            });
+        if predicates_truth(&state.pattern.constraints) == Truth::False {
+            let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
             record_leaf!(state.leaf(outcome));
             continue;
         }
@@ -273,15 +264,8 @@ pub fn prove_claim(
                 }),
         );
 
-        if predicates_truth(&state.pattern.constraints) == Truth::False {
-            let outcome = if options.allow_vacuous {
-                ProofLeafOutcome::Proven(ImplicationCondition {
-                    predicates: vec![crate::rule::Predicate::False],
-                    substitution: Default::default(),
-                })
-            } else {
-                ProofLeafOutcome::Vacuous
-            };
+        if state_is_bottom(&state, solver) {
+            let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
             record_leaf!(state.leaf(outcome));
             continue;
         }
@@ -303,10 +287,15 @@ pub fn prove_claim(
             let implication = implication.map_err(ProofError::Implication)?;
             match implication.status {
                 ImplicationStatus::Valid => {
-                    let condition = implication
-                        .condition
-                        .expect("a valid implication always has a condition");
-                    record_leaf!(state.leaf(ProofLeafOutcome::Proven(condition)));
+                    let outcome = if implication.vacuous {
+                        vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous)
+                    } else {
+                        let condition = implication
+                            .condition
+                            .expect("a valid implication always has a condition");
+                        ProofLeafOutcome::Proven(condition)
+                    };
+                    record_leaf!(state.leaf(outcome));
                     continue;
                 }
                 ImplicationStatus::Invalid if implication.condition.is_some() => {
@@ -484,16 +473,19 @@ pub fn prove_claim(
                 };
                 record_leaf!(state.leaf(outcome));
             }
-            RewriteResult::Trivial(_) => record_leaf!(state.leaf(ProofLeafOutcome::Trivial)),
+            RewriteResult::Trivial(_) => {
+                state.depth += 1;
+                state.trace.push(TraceEntry {
+                    depth: state.depth,
+                    kind: TraceKind::Rewrite,
+                    label: None,
+                    unique_id: "trivial".into(),
+                });
+                let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Trivial);
+                record_leaf!(state.leaf(outcome));
+            }
             RewriteResult::Vacuous(_) => {
-                let outcome = if options.allow_vacuous {
-                    ProofLeafOutcome::Proven(ImplicationCondition {
-                        predicates: vec![crate::rule::Predicate::False],
-                        substitution: Default::default(),
-                    })
-                } else {
-                    ProofLeafOutcome::Vacuous
-                };
+                let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
                 record_leaf!(state.leaf(outcome));
             }
             RewriteResult::Indeterminate { reason, .. } => {
@@ -964,6 +956,30 @@ fn is_proven(leaf: &ProofLeaf) -> bool {
     )
 }
 
+fn state_is_bottom(state: &ProofState, solver: &dyn SmtSolver) -> bool {
+    predicates_truth(&state.pattern.constraints) == Truth::False
+        || matches!(
+            solver.is_sat(&state.pattern.constraints, &Substitution::new()),
+            Ok(Satisfiability::Unsat)
+        )
+}
+
+/// Kore accepts a bottom initial claim, but rejects bottom successors unless vacuity is allowed.
+fn vacuous_outcome(
+    state: &ProofState,
+    options: ProofOptions,
+    cause: ProofLeafOutcome,
+) -> ProofLeafOutcome {
+    if (state.depth == 0 && state.trace.is_empty()) || options.allow_vacuous {
+        ProofLeafOutcome::Proven(ImplicationCondition {
+            predicates: vec![crate::rule::Predicate::False],
+            substitution: Substitution::new(),
+        })
+    } else {
+        cause
+    }
+}
+
 fn extend_unique(left: &mut Vec<crate::rule::Predicate>, right: Vec<crate::rule::Predicate>) {
     for predicate in right {
         if !left.contains(&predicate) {
@@ -1063,6 +1079,31 @@ mod tests {
             _checked: &[crate::rule::Predicate],
         ) -> Result<Validity, SmtError> {
             self.validity.clone()
+        }
+    }
+
+    struct NonemptyUnsatSolver;
+
+    impl SmtSolver for NonemptyUnsatSolver {
+        fn is_sat(
+            &self,
+            predicates: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+        ) -> Result<Satisfiability, SmtError> {
+            Ok(if predicates.is_empty() {
+                Satisfiability::Sat
+            } else {
+                Satisfiability::Unsat
+            })
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+            _checked: &[crate::rule::Predicate],
+        ) -> Result<Validity, SmtError> {
+            Ok(Validity::Indeterminate)
         }
     }
 
@@ -1760,25 +1801,114 @@ mod tests {
     }
 
     #[test]
-    fn explicit_bottom_rewrites_are_nonclosing() {
-        let claims = modal_claim(ReachabilityMode::AllPath, "a", "b", false);
-        let definition = definition(A_TO_BOTTOM, &claims);
+    fn bottom_rewrites_are_vacuous_unless_allowed() {
+        for mode in [ReachabilityMode::OnePath, ReachabilityMode::AllPath] {
+            let claims = modal_claim(mode, "a", "b", false);
+            let definition = definition(A_TO_BOTTOM, &claims);
+            let claim = &definition.reachability_claims[0];
+
+            let rejected =
+                prove_claim(&definition, claim, ProofOptions::default(), &NoSolver).unwrap();
+            assert_eq!(rejected.status, ProofStatus::Disproved, "{rejected:#?}");
+            assert!(matches!(
+                rejected.leaves.as_slice(),
+                [ProofLeaf {
+                    depth: 1,
+                    trace,
+                    outcome: ProofLeafOutcome::Trivial,
+                    ..
+                }] if matches!(trace.as_slice(), [TraceEntry {
+                    depth: 1,
+                    kind: TraceKind::Rewrite,
+                    label: None,
+                    unique_id,
+                }] if unique_id == "trivial")
+            ));
+
+            let allowed = prove_claim(
+                &definition,
+                claim,
+                ProofOptions {
+                    allow_vacuous: true,
+                    ..ProofOptions::default()
+                },
+                &NoSolver,
+            )
+            .unwrap();
+            assert_eq!(allowed.status, ProofStatus::Proven, "{allowed:#?}");
+            assert!(matches!(
+                allowed.leaves.as_slice(),
+                [ProofLeaf {
+                    depth: 1,
+                    outcome: ProofLeafOutcome::Proven(ImplicationCondition {
+                        predicates,
+                        ..
+                    }),
+                    ..
+                }] if predicates == &[crate::rule::Predicate::False]
+            ));
+        }
+    }
+
+    #[test]
+    fn smt_unsat_state_after_a_step_is_vacuous() {
+        let rules = r#"
+            symbol opaque{}() : SortS{} [function{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    a{}(),
+                    \equals{SortS{}, SortS{}}(opaque{}(), a{}())
+                ),
+                b{}()
+            ) [label{}("a-to-b-under-opaque-condition")]
+        "#;
+        let claims = modal_claim(ReachabilityMode::AllPath, "a", "c", false);
+        let definition = definition(rules, &claims);
         let claim = &definition.reachability_claims[0];
 
-        let result = prove_claim(&definition, claim, ProofOptions::default(), &NoSolver).unwrap();
-
-        assert_eq!(result.status, ProofStatus::Disproved);
+        let rejected = prove_claim(
+            &definition,
+            claim,
+            ProofOptions::default(),
+            &NonemptyUnsatSolver,
+        )
+        .unwrap();
+        assert_eq!(rejected.status, ProofStatus::Disproved, "{rejected:#?}");
         assert!(matches!(
-            result.leaves.as_slice(),
+            rejected.leaves.as_slice(),
             [ProofLeaf {
-                outcome: ProofLeafOutcome::Trivial,
+                depth: 1,
+                outcome: ProofLeafOutcome::Vacuous,
                 ..
             }]
+        ));
+
+        let allowed = prove_claim(
+            &definition,
+            claim,
+            ProofOptions {
+                allow_vacuous: true,
+                ..ProofOptions::default()
+            },
+            &NonemptyUnsatSolver,
+        )
+        .unwrap();
+        assert_eq!(allowed.status, ProofStatus::Proven, "{allowed:#?}");
+        assert!(matches!(
+            allowed.leaves.as_slice(),
+            [ProofLeaf {
+                depth: 1,
+                outcome: ProofLeafOutcome::Proven(ImplicationCondition {
+                    predicates,
+                    ..
+                }),
+                ..
+            }] if predicates == &[crate::rule::Predicate::False]
         ));
     }
 
     #[test]
-    fn proves_claims_with_inconsistent_initial_constraints() {
+    fn inconsistent_antecedent_is_accepted_at_depth_zero_including_smt_unsat() {
         let claims = r#"
             claim{} \implies{SortS{}}(
                 \and{SortS{}}(\bottom{SortS{}}(), a{}()),
@@ -1787,16 +1917,53 @@ mod tests {
                 )
             ) [label{}("false-antecedent")]
         "#;
-        let definition = definition("", claims);
-        let claim = &definition.reachability_claims[0];
+        let syntactic_definition = definition("", claims);
+        let claim = &syntactic_definition.reachability_claims[0];
 
-        let result = prove_claim(&definition, claim, ProofOptions::default(), &NoSolver).unwrap();
+        let result = prove_claim(
+            &syntactic_definition,
+            claim,
+            ProofOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
 
         assert_eq!(result.status, ProofStatus::Proven);
         assert!(matches!(
             result.leaves.as_slice(),
             [ProofLeaf {
                 outcome: ProofLeafOutcome::Proven(ImplicationCondition { predicates, .. }),
+                ..
+            }] if predicates == &[crate::rule::Predicate::False]
+        ));
+
+        let claims = r#"
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(
+                    a{}(),
+                    \equals{SortS{}, SortS{}}(opaque{}(), a{}())
+                ),
+                weakAlwaysFinally{SortS{}}(b{}())
+            ) [label{}("smt-unsat-antecedent")]
+        "#;
+        let definition = definition("symbol opaque{}() : SortS{} [function{}()]", claims);
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &NonemptyUnsatSolver,
+        )
+        .unwrap();
+
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        assert!(matches!(
+            result.leaves.as_slice(),
+            [ProofLeaf {
+                depth: 0,
+                outcome: ProofLeafOutcome::Proven(ImplicationCondition {
+                    predicates,
+                    ..
+                }),
                 ..
             }] if predicates == &[crate::rule::Predicate::False]
         ));

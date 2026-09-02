@@ -680,6 +680,7 @@ impl RpcService {
                 status: ImplicationStatus::Invalid,
                 condition: None,
                 failure: None,
+                vacuous: false,
             };
             let antecedent = simplified_implication_response_syntax(
                 &definition,
@@ -1180,18 +1181,21 @@ fn special_implication_result(
             status: ImplicationStatus::Valid,
             condition: condition(vec![Predicate::False]),
             failure: None,
+            vacuous: false,
         })
     } else if matches!(consequent, KorePattern::Top { .. }) {
         Some(ImplicationResult {
             status: ImplicationStatus::Valid,
             condition: condition(Vec::new()),
             failure: None,
+            vacuous: false,
         })
     } else if matches!(consequent, KorePattern::Bottom { .. }) {
         Some(ImplicationResult {
             status: ImplicationStatus::Invalid,
             condition: condition(vec![Predicate::False]),
             failure: Some(ImplicationFailure::ConsequentCondition),
+            vacuous: false,
         })
     } else {
         None

@@ -1929,6 +1929,61 @@ fn kprove_one_path_claim_fails_on_the_uncovered_case() {
 }
 
 #[test]
+fn kprove_rejects_claims_reached_only_through_bottom() {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/proof/split");
+    let specification = fixtures.join("trivial-spec.k");
+    let common = [
+        "kprove",
+        specification.to_str().unwrap(),
+        "--main-module",
+        "TRIVIAL-SPEC",
+        "--definition-module",
+        "SPLIT",
+        "--depth",
+        "10",
+    ];
+
+    let rejected = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(common)
+        .output()
+        .unwrap();
+    let rejected_stdout = String::from_utf8(rejected.stdout).unwrap();
+    assert!(!rejected.status.success(), "{rejected_stdout}");
+    for claim in ["TRIVIAL-SPEC.ct1", "TRIVIAL-SPEC.ct2"] {
+        assert!(
+            rejected_stdout.contains(&format!("claim {claim}: disproved")),
+            "{rejected_stdout}"
+        );
+    }
+    assert!(
+        rejected_stdout.contains("Trivial at depth 1"),
+        "{rejected_stdout}"
+    );
+    assert!(
+        rejected_stdout.contains(
+            "the left-hand side of the claim has been simplified to bottom \
+             (--allow-vacuous accepts such branches)"
+        ),
+        "{rejected_stdout}"
+    );
+
+    let allowed = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(common)
+        .arg("--allow-vacuous")
+        .output()
+        .unwrap();
+    let allowed_stdout = String::from_utf8(allowed.stdout).unwrap();
+    assert!(allowed.status.success(), "{allowed_stdout}");
+    for claim in ["TRIVIAL-SPEC.ct1", "TRIVIAL-SPEC.ct2"] {
+        assert!(
+            allowed_stdout.contains(&format!("claim {claim}: proven")),
+            "{allowed_stdout}"
+        );
+    }
+}
+
+#[test]
 fn kprove_recalls_the_same_claim_from_another_spec_module() {
     let (root, _) = fixture();
     let saved_proofs = root.join("proofs.kore");

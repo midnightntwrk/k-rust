@@ -1778,6 +1778,7 @@ fn kore_implies_inner(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
             status: ImplicationStatus::Invalid,
             condition: None,
             failure: None,
+            vacuous: false,
         }
     } else {
         let (consequent, consequent_existentials) = backend
@@ -2715,6 +2716,15 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                 )
             }) {
                 println!("  {:?} at depth {}", leaf.outcome, leaf.depth);
+                if matches!(
+                    leaf.outcome,
+                    ProofLeafOutcome::Vacuous | ProofLeafOutcome::Trivial
+                ) {
+                    println!(
+                        "  the left-hand side of the claim has been simplified to bottom \
+                         (--allow-vacuous accepts such branches)"
+                    );
+                }
                 let pattern = externalize::constrained_pattern(&leaf.pattern);
                 let rendered = KorePrinter::pretty(100).print_pattern(&pattern);
                 for line in rendered.lines() {
