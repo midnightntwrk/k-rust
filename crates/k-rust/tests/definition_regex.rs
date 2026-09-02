@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use ::regex::Regex as RustRegex;
 use indoc::indoc;
 use k_rust::definition::regex;
 use k_rust::definition::{
@@ -77,6 +78,63 @@ fn java_compatible_printer_preserves_the_reference_anchor_bug_explicitly() {
     assert_eq!(end.to_java_string(), "a");
     assert_eq!(start.to_source_string(), "^a");
     assert_eq!(end.to_source_string(), "a$");
+}
+
+#[test]
+fn rust_printer_treats_k_backslash_letters_as_literals() {
+    let pattern = regex::parse(r"\d+").unwrap().to_flex_pattern().unwrap();
+    let compiled = RustRegex::new(&format!(r"\A(?:{})\z", pattern.body)).unwrap();
+
+    assert!(compiled.is_match("ddd"));
+    assert!(!compiled.is_match("123"));
+}
+
+#[test]
+fn rust_printer_escapes_rust_metacharacters() {
+    for character in [
+        '\\', '.', '+', '*', '?', '(', ')', '|', '[', ']', '{', '}', '^', '$', '#', '&', '-', '~',
+    ] {
+        let source = if character == '\\' {
+            r"\\".to_owned()
+        } else if matches!(
+            character,
+            '.' | '+' | '*' | '?' | '(' | ')' | '|' | '[' | ']' | '{' | '}' | '^' | '$'
+        ) {
+            format!(r"\{character}")
+        } else {
+            character.to_string()
+        };
+        let body = regex::parse(&source)
+            .unwrap_or_else(|error| panic!("{source:?}: {error}"))
+            .to_flex_pattern()
+            .unwrap()
+            .body;
+        let compiled = RustRegex::new(&format!(r"\A(?:{body})\z"))
+            .unwrap_or_else(|error| panic!("{source:?} -> {body:?}: {error}"));
+        assert!(
+            compiled.is_match(&character.to_string()),
+            "{source:?} -> {body:?}"
+        );
+    }
+}
+
+#[test]
+fn flex_pattern_applies_the_reference_anchor_rule() {
+    let end_only = regex::parse("a$").unwrap().to_flex_pattern().unwrap();
+    let start_only = regex::parse("^b").unwrap().to_flex_pattern().unwrap();
+
+    assert!(!end_only.start_line && !end_only.end_line);
+    assert!(start_only.start_line && start_only.end_line);
+}
+
+#[test]
+fn rust_printer_rejects_unexpanded_lexical_references() {
+    let error = regex::parse("{Name}")
+        .unwrap()
+        .to_flex_pattern()
+        .unwrap_err();
+
+    assert_eq!(error.name, "Name");
 }
 
 #[test]

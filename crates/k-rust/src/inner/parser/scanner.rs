@@ -5,81 +5,102 @@ use std::collections::BTreeMap;
 use regex::Regex as CompiledRegex;
 use regex_automata::{MatchKind, meta::Regex as LongestRegex};
 
-use crate::definition::{ProductionItem, Regex as KRegex};
+use crate::definition::{ProductionItem, Regex as KRegex, parse_regex};
 use crate::kast::Sort;
 
-use super::{ParseError, expand_regex};
+use super::{ParseError, expand_regex_body};
 
 const DEFAULT_LAYOUT: [&str; 3] = [
-    r"/[*]([^*]|([*]+([^*/])))*[*]+/",
-    r"//[^\n\r]*",
-    r"[ \n\r\t]",
+    r"(\/\*([^\*]|(\*+([^\*\/])))*\*+\/)",
+    r"(\/\/[^\n\r]*)",
+    r"([\ \n\r\t])",
 ];
 
 #[derive(Clone, Debug)]
 pub(super) struct Layout {
-    pattern: Option<LongestRegex>,
+    patterns: Vec<CompiledKRegex>,
 }
 
 impl Default for Layout {
     fn default() -> Self {
-        Self::compile(DEFAULT_LAYOUT)
+        Self::compile(DEFAULT_LAYOUT, &BTreeMap::new())
             .expect("the built-in DEFAULT-LAYOUT regular expressions must be valid")
     }
 }
 
 impl Layout {
     pub(super) fn disabled() -> Self {
-        Self { pattern: None }
+        Self {
+            patterns: Vec::new(),
+        }
     }
 
     pub(super) fn compile(
         sources: impl IntoIterator<Item = impl AsRef<str>>,
+        lexical: &BTreeMap<String, KRegex>,
     ) -> Result<Self, ParseError> {
-        let sources = sources
+        let patterns = sources
             .into_iter()
-            .map(|source| source.as_ref().to_owned())
-            .collect::<Vec<_>>();
-        if sources.is_empty() {
+            .map(|source| compile_k_regex(source.as_ref(), lexical))
+            .collect::<Result<Vec<_>, _>>()?;
+        if patterns.is_empty() {
             return Ok(Self::disabled());
         }
-        let source = sources
-            .iter()
-            .map(|source| format!("(?:{source})"))
-            .collect::<Vec<_>>()
-            .join("|");
-        let pattern = compile_longest_regex(&source)?;
-        if pattern.find("").is_some_and(|matched| matched.is_empty()) {
+        if patterns.iter().any(|regex| {
+            regex
+                .pattern
+                .find("")
+                .is_some_and(|matched| matched.is_empty())
+        }) {
             return Err(ParseError::EmptyLayout);
         }
-        Ok(Self {
-            pattern: Some(pattern),
-        })
+        Ok(Self { patterns })
     }
 
     pub(super) fn compile_with_default(
         sources: impl IntoIterator<Item = impl AsRef<str>>,
+        lexical: &BTreeMap<String, KRegex>,
     ) -> Result<Self, ParseError> {
         Self::compile(
             DEFAULT_LAYOUT
                 .into_iter()
                 .map(str::to_owned)
                 .chain(sources.into_iter().map(|source| source.as_ref().to_owned())),
+            lexical,
         )
     }
 
     pub(super) fn skip(&self, input: &str, mut position: usize) -> usize {
-        let Some(pattern) = &self.pattern else {
-            return position;
-        };
-        while let Some(matched) = pattern.find(&input[position..]) {
-            if matched.is_empty() {
-                break;
+        loop {
+            let Some(end) = self
+                .patterns
+                .iter()
+                .filter_map(|regex| match_k_regex(regex, input, position))
+                .max()
+            else {
+                return position;
+            };
+            if end == position {
+                return position;
             }
-            position += matched.end();
+            position = end;
         }
-        position
     }
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct CompiledKRegex {
+    canonical: String,
+    rust_body: String,
+    pattern: LongestRegex,
+    start_line: bool,
+    end_line: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct Restriction {
+    canonical: String,
+    pattern: CompiledRegex,
 }
 
 #[derive(Clone, Debug)]
@@ -88,11 +109,9 @@ pub(super) enum Item {
     Terminal(String),
     Regex {
         source: String,
-        pattern: LongestRegex,
-        precede_source: Option<String>,
-        precede: Option<CompiledRegex>,
-        follow_source: Option<String>,
-        follow: Option<CompiledRegex>,
+        regex: CompiledKRegex,
+        precede: Option<Restriction>,
+        follow: Option<Restriction>,
     },
 }
 
@@ -110,7 +129,7 @@ impl Item {
 enum LexemeKey {
     Terminal(String),
     Regex {
-        source: String,
+        canonical: String,
         precede: Option<String>,
         follow: Option<String>,
     },
@@ -213,46 +232,78 @@ pub(super) fn compile_item(
             follow_regex,
         } => Ok(Item::Regex {
             source: regex.clone(),
-            pattern: compile_longest_regex(&expand_regex(regex, lexical)?)?,
-            precede_source: precede_regex.clone(),
+            regex: compile_k_regex(regex, lexical)?,
             precede: precede_regex
                 .as_deref()
-                .map(|regex| {
-                    expand_regex(regex, lexical)
-                        .and_then(|regex| compile_restriction(&regex, false))
-                })
+                .map(|regex| compile_restriction(regex, lexical, false))
                 .transpose()?,
-            follow_source: follow_regex.clone(),
             follow: follow_regex
                 .as_deref()
-                .map(|regex| {
-                    expand_regex(regex, lexical).and_then(|regex| compile_restriction(&regex, true))
-                })
+                .map(|regex| compile_restriction(regex, lexical, true))
                 .transpose()?,
         }),
     }
 }
 
-fn compile_longest_regex(source: &str) -> Result<LongestRegex, ParseError> {
+fn compile_k_regex(
+    source: &str,
+    lexical: &BTreeMap<String, KRegex>,
+) -> Result<CompiledKRegex, ParseError> {
+    let parsed = parse_regex(source).map_err(|error| ParseError::InvalidRegex {
+        regex: source.to_owned(),
+        message: error.to_string(),
+    })?;
+    let canonical = parsed.to_java_string();
+    let expanded = KRegex {
+        start_line: parsed.start_line,
+        body: expand_regex_body(&parsed.body, lexical, &mut Vec::new())?,
+        end_line: parsed.end_line,
+    };
+    let flex = expanded
+        .to_flex_pattern()
+        .map_err(|error| ParseError::InvalidRegex {
+            regex: source.to_owned(),
+            message: error.to_string(),
+        })?;
+    let pattern = compile_longest_regex(&flex.body, source)?;
+    Ok(CompiledKRegex {
+        canonical,
+        rust_body: flex.body,
+        pattern,
+        start_line: flex.start_line,
+        end_line: flex.end_line,
+    })
+}
+
+fn compile_longest_regex(source: &str, reported_source: &str) -> Result<LongestRegex, ParseError> {
     let pattern = format!(r"\A(?:{source})");
     LongestRegex::builder()
         .configure(LongestRegex::config().match_kind(MatchKind::All))
         .build(&pattern)
         .map_err(|error| ParseError::InvalidRegex {
-            regex: source.to_owned(),
+            regex: reported_source.to_owned(),
             message: error.to_string(),
         })
 }
 
-fn compile_restriction(source: &str, start: bool) -> Result<CompiledRegex, ParseError> {
+fn compile_restriction(
+    source: &str,
+    lexical: &BTreeMap<String, KRegex>,
+    start: bool,
+) -> Result<Restriction, ParseError> {
+    let compiled = compile_k_regex(source, lexical)?;
     let pattern = if start {
-        format!(r"\A(?:{source})")
+        format!(r"\A(?:{})", compiled.rust_body)
     } else {
-        format!(r"(?:{source})\z")
+        format!(r"(?:{})\z", compiled.rust_body)
     };
-    CompiledRegex::new(&pattern).map_err(|error| ParseError::InvalidRegex {
+    let pattern = CompiledRegex::new(&pattern).map_err(|error| ParseError::InvalidRegex {
         regex: source.to_owned(),
         message: error.to_string(),
+    })?;
+    Ok(Restriction {
+        canonical: compiled.canonical,
+        pattern,
     })
 }
 
@@ -261,14 +312,18 @@ fn lexeme_key(item: &Item) -> Option<LexemeKey> {
         Item::NonTerminal(_) => None,
         Item::Terminal(value) => Some(LexemeKey::Terminal(value.clone())),
         Item::Regex {
-            source,
-            precede_source,
-            follow_source,
+            regex,
+            precede,
+            follow,
             ..
         } => Some(LexemeKey::Regex {
-            source: source.clone(),
-            precede: precede_source.clone(),
-            follow: follow_source.clone(),
+            canonical: regex.canonical.clone(),
+            precede: precede
+                .as_ref()
+                .map(|restriction| restriction.canonical.clone()),
+            follow: follow
+                .as_ref()
+                .map(|restriction| restriction.canonical.clone()),
         }),
     }
 }
@@ -298,22 +353,21 @@ fn match_lexeme(item: &Item, input: &str, position: usize) -> Option<usize> {
             .starts_with(terminal)
             .then_some(position + terminal.len()),
         Item::Regex {
-            pattern,
+            regex,
             precede,
             follow,
             ..
         } => {
             if precede
                 .as_ref()
-                .is_some_and(|restriction| restriction.is_match(&input[..position]))
+                .is_some_and(|restriction| restriction.pattern.is_match(&input[..position]))
             {
                 return None;
             }
-            let found = pattern.find(&input[position..])?;
-            let end = position + found.end();
+            let end = match_k_regex(regex, input, position)?;
             if follow
                 .as_ref()
-                .is_some_and(|restriction| restriction.is_match(&input[end..]))
+                .is_some_and(|restriction| restriction.pattern.is_match(&input[end..]))
             {
                 return None;
             }
@@ -321,6 +375,18 @@ fn match_lexeme(item: &Item, input: &str, position: usize) -> Option<usize> {
         }
         Item::NonTerminal(_) => None,
     }
+}
+
+fn match_k_regex(regex: &CompiledKRegex, input: &str, position: usize) -> Option<usize> {
+    if regex.start_line && position != 0 && input.as_bytes().get(position - 1) != Some(&b'\n') {
+        return None;
+    }
+    let found = regex.pattern.find(&input[position..])?;
+    let end = position + found.end();
+    if regex.end_line && input.as_bytes().get(end) != Some(&b'\n') {
+        return None;
+    }
+    Some(end)
 }
 
 #[cfg(test)]

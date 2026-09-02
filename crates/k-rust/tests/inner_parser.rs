@@ -413,6 +413,29 @@ fn rejects_inconsistent_scanner_precedence() {
 }
 
 #[test]
+fn equivalent_k_regex_asts_share_a_scanner_lexeme() {
+    let sentences = vec![
+        production(
+            "First",
+            vec![ProductionItem::regex("(a)b")],
+            Some("first"),
+            precedence("1"),
+        ),
+        production(
+            "Second",
+            vec![ProductionItem::regex("ab")],
+            Some("second"),
+            precedence("2"),
+        ),
+    ];
+
+    assert!(matches!(
+        Grammar::from_sentences(&sentences),
+        Err(ParseError::InconsistentTokenPrecedence { .. })
+    ));
+}
+
+#[test]
 fn bounds_cyclic_parse_forests() {
     let sentences = vec![
         production(

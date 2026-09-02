@@ -876,7 +876,7 @@ impl Grammar {
                         regex,
                         follow_regex: None,
                     },
-                ] => expand_regex(regex, &lexical),
+                ] => Ok(regex.clone()),
                 _ => Err(ParseError::InvalidLayoutProduction),
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -908,9 +908,9 @@ impl Grammar {
         };
         let mut grammar = Self {
             layout: if include_default_layout {
-                Layout::compile_with_default(&layout_sources)?
+                Layout::compile_with_default(&layout_sources, &lexical)?
             } else if layout_declared {
-                Layout::compile(&layout_sources)?
+                Layout::compile(&layout_sources, &lexical)?
             } else {
                 Layout::default()
             },
@@ -1571,24 +1571,7 @@ fn catalog_production(
         .find_map(|(id, candidate)| sentence_equivalent(candidate, sentence).then_some(id))
 }
 
-fn expand_regex(source: &str, lexical: &BTreeMap<String, KRegex>) -> Result<String, ParseError> {
-    if lexical.is_empty() {
-        return Ok(source.to_owned());
-    }
-    let parsed = parse_regex(source).map_err(|error| ParseError::InvalidRegex {
-        regex: source.to_owned(),
-        message: error.to_string(),
-    })?;
-    let body = expand_regex_body(&parsed.body, lexical, &mut Vec::new())?;
-    Ok(KRegex {
-        start_line: parsed.start_line,
-        body,
-        end_line: parsed.end_line,
-    }
-    .to_source_string())
-}
-
-fn expand_regex_body(
+pub(super) fn expand_regex_body(
     body: &RegexBody,
     lexical: &BTreeMap<String, KRegex>,
     stack: &mut Vec<String>,

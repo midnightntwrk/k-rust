@@ -1407,7 +1407,7 @@ fn folds_pure_constants_only_on_rule_right_hand_sides_and_conditions() {
         module MAIN
           syntax Int [hook(INT.Int)]
           syntax Bool [hook(BOOL.Bool)]
-          syntax Int ::= r"[\+\-]?[0-9]+" [token, prec(2)]
+          syntax Int ::= r"[\\+\\-]?[0-9]+" [token, prec(2)]
           syntax Bool ::= r"true|false" [token]
           syntax Int ::= "add(" Int "," Int ")" [function, hook(INT.add), symbol(add)]
           syntax Bool ::= "eq(" Int "," Int ")" [function, hook(INT.eq), symbol(eq)]
@@ -1448,7 +1448,7 @@ fn folds_mpfr_float_constants_with_their_declared_contexts() {
         module MAIN
           syntax Float [hook(FLOAT.Float)]
           syntax Int [hook(INT.Int)]
-          syntax Float ::= r"([\+\-]?[0-9]+(\\.[0-9]*)?|\\.[0-9]+)([eE][\+\-]?[0-9]+)?([fFdD]|([pP][0-9]+[xX][0-9]+))?" [token, prec(1)]
+          syntax Float ::= r"([\\+\\-]?[0-9]+(\\.[0-9]*)?|\\.[0-9]+)([eE][\\+\\-]?[0-9]+)?([fFdD]|([pP][0-9]+[xX][0-9]+))?" [token, prec(1)]
           syntax Float ::= "add(" Float "," Float ")" [function, hook(FLOAT.add), symbol(addFloat)]
           syntax Int ::= "exponent(" Float ")" [function, hook(FLOAT.exponent), symbol(floatExponent)]
           syntax Float ::= "floatResult" [symbol(floatResult)]
