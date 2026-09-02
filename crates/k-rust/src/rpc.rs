@@ -27,6 +27,7 @@ use k_rust_backend::{
         ImplicationCondition, ImplicationError, ImplicationFailure, ImplicationResult,
         ImplicationStatus, check_implication_with_existentials_complete,
     },
+    matching::SortGraph,
     rewrite::{
         AppliedRule, ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
         TraceKind, execute_with_solver, substitute_predicates,
@@ -1739,8 +1740,11 @@ fn execute_state(
     configuration_variables: &BTreeSet<Variable>,
 ) -> Result<Value, RpcFault> {
     let mut state = Map::new();
-    let (predicates, substitution) =
-        split_constraints(&pattern.constraints, configuration_variables);
+    let (predicates, substitution) = split_constraints(
+        &pattern.constraints,
+        configuration_variables,
+        &definition.sort_graph,
+    );
     let term = substitute(&pattern.term, &substitution);
     state.insert("term".into(), encode_kore(&externalize::term(&term))?);
     let predicates = substitute_predicates(&predicates, &substitution);
@@ -1770,8 +1774,11 @@ fn execute_applied_state(
     {
         object.insert("rule-predicate".into(), encode_kore(&rule_predicate)?);
     }
-    let (_, state_substitution) =
-        split_constraints(&applied.pattern.constraints, configuration_variables);
+    let (_, state_substitution) = split_constraints(
+        &applied.pattern.constraints,
+        configuration_variables,
+        &definition.sort_graph,
+    );
     if let Some(substitution) = externalize_rule_substitution(
         &applied.rule_substitution,
         &state_substitution,
@@ -1851,8 +1858,9 @@ fn pattern_variables(pattern: &Pattern) -> BTreeSet<Variable> {
 fn split_constraints(
     constraints: &[Predicate],
     configuration_variables: &BTreeSet<Variable>,
+    sorts: &SortGraph,
 ) -> (Vec<Predicate>, Substitution) {
-    let (extracted, mut predicates) = extract_substitution(constraints);
+    let (extracted, mut predicates) = extract_substitution(constraints, sorts);
     let mut substitution = Substitution::new();
     for (variable, value) in extracted {
         if configuration_variables.contains(&variable) || is_rewrite_existential(&variable) {
@@ -3920,6 +3928,75 @@ mod tests {
     }
 
     #[test]
+    fn execute_reports_kequal_ensures_as_substitution() {
+        let syntax = parse_definition(
+            r#"[]
+                module TEST
+                  sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                  sort SortFoo{} []
+                  sort SortKItem{} []
+                  sort SortK{} []
+                  sort SortState{} []
+                  symbol initial{}() : SortState{} [constructor{}()]
+                  symbol value{}() : SortFoo{} [constructor{}()]
+                  symbol state{}(SortFoo{}) : SortState{} [constructor{}()]
+                  symbol dotk{}() : SortK{} [constructor{}()]
+                  symbol kseq{}(SortKItem{}, SortK{}) : SortK{}
+                    [constructor{}(), injective{}()]
+                  symbol equalK{}(SortK{}, SortK{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("KEQUAL.eq")]
+                  symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+                  axiom{R} \exists{R}(
+                    Value:SortKItem{},
+                    \equals{SortKItem{}, R}(
+                      Value:SortKItem{},
+                      inj{SortFoo{}, SortKItem{}}(From:SortFoo{})
+                    )
+                  ) [subsort{SortFoo{}, SortKItem{}}()]
+                  axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(initial{}(), \top{SortState{}}()),
+                    \exists{SortState{}}(
+                      Var'Ques'Y:SortFoo{},
+                      \and{SortState{}}(
+                        state{}(Var'Ques'Y:SortFoo{}),
+                        \equals{SortBool{}, SortState{}}(
+                          equalK{}(
+                            kseq{}(
+                              inj{SortFoo{}, SortKItem{}}(Var'Ques'Y:SortFoo{}),
+                              dotk{}()
+                            ),
+                            kseq{}(
+                              inj{SortFoo{}, SortKItem{}}(value{}()),
+                              dotk{}()
+                            )
+                          ),
+                          \dv{SortBool{}}("true")
+                        )
+                      )
+                    )
+                  ) [label{}("TEST.resolve-k"), UNIQUE'Unds'ID{}("resolve-k-rule")]
+                endmodule []"#,
+        )
+        .expect("definition should parse");
+        let mut service = RpcService::new(BackendSession::new(syntax, "TEST"));
+        let state = encode_kore(&parse_pattern("initial{}()").unwrap()).unwrap();
+
+        let response = request(&mut service, 1, "execute", json!({ "state": state }));
+
+        assert_eq!(response["result"]["reason"], "stuck", "{response:#}");
+        assert_eq!(response["result"]["depth"], 1);
+        assert_eq!(
+            response["result"]["state"]["term"]["term"]["args"][0]["name"],
+            "value"
+        );
+        let substitution = &response["result"]["state"]["substitution"]["term"];
+        assert_eq!(substitution["tag"], "Equals");
+        assert_eq!(substitution["first"]["name"], "Var'Ques'Y");
+        assert_eq!(substitution["second"]["name"], "value");
+        assert!(response["result"]["state"].get("predicate").is_none());
+    }
+
+    #[test]
     fn retains_a_cycle_breaking_equation_outside_the_rpc_substitution() {
         let sort = BackendSort::simple("SortState");
         let x = Variable::new("X", sort.clone());
@@ -3929,8 +4006,11 @@ mod tests {
             Predicate::Equals(Term::variable(x.clone()), Term::variable(y.clone())),
         ];
 
-        let (predicates, substitution) =
-            split_constraints(&constraints, &BTreeSet::from([x.clone(), y.clone()]));
+        let (predicates, substitution) = split_constraints(
+            &constraints,
+            &BTreeSet::from([x.clone(), y.clone()]),
+            &SortGraph::default(),
+        );
 
         assert_eq!(
             substitution,

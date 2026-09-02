@@ -5,8 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use petgraph::{algo::kosaraju_scc, graph::DiGraph};
 
 use crate::{
+    matching::SortGraph,
     rule::Predicate,
-    term::{Term, TermKind, Variable},
+    term::{Sort, Term, TermKind, Variable},
 };
 
 pub type Substitution = BTreeMap<Variable, Term>;
@@ -119,10 +120,13 @@ pub fn compose(new: &Substitution, old: &Substitution) -> Substitution {
 /// Duplicate bindings remain predicates. For each dependency cycle, the lexicographically first
 /// variable is retained as an equality, matching the reference backend's deterministic cycle
 /// breaking while allowing the rest of the component to become substitutions.
-pub fn extract_substitution(constraints: &[Predicate]) -> (Substitution, Vec<Predicate>) {
+pub fn extract_substitution(
+    constraints: &[Predicate],
+    sorts: &SortGraph,
+) -> (Substitution, Vec<Predicate>) {
     let mut potential = BTreeMap::<Variable, Vec<(usize, Term)>>::new();
     for (index, constraint) in constraints.iter().enumerate() {
-        if let Some((variable, value)) = substitution_binding(constraint) {
+        if let Some((variable, value)) = substitution_binding(constraint, sorts) {
             potential.entry(variable).or_default().push((index, value));
         }
     }
@@ -207,20 +211,39 @@ pub fn extract_substitution(constraints: &[Predicate]) -> (Substitution, Vec<Pre
     (substitution, remaining)
 }
 
-pub(crate) fn substitution_binding(predicate: &Predicate) -> Option<(Variable, Term)> {
+pub(crate) fn substitution_binding(
+    predicate: &Predicate,
+    sorts: &SortGraph,
+) -> Option<(Variable, Term)> {
     let (left, right) = substitution_equality(predicate)?;
-    match (left.kind(), right.kind()) {
-        (TermKind::Variable(variable), _) if !right.attributes().variables.contains(variable) => {
-            Some((variable.clone(), right.clone()))
-        }
-        (_, TermKind::Variable(variable)) if !left.attributes().variables.contains(variable) => {
-            Some((variable.clone(), left.clone()))
-        }
-        _ => None,
+    if let TermKind::Variable(variable) = left.kind()
+        && !right.attributes().variables.contains(variable)
+        && let Some(value) = align_binding_value(variable, &right, sorts)
+    {
+        return Some((variable.clone(), value));
     }
+    if let TermKind::Variable(variable) = right.kind()
+        && !left.attributes().variables.contains(variable)
+        && let Some(value) = align_binding_value(variable, &left, sorts)
+    {
+        return Some((variable.clone(), value));
+    }
+    None
 }
 
-fn substitution_equality(predicate: &Predicate) -> Option<(&Term, &Term)> {
+fn align_binding_value(variable: &Variable, value: &Term, sorts: &SortGraph) -> Option<Term> {
+    let value_sort = value.sort();
+    if value_sort == variable.sort {
+        return Some(value.clone());
+    }
+    sorts
+        .check_subsort(&value_sort, &variable.sort)
+        .ok()
+        .filter(|is_subsort| *is_subsort)
+        .map(|_| Term::injection(value_sort, variable.sort.clone(), value.clone()))
+}
+
+fn substitution_equality(predicate: &Predicate) -> Option<(Term, Term)> {
     let Predicate::Equals(left, right) = predicate else {
         return None;
     };
@@ -244,10 +267,10 @@ fn substitution_equality(predicate: &Predicate) -> Option<(&Term, &Term)> {
     {
         return Some(operands);
     }
-    Some((left, right))
+    Some((left.clone(), right.clone()))
 }
 
-fn hooked_equality(term: &Term, expected: bool) -> Option<(&Term, &Term)> {
+fn hooked_equality(term: &Term, expected: bool) -> Option<(Term, Term)> {
     let TermKind::Application {
         symbol, arguments, ..
     } = term.kind()
@@ -263,14 +286,55 @@ fn hooked_equality(term: &Term, expected: bool) -> Option<(&Term, &Term)> {
     let [left, right] = arguments.as_slice() else {
         return None;
     };
-    Some((left, right))
+    if matches!(hook, "KEQUAL.eq" | "KEQUAL.ne") {
+        Some((strip_kseq(left), strip_kseq(right)))
+    } else {
+        Some((left.clone(), right.clone()))
+    }
+}
+
+/// Remove the singleton K-sequence wrapper used for non-scalar K equality operands.
+fn strip_kseq(term: &Term) -> Term {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        return term.clone();
+    };
+    let [first, tail] = arguments.as_slice() else {
+        return term.clone();
+    };
+    let TermKind::Application {
+        symbol: tail_symbol,
+        arguments: tail_arguments,
+        ..
+    } = tail.kind()
+    else {
+        return term.clone();
+    };
+    if symbol.name.as_ref() != "kseq"
+        || tail_symbol.name.as_ref() != "dotk"
+        || !tail_arguments.is_empty()
+    {
+        return term.clone();
+    }
+    match first.kind() {
+        TermKind::Injection { target, term, .. } if target == &Sort::simple("SortKItem") => {
+            term.clone()
+        }
+        _ if first.sort() == Sort::simple("SortKItem") => first.clone(),
+        _ => term.clone(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use crate::term::{Sort, Symbol};
+    use crate::{
+        matching::SortGraph,
+        term::{CollectionSymbols, ListDefinition, Sort, Symbol},
+    };
 
     use super::*;
 
@@ -303,6 +367,51 @@ mod tests {
         Predicate::Equals(
             Term::application(Arc::new(symbol), Vec::new(), vec![left, right]),
             Term::domain_value(bool_sort, "true"),
+        )
+    }
+
+    fn k_sequence(item: Term) -> Term {
+        let item_sort = item.sort();
+        let k_item_sort = Sort::simple("SortKItem");
+        let k_sort = Sort::simple("SortK");
+        Term::application(
+            Arc::new(Symbol::constructor(
+                "kseq",
+                vec![k_item_sort.clone(), k_sort.clone()],
+                k_sort.clone(),
+            )),
+            Vec::new(),
+            vec![
+                Term::injection(item_sort, k_item_sort, item),
+                Term::application(
+                    Arc::new(Symbol::constructor("dotk", Vec::new(), k_sort)),
+                    Vec::new(),
+                    Vec::new(),
+                ),
+            ],
+        )
+    }
+
+    fn k_equality(hook: &str, expected: bool, left: Term, right: Term) -> Predicate {
+        let k_sort = Sort::simple("SortK");
+        let bool_sort = Sort::simple("SortBool");
+        let mut symbol = Symbol::constructor(
+            if hook == "KEQUAL.eq" {
+                "kEqual"
+            } else {
+                "kNotEqual"
+            },
+            vec![k_sort.clone(), k_sort],
+            bool_sort.clone(),
+        );
+        symbol.attributes.hook = Some(hook.into());
+        Predicate::Equals(
+            Term::application(
+                Arc::new(symbol),
+                Vec::new(),
+                vec![k_sequence(left), k_sequence(right)],
+            ),
+            Term::domain_value(bool_sort, expected.to_string()),
         )
     }
 
@@ -343,7 +452,7 @@ mod tests {
             Predicate::Equals(var("X"), value.clone()),
         ];
 
-        let (substitution, remaining) = extract_substitution(&constraints);
+        let (substitution, remaining) = extract_substitution(&constraints, &SortGraph::default());
 
         assert!(remaining.is_empty());
         assert_eq!(substitution[&variable("X")], value.clone());
@@ -355,10 +464,116 @@ mod tests {
         let value = Term::domain_value(sort(), "value");
         let constraint = integer_equality(var("X"), value.clone());
 
-        let (substitution, remaining) = extract_substitution(&[constraint]);
+        let (substitution, remaining) = extract_substitution(&[constraint], &SortGraph::default());
 
         assert_eq!(substitution, Substitution::from([(variable("X"), value)]));
         assert!(remaining.is_empty());
+    }
+
+    #[test]
+    fn extracts_substitutions_from_kequal_kseq_equalities() {
+        let value = con1(var("X"));
+        for constraint in [
+            k_equality("KEQUAL.eq", true, var("Y"), value.clone()),
+            k_equality("KEQUAL.eq", true, value.clone(), var("Y")),
+            k_equality("KEQUAL.ne", false, var("Y"), value.clone()),
+        ] {
+            let (substitution, remaining) =
+                extract_substitution(&[constraint], &SortGraph::default());
+
+            assert_eq!(
+                substitution,
+                Substitution::from([(variable("Y"), value.clone())])
+            );
+            assert!(remaining.is_empty());
+        }
+    }
+
+    #[test]
+    fn reinjects_a_subsort_operand_of_a_kequal_binding() {
+        let int_sort = Sort::simple("SortInt");
+        let exp_sort = Sort::simple("SortExp");
+        let variable = Variable::new("X", exp_sort.clone());
+        let value = Term::domain_value(int_sort.clone(), "5");
+        let constraint = k_equality(
+            "KEQUAL.eq",
+            true,
+            Term::variable(variable.clone()),
+            value.clone(),
+        );
+        let mut sorts = SortGraph::default();
+        sorts.insert("SortExp", [Arc::<str>::from("SortInt")]);
+
+        let (substitution, remaining) = extract_substitution(&[constraint], &sorts);
+
+        assert_eq!(
+            substitution,
+            Substitution::from([(variable, Term::injection(int_sort, exp_sort, value),)])
+        );
+        assert!(remaining.is_empty());
+    }
+
+    #[test]
+    fn keeps_kequal_bindings_with_incomparable_sorts_as_predicates() {
+        let foo_sort = Sort::simple("SortFoo");
+        let bar_sort = Sort::simple("SortBar");
+        let variable = Variable::new("X", foo_sort.clone());
+        let value = Term::domain_value(bar_sort, "bar");
+        let constraint = k_equality("KEQUAL.eq", true, Term::variable(variable), value);
+        let mut sorts = SortGraph::default();
+        sorts.insert("SortFoo", std::iter::empty());
+
+        let (substitution, remaining) =
+            extract_substitution(std::slice::from_ref(&constraint), &sorts);
+
+        assert!(substitution.is_empty());
+        assert_eq!(remaining, [constraint]);
+    }
+
+    #[test]
+    fn round_trips_backend_substitution_predicates() {
+        let int_sort = Sort::simple("SortInt");
+        let exp_sort = Sort::simple("SortExp");
+        let list_sort = Sort::simple("SortList");
+        let element_sort = Sort::simple("SortElement");
+        let list_definition = Arc::new(ListDefinition {
+            symbols: CollectionSymbols {
+                unit: "listUnit".into(),
+                element: "listItem".into(),
+                concat: "listConcat".into(),
+            },
+            element_sort: "SortElement".into(),
+            list_sort: "SortList".into(),
+        });
+        let substitution = Substitution::from([
+            (
+                Variable::new("EXP", exp_sort.clone()),
+                Term::injection(
+                    int_sort.clone(),
+                    exp_sort,
+                    Term::domain_value(int_sort, "5"),
+                ),
+            ),
+            (
+                Variable::new("LIST", list_sort),
+                Term::list(
+                    list_definition,
+                    vec![Term::domain_value(element_sort, "item")],
+                    None,
+                ),
+            ),
+        ]);
+        let predicates = substitution
+            .iter()
+            .map(|(variable, value)| {
+                Predicate::Equals(Term::variable(variable.clone()), value.clone())
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            extract_substitution(&predicates, &SortGraph::default()),
+            (substitution, Vec::new())
+        );
     }
 
     #[test]
@@ -368,7 +583,7 @@ mod tests {
             Predicate::Equals(var("X"), var("Y")),
         ];
 
-        let (substitution, remaining) = extract_substitution(&constraints);
+        let (substitution, remaining) = extract_substitution(&constraints, &SortGraph::default());
 
         assert_eq!(
             substitution,
@@ -384,7 +599,7 @@ mod tests {
             Predicate::Equals(var("X"), con1(var("Y"))),
         ];
 
-        let (substitution, remaining) = extract_substitution(&constraints);
+        let (substitution, remaining) = extract_substitution(&constraints, &SortGraph::default());
 
         assert!(substitution.is_empty());
         assert_eq!(remaining, constraints);

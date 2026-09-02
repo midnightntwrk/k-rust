@@ -157,7 +157,8 @@ pub(crate) fn simplify_pattern_details_with_solver(
     solver: &dyn SmtSolver,
 ) -> Result<PatternSimplification, SimplificationError> {
     let mut pattern = pattern.clone();
-    let retained_substitution = normalize_pattern_substitution(&mut pattern);
+    let retained_substitution =
+        normalize_pattern_substitution(&mut pattern, &definition.sort_graph);
     let simplified = simplify_with_solver(
         definition,
         &pattern.term,
@@ -179,12 +180,16 @@ pub(crate) fn simplify_pattern_details_with_solver(
     {
         constraints = vec![Predicate::False];
     }
-    retain_substitution_predicates(&mut constraints, &retained_substitution);
+    retain_substitution_predicates(
+        &mut constraints,
+        &retained_substitution,
+        &definition.sort_graph,
+    );
     let mut pattern = Pattern {
         term: simplified.term,
         constraints,
     };
-    normalize_pattern_substitution(&mut pattern);
+    normalize_pattern_substitution(&mut pattern, &definition.sort_graph);
     Ok(PatternSimplification {
         pattern,
         applied_rules: simplified.applied_rules,
