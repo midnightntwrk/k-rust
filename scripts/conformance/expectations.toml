@@ -1,0 +1,2282 @@
+version = 1
+source = "draft/fable51-review/I1/I1-03-conformance-ratchet.md case-to-ticket map (2026-09-02), with the bucket-13 corrections and later decided exclusions applied."
+
+[baseline]
+timestamp_utc = "2026-09-02T08:17:59Z"
+workspace_revision = "e12f1908f8e814b54f7eed11d9353241d30cadbe"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+driver_version = "00-baseline"
+artifacts = "draft/fable51-review/00-baseline/conformance"
+case_count = 256
+results_sha256 = "e16bdcb635b94eb9fffe93de765afddfcf8febf8c996218d8551ea174d411489"
+
+[[category]]
+id = "llvm-only"
+arbiter = 13
+meaning = "LLVM-backend or bison behavior is outside the Haskell-backend semantics the port follows."
+
+[[category]]
+id = "reference-crash"
+arbiter = 17
+meaning = "The reference backend crashed and supplied no expected behavior; revisit at a pin move."
+
+[[category]]
+id = "reference-incomplete-port-proves"
+decided_by = "bucket 02 decision 02-4"
+meaning = "The reference misses an applicable circularity that the port applies soundly."
+
+[[category]]
+id = "both-reject"
+decided_by = "I1-03 attribution table"
+meaning = "Both toolchains reject the input; differing diagnostic presentation is not semantic."
+
+[[category]]
+id = "presentation-only"
+decided_by = "decisions.toml concrete-function disposition"
+meaning = "The compared text differs while the represented result is semantically equal."
+
+[[category]]
+id = "stale-oracle"
+decided_by = "bucket 13 decision 13-6"
+meaning = "The checked-in output was not reproduced by the pinned reference toolchain."
+
+[[category]]
+id = "supported-superset"
+decided_by = "bucket 10 decision 10-1"
+meaning = "The port intentionally supports anywhere rules that the K Haskell frontend rejects."
+
+[[case]]
+name = "amb-rew"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "append"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "array-haskell"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "bad-bytes-literal"
+baseline_verdict = "match"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "bad-flags"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "bison-glr-bug"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = "emit KORE: `cannot use production #147 for equation emission: its label does not match ...`; same class as kprove-macro-exp, lesson_8, simple typed static (B2 area, no ticket)"
+unexplained = true
+
+[[case]]
+name = "bison-parser-library"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "bit-range-llvm"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "boundary-cells-opt/bc-none"
+baseline_verdict = "match"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "bracket-priority"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = "rule `(+ I1:Int I2:Int)` has 2 parses; bracket vs priority in prefix syntax (A3 area, no ticket)"
+unexplained = true
+
+[[case]]
+name = "bytes-coverage"
+baseline_verdict = "mismatch"
+baseline_stage = "kompile"
+tickets = ["D1-14"]
+exclusion = "llvm-only"
+reason = "--coverage is LLVM-only instrumentation and the translated command drops it."
+
+[[case]]
+name = "bytes-haskell"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "bytes-literal"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "bytes-llvm"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "bytes-memset"
+baseline_verdict = "mismatch"
+baseline_stage = "krun"
+tickets = ["C2-05"]
+exclusion = "llvm-only"
+reason = "memsetBytes is LLVM-only; C2-05 owns the port's explicit unsupported-hook result."
+
+[[case]]
+name = "cast"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "cast-kitem"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "cell-bag-sort-llvm"
+baseline_verdict = "match"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "cell-sort-haskell"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "cell_map"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "checkClaimError"
+baseline_verdict = "krust-error"
+baseline_stage = "kprove"
+tickets = ["I1-07"]
+exclusion = ""
+reason = "proof-module content checks; syntax-spec.k is proven by krust"
+
+[[case]]
+name = "checkWarns"
+baseline_verdict = "mismatch"
+baseline_stage = "kompile"
+tickets = ["I1-07", "D1-14"]
+exclusion = ""
+reason = "warnings-as-errors"
+step_exclusions = [
+  { out = "checkHaskellAnywhere.k.out", exclusion = "supported-superset", reason = "Decision 10-1 keeps anywhere rules executable by default; K's Haskell-only rejection is not the port contract." },
+]
+
+[[case]]
+name = "checks"
+baseline_verdict = "mismatch"
+baseline_stage = "kompile"
+tickets = ["A1-02", "A1-03", "I1-07", "A2-01"]
+exclusion = ""
+reason = "see the per-definition table in I1-07; invalidPrec.k is A2-01 territory; checkMIntLiteral.k is the unticketed MInt{W} gap"
+
+[[case]]
+name = "concrete-function"
+baseline_verdict = "mismatch"
+baseline_stage = "kprove"
+tickets = []
+exclusion = "presentation-only"
+reason = "The outputs are semantically equal but place the ceil obligation differently; the proof oracle is stale."
+
+[[case]]
+name = "concrete-function-cache"
+baseline_verdict = "match"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = ""
+step_exclusions = [
+  { test = "a1-spec.k", out = "./a1-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+]
+
+[[case]]
+name = "concrete-haskell"
+baseline_verdict = "mismatch"
+baseline_stage = "kprove"
+tickets = ["C2-01"]
+exclusion = ""
+reason = "ConflictingResults"
+
+[[case]]
+name = "configuration-composition"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "configuration-formatting"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["I1-06"]
+exclusion = ""
+reason = "kompile: `left` attribute; krun: `configuration variable $PGM is used at both sort Int and KItem` (D1 config-var sort discovery, no ticket)"
+unexplained = true
+
+[[case]]
+name = "constant-folding"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "context-alias"
+baseline_verdict = "mismatch"
+baseline_stage = "krun"
+tickets = ["B2-03", "I1-06"]
+exclusion = ""
+reason = "kompile-stage: generated heat rule ids and attributes"
+
+[[case]]
+name = "context-alias-2"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "context-alias-3"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "context-cell"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "context-labels"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "coverage"
+baseline_verdict = "mismatch"
+baseline_stage = "kompile"
+tickets = ["D1-14"]
+exclusion = "llvm-only"
+reason = "--coverage is LLVM-only instrumentation and the translated command drops it."
+
+[[case]]
+name = "domains-lemmas-no-smt"
+baseline_verdict = "mismatch"
+baseline_stage = "kprove"
+tickets = ["C2-01"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to C2-01."
+
+[[case]]
+name = "domains-lemmas-smt"
+baseline_verdict = "match"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "doubleinj"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "equals-formatting"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "equals-pattern"
+baseline_verdict = "krust-error"
+baseline_stage = "krun"
+tickets = ["I1-06", "D1-04"]
+exclusion = ""
+reason = "kompile: `left`; krun 1/2: KItem start sort; krun 6/7: externalized variable named `Eq#VarROOT` (`#` is not a KORE identifier character; C3/C4 externalize side, no ticket)"
+unexplained = true
+
+[[case]]
+name = "excludedModuleAtts/haskell"
+baseline_verdict = "mismatch"
+baseline_stage = "kompile"
+tickets = ["I1-07"]
+exclusion = ""
+reason = "K rejects an excluded attribute on the syntax module; the port checks only the main module."
+
+[[case]]
+name = "excludedModuleAtts/llvm"
+baseline_verdict = "mismatch"
+baseline_stage = "kompile"
+tickets = ["I1-07"]
+exclusion = ""
+reason = "K rejects an excluded attribute on the syntax module; the port checks only the main module."
+
+[[case]]
+name = "exit-code-no-gen-top"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "f32-mul"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "fatalWarnings"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "ffi-llvm"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "float-id"
+baseline_verdict = "mismatch"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = "krust prints `NaNp24x8` where the reference prints `NaNf`: Float literal spelling; FLOAT not compared by C2"
+unexplained = true
+
+[[case]]
+name = "fresh1"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "fresh2"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "fresh3"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "fun-llvm"
+baseline_verdict = "mismatch"
+baseline_stage = "krun"
+tickets = ["B1-01", "B1-02"]
+exclusion = ""
+reason = "kompile and most programs: closure and parameter sort; funSort/funSort2: externalized `#` variable names as in equals-pattern"
+unexplained = true
+
+[[case]]
+name = "glr"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "glr2"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "glr3"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "glr4"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "group"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "help"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "imp++-llvm"
+baseline_verdict = "krust-error"
+baseline_stage = "outer-parse"
+tickets = ["A1-07"]
+exclusion = ""
+reason = "malformed Markdown annotation is a hard error"
+
+[[case]]
+name = "imp-haskell"
+baseline_verdict = "mismatch"
+baseline_stage = "kprove"
+tickets = ["I1-06"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to I1-06."
+
+[[case]]
+name = "imp-json"
+baseline_verdict = "mismatch"
+baseline_stage = "kompile"
+tickets = ["I1-06"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to I1-06."
+
+[[case]]
+name = "imp-kore"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "imp-llvm"
+baseline_verdict = "krust-error"
+baseline_stage = "krun"
+tickets = ["I1-06"]
+exclusion = ""
+reason = "kompile: `left`; krun collatz timed out at 300 s (D1 deferred: krun recompiles per run; quality+performance run)"
+
+[[case]]
+name = "imp-outer-json"
+baseline_verdict = "krust-error"
+baseline_stage = "outer-parse"
+tickets = ["D1-14"]
+exclusion = ""
+reason = "`--outer-parsed-json` input has no krust equivalent"
+
+[[case]]
+name = "int-llvm"
+baseline_verdict = "mismatch"
+baseline_stage = "krun"
+tickets = ["C2-03"]
+exclusion = ""
+reason = "`+3` printed verbatim"
+
+[[case]]
+name = "int2bytes-no-len"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "io-llvm"
+baseline_verdict = "krust-error"
+baseline_stage = "krun"
+tickets = ["D1-02", "C2-05"]
+exclusion = ""
+reason = "1.test: `#open` IO hook unimplemented, printed with a `#Ceil`; 2.test timed out"
+
+[[case]]
+name = "issue-1088"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-1090"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-1098"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "issue-1145"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-1169"
+baseline_verdict = "skipped-with-reason"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-1175"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = []
+exclusion = "both-reject"
+reason = "Both toolchains reject the broken rule; only their error presentation differs."
+
+[[case]]
+name = "issue-1184"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = "`project:K` in a configuration: `cannot determine the sort of configuration term` (A1 configuration, no ticket)"
+unexplained = true
+
+[[case]]
+name = "issue-1186"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "issue-1193"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-1263"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-1273"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = "rule `foo(FI) => 1FInt(one(FI))`: token `1FInt` not scanned (A2 area, no ticket; same as issue-1879)"
+unexplained = true
+
+[[case]]
+name = "issue-1372"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-1384"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-1388"
+baseline_verdict = "mismatch"
+baseline_stage = "kompile"
+tickets = ["D1-14"]
+exclusion = "llvm-only"
+reason = "--coverage is LLVM-only instrumentation and the translated command drops it."
+
+[[case]]
+name = "issue-1436"
+baseline_verdict = "mismatch"
+baseline_stage = "krun"
+tickets = ["D1-02"]
+exclusion = ""
+reason = "`$IO` not supplied; `#Bottom` at depth 0 (C2 index :239-241)"
+
+[[case]]
+name = "issue-1472-unboundVars"
+baseline_verdict = "match"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-1489-claimLoc"
+baseline_verdict = "match"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-1528"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["I1-06", "D1-04"]
+exclusion = ""
+reason = "kompile: `left`; krun: KItem start sort, fallback still mismatches"
+unexplained = true
+
+[[case]]
+name = "issue-1545-func-in-simplification"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-1572"
+baseline_verdict = "mismatch"
+baseline_stage = "kompile"
+tickets = []
+exclusion = "llvm-only"
+reason = "--gen-bison-parser's not-lr1 warning is a bison/LLVM frontend feature."
+
+[[case]]
+name = "issue-1573"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-1602"
+baseline_verdict = "skipped-with-reason"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-1633"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "issue-1676-koreBytes"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-1682-korePrettyPrint"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-1683-cfgVarsWarns"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-02"]
+exclusion = ""
+reason = "configuration variable `$A` not discovered (source-rule scan)"
+
+[[case]]
+name = "issue-1760"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-1789-rhsOr/haskell"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["C3-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to C3-04."
+
+[[case]]
+name = "issue-1789-rhsOr/llvm"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["C3-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to C3-04."
+
+[[case]]
+name = "issue-1844-noPGM/haskell"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04", "D1-12"]
+exclusion = ""
+reason = "stdin program at sort KItem"
+
+[[case]]
+name = "issue-1844-noPGM/llvm"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04", "D1-12"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04, D1-12."
+
+[[case]]
+name = "issue-1879-kproveTrans/haskell"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = "rule `rdiv(FI1, FI2) => 0FInt(one(FI1))`: token `0FInt` (A2 area, no ticket; same as issue-1273)"
+unexplained = true
+
+[[case]]
+name = "issue-1952"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "issue-2075"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = "two `configuration` declarations in one module: `Too many top cells: BarCell, GeneratedTopCell` (A1/B1 configuration, no ticket)"
+unexplained = true
+
+[[case]]
+name = "issue-2075-2"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-14"]
+exclusion = ""
+reason = "`--top-cell` not ported (B1 index); same two-configuration shape"
+unexplained = true
+
+[[case]]
+name = "issue-2114"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-2142-markConcrete"
+baseline_verdict = "match"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = ""
+step_exclusions = [
+  { test = "test-spec.k", out = "test-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+]
+
+[[case]]
+name = "issue-2146-duplicateModules"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-2174-kprovexParseError"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = []
+exclusion = "both-reject"
+reason = "Both toolchains reject the broken claim; only their error presentation differs."
+
+[[case]]
+name = "issue-2273"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "issue-2287-simpl-rules-in-kprovex"
+baseline_verdict = "krust-error"
+baseline_stage = "kprove"
+tickets = ["C2-01", "C4-04", "I1-10", "C4-05"]
+exclusion = ""
+reason = "a1: ConflictingResults; a2: both reject; a3: existential witness + inj equality; a4/a5: ML connectives in term positions"
+
+[[case]]
+name = "issue-2315-id-quotes"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "issue-2321-kprovexCrash"
+baseline_verdict = "match"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-2356-koreDecode"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-2812-kprove-filter-claims/claims"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = "`the selected module contains no modal reachability claims` with `--claims` filtering (D1-15 flag mapping suspect)"
+unexplained = true
+
+[[case]]
+name = "issue-2812-kprove-filter-claims/exclude"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-2812-kprove-filter-claims/trusted"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-2909-allow-anywhere-haskell/check"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-2909-allow-anywhere-haskell/haskell"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04", "D1-14"]
+exclusion = ""
+reason = "KItem start sort; `--allow-anywhere-haskell` dropped"
+step_exclusions = [
+  { step = "kompile", exclusion = "supported-superset", reason = "Decision 10-1 keeps anywhere rules and deliberately drops --allow-anywhere-haskell; execution remains a real target." },
+]
+
+[[case]]
+name = "issue-2909-allow-anywhere-haskell/llvm"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "issue-3035-antileft/haskell"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "issue-3035-antileft/llvm"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "issue-313"
+baseline_verdict = "match"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-3385"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-3446"
+baseline_verdict = "skipped-with-reason"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-3450-kprove-fresh"
+baseline_verdict = "krust-error"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = "claim with `?C` in two cells and an explicit `<generatedCounter>` cell fails to parse (`cannot use #KRewrite as the immediate left child of #KRewrite`); A3/B1 claim grammar, no ticket"
+unexplained = true
+
+[[case]]
+name = "issue-3520-freshConfig"
+baseline_verdict = "mismatch"
+baseline_stage = "kompile"
+tickets = ["D1-14"]
+exclusion = "llvm-only"
+reason = "--enable-search changes LLVM configuration generation and has no port contract."
+
+[[case]]
+name = "issue-3604-counterCell"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-3647-debugTokens"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-3672-debugParse"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-3996-unary-symbol-list"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-4114-overload-injection"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "issue-4142-no-symbol-overload"
+baseline_verdict = "mismatch"
+baseline_stage = "krun"
+tickets = []
+exclusion = "llvm-only"
+reason = "kore-exec returns both branches; the checked-in output records the LLVM backend's choice."
+
+[[case]]
+name = "issue-4153-missing-module"
+baseline_verdict = "mismatch"
+baseline_stage = "kompile"
+tickets = ["I1-07", "D1-14"]
+exclusion = ""
+reason = "missing main syntax module check"
+
+[[case]]
+name = "issue-425"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-4380-regex-range"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-4683"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-582"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "issue-946"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "issue-999"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "ite-bug"
+baseline_verdict = "mismatch"
+baseline_stage = "kprove"
+tickets = ["I1-08"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to I1-08."
+
+[[case]]
+name = "itp/nat-assoc"
+baseline_verdict = "match"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "itp/nth-ancestor"
+baseline_verdict = "mismatch"
+baseline_stage = "kprove"
+tickets = ["I1-09"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to I1-09."
+
+[[case]]
+name = "json-input"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "kast-bison"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "kast-bison-bytes"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "kast-default-output"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kast"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "kast-input"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "kast-kore-input"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "kast-rule"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "kdep-options/remake-depend"
+baseline_verdict = "skipped-with-reason"
+baseline_stage = "none"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "kdep-options/simple"
+baseline_verdict = "skipped-with-reason"
+baseline_stage = "none"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "kompiled-directory/default"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04", "D1-14"]
+exclusion = ""
+reason = "fallback mismatch: kompiled-directory contract"
+
+[[case]]
+name = "kompiled-directory/nested"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04", "D1-14"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04, D1-14."
+
+[[case]]
+name = "kore-brackets"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "kore-issue-2253"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "kprove-append"
+baseline_verdict = "match"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "kprove-branchingAllowed"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "kprove-error-status"
+baseline_verdict = "mismatch"
+baseline_stage = "kprove"
+tickets = []
+exclusion = "reference-crash"
+reason = "The pinned reference backend crashes without producing an expected proof result."
+
+[[case]]
+name = "kprove-haskell"
+baseline_verdict = "match"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "kprove-java"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = []
+exclusion = "both-reject"
+reason = "Both toolchains report the unbound right-hand-side variable."
+
+[[case]]
+name = "kprove-macro-exp"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = "emit KORE: `cannot use production #32 for equation emission: its label does not match \"_andBool_\"` (same class as bison-glr-bug)"
+unexplained = true
+
+[[case]]
+name = "kprove-macro-exp-productions"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = "same as kprove-macro-exp"
+unexplained = true
+
+[[case]]
+name = "kprove-markdown"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = "rule at set-balance.md:577 (`REASON in reasons(AL)`) fails to parse; spec `imports VERIFICATION` not found (Markdown selector / requires resolution, A1 area)"
+unexplained = true
+
+[[case]]
+name = "kprove-smt-lemma/haskell"
+baseline_verdict = "match"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "kprove-var-equals"
+baseline_verdict = "match"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "krun-deserialize"
+baseline_verdict = "mismatch"
+baseline_stage = "kompile"
+tickets = ["I1-06"]
+exclusion = ""
+reason = "kompile: `left`; krun `--parser cat` unsupported"
+
+[[case]]
+name = "let-priority"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "let-test"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["I1-06", "D1-04"]
+exclusion = ""
+reason = "fallback still errors"
+unexplained = true
+
+[[case]]
+name = "list-in-bug"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "list-set"
+baseline_verdict = "krust-error"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = "krust error dumps a Term Debug rendering (internal error in list/set execution; C1/C2 area, no ticket)"
+unexplained = true
+
+[[case]]
+name = "llvm-kompile-type"
+baseline_verdict = "skipped-with-reason"
+baseline_stage = "none"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "llvm-krun"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "llvm-string2base"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "locations"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "fallback mismatch (klabel deprecation warning path)"
+unexplained = true
+
+[[case]]
+name = "locations2"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "same"
+unexplained = true
+
+[[case]]
+name = "locations3"
+baseline_verdict = "mismatch"
+baseline_stage = "krun"
+tickets = ["I1-06"]
+exclusion = ""
+reason = "kompile: `left` plus missing `<generated>` sources; krun: krust panics `called Result::unwrap() on Err ParseError { offset: 354 }` (B3/D1 area, no ticket)"
+unexplained = true
+
+[[case]]
+name = "lub"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "lub2"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "macro-rewrite"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "macro_vars"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "macro_vars-productions"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "map-symbolic-tests-haskell"
+baseline_verdict = "krust-error"
+baseline_stage = "kprove"
+tickets = ["C1-01"]
+exclusion = ""
+reason = "inkeys-6 timed out; 76 steps undriven (300 s budget)"
+budget = 1800
+step_exclusions = [
+  { test = "assignment-1-spec.k", out = "assignment-1-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-10-spec.k", out = "assignment-10-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-12-spec.k", out = "assignment-12-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-13-spec.k", out = "assignment-13-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-14-spec.k", out = "assignment-14-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-15-spec.k", out = "assignment-15-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-16-spec.k", out = "assignment-16-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-17-spec.k", out = "assignment-17-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-19-spec.k", out = "assignment-19-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-2-spec.k", out = "assignment-2-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-20-spec.k", out = "assignment-20-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-21-spec.k", out = "assignment-21-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-22-spec.k", out = "assignment-22-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-23-spec.k", out = "assignment-23-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-24-spec.k", out = "assignment-24-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-25-spec.k", out = "assignment-25-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-26-spec.k", out = "assignment-26-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-27-spec.k", out = "assignment-27-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-28-spec.k", out = "assignment-28-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-29-spec.k", out = "assignment-29-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-3-spec.k", out = "assignment-3-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-30-spec.k", out = "assignment-30-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-31-spec.k", out = "assignment-31-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-4-spec.k", out = "assignment-4-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-5-spec.k", out = "assignment-5-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-6-spec.k", out = "assignment-6-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-7-spec.k", out = "assignment-7-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-8-spec.k", out = "assignment-8-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "assignment-9-spec.k", out = "assignment-9-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inkeys-1-spec.k", out = "inkeys-1-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inkeys-10-spec.k", out = "inkeys-10-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inkeys-11-spec.k", out = "inkeys-11-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inkeys-12-spec.k", out = "inkeys-12-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inkeys-13-spec.k", out = "inkeys-13-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inkeys-14-spec.k", out = "inkeys-14-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inkeys-15-spec.k", out = "inkeys-15-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inkeys-16-spec.k", out = "inkeys-16-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inkeys-17-spec.k", out = "inkeys-17-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inkeys-2-spec.k", out = "inkeys-2-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inkeys-3-spec.k", out = "inkeys-3-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inkeys-4-spec.k", out = "inkeys-4-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inkeys-5-spec.k", out = "inkeys-5-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+]
+
+[[case]]
+name = "markdownSelectors"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "fallback mismatch"
+unexplained = true
+
+[[case]]
+name = "minimization-issue"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "mint-llvm"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = "`::MInt{8}` cast and MInt literals in rules: parametric MInt{W} sorts unsupported in the rule grammar (see I1-07 fix shape)"
+unexplained = true
+
+[[case]]
+name = "mint-llvm-2"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = "MInt literal `0p64`"
+unexplained = true
+
+[[case]]
+name = "mint-llvm-3"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = "MInt literal `0p64`"
+unexplained = true
+
+[[case]]
+name = "mint-llvm-4"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = "MInt literals in a List"
+unexplained = true
+
+[[case]]
+name = "mutable-bytes/default"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "mutable-bytes/mutable"
+baseline_verdict = "mismatch"
+baseline_stage = "krun"
+tickets = []
+exclusion = "llvm-only"
+reason = "Mutable Bytes semantics are defined only by the LLVM backend."
+
+[[case]]
+name = "no-dup-rules"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "no-junk-macro"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "fallback mismatch"
+unexplained = true
+
+[[case]]
+name = "no-pattern"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "nomain"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "non-executable/haskell"
+baseline_verdict = "krust-error"
+baseline_stage = "krun"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "non-executable/llvm"
+baseline_verdict = "krust-error"
+baseline_stage = "krun"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "non-executable/rewrite-check"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "nonexhaustive"
+baseline_verdict = "mismatch"
+baseline_stage = "kompile"
+tickets = []
+exclusion = "llvm-only"
+reason = "Decision-tree exhaustiveness diagnostics are LLVM-backend behavior."
+
+[[case]]
+name = "or-haskell"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["C3-04", "D1-04"]
+exclusion = ""
+reason = "1-9: `\\or` in rule sides; 10/11: KItem start sort"
+
+[[case]]
+name = "or-llvm"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["C3-04", "D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to C3-04, D1-04."
+
+[[case]]
+name = "overload"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "owise-haskell"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "parse-c"
+baseline_verdict = "mismatch"
+baseline_stage = "kompile"
+tickets = ["I1-06"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to I1-06 (shape shared, unverified)."
+
+[[case]]
+name = "parseNonPgm"
+baseline_verdict = "mismatch"
+baseline_stage = "kompile"
+tickets = ["I1-06"]
+exclusion = ""
+reason = "first difference at the `cool-like`/`label` attributes of a cool rule"
+
+[[case]]
+name = "pattern-macro"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["C3-04", "D1-04"]
+exclusion = ""
+reason = "1-4: `\\or` patterns; 5-7: KItem start sort"
+
+[[case]]
+name = "pattern-macro-productions"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["C3-04", "D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to C3-04, D1-04."
+
+[[case]]
+name = "pedanticAttributes"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "pl-tutorial/1_k/1_lambda/lesson_8"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = "emit KORE label mismatch for `let_=_in_` (same class as bison-glr-bug)"
+unexplained = true
+
+[[case]]
+name = "pl-tutorial/1_k/2_imp/lesson_4"
+baseline_verdict = "krust-error"
+baseline_stage = "krun"
+tickets = ["I1-06"]
+exclusion = ""
+reason = "krun collatz timed out"
+
+[[case]]
+name = "pl-tutorial/1_k/3_lambda++/lesson_5"
+baseline_verdict = "skipped-with-reason"
+baseline_stage = "none"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "pl-tutorial/1_k/4_imp++/lesson_7"
+baseline_verdict = "skipped-with-reason"
+baseline_stage = "none"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "pl-tutorial/1_k/5_types/lesson_6"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "pl-tutorial/2_languages/1_simple/1_untyped"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = "rule `(<thread>... </thread> => .Bag)`: parenthesised cell rewrite to `.Bag` (A3 rule grammar, no ticket)"
+unexplained = true
+
+[[case]]
+name = "pl-tutorial/2_languages/1_simple/2_typed/1_static"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = "emit KORE label mismatch for `__;_` (same class as bison-glr-bug)"
+unexplained = true
+
+[[case]]
+name = "pl-tutorial/2_languages/1_simple/2_typed/2_dynamic"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = "`#KSequence` associativity in a configuration (A3 config grammar, no ticket)"
+unexplained = true
+
+[[case]]
+name = "pl-tutorial/2_languages/2_kool/1_untyped"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = "same as simple untyped"
+unexplained = true
+
+[[case]]
+name = "pl-tutorial/2_languages/2_kool/2_typed/1_dynamic"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = "`#KSequence` associativity in a configuration"
+unexplained = true
+
+[[case]]
+name = "pl-tutorial/2_languages/2_kool/2_typed/2_static"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = "`no well-sorted parse` for the configuration (A3 inference, no ticket)"
+unexplained = true
+
+[[case]]
+name = "pl-tutorial/2_languages/3_fun/1_untyped/1_environment"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = "rule `try E catch(X) E'` fails to parse (primed variables? A2 area, no ticket)"
+unexplained = true
+
+[[case]]
+name = "poly-kitem"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "poly-sort"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "poly-unparsing"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "prelude-warnings"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = "`::MInt{8}` cast (MInt class)"
+unexplained = true
+
+[[case]]
+name = "profile"
+baseline_verdict = "match"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "proof-instrumentation"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "proof-instrumentation-debug"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "proof-tests/deposit/spec"
+baseline_verdict = "skipped-with-reason"
+baseline_stage = "none"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "proof-tests/deposit/test"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "quadratic-poly-unparsing"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-12"]
+exclusion = ""
+reason = "driver passes `--search-all` twice: search flag mapping"
+
+[[case]]
+name = "rand"
+baseline_verdict = "krust-error"
+baseline_stage = "krun"
+tickets = ["C2-05"]
+exclusion = ""
+reason = "INT.rand unimplemented; timed out"
+
+[[case]]
+name = "rangemap-tests-llvm"
+baseline_verdict = "krust-error"
+baseline_stage = "krun"
+tickets = ["C2-05", "D1-04"]
+exclusion = ""
+reason = "RANGEMAP hooks unimplemented; KItem start sort; 66 steps undriven"
+budget = 1800
+
+[[case]]
+name = "rat/defined/haskell"
+baseline_verdict = "krust-error"
+baseline_stage = "krun"
+tickets = ["C2-01"]
+exclusion = ""
+reason = "ConflictingResults"
+
+[[case]]
+name = "rat/defined/llvm"
+baseline_verdict = "krust-error"
+baseline_stage = "krun"
+tickets = ["C2-01"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to C2-01."
+
+[[case]]
+name = "rat/undefined/haskell"
+baseline_verdict = "mismatch"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = "`1 /Rat 0 ==Rat 1 /Rat 0` evaluates to `true` in krust; the reference leaves the undefined initial term; definedness of K-level partial functions under `==Rat` (C2 area, no ticket)"
+unexplained = true
+
+[[case]]
+name = "record-llvm"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["I1-06", "D1-04"]
+exclusion = ""
+reason = "3/4.test fallback still errors"
+unexplained = true
+
+[[case]]
+name = "regex-prec"
+baseline_verdict = "krust-unsupported"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "regex-unicode"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "search-bound"
+baseline_verdict = "mismatch"
+baseline_stage = "search"
+tickets = ["I1-05", "D1-06"]
+exclusion = ""
+reason = "`--bound` selection order"
+
+[[case]]
+name = "seqstrict-predicate"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["I1-06", "D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to I1-06, D1-04."
+
+[[case]]
+name = "set-symbolic-tests"
+baseline_verdict = "skipped-with-reason"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = ""
+budget = 1800
+step_exclusions = [
+  { test = "diff-1-spec.k", out = "diff-1-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "diff-10-spec.k", out = "diff-10-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "diff-11-spec.k", out = "diff-11-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "diff-17-spec.k", out = "diff-17-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "diff-19-spec.k", out = "diff-19-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "diff-2-spec.k", out = "diff-2-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "diff-21-spec.k", out = "diff-21-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "diff-22-spec.k", out = "diff-22-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "diff-23-spec.k", out = "diff-23-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "diff-3-spec.k", out = "diff-3-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "diff-31-spec.k", out = "diff-31-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "diff-4-spec.k", out = "diff-4-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "diff-5-spec.k", out = "diff-5-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "diff-ticket3124-spec.k", out = "diff-ticket3124-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inset-1-spec.k", out = "inset-1-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inset-2-spec.k", out = "inset-2-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inset-3-spec.k", out = "inset-3-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "inset-4-spec.k", out = "inset-4-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "intersect-1-spec.k", out = "intersect-1-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "intersect-10-spec.k", out = "intersect-10-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "intersect-11-spec.k", out = "intersect-11-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "intersect-17-spec.k", out = "intersect-17-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "intersect-19-spec.k", out = "intersect-19-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "intersect-2-spec.k", out = "intersect-2-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "intersect-21-spec.k", out = "intersect-21-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "intersect-22-spec.k", out = "intersect-22-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "intersect-23-spec.k", out = "intersect-23-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "intersect-3-spec.k", out = "intersect-3-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "intersect-31-spec.k", out = "intersect-31-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "intersect-37-spec.k", out = "intersect-37-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "intersect-4-spec.k", out = "intersect-4-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "intersect-5-spec.k", out = "intersect-5-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "union-1-spec.k", out = "union-1-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "union-10-spec.k", out = "union-10-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "union-11-spec.k", out = "union-11-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "union-17-spec.k", out = "union-17-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "union-19-spec.k", out = "union-19-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "union-2-spec.k", out = "union-2-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "union-21-spec.k", out = "union-21-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "union-22-spec.k", out = "union-22-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "union-23-spec.k", out = "union-23-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "union-3-spec.k", out = "union-3-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "union-31-spec.k", out = "union-31-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "union-32-spec.k", out = "union-32-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "union-34-spec.k", out = "union-34-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "union-37-spec.k", out = "union-37-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "union-38-spec.k", out = "union-38-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+  { test = "union-39-spec.k", out = "union-39-spec.k.out", exclusion = "stale-oracle", reason = "Baseline oracle confirmation failed against pinned K v7.1.337; keep the checked-in output visible but unranked until the pin moves." },
+]
+
+[[case]]
+name = "set_unification"
+baseline_verdict = "mismatch"
+baseline_stage = "kprove"
+tickets = ["C1-01", "C1-02"]
+exclusion = ""
+reason = "stuck at depth 2 with a Set frame `_Set_(?_Gen0, _DotVar1)` against `SetItem(I +Int 1) ...`"
+
+[[case]]
+name = "simp-haskell"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "spec-rule-application"
+baseline_verdict = "mismatch"
+baseline_stage = "kprove"
+tickets = ["I1-11"]
+exclusion = ""
+reason = "def02: claim requires narrowing; def61/def81: krust proves what the reference refutes (suspects C4-03, C1 index `ceil_term` note); def62: stuck at depth 1"
+unexplained = true
+step_exclusions = [
+  { test = "def61-spec.k", exclusion = "reference-incomplete-port-proves", reason = "Part 6 of regression-new's test plan documents reference substitution-orientation incompleteness; the trusted claim applies under the path condition, so the port's proof is sound." },
+  { test = "def81-spec.k", exclusion = "reference-incomplete-port-proves", reason = "Part 8 of regression-new's test plan documents reference ConjunctiveFormula simplification incompleteness; the trusted claim applies under the path condition, so the port's proof is sound." },
+]
+
+[[case]]
+name = "star-multiplicity"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = ["A2-01"]
+exclusion = ""
+reason = "rule `<k> #putCells => .K ... </k>`: `#putCells` terminal vs the `#`-prefixed KLabel regex"
+
+[[case]]
+name = "star-multiplicity-concat"
+baseline_verdict = "match"
+baseline_stage = "krun"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "string_escape"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "stringbuffer-llvm"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "synonym"
+baseline_verdict = "krust-error"
+baseline_stage = "inner-parse"
+tickets = []
+exclusion = ""
+reason = "`0:Wad` cast to a sort synonym in a configuration (A1 synonyms / A3 casts, no ticket)"
+unexplained = true
+
+[[case]]
+name = "total-proj"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = "rule `X:Pgm2 => baz(X)`: cast to a sort whose name ends in a digit? (A3 cast productions, no ticket)"
+unexplained = true
+
+[[case]]
+name = "trace"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "fallback still errors"
+unexplained = true
+
+[[case]]
+name = "unification-lemmas"
+baseline_verdict = "match"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "unification-lemmas2"
+baseline_verdict = "match"
+baseline_stage = "kprove"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "union"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "unparseKORE"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "fallback mismatch"
+unexplained = true
+
+[[case]]
+name = "useless"
+baseline_verdict = "mismatch"
+baseline_stage = "kompile"
+tickets = []
+exclusion = "llvm-only"
+reason = "Decision-tree useless-rule diagnostics are LLVM-backend behavior."
+
+[[case]]
+name = "werrorCategory"
+baseline_verdict = "match"
+baseline_stage = "kompile"
+tickets = []
+exclusion = ""
+reason = ""
+
+[[case]]
+name = "withConfig"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "withConfig-llvm"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "Baseline first divergence is attributed to D1-04."
+
+[[case]]
+name = "withConfig2"
+baseline_verdict = "krust-error"
+baseline_stage = "kompile"
+tickets = ["D1-04"]
+exclusion = ""
+reason = "fallback still errors"
+unexplained = true
+
+[[expected_delta]]
+tickets = ["C2-01"]
+delta = 10
+cases = ["domains-lemmas-no-smt", "concrete-haskell", "issue-2287-simpl-rules-in-kprovex", "rat/defined/haskell", "rat/defined/llvm", "set-symbolic-tests"]
+
+[[expected_delta]]
+tickets = ["C2-03"]
+delta = 1
+cases = ["int-llvm"]
+
+[[expected_delta]]
+tickets = ["I1-08"]
+delta = 1
+cases = ["ite-bug"]
+
+[[expected_delta]]
+tickets = ["I1-10", "C4-04"]
+delta = 1
+cases = ["issue-2287-simpl-rules-in-kprovex"]
+
+[[expected_delta]]
+tickets = ["C3-01"]
+delta = 1
+cases = ["search-bound"]
+
+[[expected_delta]]
+tickets = ["I1-11"]
+delta = 1
+cases = ["spec-rule-application"]
