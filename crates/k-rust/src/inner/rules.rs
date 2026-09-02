@@ -10,13 +10,19 @@ use crate::definition::{
 use crate::kast::{Label, Sort, Term};
 use crate::provenance::SourceId;
 
-use super::config::{add_casts, add_k_syntax, add_subsort, nonterminal, truth};
-use super::parser::{Grammar, ParseError};
+use super::config::{
+    BuiltinTokenGrammar, add_casts, add_k_syntax, add_subsort, nonterminal, truth,
+};
+use super::parser::{Grammar, ParseError, Scanner, TokenPrecedenceDeclaration};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RuleError {
     Definition(ResolveError),
     Parse(Box<RuleParseError>),
+    InconsistentTokenPrecedence {
+        token: String,
+        declarations: Vec<TokenPrecedenceDeclaration>,
+    },
     IllegalEnsures {
         module: String,
         sentence_type: String,
@@ -54,6 +60,14 @@ impl fmt::Display for RuleError {
                     error.sentence_type, error.module, error.error
                 )
             }
+            Self::InconsistentTokenPrecedence {
+                token,
+                declarations,
+            } => ParseError::InconsistentTokenPrecedence {
+                token: token.clone(),
+                declarations: declarations.clone(),
+            }
+            .fmt(formatter),
             Self::IllegalEnsures {
                 module,
                 sentence_type,
@@ -76,6 +90,33 @@ impl std::error::Error for RuleError {}
 pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleError> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(RuleError::Definition)?;
     let mut transformed = definition.clone();
+    let main = resolved.main_module_id();
+    let global = rule_grammar(&resolved, main, RuleGrammarScope::GlobalScanner).map_err(
+        |error| match error {
+            ParseError::InconsistentTokenPrecedence {
+                token,
+                declarations,
+            } => RuleError::InconsistentTokenPrecedence {
+                token,
+                declarations,
+            },
+            error => RuleError::Parse(Box::new(RuleParseError {
+                module: resolved.main_module().name.clone(),
+                sentence_type: "rule grammar".into(),
+                source: resolved
+                    .main_module()
+                    .attributes
+                    .source()
+                    .map(str::to_owned),
+                location: resolved.main_module().attributes.location(),
+                error,
+            })),
+        },
+    )?;
+    let reachable = resolved
+        .transitive_imports(main)
+        .into_iter()
+        .collect::<BTreeSet<_>>();
 
     for module in &mut transformed.modules {
         if !module.local_sentences.iter().any(is_rule_bubble) {
@@ -84,7 +125,10 @@ pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleE
         let module_id = resolved
             .module_id(&module.name)
             .expect("every flat module was added to the resolved definition");
-        let grammar = rule_grammar(&resolved, module_id).map_err(|error| {
+        let scope = RuleGrammarScope::Module {
+            scanner_seed: reachable.contains(&module_id).then_some(global.scanner()),
+        };
+        let grammar = rule_grammar(&resolved, module_id, scope).map_err(|error| {
             RuleError::Parse(Box::new(RuleParseError {
                 module: module.name.clone(),
                 sentence_type: "rule-like sentence".into(),
@@ -243,8 +287,26 @@ fn up_sentence(
     }
 }
 
-fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Grammar, ParseError> {
-    let visible = resolved.sentences(module);
+#[derive(Clone, Copy)]
+enum RuleGrammarScope<'a> {
+    GlobalScanner,
+    Module { scanner_seed: Option<&'a Scanner> },
+}
+
+fn rule_grammar(
+    resolved: &ResolvedDefinition,
+    module: ModuleId,
+    scope: RuleGrammarScope<'_>,
+) -> Result<Grammar, ParseError> {
+    let visible = match scope {
+        RuleGrammarScope::GlobalScanner | RuleGrammarScope::Module { .. } => {
+            resolved.sentences(module)
+        }
+    };
+    let scanner_seed = match scope {
+        RuleGrammarScope::GlobalScanner => None,
+        RuleGrammarScope::Module { scanner_seed } => scanner_seed,
+    };
     let concrete_sorts = concrete_sorts(&visible);
     let has_generated_top_sort = visible.iter().any(|sentence| {
         matches!(
@@ -329,7 +391,8 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
     let source_catalog = resolved.production_catalog(module);
     // The reference rule grammar imports DEFAULT-LAYOUT explicitly, independently
     // of the layout used to parse programs in the language being compiled.
-    let mut grammar = Grammar::from_rule_sentences(parsing_sentences.iter(), &source_catalog)?;
+    let mut grammar =
+        Grammar::from_rule_sentences(parsing_sentences.iter(), &source_catalog, scanner_seed)?;
     // Multiplicity-cell collection concatenations have no separator, so retaining every
     // binary association expands a short sequence into a Catalan-sized parse forest. Their
     // generated productions are explicitly associative; choosing one association here is
@@ -372,8 +435,7 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
             _ => None,
         })
         .collect::<BTreeSet<_>>();
-
-    add_k_syntax(&mut grammar)?;
+    add_k_syntax(&mut grammar, BuiltinTokenGrammar::Rule)?;
     add_rule_k_syntax(
         &mut grammar,
         &concrete_sorts,
@@ -480,15 +542,9 @@ fn add_rule_k_syntax(
     add_subsort(grammar, "KBott", Sort::new("#KVariable"))?;
     add_subsort(grammar, "KBott", Sort::new("KConfigVar"))?;
     add_subsort(grammar, "KItem", Sort::new("KBott"))?;
-    grammar.add(
-        Sort::new("KLabel"),
-        vec![ProductionItem::regex(
-            r"`(\\`|\\\\|[^`\\\n\r])+`|[a-z][a-zA-Z0-9]*|#[a-z][a-zA-Z0-9]*",
-        )],
-        None,
-        true,
-        false,
-    )?;
+    // Literal terminals always beat regex lexemes in the global scanner. Retain this generated
+    // bridge so labels whose spelling is also a terminal remain usable in prefix applications
+    // and explicit `#klabel(...)` terms.
     for label in klabel_terminals {
         grammar.add(
             Sort::new("KLabel"),
@@ -524,15 +580,6 @@ fn add_rule_k_syntax(
         false,
     )?;
     grammar.add_left_associative("#KList");
-    grammar.add(
-        Sort::new("KString"),
-        vec![ProductionItem::regex(
-            r#"[\"](([^\"\n\r\\])|([\\][nrtf\"\\])|([\\][x][0-9a-fA-F]{2})|([\\][u][0-9a-fA-F]{4})|([\\][U][0-9a-fA-F]{8}))*[\"]"#,
-        )],
-        None,
-        true,
-        false,
-    )?;
     grammar.add(
         Sort::new("KBott"),
         vec![

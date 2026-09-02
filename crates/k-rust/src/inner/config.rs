@@ -188,7 +188,7 @@ fn configuration_grammar(
 
     add_config_cells(&mut grammar)?;
     grammar.add_matching_terminal_tokens(Sort::new("#CellName"), is_cell_name)?;
-    add_k_syntax(&mut grammar)?;
+    add_k_syntax(&mut grammar, BuiltinTokenGrammar::Configuration)?;
 
     concrete_sorts.retain(|sort| {
         !matches!(
@@ -216,7 +216,61 @@ fn is_cell_name(value: &str) -> bool {
         && characters.all(|character| character.is_ascii_alphanumeric() || character == '-')
 }
 
-pub(super) fn add_k_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum BuiltinTokenGrammar {
+    Rule,
+    Configuration,
+}
+
+const BUILTIN_LEXEMES: [(&str, &str, &str); 7] = [
+    ("#LowerId", r"[a-z][a-zA-Z0-9]*", "2"),
+    ("#UpperId", r"[A-Z][a-zA-Z0-9]*", "2"),
+    (
+        "KString",
+        r#"[\"](([^\"\n\r\\])|([\\][nrtf\"\\])|([\\][x][0-9a-fA-F]{2})|([\\][u][0-9a-fA-F]{4})|([\\][U][0-9a-fA-F]{8}))*[\"]"#,
+        "0",
+    ),
+    ("KLabel", r"`(\\`|\\\\|[^`\\\n\r])+`", "0"),
+    ("KLabel", r"[#a-z][a-zA-Z0-9]*", "1"),
+    (
+        "#KVariable",
+        r"(\!|\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)",
+        "1",
+    ),
+    ("KConfigVar", r"(\$)([A-Z][A-Za-z0-9'_]*)", "0"),
+];
+
+/// Lexemes and token subsorts imported from `kast.md` by every rule grammar.
+pub(super) fn add_builtin_tokens(
+    grammar: &mut Grammar,
+    which: BuiltinTokenGrammar,
+) -> Result<(), ParseError> {
+    for (sort, regex, precedence) in BUILTIN_LEXEMES {
+        grammar.add_token_with_precedence(
+            Sort::new(sort),
+            ProductionItem::regex(regex),
+            precedence,
+        )?;
+    }
+    grammar.add_token_subsort("KLabel", "#LowerId")?;
+    grammar.add_token_subsort("#KVariable", "#UpperId")?;
+    if which == BuiltinTokenGrammar::Configuration {
+        grammar.add_token_with_precedence(
+            Sort::new("#CellName"),
+            ProductionItem::regex(r"[a-zA-Z][a-zA-Z0-9\-]*"),
+            "1",
+        )?;
+        grammar.add_token_subsort("#CellName", "#LowerId")?;
+        grammar.add_token_subsort("#CellName", "#UpperId")?;
+    }
+    Ok(())
+}
+
+pub(super) fn add_k_syntax(
+    grammar: &mut Grammar,
+    which: BuiltinTokenGrammar,
+) -> Result<(), ParseError> {
+    add_builtin_tokens(grammar, which)?;
     add_subsort(grammar, "K", Sort::new("KItem"))?;
     add_subsort(grammar, "KItem", Sort::new("Bag"))?;
     add_subsort(grammar, "KItem", Sort::new("Bool"))?;
@@ -224,22 +278,6 @@ pub(super) fn add_k_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {
     add_subsort(grammar, "KItem", Sort::new("#KVariable"))?;
     add_subsort(grammar, "#RuleBody", Sort::new("K"))?;
 
-    grammar.add(
-        Sort::new("KConfigVar"),
-        vec![ProductionItem::regex(r"\$[A-Z][A-Za-z0-9'_]*")],
-        None,
-        true,
-        false,
-    )?;
-    grammar.add(
-        Sort::new("#KVariable"),
-        vec![ProductionItem::regex(
-            r"(\!|\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)",
-        )],
-        None,
-        true,
-        false,
-    )?;
     grammar.add(
         Sort::new("K"),
         vec![ProductionItem::Terminal(".K".into())],
@@ -361,29 +399,6 @@ pub(super) fn add_k_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {
 }
 
 fn add_config_cells(grammar: &mut Grammar) -> Result<(), ParseError> {
-    grammar.add_token_with_precedence(
-        Sort::new("#CellName"),
-        ProductionItem::regex(r"[a-zA-Z][a-zA-Z0-9\-]*"),
-        "1",
-    )?;
-    // CONFIG-CELLS also admits the higher-precedence identifier tokens. In particular,
-    // `#UpperId` must beat `#KVariable` for names such as `<T>` in the global scanner.
-    for regex in [r"[a-z][a-zA-Z0-9]*", r"[A-Z][a-zA-Z0-9]*"] {
-        grammar.add_token_with_precedence(
-            Sort::new("#CellName"),
-            ProductionItem::regex(regex),
-            "2",
-        )?;
-    }
-    grammar.add(
-        Sort::new("KString"),
-        vec![ProductionItem::regex(
-            r#"[\"](([^\"\n\r\\])|([\\][nrtf\"\\])|([\\][x][0-9a-fA-F]{2})|([\\][u][0-9a-fA-F]{4})|([\\][U][0-9a-fA-F]{8}))*[\"]"#,
-        )],
-        None,
-        true,
-        false,
-    )?;
     grammar.add(
         Sort::new("#CellProperty"),
         vec![
@@ -497,19 +512,31 @@ pub(super) fn add_casts(
         false,
         false,
     )?;
-    grammar.add(
-        label_sort.clone(),
-        vec![
-            ProductionItem::NonTerminal {
-                sort: label_sort.clone(),
-                name: None,
-            },
-            ProductionItem::Terminal(format!(":{cast_sort}")),
-        ],
-        Some(Label::new(format!("#SemanticCastTo{label_sort}"))),
-        false,
-        false,
-    )?;
+    let semantic_cast_items = vec![
+        ProductionItem::NonTerminal {
+            sort: label_sort.clone(),
+            name: None,
+        },
+        ProductionItem::Terminal(format!(":{cast_sort}")),
+    ];
+    if label_sort == Sort::new("K") && cast_sort == Sort::new("K") {
+        grammar.add_with_source_text(
+            label_sort.clone(),
+            semantic_cast_items,
+            Some(Label::new("#SemanticCastToK")),
+            false,
+            false,
+            "syntax K ::= K \":K\" [format(%1%2), org.kframework.kore.Sort(K)]",
+        )?;
+    } else {
+        grammar.add(
+            label_sort.clone(),
+            semantic_cast_items,
+            Some(Label::new(format!("#SemanticCastTo{label_sort}"))),
+            false,
+            false,
+        )?;
+    }
     grammar.add(
         label_sort,
         vec![
@@ -538,5 +565,123 @@ pub(super) fn truth() -> Term {
     Term::Token {
         token: "true".into(),
         sort: Sort::new("Bool"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn regex(regex: &str) -> String {
+        format!("r{regex:?}")
+    }
+
+    #[test]
+    fn scanner_winner_table_matches_scanner_get_tokens() {
+        for precedence in 0..=3 {
+            let mut grammar = Grammar::default();
+            add_k_syntax(&mut grammar, BuiltinTokenGrammar::Rule).unwrap();
+            grammar
+                .add_token_with_precedence(
+                    Sort::new("Id"),
+                    ProductionItem::regex(r"[A-Za-z_][A-Za-z_0-9]*"),
+                    &precedence.to_string(),
+                )
+                .unwrap();
+
+            let user_id = r"[A-Za-z_][A-Za-z_0-9]*";
+            assert_eq!(
+                grammar.scanner().winner_description("foo"),
+                Some(regex(if precedence < 2 {
+                    r"[a-z][a-zA-Z0-9]*"
+                } else {
+                    user_id
+                }))
+            );
+            assert_eq!(
+                grammar.scanner().winner_description("Foo"),
+                Some(regex(if precedence < 3 {
+                    r"[A-Z][a-zA-Z0-9]*"
+                } else {
+                    user_id
+                }))
+            );
+            assert_eq!(
+                grammar.scanner().winner_description("foo_bar"),
+                Some(regex(user_id))
+            );
+            assert_eq!(
+                grammar.scanner().winner_description("X'"),
+                Some(regex(
+                    r"(\!|\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)"
+                ))
+            );
+            assert_eq!(
+                grammar.scanner().winner_description("`foo`"),
+                Some(regex(r"`(\\`|\\\\|[^`\\\n\r])+`"))
+            );
+            assert_eq!(
+                grammar.scanner().winner_description("#foo"),
+                Some(regex(r"[#a-z][a-zA-Z0-9]*"))
+            );
+            assert_eq!(
+                grammar.scanner().winner_description("$PGM"),
+                Some(regex(r"(\$)([A-Z][A-Za-z0-9'_]*)"))
+            );
+            assert_eq!(
+                grammar.scanner().winner_description("_"),
+                Some(regex(if precedence < 2 {
+                    r"(\!|\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)"
+                } else {
+                    user_id
+                }))
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_lexemes_declared_by_the_definition_are_not_registered_twice() {
+        let mut attributes = Attributes::default();
+        attributes.insert("token", serde_json::json!(""));
+        attributes.insert("prec", serde_json::json!("2"));
+        let sentences = [Sentence::Production {
+            label: None,
+            parameters: Vec::new(),
+            sort: Sort::new("#UpperId"),
+            items: vec![ProductionItem::regex(r"[A-Z][a-zA-Z0-9]*")],
+            attributes,
+        }];
+        let mut grammar = Grammar::from_sentences(&sentences).unwrap();
+
+        add_k_syntax(&mut grammar, BuiltinTokenGrammar::Rule).unwrap();
+
+        assert_eq!(
+            grammar.equivalent_production_count(
+                &Sort::new("#UpperId"),
+                &[ProductionItem::regex(r"[A-Z][a-zA-Z0-9]*")],
+                true,
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn builtin_lexemes_declared_with_another_precedence_are_rejected() {
+        let mut attributes = Attributes::default();
+        attributes.insert("token", serde_json::json!(""));
+        attributes.insert("prec", serde_json::json!("1"));
+        let sentences = [Sentence::Production {
+            label: None,
+            parameters: Vec::new(),
+            sort: Sort::new("#UpperId"),
+            items: vec![ProductionItem::regex(r"[A-Z][a-zA-Z0-9]*")],
+            attributes,
+        }];
+        let mut grammar = Grammar::from_sentences(&sentences).unwrap();
+
+        assert!(matches!(
+            add_builtin_tokens(&mut grammar, BuiltinTokenGrammar::Rule),
+            Err(ParseError::InconsistentTokenPrecedence { .. })
+        ));
     }
 }

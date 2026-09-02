@@ -25,7 +25,8 @@ use crate::provenance::SourceId;
 
 use self::disambiguation::parse_apply_priority;
 use self::lists::UserList;
-use self::scanner::{Item, Layout, Scanner, compile_item};
+pub(super) use self::scanner::Scanner;
+use self::scanner::{Item, Layout, compile_item};
 
 const MAX_DERIVATIONS_PER_STATE: usize = 64;
 
@@ -33,6 +34,20 @@ const MAX_DERIVATIONS_PER_STATE: usize = 64;
 struct ParseProvenance {
     source: SourceId,
     base_offset: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AmbiguousParse {
+    pub production: Option<String>,
+    pub term: String,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct TokenPrecedenceDeclaration {
+    pub source: Option<String>,
+    pub location: Option<crate::definition::Location>,
+    pub production: String,
+    pub precedence: i32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -46,6 +61,7 @@ pub enum ParseError {
     },
     InconsistentTokenPrecedence {
         token: String,
+        declarations: Vec<TokenPrecedenceDeclaration>,
     },
     InvalidLayoutProduction,
     EmptyLayout,
@@ -54,7 +70,7 @@ pub enum ParseError {
         expected: Vec<String>,
     },
     Ambiguous {
-        parses: usize,
+        alternatives: Vec<AmbiguousParse>,
     },
     TooManyParses {
         limit: usize,
@@ -123,8 +139,31 @@ impl fmt::Display for ParseError {
             Self::InvalidTokenPrecedence { value } => {
                 write!(formatter, "invalid token precedence {value:?}")
             }
-            Self::InconsistentTokenPrecedence { token } => {
-                write!(formatter, "inconsistent token precedence for {token}")
+            Self::InconsistentTokenPrecedence {
+                token,
+                declarations,
+            } => {
+                formatter.write_str("Inconsistent token precedence detected.")?;
+                for declaration in declarations {
+                    formatter.write_str("\n")?;
+                    if let Some(source) = &declaration.source {
+                        write!(formatter, "{source}")?;
+                        if let Some(location) = declaration.location {
+                            write!(
+                                formatter,
+                                ":{}:{}",
+                                location.start_line, location.start_column
+                            )?;
+                        }
+                        formatter.write_str(": ")?;
+                    }
+                    write!(
+                        formatter,
+                        "{} [prec({})] ({token})",
+                        declaration.production, declaration.precedence
+                    )?;
+                }
+                Ok(())
             }
             Self::InvalidLayoutProduction => formatter
                 .write_str("productions of sort `#Layout` must contain exactly one regex terminal"),
@@ -138,7 +177,22 @@ impl fmt::Display for ParseError {
                 }
                 Ok(())
             }
-            Self::Ambiguous { parses } => write!(formatter, "input has {parses} parses"),
+            Self::Ambiguous { alternatives } => {
+                formatter.write_str("Parsing ambiguity.")?;
+                for (index, alternative) in alternatives.iter().enumerate() {
+                    write!(
+                        formatter,
+                        "\n{}: {}\n    {}",
+                        index + 1,
+                        alternative
+                            .production
+                            .as_deref()
+                            .unwrap_or("<generated production>"),
+                        alternative.term
+                    )?;
+                }
+                Ok(())
+            }
             Self::TooManyParses { limit } => write!(
                 formatter,
                 "parse forest exceeded the per-state limit of {limit} derivations"
@@ -237,6 +291,7 @@ impl std::error::Error for ParseError {}
 #[derive(Clone, Debug)]
 struct Production {
     result: Sort,
+    declared_items: Vec<ProductionItem>,
     items: Vec<Item>,
     label: Option<Label>,
     token: bool,
@@ -250,6 +305,7 @@ struct Production {
     prefer: bool,
     avoid: bool,
     source_production: Option<ProductionId>,
+    source_production_text: Option<String>,
     user_list: bool,
     user_list_nonempty: bool,
     field_names: Vec<Option<String>>,
@@ -299,6 +355,9 @@ struct ProductionOptions<'a> {
     prefer: bool,
     avoid: bool,
     source_production: Option<ProductionId>,
+    source_production_text: Option<&'a str>,
+    source: Option<&'a str>,
+    location: Option<crate::definition::Location>,
     user_list: bool,
     user_list_nonempty: bool,
     precedence: Option<&'a str>,
@@ -728,6 +787,7 @@ pub struct Grammar {
     productions: Vec<Production>,
     by_result: BTreeMap<Sort, Vec<usize>>,
     scanner: Scanner,
+    source_production_texts: BTreeMap<ProductionId, String>,
     layout: Layout,
     priorities: PartialOrder<String>,
     associativities: AssociativityRelations,
@@ -752,6 +812,7 @@ impl Default for Grammar {
             productions: Vec::new(),
             by_result: BTreeMap::new(),
             scanner: Scanner::default(),
+            source_production_texts: BTreeMap::new(),
             layout: Layout::default(),
             priorities: PartialOrder::new([]).expect("an empty relation is acyclic"),
             associativities: AssociativityRelations::default(),
@@ -806,6 +867,7 @@ impl Grammar {
             }),
             ParserRole::Program,
             false,
+            None,
         )
     }
 
@@ -813,19 +875,20 @@ impl Grammar {
         sentences: impl IntoIterator<Item = &'a Sentence>,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
-        Self::from_collected_sentences(sentences, None, ParserRole::Rule, false)
+        Self::from_collected_sentences(sentences, None, ParserRole::Rule, false, None)
     }
 
     pub(super) fn from_configuration_sentences<'a>(
         sentences: impl IntoIterator<Item = &'a Sentence>,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
-        Self::from_collected_sentences(sentences, None, ParserRole::Rule, true)
+        Self::from_collected_sentences(sentences, None, ParserRole::Rule, true, None)
     }
 
     pub(super) fn from_rule_sentences<'a>(
         sentences: impl IntoIterator<Item = &'a Sentence>,
         source_catalog: &ProductionCatalog<'_>,
+        scanner_seed: Option<&Scanner>,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
         Self::from_collected_sentences(
@@ -833,6 +896,7 @@ impl Grammar {
             Some(SourceLinks::catalog(source_catalog)),
             ParserRole::Rule,
             true,
+            scanner_seed,
         )
     }
 
@@ -841,6 +905,7 @@ impl Grammar {
         source_links: Option<SourceLinks<'_, '_>>,
         role: ParserRole,
         include_default_layout: bool,
+        scanner_seed: Option<&Scanner>,
     ) -> Result<Self, ParseError> {
         let lexical = sentences
             .iter()
@@ -890,6 +955,11 @@ impl Grammar {
         let external = source_links.is_some();
         let source_links =
             source_links.unwrap_or_else(|| SourceLinks::catalog(overloads.catalog()));
+        let source_production_texts = source_links
+            .catalog
+            .productions()
+            .filter_map(|(id, sentence)| render_production(sentence).map(|text| (id, text)))
+            .collect();
         let overload_order = if external {
             let relations = overloads
                 .order()
@@ -907,6 +977,8 @@ impl Grammar {
             overloads.order().clone()
         };
         let mut grammar = Self {
+            scanner: scanner_seed.cloned().unwrap_or_default(),
+            source_production_texts,
             layout: if include_default_layout {
                 Layout::compile_with_default(&layout_sources, &lexical)?
             } else if layout_declared {
@@ -939,6 +1011,9 @@ impl Grammar {
             if !parameters.is_empty() {
                 continue;
             }
+            let source_production = source_links.resolve(sentence);
+            let source_production_text =
+                source_production.and_then(|_| render_production(sentence));
             grammar.add_production_with_lexical(
                 sort.clone(),
                 items,
@@ -955,7 +1030,10 @@ impl Grammar {
                         .any(|key| attributes.get(key).is_some()),
                     prefer: attributes.get("prefer").is_some(),
                     avoid: attributes.get("avoid").is_some(),
-                    source_production: source_links.resolve(sentence),
+                    source_production,
+                    source_production_text: source_production_text.as_deref(),
+                    source: attributes.source(),
+                    location: attributes.location(),
                     user_list: attributes.get("userList").is_some(),
                     user_list_nonempty: attributes.get_str("userList") == Some("+"),
                     precedence: attributes.get_str("prec"),
@@ -1221,12 +1299,7 @@ impl Grammar {
         let listed = self.add_empty_lists(filtered, start)?;
         let cleaned = self.remove_brackets_and_syntactic_casts(listed);
         let cleaned = self.factor_ambiguities(cleaned);
-        let parses = Grammar::ambiguity_count(&cleaned);
-        if parses > 1 {
-            Err(ParseError::Ambiguous { parses })
-        } else {
-            Ok(self.lower(cleaned))
-        }
+        self.resolve_ambiguities(cleaned)
     }
 
     /// Drop completed nodes whose top label violates the caller's associativity on the side they
@@ -1305,12 +1378,54 @@ impl Grammar {
         self.add_production(result, &items, label, token, transparent)
     }
 
+    pub(crate) fn add_with_source_text(
+        &mut self,
+        result: Sort,
+        items: Vec<ProductionItem>,
+        label: Option<Label>,
+        token: bool,
+        transparent: bool,
+        source_production_text: &str,
+    ) -> Result<(), ParseError> {
+        self.add_production_with_lexical(
+            result,
+            &items,
+            label,
+            ProductionOptions {
+                token,
+                transparent,
+                source_production_text: Some(source_production_text),
+                ..ProductionOptions::default()
+            },
+            &BTreeMap::new(),
+        )
+    }
+
     pub(crate) fn add_token_with_precedence(
         &mut self,
         result: Sort,
         item: ProductionItem,
         precedence: &str,
     ) -> Result<(), ParseError> {
+        if self.has_equivalent_production(&result, std::slice::from_ref(&item), true) {
+            let compiled = compile_item(&item, &BTreeMap::new())?;
+            self.scanner.register(
+                &compiled,
+                Some(precedence),
+                TokenPrecedenceDeclaration {
+                    source: None,
+                    location: None,
+                    production: render_added_production(
+                        &result,
+                        std::slice::from_ref(&item),
+                        true,
+                        Some(precedence),
+                    ),
+                    precedence: 0,
+                },
+            )?;
+            return Ok(());
+        }
         self.add_production_with_lexical(
             result,
             &[item],
@@ -1322,6 +1437,65 @@ impl Grammar {
             },
             &BTreeMap::new(),
         )
+    }
+
+    pub(crate) fn add_token_subsort(
+        &mut self,
+        result: impl Into<String>,
+        child: impl Into<String>,
+    ) -> Result<(), ParseError> {
+        let result = Sort::new(result);
+        let item = ProductionItem::NonTerminal {
+            sort: Sort::new(child),
+            name: None,
+        };
+        if self.has_equivalent_production(&result, std::slice::from_ref(&item), true) {
+            return Ok(());
+        }
+        self.add_production_with_lexical(
+            result,
+            &[item],
+            None,
+            ProductionOptions {
+                token: true,
+                ..ProductionOptions::default()
+            },
+            &BTreeMap::new(),
+        )
+    }
+
+    pub(crate) fn has_equivalent_production(
+        &self,
+        result: &Sort,
+        items: &[ProductionItem],
+        token: bool,
+    ) -> bool {
+        self.productions.iter().any(|production| {
+            &production.result == result
+                && production.declared_items == items
+                && production.token == token
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn equivalent_production_count(
+        &self,
+        result: &Sort,
+        items: &[ProductionItem],
+        token: bool,
+    ) -> usize {
+        self.productions
+            .iter()
+            .filter(|production| {
+                &production.result == result
+                    && production.declared_items == items
+                    && production.token == token
+            })
+            .count()
+    }
+
+    pub(super) fn scanner(&self) -> &Scanner {
+        &self.scanner
     }
 
     pub(crate) fn add_bracket(
@@ -1434,6 +1608,11 @@ impl Grammar {
         options: ProductionOptions<'_>,
         lexical: &BTreeMap<String, KRegex>,
     ) -> Result<(), ParseError> {
+        let declared_items = items
+            .iter()
+            .filter(|item| !matches!(item, ProductionItem::Terminal(value) if value.is_empty()))
+            .cloned()
+            .collect();
         let field_names = items
             .iter()
             .filter_map(|item| match item {
@@ -1441,13 +1620,23 @@ impl Grammar {
                 ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
             })
             .collect();
+        let declaration = TokenPrecedenceDeclaration {
+            source: options.source.map(str::to_owned),
+            location: options.location,
+            production: options.source_production_text.map_or_else(
+                || render_added_production(&result, items, options.token, options.precedence),
+                str::to_owned,
+            ),
+            precedence: 0,
+        };
         let mut compiled_items = Vec::new();
         for item in items
             .iter()
             .filter(|item| !matches!(item, ProductionItem::Terminal(value) if value.is_empty()))
         {
             let item = compile_item(item, lexical)?;
-            self.scanner.register(&item, options.precedence)?;
+            self.scanner
+                .register(&item, options.precedence, declaration.clone())?;
             compiled_items.push(item);
         }
         let items = compiled_items;
@@ -1485,6 +1674,7 @@ impl Grammar {
         }
         self.productions.push(Production {
             result: result.clone(),
+            declared_items,
             items,
             label,
             token: options.token,
@@ -1498,6 +1688,7 @@ impl Grammar {
             prefer: options.prefer,
             avoid: options.avoid,
             source_production: options.source_production,
+            source_production_text: options.source_production_text.map(str::to_owned),
             user_list: options.user_list,
             user_list_nonempty: options.user_list_nonempty,
             field_names,
@@ -1569,6 +1760,100 @@ fn catalog_production(
     catalog
         .productions()
         .find_map(|(id, candidate)| sentence_equivalent(candidate, sentence).then_some(id))
+}
+
+fn render_production(sentence: &Sentence) -> Option<String> {
+    let Sentence::Production {
+        parameters,
+        sort,
+        items,
+        attributes,
+        ..
+    } = sentence
+    else {
+        return None;
+    };
+    let parameters = if parameters.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "{{{}}} ",
+            parameters
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
+    let items = items
+        .iter()
+        .map(render_production_item)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let attributes = attributes
+        .entries()
+        .iter()
+        .filter(|(key, _)| {
+            !matches!(
+                key.as_str(),
+                "org.kframework.attributes.Source"
+                    | "org.kframework.attributes.Location"
+                    | "org.kframework.attributes.SourceId"
+                    | "org.krust.provenance.SentenceStartOffset"
+                    | "org.krust.provenance.SentenceEndOffset"
+            )
+        })
+        .map(|(key, value)| match value {
+            serde_json::Value::String(value) if value.is_empty() => key.clone(),
+            serde_json::Value::Null => key.clone(),
+            serde_json::Value::String(value) => format!("{key}({value})"),
+            value => format!("{key}({value})"),
+        })
+        .collect::<Vec<_>>();
+    let attributes = if attributes.is_empty() {
+        String::new()
+    } else {
+        format!(" [{}]", attributes.join(", "))
+    };
+    Some(format!("syntax {parameters}{sort} ::= {items}{attributes}"))
+}
+
+fn render_added_production(
+    result: &Sort,
+    items: &[ProductionItem],
+    token: bool,
+    precedence: Option<&str>,
+) -> String {
+    let items = items
+        .iter()
+        .map(render_production_item)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut attributes = Vec::new();
+    if token {
+        attributes.push("token".to_owned());
+    }
+    if let Some(precedence) = precedence {
+        attributes.push(format!("prec({precedence})"));
+    }
+    let attributes = if attributes.is_empty() {
+        String::new()
+    } else {
+        format!(" [{}]", attributes.join(", "))
+    };
+    format!("syntax {result} ::= {items}{attributes}")
+}
+
+fn render_production_item(item: &ProductionItem) -> String {
+    match item {
+        ProductionItem::NonTerminal { sort, name } => name
+            .as_ref()
+            .map_or_else(|| sort.to_string(), |name| format!("{name}:{sort}")),
+        ProductionItem::RegexTerminal { regex, .. } => {
+            format!("r{}", crate::kast::string::quote(regex))
+        }
+        ProductionItem::Terminal(value) => crate::kast::string::quote(value),
+    }
 }
 
 pub(super) fn expand_regex_body(
@@ -3731,7 +4016,8 @@ mod chart_tests {
                 if attributes.get("cell").is_some())
             })
             .collect::<Vec<_>>();
-        let grammar = Grammar::from_rule_sentences(parsing_sentences, &source_catalog).unwrap();
+        let grammar =
+            Grammar::from_rule_sentences(parsing_sentences, &source_catalog, None).unwrap();
         let source_id = |sort: &str| {
             source_catalog
                 .productions()
