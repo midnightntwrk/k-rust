@@ -1018,7 +1018,13 @@ impl TryFrom<JsonFlatModule> for FlatModule {
             local_sentences: module
                 .local_sentences
                 .into_iter()
-                .map(TryInto::try_into)
+                .filter_map(|sentence| {
+                    if matches!(sentence, JsonSentence::KBadsentence) {
+                        None
+                    } else {
+                        Some(sentence.try_into())
+                    }
+                })
                 .collect::<Result<_, _>>()?,
             attributes: module.att.into(),
         })
@@ -1164,6 +1170,8 @@ impl From<JsonProductionItem> for ProductionItem {
 #[serde(tag = "node")]
 #[allow(clippy::enum_variant_names)] // Variant names mirror the external KAST schema.
 enum JsonSentence {
+    #[serde(rename = "badsentence")]
+    KBadsentence,
     KSyntaxSort {
         sort: JsonSort,
         params: Vec<JsonSort>,
@@ -1290,9 +1298,7 @@ impl TryFrom<&Sentence> for JsonSentence {
                 priorities: priorities.clone(),
                 att: attributes.into(),
             },
-            Sentence::ContextAlias { .. } => {
-                return Err(Error::UnsupportedSentence("KContextAlias"));
-            }
+            Sentence::ContextAlias { .. } => Self::KBadsentence,
             Sentence::Context {
                 body,
                 requires,
@@ -1351,6 +1357,9 @@ impl TryFrom<JsonSentence> for Sentence {
 
     fn try_from(sentence: JsonSentence) -> Result<Self, Self::Error> {
         Ok(match sentence {
+            JsonSentence::KBadsentence => {
+                return Err(Error::UnsupportedSentence("badsentence"));
+            }
             JsonSentence::KSyntaxSort { sort, params, att } => Self::SyntaxSort {
                 parameters: params.into_iter().map(Into::into).collect(),
                 sort: sort.into(),
