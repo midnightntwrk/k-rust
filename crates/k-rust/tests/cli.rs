@@ -290,6 +290,46 @@ endmodule
 }
 
 #[test]
+fn krun_at_kitem_matches_krun_at_the_concrete_sort() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/inner/programs/cast-kitem");
+    let definition = fixtures.join("test.k");
+    let program = fixtures.join("1.test");
+    let run = |sort: &str| {
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                program.to_str().unwrap(),
+                "--main-module",
+                "TEST",
+                "--syntax-module",
+                "TEST",
+                "--sort",
+                sort,
+                "--depth",
+                "10",
+            ])
+            .output()
+            .unwrap()
+    };
+
+    let concrete = run("Int");
+    assert!(
+        concrete.status.success(),
+        "{}",
+        String::from_utf8_lossy(&concrete.stderr)
+    );
+    let at_kitem = run("KItem");
+    assert!(
+        at_kitem.status.success(),
+        "{}",
+        String::from_utf8_lossy(&at_kitem.stderr)
+    );
+    assert_eq!(at_kitem.stdout, concrete.stdout);
+}
+
+#[test]
 fn kast_omits_inferred_parametric_label_arguments() {
     let (root, definition) = fixture();
     fs::write(

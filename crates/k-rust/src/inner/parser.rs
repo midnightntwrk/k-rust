@@ -25,6 +25,7 @@ use crate::provenance::SourceId;
 
 use self::disambiguation::parse_apply_priority;
 use self::lists::UserList;
+pub(crate) use self::parametric::is_parser_sort;
 pub(super) use self::scanner::Scanner;
 use self::scanner::{Item, Layout, compile_item};
 
