@@ -1,0 +1,6 @@
+Lbl'-LT-'generatedTop'-GT-'{}(
+  Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblfoo{}(VarE:SortExp{})), dotk{}())),
+  Lbl'-LT-'m'-GT-'{}(Lbl'Stop'Map{}()),
+  Lbl'-LT-'s'-GT-'{}(Lbl'Stop'Set{}()),
+  Lbl'-LT-'l'-GT-'{}(Lbl'Stop'List{}()),
+  Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0")))

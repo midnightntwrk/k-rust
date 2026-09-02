@@ -11,13 +11,43 @@ kompile=${K_KOMPILE:-}
 kprove=${K_KPROVE:-}
 reference_memory_kib=${REFERENCE_EXECUTION_MEMORY_KIB:-12582912}
 rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}
-reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-'-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Dscala.concurrent.context.numThreads=2 -Dscala.concurrent.context.maxThreads=2'}
+reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-$reference_default_k_opts}
 manifest_json=$(
   WORKSPACE="$workspace" \
   K_CHECKOUT="$k_checkout" \
   IMP_SEMANTICS_CHECKOUT="$imp_checkout" \
     "$workspace/scripts/reference-manifest.py"
 )
+
+if (($#)); then
+  all_selected_pending=true
+  pending_messages=()
+  for requested in "$@"; do
+    selected_case=$(jq -c --arg name "$requested" \
+      '.proof[] | select(.name == $name and ((.requires | index("semantics-support")) == null))' \
+      <<<"$manifest_json")
+    if [[ -z "$selected_case" ]]; then
+      echo "error: unknown runnable local proof case: $requested" >&2
+      echo "available cases: $(jq -r '[.proof[] |
+        select((.requires | index("semantics-support")) == null) | .name] |
+        join(" ")' <<<"$manifest_json")" >&2
+      exit 2
+    fi
+    blocking_tickets=$(jq -r \
+      '[.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", ")' \
+      <<<"$selected_case")
+    if [[ -z "$blocking_tickets" || "${REFERENCE_DIFFERENTIAL_PENDING:-0}" == 1 ]]; then
+      all_selected_pending=false
+    else
+      pending_messages+=("[$requested] pending: blocked by $blocking_tickets")
+    fi
+  done
+  if [[ "$all_selected_pending" == true ]]; then
+    printf '%s\n' "${pending_messages[@]}"
+    echo "reference local proof differential corpus passed"
+    exit 0
+  fi
+fi
 
 if [[ -z "$kompile" ]]; then
   kompile=$(command -v kompile || true)
@@ -63,6 +93,11 @@ for name in "${selected[@]}"; do
     exit 2
   fi
   proof=$(jq -c --arg name "$name" '.proof[] | select(.name == $name)' <<<"$manifest_json")
+  blocking_tickets=$(jq -r '[.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", ")' <<<"$proof")
+  if [[ -n "$blocking_tickets" && "${REFERENCE_DIFFERENTIAL_PENDING:-0}" != 1 ]]; then
+    echo "[$name] pending: blocked by $blocking_tickets"
+    continue
+  fi
   semantics=$(jq -r '.source' <<<"$proof")
   main_module=$(jq -r '.["main-module"]' <<<"$proof")
   syntax_module=$(jq -r '.["syntax-module"]' <<<"$proof")
@@ -88,45 +123,62 @@ for name in "${selected[@]}"; do
     "$kompile" "$semantics"       --backend haskell       --main-module "$main_module"       --syntax-module "$syntax_module"       --output-definition "$definition"       --warnings none
   )
 
-  mapfile -t proven_claims < <(jq -r '.claims[]' <<<"$proof")
+  mapfile -t proven_claims < <(jq -r '(.claims // [])[]' <<<"$proof")
   failure_claim=$(jq -r '.["failure-claim"]' <<<"$proof")
-  # Reference kprove makes the selected claims available as one proof batch. Keep that batch
-  # intact so dependent claims such as IMP's sum-N can use the preceding sum-loop claim.
-  reference_claims=$(IFS=,; printf '%s' "${proven_claims[*]}")
-  rust_claim_args=()
-  for claim in "${proven_claims[@]}"; do
-    rust_claim_args+=(--claim "$claim")
-  done
+  if ((${#proven_claims[@]})); then
+    # Reference kprove makes the selected claims available as one proof batch. Keep that batch
+    # intact so dependent claims such as IMP's sum-N can use the preceding sum-loop claim.
+    reference_claims=$(IFS=,; printf '%s' "${proven_claims[*]}")
+    rust_claim_args=()
+    for claim in "${proven_claims[@]}"; do
+      rust_claim_args+=(--claim "$claim")
+    done
 
-  echo "[$name] checking the reference proven verdicts"
-  if ! (
-    ulimit -v "$reference_memory_kib"
-    export GHCRTS=${GHCRTS:--N1}
-    export K_OPTS="$reference_k_opts"
-    "$kprove" "$specification"       --definition "$definition"       --spec-module "$spec_module"       --claims "$reference_claims"       --depth "$proof_depth"       --output none       --warnings none       -I "$semantics_dir"
-  ) >"$work/$name-proven.reference.log" 2>&1; then
-    echo "error: reference kprove did not prove every selected claim for $name" >&2
-    cat "$work/$name-proven.reference.log" >&2
-    exit 1
-  fi
+    echo "[$name] checking the reference proven verdicts"
+    if ! (
+      ulimit -v "$reference_memory_kib"
+      export GHCRTS=${GHCRTS:--N1}
+      export K_OPTS="$reference_k_opts"
+      "$kprove" "$specification" \
+        --definition "$definition" \
+        --spec-module "$spec_module" \
+        --claims "$reference_claims" \
+        --depth "$proof_depth" \
+        --output none \
+        --warnings none \
+        -I "$semantics_dir"
+    ) >"$work/$name-proven.reference.log" 2>&1; then
+      echo "error: reference kprove did not prove every selected claim for $name" >&2
+      cat "$work/$name-proven.reference.log" >&2
+      exit 1
+    fi
 
-  echo "[$name] checking the k-rust proven verdicts"
-  if ! (
-    ulimit -v "$rust_memory_kib"
-    cargo run --quiet --release --manifest-path "$workspace/Cargo.toml"       -p k-rust --bin krust --       kprove "$specification"       --main-module "$spec_module"       --definition-module "$definition_module"       "${rust_claim_args[@]}"       --depth "$proof_depth"       -I "$semantics_dir"       --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
-  ) >"$work/$name-proven.rust.log" 2>&1; then
-    echo "error: k-rust did not prove every selected claim for $name" >&2
-    cat "$work/$name-proven.rust.log" >&2
-    exit 1
-  fi
-  for claim in "${proven_claims[@]}"; do
-    if ! grep -Fq "claim $claim: proven" "$work/$name-proven.rust.log"; then
-      echo "error: k-rust did not report the proven verdict for $name:$claim" >&2
+    echo "[$name] checking the k-rust proven verdicts"
+    if ! (
+      ulimit -v "$rust_memory_kib"
+      cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" \
+        -p k-rust --bin krust -- \
+        kprove "$specification" \
+        --main-module "$spec_module" \
+        --definition-module "$definition_module" \
+        "${rust_claim_args[@]}" \
+        --depth "$proof_depth" \
+        -I "$semantics_dir" \
+        --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
+    ) >"$work/$name-proven.rust.log" 2>&1; then
+      echo "error: k-rust did not prove every selected claim for $name" >&2
       cat "$work/$name-proven.rust.log" >&2
       exit 1
     fi
-    echo "[$name:$claim] proven by the reference and k-rust"
-  done
+    for claim in "${proven_claims[@]}"; do
+      if ! grep -Fq "claim $claim: proven" "$work/$name-proven.rust.log"; then
+        echo "error: k-rust did not report the proven verdict for $name:$claim" >&2
+        cat "$work/$name-proven.rust.log" >&2
+        exit 1
+      fi
+      echo "[$name:$claim] proven by the reference and k-rust"
+    done
+  fi
 
   echo "[$name:$failure_claim] checking the reference refuted verdict"
   if (

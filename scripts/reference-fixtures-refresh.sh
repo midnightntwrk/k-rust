@@ -53,7 +53,7 @@ for executable in K_KAST K_KRUN K_KPROVE K_KORE_PARSER K_KORE_EXEC K_KORE_RPC; d
   fi
 done
 export PATH="$tool_directory:$PATH"
-export K_OPTS=${REFERENCE_DIFFERENTIAL_K_OPTS:-'-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m'}
+export K_OPTS=${REFERENCE_DIFFERENTIAL_K_OPTS:-$reference_default_k_opts}
 
 for selected in "$@"; do
   if [[ ! "$selected" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then

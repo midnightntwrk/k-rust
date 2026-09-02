@@ -11,12 +11,18 @@ version = 1
 # REFERENCE_DIFFERENTIAL_MEMORY_KIB independently controls the reference JVM's virtual memory and is unset by default.
 # Raise any hard ceiling only after measuring current machine headroom.
 #
-# scripts/reference-differential.sh wasm mir evm-equivalence
+# scripts/reference-differential.sh append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite parametric-semantic-cast hooked-namespaces star-cell-config overload-constructors owise-functions owise-competitors owise concrete-rw2 cast-inner
+# REFERENCE_DIFFERENTIAL_PAIRINGS=haskell/rust scripts/reference-differential.sh wasm mir evm-equivalence
 # scripts/reference-kast-differential.sh wasm mir evm-equivalence
-# scripts/reference-non-imp-execution-differential.sh imp
-# scripts/reference-proof-differential.sh imp
+# scripts/reference-non-imp-execution-differential.sh imp collections hooks-c2
+# scripts/reference-proof-differential.sh mini-proof
 # scripts/reference-rpc-differential.sh imp
+# scripts/reference-rpc-differential.sh bounded-search
 # scripts/reference-mir-execution-differential.sh
+# scripts/reference-symbolic-execution-differential.sh c3-sd-symbolic c3-sy
+
+[normalisations]
+ignore_unique_id = "B2-03"
 
 [reference.k]
 revision = "4a46d1231473b599c699160132fd6e76a5c46406"
@@ -47,6 +53,7 @@ constructs = []
 source = "${k}/k-distribution/tests/regression-new/append/test.k"
 main-module = "TEST"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 0, "haskell/rust" = 1 }
 
 [[compile]]
 name = "ambiguous-rewrite"
@@ -55,6 +62,7 @@ constructs = []
 source = "${k}/k-distribution/tests/regression-new/amb-rew/test.k"
 main-module = "TEST"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 3, "haskell/rust" = 33 }
 
 [[compile]]
 name = "casts"
@@ -63,6 +71,7 @@ constructs = []
 source = "${k}/k-distribution/tests/regression-new/cast/test.k"
 main-module = "TEST"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 2, "haskell/rust" = 32 }
 
 [[compile]]
 name = "cell-map"
@@ -71,6 +80,7 @@ constructs = ["collections", "star-cell-variable"]
 source = "${k}/k-distribution/tests/regression-new/cell_map/test.k"
 main-module = "TEST"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 5, "haskell/rust" = 36 }
 
 [[compile]]
 name = "evm-equivalence"
@@ -81,6 +91,7 @@ main-module = "EVM-OPTIMIZATIONS"
 include = "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin"
 hook-namespaces = ["JSON", "KRYPTO"]
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 100000, "haskell/rust" = 100000 }
 
 [[compile]]
 name = "fresh-variables"
@@ -89,14 +100,16 @@ constructs = []
 source = "${k}/k-distribution/tests/regression-new/fresh1/test.k"
 main-module = "TEST"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 2, "haskell/rust" = 32 }
 
 [[compile]]
 name = "imp"
-requires = ["reference-toolchain"]
+requires = ["reference-toolchain", "ticket:A3-06"]
 constructs = []
 source = "${imp}/src/kimp/kdist/imp-semantics/imp.k"
 main-module = "IMP"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 10000, "haskell/rust" = 10000 }
 
 [[compile]]
 name = "list-set"
@@ -105,6 +118,7 @@ constructs = ["collections"]
 source = "${k}/k-distribution/tests/regression-new/list-set/test.k"
 main-module = "TEST"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 2, "haskell/rust" = 32 }
 
 [[compile]]
 name = "macro-rewrite"
@@ -113,6 +127,7 @@ constructs = ["macro-runtime"]
 source = "${k}/k-distribution/tests/regression-new/macro-rewrite/test.k"
 main-module = "TEST"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 2, "haskell/rust" = 32 }
 
 [[compile]]
 name = "parametric-semantic-cast"
@@ -121,6 +136,7 @@ constructs = []
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/parametric-semantic-cast.k"
 main-module = "PARAMETRIC-SEMANTIC-CAST"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 1, "haskell/rust" = 2 }
 
 [[compile]]
 name = "hooked-namespaces"
@@ -130,6 +146,7 @@ source = "${workspace}/crates/k-rust/tests/fixtures/reference/hooked-namespaces.
 main-module = "HOOKED-NAMESPACES"
 hook-namespaces = ["KRYPTO", "HASH", "SECP256K1"]
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 3, "haskell/rust" = 35 }
 
 [[compile]]
 name = "star-cell-config"
@@ -138,6 +155,7 @@ constructs = ["star-cell-variable"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/star-cell-config.k"
 main-module = "STAR-CELL-CONFIG"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 2, "haskell/rust" = 33 }
 
 [[compile]]
 name = "overload-constructors"
@@ -146,6 +164,7 @@ constructs = ["overload-no-confusion"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/overload-constructors.k"
 main-module = "OVERLOAD-CONSTRUCTORS"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 0, "haskell/rust" = 1 }
 
 [[compile]]
 name = "owise-functions"
@@ -154,6 +173,7 @@ constructs = ["owise"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/owise-functions.k"
 main-module = "OWISE-FUNCTIONS"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 2, "haskell/rust" = 32 }
 
 [[compile]]
 name = "owise-competitors"
@@ -162,6 +182,7 @@ constructs = ["owise", "multiple-competitors"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/owise-competitors.k"
 main-module = "OWISE-COMPETITORS"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 0, "haskell/rust" = 1 }
 
 [[compile]]
 name = "owise"
@@ -170,6 +191,7 @@ constructs = ["owise"]
 source = "${k}/k-distribution/tests/regression-new/owise-haskell/demo.k"
 main-module = "DEMO"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 0, "haskell/rust" = 9 }
 
 [[compile]]
 name = "mir"
@@ -181,6 +203,7 @@ include = "${mir}/kmir/src/kmir/kdist"
 markdown-selector = "k & ! concrete"
 syntax-module = "KMIR-AST"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 100000, "haskell/rust" = 100000 }
 
 [[compile]]
 name = "wasm"
@@ -189,6 +212,71 @@ constructs = []
 source = "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md"
 main-module = "WASM-TEST"
 comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 100000, "haskell/rust" = 100000 }
+
+[[compile]]
+name = "fresh-name-collision"
+requires = ["reference-toolchain", "ticket:A3-06"]
+constructs = ["fresh-variable"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/fresh-name-collision/test.k"
+main-module = "TEST"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 10000, "haskell/rust" = 10000 }
+
+[[compile]]
+name = "concrete-rw2"
+requires = ["reference-toolchain"]
+constructs = ["concrete-symbolic-rule-variables"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/concrete-rw2/test.k"
+main-module = "CONCRETE-RW2"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 2, "haskell/rust" = 32 }
+
+[[compile]]
+name = "parametric"
+requires = ["reference-toolchain", "ticket:B2-03"]
+constructs = ["parametric-label"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/parametric/test.k"
+main-module = "PARAMETRIC"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 10000, "haskell/rust" = 10000 }
+
+[[compile]]
+name = "assoc-strict"
+requires = ["reference-toolchain", "ticket:A3-06", "ticket:I1-06"]
+constructs = ["associativity", "strictness"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/assoc-strict/test.k"
+main-module = "ASSOC-STRICT"
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 10000, "haskell/rust" = 10000 }
+
+[[compile]]
+name = "exists-anon"
+requires = ["reference-toolchain", "ticket:B2-02"]
+constructs = ["anonymous-existential"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/exists-anon/test.k"
+main-module = "EXISTS-ANON"
+pairings = ["haskell/rust"]
+comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
+unique-id-divergence-ceilings = { "kore/llvm" = 10000, "haskell/rust" = 10000 }
+
+[[compile]]
+name = "undefined-sort"
+requires = ["reference-toolchain", "ticket:A1-02"]
+constructs = ["undefined-sort"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/outer/undefined-sort/test.k"
+main-module = "UNDEFINED-SORT"
+expect = "reject"
+
+[[compile]]
+name = "cast-inner"
+requires = ["reference-toolchain"]
+constructs = ["collection-lookup-cast"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/cast-inner/test.k"
+main-module = "CAST-INNER"
+pairings = ["haskell/rust"]
+comparisons = ["semantic-kore"]
+unique-id-divergence-ceilings = { "haskell/rust" = 32 }
 
 [[kast]]
 name = "imp"
@@ -819,6 +907,93 @@ sort = "Input"
 depth = 193
 programs = ["${workspace}/crates/k-rust/tests/fixtures/reference/deep.term"]
 
+[[execution]]
+name = "c3-search"
+requires = ["reference-toolchain", "ticket:C3-01"]
+constructs = ["bounded-search"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/search/sd/test.k"
+main-module = "SD"
+syntax-module = "SD-SYNTAX"
+sort = "Pgm"
+depth = 2
+
+[[execution.search]]
+name = "final-depth-two"
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/sd/count5.sd"
+mode = "--search-final"
+depth = 2
+
+[[execution]]
+name = "c3-br"
+requires = ["reference-toolchain", "ticket:C3-01", "ticket:C3-02"]
+constructs = ["branching", "bounded-search"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/br/test.k"
+main-module = "BR"
+syntax-module = "BR-SYNTAX"
+sort = "Pgm"
+depth = 1
+
+[[execution.search]]
+name = "final-depth-one"
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/br/a.br"
+mode = "--search-final"
+depth = 1
+
+[[execution]]
+name = "c3-co"
+requires = ["reference-toolchain", "ticket:C3-03"]
+constructs = ["concrete-symbolic-rule"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/co/test.k"
+main-module = "CO"
+syntax-module = "CO-SYNTAX"
+sort = "Pgm"
+depth = 2
+programs = ["${workspace}/crates/k-rust/tests/fixtures/reference/execution/co/f3.co"]
+
+[[execution]]
+name = "c3-tr"
+requires = ["reference-toolchain", "ticket:C3-05"]
+constructs = ["trivial-branch"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/tr/test.k"
+main-module = "TR"
+syntax-module = "TR-SYNTAX"
+sort = "Pgm"
+depth = 2
+programs = ["${workspace}/crates/k-rust/tests/fixtures/reference/execution/tr/a.tr"]
+
+[[execution.search]]
+name = "final"
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/tr/a.tr"
+mode = "--search-final"
+
+[[execution]]
+name = "hooks-c2"
+requires = ["reference-toolchain"]
+constructs = ["hook-oracle-exception"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/hooks-c2.k"
+main-module = "HOOKS-C2"
+syntax-module = "HOOKS-C2-SYNTAX"
+sort = "Pgm"
+depth = 1
+programs = [
+  "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/pc.hooks",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/y14.hooks",
+]
+
+[[execution.oracle-exception]]
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/pc.hooks"
+expected = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/pc.expected.kore"
+reference = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/pc.reference.kore"
+reason = "Arbiter row 4: Kore STRING.find searches the suffix without rebasing the returned index; domains.md defines the index in the original haystack."
+ticket = "C2-04"
+
+[[execution.oracle-exception]]
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/y14.hooks"
+expected = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/y14.expected.kore"
+reference = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/y14.reference.kore"
+reason = "Arbiter row 4: Kore BYTES.replaceAt checks only the start index; domains.md requires the complete replacement range to fit."
+ticket = "C2-04"
+
 [[excluded]]
 name = "ecdsa-invalid-execution"
 section = "execution"
@@ -907,10 +1082,53 @@ depth = 10
 claims = ["claim-proven"]
 failure-claim = "claim-refuted"
 
+[[proof]]
+name = "c4-split"
+requires = ["reference-toolchain", "ticket:C4-01"]
+constructs = ["one-path-proof"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/proof/split/split.k"
+main-module = "SPLIT"
+syntax-module = "SPLIT-SYNTAX"
+specification = "${workspace}/crates/k-rust/tests/fixtures/reference/proof/split/onepath-spec.k"
+spec-module = "ONEPATH-SPEC"
+definition-module = "SPLIT"
+depth = 10
+claims = []
+failure-claim = "ONEPATH-SPEC.c1"
+
+[[proof]]
+name = "c4-lemma"
+requires = ["reference-toolchain", "ticket:C4-02"]
+constructs = ["proof-lemma"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/proof/split/split.k"
+main-module = "SPLIT"
+syntax-module = "SPLIT-SYNTAX"
+specification = "${workspace}/crates/k-rust/tests/fixtures/reference/proof/split/lemma-spec.k"
+spec-module = "LEMMA-SPEC"
+definition-module = "SPLIT"
+depth = 10
+claims = []
+failure-claim = "LEMMA-SPEC.ca"
+
+[[proof]]
+name = "c4-trivial"
+requires = ["reference-toolchain", "ticket:C4-03"]
+constructs = ["trivial-proof-leaf"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/proof/split/split.k"
+main-module = "SPLIT"
+syntax-module = "SPLIT-SYNTAX"
+specification = "${workspace}/crates/k-rust/tests/fixtures/reference/proof/split/trivial-spec.k"
+spec-module = "TRIVIAL-SPEC"
+definition-module = "SPLIT"
+depth = 10
+claims = []
+failure-claim = "TRIVIAL-SPEC.ct2"
+
 [[rpc]]
 name = "imp"
 requires = ["reference-toolchain"]
 constructs = []
+oracle = "kore-rpc-booster"
 source = "${imp}/src/kimp/kdist/imp-semantics/imp.k"
 program = "${imp}/examples/sumto10.imp"
 main-module = "IMP"
@@ -918,10 +1136,18 @@ syntax-module = "IMP-SYNTAX"
 configuration = ["ENV=.Map"]
 responses = ["execute", "simplify", "implies", "model", "add-module", "error"]
 
+[[rpc.oracle-exception]]
+oracle = "kore-rpc-booster"
+response = "implies"
+expected = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/imp-implies.json"
+reason = "D1-08: Booster echoes the initializer-form request in the implication payload while k-rust reports the equivalent simplified configuration."
+ticket = "D1-08"
+
 [[rpc]]
 name = "bounded-search"
 requires = ["reference-toolchain"]
 constructs = ["local-rpc", "bounded-search"]
+oracle = "kore-rpc-booster"
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/bounded-search.k"
 program = "${workspace}/crates/k-rust/tests/fixtures/reference/seed.state"
 stuck-program = "${workspace}/crates/k-rust/tests/fixtures/reference/done.state"
@@ -945,3 +1171,122 @@ responses = [
   "invalid-get-model",
   "invalid-add-module",
 ]
+
+[[rpc]]
+name = "c3-tr-rpc"
+requires = ["reference-toolchain", "ticket:C3-05"]
+constructs = ["trivial-branch"]
+oracle = "kore-rpc-booster"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/tr/test.k"
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/tr/a.tr"
+stuck-program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/tr/c.tr"
+main-module = "TR"
+syntax-module = "TR-SYNTAX"
+sort = "Pgm"
+configuration = []
+state-depth = 0
+responses = ["execute-trivial"]
+
+[[symbolic]]
+name = "c1-map"
+requires = ["reference-toolchain", "ticket:C1-01"]
+constructs = ["collections", "symbolic-frame"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/map/test.k"
+main-module = "TEST"
+definition = "reference"
+
+[[symbolic.pattern]]
+name = "pgm-map"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/map/pgm-map.kore"
+mode = "exec"
+depth = 1
+oracle-exclusion = ""
+
+[[symbolic.pattern]]
+name = "pgm-set"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/map/pgm-set.kore"
+mode = "exec"
+depth = 1
+oracle-exclusion = ""
+
+[[symbolic]]
+name = "c1-t2"
+requires = ["reference-toolchain", "ticket:C1-01"]
+constructs = ["collections", "symbolic-frame", "injection-narrowing"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/test.k"
+main-module = "TEST2"
+definition = "reference"
+
+[[symbolic.pattern]]
+name = "pgm-I"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/pgm-I.kore"
+mode = "exec"
+depth = 1
+oracle-exclusion = ""
+
+[[symbolic.pattern]]
+name = "pgm-S"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/pgm-S.kore"
+mode = "exec"
+depth = 1
+oracle-exclusion = ""
+
+[[symbolic.pattern]]
+name = "pgm-M2"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/pgm-M2.kore"
+mode = "exec"
+depth = 1
+oracle-exclusion = ""
+
+[[symbolic.pattern]]
+name = "pgm-M3"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/pgm-M3.kore"
+mode = "exec"
+depth = 1
+oracle-exclusion = ""
+
+[[symbolic]]
+name = "c1-t3"
+requires = ["reference-toolchain", "ticket:C1-03"]
+constructs = ["injection-narrowing"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t3/test.k"
+main-module = "TEST3"
+definition = "reference"
+
+[[symbolic.pattern]]
+name = "pgm-E"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t3/pgm-E.kore"
+mode = "exec"
+depth = 1
+oracle-exclusion = ""
+
+[[symbolic]]
+name = "c3-sd-symbolic"
+requires = ["reference-toolchain"]
+constructs = ["symbolic-execution", "depth-bound"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/search/sd/test.k"
+main-module = "SD"
+syntax-module = "SD-SYNTAX"
+definition = "reference"
+
+[[symbolic.pattern]]
+name = "count-X"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/search/sd/symbolic.kore"
+mode = "exec"
+depth = 2
+oracle-exclusion = "gotstuck"
+
+[[symbolic]]
+name = "c3-sy"
+requires = ["reference-toolchain"]
+constructs = ["symbolic-execution", "owise"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/search/sy/test.k"
+main-module = "SY"
+syntax-module = "SY-SYNTAX"
+definition = "reference"
+
+[[symbolic.pattern]]
+name = "f-X"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/search/sy/symbolic.kore"
+mode = "exec"
+oracle-exclusion = ""

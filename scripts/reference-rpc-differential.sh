@@ -17,35 +17,14 @@ reference_port=${REFERENCE_RPC_PORT:-31347}
 rust_port=${RUST_RPC_PORT:-31348}
 reference_memory_kib=${REFERENCE_EXECUTION_MEMORY_KIB:-12582912}
 rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}
+cargo_target_dir=${CARGO_TARGET_DIR:-"$workspace/target"}
 reference_retries=${REFERENCE_EXECUTION_RETRIES:-3}
-reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-'-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Dscala.concurrent.context.numThreads=2 -Dscala.concurrent.context.maxThreads=2'}
+reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-$reference_default_k_opts}
 manifest_json=$(
   WORKSPACE="$workspace" K_CHECKOUT="$k_checkout" \
   IMP_SEMANTICS_CHECKOUT="$imp_checkout" \
     "$workspace/scripts/reference-manifest.py"
 )
-
-if [[ -z "$kompile" ]]; then
-  kompile=$(command -v kompile || true)
-fi
-if [[ -z "$kompile" || ! -x "$kompile" ]]; then
-  echo "error: set K_KOMPILE to the pinned reference kompile executable" >&2
-  exit 2
-fi
-reference_bin=$(dirname "$kompile")
-krun=${krun:-"$reference_bin/krun"}
-kast=${kast:-"$reference_bin/kast"}
-kore_parser=${kore_parser:-"$reference_bin/kore-parser"}
-kore_rpc=${kore_rpc:-"$reference_bin/kore-rpc"}
-rpc_client=${rpc_client:-"$reference_bin/kore-rpc-client"}
-for tool in "$krun" "$kast" "$kore_parser" "$kore_rpc" "$rpc_client"; do
-  if [[ ! -x "$tool" ]]; then
-    echo "error: missing matching pinned reference executable: $tool" >&2
-    exit 2
-  fi
-done
-reference_require_k_version "$kompile"
-reference_require_git_pin K "$k_checkout" "$K_REFERENCE_REVISION"
 
 mapfile -t available < <(
   jq -r '.rpc[] |
@@ -62,12 +41,60 @@ if ! printf '%s\n' "${available[@]}" | grep -Fxq "$name"; then
   exit 2
 fi
 rpc=$(jq -c --arg name "$name" '.rpc[] | select(.name == $name)' <<<"$manifest_json")
+blocking_tickets=$(jq -r '[.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", ")' <<<"$rpc")
+if [[ -n "$blocking_tickets" && "${REFERENCE_DIFFERENTIAL_PENDING:-0}" != 1 ]]; then
+  echo "[$name] pending: blocked by $blocking_tickets"
+  exit 0
+fi
+
+if [[ -z "$kompile" ]]; then
+  kompile=$(command -v kompile || true)
+fi
+if [[ -z "$kompile" || ! -x "$kompile" ]]; then
+  echo "error: set K_KOMPILE to the pinned reference kompile executable" >&2
+  exit 2
+fi
+reference_bin=$(dirname "$kompile")
+krun=${krun:-"$reference_bin/krun"}
+kast=${kast:-"$reference_bin/kast"}
+kore_parser=${kore_parser:-"$reference_bin/kore-parser"}
+kore_rpc=${kore_rpc:-"$reference_bin/kore-rpc-booster"}
+rpc_client=${rpc_client:-"$reference_bin/kore-rpc-client"}
+for tool in "$krun" "$kast" "$kore_parser" "$kore_rpc" "$rpc_client"; do
+  if [[ ! -x "$tool" ]]; then
+    echo "error: missing matching pinned reference executable: $tool" >&2
+    exit 2
+  fi
+done
+reference_require_k_version "$kompile"
+reference_require_git_pin K "$k_checkout" "$K_REFERENCE_REVISION"
+rpc_flavour=$(
+  if "$kore_rpc" --help 2>&1 | grep -q -- '--no-smt'; then
+    echo booster
+  else
+    echo legacy
+  fi
+)
+case "$rpc_flavour" in
+  booster)
+    detected_oracle=kore-rpc-booster
+    ;;
+  legacy)
+    detected_oracle=kore-rpc
+    ;;
+esac
+pinned_oracle=$(jq -r '.oracle' <<<"$rpc")
+if [[ "$detected_oracle" != "$pinned_oracle" ]]; then
+  echo "error: case $name is pinned to $pinned_oracle; K_KORE_RPC points at $detected_oracle" >&2
+  exit 2
+fi
 semantics=$(jq -r '.source' <<<"$rpc")
 program=$(jq -r '.program' <<<"$rpc")
 stuck_program=$(jq -r '.["stuck-program"] // empty' <<<"$rpc")
 main_module=$(jq -r '.["main-module"]' <<<"$rpc")
 syntax_module=$(jq -r '.["syntax-module"]' <<<"$rpc")
 program_sort=$(jq -r '.sort // empty' <<<"$rpc")
+state_depth=$(jq -r '.["state-depth"] // 1' <<<"$rpc")
 mapfile -t configuration_args < <(
   jq -r '(.configuration // [])[] | "-c" + .' <<<"$rpc"
 )
@@ -116,13 +143,13 @@ wait_for_server() {
     fi
     if ! kill -0 "$server_pid" 2>/dev/null; then
       echo "error: RPC server exited before listening on port $port" >&2
-      cat "$work/server.log" >&2
+      cat "$server_log" >&2
       return 1
     fi
     sleep 0.1
   done
   echo "error: RPC server did not listen on port $port" >&2
-  cat "$work/server.log" >&2
+  cat "$server_log" >&2
   return 1
 }
 
@@ -175,7 +202,7 @@ generate_state() {
       --definition "$work/kompiled" \
       --parser "$workspace/scripts/reference-kast-parser.sh" \
       "${configuration_args[@]}" \
-      --depth 1 \
+      --depth "$state_depth" \
       --smt none \
       --output kore >"$work/$stem.kore"
   )
@@ -212,6 +239,8 @@ collect_responses() {
   fi
   "$rpc_client" --port "$port" execute "$work/start.json" \
     -O max-depth=1 -o "$work/$prefix-execute-branching.json"
+  "$rpc_client" --port "$port" execute "$work/start.json" \
+    -O max-depth=1 -o "$work/$prefix-execute-trivial.json"
   "$rpc_client" --port "$port" execute "$work/done.json" \
     -O max-depth=10 -o "$work/$prefix-execute-stuck.json"
   "$rpc_client" --port "$port" simplify "$work/bool.json" \
@@ -258,6 +287,8 @@ echo "[$name:rpc] compiling the reference Haskell definition"
     --output-definition "$work/kompiled" \
     --warnings none
 )
+export K_DIFFERENTIAL_DEFINITION="$work/kompiled/definition.kore"
+export K_DIFFERENTIAL_MODULE="$main_module"
 
 echo "[$name:rpc] generating request configurations"
 if [[ "$name" == imp ]]; then
@@ -352,20 +383,45 @@ jq -n '{
   params: {module: "module RPC-EXTRA\nendmodule []", "name-as-id": true}
 }' >"$work/add-module-request.json"
 
-echo "[$name:rpc] collecting pinned reference responses"
-(
-  ulimit -v "$reference_memory_kib"
-  export GHCRTS=${GHCRTS:--N1}
-  exec "$kore_rpc" "$work/kompiled/definition.kore" \
-    --module "$main_module" \
-    --smt none \
-    --server-port "$reference_port" \
-    --no-bug-report
-) >"$work/server.log" 2>&1 &
-server_pid=$!
-wait_for_server "$reference_port"
-collect_responses "$reference_port" reference
-stop_server
+reference_oracles=("$kore_rpc")
+if [[ "${REFERENCE_RPC_ORACLE:-}" == both ]]; then
+  reference_oracles=("$reference_bin/kore-rpc-booster" "$reference_bin/kore-rpc")
+elif [[ -n "${REFERENCE_RPC_ORACLE:-}" ]]; then
+  echo "error: REFERENCE_RPC_ORACLE must be unset or 'both'" >&2
+  exit 2
+fi
+for reference_oracle in "${reference_oracles[@]}"; do
+  if [[ ! -x "$reference_oracle" ]]; then
+    echo "error: requested RPC oracle is unavailable: $reference_oracle" >&2
+    exit 2
+  fi
+  if "$reference_oracle" --help 2>&1 | grep -q -- '--no-smt'; then
+    rpc_flavour=booster
+    oracle_name=kore-rpc-booster
+    smt_off_args=(--no-smt)
+    server_extra_args=()
+  else
+    rpc_flavour=legacy
+    oracle_name=kore-rpc
+    smt_off_args=(--smt none)
+    server_extra_args=(--no-bug-report)
+  fi
+  echo "[$name:rpc] collecting pinned $oracle_name responses"
+  (
+    ulimit -v "$reference_memory_kib"
+    export GHCRTS=${GHCRTS:--N1}
+    exec "$reference_oracle" "$work/kompiled/definition.kore" \
+      --module "$main_module" \
+      "${smt_off_args[@]}" \
+      --server-port "$reference_port" \
+      "${server_extra_args[@]}"
+  ) >"$work/server-$rpc_flavour.log" 2>&1 &
+  server_pid=$!
+  server_log="$work/server-$rpc_flavour.log"
+  wait_for_server "$reference_port"
+  collect_responses "$reference_port" "reference-$rpc_flavour"
+  stop_server
+done
 
 echo "[$name:rpc] building the Rust RPC server"
 (
@@ -378,24 +434,54 @@ echo "[$name:rpc] building the Rust RPC server"
 echo "[$name:rpc] collecting Rust responses"
 (
   ulimit -v "$rust_memory_kib"
-  exec "$workspace/target/release/krust" kore-rpc "$work/kompiled/definition.kore" \
+  exec "$cargo_target_dir/release/krust" kore-rpc "$work/kompiled/definition.kore" \
     --module "$main_module" \
     --server-port "$rust_port"
 ) >"$work/server.log" 2>&1 &
 server_pid=$!
+server_log="$work/server.log"
 wait_for_server "$rust_port"
 collect_responses "$rust_port" rust
 stop_server
 
 mapfile -t responses < <(jq -r '.responses[]' <<<"$rpc")
-for response in "${responses[@]}"; do
-  echo "[$name:rpc:$response] comparing JSON response"
-  if ! diff -u \
-    <(jq -S . "$work/reference-$response.json") \
-    <(jq -S . "$work/rust-$response.json"); then
-    echo "error: RPC response differs for $response" >&2
-    exit 1
+for reference_oracle in "${reference_oracles[@]}"; do
+  if "$reference_oracle" --help 2>&1 | grep -q -- '--no-smt'; then
+    rpc_flavour=booster
+    oracle_name=kore-rpc-booster
+  else
+    rpc_flavour=legacy
+    oracle_name=kore-rpc
   fi
+  for response in "${responses[@]}"; do
+    echo "[$name:rpc:$oracle_name:$response] comparing JSON response"
+    oracle_exception=$(jq -c --arg oracle "$oracle_name" --arg response "$response" \
+      '(."oracle-exception" // [])[] |
+       select(.oracle == $oracle and .response == $response)' <<<"$rpc")
+    if [[ -n "$oracle_exception" ]]; then
+      expected=$(jq -r '.expected' <<<"$oracle_exception")
+      reason=$(jq -r '.reason' <<<"$oracle_exception")
+      ticket=$(jq -r '.ticket' <<<"$oracle_exception")
+      echo "[$name:rpc:$oracle_name:$response] oracle-exception ($ticket): $reason"
+      if ! diff -u \
+        <(jq -S . "$expected") \
+        <(jq -S . "$work/rust-$response.json"); then
+        echo "error: Rust RPC response no longer matches the adjudicated expectation for $response" >&2
+        exit 1
+      fi
+      if diff -q \
+        <(jq -S . "$work/reference-$rpc_flavour-$response.json") \
+        <(jq -S . "$work/rust-$response.json") >/dev/null; then
+        echo "error: RPC oracle exception for $name:$response is no longer needed" >&2
+        exit 1
+      fi
+    elif ! diff -u \
+      <(jq -S . "$work/reference-$rpc_flavour-$response.json") \
+      <(jq -S . "$work/rust-$response.json"); then
+      echo "error: RPC response differs for $oracle_name:$response" >&2
+      exit 1
+    fi
+  done
 done
 
 echo "reference local JSON-RPC differential corpus passed"

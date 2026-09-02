@@ -1,0 +1,5 @@
+Lbl'-LT-'generatedTop'-GT-'{}(
+  Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortPgm{}, SortKItem{}}(Lblgo{}()), dotk{}())),
+  Lbl'-LT-'m'-GT-'{}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")), inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("2"))), VarM:SortMap{})),
+  Lbl'-LT-'s'-GT-'{}(Lbl'Stop'Set{}()),
+  Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0")))
