@@ -147,6 +147,7 @@ impl Error for ProofError {}
 pub fn prove_claim(
     definition: &BackendDefinition,
     claim: &ReachabilityClaim,
+    circularities: &[&ReachabilityClaim],
     options: ProofOptions,
     solver: &dyn SmtSolver,
 ) -> Result<ProofResult, ProofError> {
@@ -377,7 +378,7 @@ pub fn prove_claim(
         let mut claim_indeterminate = None;
         if state.depth > 0 {
             let mut claim_transition = None;
-            for candidate in &definition.reachability_claims {
+            for candidate in circularities {
                 if candidate.mode != claim.mode {
                     continue;
                 }
@@ -1115,6 +1116,16 @@ mod tests {
             .expect("term should internalize")
     }
 
+    fn prove_claim(
+        definition: &BackendDefinition,
+        claim: &ReachabilityClaim,
+        options: ProofOptions,
+        solver: &dyn SmtSolver,
+    ) -> Result<ProofResult, ProofError> {
+        let circularities = definition.reachability_claims.iter().collect::<Vec<_>>();
+        super::prove_claim(definition, claim, &circularities, options, solver)
+    }
+
     #[test]
     fn complements_disjunctive_destination_coverage_branchwise() {
         let definition = definition("", "");
@@ -1500,6 +1511,67 @@ mod tests {
             \and{SortS{}}(b{}(), \top{SortS{}}())
         ) [label{}("a-to-b")]
     "#;
+
+    #[test]
+    fn unselected_claims_are_not_circularities() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()),
+                b{}()
+            ) [label{}("a-to-b")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(b{}(), \top{SortS{}}()),
+                c{}()
+            ) [label{}("b-to-c")]
+            symbol d{}() : SortS{} [constructor{}()]
+            "#,
+            r#"
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()),
+                weakAlwaysFinally{SortS{}}(d{}())
+            ) [label{}("ca")]
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(b{}(), \top{SortS{}}()),
+                weakAlwaysFinally{SortS{}}(d{}())
+            ) [label{}("cb")]
+            "#,
+        );
+
+        let isolated = [&definition.reachability_claims[0]];
+        let result = super::prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            &isolated,
+            ProofOptions::default(),
+            &NoSolver,
+        )
+        .expect("claim should execute");
+
+        assert_eq!(result.status, ProofStatus::Disproved, "{result:#?}");
+        assert!(matches!(
+            result.leaves.as_slice(),
+            [ProofLeaf {
+                pattern: Pattern { term: stuck, .. },
+                outcome: ProofLeafOutcome::Stuck,
+                ..
+            }] if stuck == &term(&definition, "c{}()")
+        ));
+
+        let circularities = definition.reachability_claims.iter().collect::<Vec<_>>();
+        let batch = super::prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            &circularities,
+            ProofOptions::default(),
+            &NoSolver,
+        )
+        .expect("batch claim should execute");
+        assert_eq!(batch.status, ProofStatus::Proven, "{batch:#?}");
+        assert!(batch.leaves[0].trace.iter().any(|entry| {
+            entry.kind == TraceKind::Claim && entry.label.as_deref() == Some("cb")
+        }));
+    }
 
     const A_TO_B_AND_C: &str = r#"
         axiom{} \rewrites{SortS{}}(

@@ -1847,6 +1847,59 @@ endmodule
 }
 
 #[test]
+fn kprove_claim_selection_does_not_use_unselected_lemmas() {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/proof/split");
+    let specification = fixtures.join("lemma-spec.k");
+
+    let isolated = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            specification.to_str().unwrap(),
+            "--main-module",
+            "LEMMA-SPEC",
+            "--definition-module",
+            "SPLIT",
+            "--claim",
+            "ca",
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+    let isolated_stdout = String::from_utf8(isolated.stdout).unwrap();
+    assert!(!isolated.status.success(), "{isolated_stdout}");
+    assert!(
+        isolated_stdout.contains("claim LEMMA-SPEC.ca: disproved"),
+        "{isolated_stdout}"
+    );
+
+    let batch = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            specification.to_str().unwrap(),
+            "--main-module",
+            "LEMMA-SPEC",
+            "--definition-module",
+            "SPLIT",
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+    let batch_stdout = String::from_utf8(batch.stdout).unwrap();
+    assert!(!batch.status.success(), "{batch_stdout}");
+    assert!(
+        batch_stdout.contains("claim LEMMA-SPEC.ca: proven"),
+        "{batch_stdout}"
+    );
+    assert!(
+        batch_stdout.contains("claim LEMMA-SPEC.cb: disproved"),
+        "{batch_stdout}"
+    );
+}
+
+#[test]
 fn kprove_recalls_the_same_claim_from_another_spec_module() {
     let (root, _) = fixture();
     let saved_proofs = root.join("proofs.kore");

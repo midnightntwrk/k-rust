@@ -214,6 +214,9 @@ pub struct ModelResultOutput {
 pub struct ProveRequest {
     pub module_name: Option<String>,
     pub claim: Option<String>,
+    /// Claims available as guarded circularities, selected by label, unique id, or `#index`.
+    /// By default the selected claim and every trusted claim are available.
+    pub circularities: Option<Vec<String>>,
     pub max_depth: Option<u64>,
     pub min_depth: u64,
     pub breadth_limit: Option<usize>,
@@ -233,6 +236,7 @@ impl Default for ProveRequest {
         Self {
             module_name: None,
             claim: None,
+            circularities: None,
             max_depth: None,
             min_depth: 0,
             breadth_limit: None,
@@ -717,9 +721,30 @@ impl Backend {
         }
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
             let (claim_index, claim) = select_claim(definition, request.claim.as_deref())?;
+            let mut seen = BTreeSet::new();
+            let circularities = if let Some(selectors) = &request.circularities {
+                let mut circularities = Vec::new();
+                for selector in selectors {
+                    let (_, candidate) = select_claim(definition, Some(selector))?;
+                    if seen.insert(candidate.attributes.unique_id.clone()) {
+                        circularities.push(candidate);
+                    }
+                }
+                circularities
+            } else {
+                definition
+                    .reachability_claims
+                    .iter()
+                    .filter(|candidate| {
+                        (std::ptr::eq(*candidate, claim) || candidate.attributes.trusted)
+                            && seen.insert(candidate.attributes.unique_id.clone())
+                    })
+                    .collect()
+            };
             let result = prove_claim(
                 definition,
                 claim,
+                &circularities,
                 ProofOptions {
                     max_depth: request.max_depth.unwrap_or(u64::MAX),
                     min_depth: request.min_depth,
@@ -1272,6 +1297,60 @@ mod tests {
             })
             .unwrap_err();
         assert!(error.to_string().contains("schema version 99"), "{error}");
+    }
+
+    #[test]
+    fn prove_request_accepts_explicit_circularities() {
+        assert!(
+            serde_json::from_str::<ProveRequest>(
+                r#"{"claim":"reaches-c","circularities":["reaches-c"]}"#,
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn persistent_proof_uses_only_explicit_or_trusted_circularities() {
+        let definition = r#"[]
+            module MAIN
+                sort SortS{} []
+                symbol a{}() : SortS{} [constructor{}()]
+                symbol b{}() : SortS{} [constructor{}()]
+                symbol c{}() : SortS{} [constructor{}()]
+                symbol d{}() : SortS{} [constructor{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(a{}(), \top{SortS{}}()), b{}()
+                ) [label{}("a-to-b")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(b{}(), \top{SortS{}}()), c{}()
+                ) [label{}("b-to-c")]
+                claim{} \implies{SortS{}}(
+                    \and{SortS{}}(a{}(), \top{SortS{}}()),
+                    weakAlwaysFinally{SortS{}}(d{}())
+                ) [label{}("ca")]
+                claim{} \implies{SortS{}}(
+                    \and{SortS{}}(b{}(), \top{SortS{}}()),
+                    weakAlwaysFinally{SortS{}}(d{}())
+                ) [label{}("cb"), trusted{}()]
+            endmodule []"#;
+
+        let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
+        let default = backend
+            .prove(ProveRequest {
+                claim: Some("ca".into()),
+                ..ProveRequest::default()
+            })
+            .unwrap();
+        assert_eq!(default.status, "proven");
+
+        let isolated = backend
+            .prove(ProveRequest {
+                claim: Some("ca".into()),
+                circularities: Some(vec!["ca".into()]),
+                ..ProveRequest::default()
+            })
+            .unwrap();
+        assert_eq!(isolated.status, "disproved");
     }
 
     #[test]
