@@ -642,16 +642,12 @@ fn nested_local_functions_scope_closures_to_their_own_patterns() {
 }
 
 #[test]
-fn local_function_variable_patterns_adopt_the_argument_sort() {
-    let a = Sort::new("A");
+fn local_function_variable_patterns_keep_the_k_parameter_sort() {
     let b = Sort::new("B");
     let local_function = application(
         "#let",
         vec![
-            Term::Variable {
-                name: "X".into(),
-                sort: Some(a),
-            },
+            Term::variable("X"),
             Term::Token {
                 token: "b".into(),
                 sort: b.clone(),
@@ -693,11 +689,32 @@ fn local_function_variable_patterns_adopt_the_argument_sort() {
         })
         .unwrap();
 
-    assert_eq!(argument_sort, &b);
+    assert_eq!(argument_sort, &Sort::new("K"));
+
+    let injected = add_sort_injections_to_definition(&transformed).unwrap();
+    for sentence in injected.main_module().unwrap().local_sentences.iter() {
+        let Sentence::Rule { body, .. } = sentence else {
+            continue;
+        };
+        body.visit_preorder(&mut |term| {
+            let Term::Apply { label, .. } = term else {
+                return;
+            };
+            if label.name == "inj"
+                && label
+                    .parameters
+                    .first()
+                    .is_some_and(|sort| sort.name == "K")
+                && label.parameters.get(1).is_some_and(|sort| sort.name == "B")
+            {
+                panic!("lambda lowering emitted an impossible K-to-B downcast: {term:?}");
+            }
+        });
+    }
 }
 
 #[test]
-fn local_function_singleton_user_list_patterns_are_not_total() {
+fn local_function_singleton_user_list_patterns_keep_the_list_sort() {
     let item = Sort::new("Item");
     let items = Sort::new("Items");
     let local_function = application(
@@ -753,7 +770,10 @@ fn local_function_singleton_user_list_patterns_are_not_total() {
         })
         .unwrap();
 
-    assert_eq!(argument_sort, &items);
+    assert_eq!(
+        argument_sort, &items,
+        "singleton user-list patterns must adopt the list argument sort"
+    );
     assert!(lambda_attributes.get("total").is_none());
 }
 

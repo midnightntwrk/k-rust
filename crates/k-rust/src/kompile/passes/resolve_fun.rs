@@ -223,9 +223,9 @@ impl Resolver<'_, '_> {
         let right = rewrite_right(&body);
         let lhs_sort = self.term_sort(&left, &attributes);
         let argument_sort = self.term_sort(&argument, &attributes);
-        // Java treats variables as an unknown `K` sort in this LUB. A local-function pattern
-        // headed by a (possibly cast) variable therefore adopts the concrete argument sort
-        // instead of widening two incidental parser annotations to KItem/K.
+        // Java treats an uncast variable pattern as the unknown `K` sort in this LUB. Singleton
+        // user-list patterns are the exception: they adopt the concrete list argument sort while
+        // remaining non-total.
         let variable_pattern = underlying_variable(&left).is_some();
         let singleton_user_list_pattern = variable_pattern
             && matches!(
@@ -234,7 +234,7 @@ impl Resolver<'_, '_> {
                     if lhs != argument && self.injector.is_user_list_sort(argument)
             );
         let parameter_sort = match (lhs_sort, argument_sort) {
-            (_, Some(argument)) if variable_pattern => argument,
+            (_, Some(argument)) if singleton_user_list_pattern => argument,
             (Some(lhs), Some(argument)) => self
                 .injector
                 .least_upper_bound(&[lhs.clone(), argument.clone()], None)
