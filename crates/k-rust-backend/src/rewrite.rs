@@ -1104,6 +1104,26 @@ pub fn rewrite_step_with_solver(
     )
 }
 
+/// Apply rewrite rules sequentially, feeding each rule only the remainder left by earlier rules.
+///
+/// This is Kore's `applyRewriteRulesSequence`, used for one-path reachability proofs.
+pub fn rewrite_step_sequential_with_solver(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    fresh_counter: &mut u64,
+    solver: &dyn SmtSolver,
+) -> RewriteResult {
+    rewrite_step_with_mode(
+        definition,
+        pattern,
+        fresh_counter,
+        SimplificationOptions::default(),
+        solver,
+        ExecutionMode::Any,
+        false,
+    )
+}
+
 pub(crate) fn rewrite_step_with_options(
     definition: &BackendDefinition,
     pattern: &Pattern,
