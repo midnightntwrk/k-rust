@@ -9,7 +9,7 @@ k_checkout=${K_CHECKOUT:-"$workspace/k"}
 mir_checkout=${MIR_SEMANTICS_CHECKOUT:-"$workspace/mir-semantics"}
 kompile=${K_KOMPILE:-}
 kmir_python=${KMIR_PYTHON:-"$mir_checkout/kmir/.venv/bin/python"}
-reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-'-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Dscala.concurrent.context.numThreads=2 -Dscala.concurrent.context.maxThreads=2'}
+reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-$reference_default_k_opts}
 
 if [[ -z "$kompile" ]]; then
   kompile=$(command -v kompile || true)
@@ -111,6 +111,8 @@ cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" \
 
 K_REFERENCE_EXECUTION="$reference_result" \
   K_RUST_EXECUTION="$rust_result" \
+  K_DIFFERENTIAL_DEFINITION="$reference_definition/definition.kore" \
+  K_DIFFERENTIAL_MODULE=KMIR \
   cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
     -p k-rust --test reference_differential -- --ignored --exact \
     executed_kore_matches_the_reference_backend

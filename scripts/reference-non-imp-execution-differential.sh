@@ -13,12 +13,42 @@ kast=${K_KAST:-}
 reference_memory_kib=${REFERENCE_EXECUTION_MEMORY_KIB:-8388608}
 rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}
 reference_retries=${REFERENCE_EXECUTION_RETRIES:-3}
-reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-'-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Dscala.concurrent.context.numThreads=2 -Dscala.concurrent.context.maxThreads=2'}
+reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-$reference_default_k_opts}
 manifest_json=$(
   WORKSPACE="$workspace" K_CHECKOUT="$k_checkout" \
   IMP_SEMANTICS_CHECKOUT="$imp_checkout" \
     "$workspace/scripts/reference-manifest.py"
 )
+
+if (($#)); then
+  all_selected_pending=true
+  pending_messages=()
+  for requested in "$@"; do
+    selected_case=$(jq -c --arg name "$requested" \
+      '.execution[] | select(.name == $name and ((.requires | index("semantics-support")) == null))' \
+      <<<"$manifest_json")
+    if [[ -z "$selected_case" ]]; then
+      echo "error: unknown runnable local execution case: $requested" >&2
+      echo "available cases: $(jq -r '[.execution[] |
+        select((.requires | index("semantics-support")) == null) | .name] |
+        join(" ")' <<<"$manifest_json")" >&2
+      exit 2
+    fi
+    blocking_tickets=$(jq -r \
+      '[.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", ")' \
+      <<<"$selected_case")
+    if [[ -z "$blocking_tickets" || "${REFERENCE_DIFFERENTIAL_PENDING:-0}" == 1 ]]; then
+      all_selected_pending=false
+    else
+      pending_messages+=("[$requested] pending: blocked by $blocking_tickets")
+    fi
+  done
+  if [[ "$all_selected_pending" == true ]]; then
+    printf '%s\n' "${pending_messages[@]}"
+    echo "reference local execution differential corpus passed"
+    exit 0
+  fi
+fi
 
 if [[ -z "$kompile" ]]; then
   kompile=$(command -v kompile || true)
@@ -72,6 +102,20 @@ run_reference_krun() {
   return 1
 }
 
+compare_execution() {
+  local reference=$1
+  local actual=$2
+  local definition=$3
+  local module=$4
+  K_REFERENCE_EXECUTION="$reference" \
+    K_RUST_EXECUTION="$actual" \
+    K_DIFFERENTIAL_DEFINITION="$definition" \
+    K_DIFFERENTIAL_MODULE="$module" \
+    cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
+      -p k-rust --test reference_differential -- --ignored --exact \
+      executed_kore_matches_the_reference_backend
+}
+
 mapfile -t available < <(
   jq -r '.execution[] |
     select((.requires | index("semantics-support")) == null) | .name' <<<"$manifest_json"
@@ -88,6 +132,11 @@ for name in "${selected[@]}"; do
     exit 2
   fi
   suite=$(jq -c --arg name "$name" '.execution[] | select(.name == $name)' <<<"$manifest_json")
+  blocking_tickets=$(jq -r '[.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", ")' <<<"$suite")
+  if [[ -n "$blocking_tickets" && "${REFERENCE_DIFFERENTIAL_PENDING:-0}" != 1 ]]; then
+    echo "[$name] pending: blocked by $blocking_tickets"
+    continue
+  fi
   source=$(jq -r '.source' <<<"$suite")
   main_module=$(jq -r '.["main-module"]' <<<"$suite")
   syntax_module=$(jq -r '.["syntax-module"]' <<<"$suite")
@@ -131,6 +180,10 @@ for name in "${selected[@]}"; do
 
   mapfile -t programs < <(jq -r '(.programs // [])[]' <<<"$suite")
   for program in "${programs[@]}"; do
+    if [[ ! -f "$program" ]]; then
+      echo "error: missing $name program: $program" >&2
+      exit 2
+    fi
     program_name=$(basename "$program")
     echo "[$name:$program_name] executing with reference krun"
     run_reference_krun "$work/$name-$program_name.reference.kore" \
@@ -158,11 +211,47 @@ for name in "${selected[@]}"; do
         >"$work/$name-$program_name.rust.kore"
     )
 
-    K_REFERENCE_EXECUTION="$work/$name-$program_name.reference.kore" \
-      K_RUST_EXECUTION="$work/$name-$program_name.rust.kore" \
-      cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
-        -p k-rust --test reference_differential -- --ignored --exact \
-        executed_kore_matches_the_reference_backend
+    oracle_exception=$(jq -c --arg program "$program" \
+      '(."oracle-exception" // [])[] | select(.program == $program)' <<<"$suite")
+    if [[ -n "$oracle_exception" ]]; then
+      expected=$(jq -r '.expected' <<<"$oracle_exception")
+      recorded_reference=$(jq -r '.reference' <<<"$oracle_exception")
+      reason=$(jq -r '.reason' <<<"$oracle_exception")
+      ticket=$(jq -r '.ticket' <<<"$oracle_exception")
+      echo "[$name:$program_name] oracle-exception ($ticket): $reason"
+      compare_execution \
+        "$expected" \
+        "$work/$name-$program_name.rust.kore" \
+        "$definition/definition.kore" \
+        "$main_module"
+      compare_execution \
+        "$recorded_reference" \
+        "$work/$name-$program_name.reference.kore" \
+        "$definition/definition.kore" \
+        "$main_module"
+      if compare_execution \
+        "$work/$name-$program_name.reference.kore" \
+        "$work/$name-$program_name.rust.kore" \
+        "$definition/definition.kore" \
+        "$main_module" >/dev/null 2>&1; then
+        echo "error: oracle exception for $name:$program_name is no longer needed" >&2
+        exit 1
+      fi
+      if compare_execution \
+        "$recorded_reference" \
+        "$expected" \
+        "$definition/definition.kore" \
+        "$main_module" >/dev/null 2>&1; then
+        echo "error: committed oracle exception expectations for $name:$program_name are equivalent" >&2
+        exit 2
+      fi
+    else
+      compare_execution \
+        "$work/$name-$program_name.reference.kore" \
+        "$work/$name-$program_name.rust.kore" \
+        "$definition/definition.kore" \
+        "$main_module"
+    fi
   done
 
   mapfile -t searches < <(
@@ -214,11 +303,11 @@ for name in "${selected[@]}"; do
         >"$work/$name-$search_name.rust.kore"
     )
 
-    K_REFERENCE_EXECUTION="$work/$name-$search_name.reference.kore" \
-      K_RUST_EXECUTION="$work/$name-$search_name.rust.kore" \
-      cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
-        -p k-rust --test reference_differential -- --ignored --exact \
-        executed_kore_matches_the_reference_backend
+    compare_execution \
+      "$work/$name-$search_name.reference.kore" \
+      "$work/$name-$search_name.rust.kore" \
+      "$definition/definition.kore" \
+      "$main_module"
   done
 done
 

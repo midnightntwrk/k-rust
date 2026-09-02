@@ -1,0 +1,15 @@
+Lbl'-LT-'generatedTop'-GT-'{}(
+    Lbl'-LT-'k'-GT-'{}(
+        kseq{}(
+            /* Inj: */ inj{SortList{}, SortKItem{}}(
+                /* InternalList: */ LblListItem{}(
+                    /* Inj: */ inj{SortBytes{}, SortKItem{}}(
+                        \dv{SortBytes{}}("abxyz")
+                    )
+                )
+            ),
+            dotk{}()
+        )
+    ),
+    Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)

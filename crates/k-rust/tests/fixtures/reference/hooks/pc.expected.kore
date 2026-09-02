@@ -1,0 +1,32 @@
+Lbl'-LT-'generatedTop'-GT-'{}(
+  Lbl'-LT-'k'-GT-'{}(
+    kseq{}(
+      inj{SortList{}, SortKItem{}}(
+        Lbl'Unds'List'Unds'{}(
+          LblListItem{}(inj{SortString{}, SortKItem{}}(\dv{SortString{}}("hel"))),
+          Lbl'Unds'List'Unds'{}(
+            LblListItem{}(inj{SortString{}, SortKItem{}}(\dv{SortString{}}("ello"))),
+            Lbl'Unds'List'Unds'{}(
+              LblListItem{}(inj{SortString{}, SortKItem{}}(\dv{SortString{}}(""))),
+              Lbl'Unds'List'Unds'{}(
+                LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("2"))),
+                Lbl'Unds'List'Unds'{}(
+                  LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("3"))),
+                  Lbl'Unds'List'Unds'{}(
+                    LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("5"))),
+                    Lbl'Unds'List'Unds'{}(
+                      LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("-1"))),
+                      LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0")))
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      ),
+      dotk{}()
+    )
+  ),
+  Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)

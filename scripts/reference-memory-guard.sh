@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+reference_default_k_opts='-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Dscala.concurrent.context.numThreads=2 -Dscala.concurrent.context.maxThreads=2'
 reference_job_memory_high_kib=${REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB:-8388608}
 reference_job_memory_max_kib=${REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB:-8388608}
 reference_job_fallback_virtual_memory_kib=${REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB:-12582912}
@@ -76,7 +77,7 @@ reference_enter_whole_job() {
   # Bound the reference JVM explicitly whenever the caller has not, so the
   # fallback stays runnable on any host without a user systemd manager.
   if [[ -z "${REFERENCE_DIFFERENTIAL_K_OPTS:-}" ]]; then
-    export REFERENCE_DIFFERENTIAL_K_OPTS='-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m'
+    export REFERENCE_DIFFERENTIAL_K_OPTS="$reference_default_k_opts"
     echo "warning: bounding the reference JVM with REFERENCE_DIFFERENTIAL_K_OPTS=$REFERENCE_DIFFERENTIAL_K_OPTS under the virtual-address fallback" >&2
   fi
   if ! ulimit -v "$reference_job_fallback_virtual_memory_kib"; then

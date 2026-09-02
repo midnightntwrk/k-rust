@@ -3,7 +3,7 @@ module PARAMETRIC-SEMANTIC-CAST
   syntax B ::= "b" [symbol(b)]
   syntax C ::= A | B
   syntax D ::= A | B
-  syntax {S} S ::= "pair(" S "," S ")" [symbol(pair)]
+  syntax {S} S ::= "pair(" S "," S ")" [symbol(pair), function]
 
-  rule pair(a,b):C => pair(a,b):C
+  rule pair(a,b):C => pair(a,b):C [simplification]
 endmodule

@@ -1,0 +1,58 @@
+Lbl'-LT-'generatedTop'-GT-'{}(
+    Lbl'-LT-'k'-GT-'{}(
+        kseq{}(
+            /* Inj: */ inj{SortList{}, SortKItem{}}(
+                /* InternalList: */ Lbl'Unds'List'Unds'{}(
+                    LblListItem{}(
+                        /* Inj: */ inj{SortString{}, SortKItem{}}(
+                            \dv{SortString{}}("hello")
+                        )
+                    ),
+                Lbl'Unds'List'Unds'{}(
+                    LblListItem{}(
+                        /* Inj: */ inj{SortString{}, SortKItem{}}(
+                            \dv{SortString{}}("ello")
+                        )
+                    ),
+                Lbl'Unds'List'Unds'{}(
+                    LblListItem{}(
+                        /* Inj: */ inj{SortString{}, SortKItem{}}(
+                            \dv{SortString{}}("")
+                        )
+                    ),
+                Lbl'Unds'List'Unds'{}(
+                    LblListItem{}(
+                        /* Inj: */ inj{SortInt{}, SortKItem{}}(
+                            \dv{SortInt{}}("1")
+                        )
+                    ),
+                Lbl'Unds'List'Unds'{}(
+                    LblListItem{}(
+                        /* Inj: */ inj{SortInt{}, SortKItem{}}(
+                            \dv{SortInt{}}("0")
+                        )
+                    ),
+                Lbl'Unds'List'Unds'{}(
+                    LblListItem{}(
+                        /* Inj: */ inj{SortInt{}, SortKItem{}}(
+                            \dv{SortInt{}}("0")
+                        )
+                    ),
+                Lbl'Unds'List'Unds'{}(
+                    LblListItem{}(
+                        /* Inj: */ inj{SortInt{}, SortKItem{}}(
+                            \dv{SortInt{}}("0")
+                        )
+                    ),
+                    LblListItem{}(
+                        /* Inj: */ inj{SortInt{}, SortKItem{}}(
+                            \dv{SortInt{}}("0")
+                        )
+                    )
+                )))))))
+            ),
+            dotk{}()
+        )
+    ),
+    Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)

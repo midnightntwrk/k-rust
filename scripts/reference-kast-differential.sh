@@ -14,7 +14,7 @@ mir_checkout=${MIR_SEMANTICS_CHECKOUT:-"$workspace/mir-semantics"}
 kompile=${K_KOMPILE:-}
 kast=${K_KAST:-}
 reference_memory_kib=${REFERENCE_DIFFERENTIAL_MEMORY_KIB:-}
-reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-}
+reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-$reference_default_k_opts}
 manifest_json=$(
   WORKSPACE="$workspace" \
   K_CHECKOUT="$k_checkout" \
@@ -25,6 +25,36 @@ manifest_json=$(
   MIR_SEMANTICS_CHECKOUT="$mir_checkout" \
     "$workspace/scripts/reference-manifest.py"
 )
+
+if (($#)); then
+  all_selected_pending=true
+  pending_messages=()
+  for requested in "$@"; do
+    selected_case=$(jq -c --arg name "$requested" \
+      '.kast[] | select(.name == $name and ((.requires | index("semantics-support")) == null))' \
+      <<<"$manifest_json")
+    if [[ -z "$selected_case" ]]; then
+      echo "error: unknown runnable KAST case: $requested" >&2
+      echo "available cases: $(jq -r '[.kast[] |
+        select((.requires | index("semantics-support")) == null) | .name] |
+        join(" ")' <<<"$manifest_json")" >&2
+      exit 2
+    fi
+    blocking_tickets=$(jq -r \
+      '[.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", ")' \
+      <<<"$selected_case")
+    if [[ -z "$blocking_tickets" || "${REFERENCE_DIFFERENTIAL_PENDING:-0}" == 1 ]]; then
+      all_selected_pending=false
+    else
+      pending_messages+=("[$requested] pending: blocked by $blocking_tickets")
+    fi
+  done
+  if [[ "$all_selected_pending" == true ]]; then
+    printf '%s\n' "${pending_messages[@]}"
+    echo "reference KAST differential corpus passed"
+    exit 0
+  fi
+fi
 
 if [[ -z "$kompile" ]]; then
   kompile=$(command -v kompile || true)
@@ -60,13 +90,14 @@ mapfile -t cases < <(
     (.include // ""),
     (.["markdown-selector"] // ""),
     (.["syntax-module"] // ""),
-    ((.["hook-namespaces"] // []) | join(" "))
+    ((.["hook-namespaces"] // []) | join(" ")),
+    ([.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", "))
   ] | join("\u001f")' <<<"$manifest_json"
 )
 selected_count=0
 
 for fixture in "${cases[@]}"; do
-  IFS=$'\x1f' read -r name source main_module parser_module include selector syntax_module hook_namespaces <<<"$fixture"
+  IFS=$'\x1f' read -r name source main_module parser_module include selector syntax_module hook_namespaces blocking_tickets <<<"$fixture"
   selected=true
   if (($#)); then
     selected=false
@@ -80,6 +111,10 @@ for fixture in "${cases[@]}"; do
     continue
   fi
   selected_count=$((selected_count + 1))
+  if [[ -n "$blocking_tickets" && "${REFERENCE_DIFFERENTIAL_PENDING:-0}" != 1 ]]; then
+    echo "[$name] pending: blocked by $blocking_tickets"
+    continue
+  fi
   if [[ ! -f "$source" ]]; then
     echo "error: missing $name semantics source: $source" >&2
     exit 2

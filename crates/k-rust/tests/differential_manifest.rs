@@ -18,7 +18,8 @@ const PROOF_SCRIPT: &str = include_str!("../../../scripts/reference-proof-differ
 const RPC_SCRIPT: &str = include_str!("../../../scripts/reference-rpc-differential.sh");
 const MIR_EXECUTION_SCRIPT: &str =
     include_str!("../../../scripts/reference-mir-execution-differential.sh");
-const SECTIONS: [&str; 5] = ["compile", "kast", "execution", "proof", "rpc"];
+const SYMBOLIC_EXECUTION_SCRIPT_PATH: &str = "scripts/reference-symbolic-execution-differential.sh";
+const SECTIONS: [&str; 6] = ["compile", "kast", "execution", "proof", "rpc", "symbolic"];
 const JAVA_BACKED_DIFFERENTIAL_SCRIPTS: [&str; 6] = [
     COMPILE_SCRIPT,
     KAST_SCRIPT,
@@ -27,6 +28,410 @@ const JAVA_BACKED_DIFFERENTIAL_SCRIPTS: [&str; 6] = [
     RPC_SCRIPT,
     MIR_EXECUTION_SCRIPT,
 ];
+
+#[test]
+fn part_b_manifest_schema_is_complete() {
+    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+    assert_eq!(
+        manifest["normalisations"]["ignore_unique_id"].as_str(),
+        Some("B2-03"),
+        "the temporary UNIQUE_ID escape hatch must name its deleting ticket"
+    );
+
+    let allowed_pairings = BTreeSet::from(["kore/llvm", "haskell/rust"]);
+    for entry in manifest["compile"].as_array().expect("compile cases") {
+        let name = entry["name"].as_str().expect("compile name");
+        let pairings = entry
+            .get("pairings")
+            .and_then(Value::as_array)
+            .map(|values| values.as_slice())
+            .unwrap_or(&[]);
+        let effective_pairings = if pairings.is_empty() {
+            vec!["kore/llvm", "haskell/rust"]
+        } else {
+            pairings
+                .iter()
+                .map(|value| value.as_str().expect("pairing string"))
+                .collect()
+        };
+        assert!(!effective_pairings.is_empty(), "{name} has no pairing");
+        for pairing in &effective_pairings {
+            assert!(
+                allowed_pairings.contains(pairing),
+                "unknown pairing {pairing} on {name}"
+            );
+        }
+        let expect = entry
+            .get("expect")
+            .and_then(Value::as_str)
+            .unwrap_or("accept");
+        assert!(matches!(expect, "accept" | "reject"));
+        if expect == "reject" {
+            assert!(
+                entry
+                    .get("comparisons")
+                    .and_then(Value::as_array)
+                    .is_none_or(Vec::is_empty),
+                "reject case {name} must not compare artifacts"
+            );
+            continue;
+        }
+        let ceilings = entry["unique-id-divergence-ceilings"]
+            .as_table()
+            .unwrap_or_else(|| panic!("accept case {name} must pin UNIQUE_ID divergence ceilings"));
+        for pairing in effective_pairings {
+            assert!(
+                ceilings[pairing]
+                    .as_integer()
+                    .is_some_and(|count| count >= 0),
+                "{name} must pin a non-negative UNIQUE_ID ceiling for {pairing}"
+            );
+        }
+    }
+
+    for required in [
+        "fresh-name-collision",
+        "concrete-rw2",
+        "parametric",
+        "assoc-strict",
+        "exists-anon",
+        "undefined-sort",
+        "cast-inner",
+    ] {
+        assert!(
+            manifest["compile"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["name"].as_str() == Some(required)),
+            "missing designed compile case {required}"
+        );
+    }
+
+    let compile_case = |name: &str| {
+        manifest["compile"]
+            .as_array()
+            .expect("compile cases")
+            .iter()
+            .find(|entry| entry["name"].as_str() == Some(name))
+            .unwrap_or_else(|| panic!("missing compile case {name}"))
+    };
+    assert_eq!(
+        compile_case("exists-anon")["pairings"]
+            .as_array()
+            .expect("exists-anon pairings")
+            .iter()
+            .map(|pairing| pairing.as_str().expect("pairing string"))
+            .collect::<Vec<_>>(),
+        ["haskell/rust"],
+        "K accepts an anonymous binder in requires only for its Haskell backend",
+    );
+    assert!(
+        compile_case("assoc-strict")["requires"]
+            .as_array()
+            .expect("assoc-strict requirements")
+            .iter()
+            .any(|requirement| requirement.as_str() == Some("ticket:A3-06")),
+        "assoc-strict currently reaches the A3-06 verifier collision before I1-06",
+    );
+}
+
+#[test]
+fn part_b_pending_and_special_case_schema_is_complete() {
+    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+    let expected_pending = BTreeSet::from([
+        ("compile", "fresh-name-collision"),
+        ("compile", "imp"),
+        ("compile", "parametric"),
+        ("compile", "assoc-strict"),
+        ("compile", "exists-anon"),
+        ("compile", "undefined-sort"),
+        ("symbolic", "c1-map"),
+        ("symbolic", "c1-t2"),
+        ("symbolic", "c1-t3"),
+        ("execution", "c3-search"),
+        ("execution", "c3-br"),
+        ("execution", "c3-co"),
+        ("execution", "c3-tr"),
+        ("proof", "c4-split"),
+        ("proof", "c4-lemma"),
+        ("proof", "c4-trivial"),
+        ("rpc", "c3-tr-rpc"),
+    ]);
+    for (section, name) in expected_pending {
+        let entry = manifest[section]
+            .as_array()
+            .unwrap_or_else(|| panic!("missing {section} section"))
+            .iter()
+            .find(|entry| entry["name"].as_str() == Some(name))
+            .unwrap_or_else(|| panic!("missing pending {section} case {name}"));
+        assert!(
+            entry["requires"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|requirement| requirement
+                    .as_str()
+                    .is_some_and(|value| value.starts_with("ticket:"))),
+            "{section} case {name} must name its blocking ticket"
+        );
+    }
+
+    for entry in manifest["proof"].as_array().expect("proof cases") {
+        let name = entry["name"].as_str().expect("proof name");
+        assert!(
+            entry["claims"].as_array().is_some(),
+            "{name} claims must be an array"
+        );
+        assert!(
+            entry["failure-claim"]
+                .as_str()
+                .is_some_and(|claim| !claim.trim().is_empty()),
+            "{name} must declare a failure claim"
+        );
+    }
+
+    for name in ["imp", "bounded-search", "c3-tr-rpc"] {
+        let entry = manifest["rpc"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["name"].as_str() == Some(name))
+            .unwrap_or_else(|| panic!("missing RPC case {name}"));
+        assert_eq!(entry["oracle"].as_str(), Some("kore-rpc-booster"));
+        if name == "c3-tr-rpc" {
+            assert_eq!(
+                entry["state-depth"].as_integer(),
+                Some(0),
+                "the C3-05 RPC probe must send the initial state, not Kore's post-step bottom",
+            );
+        }
+    }
+
+    let hook_exceptions = manifest["execution"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|entry| {
+            entry
+                .get("oracle-exception")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        hook_exceptions.len(),
+        2,
+        "STRING.find and BYTES.replaceAt exceptions"
+    );
+    for exception in hook_exceptions {
+        for field in ["program", "expected", "reference", "reason", "ticket"] {
+            assert!(
+                exception[field]
+                    .as_str()
+                    .is_some_and(|value| !value.trim().is_empty()),
+                "execution oracle exception lacks {field}"
+            );
+        }
+        assert_ne!(exception["expected"], exception["reference"]);
+    }
+
+    let rpc_exceptions = manifest["rpc"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|entry| {
+            entry
+                .get("oracle-exception")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rpc_exceptions.len(),
+        1,
+        "only the measured IMP implication payload diverges from Booster",
+    );
+    for exception in rpc_exceptions {
+        for field in ["oracle", "response", "expected", "reason", "ticket"] {
+            assert!(
+                exception[field]
+                    .as_str()
+                    .is_some_and(|value| !value.trim().is_empty()),
+                "RPC oracle exception lacks {field}"
+            );
+        }
+        assert_eq!(exception["oracle"].as_str(), Some("kore-rpc-booster"));
+        assert_eq!(exception["response"].as_str(), Some("implies"));
+        assert_eq!(exception["ticket"].as_str(), Some("D1-08"));
+    }
+
+    for entry in manifest["symbolic"].as_array().expect("symbolic cases") {
+        let name = entry["name"].as_str().expect("symbolic name");
+        assert!(matches!(
+            entry["definition"].as_str(),
+            Some("reference" | "rust" | "both")
+        ));
+        let patterns = entry["pattern"].as_array().expect("symbolic patterns");
+        assert!(!patterns.is_empty(), "symbolic case {name} has no patterns");
+        for pattern in patterns {
+            let mode = pattern["mode"].as_str().expect("symbolic mode");
+            assert!(matches!(
+                mode,
+                "exec"
+                    | "search-final"
+                    | "search-all"
+                    | "search-one-step"
+                    | "search-one-or-more-steps"
+            ));
+            if pattern["oracle-exclusion"].as_str() == Some("gotstuck") {
+                assert_eq!(mode, "exec");
+                assert!(pattern["depth"].as_integer().is_some());
+            }
+        }
+    }
+}
+
+#[test]
+fn measured_compile_divergence_ceilings_are_pinned() {
+    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+    let append = manifest["compile"]
+        .as_array()
+        .expect("compile cases")
+        .iter()
+        .find(|entry| entry["name"].as_str() == Some("append"))
+        .expect("append compile case");
+
+    assert_eq!(
+        append["unique-id-divergence-ceilings"]["kore/llvm"].as_integer(),
+        Some(0),
+        "append's measured kore/llvm UNIQUE_ID ceiling must not hide a new divergence",
+    );
+    assert_eq!(
+        append["unique-id-divergence-ceilings"]["haskell/rust"].as_integer(),
+        Some(1),
+        "append's measured haskell/rust UNIQUE_ID ceiling must stay ratcheted",
+    );
+}
+
+#[test]
+fn part_b_gate_scripts_wire_the_runtime_contract() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let symbolic = fs::read_to_string(workspace.join(SYMBOLIC_EXECUTION_SCRIPT_PATH))
+        .expect("symbolic differential script");
+
+    for script in [
+        COMPILE_SCRIPT,
+        KAST_SCRIPT,
+        EXECUTION_SCRIPT,
+        PROOF_SCRIPT,
+        RPC_SCRIPT,
+        &symbolic,
+    ] {
+        assert!(script.contains("REFERENCE_DIFFERENTIAL_PENDING"));
+        assert!(script.contains("pending: blocked by"));
+    }
+    for needle in [
+        "REFERENCE_DIFFERENTIAL_PAIRINGS",
+        "haskell/rust",
+        "kore/llvm",
+        "K_DIFFERENTIAL_IGNORE_UNIQUE_ID",
+        "unique-id divergences",
+        "kore_parser",
+        "verifying reference definition.kore",
+        "verifying k-rust definition.kore",
+    ] {
+        assert!(
+            COMPILE_SCRIPT.contains(needle),
+            "compile gate lacks {needle}"
+        );
+    }
+    assert!(
+        COMPILE_SCRIPT
+            .contains("if [[ \",$blocking_tickets,\" != *\",$ignore_unique_id_ticket,\"* ]]",),
+        "a case blocked by the UNIQUE_ID ticket must run its strict pending comparison",
+    );
+    for script in [EXECUTION_SCRIPT, MIR_EXECUTION_SCRIPT, &symbolic] {
+        assert!(script.contains("K_DIFFERENTIAL_DEFINITION"));
+        assert!(script.contains("K_DIFFERENTIAL_MODULE"));
+    }
+    assert!(EXECUTION_SCRIPT.contains("oracle-exception"));
+    assert!(PROOF_SCRIPT.contains("if ((${#proven_claims[@]})); then"));
+    for needle in [
+        "--no-smt",
+        "rpc_flavour",
+        "REFERENCE_RPC_ORACLE",
+        "oracle-exception",
+    ] {
+        assert!(RPC_SCRIPT.contains(needle), "RPC gate lacks {needle}");
+    }
+    for needle in ["kore-exec", "--stop-leaves", "gotstuck", "--searchType"] {
+        assert!(symbolic.contains(needle), "symbolic gate lacks {needle}");
+    }
+}
+
+#[test]
+fn pending_only_selection_does_not_require_reference_tools() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for (script_path, case_name, ticket) in [
+        (
+            "scripts/reference-differential.sh",
+            "fresh-name-collision",
+            "A3-06",
+        ),
+        (
+            "scripts/reference-non-imp-execution-differential.sh",
+            "c3-search",
+            "C3-01",
+        ),
+        (
+            "scripts/reference-proof-differential.sh",
+            "c4-split",
+            "C4-01",
+        ),
+        (
+            "scripts/reference-rpc-differential.sh",
+            "c3-tr-rpc",
+            "C3-05",
+        ),
+        (
+            "scripts/reference-symbolic-execution-differential.sh",
+            "c1-map",
+            "C1-01",
+        ),
+    ] {
+        let script_path = workspace.join(script_path);
+        let output = Command::new("bash")
+            .arg(&script_path)
+            .arg(case_name)
+            .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
+            .env("K_KOMPILE", workspace.join("missing-reference-kompile"))
+            .output()
+            .unwrap_or_else(|error| panic!("run {}: {error}", script_path.display()));
+        assert!(
+            output.status.success(),
+            "{} validated unavailable reference tools before skipping {case_name}: {}",
+            script_path.display(),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout)
+                .contains(&format!("[{case_name}] pending: blocked by {ticket}")),
+            "{} did not name the blocking ticket: {}",
+            script_path.display(),
+            String::from_utf8_lossy(&output.stdout),
+        );
+    }
+
+    let compile_validation = "if [[ -z \"$kompile\" ]]";
+    assert!(
+        KAST_SCRIPT.find("pending: blocked by").unwrap()
+            < KAST_SCRIPT.find(compile_validation).unwrap(),
+        "the KAST gate must select and skip pending cases before validating reference tools",
+    );
+}
 
 #[test]
 fn every_gate_normalisation_is_registered() {
@@ -47,6 +452,8 @@ fn every_gate_normalisation_is_registered() {
         expected,
         "the gate register must contain exactly N1 through N20"
     );
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut registered_symbols = BTreeSet::new();
     for row in rows {
         let id = row["id"].as_str().unwrap();
         for field in [
@@ -62,6 +469,54 @@ fn every_gate_normalisation_is_registered() {
                     .as_str()
                     .is_some_and(|value| !value.trim().is_empty()),
                 "{id} must provide a non-empty {field}"
+            );
+        }
+        let anchor = row["anchor"].as_str().unwrap();
+        let anchor_path = anchor.split_once(':').map_or(anchor, |(path, _)| path);
+        let source = fs::read_to_string(workspace.join(anchor_path)).unwrap_or_else(|error| {
+            panic!("{id} anchor file {anchor_path} is unavailable: {error}")
+        });
+        let anchor_symbol = row["anchor_symbol"].as_str().unwrap();
+        assert!(
+            source.contains(anchor_symbol),
+            "{id} anchor symbol {anchor_symbol:?} is absent from {anchor_path}"
+        );
+        registered_symbols.insert(anchor_symbol);
+        if let Some(helpers) = row.get("anchor_helpers").and_then(Value::as_array) {
+            for helper in helpers {
+                let helper = helper.as_str().expect("anchor helper string");
+                assert!(
+                    source.contains(helper),
+                    "{id} anchor helper {helper:?} is absent from {anchor_path}"
+                );
+                registered_symbols.insert(helper);
+            }
+        }
+    }
+
+    let harness =
+        fs::read_to_string(workspace.join("crates/k-rust/tests/reference_differential.rs"))
+            .expect("reference differential harness");
+    for line in harness.lines() {
+        let Some(signature) = line.trim_start().strip_prefix("fn ") else {
+            continue;
+        };
+        let Some((name, _)) = signature.split_once('(') else {
+            continue;
+        };
+        if [
+            "normalize_",
+            "canonical_",
+            "canonicalize_",
+            "canonicalized_",
+            "strip_",
+        ]
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+        {
+            assert!(
+                registered_symbols.contains(name),
+                "normalisation helper {name} has no register anchor or anchor_helpers entry"
             );
         }
     }
@@ -98,6 +553,20 @@ fn differential_manifest_is_complete_and_unambiguous() {
         "K must have a pinned release version"
     );
 
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let status_path = workspace.join("draft/fable51-review/implementation-status.toml");
+    let known_tickets = status_path.exists().then(|| {
+        let status = fs::read_to_string(&status_path).expect("read implementation-status ledger");
+        let status = status
+            .parse::<Value>()
+            .expect("valid implementation-status TOML");
+        status["ticket"]
+            .as_array()
+            .expect("implementation-status ticket rows")
+            .iter()
+            .map(|ticket| ticket["id"].as_str().expect("ticket id").to_owned())
+            .collect::<BTreeSet<_>>()
+    });
     let allowed_requirements = BTreeSet::from(["reference-toolchain"]);
     for section in SECTIONS {
         let entries = manifest[section].as_array().expect("coverage array");
@@ -113,10 +582,18 @@ fn differential_manifest_is_complete_and_unambiguous() {
             );
             for requirement in requirements {
                 let requirement = requirement.as_str().expect("string requirement");
-                assert!(
-                    allowed_requirements.contains(requirement),
-                    "unknown requirement {requirement} on {section} case {name}"
-                );
+                if allowed_requirements.contains(requirement) {
+                    continue;
+                }
+                let ticket = ticket_requirement(requirement).unwrap_or_else(|| {
+                    panic!("unknown requirement {requirement} on {section} case {name}")
+                });
+                if let Some(known_tickets) = &known_tickets {
+                    assert!(
+                        known_tickets.contains(ticket),
+                        "unknown ticket {ticket} on {section} case {name}"
+                    );
+                }
             }
             assert!(
                 entry["constructs"].as_array().is_some(),
@@ -126,6 +603,9 @@ fn differential_manifest_is_complete_and_unambiguous() {
     }
 
     for entry in manifest["compile"].as_array().unwrap() {
+        if entry.get("expect").and_then(Value::as_str) == Some("reject") {
+            continue;
+        }
         assert!(
             entry["comparisons"]
                 .as_array()
@@ -136,7 +616,6 @@ fn differential_manifest_is_complete_and_unambiguous() {
 
     let mut paths = BTreeSet::new();
     collect_workspace_paths(&manifest, &mut paths);
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for relative in paths {
         let path = workspace.join(&relative);
         assert!(
@@ -182,6 +661,20 @@ fn differential_manifest_is_complete_and_unambiguous() {
         missing.is_empty(),
         "missing runnable corpus constructs: {missing:?}"
     );
+}
+
+fn ticket_requirement(requirement: &str) -> Option<&str> {
+    let ticket = requirement.strip_prefix("ticket:")?;
+    let (area, number) = ticket.split_once('-')?;
+    let mut area = area.bytes();
+    if !area.next().is_some_and(|byte| byte.is_ascii_uppercase())
+        || !area.all(|byte| byte.is_ascii_digit())
+        || number.len() != 2
+        || !number.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    Some(ticket)
 }
 
 #[test]
@@ -288,11 +781,17 @@ fn excluded_cases_have_complete_oracle_dispositions() {
 }
 
 #[test]
-fn manual_certification_protocol_names_all_imp_families() {
+fn manual_certification_protocol_names_part_b_green_gates() {
     for command in [
-        "# scripts/reference-non-imp-execution-differential.sh imp",
-        "# scripts/reference-proof-differential.sh imp",
+        "# scripts/reference-differential.sh append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite parametric-semantic-cast hooked-namespaces star-cell-config overload-constructors owise-functions owise-competitors owise concrete-rw2 cast-inner",
+        "# REFERENCE_DIFFERENTIAL_PAIRINGS=haskell/rust scripts/reference-differential.sh wasm mir evm-equivalence",
+        "# scripts/reference-kast-differential.sh wasm mir evm-equivalence",
+        "# scripts/reference-non-imp-execution-differential.sh imp collections hooks-c2",
+        "# scripts/reference-proof-differential.sh mini-proof",
         "# scripts/reference-rpc-differential.sh imp",
+        "# scripts/reference-rpc-differential.sh bounded-search",
+        "# scripts/reference-mir-execution-differential.sh",
+        "# scripts/reference-symbolic-execution-differential.sh c3-sd-symbolic c3-sy",
     ] {
         assert!(
             MANIFEST.lines().any(|line| line == command),
@@ -337,12 +836,19 @@ fn java_backed_differentials_guard_the_whole_job_without_nested_sibling_scopes()
         );
     }
 
-    assert!(
-        MIR_EXECUTION_SCRIPT.contains(
-            "reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-'-Xmx2048m -Xss1m -XX:+UseSerialGC",
-        ),
-        "the MIR execution differential must provide bounded JVM defaults",
-    );
+    for script in JAVA_BACKED_DIFFERENTIAL_SCRIPTS {
+        assert!(
+            script.contains(
+                "reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-$reference_default_k_opts}",
+            ),
+            "every Java-backed differential must consume the shared JVM default",
+        );
+        assert_eq!(
+            script.matches("-Xmx2048m").count(),
+            0,
+            "JVM defaults must be declared only by reference-memory-guard.sh",
+        );
+    }
     assert_eq!(
         MIR_EXECUTION_SCRIPT
             .matches("export K_OPTS=\"$reference_k_opts\"")
@@ -379,8 +885,10 @@ fn java_backed_differentials_guard_the_whole_job_without_nested_sibling_scopes()
         "ulimit -v \"$reference_job_fallback_virtual_memory_kib\"",
         // The virtual-address fallback must bound the reference JVM itself:
         // default ergonomics on a many-core host exceed the RLIMIT_AS ceiling.
+        "reference_default_k_opts='-Xmx2048m -Xss1m -XX:+UseSerialGC",
+        "-Dscala.concurrent.context.numThreads=2 -Dscala.concurrent.context.maxThreads=2",
         "if [[ -z \"${REFERENCE_DIFFERENTIAL_K_OPTS:-}\" ]]; then",
-        "export REFERENCE_DIFFERENTIAL_K_OPTS='-Xmx2048m -Xss1m -XX:+UseSerialGC",
+        "export REFERENCE_DIFFERENTIAL_K_OPTS=\"$reference_default_k_opts\"",
     ] {
         assert!(
             guard.contains(contract),
@@ -511,7 +1019,7 @@ reference_run_rust_frontend bash -c '
     assert_eq!(
         fallback.stderr,
         b"warning: user systemd scopes unavailable; applying the 10485760 KiB whole-job virtual-address fallback (RLIMIT_AS), not a resident-memory limit\n\
-          warning: bounding the reference JVM with REFERENCE_DIFFERENTIAL_K_OPTS=-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m under the virtual-address fallback\n\
+          warning: bounding the reference JVM with REFERENCE_DIFFERENTIAL_K_OPTS=-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Dscala.concurrent.context.numThreads=2 -Dscala.concurrent.context.maxThreads=2 under the virtual-address fallback\n\
           payload-err",
         "identify the fallback semantics, bound the reference JVM, and otherwise preserve stderr exactly",
     );

@@ -1,0 +1,6 @@
+Lbl'-LT-'generatedTop'-GT-'{}(
+  Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortPgm{}, SortKItem{}}(LblgoM{}()), dotk{}())),
+  Lbl'-LT-'m'-GT-'{}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")), inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("2"))), Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("3")), inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("4"))))),
+  Lbl'-LT-'s'-GT-'{}(Lbl'Stop'Set{}()),
+  Lbl'-LT-'l'-GT-'{}(Lbl'Stop'List{}()),
+  Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0")))
