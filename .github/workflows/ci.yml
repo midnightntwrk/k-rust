@@ -37,6 +37,12 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Check benchmark harness
+        run: |
+          bash -n scripts/benchmark.sh
+          scripts/benchmark.sh --list
+          scripts/benchmark.sh --dry-run --output target/benchmarks/ci-dry-run
+
       - name: Build native targets
         run: cargo build --workspace --all-targets --locked
 

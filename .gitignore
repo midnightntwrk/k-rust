@@ -16,6 +16,7 @@ crates/k-rust-wasm/generated/
 # ignore some references
 evm-semantics/
 k/
+imp-semantics/
 scala-kore/
 wasm-semantics/
 k-framework-ts/
