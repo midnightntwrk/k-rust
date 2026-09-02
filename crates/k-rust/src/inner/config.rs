@@ -4,7 +4,7 @@ use std::fmt;
 
 use crate::definition::{
     Attributes, Definition, Location, ModuleId, ProductionItem, ResolveError, ResolvedDefinition,
-    Sentence,
+    Sentence, sentence_equivalent,
 };
 use crate::kast::{Label, Sort, Term};
 use crate::provenance::SourceId;
@@ -168,7 +168,8 @@ fn configuration_grammar(
     resolved: &ResolvedDefinition,
     module: ModuleId,
 ) -> Result<Grammar, ParseError> {
-    let visible = resolved.sentences(module);
+    let mut visible = resolved.signature_sentences(module);
+    add_implicit_ml_syntax(resolved, &mut visible);
     // The reference configuration grammar imports DEFAULT-LAYOUT explicitly,
     // even when the language declares a program-specific `#Layout` sort.
     let mut grammar = Grammar::from_configuration_sentences(visible.iter().copied())?;
@@ -206,6 +207,26 @@ fn configuration_grammar(
     }
 
     Ok(grammar)
+}
+
+/// The reference rule and configuration grammar seed imports `K`, whose
+/// `KSEQ-SYMBOLIC` import contributes `ML-SYNTAX` independently of the user
+/// module signature. The hand-built seed models the rest of that syntax.
+pub(super) fn add_implicit_ml_syntax<'a>(
+    resolved: &'a ResolvedDefinition,
+    visible: &mut Vec<&'a Sentence>,
+) {
+    let Some(module) = resolved.module_id("ML-SYNTAX") else {
+        return;
+    };
+    for sentence in resolved.signature_sentences(module) {
+        if !visible
+            .iter()
+            .any(|existing| sentence_equivalent(existing, sentence))
+        {
+            visible.push(sentence);
+        }
+    }
 }
 
 fn is_cell_name(value: &str) -> bool {

@@ -11,7 +11,8 @@ use crate::kast::{Label, Sort, Term};
 use crate::provenance::SourceId;
 
 use super::config::{
-    BuiltinTokenGrammar, add_casts, add_k_syntax, add_subsort, nonterminal, truth,
+    BuiltinTokenGrammar, add_casts, add_implicit_ml_syntax, add_k_syntax, add_subsort, nonterminal,
+    truth,
 };
 use super::parser::{Grammar, ParseError, Scanner, TokenPrecedenceDeclaration};
 
@@ -299,8 +300,11 @@ fn rule_grammar(
     scope: RuleGrammarScope<'_>,
 ) -> Result<Grammar, ParseError> {
     let visible = match scope {
-        RuleGrammarScope::GlobalScanner | RuleGrammarScope::Module { .. } => {
-            resolved.sentences(module)
+        RuleGrammarScope::GlobalScanner => resolved.sentences(module),
+        RuleGrammarScope::Module { .. } => {
+            let mut visible = resolved.signature_sentences(module);
+            add_implicit_ml_syntax(resolved, &mut visible);
+            visible
         }
     };
     let scanner_seed = match scope {

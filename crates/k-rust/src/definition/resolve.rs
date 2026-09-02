@@ -232,6 +232,52 @@ impl ResolvedDefinition {
         sentences
     }
 
+    /// Scala's `Module.signature`: local sentences plus the exported sentences
+    /// of every direct import, following only public imports after that first edge.
+    pub fn signature_sentences(&self, module: ModuleId) -> Vec<&Sentence> {
+        let mut exported_modules = BTreeSet::new();
+        let mut pending = self
+            .direct_imports(module)
+            .into_iter()
+            .map(|import| import.module)
+            .collect::<Vec<_>>();
+        while let Some(import) = pending.pop() {
+            if exported_modules.insert(import) {
+                pending.extend(
+                    self.direct_imports(import)
+                        .into_iter()
+                        .filter(|next| next.public)
+                        .map(|next| next.module),
+                );
+            }
+        }
+
+        let mut sentences: Vec<&Sentence> = Vec::new();
+        for module in self
+            .dependency_order
+            .iter()
+            .filter(|module| exported_modules.contains(module))
+        {
+            for sentence in self.public_sentences(*module) {
+                if !sentences
+                    .iter()
+                    .any(|existing| sentence_equivalent(existing, sentence))
+                {
+                    sentences.push(sentence);
+                }
+            }
+        }
+        for sentence in &self.module(module).local_sentences {
+            if !sentences
+                .iter()
+                .any(|existing| sentence_equivalent(existing, sentence))
+            {
+                sentences.push(sentence);
+            }
+        }
+        sentences
+    }
+
     /// Scala's `publicSentences`: the local sentences exported by a module signature.
     pub fn public_sentences(&self, module: ModuleId) -> Vec<&Sentence> {
         let module = self.module(module);

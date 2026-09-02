@@ -98,6 +98,9 @@ impl<'a> Parser<'a> {
         } else {
             Vec::new()
         };
+        let module_is_private = attributes
+            .iter()
+            .any(|attribute| attribute.key == "private");
         let mut imports = Vec::new();
         let mut sentences = Vec::new();
         loop {
@@ -115,7 +118,7 @@ impl<'a> Parser<'a> {
                 return Err(self.error("expected `endmodule`"));
             }
             if self.peek_word("imports") {
-                imports.push(self.import()?);
+                imports.push(self.import(module_is_private)?);
                 continue;
             }
             let sentence_start = self.offset;
@@ -131,11 +134,17 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn import(&mut self) -> Result<Import, ParseError> {
+    fn import(&mut self, module_is_private: bool) -> Result<Import, ParseError> {
         self.expect_word("imports")?;
         let start = self.last_start;
         self.skip_trivia()?;
-        let public = self.consume_word("public") || !self.consume_word("private");
+        let public = if self.consume_word("public") {
+            true
+        } else if self.consume_word("private") {
+            false
+        } else {
+            !module_is_private
+        };
         let module = self.word()?;
         Ok(Import {
             module,

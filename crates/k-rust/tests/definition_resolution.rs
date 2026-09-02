@@ -191,6 +191,66 @@ fn applies_scala_public_sentence_rules() {
     );
 }
 
+fn sentence_markers(sentences: Vec<&Sentence>) -> Vec<&str> {
+    sentences
+        .into_iter()
+        .map(|sentence| match sentence {
+            Sentence::Bubble { contents, .. } => contents.as_str(),
+            _ => panic!("expected marker sentence"),
+        })
+        .collect()
+}
+
+#[test]
+fn signature_sentences_keep_the_modules_own_private_imports_one_level() {
+    let resolved = ResolvedDefinition::resolve(&definition(vec![
+        module("A", &[("B", false)]),
+        module("B", &[("C", false)]),
+        module("C", &[]),
+    ]))
+    .unwrap();
+
+    assert_eq!(
+        sentence_markers(resolved.signature_sentences(resolved.main_module_id())),
+        ["B", "A"]
+    );
+}
+
+#[test]
+fn signature_sentences_follow_only_public_imports_transitively() {
+    let resolved = ResolvedDefinition::resolve(&definition(vec![
+        module("A", &[("B", false)]),
+        module("B", &[("C", true)]),
+        module("C", &[("D", false)]),
+        module("D", &[]),
+    ]))
+    .unwrap();
+
+    assert_eq!(
+        sentence_markers(resolved.signature_sentences(resolved.main_module_id())),
+        ["C", "B", "A"]
+    );
+}
+
+#[test]
+fn signature_sentences_apply_public_sentences_of_private_modules() {
+    let mut exported = marker("exported");
+    *exported.attributes_mut() = attrs(&[("public", "")]);
+    let mut hidden = marker("hidden");
+    *hidden.attributes_mut() = attrs(&[("private", "")]);
+    let mut private = module("B", &[]);
+    private.attributes = attrs(&[("private", "")]);
+    private.local_sentences = vec![marker("ordinary"), exported, hidden];
+    let resolved =
+        ResolvedDefinition::resolve(&definition(vec![module("A", &[("B", true)]), private]))
+            .unwrap();
+
+    assert_eq!(
+        sentence_markers(resolved.signature_sentences(resolved.main_module_id())),
+        ["exported", "A"]
+    );
+}
+
 #[test]
 fn deduplicates_flat_sets_only_during_resolution() {
     let repeated = marker("same");

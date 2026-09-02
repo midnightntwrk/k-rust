@@ -835,6 +835,106 @@ fn imported_rule_modules_use_the_main_modules_global_scanner() {
     ));
 }
 
+#[test]
+fn reference_private_import_hides_imported_syntax_from_rules() {
+    let source = include_str!("fixtures/reference/inner/signature/private-import/test.k");
+    let parsed = k_rust::outer::parse("private-import/test.k", source).unwrap();
+    let definition = k_rust::outer::lower(&parsed, "PRIVATE-IMPORT").unwrap();
+    let error = resolve_rule_bubbles(&definition)
+        .expect_err("BASE's syntax must not cross MID's private import");
+
+    assert!(
+        matches!(
+            error,
+            RuleError::Parse(ref error)
+                if error.module == "PRIVATE-IMPORT"
+                    && matches!(error.error, ParseError::NoParse { position: 4, .. })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn reference_private_import_explicit_hides_imported_syntax_from_rules() {
+    let source = include_str!("fixtures/reference/inner/signature/private-import-explicit/test.k");
+    let parsed = k_rust::outer::parse("private-import-explicit/test.k", source).unwrap();
+    let definition = k_rust::outer::lower(&parsed, "PRIVATE-IMPORT-EXPLICIT").unwrap();
+    let error = resolve_rule_bubbles(&definition)
+        .expect_err("BASE's syntax must not cross MID's explicit private import");
+
+    assert!(
+        matches!(
+            error,
+            RuleError::Parse(ref error)
+                if error.module == "PRIVATE-IMPORT-EXPLICIT"
+                    && matches!(error.error, ParseError::NoParse { position: 4, .. })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn reference_signature_k_reports_six_visibility_errors() {
+    let source = include_str!("fixtures/reference/inner/signature/signature.k");
+    let parsed = k_rust::outer::parse("signature.k", source).unwrap();
+    let definition = k_rust::outer::lower(&parsed, "SIGNATURE").unwrap();
+    let hidden_rules = [
+        "foo() => .K",
+        "bam() => .K",
+        "fu() => .K",
+        "bar => .K",
+        "baz => .K",
+        "b() => .K",
+    ];
+
+    for hidden_rule in hidden_rules {
+        let mut one_rule = definition.clone();
+        let module = one_rule
+            .modules
+            .iter_mut()
+            .find(|module| module.name == "C")
+            .unwrap();
+        module.local_sentences.retain(|sentence| {
+            !matches!(
+                sentence,
+                Sentence::Bubble {
+                    sentence_type,
+                    contents,
+                    ..
+                } if sentence_type == "rule" && contents != hidden_rule
+            )
+        });
+        let error = resolve_rule_bubbles(&one_rule)
+            .expect_err("syntax outside C's signature must be rejected");
+        assert!(
+            matches!(
+                error,
+                RuleError::Parse(ref error)
+                    if error.module == "C" && matches!(error.error, ParseError::NoParse { .. })
+            ),
+            "{hidden_rule}: {error:?}"
+        );
+    }
+
+    let mut public_rule = definition;
+    let module = public_rule
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "C")
+        .unwrap();
+    module.local_sentences.retain(|sentence| {
+        !matches!(
+            sentence,
+            Sentence::Bubble {
+                sentence_type,
+                contents,
+                ..
+            } if sentence_type == "rule" && contents != "a() => .K"
+        )
+    });
+    resolve_rule_bubbles(&public_rule).expect("B's public a() production stays visible in C");
+}
+
 fn selector_source(attribute: &str) -> String {
     format!(
         r#"module MAIN
