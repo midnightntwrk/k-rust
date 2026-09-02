@@ -459,6 +459,13 @@ impl<'a> Encoding<'a> {
                         .as_ref()
                         .is_some_and(|origin| origin.parameters.contains(child_sort));
                     let child_context = match cast_context_for(descriptor) {
+                        // A semantic cast applied directly to a variable is a declaration of
+                        // that variable's exact sort. The reference inferencer emits equality
+                        // for this shape, while semantic casts around compound terms remain
+                        // ordinary subsort constraints.
+                        CastContext::Semantic if matches!(child, ParsedTerm::Term(term) if matches!(term.unannotated(), Term::Variable { .. })) => {
+                            CastContext::Strict
+                        }
                         CastContext::None if function_child_sort.is_some() => CastContext::None,
                         CastContext::None if !formal_child && !is_real_ground_sort(child_sort) => {
                             CastContext::Parser
@@ -588,6 +595,9 @@ impl<'a> Encoding<'a> {
                         .as_ref()
                         .is_some_and(|origin| origin.parameters.contains(child_sort));
                     let child_context = match cast_context_for(descriptor) {
+                        CastContext::Semantic if matches!(&child.node, PackedNode::Term(term) if matches!(term.unannotated(), Term::Variable { .. })) => {
+                            CastContext::Strict
+                        }
                         CastContext::None if function_lhs.is_some() => CastContext::None,
                         CastContext::None if !formal_child && !is_real_ground_sort(child_sort) => {
                             CastContext::Parser
@@ -1944,5 +1954,91 @@ fn or_all(items: &[Bool]) -> Bool {
 fn z3_error(message: impl Into<String>) -> ParseError {
     ParseError::SortInference {
         message: message.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::definition::ProductionItem;
+    use crate::kast::Label;
+
+    fn nonterminal(name: &str) -> ProductionItem {
+        ProductionItem::NonTerminal {
+            sort: Sort::new(name),
+            name: None,
+        }
+    }
+
+    #[test]
+    fn semantic_cast_directly_on_variable_is_strict() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("Big"),
+                vec![nonterminal("KItem")],
+                Some(Label::new("#SemanticCastToBig")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .add(
+                Sort::new("Small"),
+                vec![nonterminal("KItem")],
+                Some(Label::new("#SemanticCastToSmall")),
+                false,
+                false,
+            )
+            .unwrap();
+        let foo = grammar.productions.len();
+        grammar
+            .add(
+                Sort::new("Foo"),
+                vec![nonterminal("Small")],
+                Some(Label::new("foo")),
+                false,
+                false,
+            )
+            .unwrap();
+        let pair = grammar.productions.len();
+        grammar
+            .add(
+                Sort::new("K"),
+                vec![nonterminal("Big"), nonterminal("Foo")],
+                Some(Label::new("pair")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .subsort_relations
+            .insert((Sort::new("Small"), Sort::new("Big")));
+
+        let variable = || ParsedTerm::Term(Term::variable("X"));
+        let term = ParsedTerm::Production {
+            production: pair,
+            children: vec![
+                ParsedTerm::Production {
+                    production: 0,
+                    children: vec![variable()],
+                    metadata: Default::default(),
+                },
+                ParsedTerm::Production {
+                    production: foo,
+                    children: vec![variable()],
+                    metadata: Default::default(),
+                },
+            ],
+            metadata: Default::default(),
+        };
+        let error = grammar
+            .infer_sorts_z3(term, &Sort::new("K"), false)
+            .expect_err("Big cast and Small use of X must conflict");
+        assert!(
+            error.to_string().contains("no well-sorted parse")
+                || error.to_string().contains("unexpected sort"),
+            "unexpected inference error: {error}"
+        );
     }
 }
