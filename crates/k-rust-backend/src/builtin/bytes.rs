@@ -390,14 +390,15 @@ fn encode_utf16(value: &str, endianness: Endianness) -> Vec<u8> {
 }
 
 fn decode_utf16(bytes: &[u8], endianness: Endianness) -> Option<String> {
-    let chunks = bytes.chunks_exact(2);
-    if !chunks.remainder().is_empty() {
+    let (chunks, remainder) = bytes.as_chunks::<2>();
+    if !remainder.is_empty() {
         return None;
     }
     let units = chunks
+        .iter()
         .map(|chunk| match endianness {
-            Endianness::Little => u16::from_le_bytes([chunk[0], chunk[1]]),
-            Endianness::Big => u16::from_be_bytes([chunk[0], chunk[1]]),
+            Endianness::Little => u16::from_le_bytes(*chunk),
+            Endianness::Big => u16::from_be_bytes(*chunk),
         })
         .collect::<Vec<_>>();
     String::from_utf16(&units).ok()
@@ -414,16 +415,16 @@ fn encode_utf32(value: &str, endianness: Endianness) -> Vec<u8> {
 }
 
 fn decode_utf32(bytes: &[u8], endianness: Endianness) -> Option<String> {
-    let chunks = bytes.chunks_exact(4);
-    if !chunks.remainder().is_empty() {
+    let (chunks, remainder) = bytes.as_chunks::<4>();
+    if !remainder.is_empty() {
         return None;
     }
     chunks
+        .iter()
         .map(|chunk| {
-            let bytes = [chunk[0], chunk[1], chunk[2], chunk[3]];
             char::from_u32(match endianness {
-                Endianness::Little => u32::from_le_bytes(bytes),
-                Endianness::Big => u32::from_be_bytes(bytes),
+                Endianness::Little => u32::from_le_bytes(*chunk),
+                Endianness::Big => u32::from_be_bytes(*chunk),
             })
         })
         .collect()

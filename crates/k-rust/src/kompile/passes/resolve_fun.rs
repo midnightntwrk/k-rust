@@ -407,7 +407,7 @@ fn closure_variables(term: &Term) -> Vec<ClosureVariable> {
     // the body (including nested local-function patterns) is bound.  A flat walk over the RHS
     // would otherwise mistake an inner lambda's parameter for an outer closure variable.
     let mut bound = BTreeSet::new();
-    collect_lhs_variables(term, None, false, &mut bound);
+    collect_lhs_variables(term, false, &mut bound);
     let mut result = Vec::new();
     let mut seen = BTreeSet::new();
     collect_rhs_variables(term, None, false, &mut |variable| {
@@ -422,12 +422,7 @@ fn closure_variables(term: &Term) -> Vec<ClosureVariable> {
     result
 }
 
-fn collect_lhs_variables(
-    term: &Term,
-    context: Option<&Sort>,
-    in_lhs: bool,
-    bound: &mut BTreeSet<String>,
-) {
+fn collect_lhs_variables(term: &Term, in_lhs: bool, bound: &mut BTreeSet<String>) {
     match term.unannotated() {
         Term::Variable { name, .. } if in_lhs && !is_anonymous(name) => {
             bound.insert(name.clone());
@@ -436,37 +431,36 @@ fn collect_lhs_variables(
         Term::Apply { label, arguments }
             if label.name.starts_with("#SemanticCastTo") && arguments.len() == 1 =>
         {
-            let sort = Sort::new(label.name.trim_start_matches("#SemanticCastTo"));
-            collect_lhs_variables(&arguments[0], Some(&sort), in_lhs, bound);
+            collect_lhs_variables(&arguments[0], in_lhs, bound);
         }
         Term::Rewrite { left, right } => {
-            collect_lhs_variables(left, context, true, bound);
-            collect_lhs_variables(right, context, false, bound);
+            collect_lhs_variables(left, true, bound);
+            collect_lhs_variables(right, false, bound);
         }
         Term::Apply { label, arguments } if label.name == "#fun3" && arguments.len() >= 3 => {
-            collect_lhs_variables(&arguments[0], context, true, bound);
-            collect_lhs_variables(&arguments[1], context, false, bound);
-            collect_lhs_variables(&arguments[2], context, in_lhs, bound);
+            collect_lhs_variables(&arguments[0], true, bound);
+            collect_lhs_variables(&arguments[1], false, bound);
+            collect_lhs_variables(&arguments[2], in_lhs, bound);
         }
         Term::Apply { label, arguments } if label.name == "#let" && arguments.len() >= 3 => {
-            collect_lhs_variables(&arguments[0], context, true, bound);
-            collect_lhs_variables(&arguments[1], context, in_lhs, bound);
-            collect_lhs_variables(&arguments[2], context, false, bound);
+            collect_lhs_variables(&arguments[0], true, bound);
+            collect_lhs_variables(&arguments[1], in_lhs, bound);
+            collect_lhs_variables(&arguments[2], false, bound);
         }
         Term::Apply { label, arguments } if label.name == "#fun2" && arguments.len() >= 2 => {
-            collect_lhs_variables(&arguments[0], context, false, bound);
-            collect_lhs_variables(&arguments[1], context, in_lhs, bound);
+            collect_lhs_variables(&arguments[0], false, bound);
+            collect_lhs_variables(&arguments[1], in_lhs, bound);
         }
         Term::As { pattern, alias } => {
-            collect_lhs_variables(pattern, context, in_lhs, bound);
-            collect_lhs_variables(alias, context, in_lhs, bound);
+            collect_lhs_variables(pattern, in_lhs, bound);
+            collect_lhs_variables(alias, in_lhs, bound);
         }
         Term::Sequence(items)
         | Term::Apply {
             arguments: items, ..
         } => {
             for item in items {
-                collect_lhs_variables(item, context, in_lhs, bound);
+                collect_lhs_variables(item, in_lhs, bound);
             }
         }
         Term::InjectedLabel(_) | Term::Token { .. } => {}

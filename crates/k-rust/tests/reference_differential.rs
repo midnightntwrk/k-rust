@@ -286,10 +286,10 @@ fn normalize_definition_value(
             ] {
                 object.remove(key);
             }
-            if let Some(serde_json::Value::Object(label)) = object.get("bracketLabel") {
-                if let Some(name) = label.get("name").and_then(serde_json::Value::as_str) {
-                    object.insert("bracketLabel".into(), name.into());
-                }
+            if let Some(serde_json::Value::Object(label)) = object.get("bracketLabel")
+                && let Some(name) = label.get("name").and_then(serde_json::Value::as_str)
+            {
+                object.insert("bracketLabel".into(), name.into());
             }
             for value in object.values_mut() {
                 normalize_definition_value(value, associative_units);
