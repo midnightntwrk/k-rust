@@ -7,7 +7,8 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use k_rust::kore::parser::parse_definition;
+use k_rust::kore::{ast::Pattern, parser::parse_definition, parser::parse_pattern};
+use regex::Regex;
 
 const DEFINITION: &str = r#"
 requires "base.k"
@@ -750,6 +751,122 @@ fn krun_search_explores_an_unconditional_branch() {
     );
 
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reference_sd_symbolic_depth_two_leaves_match_modulo_gotstuck() {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/search/sd");
+    let (root, _) = fixture();
+    let compiled = root.join("sd-kompiled");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            fixtures.join("test.k").to_str().unwrap(),
+            "--main-module",
+            "SD",
+            "--syntax-module",
+            "SD-SYNTAX",
+            "--backend",
+            "rust",
+            "--output-directory",
+            compiled.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let execute = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            compiled.join("definition.kore").to_str().unwrap(),
+            "--module",
+            "SD",
+            "--pattern",
+            fixtures.join("symbolic.kore").to_str().unwrap(),
+            "--depth",
+            "2",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        execute.status.success(),
+        "{}",
+        String::from_utf8_lossy(&execute.stderr)
+    );
+
+    let disjuncts = |pattern| match pattern {
+        Pattern::Or { arguments, .. } => arguments,
+        pattern => vec![pattern],
+    };
+    let reference = disjuncts(
+        parse_pattern(&fs::read_to_string(fixtures.join("depth-two.kore")).unwrap()).unwrap(),
+    );
+    let actual = disjuncts(parse_pattern(&String::from_utf8(execute.stdout).unwrap()).unwrap());
+    assert_eq!(reference.len(), 2, "the reference records two stuck leaves");
+    assert_eq!(
+        actual.len(),
+        reference.len() + 1,
+        "the port retains the one depth-bounded Stop leaf Kore drops on GotStuck"
+    );
+    for expected in reference {
+        assert!(
+            actual.contains(&expected),
+            "missing reference remainder leaf: {expected:#?}"
+        );
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reference_hook_pc_findstring_follows_domains_md() {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks/pc");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("pc.k").to_str().unwrap(),
+            "--main-module",
+            "HOOKS",
+            "--syntax-module",
+            "HOOKS-SYNTAX",
+            "--sort",
+            "Pgm",
+            fixtures.join("pc.hooks").to_str().unwrap(),
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let expected = fs::read_to_string(fixtures.join("domains.out"))
+        .unwrap()
+        .lines()
+        .filter_map(|line| {
+            let value = line.trim().strip_prefix("ListItem ( ")?;
+            let value = value
+                .strip_suffix(" ) ~> .K")
+                .or_else(|| value.strip_suffix(" )"))?;
+            value.parse::<i64>().ok()
+        })
+        .collect::<Vec<_>>();
+    let integer = Regex::new(r#"\\dv\{SortInt\{\}\}\(\"(-?[0-9]+)\"\)"#).unwrap();
+    let actual = integer
+        .captures_iter(&String::from_utf8(output.stdout).unwrap())
+        .take(expected.len())
+        .map(|captures| captures[1].parse::<i64>().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(expected, vec![2, 3, 5, -1, 0]);
+    assert_eq!(actual, expected);
 }
 
 #[test]

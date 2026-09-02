@@ -1,0 +1,13 @@
+case = "split"
+subsystem = "proof"
+source_ticket = "C4-01"
+harvested_from = "draft/fable51-review/fixtures/c4/f1/stuck.kore"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "stuck.kore"
+command = "kompile split.k --backend haskell --main-module SPLIT --syntax-module SPLIT-SYNTAX --output-definition ref >/dev/null && kprove onepath-spec.k --definition ref --output kore > stuck.kore"
+tool = "kprove"
+exit_code = 1
+sha256 = "eb9fc05e37f1d3670fadc5887af6cd2fd147f73fe86aa1d04ed1ce558d9d8ac6"

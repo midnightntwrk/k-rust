@@ -1,0 +1,13 @@
+case = "br"
+subsystem = "execution"
+source_ticket = "C3-02"
+harvested_from = "draft/fable51-review/fixtures/c3/br.kore"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "initial.kore"
+command = "kompile test.k --backend haskell --main-module BR --syntax-module BR-SYNTAX --output-definition ref && krun a.br --definition ref --output kore --depth 0 > initial.kore"
+tool = "krun"
+exit_code = 0
+sha256 = "96909e2bc7819520a5671f73905197ea79ca4139c88fcdf25a84da244029a186"

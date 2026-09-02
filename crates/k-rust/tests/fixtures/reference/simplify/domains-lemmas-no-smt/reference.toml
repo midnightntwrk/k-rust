@@ -1,0 +1,13 @@
+case = "domains-lemmas-no-smt"
+subsystem = "simplify"
+source_ticket = "C2-01"
+harvested_from = "draft/fable51-review/fixtures/c2/dl"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "verdict.out"
+command = "kompile domains-lemmas-no-smt.k --backend haskell --output-definition ref && kprove domains-lemmas-no-smt-spec.k --definition ref > verdict.out"
+tool = "kprove"
+exit_code = 0
+sha256 = "8d9586e84783045169f5b27f9ebc7c0fb2d175ef0c711d7f79ad224e70a1b45d"

@@ -1,0 +1,49 @@
+\or{SortGeneratedTopCell{}}(
+    /* Created: Kore.Internal.OrPattern.toTermLike */
+    \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+            Lbl'-LT-'k'-GT-'{}(
+                kseq{}(
+                    /* Inj: */ inj{SortPgm{}, SortKItem{}}(Lbldones{}()),
+                    dotk{}()
+                )
+            ),
+            Lbl'-LT-'m'-GT-'{}(/* InternalMap: */ Lbl'Stop'Map{}()),
+            Lbl'-LT-'s'-GT-'{}(/* InternalSet: */ Lbl'Stop'Set{}()),
+            Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+        ),
+        \equals{SortSet{}, SortGeneratedTopCell{}}(
+            VarS:SortSet{},
+            /* InternalSet: */ Lbl'Stop'Set{}()
+        )
+    ),
+    /* Created: Kore.Internal.OrPattern.toTermLike */
+    \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+            Lbl'-LT-'k'-GT-'{}(
+                kseq{}(
+                    /* Inj: */ inj{SortPgm{}, SortKItem{}}(Lblgos{}()),
+                    dotk{}()
+                )
+            ),
+            Lbl'-LT-'m'-GT-'{}(/* InternalMap: */ Lbl'Stop'Map{}()),
+            Lbl'-LT-'s'-GT-'{}(
+                /* InternalSet: */ Lbl'Unds'Set'Unds'{}(
+                    /* concrete element: */ LblSetItem{}(
+                        /* Inj: */ inj{SortInt{}, SortKItem{}}(
+                            \dv{SortInt{}}("1")
+                        )
+                    ),
+                    /* opaque child: */ VarS:SortSet{}
+                )
+            ),
+            Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+        ),
+        \not{SortGeneratedTopCell{}}(
+            \equals{SortSet{}, SortGeneratedTopCell{}}(
+                VarS:SortSet{},
+                /* InternalSet: */ Lbl'Stop'Set{}()
+            )
+        )
+    )
+)

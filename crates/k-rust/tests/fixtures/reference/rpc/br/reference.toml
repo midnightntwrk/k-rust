@@ -1,0 +1,13 @@
+case = "br"
+subsystem = "rpc"
+source_ticket = "D1-07"
+harvested_from = "draft/fable51-review/fixtures/d1-fixtures/br/ref-cancel_in_batch.json"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "cancel-response.json"
+command = "python3 refresh.py"
+tool = "kore-rpc-booster"
+exit_code = 0
+sha256 = "c2ffcd55bccef501abc98ec9aee71580623c91a537c0daff9981e51f4287fe7d"

@@ -1,0 +1,13 @@
+case = "map"
+subsystem = "matching"
+source_ticket = "C1-01"
+harvested_from = "draft/fable51-review/fixtures/c1/map"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "out-ref-set.kore"
+command = "kompile test.k --backend haskell --main-module TEST --syntax-module TEST --output-definition ref && kore-exec ref/definition.kore --module TEST --pattern pgm-set.kore --output out-ref-set.kore"
+tool = "kore-exec"
+exit_code = 0
+sha256 = "a960185054e175f9abade474bd740e6fdf63ea3d1d4e834d35e60a61c134c121"

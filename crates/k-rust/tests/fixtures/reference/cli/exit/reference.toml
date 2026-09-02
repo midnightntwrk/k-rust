@@ -1,0 +1,13 @@
+case = "exit"
+subsystem = "cli"
+source_ticket = "D1-01"
+harvested_from = "draft/fable51-review/fixtures/d1-fixtures/exit"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "krun.exit"
+command = 'set +e; kompile test.k --backend haskell --main-module EXIT --syntax-module EXIT --output-definition ref >/dev/null && krun program.pgm --definition ref >/dev/null; rc=$?; printf "%s\n" "$rc" > krun.exit; exit "$rc"'
+tool = "krun"
+exit_code = 7
+sha256 = "10159baf262b43a92d95db59dae1f72c645127301661e0a3ce4e38b295a97c58"

@@ -1,0 +1,18 @@
+case = "bytes"
+subsystem = "kore-syntax"
+source_ticket = "B3-01"
+harvested_from = "draft/fable51-review/fixtures/b3-probe/bytes.kore"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[input]]
+file = "bytes.kore"
+source = "hand-written B3 binary/text parser probe"
+sha256 = "f044aa7fd429ff93bea3635b54ef7d1495b5c6e56384f97cb3696c4f5d15a2c4"
+
+[[artifact]]
+file = "parser.exit"
+command = 'set +e; kore-parser bytes.kore --no-verify >/dev/null; rc=$?; printf "%s\n" "$rc" > parser.exit; exit "$rc"'
+tool = "kore-parser"
+exit_code = 0
+sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
