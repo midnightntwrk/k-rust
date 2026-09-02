@@ -9,6 +9,7 @@ use std::{
 use toml::Value;
 
 const MANIFEST: &str = include_str!("../../../scripts/reference-differential.toml");
+const NORMALISATIONS: &str = include_str!("../../../scripts/reference-normalisations.toml");
 const COMPILE_SCRIPT: &str = include_str!("../../../scripts/reference-differential.sh");
 const KAST_SCRIPT: &str = include_str!("../../../scripts/reference-kast-differential.sh");
 const EXECUTION_SCRIPT: &str =
@@ -26,6 +27,45 @@ const JAVA_BACKED_DIFFERENTIAL_SCRIPTS: [&str; 6] = [
     RPC_SCRIPT,
     MIR_EXECUTION_SCRIPT,
 ];
+
+#[test]
+fn every_gate_normalisation_is_registered() {
+    let register = NORMALISATIONS
+        .parse::<Value>()
+        .expect("valid normalisation register TOML");
+    assert_eq!(register["version"].as_integer(), Some(1));
+    let rows = register["normalisation"]
+        .as_array()
+        .expect("normalisation rows");
+    let ids = rows
+        .iter()
+        .map(|row| row["id"].as_str().expect("normalisation id"))
+        .collect::<BTreeSet<_>>();
+    let expected = (1..=20).map(|id| format!("N{id}")).collect::<BTreeSet<_>>();
+    assert_eq!(
+        ids.into_iter().map(str::to_owned).collect::<BTreeSet<_>>(),
+        expected,
+        "the gate register must contain exactly N1 through N20"
+    );
+    for row in rows {
+        let id = row["id"].as_str().unwrap();
+        for field in [
+            "gate",
+            "anchor",
+            "anchor_symbol",
+            "rule",
+            "justification",
+            "fate",
+        ] {
+            assert!(
+                row[field]
+                    .as_str()
+                    .is_some_and(|value| !value.trim().is_empty()),
+                "{id} must provide a non-empty {field}"
+            );
+        }
+    }
+}
 
 #[test]
 fn differential_manifest_is_complete_and_unambiguous() {
