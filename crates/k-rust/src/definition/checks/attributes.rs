@@ -85,7 +85,7 @@ fn check_attribute_map(
 ) -> Vec<Diagnostic> {
     let mut unknown = Vec::new();
     let mut restricted = Vec::new();
-    for key in attributes.entries().keys() {
+    for key in attributes.semantic_entries().keys() {
         let allowed = if let Some(allowed) = builtin_allowed_targets(key) {
             allowed
         } else if is_internal_attribute(key) {

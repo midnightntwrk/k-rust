@@ -43,6 +43,9 @@ set -euo pipefail
 printf '%s\n' "$@" > "$FAKE_ARGS"
 ulimit -v > "$FAKE_LIMIT"
 sleep "${FAKE_SLEEP_SECONDS:-0}"
+if [[ -n "${FAKE_ALLOCATE_KIB:-}" ]]; then
+  python3 -c 'import sys, time; payload = bytearray(int(sys.argv[1]) * 1024); time.sleep(0.05); assert payload is not None' "$FAKE_ALLOCATE_KIB"
+fi
 for line in $(seq -w 1 35); do
   printf 'diagnostic-%s\n' "$line" >&2
 done
@@ -143,6 +146,8 @@ fn wasm_ratchet_records_probe_evidence_and_flags_regressions() {
     assert_eq!(runs[0]["depth"].as_integer(), Some(20));
     assert_eq!(runs[0]["exit_code"].as_integer(), Some(17));
     assert_eq!(runs[0]["regression"].as_bool(), Some(false));
+    assert_eq!(runs[0]["peak_rss_measured"].as_bool(), Some(true));
+    assert!(runs[0]["peak_rss_kib"].as_integer().unwrap() > 0);
     assert_eq!(runs[0]["stderr_sha256"].as_str().unwrap().len(), 64);
     let stderr_tail = runs[0]["stderr_tail"].as_str().unwrap();
     assert!(!stderr_tail.contains("diagnostic-05\n"));
@@ -169,6 +174,44 @@ fn wasm_ratchet_records_probe_evidence_and_flags_regressions() {
     assert_eq!(runs[2]["regression"].as_bool(), Some(true));
     assert_eq!(runs[2]["previous_stage_rank"].as_integer(), Some(2));
     assert_eq!(runs[2]["previous_depth"].as_integer(), Some(20));
+}
+
+#[test]
+fn wasm_ratchet_rejects_peak_rss_growth_at_the_same_stage() {
+    let fixture = Fixture::new();
+    let baseline = fixture
+        .command("rss-baseline", "rule-parse", 20)
+        .env("FAKE_ALLOCATE_KIB", "1024")
+        .output()
+        .unwrap();
+    assert!(
+        baseline.status.success(),
+        "{}",
+        String::from_utf8_lossy(&baseline.stderr)
+    );
+
+    let regression = fixture
+        .command("rss-regression", "rule-parse", 20)
+        .env("FAKE_ALLOCATE_KIB", "65536")
+        .output()
+        .unwrap();
+    assert_eq!(regression.status.code(), Some(4));
+    assert!(String::from_utf8_lossy(&regression.stderr).contains("RSS regression"));
+
+    let document = fs::read_to_string(&fixture.log)
+        .unwrap()
+        .parse::<Value>()
+        .unwrap();
+    let runs = document["run"].as_array().unwrap();
+    assert_eq!(runs[1]["rss_regression"].as_bool(), Some(true));
+    assert_eq!(
+        runs[1]["previous_peak_rss_kib"].as_integer(),
+        runs[0]["peak_rss_kib"].as_integer(),
+    );
+    assert!(
+        runs[1]["peak_rss_kib"].as_integer().unwrap()
+            > runs[1]["rss_limit_kib"].as_integer().unwrap()
+    );
 }
 
 #[test]

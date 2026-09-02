@@ -613,7 +613,7 @@ fn term_equivalent(left: &Term, right: &Term) -> bool {
 
 fn attribute_triples(attributes: &Attributes) -> Vec<(String, String, String)> {
     attributes
-        .entries()
+        .semantic_entries()
         .iter()
         .filter(|(key, _)| !is_provenance_only_attribute(key))
         .map(|(key, value)| {

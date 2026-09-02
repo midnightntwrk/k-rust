@@ -1185,14 +1185,17 @@ fn attributes(entries: &[(&str, Value)]) -> Attributes {
 }
 
 fn merge_attributes(base: &Attributes, overlay: &Attributes) -> Attributes {
-    let mut entries = base.entries().clone();
+    let mut entries = base.semantic_entries().clone();
     entries.extend(
         overlay
-            .entries()
+            .semantic_entries()
             .iter()
             .map(|(key, value)| (key.clone(), value.clone())),
     );
-    Attributes::new(entries)
+    let mut attributes = Attributes::new(entries);
+    attributes.inherit_origin(base);
+    attributes.inherit_origin(overlay);
+    attributes
 }
 
 fn sort_value(sort: &Sort) -> Value {

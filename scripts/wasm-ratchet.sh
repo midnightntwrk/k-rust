@@ -9,6 +9,7 @@ wasm_checkout=${WASM_SEMANTICS_CHECKOUT:-"$workspace/wasm-semantics"}
 log=${WASM_RATCHET_LOG:-"$workspace/draft/roadmap-tickets/phase-1/wasm-ratchet.log"}
 timeout_seconds=${WASM_RATCHET_TIMEOUT_SECONDS:-1800}
 memory_limit_kib=${WASM_RATCHET_MEMORY_KIB:-${REFERENCE_DIFFERENTIAL_MEMORY_KIB:-6291456}}
+rss_tolerance_percent=${WASM_RATCHET_RSS_TOLERANCE_PERCENT:-50}
 label=
 stage=
 depth=
@@ -32,6 +33,9 @@ until after the command runs. It is replaced with "success" when the command exi
 successfully. N is a nonnegative, operator-observed progress cursor within that
 stage (for example, a stable source line or token offset). Use zero when no stable
 cursor is visible; the log makes that loss of within-stage resolution explicit.
+
+Peak RSS is compared with the most recent measured run at the same stage.
+The default 50 percent tolerance can be changed with WASM_RATCHET_RSS_TOLERANCE_PERCENT.
 EOF
 }
 
@@ -78,6 +82,7 @@ done
 [[ "$depth" =~ ^[0-9]+$ ]] || die "--depth must be a nonnegative integer"
 [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]] || die "WASM_RATCHET_TIMEOUT_SECONDS must be positive"
 [[ "$memory_limit_kib" =~ ^[1-9][0-9]*$ ]] || die "WASM_RATCHET_MEMORY_KIB must be positive"
+[[ "$rss_tolerance_percent" =~ ^[0-9]+$ ]] || die "WASM_RATCHET_RSS_TOLERANCE_PERCENT must be nonnegative"
 
 case "$stage" in
   outer-parse)
@@ -105,9 +110,11 @@ builtin_directory="$k_checkout/k-distribution/include/kframework/builtin"
 [[ -f "$source_path" ]] || die "missing WASM source: $source_path"
 [[ -d "$builtin_directory" ]] || die "missing K builtin directory: $builtin_directory"
 [[ -d "$(dirname "$log")" ]] || die "log directory does not exist: $(dirname "$log")"
-command -v timeout >/dev/null || die "timeout is required"
+command -v python3 >/dev/null || die "python3 is required"
 command -v jq >/dev/null || die "jq is required"
 command -v sha256sum >/dev/null || die "sha256sum is required"
+measure="$workspace/scripts/conformance/measure.py"
+[[ -f "$measure" ]] || die "missing measurement helper: $measure"
 
 reference_require_git_pin K "$k_checkout" "$K_REFERENCE_REVISION"
 reference_require_git_pin WASM "$wasm_checkout" "$WASM_REFERENCE_REVISION"
@@ -136,69 +143,42 @@ cleanup() {
 }
 trap cleanup EXIT
 
-stdout="$work/stdout"
-stderr="$work/stderr"
-metrics="$work/metrics"
+measurement="$work/measurement"
+stderr="$measurement.stderr"
+metrics="$measurement.meta.toml"
 output_directory="$work/output"
 mkdir "$output_directory"
 
-time_bin=${WASM_RATCHET_TIME:-}
-if [[ -z "$time_bin" ]] && command -v gtime >/dev/null; then
-  time_bin=$(command -v gtime)
-elif [[ -z "$time_bin" && -x /usr/bin/time ]]; then
-  time_bin=/usr/bin/time
-fi
-if [[ -n "$time_bin" && ! -x "$time_bin" ]]; then
-  die "WASM_RATCHET_TIME is not executable: $time_bin"
-fi
-
-started=$EPOCHREALTIME
 set +e
 (
   ulimit -v "$memory_limit_kib"
-  if [[ -n "$time_bin" ]]; then
-    timeout --kill-after=30s "${timeout_seconds}s" \
-      "$time_bin" -f 'peak_rss_kib=%M' -o "$metrics" \
-      "$krust" kcompile "$source_path" \
-        --main-module WASM-TEST \
-        --backend llvm \
-        --output-directory "$output_directory" \
-        --emit-json \
-        --builtin-directory "$builtin_directory"
-  else
-    timeout --kill-after=30s "${timeout_seconds}s" \
-      "$krust" kcompile "$source_path" \
-        --main-module WASM-TEST \
-        --backend llvm \
-        --output-directory "$output_directory" \
-        --emit-json \
-        --builtin-directory "$builtin_directory"
-  fi
-) >"$stdout" 2>"$stderr"
-exit_code=$?
+  exec python3 "$measure" --log "$measurement" --timeout "$timeout_seconds" -- \
+    "$krust" kcompile "$source_path" \
+      --main-module WASM-TEST \
+      --backend llvm \
+      --output-directory "$output_directory" \
+      --emit-json \
+      --builtin-directory "$builtin_directory"
+)
+measurement_status=$?
 set -e
-ended=$EPOCHREALTIME
-wall_seconds=$(awk -v started="$started" -v ended="$ended" \
-  'BEGIN { printf "%.3f", ended - started }')
-
-timed_out=false
-if ((exit_code == 124)); then
-  timed_out=true
+[[ -f "$metrics" ]] || die "measurement helper failed with exit $measurement_status"
+exit_code=$(sed -n 's/^exit_code = //p' "$metrics")
+timed_out=$(sed -n 's/^timed_out = //p' "$metrics")
+wall_seconds=$(sed -n 's/^wall_seconds = //p' "$metrics")
+peak_rss_kib=$(sed -n 's/^peak_rss_kib = //p' "$metrics")
+[[ "$exit_code" =~ ^-?[0-9]+$ ]] || die "measurement helper recorded an invalid exit code"
+[[ "$timed_out" == true || "$timed_out" == false ]] || die "measurement helper recorded an invalid timeout state"
+[[ "$wall_seconds" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "measurement helper recorded an invalid wall time"
+[[ "$peak_rss_kib" =~ ^[0-9]+$ ]] || die "measurement helper recorded an invalid peak RSS"
+peak_rss_measured=true
+if [[ "$timed_out" == true ]]; then
+  exit_code=124
 fi
 if ((exit_code == 0)); then
   stage=success
   stage_rank=5
   depth=0
-fi
-
-peak_rss_kib=-1
-peak_rss_measured=false
-if [[ -f "$metrics" ]]; then
-  measured=$(sed -n 's/^peak_rss_kib=//p' "$metrics")
-  if [[ "$measured" =~ ^[0-9]+$ ]]; then
-    peak_rss_kib=$measured
-    peak_rss_measured=true
-  fi
 fi
 
 stderr_sha256=$(sha256sum "$stderr" | awk '{print $1}')
@@ -218,6 +198,7 @@ fi
 
 previous_stage_rank=-1
 previous_depth=-1
+previous_peak_rss_kib=-1
 sequence=0
 if [[ -e "$log" ]]; then
   [[ -f "$log" ]] || die "ratchet log is not a regular file: $log"
@@ -236,12 +217,33 @@ if [[ -e "$log" ]]; then
       END { print best_rank + 0, best_depth + 0 }
     ' best_rank=-1 best_depth=-1 "$log"
   )
+  previous_peak_rss_kib=$(
+    awk -v target_rank="$stage_rank" '
+      /^stage_rank = [0-9]+$/ { rank = $3 }
+      /^peak_rss_kib = [0-9]+$/ { peak = $3 }
+      /^peak_rss_measured = true$/ {
+        if (rank == target_rank) {
+          latest = peak
+        }
+      }
+      END { print latest + 0 }
+    ' latest=-1 "$log"
+  )
 fi
 
 regression=false
 if ((stage_rank < previous_stage_rank)) || \
   ((stage_rank == previous_stage_rank && depth < previous_depth)); then
   regression=true
+fi
+
+rss_limit_kib=-1
+rss_regression=false
+if ((previous_peak_rss_kib >= 0)); then
+  rss_limit_kib=$(((previous_peak_rss_kib * (100 + rss_tolerance_percent) + 99) / 100))
+  if ((peak_rss_kib > rss_limit_kib)); then
+    rss_regression=true
+  fi
 fi
 
 entry="$work/entry"
@@ -267,6 +269,10 @@ entry="$work/entry"
   printf 'wall_seconds = %s\n' "$wall_seconds"
   printf 'peak_rss_kib = %d\n' "$peak_rss_kib"
   printf 'peak_rss_measured = %s\n' "$peak_rss_measured"
+  printf 'previous_peak_rss_kib = %d\n' "$previous_peak_rss_kib"
+  printf 'rss_tolerance_percent = %d\n' "$rss_tolerance_percent"
+  printf 'rss_limit_kib = %d\n' "$rss_limit_kib"
+  printf 'rss_regression = %s\n' "$rss_regression"
   printf 'stderr_sha256 = "%s"\n' "$stderr_sha256"
   printf 'stderr_tail = %s\n' "$stderr_tail_json"
 } >"$entry"
@@ -277,12 +283,16 @@ else
   cp "$entry" "$log"
 fi
 
-printf 'WASM ratchet: stage=%s depth=%s exit=%s wall=%ss rss=%sKiB log=%s\n' \
-  "$stage" "$depth" "$exit_code" "$wall_seconds" "$peak_rss_kib" "$log"
+printf 'WASM ratchet: stage=%s depth=%s exit=%s wall=%ss rss=%sKiB rss-regression=%s log=%s\n' \
+  "$stage" "$depth" "$exit_code" "$wall_seconds" "$peak_rss_kib" "$rss_regression" "$log"
 
 if [[ "$regression" == true ]]; then
   echo "error: ratchet regression from stage rank $previous_stage_rank depth $previous_depth to stage rank $stage_rank depth $depth" >&2
   exit 3
+fi
+if [[ "$rss_regression" == true ]]; then
+  echo "error: WASM ratchet RSS regression from ${previous_peak_rss_kib}KiB to ${peak_rss_kib}KiB (limit ${rss_limit_kib}KiB)" >&2
+  exit 4
 fi
 if [[ "$timed_out" == true ]]; then
   echo "error: WASM probe timed out after ${timeout_seconds}s" >&2

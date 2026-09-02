@@ -200,6 +200,30 @@ fn preserves_unknown_and_typed_attributes() {
 }
 
 #[test]
+fn cloning_attributes_shares_provenance_receipt_storage() {
+    let receipt = value!({
+        "pass": "subsort-kitem",
+        "origins": (0..256)
+            .map(|start| value!({
+                "kind": "source",
+                "source": 0,
+                "start": start,
+                "end": start + 1,
+            }))
+            .collect::<Vec<_>>(),
+        "destination": null,
+    });
+    let attributes = Attributes::new(BTreeMap::from([(ORIGIN_ATTRIBUTE.into(), receipt.clone())]));
+    let cloned = attributes.clone();
+
+    assert!(std::ptr::eq(
+        attributes.get(ORIGIN_ATTRIBUTE).unwrap(),
+        cloned.get(ORIGIN_ATTRIBUTE).unwrap(),
+    ));
+    assert_eq!(cloned.entries().get(ORIGIN_ATTRIBUTE), Some(&receipt));
+}
+
+#[test]
 fn rejects_non_unique_main_modules_and_emits_context_alias_placeholders() {
     let missing = complete_definition(Vec::new());
     let mut missing = missing;

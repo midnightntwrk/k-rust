@@ -491,9 +491,10 @@ fn reduce_and(terms: impl IntoIterator<Item = Term>) -> Option<Term> {
 
 fn merge_attributes(left: &Attributes, right: &Attributes) -> Attributes {
     let mut result = left.clone();
-    for (key, value) in right.entries() {
+    for (key, value) in right.semantic_entries() {
         result.insert(key, value.clone());
     }
+    result.inherit_origin(right);
     result
 }
 

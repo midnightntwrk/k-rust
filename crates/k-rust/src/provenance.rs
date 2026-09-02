@@ -422,9 +422,7 @@ pub fn record_generated_origins(
                         path: Vec::new(),
                     }),
                 };
-                sentence
-                    .attributes_mut()
-                    .insert(ORIGIN_ATTRIBUTE, record.to_value());
+                sentence.attributes_mut().set_origin(record.to_value());
             }
             annotate_sentence_terms(
                 sentence,
@@ -594,8 +592,7 @@ pub(crate) fn seed_generated_sentence_origin(
     pass: GeneratingPass,
     origins: Vec<ProvenanceLink>,
 ) {
-    sentence.attributes_mut().insert(
-        ORIGIN_ATTRIBUTE,
+    sentence.attributes_mut().set_origin(
         OriginRecord {
             pass,
             origins: origins.into(),

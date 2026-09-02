@@ -1,6 +1,10 @@
 //! The flat, serializable K definition model.
 
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    fmt,
+    sync::{Arc, OnceLock},
+};
 
 use serde_json::Value;
 
@@ -34,9 +38,13 @@ pub struct Location {
 /// strings and typed values, and unknown internal attributes must round-trip.
 /// Semantic equality ignores the reserved origin receipt while [`Self::entries`]
 /// continues to expose it to provenance consumers.
-#[derive(Clone, Debug, Default)]
+#[derive(Default)]
 pub struct Attributes {
     entries: BTreeMap<String, Value>,
+    // Generated receipts can contain a module-wide origin set and must remain cheap to carry through the definition clones made by the kompile pipeline.
+    origin: Option<Arc<Value>>,
+    // Preserve the public map view without materializing the shared receipt in semantic consumers.
+    materialized_entries: OnceLock<BTreeMap<String, Value>>,
 }
 
 /// One attribute key whose distinct values cannot be represented by the semantic map.
@@ -84,17 +92,52 @@ impl PartialEq for Attributes {
 
 impl Eq for Attributes {}
 
+impl Clone for Attributes {
+    fn clone(&self) -> Self {
+        Self {
+            entries: self.entries.clone(),
+            origin: self.origin.as_ref().map(Arc::clone),
+            materialized_entries: OnceLock::new(),
+        }
+    }
+}
+
+impl fmt::Debug for Attributes {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Attributes")
+            .field("entries", self.entries())
+            .finish()
+    }
+}
+
 impl Attributes {
-    pub fn new(entries: BTreeMap<String, Value>) -> Self {
-        Self { entries }
+    pub fn new(mut entries: BTreeMap<String, Value>) -> Self {
+        let origin = entries.remove(ORIGIN_ATTRIBUTE).map(Arc::new);
+        Self {
+            entries,
+            origin,
+            materialized_entries: OnceLock::new(),
+        }
     }
 
     pub fn entries(&self) -> &BTreeMap<String, Value> {
-        &self.entries
+        let Some(origin) = &self.origin else {
+            return &self.entries;
+        };
+        self.materialized_entries.get_or_init(|| {
+            let mut entries = self.entries.clone();
+            entries.insert(ORIGIN_ATTRIBUTE.into(), origin.as_ref().clone());
+            entries
+        })
     }
 
     pub fn get(&self, key: &str) -> Option<&Value> {
-        self.entries.get(key)
+        if key == ORIGIN_ATTRIBUTE {
+            self.origin.as_deref()
+        } else {
+            self.entries.get(key)
+        }
     }
 
     pub fn get_str(&self, key: &str) -> Option<&str> {
@@ -102,11 +145,22 @@ impl Attributes {
     }
 
     pub fn insert(&mut self, key: impl Into<String>, value: Value) -> Option<Value> {
-        self.entries.insert(key.into(), value)
+        let key = key.into();
+        self.invalidate_materialized_entries();
+        if key == ORIGIN_ATTRIBUTE {
+            self.origin.replace(Arc::new(value)).map(unwrap_or_clone)
+        } else {
+            self.entries.insert(key, value)
+        }
     }
 
     pub fn remove(&mut self, key: &str) -> Option<Value> {
-        self.entries.remove(key)
+        self.invalidate_materialized_entries();
+        if key == ORIGIN_ATTRIBUTE {
+            self.origin.take().map(unwrap_or_clone)
+        } else {
+            self.entries.remove(key)
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -119,15 +173,29 @@ impl Attributes {
     ///
     /// Equal key/value entries survive deduplication. If one key has multiple
     /// distinct values, every value for that key is omitted from the result.
+    /// The compiler-only origin receipt is retained only when all present receipts agree and never
+    /// creates a semantic merge conflict.
     pub fn merge<'a>(
         attributes: impl IntoIterator<Item = &'a Self>,
     ) -> Result<Self, AttributeMergeError> {
         let mut values = BTreeMap::<String, Vec<Value>>::new();
+        let mut origin = None::<Arc<Value>>;
+        let mut conflicting_origin = false;
         for attributes in attributes {
-            for (key, value) in attributes.entries() {
+            for (key, value) in &attributes.entries {
                 let candidates = values.entry(key.clone()).or_default();
                 if !candidates.contains(value) {
                     candidates.push(value.clone());
+                }
+            }
+            if let Some(candidate) = &attributes.origin {
+                if origin
+                    .as_ref()
+                    .is_some_and(|existing| existing.as_ref() != candidate.as_ref())
+                {
+                    conflicting_origin = true;
+                } else if origin.is_none() {
+                    origin = Some(Arc::clone(candidate));
                 }
             }
         }
@@ -140,7 +208,10 @@ impl Attributes {
                 conflicts.push(AttributeConflict { key, values });
             }
         }
-        let merged = Self::new(merged);
+        let mut merged = Self::new(merged);
+        if !conflicting_origin {
+            merged.origin = origin;
+        }
         if conflicts.is_empty() {
             Ok(merged)
         } else {
@@ -171,6 +242,31 @@ impl Attributes {
             end_column: u32::try_from(end_column.as_u64()?).ok()?,
         })
     }
+
+    pub(crate) fn semantic_entries(&self) -> &BTreeMap<String, Value> {
+        &self.entries
+    }
+
+    pub(crate) fn set_origin(&mut self, value: Value) {
+        self.invalidate_materialized_entries();
+        self.origin = Some(Arc::new(value));
+    }
+
+    pub(crate) fn inherit_origin(&mut self, source: &Self) {
+        let Some(origin) = &source.origin else {
+            return;
+        };
+        self.invalidate_materialized_entries();
+        self.origin = Some(Arc::clone(origin));
+    }
+
+    fn invalidate_materialized_entries(&mut self) {
+        self.materialized_entries = OnceLock::new();
+    }
+}
+
+fn unwrap_or_clone(value: Arc<Value>) -> Value {
+    Arc::try_unwrap(value).unwrap_or_else(|value| value.as_ref().clone())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

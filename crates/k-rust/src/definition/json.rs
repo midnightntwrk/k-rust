@@ -398,10 +398,7 @@ fn encode_attribute_sources(
             Ok(serde_json::to_value(json_source(source_table, source)?)?)
         })?;
         let origin = decode_origin(serde_json::from_value(origin)?, source_table)?;
-        attributes.insert(
-            ORIGIN_ATTRIBUTE,
-            serde_json::to_value(encode_origin(&origin, source_table)?)?,
-        );
+        attributes.set_origin(serde_json::to_value(encode_origin(&origin, source_table)?)?);
     }
     Ok(())
 }
@@ -418,7 +415,7 @@ fn decode_attribute_sources(
     }
     if let Some(origin) = attributes.get(ORIGIN_ATTRIBUTE).cloned() {
         let origin = decode_origin(serde_json::from_value(origin)?, source_table)?;
-        attributes.insert(ORIGIN_ATTRIBUTE, origin.to_value());
+        attributes.set_origin(origin.to_value());
     }
     Ok(())
 }
