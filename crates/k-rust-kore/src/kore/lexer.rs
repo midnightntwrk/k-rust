@@ -159,17 +159,52 @@ impl<'a> Lexer<'a> {
 
     fn scan_string(&mut self, start: usize) -> Result<(), LexError> {
         loop {
-            match self.bump() {
-                Some('"') => return Ok(()),
-                Some('\\') => {
-                    if self.bump().is_none() {
-                        return Err(error(start, "unterminated string"));
+            let Some(character) = self.peek() else {
+                return Err(error(start, "unterminated string"));
+            };
+            match character {
+                '"' => {
+                    self.bump();
+                    return Ok(());
+                }
+                '\\' => {
+                    let escape_offset = self.offset;
+                    self.bump();
+                    let Some(escape) = self.peek() else {
+                        return Err(error(escape_offset, "unterminated escape"));
+                    };
+                    match escape {
+                        '"' | '\\' | 'n' | 'r' | 't' | 'f' => {
+                            self.bump();
+                        }
+                        'x' => self.scan_hex_escape(2, escape_offset)?,
+                        'u' => self.scan_hex_escape(4, escape_offset)?,
+                        'U' => self.scan_hex_escape(8, escape_offset)?,
+                        _ => return Err(error(self.offset, "unknown escape")),
                     }
                 }
-                Some(_) => {}
-                None => return Err(error(start, "unterminated string")),
+                character if character.is_control() => {
+                    return Err(error(self.offset, "non-printable character in string"));
+                }
+                _ => {
+                    self.bump();
+                }
             }
         }
+    }
+
+    fn scan_hex_escape(&mut self, digits: usize, escape_offset: usize) -> Result<(), LexError> {
+        self.bump(); // the x, u, or U marker
+        for _ in 0..digits {
+            let Some(character) = self.peek() else {
+                return Err(error(escape_offset, "truncated Unicode escape"));
+            };
+            if !character.is_ascii_hexdigit() {
+                return Err(error(self.offset, "invalid Unicode escape"));
+            }
+            self.bump();
+        }
+        Ok(())
     }
 
     fn scan_prefixed_id(&mut self, start: usize, prefix: Prefix) -> Result<TokenKind, LexError> {

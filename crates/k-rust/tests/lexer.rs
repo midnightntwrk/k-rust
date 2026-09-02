@@ -49,7 +49,9 @@ fn lexes_trivia_and_identifiers() {
 
 #[test]
 fn rejects_invalid_or_truncated_tokens() {
-    for input in ["-a", "'a", "*", "/*", "\\", "@", "\\@"] {
+    for input in [
+        "-a", "'a", "*", "/*", "\\", "@", "\\@", r#""\q""#, r#""\0""#, "\"a\nb\"", "\"a\tb\"",
+    ] {
         assert!(lex(input).is_err(), "expected {input:?} to fail");
     }
 }

@@ -30,6 +30,9 @@ pub fn unquote(input: &str) -> Result<String, StringError> {
     while offset < body.len() {
         let character = body[offset..].chars().next().expect("offset is in bounds");
         if character != '\\' {
+            if character.is_control() {
+                return Err(error(offset, "non-printable character in string"));
+            }
             result.push(character);
             offset += character.len_utf8();
             continue;
@@ -51,9 +54,7 @@ pub fn unquote(input: &str) -> Result<String, StringError> {
             'x' => result.push(read_escape(body, &mut offset, 2, escape_offset)?),
             'u' => result.push(read_escape(body, &mut offset, 4, escape_offset)?),
             'U' => result.push(read_escape(body, &mut offset, 8, escape_offset)?),
-            // This intentionally matches scala-kore StringUtil: unknown escapes
-            // discard the backslash and preserve the following character.
-            other => result.push(other),
+            _ => return Err(error(escape_offset, "unknown escape")),
         }
     }
     Ok(result)
