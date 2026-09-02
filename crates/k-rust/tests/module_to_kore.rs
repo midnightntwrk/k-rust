@@ -286,6 +286,83 @@ module_snapshot!(
 );
 
 #[test]
+fn emits_rewrite_and_claim_concrete_variables_as_kore_variables() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax GeneratedTopCell ::= "foo(" Int ")" [symbol(foo)]
+                                    | "bar(" Int ")" [symbol(bar)]
+
+          rule foo(X:Int) => bar(X:Int) [concrete(X), label(foo-rule)]
+          claim foo(X:Int) => bar(X:Int) [symbolic(X), label(bar-claim)]
+        endmodule
+    "#};
+    let modules = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap();
+
+    let attribute_argument = |label: &str, attribute_name: &str| {
+        modules
+            .semantics
+            .sentences
+            .iter()
+            .find_map(|sentence| {
+                let attributes = match sentence {
+                    Sentence::Axiom { attributes, .. } => attributes,
+                    Sentence::Claim { attributes, .. } => attributes,
+                    _ => return None,
+                };
+                let has_label = attributes.0.iter().any(|attribute| {
+                    matches!(
+                        attribute,
+                        Pattern::Application { symbol, arguments }
+                            if symbol.name == "label"
+                                && arguments == &[Pattern::String(label.into())]
+                    )
+                });
+                if !has_label {
+                    return None;
+                }
+                attributes.0.iter().find_map(|attribute| match attribute {
+                    Pattern::Application { symbol, arguments } if symbol.name == attribute_name => {
+                        arguments.first()
+                    }
+                    _ => None,
+                })
+            })
+            .expect("the requested rule attribute should be emitted")
+    };
+
+    for (label, attribute_name) in [("foo-rule", "concrete"), ("bar-claim", "symbolic")] {
+        assert_eq!(
+            attribute_argument(label, attribute_name),
+            &Pattern::Variable(k_rust::kore::ast::Variable {
+                kind: k_rust::kore::ast::VariableKind::Element,
+                name: "VarX".into(),
+                sort: encode_kore_sort(&k_rust::kast::Sort::new("Int")),
+            })
+        );
+    }
+}
+
+#[test]
+fn rejects_concrete_variable_not_free_on_rewrite_lhs() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax GeneratedTopCell ::= "foo(" Int ")" [symbol(foo)]
+                                    | "bar(" Int ")" [symbol(bar)]
+
+          rule foo(X:Int) => bar(Y:Int) [concrete(Y)]
+        endmodule
+    "#};
+    let error = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("concrete attribute refers to missing free variable")
+    );
+}
+
+#[test]
 fn rejects_non_rewrite_rules() {
     let source = indoc! {r#"
         module MAIN

@@ -2080,6 +2080,15 @@ fn emit_rule_or_claim(
     let right = converter.convert(right)?;
     let requires = side_condition(requires, &result_sort, converter)?;
     let ensures = side_condition(ensures, &result_sort, converter)?;
+    // `concrete` and `symbolic` carry lists of free variables, not string
+    // values.  For rewrite rules and claims K resolves those names against
+    // the left-hand side and its requires condition only (variables that are
+    // introduced by the right-hand side/ensures are not in scope).
+    let attribute_pattern = Pattern::And {
+        sort: result_sort.clone(),
+        arguments: vec![left.clone(), requires.clone()],
+    };
+    let attribute_overrides = variable_list_attribute_overrides(attributes, &attribute_pattern)?;
     let mut right = Pattern::And {
         sort: result_sort.clone(),
         arguments: vec![right, ensures],
@@ -2123,7 +2132,7 @@ fn emit_rule_or_claim(
             right: Box::new(right),
         }
     };
-    let attributes = emit_attributes(attributes.entries(), valued, &BTreeMap::new());
+    let attributes = emit_attributes(attributes.entries(), valued, &attribute_overrides);
     Ok(if claim {
         KoreSentence::Claim {
             parameters: Vec::new(),
