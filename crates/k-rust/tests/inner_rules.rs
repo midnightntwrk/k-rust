@@ -1310,6 +1310,27 @@ fn anywhere_rules_cannot_widen_the_rewrite_sort() {
     );
 }
 
+#[cfg(feature = "z3-inference")]
+#[test]
+fn anywhere_attributes_do_not_constrain_nested_rewrites() {
+    for attribute in ["anywhere", "simplification"] {
+        let source = format!(
+            r#"
+            module MAIN
+              syntax A ::= "a" [symbol(a)]
+              syntax B ::= "b" [symbol(b)]
+              syntax Base ::= A | B
+              syntax Foo ::= "foo(" Base ")" [symbol(foo)]
+              rule foo(a => b) [{attribute}]
+            endmodule
+            "#
+        );
+        resolve_rule_bubbles(&lowered(&source)).unwrap_or_else(|error| {
+            panic!("nested rewrite with [{attribute}] should parse: {error}")
+        });
+    }
+}
+
 #[test]
 fn ordinary_rules_may_widen_the_rewrite_sort() {
     let resolved = resolve_rule_bubbles(&lowered(indoc! {r#"
