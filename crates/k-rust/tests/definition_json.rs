@@ -200,7 +200,7 @@ fn preserves_unknown_and_typed_attributes() {
 }
 
 #[test]
-fn rejects_non_unique_main_modules_and_unrepresentable_context_aliases() {
+fn rejects_non_unique_main_modules_and_emits_context_alias_placeholders() {
     let missing = complete_definition(Vec::new());
     let mut missing = missing;
     missing.main_module = "MISSING".into();
@@ -215,10 +215,14 @@ fn rejects_non_unique_main_modules_and_unrepresentable_context_aliases() {
         requires: bool_token("true"),
         attributes: empty_attributes(),
     }]);
-    assert!(matches!(
-        json::to_string(&alias),
-        Err(json::Error::UnsupportedSentence("KContextAlias"))
-    ));
+    let encoded = json::to_string(&alias).unwrap();
+    let wire: Value = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(
+        wire["term"]["modules"][0]["localSentences"][0]["node"],
+        "badsentence"
+    );
+    let decoded = json::from_str(&encoded).unwrap();
+    assert!(decoded.modules[0].local_sentences.is_empty());
 }
 
 #[test]
@@ -395,10 +399,12 @@ fn provenance_attribute_manifest_matches_the_enforced_round_trip_subset() {
         requires: bool_token("true"),
         attributes: empty_attributes(),
     }]);
-    assert!(matches!(
-        json::to_provenance_string(&context_alias, &SourceTable::default()),
-        Err(json::Error::UnsupportedSentence("KContextAlias"))
-    ));
+    let encoded = json::to_provenance_string(&context_alias, &SourceTable::default()).unwrap();
+    let wire: Value = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(
+        wire["term"]["modules"][0]["localSentences"][0]["node"],
+        "badsentence"
+    );
 }
 
 #[test]
