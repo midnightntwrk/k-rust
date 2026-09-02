@@ -1298,7 +1298,13 @@ impl Matcher<'_> {
         if pattern_is_subsort
             && (is_function(subject_term) || matches!(subject_term.kind(), TermKind::Variable(_)))
         {
-            return self.defer(pattern_term.clone(), subject_term.clone());
+            let pattern_term = Term::injection(
+                pattern_source.clone(),
+                subject_source.clone(),
+                pattern_term.clone(),
+            );
+            debug_assert_eq!(pattern_term.sort(), subject_term.sort());
+            return self.defer(pattern_term, subject_term.clone());
         }
         if subject_is_subsort {
             if let TermKind::Variable(variable) = pattern_term.kind() {
@@ -1312,7 +1318,13 @@ impl Matcher<'_> {
                 );
             }
             if is_function(pattern_term) {
-                return self.defer(pattern_term.clone(), subject_term.clone());
+                let subject_term = Term::injection(
+                    subject_source.clone(),
+                    pattern_source.clone(),
+                    subject_term.clone(),
+                );
+                debug_assert_eq!(pattern_term.sort(), subject_term.sort());
+                return self.defer(pattern_term.clone(), subject_term);
             }
         }
         Err(FailReason::DifferentSorts(pattern, subject))
@@ -2520,6 +2532,56 @@ mod tests {
         assert_eq!(
             match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject),
             MatchResult::Success(Substitution::from([(variable, value)]))
+        );
+    }
+
+    #[test]
+    fn defers_sort_aligned_injection_pairs_for_a_supersort_subject_variable() {
+        let sub = Sort::simple("SortSub");
+        let sup = Sort::simple("SortSup");
+        let top = Sort::simple("SortTop");
+        let pattern_child = var("X", sub.clone());
+        let subject_child = var("Y", sup.clone());
+        let pattern = Term::injection(sub.clone(), top.clone(), pattern_child.clone());
+        let subject = Term::injection(sup.clone(), top, subject_child.clone());
+        let mut sorts = SortGraph::default();
+        sorts.insert("SortSub", []);
+        sorts.insert("SortSup", [Name::from("SortSub")]);
+        sorts.insert("SortTop", [Name::from("SortSub"), Name::from("SortSup")]);
+
+        assert_eq!(
+            match_terms(MatchMode::Rewrite, &sorts, &pattern, &subject),
+            MatchResult::Indeterminate {
+                substitution: Substitution::new(),
+                remainder: vec![(Term::injection(sub, sup, pattern_child), subject_child,)],
+            }
+        );
+    }
+
+    #[test]
+    fn defers_sort_aligned_injection_pairs_for_a_supersort_pattern_function() {
+        let sub = Sort::simple("SortSub");
+        let sup = Sort::simple("SortSup");
+        let top = Sort::simple("SortTop");
+        let mut function = Symbol::constructor("f", vec![sub.clone()], sup.clone());
+        function.attributes.symbol_type = SymbolType::Function(FunctionType::Total);
+        function.attributes.has_evaluators = true;
+        let pattern_child =
+            Term::application(Arc::new(function), Vec::new(), vec![var("X", sub.clone())]);
+        let subject_child = domain_value(sub.clone(), "a");
+        let pattern = Term::injection(sup.clone(), top.clone(), pattern_child.clone());
+        let subject = Term::injection(sub.clone(), top, subject_child.clone());
+        let mut sorts = SortGraph::default();
+        sorts.insert("SortSub", []);
+        sorts.insert("SortSup", [Name::from("SortSub")]);
+        sorts.insert("SortTop", [Name::from("SortSub"), Name::from("SortSup")]);
+
+        assert_eq!(
+            match_terms(MatchMode::Rewrite, &sorts, &pattern, &subject),
+            MatchResult::Indeterminate {
+                substitution: Substitution::new(),
+                remainder: vec![(pattern_child, Term::injection(sub, sup, subject_child),)],
+            }
         );
     }
 
