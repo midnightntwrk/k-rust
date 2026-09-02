@@ -297,6 +297,20 @@ fn java_backed_differentials_guard_the_whole_job_without_nested_sibling_scopes()
         );
     }
 
+    assert!(
+        MIR_EXECUTION_SCRIPT.contains(
+            "reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-'-Xmx2048m -Xss1m -XX:+UseSerialGC",
+        ),
+        "the MIR execution differential must provide bounded JVM defaults",
+    );
+    assert_eq!(
+        MIR_EXECUTION_SCRIPT
+            .matches("export K_OPTS=\"$reference_k_opts\"")
+            .count(),
+        2,
+        "MIR reference kompile and krun must both receive the bounded JVM options",
+    );
+
     assert_eq!(
         COMPILE_SCRIPT
             .matches("ulimit -v \"$reference_memory_kib\"")

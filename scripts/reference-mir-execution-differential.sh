@@ -9,6 +9,7 @@ k_checkout=${K_CHECKOUT:-"$workspace/k"}
 mir_checkout=${MIR_SEMANTICS_CHECKOUT:-"$workspace/mir-semantics"}
 kompile=${K_KOMPILE:-}
 kmir_python=${KMIR_PYTHON:-"$mir_checkout/kmir/.venv/bin/python"}
+reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-'-Xmx2048m -Xss1m -XX:+UseSerialGC -XX:CompressedClassSpaceSize=128m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Dscala.concurrent.context.numThreads=2 -Dscala.concurrent.context.maxThreads=2'}
 
 if [[ -z "$kompile" ]]; then
   kompile=$(command -v kompile || true)
@@ -61,15 +62,18 @@ reference_result="$work/main-a-b-c.reference.kore"
 rust_result="$work/main-a-b-c.rust.kore"
 
 echo "[mir] compiling the pinned concrete Haskell definition"
-"$kompile" "$source_path" \
-  --backend haskell \
-  --main-module KMIR \
-  --syntax-module KMIR-AST \
-  --output-definition "$reference_definition" \
-  --emit-json \
-  -I "$include_path" \
-  --md-selector 'k & ! symbolic' \
-  --warnings none
+(
+  export K_OPTS="$reference_k_opts"
+  "$kompile" "$source_path" \
+    --backend haskell \
+    --main-module KMIR \
+    --syntax-module KMIR-AST \
+    --output-definition "$reference_definition" \
+    --emit-json \
+    -I "$include_path" \
+    --md-selector 'k & ! symbolic' \
+    --warnings none
+)
 
 echo "[mir] compiling the same concrete definition with k-rust"
 cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" \
@@ -88,12 +92,14 @@ echo "[mir] generating one shared raw initial KORE pattern from pinned SMIR"
   "$reference_definition" "$smir_path" "$initial"
 
 echo "[mir] executing the shared pattern with the pinned Haskell backend"
-"$krun" "$initial" \
-  --definition "$reference_definition" \
-  --term \
-  --parser cat \
-  --output kore \
-  >"$reference_result"
+(
+  export K_OPTS="$reference_k_opts"
+  "$krun" "$initial" \
+    --definition "$reference_definition" \
+    --term \
+    --parser cat \
+    --output kore
+) >"$reference_result"
 
 echo "[mir] executing the shared pattern with k-rust"
 cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" \
