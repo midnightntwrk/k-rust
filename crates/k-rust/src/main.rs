@@ -6,7 +6,7 @@ use std::{
     io::{self, Read},
     num::{NonZeroU32, NonZeroUsize},
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
@@ -36,7 +36,7 @@ use k_rust::{
         printer::Printer as KorePrinter,
     },
     native::FileResolver,
-    outer::{LoadOptions, SourceResolver, load_with_options},
+    outer::{LoadOptions, SourceResolver, load_with_base, load_with_options},
 };
 use k_rust_backend::{
     binary as backend_binary,
@@ -66,6 +66,7 @@ use k_rust_backend::{
     substitution::Substitution,
     term::{Name as BackendName, Sort as BackendSort, Term, TermKind, Variable},
 };
+use serde::{Deserialize, Serialize};
 
 mod rpc;
 
@@ -177,6 +178,18 @@ struct KcompileArgs {
     /// Also write the parsed outer definition as KAST JSON v4.
     #[arg(long)]
     emit_json: bool,
+
+    /// Emit bare claims as all-path reachability claims consumable by `kprove`.
+    #[arg(long)]
+    for_proving: bool,
+
+    /// Semantics module whose configuration parses proof claims (defaults to MAIN-MODULE).
+    #[arg(long, requires = "for_proving", value_name = "MODULE")]
+    definition_module: Option<String>,
+
+    /// Compile this specification against a prepared semantics directory.
+    #[arg(long, requires = "for_proving", value_name = "PATH")]
+    compiled_definition: Option<PathBuf>,
 
     #[command(flatten)]
     source: SourceArgs,
@@ -574,10 +587,20 @@ struct KoreMatchDisjunctionArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(group(
+    ArgGroup::new("kprove_input")
+        .args(["definition", "compiled_definition"])
+        .required(true)
+        .multiple(true)
+))]
 struct KproveArgs {
     /// K definition or specification containing the claims to prove.
     #[arg(value_name = "DEFINITION")]
-    definition: PathBuf,
+    definition: Option<PathBuf>,
+
+    /// Proof-ready KORE file or `kcompile --for-proving` output directory.
+    #[arg(long, value_name = "PATH")]
+    compiled_definition: Option<PathBuf>,
 
     /// Main specification module.
     #[arg(short = 'm', long = "main-module", value_name = "MODULE")]
@@ -586,6 +609,14 @@ struct KproveArgs {
     /// Semantics module that owns the configuration; defaults to the specification module.
     #[arg(long, visible_alias = "def-module", value_name = "MODULE")]
     definition_module: Option<String>,
+
+    /// Load and validate the prepared definition without running any claims.
+    #[arg(long, requires = "compiled_definition", conflicts_with = "definition")]
+    load_only: bool,
+
+    /// Write phase timings in seconds as JSON (excludes process startup and teardown).
+    #[arg(long, value_name = "FILE")]
+    timings: Option<PathBuf>,
 
     /// Prove only claims with one of these labels. May be repeated.
     #[arg(long = "claim", value_name = "LABEL")]
@@ -660,6 +691,9 @@ struct KcompileOptions {
     syntax_module: Option<String>,
     output_directory: PathBuf,
     emit_json: bool,
+    for_proving: bool,
+    definition_module: Option<String>,
+    compiled_definition: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
@@ -763,7 +797,8 @@ struct BackendRunOptions {
 
 #[derive(Debug)]
 struct KproveOptions {
-    common: CommonOptions,
+    input: KproveInput,
+    module: String,
     definition_module: String,
     claims: Vec<String>,
     depth: u64,
@@ -778,6 +813,53 @@ struct KproveOptions {
     step_timeout: Option<Duration>,
     moving_average_timeout: bool,
     smt: Z3Options,
+    load_only: bool,
+    timings: Option<PathBuf>,
+}
+
+#[derive(Default, Serialize)]
+struct ProofTimings {
+    input_seconds: f64,
+    internalize_seconds: f64,
+    proof_setup_seconds: f64,
+    proof_seconds: f64,
+    claims: Vec<ClaimTiming>,
+}
+
+#[derive(Serialize)]
+struct ClaimTiming {
+    label: String,
+    seconds: f64,
+    status: String,
+}
+
+impl ProofTimings {
+    fn write(&self, path: Option<&Path>) -> Result<(), Box<dyn Error>> {
+        if let Some(path) = path {
+            fs::write(path, serde_json::to_string_pretty(self)?)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+enum KproveInput {
+    Source(CommonOptions),
+    Compiled(PathBuf),
+    SourceWithCompiled {
+        source: CommonOptions,
+        compiled: PathBuf,
+    },
+}
+
+const PREPARED_MANIFEST: &str = "krust.json";
+const PREPARED_FORMAT: &str = "krust-prepared-definition";
+
+#[derive(Debug, Deserialize, Serialize)]
+struct PreparedDefinitionManifest {
+    format: String,
+    version: u32,
+    sources: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
@@ -841,6 +923,9 @@ impl From<KcompileArgs> for KcompileOptions {
             syntax_module: arguments.syntax_module,
             output_directory: arguments.output_directory,
             emit_json: arguments.emit_json,
+            for_proving: arguments.for_proving,
+            definition_module: arguments.definition_module,
+            compiled_definition: arguments.compiled_definition,
         }
     }
 }
@@ -900,14 +985,25 @@ impl From<KrunArgs> for KrunOptions {
 
 impl From<KproveArgs> for KproveOptions {
     fn from(arguments: KproveArgs) -> Self {
+        let module = arguments.module;
         let definition_module = arguments
             .definition_module
             .clone()
-            .unwrap_or_else(|| arguments.module.clone());
+            .unwrap_or_else(|| module.clone());
+        let input = match (arguments.definition, arguments.compiled_definition) {
+            (Some(definition), Some(compiled)) => KproveInput::SourceWithCompiled {
+                source: arguments.source.common(definition, module.clone()),
+                compiled,
+            },
+            (Some(definition), None) => {
+                KproveInput::Source(arguments.source.common(definition, module.clone()))
+            }
+            (None, Some(compiled)) => KproveInput::Compiled(compiled),
+            (None, None) => unreachable!("clap requires an input"),
+        };
         Self {
-            common: arguments
-                .source
-                .common(arguments.definition, arguments.module),
+            input,
+            module,
             definition_module,
             claims: arguments.claims,
             depth: arguments.depth.unwrap_or(u64::MAX),
@@ -924,6 +1020,8 @@ impl From<KproveArgs> for KproveOptions {
                 .map(|seconds| Duration::from_secs(seconds.get() as u64)),
             moving_average_timeout: arguments.moving_average,
             smt: arguments.smt.options(),
+            load_only: arguments.load_only,
+            timings: arguments.timings,
         }
     }
 }
@@ -968,12 +1066,30 @@ fn load_definition(
 }
 
 fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
-    let loaded = load_definition(&options.common, Some(options.backend), None)?;
+    if options.for_proving && options.backend != CompilationBackend::Rust {
+        return Err("--for-proving requires --backend rust".into());
+    }
+    let configuration_module = options.for_proving.then(|| {
+        options
+            .definition_module
+            .as_deref()
+            .unwrap_or(&options.common.module)
+    });
+    let loaded = if let Some(prepared) = &options.compiled_definition {
+        load_definition_against_prepared(
+            &options.common,
+            configuration_module.expect("--compiled-definition requires --for-proving"),
+            prepared,
+        )?
+    } else {
+        load_definition(&options.common, Some(options.backend), configuration_module)?
+    };
     let artifacts = match compile_loaded_definition(
         &loaded,
         CompileOptions {
             backend: options.backend,
             hook_namespaces: options.hook_namespaces,
+            default_claims_to_all_path: options.for_proving,
             ..CompileOptions::default()
         },
     ) {
@@ -985,11 +1101,30 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     };
     emit_diagnostics(&artifacts.diagnostics);
     fs::create_dir_all(&options.output_directory)?;
-    if options.emit_json {
+    if options.emit_json || options.for_proving {
         let definition = parsed_definition_for_json(&loaded, options.syntax_module.as_deref())?;
         fs::write(
             options.output_directory.join("parsed.json"),
             definition_json::to_string_pretty(&definition)?,
+        )?;
+    }
+    if options.for_proving {
+        let mut sources = if let Some(prepared) = &options.compiled_definition {
+            load_prepared_manifest(prepared)?.sources
+        } else {
+            Vec::new()
+        };
+        sources.extend(loaded.files.iter().map(|file| file.source.clone()));
+        sources.sort();
+        sources.dedup();
+        let manifest = PreparedDefinitionManifest {
+            format: PREPARED_FORMAT.into(),
+            version: 1,
+            sources,
+        };
+        fs::write(
+            options.output_directory.join(PREPARED_MANIFEST),
+            serde_json::to_string_pretty(&manifest)?,
         )?;
     }
     fs::write(
@@ -2263,12 +2398,20 @@ fn disjoin_outputs(solutions: Vec<KorePattern>, result_sort: &KoreSort) -> KoreP
     result
 }
 
-fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
-    let loaded = load_definition(
-        &options.common,
-        Some(CompilationBackend::Rust),
-        Some(&options.definition_module),
-    )?;
+fn compile_proof_source(
+    common: &CommonOptions,
+    definition_module: &str,
+    prepared: Option<&Path>,
+) -> Result<KoreDefinition, Box<dyn Error>> {
+    let loaded = if let Some(prepared) = prepared {
+        load_definition_against_prepared(common, definition_module, prepared)?
+    } else {
+        load_definition(
+            common,
+            Some(CompilationBackend::Rust),
+            Some(definition_module),
+        )?
+    };
     let compiled = match compile_loaded_definition(
         &loaded,
         CompileOptions {
@@ -2284,8 +2427,87 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         }
     };
     emit_diagnostics(&compiled.diagnostics);
+    Ok(parse_kore_definition(&compiled.definition_kore)?)
+}
 
-    let syntax = parse_kore_definition(&compiled.definition_kore)?;
+fn load_definition_against_prepared(
+    options: &CommonOptions,
+    definition_module: &str,
+    prepared: &Path,
+) -> Result<k_rust::outer::LoadedDefinition, Box<dyn Error>> {
+    let directory = prepared_artifact_directory(prepared);
+    let manifest = load_prepared_manifest(prepared)?;
+    let base = definition_json::from_str(&fs::read_to_string(directory.join("parsed.json"))?)?;
+    let builtin_directory = options
+        .builtin_directory
+        .clone()
+        .or_else(|| env::var_os("KRUST_BUILTIN_DIRECTORY").map(PathBuf::from));
+    let mut resolver = FileResolver::from_current_directory(options.includes.clone())?;
+    if let Some(directory) = builtin_directory {
+        resolver = resolver.with_builtin_directory(directory);
+    }
+    resolver = resolver.with_prepared_sources(manifest.sources.clone());
+    let entry = resolver.load_entry(&options.definition)?;
+    Ok(load_with_base(
+        entry,
+        &options.module,
+        &mut resolver,
+        &LoadOptions {
+            markdown_selector: options.markdown_selector.clone(),
+            implicit_sources: Vec::new(),
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            configuration_module: Some(definition_module.into()),
+        },
+        &base,
+        &manifest.sources,
+    )?)
+}
+
+fn load_prepared_manifest(path: &Path) -> Result<PreparedDefinitionManifest, Box<dyn Error>> {
+    let path = prepared_artifact_directory(path).join(PREPARED_MANIFEST);
+    let manifest: PreparedDefinitionManifest = serde_json::from_str(&fs::read_to_string(&path)?)?;
+    if manifest.format != PREPARED_FORMAT || manifest.version != 1 {
+        return Err(format!(
+            "unsupported prepared definition manifest format {:?} version {}",
+            manifest.format, manifest.version
+        )
+        .into());
+    }
+    Ok(manifest)
+}
+
+fn prepared_artifact_directory(path: &Path) -> PathBuf {
+    if path.is_dir() {
+        path.to_owned()
+    } else {
+        path.parent().unwrap_or_else(|| Path::new(".")).to_owned()
+    }
+}
+
+fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
+    let started = Instant::now();
+    let syntax = match &options.input {
+        KproveInput::Source(common) => {
+            compile_proof_source(common, &options.definition_module, None)?
+        }
+        KproveInput::Compiled(path) => load_compiled_definition(path)?,
+        KproveInput::SourceWithCompiled { source, compiled } => {
+            compile_proof_source(source, &options.definition_module, Some(compiled))?
+        }
+    };
+    let mut timings = ProofTimings {
+        input_seconds: started.elapsed().as_secs_f64(),
+        ..ProofTimings::default()
+    };
+    let started = Instant::now();
+    let backend = BackendDefinition::internalize(&syntax, &options.module)?;
+    timings.internalize_seconds = started.elapsed().as_secs_f64();
+    if options.load_only {
+        return timings.write(options.timings.as_deref());
+    }
+    let setup_started = Instant::now();
     let saved_claims = options
         .save_proofs
         .as_deref()
@@ -2295,8 +2517,8 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     let spec_module = syntax
         .modules
         .iter()
-        .find(|module| module.name == options.common.module)
-        .ok_or_else(|| format!("compiled KORE has no module `{}`", options.common.module))?;
+        .find(|module| module.name == options.module)
+        .ok_or_else(|| format!("compiled KORE has no module `{}`", options.module))?;
     let mut proven_ids = spec_module
         .sentences
         .iter()
@@ -2308,7 +2530,6 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                 .then_some(id)
         })
         .collect::<BTreeSet<_>>();
-    let backend = BackendDefinition::internalize(&syntax, &options.common.module)?;
     if backend.reachability_claims.is_empty() {
         return Err("the selected module contains no modal reachability claims".into());
     }
@@ -2352,6 +2573,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         })
         .collect::<Vec<_>>();
 
+    timings.proof_setup_seconds = setup_started.elapsed().as_secs_f64();
     let mut all_proven = true;
     for (index, claim) in selected.into_iter().enumerate() {
         let name = claim
@@ -2361,8 +2583,14 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             .map_or_else(|| format!("#{}", index + 1), str::to_owned);
         if proven_ids.contains(&claim.attributes.unique_id) {
             println!("claim {name}: proven (saved)");
+            timings.claims.push(ClaimTiming {
+                label: name,
+                seconds: 0.0,
+                status: "saved".into(),
+            });
             continue;
         }
+        let started = Instant::now();
         let result = prove_claim(
             &backend,
             claim,
@@ -2380,6 +2608,13 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             },
             &solver,
         )?;
+        let seconds = started.elapsed().as_secs_f64();
+        timings.proof_seconds += seconds;
+        timings.claims.push(ClaimTiming {
+            label: name.clone(),
+            seconds,
+            status: proof_status(result.status).into(),
+        });
         println!(
             "claim {name}: {} ({} states, {} unexplored)",
             proof_status(result.status),
@@ -2408,10 +2643,38 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     if let Some(path) = &options.save_proofs {
         save_proven_claims(path, spec_module, &proven_ids)?;
     }
+    timings.write(options.timings.as_deref())?;
     if !all_proven {
         return Err("one or more reachability claims were not proven".into());
     }
     Ok(())
+}
+
+fn load_compiled_definition(path: &Path) -> Result<KoreDefinition, Box<dyn Error>> {
+    let path = if path.is_dir() {
+        path.join("definition.kore")
+    } else {
+        path.to_owned()
+    };
+    let source = fs::read_to_string(&path).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "could not read compiled KORE definition `{}`: {error}",
+                path.display()
+            ),
+        )
+    })?;
+    parse_kore_definition(&source).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "could not parse compiled KORE definition `{}`: {error}",
+                path.display()
+            ),
+        )
+        .into()
+    })
 }
 
 fn resolve_claim_labels(
@@ -3540,8 +3803,11 @@ mod tests {
         };
         let options = KproveOptions::from(options);
 
-        assert_eq!(options.common.definition, Path::new("spec.k"));
-        assert_eq!(options.common.module, "SPEC");
+        let KproveInput::Source(common) = &options.input else {
+            panic!("expected source input");
+        };
+        assert_eq!(common.definition, Path::new("spec.k"));
+        assert_eq!(options.module, "SPEC");
         assert_eq!(options.definition_module, "SEMANTICS");
         assert_eq!(options.claims, ["first", "second"]);
         assert_eq!(options.depth, 42);
@@ -3562,6 +3828,61 @@ mod tests {
         assert_eq!(options.step_timeout, Some(Duration::from_secs(9)));
         assert!(options.moving_average_timeout);
         assert_eq!(options.smt, Z3Options::default());
+    }
+
+    #[test]
+    fn parses_kprove_prepared_definition_and_specification_options() {
+        let cli = Cli::try_parse_from([
+            "krust",
+            "kprove",
+            "--compiled-definition",
+            "spec-kompiled",
+            "--main-module",
+            "SPEC",
+            "--load-only",
+        ])
+        .unwrap();
+        let Command::Kprove(options) = cli.command else {
+            panic!("expected kprove command");
+        };
+        let options = KproveOptions::from(options);
+        let KproveInput::Compiled(path) = options.input else {
+            panic!("expected compiled input");
+        };
+        assert_eq!(path, Path::new("spec-kompiled"));
+        assert_eq!(options.module, "SPEC");
+        assert!(options.load_only);
+
+        let cli = Cli::try_parse_from([
+            "krust",
+            "kprove",
+            "spec.k",
+            "--compiled-definition",
+            "semantics-kompiled",
+            "--main-module",
+            "SPEC",
+        ])
+        .unwrap();
+        let Command::Kprove(options) = cli.command else {
+            panic!("expected kprove command");
+        };
+        let options = KproveOptions::from(options);
+        let KproveInput::SourceWithCompiled { source, compiled } = options.input else {
+            panic!("expected source plus compiled input");
+        };
+        assert_eq!(source.definition, Path::new("spec.k"));
+        assert_eq!(compiled, Path::new("semantics-kompiled"));
+        assert!(
+            Cli::try_parse_from([
+                "krust",
+                "kprove",
+                "spec.k",
+                "--main-module",
+                "SPEC",
+                "--load-only",
+            ])
+            .is_err()
+        );
     }
 
     #[test]
