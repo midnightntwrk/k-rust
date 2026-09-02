@@ -1111,6 +1111,33 @@ endmodule []
     assert!(execute.contains("d{}()"), "{execute}");
     assert!(execute.contains("e{}()"), "{execute}");
 
+    let stop_leaves = root.join("stop-leaves.kore");
+    let bounded = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--pattern",
+            program.to_str().unwrap(),
+            "--depth",
+            "1",
+            "--stop-leaves",
+            stop_leaves.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        bounded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&bounded.stderr)
+    );
+    let stop_leaves = fs::read_to_string(stop_leaves).unwrap();
+    assert!(stop_leaves.contains("b{}()"), "{stop_leaves}");
+    assert!(stop_leaves.contains("c{}()"), "{stop_leaves}");
+    assert!(!stop_leaves.contains("d{}()"), "{stop_leaves}");
+    assert!(!stop_leaves.contains("e{}()"), "{stop_leaves}");
+
     let result_file = root.join("result.kore");
     let file_output = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([

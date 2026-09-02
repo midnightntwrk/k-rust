@@ -610,13 +610,25 @@ fn executed_kore_matches_the_reference_backend() {
 
     let definition = env::var_os("K_DIFFERENTIAL_DEFINITION");
     let module = env::var("K_DIFFERENTIAL_MODULE").unwrap_or_else(|_| "MAIN".into());
-    compare_execution_modulo_implication(
-        &reference,
-        &actual,
-        definition.as_deref().map(Path::new),
-        &module,
-    )
-    .unwrap_or_else(|error| panic!("{error}"));
+    let definition = definition.as_deref().map(Path::new);
+    let result = match env::var("K_DIFFERENTIAL_ORACLE_EXCLUSION").as_deref() {
+        Ok("gotstuck") => {
+            let stop_path = env::var("K_DIFFERENTIAL_STOP_LEAVES")
+                .expect("K_DIFFERENTIAL_STOP_LEAVES is required for the gotstuck exclusion");
+            let stop_source = fs::read_to_string(stop_path).unwrap();
+            let stop_leaves = normalize_execution_pattern(parse_pattern(&stop_source).unwrap());
+            compare_execution_modulo_gotstuck(
+                &reference,
+                &actual,
+                &stop_leaves,
+                definition,
+                &module,
+            )
+        }
+        Ok(exclusion) => Err(format!("unknown oracle exclusion: {exclusion}")),
+        Err(_) => compare_execution_modulo_implication(&reference, &actual, definition, &module),
+    };
+    result.unwrap_or_else(|error| panic!("{error}"));
 }
 
 #[test]
@@ -678,6 +690,19 @@ fn execution_normalizer_drops_the_outer_existential_prefix() {
 }
 
 #[test]
+fn execution_normalizer_emits_reparseable_generated_variable_names() {
+    let pattern = parse_pattern(
+        r"\and{S{}}(f{}(Var'Unds'X1:S{}, Var'Unds'X2:S{}), \equals{S{}, S{}}(Var'Unds'X1:S{}, Var'Unds'X2:S{}))",
+    )
+    .unwrap();
+    let normalized = normalize_execution_pattern(pattern);
+    let rendered = normalized.to_string();
+
+    parse_pattern(&rendered)
+        .unwrap_or_else(|error| panic!("normalized KORE must reparse ({error}): {rendered}"));
+}
+
+#[test]
 fn execution_comparator_pairs_disjuncts_by_term_and_reports_unpaired() {
     let reference =
         normalize_execution_pattern(parse_pattern(r"\and{S{}}(a{}(), \top{S{}}())").unwrap());
@@ -692,6 +717,86 @@ fn execution_comparator_pairs_disjuncts_by_term_and_reports_unpaired() {
     let error = compare_execution_modulo_implication(&reference, &different_term, None, "TEST")
         .expect_err("different terms cannot be paired");
     assert!(error.contains("unpaired disjunct"), "{error}");
+}
+
+#[test]
+fn execution_comparator_allows_only_marked_gotstuck_stop_leaves() {
+    let reference = normalize_execution_pattern(parse_pattern("a{}()").unwrap());
+    let actual = normalize_execution_pattern(parse_pattern(r"\or{S{}}(a{}(), b{}())").unwrap());
+    let stop_leaves = normalize_execution_pattern(parse_pattern("b{}()").unwrap());
+    compare_execution_modulo_gotstuck(&reference, &actual, &stop_leaves, None, "TEST")
+        .expect("the one extra actual leaf is marked as depth-bounded");
+
+    let wrong_stop = normalize_execution_pattern(parse_pattern("c{}()").unwrap());
+    let error = compare_execution_modulo_gotstuck(&reference, &actual, &wrong_stop, None, "TEST")
+        .expect_err("an unmarked actual leaf must still fail");
+    assert!(error.contains("unpaired disjunct"), "{error}");
+}
+
+#[test]
+fn implication_fallback_checks_both_directions_and_requires_valid() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = env::temp_dir().join(format!(
+        "k-rust-implication-fake-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir(&directory).unwrap();
+    let calls = directory.join("calls");
+    let valid = directory.join("valid-krust");
+    let invalid = directory.join("invalid-krust");
+    fs::write(
+        &valid,
+        format!(
+            "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{}\nprintf '{{\"status\":\"valid\"}}\\n'\n",
+            calls.display()
+        ),
+    )
+    .unwrap();
+    fs::write(
+        &invalid,
+        "#!/usr/bin/env bash\nprintf '{\"status\":\"indeterminate\"}\\n'\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for path in [&valid, &invalid] {
+            let mut permissions = fs::metadata(path).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(path, permissions).unwrap();
+        }
+    }
+    let reference = normalize_execution_pattern(
+        parse_pattern(r"\and{S{}}(f{}(Var'Unds'X1:S{}), \top{S{}}())").unwrap(),
+    );
+    let actual = normalize_execution_pattern(
+        parse_pattern(
+            r"\and{S{}}(f{}(Var'Unds'X9:S{}), \equals{S{}, S{}}(Var'Unds'X9:S{}, Var'Unds'X9:S{}))",
+        )
+        .unwrap(),
+    );
+    let definition = directory.join("definition.kore");
+    fs::write(&definition, "[]").unwrap();
+
+    prove_implication_both_ways_with(&valid, &reference, &actual, &definition, "TEST")
+        .expect("both valid directions");
+    let calls = fs::read_to_string(&calls).unwrap();
+    assert_eq!(calls.lines().count(), 2, "both implication directions");
+    assert!(calls.lines().all(|line| line.contains("--module TEST")));
+    assert!(
+        calls
+            .lines()
+            .all(|line| line.contains(definition.to_str().unwrap()))
+    );
+
+    let error =
+        prove_implication_both_ways_with(&invalid, &reference, &actual, &definition, "TEST")
+            .expect_err("an indeterminate answer cannot certify equivalence");
+    assert!(error.contains("not valid"), "{error}");
+    fs::remove_dir_all(directory).unwrap();
 }
 
 fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
@@ -904,8 +1009,34 @@ fn compare_execution_modulo_implication(
     definition: Option<&Path>,
     module: &str,
 ) -> Result<(), String> {
+    compare_execution_disjuncts(reference, actual, definition, module, None)
+}
+
+fn compare_execution_modulo_gotstuck(
+    reference: &Pattern,
+    actual: &Pattern,
+    stop_leaves: &Pattern,
+    definition: Option<&Path>,
+    module: &str,
+) -> Result<(), String> {
+    compare_execution_disjuncts(reference, actual, definition, module, Some(stop_leaves))
+}
+
+fn compare_execution_disjuncts(
+    reference: &Pattern,
+    actual: &Pattern,
+    definition: Option<&Path>,
+    module: &str,
+    expected_unpaired_actual: Option<&Pattern>,
+) -> Result<(), String> {
     if reference == actual {
-        return Ok(());
+        return match expected_unpaired_actual {
+            Some(stop_leaves) if !is_empty_disjunction(stop_leaves) => Err(
+                "oracle exception no longer needed: no GotStuck leaves are missing from the reference"
+                    .into(),
+            ),
+            _ => Ok(()),
+        };
     }
 
     let reference_disjuncts = execution_disjuncts(reference);
@@ -937,15 +1068,41 @@ fn compare_execution_modulo_implication(
         };
         prove_implication_both_ways(reference_disjunct, actual_disjunct, definition, module)?;
     }
-    if let Some((index, _)) = paired_actual
+    let unpaired_actual = paired_actual
         .iter()
         .enumerate()
-        .find(|(_, paired)| !**paired)
-    {
-        let (term, _) = split_constrained(actual_disjuncts[index]);
+        .filter(|(_, paired)| !**paired)
+        .map(|(index, _)| actual_disjuncts[index])
+        .collect::<Vec<_>>();
+    if let Some(expected) = expected_unpaired_actual {
+        let mut expected = execution_disjuncts(expected)
+            .into_iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let mut unpaired = unpaired_actual
+            .iter()
+            .map(|pattern| pattern.to_string())
+            .collect::<Vec<_>>();
+        expected.sort();
+        unpaired.sort();
+        if unpaired != expected {
+            let term = unpaired_actual
+                .first()
+                .map(|pattern| split_constrained(pattern).0.to_string())
+                .unwrap_or_else(|| "<none>".into());
+            return Err(format!(
+                "unpaired disjunct: {term}; GotStuck stop leaves differ (expected {expected:?}, actual {unpaired:?})"
+            ));
+        }
+    } else if let Some(disjunct) = unpaired_actual.first() {
+        let (term, _) = split_constrained(disjunct);
         return Err(format!("unpaired disjunct: {term}"));
     }
     Ok(())
+}
+
+fn is_empty_disjunction(pattern: &Pattern) -> bool {
+    matches!(pattern, Pattern::Or { arguments, .. } if arguments.is_empty())
 }
 
 fn execution_disjuncts(pattern: &Pattern) -> Vec<&Pattern> {
@@ -998,6 +1155,20 @@ fn prove_implication_both_ways(
     definition: &Path,
     module: &str,
 ) -> Result<(), String> {
+    let krust = env::var_os("K_RUST_KRUST")
+        .map(std::path::PathBuf::from)
+        .or_else(|| option_env!("CARGO_BIN_EXE_krust").map(std::path::PathBuf::from))
+        .unwrap_or_else(|| std::path::PathBuf::from("target/release/krust"));
+    prove_implication_both_ways_with(&krust, reference, actual, definition, module)
+}
+
+fn prove_implication_both_ways_with(
+    krust: &Path,
+    reference: &Pattern,
+    actual: &Pattern,
+    definition: &Path,
+    module: &str,
+) -> Result<(), String> {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| format!("system clock before Unix epoch: {error}"))?
@@ -1016,6 +1187,7 @@ fn prove_implication_both_ways(
 
     let result = (|| {
         prove_implication(
+            krust,
             &reference_path,
             &actual_path,
             definition,
@@ -1023,6 +1195,7 @@ fn prove_implication_both_ways(
             "reference => actual",
         )?;
         prove_implication(
+            krust,
             &actual_path,
             &reference_path,
             definition,
@@ -1035,17 +1208,14 @@ fn prove_implication_both_ways(
 }
 
 fn prove_implication(
+    krust: &Path,
     antecedent: &Path,
     consequent: &Path,
     definition: &Path,
     module: &str,
     direction: &str,
 ) -> Result<(), String> {
-    let krust = env::var_os("K_RUST_KRUST")
-        .map(std::path::PathBuf::from)
-        .or_else(|| option_env!("CARGO_BIN_EXE_krust").map(std::path::PathBuf::from))
-        .unwrap_or_else(|| std::path::PathBuf::from("target/release/krust"));
-    let output = Command::new(&krust)
+    let output = Command::new(krust)
         .arg("kore-implies")
         .arg(definition)
         .arg("--module")
@@ -1770,6 +1940,9 @@ fn canonicalize_existentials(pattern: &mut Pattern) {
 
 fn generated_stem(name: &str) -> Option<&str> {
     if let Some(suffix) = name.strip_prefix("Var'Unds'") {
+        if suffix.contains("'Hash'KDiff") {
+            return None;
+        }
         let stem = suffix.trim_end_matches(|character: char| character.is_ascii_digit());
         if !stem.is_empty() && stem.len() != suffix.len() {
             return Some(stem);
@@ -1787,7 +1960,10 @@ fn rename_generated_variables(pattern: &mut Pattern) {
             let stem = stem.to_owned();
             let next = indices.len();
             let index = *indices.entry(variable.name.clone()).or_insert(next);
-            variable.name = format!("Var'Unds'{stem}#{index}");
+            // KORE identifiers encode punctuation in apostrophe-delimited
+            // words. A raw `#` would make N15's serialized implication inputs
+            // unparsable by both kore-parser and krust.
+            variable.name = format!("Var'Unds'{stem}'Hash'KDiff{index}");
         };
 
         match pattern {

@@ -453,6 +453,10 @@ struct KoreExecArgs {
     #[arg(short, long, value_name = "OUTPUT_KORE")]
     output: Option<PathBuf>,
 
+    /// Write the depth-bounded execution leaves as a KORE disjunction for differential tests.
+    #[arg(long, value_name = "OUTPUT_KORE")]
+    stop_leaves: Option<PathBuf>,
+
     /// Maximum number of live execution or search branches.
     #[arg(long = "breadth", value_name = "BRANCHES")]
     breadth_limit: Option<usize>,
@@ -809,6 +813,7 @@ struct BackendRunOptions {
     terminal_rules: BTreeSet<String>,
     strategy: ExecutionMode,
     search: Option<KrunSearchOptions>,
+    stop_leaves: Option<PathBuf>,
     step_timeout: Option<Duration>,
     moving_average_timeout: bool,
     smt: Z3Options,
@@ -1442,6 +1447,7 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
             terminal_rules: options.terminal_rules,
             strategy: options.strategy,
             search: options.search,
+            stop_leaves: None,
             step_timeout: options.step_timeout,
             moving_average_timeout: options.moving_average_timeout,
             smt: options.smt,
@@ -1492,6 +1498,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
             terminal_rules: options.terminal_rules.into_iter().collect(),
             strategy: options.strategy.into(),
             search: options.search.into_options(),
+            stop_leaves: options.stop_leaves,
             step_timeout: options.timeout.timeout(),
             moving_average_timeout: options.timeout.moving_average,
             smt: options.smt.options(),
@@ -2173,6 +2180,9 @@ fn run_backend(
     let solver = Z3Solver::with_options(backend, options.smt)
         .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
     if let Some(search) = options.search {
+        if options.stop_leaves.is_some() {
+            return Err(io::Error::other("--stop-leaves is only supported for execution").into());
+        }
         let target = match search.pattern {
             Some(path) => load_backend_pattern(backend, &path, "search")?,
             None => default_search_pattern(&initial),
@@ -2248,6 +2258,25 @@ fn run_backend(
             leaf.depth, leaf.halt_reason
         ))
         .into());
+    }
+    if let Some(path) = options.stop_leaves {
+        let depth_bounded = execution
+            .leaves
+            .iter()
+            .filter(|leaf| matches!(leaf.halt_reason, HaltReason::DepthBound))
+            .collect::<Vec<_>>();
+        let sort = depth_bounded
+            .first()
+            .map(|leaf| externalize::sort(&leaf.pattern.term.sort()))
+            .unwrap_or_else(|| output_sort.clone());
+        let marker = KorePattern::Or {
+            sort,
+            arguments: depth_bounded
+                .into_iter()
+                .map(|leaf| externalize::constrained_pattern(&leaf.pattern))
+                .collect(),
+        };
+        fs::write(path, KorePrinter::pretty(100).print_pattern(&marker))?;
     }
     let final_sort = execution
         .leaves
