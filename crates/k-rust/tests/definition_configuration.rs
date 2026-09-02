@@ -128,6 +128,51 @@ fn generates_java_cell_fragment_collection_and_initializer_families() {
 }
 
 #[test]
+fn preserves_type_attribute_on_non_collection_cells() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <top> <x type="Map"> 0 </x> </top>
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let expanded =
+        expand_configurations(&definition).expect("type is allowed without multiplicity");
+    let x = expanded
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } if label.name == "<x>" => Some(attributes),
+            _ => None,
+        })
+        .expect("the x cell production should be generated");
+    assert_eq!(x.get_str("type"), Some("Map"));
+}
+
+#[test]
+fn rejects_reserved_generated_cell_names_during_expansion() {
+    for cell_name in ["generatedTop", "generatedCounter"] {
+        let source = format!(
+            "module MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  configuration <{cell_name}> 0 </{cell_name}>\nendmodule\n"
+        );
+        let definition = parsed(&source);
+        let error = expand_configurations(&definition).expect_err("reserved cell names must fail");
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "invalid configuration in module \"MAIN\": Cell name <{cell_name}> is reserved by K."
+            )
+        );
+    }
+}
+
+#[test]
 fn configuration_expansion_emits_origin_records() {
     let source = indoc! {r#"
         module MAIN
@@ -437,7 +482,6 @@ expansion_error!(
     rejects_nonempty_forbidden_property,
     "<k exit=\"bad\"> 0 </k>"
 );
-expansion_error!(rejects_type_without_star, "<k type=\"Set\"> 0 </k>");
 expansion_error!(
     rejects_empty_map_cell,
     "<map multiplicity=\"*\" type=\"Map\"> .Bag </map>"

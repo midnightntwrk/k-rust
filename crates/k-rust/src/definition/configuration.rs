@@ -17,6 +17,7 @@ use crate::provenance::{GeneratingPass, record_generated_origins};
 const CELL_NAME_SORT: &str = "#CellName";
 const CONFIG_VAR_SORT: &str = "KConfigVar";
 const GENERATED_TOP_CELL_NAME: &str = "generatedTop";
+const GENERATED_COUNTER_CELL_NAME: &str = "generatedCounter";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConfigurationError {
@@ -50,12 +51,24 @@ impl std::error::Error for ConfigurationError {}
 /// The generated cells from imported modules are therefore visible while
 /// resolving external-cell declarations in importing modules.
 pub fn expand_configurations(definition: &Definition) -> Result<Definition, ConfigurationError> {
-    expand_configurations_inner(definition).map(|expanded| {
+    expand_configurations_inner(definition, false).map(|expanded| {
         record_generated_origins(definition, expanded, GeneratingPass::ConfigurationExpansion)
     })
 }
 
-fn expand_configurations_inner(definition: &Definition) -> Result<Definition, ConfigurationError> {
+/// Expand configurations synthesized by a kompile pass, which may use K's reserved cell names.
+pub(crate) fn expand_configurations_allowing_reserved_cells(
+    definition: &Definition,
+) -> Result<Definition, ConfigurationError> {
+    expand_configurations_inner(definition, true).map(|expanded| {
+        record_generated_origins(definition, expanded, GeneratingPass::ConfigurationExpansion)
+    })
+}
+
+fn expand_configurations_inner(
+    definition: &Definition,
+    allow_reserved_cell_names: bool,
+) -> Result<Definition, ConfigurationError> {
     let initial =
         ResolvedDefinition::resolve(definition).map_err(ConfigurationError::Definition)?;
     let module_names = initial
@@ -114,6 +127,7 @@ fn expand_configurations_inner(definition: &Definition) -> Result<Definition, Co
                 generated: &mut generated,
                 attributes,
                 module_attributes: &module_attributes,
+                allow_reserved_cell_names,
             };
             generator.generate_top(body, ensures)?;
         }
@@ -149,6 +163,7 @@ struct Generator<'a, 'catalog> {
     generated: &'a mut Vec<Sentence>,
     attributes: &'a Attributes,
     module_attributes: &'a Attributes,
+    allow_reserved_cell_names: bool,
 }
 
 impl Generator<'_, '_> {
@@ -164,7 +179,7 @@ impl Generator<'_, '_> {
     ) -> Result<GeneratedNode, ConfigurationError> {
         match term.unannotated() {
             Term::Apply { label, arguments } if label.name == "#configCell" => {
-                self.generate_cell(arguments, ensures)
+                self.generate_cell(arguments, ensures, self.allow_reserved_cell_names)
             }
             Term::Apply { label, arguments } if label.name == "#externalCell" => {
                 self.generate_external(arguments)
@@ -180,6 +195,7 @@ impl Generator<'_, '_> {
                             name,
                         ],
                         ensures,
+                        true,
                     );
                 }
                 let mut cells = Vec::new();
@@ -307,6 +323,7 @@ impl Generator<'_, '_> {
         &mut self,
         arguments: &[Term],
         ensures: Option<&Term>,
+        allow_reserved_name: bool,
     ) -> Result<GeneratedNode, ConfigurationError> {
         let [start, properties, contents, end] = arguments else {
             return Err(self.error("malformed cell in configuration declaration"));
@@ -317,6 +334,11 @@ impl Generator<'_, '_> {
             .ok_or_else(|| self.error("malformed cell in configuration declaration"))?;
         if start != end {
             return Err(self.error(format!("cell <{start}> is closed by mismatched </{end}>")));
+        }
+        if !allow_reserved_name
+            && matches!(start, GENERATED_TOP_CELL_NAME | GENERATED_COUNTER_CELL_NAME)
+        {
+            return Err(self.error(format!("Cell name <{start}> is reserved by K.")));
         }
         let properties = self.parse_properties(properties, start)?;
         let multiplicity = match properties.get_str("multiplicity") {
@@ -368,11 +390,6 @@ impl Generator<'_, '_> {
         let label = format!("<{cell_name}>");
         let init_label = init_label(&sort);
         let collection_sort = properties.get_str("type").unwrap_or("Bag").to_owned();
-        if multiplicity != Multiplicity::Star && properties.get("type").is_some() {
-            return Err(self.error(format!(
-                "cell <{cell_name}> specifies type without multiplicity=\"*\""
-            )));
-        }
 
         let items = cell_items(cell_name, &children.child_sorts);
         let mut cell_attributes = merge_attributes(&properties, self.attributes);
