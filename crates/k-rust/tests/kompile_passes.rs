@@ -21,7 +21,7 @@ use k_rust::{
     provenance::{GeneratingPass, ORIGIN_ATTRIBUTE, ProvenanceLink, SourceId},
 };
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn parsed(source: &str) -> k_rust::definition::Definition {
     let mut resolver = |_: &str, required: &str| Err(format!("unexpected require {required}"));
@@ -563,6 +563,82 @@ fn lowers_local_functions_with_closure_arguments_and_totality() {
             .iter()
             .all(|receipt| receipt["pass"] == GeneratingPass::ResolveFun.as_str())
     );
+}
+
+#[test]
+fn nested_local_functions_scope_closures_to_their_own_patterns() {
+    let variable = |name: &str| Term::Variable {
+        name: name.into(),
+        sort: Some(Sort::new("K")),
+    };
+    let inner = application(
+        "#fun2",
+        vec![
+            rewrite(
+                variable("C"),
+                Term::Sequence(vec![variable("A"), variable("B"), variable("C")]),
+            ),
+            variable("B"),
+        ],
+    );
+    let outer = application("#fun2", vec![rewrite(variable("B"), inner), variable("A")]);
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module("MAIN", vec![rule(outer, Attributes::default())])],
+        attributes: Attributes::default(),
+    };
+
+    let resolved = resolve_fun(&definition).unwrap();
+    let sentences = &resolved.main_module().unwrap().local_sentences;
+    let lambda_arities = sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label),
+                items,
+                ..
+            } if label.name.starts_with("#lambda") => Some(
+                items
+                    .iter()
+                    .filter(|item| matches!(item, ProductionItem::NonTerminal { .. }))
+                    .count(),
+            ),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(lambda_arities, vec![2, 3]);
+
+    for sentence in sentences {
+        let Sentence::Rule { body, .. } = sentence else {
+            continue;
+        };
+        let Term::Rewrite { left, right } = body.unannotated() else {
+            continue;
+        };
+        let Term::Apply { label, .. } = left.unannotated() else {
+            continue;
+        };
+        if !label.name.starts_with("#lambda") {
+            continue;
+        }
+        let mut lhs = BTreeSet::new();
+        left.visit_preorder(&mut |term| {
+            if let Term::Variable { name, .. } = term {
+                lhs.insert(name.clone());
+            }
+        });
+        let mut rhs = BTreeSet::new();
+        right.visit_preorder(&mut |term| {
+            if let Term::Variable { name, .. } = term {
+                rhs.insert(name.clone());
+            }
+        });
+        assert!(
+            rhs.is_subset(&lhs),
+            "generated {label} rule has unbound RHS variables: {:?}",
+            rhs.difference(&lhs).collect::<Vec<_>>()
+        );
+    }
 }
 
 #[test]
