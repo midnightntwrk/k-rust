@@ -27,6 +27,17 @@ impl Regex {
     pub fn to_source_string(&self) -> String {
         print_regex(self, self.end_line)
     }
+
+    /// Translate K's regex AST to a Rust regex body with Flex's anchor semantics.
+    pub fn to_flex_pattern(&self) -> Result<FlexPattern, UnexpandedLexical> {
+        Ok(FlexPattern {
+            body: self.body.to_rust_string()?,
+            start_line: self.start_line,
+            // Match `RegexSyntax.print`: Java prints both anchors when the source
+            // has a start anchor and drops a lone end anchor.
+            end_line: self.start_line,
+        })
+    }
 }
 
 impl Display for Regex {
@@ -95,6 +106,16 @@ impl RegexBody {
         print_union(self, &mut output).expect("writing to a string cannot fail");
         output
     }
+
+    /// Print this parsed K regex for Rust's regex engine.
+    ///
+    /// Every parsed character remains literal; in particular, K escapes such as
+    /// `\d` and `\b` must not become Rust character classes or assertions.
+    pub fn to_rust_string(&self) -> Result<String, UnexpandedLexical> {
+        let mut output = String::new();
+        print_rust_regex(self, &mut output)?;
+        Ok(output)
+    }
 }
 
 impl Display for RegexBody {
@@ -122,6 +143,30 @@ impl Display for CharClass {
         formatter.write_str(&self.to_k_string())
     }
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FlexPattern {
+    pub body: String,
+    pub start_line: bool,
+    pub end_line: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnexpandedLexical {
+    pub name: String,
+}
+
+impl Display for UnexpandedLexical {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "lexical identifier {:?} was not expanded",
+            self.name
+        )
+    }
+}
+
+impl std::error::Error for UnexpandedLexical {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParseError {
@@ -453,6 +498,122 @@ fn print_regex(regex: &Regex, end_line: bool) -> String {
         output.push('$');
     }
     output
+}
+
+fn print_rust_regex(body: &RegexBody, output: &mut String) -> Result<(), UnexpandedLexical> {
+    match body {
+        RegexBody::Char(character) => print_rust_character(*character, false, output),
+        RegexBody::AnyChar => output.push('.'),
+        RegexBody::Named(name) => return Err(UnexpandedLexical { name: name.clone() }),
+        RegexBody::CharClass { negated, members } => {
+            output.push('[');
+            if *negated {
+                output.push('^');
+            }
+            for member in members {
+                match member {
+                    CharClass::Char(character) => {
+                        print_rust_character(*character, true, output);
+                    }
+                    CharClass::Range { start, end } => {
+                        print_rust_character(*start, true, output);
+                        output.push('-');
+                        print_rust_character(*end, true, output);
+                    }
+                }
+            }
+            output.push(']');
+        }
+        RegexBody::Union { left, right } => {
+            output.push_str("(?:");
+            print_rust_regex(left, output)?;
+            output.push('|');
+            print_rust_regex(right, output)?;
+            output.push(')');
+        }
+        RegexBody::Concat(members) => {
+            for member in members {
+                print_rust_regex(member, output)?;
+            }
+        }
+        RegexBody::ZeroOrMore(body) => {
+            print_rust_repeated(body, "*", output)?;
+        }
+        RegexBody::ZeroOrOne(body) => {
+            print_rust_repeated(body, "?", output)?;
+        }
+        RegexBody::OneOrMore(body) => {
+            print_rust_repeated(body, "+", output)?;
+        }
+        RegexBody::Exactly { body, count } => {
+            print_rust_repeated(body, &format!("{{{count}}}"), output)?;
+        }
+        RegexBody::AtLeast { body, count } => {
+            print_rust_repeated(body, &format!("{{{count},}}"), output)?;
+        }
+        RegexBody::Range {
+            body,
+            at_least,
+            at_most,
+        } => {
+            print_rust_repeated(body, &format!("{{{at_least},{at_most}}}"), output)?;
+        }
+    }
+    Ok(())
+}
+
+fn print_rust_repeated(
+    body: &RegexBody,
+    suffix: &str,
+    output: &mut String,
+) -> Result<(), UnexpandedLexical> {
+    output.push_str("(?:");
+    print_rust_regex(body, output)?;
+    output.push(')');
+    output.push_str(suffix);
+    Ok(())
+}
+
+fn print_rust_character(character: char, in_class: bool, output: &mut String) {
+    match character {
+        '\n' => output.push_str("\\n"),
+        '\r' => output.push_str("\\r"),
+        '\t' => output.push_str("\\t"),
+        character if character.is_control() => {
+            write!(output, "\\x{{{:X}}}", character as u32)
+                .expect("writing to a string cannot fail");
+        }
+        character => {
+            let escaped = if in_class {
+                matches!(character, '\\' | '[' | ']' | '^' | '-' | '&' | '~')
+            } else {
+                matches!(
+                    character,
+                    '\\' | '.'
+                        | '+'
+                        | '*'
+                        | '?'
+                        | '('
+                        | ')'
+                        | '|'
+                        | '['
+                        | ']'
+                        | '{'
+                        | '}'
+                        | '^'
+                        | '$'
+                        | '#'
+                        | '&'
+                        | '-'
+                        | '~'
+                )
+            };
+            if escaped {
+                output.push('\\');
+            }
+            output.push(character);
+        }
+    }
 }
 
 fn print_union(body: &RegexBody, output: &mut String) -> std::fmt::Result {

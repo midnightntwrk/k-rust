@@ -275,6 +275,98 @@ program_snapshot!(
     "0 + 3 ;; comment"
 );
 
+#[test]
+fn reference_regex_backslash_d_is_a_literal_d() {
+    let definition = lowered(include_str!("fixtures/reference/inner/regex/rx.k"), "RX");
+    let parser =
+        ProgramParser::new(&definition, "RX-SYNTAX").expect("program grammar should build");
+
+    let parsed = parser
+        .parse(&Sort::new("Pgm"), "ddd")
+        .expect(r"K treats \d as the literal character d");
+    assert!(parsed.to_string().contains("#token(\"ddd\",\"Foo\")"));
+    parser
+        .parse(&Sort::new("Pgm"), "123")
+        .expect_err(r"K does not treat \d as a digit character class");
+}
+
+#[test]
+fn reference_regex_line_anchors_follow_flex_printing() {
+    let definition = lowered(
+        include_str!("fixtures/reference/inner/regex/anchor.k"),
+        "ANCHOR",
+    );
+    let parser =
+        ProgramParser::new(&definition, "ANCHOR-SYNTAX").expect("program grammar should build");
+
+    for source in ["a", " a", "a\n"] {
+        parser
+            .parse(&Sort::new("Foo"), source)
+            .unwrap_or_else(|error| {
+                panic!("lone end anchor should be dropped for {source:?}: {error}")
+            });
+    }
+    parser
+        .parse(&Sort::new("Bar"), "b\n")
+        .expect("a start anchor should imply an end anchor before a newline");
+    for source in ["b", " b\n"] {
+        let result = parser.parse(&Sort::new("Bar"), source);
+        assert!(
+            result.is_err(),
+            "anchored regex unexpectedly parsed {source:?}: {result:?}"
+        );
+    }
+}
+
+#[test]
+fn reference_rejects_rust_only_regex_syntax() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Foo ::= r"(?:a)" [token]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let error = ProgramParser::new(&definition, "MAIN").unwrap_err();
+
+    assert!(
+        matches!(
+            error,
+            ProgramError::Grammar {
+                error: ParseError::InvalidRegex { ref message, .. },
+                ..
+            } if message.contains("Unexpected token '?'")
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn regex_terminals_do_not_depend_on_unrelated_lexical_declarations() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Foo ::= r"\\d+" [token]
+              syntax lexical Unused = r"x"
+              syntax Bar ::= r"\\d+" [token]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parser = ProgramParser::new(&definition, "MAIN").expect("program grammar should build");
+
+    for sort in ["Foo", "Bar"] {
+        parser
+            .parse(&Sort::new(sort), "ddd")
+            .unwrap_or_else(|error| panic!("{sort} should parse literal d characters: {error}"));
+        assert!(
+            parser.parse(&Sort::new(sort), "123").is_err(),
+            "{sort} unexpectedly treated K's \\d as a Rust digit class"
+        );
+    }
+}
+
 program_snapshot!(
     substitutes_imported_program_parsing_modules,
     r#"

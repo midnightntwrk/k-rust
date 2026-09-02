@@ -483,7 +483,7 @@ fn add_rule_k_syntax(
     grammar.add(
         Sort::new("KLabel"),
         vec![ProductionItem::regex(
-            r"`(?:\\`|\\\\|[^`\\\n\r])+`|[a-z][a-zA-Z0-9]*|#[a-z][a-zA-Z0-9]*",
+            r"`(\\`|\\\\|[^`\\\n\r])+`|[a-z][a-zA-Z0-9]*|#[a-z][a-zA-Z0-9]*",
         )],
         None,
         true,

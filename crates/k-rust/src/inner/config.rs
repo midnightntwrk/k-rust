@@ -234,7 +234,7 @@ pub(super) fn add_k_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {
     grammar.add(
         Sort::new("#KVariable"),
         vec![ProductionItem::regex(
-            r"(?:!|\?|@)?(?:[A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)",
+            r"(\!|\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)",
         )],
         None,
         true,
