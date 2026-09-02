@@ -493,19 +493,19 @@ pub fn prove_claim(
                         explored_states,
                     ));
                 }
-                if let Some(remainder) = remainder {
-                    if extend_frontier(
+                if let Some(remainder) = remainder
+                    && extend_frontier(
                         &mut pending,
                         std::iter::once(state.remaining(remainder)),
                         options.breadth_limit,
-                    ) {
-                        return Ok(finish_at_breadth_limit(
-                            claim.mode,
-                            leaves,
-                            pending,
-                            explored_states,
-                        ));
-                    }
+                    )
+                {
+                    return Ok(finish_at_breadth_limit(
+                        claim.mode,
+                        leaves,
+                        pending,
+                        explored_states,
+                    ));
                 }
             }
             RewriteResult::Stuck(_) => {

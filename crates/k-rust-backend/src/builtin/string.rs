@@ -92,7 +92,7 @@ fn length(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     };
     let mut length = 0_usize;
     for _ in value.chars() {
-        if length % 1024 == 0 {
+        if length.is_multiple_of(1024) {
             check_interrupted()?;
         }
         length += 1;

@@ -3365,11 +3365,15 @@ mod tests {
         let mut expected = vec![r#"\dv{SortS{}}("value")"#.to_owned(); 128];
         while inputs.len() > 1 {
             inputs = inputs
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| format!("budgetPair{{}}({}, {})", pair[0], pair[1]))
                 .collect();
             expected = expected
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| format!("budgetPair{{}}({}, {})", pair[0], pair[1]))
                 .collect();
         }

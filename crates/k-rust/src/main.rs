@@ -954,7 +954,9 @@ impl From<KastArgs> for KastOptions {
     fn from(arguments: KastArgs) -> Self {
         let collect_cases = |values: Vec<String>| {
             values
-                .chunks_exact(3)
+                .as_chunks::<3>()
+                .0
+                .iter()
                 .map(|case| KastBatchCase {
                     name: case[0].clone(),
                     sort: case[1].clone(),
