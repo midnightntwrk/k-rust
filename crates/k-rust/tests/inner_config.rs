@@ -1,4 +1,6 @@
-use k_rust::definition::{Attributes, Definition, FlatModule, ProductionItem, Sentence};
+use k_rust::definition::{
+    Attributes, Definition, FlatImport, FlatModule, ProductionItem, Sentence,
+};
 use k_rust::inner::{ConfigError, resolve_configuration_bubbles};
 use k_rust::kast::{Label, Sort};
 use proptest::prelude::*;
@@ -235,6 +237,59 @@ fn configuration_grammar_includes_imported_productions() {
         }
     });
     assert!(labels.contains(&"zero".to_owned()));
+}
+
+#[test]
+fn configuration_grammar_uses_the_module_signature() {
+    let mut input = definition("<k> foo </k>");
+    let foo = Sentence::Production {
+        label: Some(Label::new("foo")),
+        parameters: vec![],
+        sort: Sort::new("Foo"),
+        items: vec![ProductionItem::Terminal("foo".into())],
+        attributes: Attributes::default(),
+    };
+    let mut private_attributes = Attributes::default();
+    private_attributes.insert("private", serde_json::json!(""));
+    input.modules.insert(
+        0,
+        FlatModule {
+            name: "BASE".into(),
+            imports: vec![],
+            local_sentences: vec![foo],
+            attributes: Attributes::default(),
+        },
+    );
+    input.modules.insert(
+        1,
+        FlatModule {
+            name: "MID".into(),
+            imports: vec![FlatImport {
+                name: "BASE".into(),
+                public: false,
+            }],
+            local_sentences: vec![],
+            attributes: private_attributes,
+        },
+    );
+    input.modules[2].imports.push(FlatImport {
+        name: "MID".into(),
+        public: true,
+    });
+
+    let hidden = resolve_configuration_bubbles(&input);
+    assert!(
+        matches!(
+            hidden,
+            Err(ConfigError::Parse { ref error, .. })
+                if matches!(error.as_ref(), k_rust::inner::ParseError::NoParse { .. })
+        ),
+        "{hidden:?}"
+    );
+
+    input.modules[1].imports[0].public = true;
+    resolve_configuration_bubbles(&input)
+        .expect("an explicitly public import remains in the configuration signature");
 }
 
 proptest! {

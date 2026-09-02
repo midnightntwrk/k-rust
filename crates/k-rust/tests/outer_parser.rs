@@ -44,6 +44,28 @@ outer_snapshot!(
 );
 
 #[test]
+fn imports_default_to_private_inside_a_private_module() {
+    let parsed = parse(
+        "private-module.k",
+        "module PRIVATE [private]\n  imports BASE\nendmodule\n",
+    )
+    .unwrap();
+
+    assert!(!parsed.modules[0].imports[0].public);
+}
+
+#[test]
+fn explicit_public_import_inside_a_private_module_stays_public() {
+    let parsed = parse(
+        "private-module.k",
+        "module PRIVATE [private]\n  imports public BASE\nendmodule\n",
+    )
+    .unwrap();
+
+    assert!(parsed.modules[0].imports[0].public);
+}
+
+#[test]
 fn lowering_preserves_bubble_content_offsets() {
     fn content_start_offset(source_name: &str, source: &str) -> usize {
         let lowered = lower(&parse(source_name, source).unwrap(), "MAIN").unwrap();

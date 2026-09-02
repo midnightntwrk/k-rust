@@ -1,7 +1,9 @@
 // Minimized from EVM-OPTIMIZATIONS.optimized.add at pinned KEVM revision
 // 5dd05ea7936c13f4029389bafd25785ed9ff0a55.
 module EVM-OPTIMIZED-ADD
+  imports BOOL
   imports INT
+  imports K-EQUAL
 
   syntax Input ::= "optimized-add"
                  | "#next" "[" OpCode "]"
