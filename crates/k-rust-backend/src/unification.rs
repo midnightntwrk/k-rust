@@ -436,6 +436,33 @@ mod tests {
     }
 
     #[test]
+    fn binds_a_supersort_variable_to_the_injected_subsort_term() {
+        let sub = Sort::simple("SortSub");
+        let sup = Sort::simple("SortSup");
+        let variable = Variable::new("Y", sup.clone());
+        let injected = Term::injection(sub.clone(), sup, Term::variable(Variable::new("X", sub)));
+        let mut definition = definition();
+        definition.sort_graph.insert("SortSub", []);
+        definition
+            .sort_graph
+            .insert("SortSup", [crate::term::Name::from("SortSub")]);
+
+        let UnificationResult::Unified(result) = unify_term_pairs(
+            &definition,
+            Substitution::new(),
+            [(injected.clone(), Term::variable(variable.clone()))],
+        ) else {
+            panic!("a sort-aligned injection and supersort variable should unify");
+        };
+
+        assert_eq!(
+            result.substitution,
+            Substitution::from([(variable, injected)])
+        );
+        assert!(result.constraints.is_empty());
+    }
+
+    #[test]
     fn rejects_distinct_constructors() {
         let left = constructor("left", Vec::new());
         let right = constructor("right", Vec::new());
