@@ -792,10 +792,23 @@ fn manual_certification_protocol_names_part_b_green_gates() {
         "# scripts/reference-rpc-differential.sh bounded-search",
         "# scripts/reference-mir-execution-differential.sh",
         "# scripts/reference-symbolic-execution-differential.sh c3-sd-symbolic c3-sy",
+        "# scripts/conformance-ratchet.sh --label <landing> --ticket <ticket>",
     ] {
         assert!(
             MANIFEST.lines().any(|line| line == command),
             "manual certification protocol must name `{command}`",
+        );
+    }
+
+    for requirement in [
+        "# PR description (any change under crates/k-rust/src/{inner,kompile,outer,definition}, crates/k-rust-backend, scripts/reference-*, scripts/conformance/):",
+        "#   1. the gate lines above that apply, one row each: case, pass/fail, wall s, peak RSS MiB (scripts/conformance/measure.py)",
+        "#   2. the ratchet block printed by `scripts/conformance-ratchet.sh --label <branch> --ticket <ids named in the PR>` (or --all at a milestone)",
+        "#   3. the id-divergence and multi-alias counts printed by scripts/reference-differential.sh while [normalisations].ignore_unique_id is set",
+    ] {
+        assert!(
+            MANIFEST.lines().any(|line| line == requirement),
+            "manual certification protocol must require `{requirement}`",
         );
     }
 }

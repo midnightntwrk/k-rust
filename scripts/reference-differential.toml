@@ -20,6 +20,12 @@ version = 1
 # scripts/reference-rpc-differential.sh bounded-search
 # scripts/reference-mir-execution-differential.sh
 # scripts/reference-symbolic-execution-differential.sh c3-sd-symbolic c3-sy
+# scripts/conformance-ratchet.sh --label <landing> --ticket <ticket>
+#
+# PR description (any change under crates/k-rust/src/{inner,kompile,outer,definition}, crates/k-rust-backend, scripts/reference-*, scripts/conformance/):
+#   1. the gate lines above that apply, one row each: case, pass/fail, wall s, peak RSS MiB (scripts/conformance/measure.py)
+#   2. the ratchet block printed by `scripts/conformance-ratchet.sh --label <branch> --ticket <ids named in the PR>` (or --all at a milestone)
+#   3. the id-divergence and multi-alias counts printed by scripts/reference-differential.sh while [normalisations].ignore_unique_id is set
 
 [normalisations]
 ignore_unique_id = "B2-03"
