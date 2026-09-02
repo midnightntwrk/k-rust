@@ -276,7 +276,7 @@ fn is_syntactic_subsort(label: &Option<Label>, items: &[ProductionItem]) -> bool
     label.is_none() && matches!(items, [ProductionItem::NonTerminal { .. }])
 }
 
-fn is_parser_sort(sort: &Sort) -> bool {
+pub(crate) fn is_parser_sort(sort: &Sort) -> bool {
     matches!(
         sort.name.as_str(),
         "KBott" | "K" | "KLabel" | "KList" | "KItem" | "KConfigVar" | "KString"

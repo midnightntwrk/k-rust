@@ -164,6 +164,220 @@ fn parse_program_records_the_callers_logical_source_identity() {
     );
 }
 
+#[test]
+fn parses_a_user_sort_program_at_kitem_and_returns_the_bare_term() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parser = ProgramParser::new(&definition, "MAIN").expect("program grammar should build");
+    let concrete = parser
+        .parse(&Sort::new("Int"), "1")
+        .expect("the concrete sort should parse");
+    let at_kitem = parser
+        .parse(&Sort::new("KItem"), "1")
+        .expect("KItem should include every user-sort program");
+
+    assert_eq!(at_kitem, concrete);
+    assert_eq!(at_kitem.to_string(), r#"#token("1","Int")"#);
+}
+
+#[test]
+fn parses_at_k_only_when_basic_k_is_visible() {
+    let without_basic_k = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parser = ProgramParser::new(&without_basic_k, "MAIN").unwrap();
+    let error = parser
+        .parse(&Sort::new("K"), "1")
+        .expect_err("K must not be synthesized over KItem");
+    assert!(
+        matches!(*error.error, ParseError::NoParse { .. }),
+        "{error:?}"
+    );
+
+    let with_basic_k = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              syntax K ::= KItem
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parser = ProgramParser::new(&with_basic_k, "MAIN").unwrap();
+    let concrete = parser.parse(&Sort::new("Int"), "1").unwrap();
+    let at_k = parser
+        .parse(&Sort::new("K"), "1")
+        .expect("visible BASIC-K syntax should connect K to KItem");
+    assert_eq!(at_k, concrete);
+}
+
+#[test]
+fn excludes_user_list_sorts_from_the_kitem_closure() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Id ::= r"[a-z]+" [token]
+              syntax Ids ::= List{Id, ","} [symbol(ids)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parser = ProgramParser::new(&definition, "MAIN").unwrap();
+    parser
+        .parse(&Sort::new("Ids"), "a,b")
+        .expect("the list sort itself should remain parseable");
+    let error = parser
+        .parse(&Sort::new("KItem"), "a,b")
+        .expect_err("user-list sorts are excluded from KItem's generated subsorts");
+    assert!(
+        matches!(*error.error, ParseError::NoParse { .. }),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn reference_singleton_nelist_at_kitem_is_a_reported_ambiguity() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax #LowerId ::= r"[a-z][a-zA-Z0-9]*" [prec(2), token]
+              syntax Id ::= #LowerId [token]
+              syntax Ids ::= NeList{Id, ","} [symbol(ids)]
+              syntax Pgm ::= Ids
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let error = ProgramParser::new(&definition, "MAIN")
+        .unwrap()
+        .parse(&Sort::new("KItem"), "a")
+        .expect_err("the bare Id and singleton Ids parses must remain ambiguous");
+
+    #[cfg(feature = "z3-inference")]
+    match *error.error {
+        ParseError::Ambiguous { ref alternatives } => {
+            assert_eq!(alternatives.len(), 2, "{alternatives:#?}");
+            let productions = alternatives
+                .iter()
+                .filter_map(|alternative| alternative.production.as_deref())
+                .collect::<Vec<_>>();
+            assert!(
+                productions
+                    .iter()
+                    .any(|production| production.contains("syntax Id ::= #LowerId [token]")),
+                "{productions:#?}"
+            );
+            assert!(
+                productions.iter().any(|production| {
+                    production.contains("syntax Ids ::= Id \",\" Ids")
+                        && production.contains("userList(+)")
+                }),
+                "{productions:#?}"
+            );
+        }
+        ref other => panic!("expected the reference ambiguity, got {other:?}"),
+    }
+    #[cfg(not(feature = "z3-inference"))]
+    assert!(
+        matches!(
+            *error.error,
+            ParseError::Z3InferenceRequired {
+                ambiguity: true,
+                parametric_sorts: false,
+            }
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn reference_punctuation_token_argument_parses_as_kitem() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Aa ::= r"%[a-z]+" [prefer, token]
+              syntax Bb ::= r"%[a-z]+" [token]
+              syntax Foo ::= "foo" "(" KItem ")" [symbol(foo)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parsed = ProgramParser::new(&definition, "MAIN")
+        .unwrap()
+        .parse(&Sort::new("Foo"), "foo(%abc)");
+    #[cfg(feature = "z3-inference")]
+    assert_eq!(
+        parsed
+            .expect("the preferred punctuation token should inhabit KItem")
+            .to_string(),
+        r#"foo(#token("%abc","Aa"))"#
+    );
+    #[cfg(not(feature = "z3-inference"))]
+    assert!(
+        matches!(
+            parsed.as_ref().unwrap_err().error.as_ref(),
+            ParseError::Z3InferenceRequired {
+                ambiguity: true,
+                parametric_sorts: false,
+            }
+        ),
+        "{parsed:?}"
+    );
+}
+
+#[test]
+fn reference_kitem_start_sort_matches_the_concrete_sort() {
+    let definition = lowered(
+        include_str!("fixtures/reference/inner/programs/scan-c-syntax/scan-c.k"),
+        "SCAN-C-SYNTAX",
+    );
+    let parser = ProgramParser::new(&definition, "SCAN-C-SYNTAX").unwrap();
+    assert_eq!(
+        parser.parse(&Sort::new("KItem"), "1").unwrap(),
+        parser.parse(&Sort::new("Int"), "1").unwrap()
+    );
+}
+
+#[test]
+fn kitem_closure_includes_parametric_instantiations() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax MInt{6}
+              syntax {N} MInt{N} ::= r"[0-9]+" [token]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parser = ProgramParser::new(&definition, "MAIN").unwrap();
+    let mint_6 = Sort::with_parameters("MInt", vec![Sort::new("6")]);
+    let at_kitem = parser.parse(&Sort::new("KItem"), "1");
+    #[cfg(feature = "z3-inference")]
+    assert_eq!(at_kitem.unwrap(), parser.parse(&mint_6, "1").unwrap());
+    #[cfg(not(feature = "z3-inference"))]
+    assert!(
+        matches!(
+            at_kitem.as_ref().unwrap_err().error.as_ref(),
+            ParseError::Z3InferenceRequired {
+                ambiguity: false,
+                parametric_sorts: true,
+            }
+        ),
+        "{at_kitem:?}; concrete sort: {mint_6}"
+    );
+}
+
 macro_rules! program_snapshot {
     ($name:ident, $definition:expr, $module:expr, $sort:expr, $program:expr) => {
         #[test]

@@ -4,13 +4,13 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use crate::definition::{
-    Definition, ModuleId, ProductionCatalog, ProductionId, ResolveError, ResolvedDefinition,
-    Sentence, sentence_equivalent,
+    Attributes, Definition, ModuleId, ProductionCatalog, ProductionId, ProductionItem,
+    ResolveError, ResolvedDefinition, Sentence, SortCatalog, sentence_equivalent,
 };
 use crate::kast::{Sort, Term};
 use crate::provenance::SourceId;
 
-use super::parser::{Grammar, ParseError};
+use super::parser::{Grammar, ParseError, is_parser_sort};
 
 const PROGRAM_PARSING_POSTFIX: &str = "-PROGRAM-PARSING";
 
@@ -81,7 +81,7 @@ impl ProgramParser {
         let module_id = definition
             .module_id(module)
             .ok_or_else(|| ProgramError::MissingModule(module.to_owned()))?;
-        let sentences = program_sentences(definition, module_id);
+        let sentences = with_kitem_subsorts(program_sentences(definition, module_id));
         let source_catalog = definition.production_catalog(module_id);
         let grammar =
             Grammar::from_program_sentences(&sentences, &source_catalog).map_err(|error| {
@@ -197,6 +197,33 @@ fn program_sentences(definition: &ResolvedDefinition, module: ModuleId) -> Vec<S
         &mut sentences,
         definition.module(module).local_sentences.iter(),
     );
+    sentences
+}
+
+/// `PROGRAM-LISTS` extends a program grammar with `KItem ::= S` for every
+/// non-parser, non-list sort in the syntax-module signature. These productions
+/// participate in both parsing and sort inference and lower transparently.
+fn with_kitem_subsorts(mut sentences: Vec<Sentence>) -> Vec<Sentence> {
+    let sorts = {
+        let catalog = SortCatalog::from_visible(sentences.iter());
+        catalog
+            .all_sorts()
+            .iter()
+            .filter(|sort| !is_parser_sort(sort) && !catalog.list_sorts().contains(sort))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let mut generated = Attributes::default();
+    generated.insert("generatedRuleSyntax", serde_json::json!(""));
+    for sort in sorts {
+        sentences.push(Sentence::Production {
+            label: None,
+            parameters: Vec::new(),
+            sort: Sort::new("KItem"),
+            items: vec![ProductionItem::NonTerminal { sort, name: None }],
+            attributes: generated.clone(),
+        });
+    }
     sentences
 }
 

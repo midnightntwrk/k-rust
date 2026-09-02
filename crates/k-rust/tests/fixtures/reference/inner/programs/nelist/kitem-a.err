@@ -1,0 +1,3 @@
+Parsing ambiguity.
+1: syntax Id ::= #LowerId [token]
+2: syntax Ids ::= Id "," Ids [userList(+)]
