@@ -415,14 +415,10 @@ impl<'a> Decoder<'a> {
                 let position = self.cursor;
                 let length = self.length(4)?;
                 let bytes = self.bytes(length)?;
-                let string = std::str::from_utf8(bytes)
-                    .map_err(|error| {
-                        BinaryError::new(
-                            self.cursor - length + error.valid_up_to(),
-                            "string is not valid UTF-8",
-                        )
-                    })?
-                    .to_owned();
+                // KORE strings are byte strings on the binary wire.  Decode
+                // each byte as its corresponding Latin-1 code point instead
+                // of attempting UTF-8 validation.
+                let string: String = bytes.iter().map(|byte| char::from(*byte)).collect();
                 self.strings.insert(position, string.clone());
                 Ok(string)
             }
@@ -954,9 +950,25 @@ impl Encoder<'_> {
     }
 
     fn string(&mut self, value: &str) -> Result<(), BinaryError> {
+        // The binary format has one byte per KORE string code point.  Reject
+        // values outside Latin-1 rather than silently emitting UTF-8 bytes.
+        let bytes = value
+            .chars()
+            .map(|character| {
+                u8::try_from(u32::from(character)).map_err(|_| {
+                    BinaryError::new(
+                        self.output.len(),
+                        format!(
+                            "string contains character U+{:04X} outside Latin-1 range",
+                            u32::from(character)
+                        ),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         self.output.push(0x01);
-        self.length(value.len(), 4)?;
-        self.output.extend_from_slice(value.as_bytes());
+        self.length(bytes.len(), 4)?;
+        self.output.extend_from_slice(&bytes);
         Ok(())
     }
 
@@ -1010,6 +1022,39 @@ mod tests {
             encoded,
             b"\x7fKORE\x01\x00\x01\x00\x00\x00\x05\x01\x02\x34\x32\x06\x00\x01\x07SortInt\x08\x01\x01\x03\\dv\x04\x01"
         );
+    }
+
+    #[test]
+    fn round_trips_every_latin1_string_byte() {
+        for byte in 0..=u8::MAX {
+            let value = Pattern::DomainValue {
+                sort: Sort::Application {
+                    name: "S".to_owned(),
+                    arguments: vec![],
+                },
+                value: char::from(byte).to_string(),
+            };
+            let encoded = encode_term(&value).expect("Latin-1 strings should encode");
+            assert_eq!(decode_term(&encoded).unwrap(), value);
+            assert!(
+                encoded
+                    .windows(4)
+                    .any(|window| window == [0x05, 0x01, 0x01, byte])
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_non_latin1_string_values() {
+        let value = Pattern::DomainValue {
+            sort: Sort::Application {
+                name: "S".to_owned(),
+                arguments: vec![],
+            },
+            value: "Ā".to_owned(),
+        };
+        let error = encode_term(&value).expect_err("non-Latin-1 strings must be rejected");
+        assert!(error.message.contains("U+0100"));
     }
 
     #[test]
