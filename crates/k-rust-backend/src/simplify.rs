@@ -2559,7 +2559,7 @@ mod tests {
     }
 
     #[test]
-    fn does_not_rebind_configuration_variables_during_equation_matching() {
+    fn keeps_ambiguous_open_map_equations_indeterminate() {
         let syntax = parse_definition(
             r#"[]
             module MAIN
@@ -2625,8 +2625,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.term, term(&definition, "different{}()"));
-        assert_eq!(result.applied_rules, ["different"]);
+        assert_eq!(result.term, input);
+        assert!(result.applied_rules.is_empty());
     }
 
     #[test]
