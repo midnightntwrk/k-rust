@@ -251,6 +251,7 @@ struct Production {
     avoid: bool,
     source_production: Option<ProductionId>,
     user_list: bool,
+    user_list_nonempty: bool,
     field_names: Vec<Option<String>>,
     record: Option<RecordProduction>,
     parametric_origin: Option<ParametricOrigin>,
@@ -299,6 +300,7 @@ struct ProductionOptions<'a> {
     avoid: bool,
     source_production: Option<ProductionId>,
     user_list: bool,
+    user_list_nonempty: bool,
     precedence: Option<&'a str>,
 }
 
@@ -777,7 +779,10 @@ impl Grammar {
             let is_terminator = matches!(
                 &*sentence,
                 Sentence::Production { items, attributes, .. }
-                    if attributes.get_str("userList") == Some("*")
+                    if matches!(
+                        attributes.get_str("userList"),
+                        Some("*") | Some("+")
+                    )
                         && !items
                             .iter()
                             .any(|item| matches!(item, ProductionItem::NonTerminal { .. }))
@@ -952,6 +957,7 @@ impl Grammar {
                     avoid: attributes.get("avoid").is_some(),
                     source_production: source_links.resolve(sentence),
                     user_list: attributes.get("userList").is_some(),
+                    user_list_nonempty: attributes.get_str("userList") == Some("+"),
                     precedence: attributes.get_str("prec"),
                 },
                 &lexical,
@@ -1493,6 +1499,7 @@ impl Grammar {
             avoid: options.avoid,
             source_production: options.source_production,
             user_list: options.user_list,
+            user_list_nonempty: options.user_list_nonempty,
             field_names,
             record: None,
             parametric_origin: None,
