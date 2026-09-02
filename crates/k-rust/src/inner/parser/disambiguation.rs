@@ -1,14 +1,12 @@
 //! Priority and associativity filtering over production-bearing parse trees.
 
-#[cfg(test)]
-use std::collections::BTreeMap;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
 
 #[cfg(test)]
 use super::parametric::substitute_sort;
 use super::{
-    Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
+    AmbiguousParse, Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
     cmp_packed_structurally, lower_term, packed_terms_in_structural_order,
 };
 use crate::kast::{Sort, Term, string};
@@ -1084,47 +1082,153 @@ impl Grammar {
         None
     }
 
-    pub(super) fn lower(&self, term: ParsedTerm) -> Term {
+    pub(super) fn resolve_ambiguities(&self, term: ParsedTerm) -> Result<Term, ParseError> {
         match term {
-            ParsedTerm::Term(term) => term,
+            ParsedTerm::Term(term) => Ok(term),
             ParsedTerm::Production {
                 production,
                 children,
-                mut metadata,
+                metadata,
             } => {
-                let production = &self.productions[production];
-                metadata.production = production
-                    .source_production
-                    .map(|production| crate::kast::ResolvedProductionId(production.0));
                 let children = children
                     .into_iter()
-                    .map(|child| self.lower(child))
-                    .collect::<Vec<_>>();
-                lower_term(production, &children).with_metadata(metadata)
+                    .map(|child| self.resolve_ambiguities(child))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(self.lower_production(production, None, children, metadata))
             }
             ParsedTerm::InstantiatedProduction {
                 production,
                 parameters,
                 children,
-                mut metadata,
+                metadata,
             } => {
-                let production = &self.productions[production];
-                metadata.production = production
-                    .source_production
-                    .map(|production| crate::kast::ResolvedProductionId(production.0));
                 let children = children
                     .into_iter()
-                    .map(|child| self.lower(child))
-                    .collect::<Vec<_>>();
-                let mut instantiated = production.clone();
-                if let Some(label) = &mut instantiated.label {
-                    label.parameters = parameters;
+                    .map(|child| self.resolve_ambiguities(child))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(self.lower_production(production, Some(&parameters), children, metadata))
+            }
+            ParsedTerm::Ambiguity(alternatives) => {
+                let mut lowered = BTreeMap::<Term, Option<String>>::new();
+                for alternative in &alternatives {
+                    let production = self.reported_production(alternative);
+                    for term in self.lowered_alternatives(alternative) {
+                        lowered.entry(term).or_insert_with(|| production.clone());
+                    }
                 }
-                lower_term(&instantiated, &children).with_metadata(metadata)
+                if lowered.len() > 1 {
+                    return Err(ParseError::Ambiguous {
+                        alternatives: lowered
+                            .into_iter()
+                            .map(|(term, production)| AmbiguousParse {
+                                production,
+                                term: term.to_string(),
+                            })
+                            .collect(),
+                    });
+                }
+                Ok(lowered
+                    .into_keys()
+                    .next()
+                    .expect("an ambiguity has at least one alternative"))
             }
-            ParsedTerm::Ambiguity(_) => {
-                unreachable!("ambiguities are rejected before lowering to KAST")
+        }
+    }
+
+    fn lowered_alternatives(&self, term: &ParsedTerm) -> BTreeSet<Term> {
+        match term {
+            ParsedTerm::Term(term) => BTreeSet::from([term.clone()]),
+            ParsedTerm::Ambiguity(alternatives) => alternatives
+                .iter()
+                .flat_map(|alternative| self.lowered_alternatives(alternative))
+                .collect(),
+            ParsedTerm::Production {
+                production,
+                children,
+                metadata,
+            } => {
+                self.lowered_production_alternatives(*production, None, children, metadata.clone())
             }
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            } => self.lowered_production_alternatives(
+                *production,
+                Some(parameters),
+                children,
+                metadata.clone(),
+            ),
+        }
+    }
+
+    fn lowered_production_alternatives(
+        &self,
+        production: usize,
+        parameters: Option<&[Sort]>,
+        children: &[ParsedTerm],
+        metadata: crate::kast::TermMetadata,
+    ) -> BTreeSet<Term> {
+        let mut combinations = vec![Vec::new()];
+        for child in children {
+            let alternatives = self.lowered_alternatives(child);
+            combinations = combinations
+                .into_iter()
+                .flat_map(|prefix| {
+                    alternatives.iter().cloned().map(move |alternative| {
+                        let mut combined = prefix.clone();
+                        combined.push(alternative);
+                        combined
+                    })
+                })
+                .collect();
+        }
+        combinations
+            .into_iter()
+            .map(|children| {
+                self.lower_production(production, parameters, children, metadata.clone())
+            })
+            .collect()
+    }
+
+    fn lower_production(
+        &self,
+        production: usize,
+        parameters: Option<&[Sort]>,
+        children: Vec<Term>,
+        mut metadata: crate::kast::TermMetadata,
+    ) -> Term {
+        let production = &self.productions[production];
+        metadata.production = production
+            .source_production
+            .map(|production| crate::kast::ResolvedProductionId(production.0));
+        if let Some(parameters) = parameters {
+            let mut instantiated = production.clone();
+            if let Some(label) = &mut instantiated.label {
+                label.parameters = parameters.to_vec();
+            }
+            lower_term(&instantiated, &children).with_metadata(metadata)
+        } else {
+            lower_term(production, &children).with_metadata(metadata)
+        }
+    }
+
+    fn reported_production(&self, term: &ParsedTerm) -> Option<String> {
+        match term {
+            ParsedTerm::Production { production, .. }
+            | ParsedTerm::InstantiatedProduction { production, .. } => {
+                self.productions[*production].source_production_text.clone()
+            }
+            ParsedTerm::Term(term) => term
+                .metadata()
+                .and_then(|metadata| metadata.production)
+                .and_then(|production| {
+                    self.source_production_texts
+                        .get(&crate::definition::ProductionId(production.0))
+                })
+                .cloned(),
+            ParsedTerm::Ambiguity(_) => None,
         }
     }
 
@@ -2245,6 +2349,7 @@ impl Grammar {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn ambiguity_count(term: &ParsedTerm) -> usize {
         match term {
             ParsedTerm::Term(_) => 1,

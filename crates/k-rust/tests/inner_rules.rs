@@ -689,6 +689,152 @@ fn preserves_genuine_ambiguity_until_disambiguation_is_ported() {
     assert!(expected, "{error:?}");
 }
 
+#[test]
+fn reference_scan_c_uppercase_identifier_is_a_variable_over_a_prec1_token() {
+    let source = include_str!("fixtures/reference/inner/tokens/scan-c.k");
+    let definition = resolve_rule_bubbles(&lowered(source)).expect("rule should parse");
+    let body = definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .expect("resolved rule should exist");
+    let mut variables = Vec::new();
+    let mut id_tokens = Vec::new();
+    body.visit_preorder(&mut |term| match term.unannotated() {
+        Term::Variable { name, sort } if name == "X" => variables.push(sort.clone()),
+        Term::Token { token, sort } if token == "X" && sort == &Sort::new("Id") => {
+            id_tokens.push(token.clone());
+        }
+        _ => {}
+    });
+
+    assert_eq!(variables, [None, None]);
+    assert!(id_tokens.is_empty(), "X was silently parsed as an Id token");
+}
+
+#[test]
+fn reference_scan_a_lowercase_klabel_application_resolves_to_the_user_production() {
+    let source = include_str!("fixtures/reference/inner/tokens/scan-a.k");
+    let definition = resolve_rule_bubbles(&lowered(source)).expect("rule should parse");
+    let body = definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .expect("resolved rule should exist");
+    let mut pluses = 0;
+    body.visit_preorder(&mut |term| {
+        if matches!(term.unannotated(), Term::Apply { label, .. } if label.name == "plus") {
+            pluses += 1;
+        }
+    });
+    assert_eq!(
+        pluses, 2,
+        "both application and infix syntax resolve to plus"
+    );
+}
+
+#[test]
+fn reference_scan_b_lowercase_identifier_is_not_a_user_token_in_rules() {
+    let source = include_str!("fixtures/reference/inner/tokens/scan-b.k");
+    let error = resolve_rule_bubbles(&lowered(source)).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            RuleError::Parse(ref error)
+                if matches!(error.error, ParseError::NoParse { .. })
+        ),
+        "{error:?}"
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn reference_scan_d_upperid_token_and_variable_are_a_reported_ambiguity() {
+    let source = include_str!("fixtures/reference/inner/tokens/scan-d.k");
+    let error = resolve_rule_bubbles(&lowered(source)).unwrap_err();
+    let RuleError::Parse(error) = error else {
+        panic!("expected a parse error, got {error:?}")
+    };
+    let ParseError::Ambiguous { alternatives } = error.error else {
+        panic!("expected ambiguity, got {:?}", error.error)
+    };
+    assert_eq!(alternatives.len(), 2, "{alternatives:#?}");
+    assert!(alternatives.iter().any(|alternative| {
+        alternative
+            .production
+            .as_deref()
+            .is_some_and(|production| production.contains("syntax Id ::= #UpperId [token]"))
+            && alternative.term.contains("#token(\"X\",\"Id\")")
+    }));
+    assert!(alternatives.iter().any(|alternative| {
+        alternative
+            .production
+            .as_deref()
+            .is_some_and(|production| production.contains("syntax K ::= K \":K\""))
+            && alternative.term.contains("#SemanticCastToK(X)")
+    }));
+}
+
+#[test]
+fn reference_invalid_prec_is_rejected_without_any_rule_bubble() {
+    let source = include_str!("fixtures/reference/inner/tokens/invalidPrec.k");
+    let error = resolve_rule_bubbles(&lowered(source)).unwrap_err();
+    assert!(matches!(
+        error,
+        RuleError::InconsistentTokenPrecedence {
+            ref declarations,
+            ..
+        } if declarations.len() == 2
+    ));
+    assert!(
+        error
+            .to_string()
+            .starts_with("Inconsistent token precedence detected.")
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("syntax Foo ::= r\"[0-9]+\" [token]")
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("syntax Int ::= r\"[0-9]+\" [prec(2), token]")
+    );
+}
+
+#[test]
+fn imported_rule_modules_use_the_main_modules_global_scanner() {
+    let source = indoc! {r#"
+        module TOKEN
+          syntax Id ::= r"[A-Z]+" [prec(3), token]
+        endmodule
+        module RULES
+          rule X => X
+        endmodule
+        module MAIN
+          imports TOKEN
+          imports RULES
+        endmodule
+    "#};
+    let error = resolve_rule_bubbles(&lowered(source)).unwrap_err();
+    assert!(matches!(
+        error,
+        RuleError::Parse(ref error)
+            if error.module == "RULES" && matches!(error.error, ParseError::NoParse { .. })
+    ));
+}
+
 fn selector_source(attribute: &str) -> String {
     format!(
         r#"module MAIN
@@ -833,7 +979,7 @@ rule_snapshot!(
     resolves_syntax_priority,
     r#"
         module MAIN
-          syntax Id ::= r"[a-z]" [token]
+          syntax Id ::= r"[a-z]" [prec(3), token]
           syntax Exp ::= Id
           syntax Exp ::= Exp "*" Exp [symbol(times)]
                        > Exp "+" Exp [symbol(plus)]
@@ -846,7 +992,7 @@ rule_snapshot!(
     resolves_prefix_terminals_with_the_global_scanner,
     r#"
         module MAIN
-          syntax Id ::= r"[a-z]" [token]
+          syntax Id ::= r"[a-z]" [prec(3), token]
           syntax Exp ::= Id
           syntax Exp ::= Exp "==" Exp [symbol(eq)]
           syntax Exp ::= Exp "==K" Exp [symbol(eqK)]
@@ -859,7 +1005,7 @@ rule_snapshot!(
     resolves_left_and_right_associativity,
     r#"
         module MAIN
-          syntax Id ::= r"[a-z]" [token]
+          syntax Id ::= r"[a-z]" [prec(3), token]
           syntax LeftExp ::= Id
           syntax LeftExp ::= left: LeftExp "+" LeftExp [symbol(leftPlus)]
           syntax RightExp ::= Id
@@ -953,7 +1099,7 @@ rule_snapshot!(
     brackets_shield_associativity,
     r#"
         module MAIN
-          syntax Id ::= r"[a-z]" [token]
+          syntax Id ::= r"[a-z]" [prec(3), token]
           syntax Exp ::= Id
           syntax Exp ::= "(" Exp ")" [bracket]
           syntax Exp ::= left: Exp "+" Exp [symbol(plus)]
@@ -966,7 +1112,7 @@ rule_snapshot!(
     parses_and_cleans_all_cast_forms,
     r#"
         module MAIN
-          syntax Id ::= r"[a-z]" [token]
+          syntax Id ::= r"[a-z]" [prec(3), token]
           syntax Exp ::= Id
           syntax Exp ::= "e" [symbol(e)]
           rule X::Exp => {X}::Exp
@@ -995,7 +1141,7 @@ rule_snapshot!(
 fn rejects_an_unscoped_cast_over_a_production_ending_in_a_nonterminal() {
     let source = indoc! {r#"
         module MAIN
-          syntax Atom ::= r"[a-z]" [token]
+          syntax Atom ::= r"[a-z]" [prec(3), token]
           syntax Other ::= Atom
           syntax Exp ::= "f" Other [symbol(f)]
           rule f a::Exp => f a
@@ -1022,7 +1168,7 @@ rule_snapshot!(
     resolves_generic_k_applications,
     r#"
         module MAIN
-          syntax Id ::= r"[a-z]" [token]
+          syntax Id ::= r"[a-z]" [prec(3), token]
           syntax Exp ::= Id
           syntax Exp ::= "zero" [symbol(zero)]
           syntax Exp ::= Exp "+" Exp [symbol(_+_)]
@@ -1099,7 +1245,7 @@ rule_snapshot!(
     shares_inference_identity_for_a_parenthesized_rewrite_across_bracket_alternatives,
     r#"
         module MAIN
-          syntax Id ::= r"[a-z]+" [token]
+          syntax Id ::= r"[a-z]+" [prec(3), token]
           syntax KItem ::= Id
           syntax Map ::= ".Map" [symbol(dotMap)]
                        | KItem "|->" KItem [symbol(mapEntry)]
@@ -1114,7 +1260,7 @@ rule_snapshot!(
     infers_shared_collection_values_at_kitem_instead_of_k,
     r#"
         module MAIN
-          syntax Id ::= r"[a-z]+" [token]
+          syntax Id ::= r"[a-z]+" [prec(3), token]
           syntax KItem ::= Id
           syntax Map ::= ".Map" [symbol(dotMap)]
                        | KItem "|->" KItem [symbol(mapEntry)]
@@ -1372,7 +1518,7 @@ fn function_rules_cannot_widen_the_rewrite_sort() {
 fn reports_unknown_generic_k_applications() {
     let definition = lowered(indoc! {r#"
         module MAIN
-          syntax Id ::= r"[a-z]" [token]
+          syntax Id ::= r"[a-z]" [prec(3), token]
           syntax Exp ::= Id
           rule missing(a) => a
         endmodule
@@ -1643,7 +1789,7 @@ fn reports_overloaded_terminators_without_a_unique_least_sort() {
 fn reconstructs_implicit_user_lists_after_sort_inference() {
     let source = indoc! {r#"
         module MAIN
-          syntax Id ::= r"[a-z]" [token]
+          syntax Id ::= r"[a-z]" [prec(3), token]
           syntax Ids ::= List{Id, ","} [symbol(ids)]
           syntax Wrapped ::= "wrap" Ids [symbol(wrap)]
           rule wrap a => wrap a,b

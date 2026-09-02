@@ -2059,7 +2059,7 @@ fn reports_a_macro_symbol_when_repeated_variable_matching_fails() {
 fn expands_sort_constrained_variable_macros_over_tokens() {
     let source = indoc! {r#"
         module MAIN
-          syntax Foo ::= r"[a-z]+" [token]
+          syntax Foo ::= r"[a-z]+" [prec(3), token]
           syntax Exp ::= "wrap(" Foo ")" [symbol(wrap)]
           rule X:Foo => bar [macro]
           rule wrap(foo) [label(subject)]

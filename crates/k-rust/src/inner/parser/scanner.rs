@@ -8,7 +8,7 @@ use regex_automata::{MatchKind, meta::Regex as LongestRegex};
 use crate::definition::{ProductionItem, Regex as KRegex, parse_regex};
 use crate::kast::Sort;
 
-use super::{ParseError, expand_regex_body};
+use super::{ParseError, TokenPrecedenceDeclaration, expand_regex_body};
 
 const DEFAULT_LAYOUT: [&str; 3] = [
     r"(\/\*([^\*]|(\*+([^\*\/])))*\*+\/)",
@@ -140,10 +140,11 @@ struct Lexeme {
     key: LexemeKey,
     item: Item,
     precedence: i32,
+    declaration: TokenPrecedenceDeclaration,
 }
 
 #[derive(Clone, Debug, Default)]
-pub(super) struct Scanner {
+pub(in crate::inner) struct Scanner {
     lexemes: Vec<Lexeme>,
     ids: BTreeMap<LexemeKey, usize>,
 }
@@ -153,27 +154,35 @@ impl Scanner {
         &mut self,
         item: &Item,
         precedence: Option<&str>,
+        mut declaration: TokenPrecedenceDeclaration,
     ) -> Result<(), ParseError> {
         let Some(key) = lexeme_key(item) else {
             return Ok(());
         };
         if let Some(existing) = self.ids.get(&key).copied() {
             let candidate = token_precedence(item, precedence, true)?;
+            declaration.precedence = candidate;
             if self.lexemes[existing].precedence != candidate {
+                let mut declarations =
+                    vec![self.lexemes[existing].declaration.clone(), declaration];
+                declarations.sort();
                 return Err(ParseError::InconsistentTokenPrecedence {
                     token: item.description(),
+                    declarations,
                 });
             }
             return Ok(());
         }
 
         let precedence = token_precedence(item, precedence, false)?;
+        declaration.precedence = precedence;
         let index = self.lexemes.len();
         self.ids.insert(key.clone(), index);
         self.lexemes.push(Lexeme {
             key,
             item: item.clone(),
             precedence,
+            declaration,
         });
         Ok(())
     }
@@ -216,6 +225,23 @@ impl Scanner {
             .then(|| winner.expect("winner was matched").1)
             .into_iter()
             .collect()
+    }
+
+    #[cfg(test)]
+    pub(in crate::inner) fn winner_description(&self, input: &str) -> Option<String> {
+        self.lexemes
+            .iter()
+            .filter_map(|lexeme| {
+                match_lexeme(&lexeme.item, input, 0)
+                    .and_then(|end| (end == input.len()).then_some((lexeme, end)))
+            })
+            .max_by(|(left, left_end), (right, right_end)| {
+                left_end
+                    .cmp(right_end)
+                    .then_with(|| left.precedence.cmp(&right.precedence))
+                    .then_with(|| right.key.cmp(&left.key))
+            })
+            .map(|(lexeme, _)| lexeme.item.description())
     }
 }
 

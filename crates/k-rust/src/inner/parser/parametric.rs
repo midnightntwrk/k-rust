@@ -190,12 +190,18 @@ impl Grammar {
             .collect::<Vec<_>>();
         let concrete_label = label.as_ref().map(|label| Label::new(label.name.clone()));
         let index = self.productions.len();
+        let source_production_text = source_production
+            .and_then(|production| self.source_production_texts.get(&production))
+            .cloned();
         self.add_production_with_lexical(
             concrete_result,
             &concrete_items,
             concrete_label,
             ProductionOptions {
                 source_production,
+                source_production_text: source_production_text.as_deref(),
+                source: attributes.source(),
+                location: attributes.location(),
                 ..production_options(attributes)
             },
             lexical,
@@ -257,6 +263,9 @@ fn production_options(attributes: &Attributes) -> ProductionOptions<'_> {
         prefer: attributes.get("prefer").is_some(),
         avoid: attributes.get("avoid").is_some(),
         source_production: None,
+        source_production_text: None,
+        source: attributes.source(),
+        location: attributes.location(),
         user_list: attributes.get("userList").is_some(),
         user_list_nonempty: attributes.get_str("userList") == Some("+"),
         precedence: attributes.get_str("prec"),
