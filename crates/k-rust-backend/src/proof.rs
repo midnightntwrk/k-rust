@@ -19,7 +19,8 @@ use crate::{
     rewrite::{
         IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry, TraceKind, Truth,
         conjunctively_contains_alpha_equivalent, predicates_truth, quantify_introduced_variables,
-        recover_indeterminate_match, rewrite_step_with_solver, substitute_predicates,
+        recover_indeterminate_match, rewrite_step_sequential_with_solver, rewrite_step_with_solver,
+        substitute_predicates,
     },
     simplify::{
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
@@ -186,13 +187,8 @@ pub fn prove_claim(
     macro_rules! record_leaf {
         ($leaf:expr) => {{
             leaves.push($leaf);
-            if counterexample_limit_reached(claim.mode, &leaves, options) {
-                return Ok(finish(
-                    claim.mode,
-                    leaves,
-                    explored_states,
-                    pending.len() as u64,
-                ));
+            if counterexample_limit_reached(&leaves, options) {
+                return Ok(finish(leaves, explored_states, pending.len() as u64));
             }
         }};
     }
@@ -207,12 +203,7 @@ pub fn prove_claim(
                 if let Some(mode) = step_timer.timed_out() {
                     step_timer.discard_measurement();
                     leaves.push(state.leaf(ProofLeafOutcome::TimedOut(mode)));
-                    return Ok(finish(
-                        claim.mode,
-                        leaves,
-                        explored_states,
-                        pending.len() as u64,
-                    ));
+                    return Ok(finish(leaves, explored_states, pending.len() as u64));
                 }
             };
         }
@@ -247,9 +238,6 @@ pub fn prove_claim(
                 substitution: Default::default(),
             });
             record_leaf!(state.leaf(outcome));
-            if claim.mode == ReachabilityMode::OnePath {
-                return Ok(finish(claim.mode, leaves, explored_states, 0));
-            }
             continue;
         }
         let simplified = simplify_with_solver(
@@ -294,11 +282,7 @@ pub fn prove_claim(
             } else {
                 ProofLeafOutcome::Vacuous
             };
-            let proven = matches!(outcome, ProofLeafOutcome::Proven(_));
             record_leaf!(state.leaf(outcome));
-            if proven && claim.mode == ReachabilityMode::OnePath {
-                return Ok(finish(claim.mode, leaves, explored_states, 0));
-            }
             continue;
         }
 
@@ -323,9 +307,6 @@ pub fn prove_claim(
                         .condition
                         .expect("a valid implication always has a condition");
                     record_leaf!(state.leaf(ProofLeafOutcome::Proven(condition)));
-                    if claim.mode == ReachabilityMode::OnePath {
-                        return Ok(finish(claim.mode, leaves, explored_states, 0));
-                    }
                     continue;
                 }
                 ImplicationStatus::Invalid if implication.condition.is_some() => {
@@ -424,12 +405,7 @@ pub fn prove_claim(
                             }),
                             options.breadth_limit,
                         ) {
-                            return Ok(finish_at_breadth_limit(
-                                claim.mode,
-                                leaves,
-                                pending,
-                                explored_states,
-                            ));
+                            return Ok(finish_at_breadth_limit(leaves, pending, explored_states));
                         }
                         // The sub-case the claim did not cover stays at the same depth and
                         // continues through the other claims and the semantics, exactly like
@@ -441,12 +417,7 @@ pub fn prove_claim(
                                 options.breadth_limit,
                             )
                         {
-                            return Ok(finish_at_breadth_limit(
-                                claim.mode,
-                                leaves,
-                                pending,
-                                explored_states,
-                            ));
+                            return Ok(finish_at_breadth_limit(leaves, pending, explored_states));
                         }
                     }
                     ClaimApplication::Indeterminate(_) | ClaimApplication::NotApplicable => {
@@ -457,8 +428,17 @@ pub fn prove_claim(
             }
         }
 
-        let rewritten =
-            rewrite_step_with_solver(definition, &state.pattern, &mut fresh_counter, solver);
+        let rewritten = match claim.mode {
+            ReachabilityMode::OnePath => rewrite_step_sequential_with_solver(
+                definition,
+                &state.pattern,
+                &mut fresh_counter,
+                solver,
+            ),
+            ReachabilityMode::AllPath => {
+                rewrite_step_with_solver(definition, &state.pattern, &mut fresh_counter, solver)
+            }
+        };
         finish_if_timed_out!();
         match rewritten {
             RewriteResult::Finished(applied) => {
@@ -467,12 +447,7 @@ pub fn prove_claim(
                     std::iter::once(state.rewritten(applied)),
                     options.breadth_limit,
                 ) {
-                    return Ok(finish_at_breadth_limit(
-                        claim.mode,
-                        leaves,
-                        pending,
-                        explored_states,
-                    ));
+                    return Ok(finish_at_breadth_limit(leaves, pending, explored_states));
                 }
             }
             RewriteResult::Branch {
@@ -487,12 +462,7 @@ pub fn prove_claim(
                         .map(|applied| state.clone().rewritten(applied)),
                     options.breadth_limit,
                 ) {
-                    return Ok(finish_at_breadth_limit(
-                        claim.mode,
-                        leaves,
-                        pending,
-                        explored_states,
-                    ));
+                    return Ok(finish_at_breadth_limit(leaves, pending, explored_states));
                 }
                 if let Some(remainder) = remainder
                     && extend_frontier(
@@ -501,12 +471,7 @@ pub fn prove_claim(
                         options.breadth_limit,
                     )
                 {
-                    return Ok(finish_at_breadth_limit(
-                        claim.mode,
-                        leaves,
-                        pending,
-                        explored_states,
-                    ));
+                    return Ok(finish_at_breadth_limit(leaves, pending, explored_states));
                 }
             }
             RewriteResult::Stuck(_) => {
@@ -529,11 +494,7 @@ pub fn prove_claim(
                 } else {
                     ProofLeafOutcome::Vacuous
                 };
-                let proven = matches!(outcome, ProofLeafOutcome::Proven(_));
                 record_leaf!(state.leaf(outcome));
-                if proven && claim.mode == ReachabilityMode::OnePath {
-                    return Ok(finish(claim.mode, leaves, explored_states, 0));
-                }
             }
             RewriteResult::Indeterminate { reason, .. } => {
                 let reason = match reason {
@@ -547,7 +508,7 @@ pub fn prove_claim(
         }
     }
 
-    Ok(finish(claim.mode, leaves, explored_states, 0))
+    Ok(finish(leaves, explored_states, 0))
 }
 
 fn extend_frontier(
@@ -560,7 +521,6 @@ fn extend_frontier(
 }
 
 fn finish_at_breadth_limit(
-    mode: ReachabilityMode,
     mut leaves: Vec<ProofLeaf>,
     pending: VecDeque<ProofState>,
     explored_states: u64,
@@ -571,17 +531,11 @@ fn finish_at_breadth_limit(
             .into_iter()
             .map(|state| state.leaf(ProofLeafOutcome::BreadthBound)),
     );
-    finish(mode, leaves, explored_states, unexplored_states)
+    finish(leaves, explored_states, unexplored_states)
 }
 
-fn counterexample_limit_reached(
-    mode: ReachabilityMode,
-    leaves: &[ProofLeaf],
-    options: ProofOptions,
-) -> bool {
-    mode == ReachabilityMode::AllPath
-        && leaves.iter().filter(|leaf| !closes_all_path(leaf)).count()
-            >= options.max_counterexamples
+fn counterexample_limit_reached(leaves: &[ProofLeaf], options: ProofOptions) -> bool {
+    leaves.iter().filter(|leaf| !is_proven(leaf)).count() >= options.max_counterexamples
 }
 
 #[derive(Clone)]
@@ -961,17 +915,11 @@ fn freshen_claim(
     }
 }
 
-fn finish(
-    mode: ReachabilityMode,
-    leaves: Vec<ProofLeaf>,
-    explored_states: u64,
-    unexplored_states: u64,
-) -> ProofResult {
-    let any_proven = leaves.iter().any(is_proven);
+fn finish(leaves: Vec<ProofLeaf>, explored_states: u64, unexplored_states: u64) -> ProofResult {
     let any_disproved = leaves.iter().any(|leaf| {
         matches!(
             leaf.outcome,
-            ProofLeafOutcome::Stuck | ProofLeafOutcome::Vacuous
+            ProofLeafOutcome::Stuck | ProofLeafOutcome::Trivial | ProofLeafOutcome::Vacuous
         )
     });
     let any_indeterminate = leaves.iter().any(|leaf| {
@@ -986,16 +934,20 @@ fn finish(
     let any_breadth_bound = leaves
         .iter()
         .any(|leaf| matches!(leaf.outcome, ProofLeafOutcome::BreadthBound));
-    let status = match mode {
-        ReachabilityMode::OnePath if any_proven => ProofStatus::Proven,
-        ReachabilityMode::AllPath if any_disproved => ProofStatus::Disproved,
-        _ if any_indeterminate => ProofStatus::Indeterminate,
-        _ if any_depth_bound => ProofStatus::DepthBound,
-        _ if any_breadth_bound => ProofStatus::BreadthBound,
-        _ if unexplored_states > 0 => ProofStatus::Indeterminate,
-        ReachabilityMode::AllPath if leaves.iter().all(closes_all_path) => ProofStatus::Proven,
-        ReachabilityMode::OnePath => ProofStatus::Disproved,
-        ReachabilityMode::AllPath => ProofStatus::Indeterminate,
+    let status = if any_disproved {
+        ProofStatus::Disproved
+    } else if any_indeterminate {
+        ProofStatus::Indeterminate
+    } else if any_depth_bound {
+        ProofStatus::DepthBound
+    } else if any_breadth_bound {
+        ProofStatus::BreadthBound
+    } else if unexplored_states > 0 {
+        ProofStatus::Indeterminate
+    } else if leaves.iter().all(is_proven) {
+        ProofStatus::Proven
+    } else {
+        ProofStatus::Indeterminate
     };
     ProofResult {
         status,
@@ -1010,10 +962,6 @@ fn is_proven(leaf: &ProofLeaf) -> bool {
         leaf.outcome,
         ProofLeafOutcome::Proven(_) | ProofLeafOutcome::Trusted
     )
-}
-
-fn closes_all_path(leaf: &ProofLeaf) -> bool {
-    is_proven(leaf) || matches!(leaf.outcome, ProofLeafOutcome::Trivial)
 }
 
 fn extend_unique(left: &mut Vec<crate::rule::Predicate>, right: Vec<crate::rule::Predicate>) {
@@ -1093,6 +1041,31 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Debug)]
+    struct FixedSolver {
+        satisfiability: Result<Satisfiability, SmtError>,
+        validity: Result<Validity, SmtError>,
+    }
+
+    impl SmtSolver for FixedSolver {
+        fn is_sat(
+            &self,
+            _predicates: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+        ) -> Result<Satisfiability, SmtError> {
+            self.satisfiability.clone()
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+            _checked: &[crate::rule::Predicate],
+        ) -> Result<Validity, SmtError> {
+            self.validity.clone()
+        }
+    }
+
     fn definition(rules: &str, claims: &str) -> BackendDefinition {
         let source = format!(
             r#"[]
@@ -1156,7 +1129,7 @@ mod tests {
     }
 
     #[test]
-    fn trivial_successors_close_only_all_path_branches() {
+    fn trivial_successors_refute_both_modes() {
         let definition = definition("", "");
         let leaf = ProofLeaf {
             pattern: Pattern {
@@ -1169,13 +1142,10 @@ mod tests {
         };
 
         assert_eq!(
-            finish(ReachabilityMode::AllPath, vec![leaf.clone()], 1, 0).status,
-            ProofStatus::Proven
-        );
-        assert_eq!(
-            finish(ReachabilityMode::OnePath, vec![leaf], 1, 0).status,
+            finish(vec![leaf.clone()], 1, 0).status,
             ProofStatus::Disproved
         );
+        assert_eq!(finish(vec![leaf], 1, 0).status, ProofStatus::Disproved);
     }
 
     #[cfg(feature = "z3")]
@@ -1584,6 +1554,177 @@ mod tests {
         ) [label{}("a-to-c")]
     "#;
 
+    const START_CASE_SPLIT: &str = r#"
+        symbol start{}(SortS{}) : SortS{} [constructor{}()]
+        symbol good{}() : SortS{} [constructor{}()]
+        symbol bad{}() : SortS{} [constructor{}()]
+        axiom{} \rewrites{SortS{}}(
+            \and{SortS{}}(
+                start{}(X:SortS{}),
+                \equals{SortS{}, SortS{}}(X:SortS{}, a{}())
+            ),
+            good{}()
+        ) [label{}("start-to-good")]
+        axiom{} \rewrites{SortS{}}(
+            \and{SortS{}}(
+                start{}(X:SortS{}),
+                \not{SortS{}}(
+                    \equals{SortS{}, SortS{}}(X:SortS{}, a{}())
+                )
+            ),
+            bad{}()
+        ) [label{}("start-to-bad")]
+    "#;
+
+    fn start_claim(mode: ReachabilityMode, destination: &str) -> String {
+        let modality = match mode {
+            ReachabilityMode::OnePath => "weakExistsFinally",
+            ReachabilityMode::AllPath => "weakAlwaysFinally",
+        };
+        format!(
+            r#"claim{{}} \implies{{SortS{{}}}}(
+                \and{{SortS{{}}}}(start{{}}(X:SortS{{}}), \top{{SortS{{}}}}()),
+                {modality}{{SortS{{}}}}(
+                    \and{{SortS{{}}}}({destination}{{}}(), \top{{SortS{{}}}}())
+                )
+            ) [label{{}}("case-split-{destination}")]"#
+        )
+    }
+
+    #[test]
+    fn one_path_case_split_must_close_every_branch() {
+        let claims = [
+            start_claim(ReachabilityMode::OnePath, "good"),
+            start_claim(ReachabilityMode::AllPath, "good"),
+        ]
+        .join("\n");
+        let definition = definition(START_CASE_SPLIT, &claims);
+        let solver = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Indeterminate),
+        };
+
+        for claim in &definition.reachability_claims {
+            let result = prove_claim(
+                &definition,
+                claim,
+                ProofOptions {
+                    max_counterexamples: 2,
+                    ..ProofOptions::default()
+                },
+                &solver,
+            )
+            .expect("case-split claim should execute");
+
+            assert_eq!(result.status, ProofStatus::Disproved, "{result:#?}");
+            assert!(result.leaves.iter().any(|leaf| {
+                leaf.outcome == ProofLeafOutcome::Stuck
+                    && leaf.pattern.term == term(&definition, "bad{}()")
+            }));
+        }
+    }
+
+    #[test]
+    fn one_path_applies_overlapping_rules_sequentially() {
+        let claims = [
+            modal_claim(ReachabilityMode::OnePath, "a", "b", false),
+            modal_claim(ReachabilityMode::OnePath, "a", "c", false),
+        ]
+        .join("\n");
+        let definition = definition(A_TO_B_AND_C, &claims);
+
+        let first = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &NoSolver,
+        )
+        .expect("first overlapping claim should execute");
+        assert_eq!(first.status, ProofStatus::Proven, "{first:#?}");
+        assert_eq!(first.explored_states, 2);
+        assert!(matches!(
+            first.leaves.as_slice(),
+            [ProofLeaf { trace, .. }]
+                if matches!(trace.as_slice(), [TraceEntry {
+                    kind: TraceKind::Rewrite,
+                    label: Some(label),
+                    ..
+                }] if label == "a-to-b")
+        ));
+
+        let second = prove_claim(
+            &definition,
+            &definition.reachability_claims[1],
+            ProofOptions::default(),
+            &NoSolver,
+        )
+        .expect("second overlapping claim should execute");
+        assert_eq!(second.status, ProofStatus::Disproved, "{second:#?}");
+        assert!(second.leaves.iter().all(|leaf| {
+            leaf.trace
+                .iter()
+                .all(|entry| entry.label.as_deref() != Some("a-to-c"))
+        }));
+    }
+
+    #[test]
+    fn one_path_counterexample_limit_applies() {
+        let rules = r#"
+            symbol d{}() : SortS{} [constructor{}()]
+            symbol e{}() : SortS{} [constructor{}()]
+            symbol start{}(SortS{}) : SortS{} [constructor{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    start{}(X:SortS{}),
+                    \equals{SortS{}, SortS{}}(X:SortS{}, a{}())
+                ),
+                b{}()
+            ) [label{}("start-a")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    start{}(X:SortS{}),
+                    \equals{SortS{}, SortS{}}(X:SortS{}, b{}())
+                ),
+                c{}()
+            ) [label{}("start-b")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    start{}(X:SortS{}),
+                    \and{SortS{}}(
+                        \not{SortS{}}(
+                            \equals{SortS{}, SortS{}}(X:SortS{}, a{}())
+                        ),
+                        \not{SortS{}}(
+                            \equals{SortS{}, SortS{}}(X:SortS{}, b{}())
+                        )
+                    )
+                ),
+                d{}()
+            ) [label{}("start-other")]
+        "#;
+        let claims = start_claim(ReachabilityMode::OnePath, "e");
+        let definition = definition(rules, &claims);
+        let solver = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Indeterminate),
+        };
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions {
+                max_counterexamples: 2,
+                ..ProofOptions::default()
+            },
+            &solver,
+        )
+        .expect("counterexample-limited claim should execute");
+
+        assert_eq!(result.status, ProofStatus::Disproved, "{result:#?}");
+        assert_eq!(result.leaves.len(), 2, "{result:#?}");
+        assert_eq!(result.unexplored_states, 1, "{result:#?}");
+    }
+
     const A_TO_A: &str = r#"
         axiom{} \rewrites{SortS{}}(
             \and{SortS{}}(a{}(), \top{SortS{}}()),
@@ -1619,14 +1760,14 @@ mod tests {
     }
 
     #[test]
-    fn closes_explicit_bottom_rewrites_as_trivial() {
+    fn explicit_bottom_rewrites_are_nonclosing() {
         let claims = modal_claim(ReachabilityMode::AllPath, "a", "b", false);
         let definition = definition(A_TO_BOTTOM, &claims);
         let claim = &definition.reachability_claims[0];
 
         let result = prove_claim(&definition, claim, ProofOptions::default(), &NoSolver).unwrap();
 
-        assert_eq!(result.status, ProofStatus::Proven);
+        assert_eq!(result.status, ProofStatus::Disproved);
         assert!(matches!(
             result.leaves.as_slice(),
             [ProofLeaf {
@@ -1959,6 +2100,12 @@ mod tests {
         .unwrap();
 
         assert_eq!(one_path.status, ProofStatus::Proven);
+        assert_eq!(one_path.explored_states, 2);
+        assert!(one_path.leaves.iter().all(|leaf| {
+            leaf.trace
+                .iter()
+                .all(|entry| entry.label.as_deref() != Some("a-to-c"))
+        }));
         assert_eq!(all_path.status, ProofStatus::Disproved);
         assert_eq!(all_path.leaves.len(), 2);
         assert_eq!(all_path.unexplored_states, 0);
@@ -2027,8 +2174,23 @@ mod tests {
 
     #[test]
     fn supports_breadth_first_and_depth_first_proof_search() {
-        let claims = modal_claim(ReachabilityMode::OnePath, "a", "c", false);
-        let definition = definition(A_TO_B_AND_C, &claims);
+        let rules = r#"
+            symbol d{}() : SortS{} [constructor{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()), b{}()
+            ) [label{}("a-to-b")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()), d{}()
+            ) [label{}("a-to-d")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(b{}(), \top{SortS{}}()), c{}()
+            ) [label{}("b-to-c")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(d{}(), \top{SortS{}}()), c{}()
+            ) [label{}("d-to-c")]
+        "#;
+        let claims = modal_claim(ReachabilityMode::AllPath, "a", "c", false);
+        let definition = definition(rules, &claims);
         let claim = &definition.reachability_claims[0];
 
         let breadth_first = prove_claim(
@@ -2054,8 +2216,9 @@ mod tests {
 
         assert_eq!(breadth_first.status, ProofStatus::Proven);
         assert_eq!(depth_first.status, ProofStatus::Proven);
-        assert_eq!(breadth_first.explored_states, 3);
-        assert_eq!(depth_first.explored_states, 2);
+        assert_eq!(breadth_first.explored_states, 5);
+        assert_eq!(depth_first.explored_states, 5);
+        assert_ne!(breadth_first.leaves[0].trace, depth_first.leaves[0].trace);
     }
 
     #[test]

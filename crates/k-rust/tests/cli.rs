@@ -1900,6 +1900,35 @@ fn kprove_claim_selection_does_not_use_unselected_lemmas() {
 }
 
 #[test]
+fn kprove_one_path_claim_fails_on_the_uncovered_case() {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/proof/split");
+    let specification = fixtures.join("onepath-spec.k");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            specification.to_str().unwrap(),
+            "--main-module",
+            "ONEPATH-SPEC",
+            "--definition-module",
+            "SPLIT",
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    assert!(!output.status.success(), "{stdout}");
+    assert!(
+        stdout.contains("claim ONEPATH-SPEC.c1: disproved"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("Stuck at depth 1"), "{stdout}");
+}
+
+#[test]
 fn kprove_recalls_the_same_claim_from_another_spec_module() {
     let (root, _) = fixture();
     let saved_proofs = root.join("proofs.kore");
