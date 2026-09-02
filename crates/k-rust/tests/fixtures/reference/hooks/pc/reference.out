@@ -1,0 +1,10 @@
+<k>
+  ListItem ( "hello" )
+  ListItem ( "ello" )
+  ListItem ( "" )
+  ListItem ( 1 )
+  ListItem ( 0 )
+  ListItem ( 0 )
+  ListItem ( 0 )
+  ListItem ( 0 ) ~> .K
+</k>

@@ -1,0 +1,19 @@
+== with lemmas: kprove passing-spec
+#Top
+rc=0
+== with lemmas: kprove failing-1-spec
+      .K
+    </k>
+    <pc>
+      2
+    </pc>
+  </generatedTop>
+[Error] Prover: backend terminated because the configuration cannot be
+rewritten further. See output for more details.
+rc=1
+== nolemma kompile
+rc=0
+== nolemma: kprove passing-spec
+#Top
+rc=0
+DONE

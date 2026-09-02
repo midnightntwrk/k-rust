@@ -1,0 +1,61 @@
+\or{SortGeneratedTopCell{}}(
+    /* Created: Kore.Internal.OrPattern.toTermLike */
+    \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+            Lbl'-LT-'k'-GT-'{}(
+                kseq{}(
+                    /* Inj: */ inj{SortPgm{}, SortKItem{}}(
+                        Lblcount'LParUndsRParUnds'SD-SYNTAX'Unds'Pgm'Unds'Int{}(
+                            Lbl'UndsPlus'Int'Unds'{}(
+                                VarX:SortInt{},
+                                \dv{SortInt{}}("-1")
+                            )
+                        )
+                    ),
+                    dotk{}()
+                )
+            ),
+            Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+        ),
+        \and{SortGeneratedTopCell{}}(
+            \equals{SortBool{}, SortGeneratedTopCell{}}(
+                \dv{SortBool{}}("true"),
+                Lbl'Unds-GT-'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("0"))
+            ),
+            \not{SortGeneratedTopCell{}}(
+                \equals{SortBool{}, SortGeneratedTopCell{}}(
+                    \dv{SortBool{}}("true"),
+                    Lbl'Unds-GT-'Int'Unds'{}(
+                        Lbl'UndsPlus'Int'Unds'{}(
+                            VarX:SortInt{},
+                            \dv{SortInt{}}("-1")
+                        ),
+                        \dv{SortInt{}}("0")
+                    )
+                )
+            )
+        )
+    ),
+    /* Created: Kore.Internal.OrPattern.toTermLike */
+    \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+            Lbl'-LT-'k'-GT-'{}(
+                kseq{}(
+                    /* Inj: */ inj{SortPgm{}, SortKItem{}}(
+                        Lblcount'LParUndsRParUnds'SD-SYNTAX'Unds'Pgm'Unds'Int{}(
+                            VarX:SortInt{}
+                        )
+                    ),
+                    dotk{}()
+                )
+            ),
+            Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+        ),
+        \not{SortGeneratedTopCell{}}(
+            \equals{SortBool{}, SortGeneratedTopCell{}}(
+                \dv{SortBool{}}("true"),
+                Lbl'Unds-GT-'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("0"))
+            )
+        )
+    )
+)

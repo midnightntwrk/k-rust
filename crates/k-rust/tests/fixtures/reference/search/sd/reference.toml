@@ -1,0 +1,18 @@
+case = "sd"
+subsystem = "search"
+source_ticket = "C3-01"
+harvested_from = "draft/fable51-review/fixtures/c3/sd.kore"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[input]]
+file = "symbolic.kore"
+source = "hand-written symbolic initial configuration from the C3 live matrix"
+sha256 = "e61af4fe7560f2992bae73d1bc057931e38ce4e7468427180b756cc993f07497"
+
+[[artifact]]
+file = "depth-two.kore"
+command = "kompile test.k --backend haskell --main-module SD --syntax-module SD-SYNTAX --output-definition ref && kore-exec ref/definition.kore --module SD --pattern symbolic.kore --depth 2 --output depth-two.kore"
+tool = "kore-exec"
+exit_code = 0
+sha256 = "db401642727cc86f311d7210059301f0362f81e9f2d7ac54e4afe6633b160237"

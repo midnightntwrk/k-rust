@@ -1,0 +1,12 @@
+    \and{SortGeneratedTopCell{}}(
+      Lbl'-LT-'generatedTop'-GT-'{}(
+        Lbl'-LT-'k'-GT-'{}(
+          kseq{}(inj{SortPgm{}, SortKItem{}}(Lblbad'Unds'SPLIT-SYNTAX'Unds'Pgm{}()), dotk{}())
+        ),
+        Var'Unds'DotVar0:SortGeneratedCounterCell{}
+      ),
+      \equals{SortBool{}, SortGeneratedTopCell{}}(
+        \dv{SortBool{}}("true"),
+        Lbl'Unds-LT-Eqls'Int'Unds'{}(VarI:SortInt{}, \dv{SortInt{}}("0"))
+      )
+    )

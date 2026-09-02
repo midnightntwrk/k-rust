@@ -1,0 +1,20 @@
+case = "pc"
+subsystem = "hooks"
+source_ticket = "C2-04"
+harvested_from = "draft/fable51-review/fixtures/c2/hk/pc.k"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+oracle_exception = true
+oracle_exception_reason = "Arbiter row 4 keeps domains.md for STRING.find; Kore fails to re-base the returned index."
+
+[[artifact]]
+file = "reference.out"
+command = "kompile pc.k --backend haskell --main-module HOOKS --syntax-module HOOKS-SYNTAX --output-definition ref && krun pc.hooks --definition ref > reference.out"
+tool = "krun"
+exit_code = 0
+sha256 = "44f0a982568c1e29864fc2ef4cb2afbc5e56776bd6e74aed1a7a074042628bd2"
+
+[[expectation]]
+file = "domains.out"
+source = "domains.md STRING.find contract (the adjudicated oracle for C2-04)"
+sha256 = "d01570700656f1c546cdb89882463cb114acef2238d45987a6fc85cba67a870c"
