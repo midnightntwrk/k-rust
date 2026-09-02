@@ -1,6 +1,9 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, fs,
+    path::Path,
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use k_rust::kore::{
@@ -605,7 +608,15 @@ fn executed_kore_matches_the_reference_backend() {
     let reference = normalize_execution_pattern(parse_pattern(&reference_source).unwrap());
     let actual = normalize_execution_pattern(parse_pattern(&actual_source).unwrap());
 
-    assert_eq!(reference, actual);
+    let definition = env::var_os("K_DIFFERENTIAL_DEFINITION");
+    let module = env::var("K_DIFFERENTIAL_MODULE").unwrap_or_else(|_| "MAIN".into());
+    compare_execution_modulo_implication(
+        &reference,
+        &actual,
+        definition.as_deref().map(Path::new),
+        &module,
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
 }
 
 #[test]
@@ -653,12 +664,68 @@ fn execution_normalizer_preserves_disjunction_multiplicity() {
     );
 }
 
+#[test]
+fn execution_normalizer_drops_the_outer_existential_prefix() {
+    let quantified =
+        parse_pattern(r"\exists{S{}}(Var'Unds'AC1:S{}, \and{S{}}(a{}(), Var'Unds'AC1:S{}))")
+            .unwrap();
+    let body = parse_pattern(r"\and{S{}}(a{}(), Var'Unds'AC7:S{})").unwrap();
+
+    assert_eq!(
+        normalize_execution_pattern(quantified),
+        normalize_execution_pattern(body)
+    );
+}
+
+#[test]
+fn execution_comparator_pairs_disjuncts_by_term_and_reports_unpaired() {
+    let reference =
+        normalize_execution_pattern(parse_pattern(r"\and{S{}}(a{}(), \top{S{}}())").unwrap());
+    let different_constraints =
+        normalize_execution_pattern(parse_pattern(r"\and{S{}}(a{}(), \bottom{S{}}())").unwrap());
+    let error =
+        compare_execution_modulo_implication(&reference, &different_constraints, None, "TEST")
+            .expect_err("different constraints need an implication definition");
+    assert!(error.contains("constraints differ"), "{error}");
+
+    let different_term = normalize_execution_pattern(parse_pattern("b{}()").unwrap());
+    let error = compare_execution_modulo_implication(&reference, &different_term, None, "TEST")
+        .expect_err("different terms cannot be paired");
+    assert!(error.contains("unpaired disjunct"), "{error}");
+}
+
 fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
+    let pattern = normalize_execution_structure(pattern);
+    match pattern {
+        Pattern::Or { sort, arguments } => Pattern::Or {
+            sort,
+            // N7: disjunction order is semantically empty, so execution gates
+            // compare a sorted multiset while retaining multiplicity.
+            arguments: arguments
+                .into_iter()
+                .map(normalize_execution_disjunct)
+                .collect(),
+        },
+        pattern => normalize_execution_disjunct(pattern),
+    }
+}
+
+fn normalize_execution_disjunct(mut pattern: Pattern) -> Pattern {
+    // N16: reference execution can leave an AC remainder variable free while
+    // the port quantifies its corresponding generated variable.
+    while let Pattern::Exists { body, .. } = pattern {
+        pattern = *body;
+    }
+    rename_generated_variables(&mut pattern);
+    pattern
+}
+
+fn normalize_execution_structure(pattern: Pattern) -> Pattern {
     match pattern {
         Pattern::Application { symbol, arguments } => {
             let arguments = arguments
                 .into_iter()
-                .map(normalize_execution_pattern)
+                .map(normalize_execution_structure)
                 .collect::<Vec<_>>();
             if matches!(
                 symbol.name.as_str(),
@@ -688,12 +755,12 @@ fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
             sort,
             arguments: arguments
                 .into_iter()
-                .map(normalize_execution_pattern)
+                .map(normalize_execution_structure)
                 .collect(),
         },
         Pattern::Or { sort, arguments } => {
             let mut flattened = Vec::new();
-            for argument in arguments.into_iter().map(normalize_execution_pattern) {
+            for argument in arguments.into_iter().map(normalize_execution_structure) {
                 match argument {
                     Pattern::Or {
                         sort: nested_sort,
@@ -710,26 +777,26 @@ fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
         }
         Pattern::Not { sort, argument } => Pattern::Not {
             sort,
-            argument: Box::new(normalize_execution_pattern(*argument)),
+            argument: Box::new(normalize_execution_structure(*argument)),
         },
         Pattern::Next { sort, argument } => Pattern::Next {
             sort,
-            argument: Box::new(normalize_execution_pattern(*argument)),
+            argument: Box::new(normalize_execution_structure(*argument)),
         },
         Pattern::Implies { sort, left, right } => Pattern::Implies {
             sort,
-            left: Box::new(normalize_execution_pattern(*left)),
-            right: Box::new(normalize_execution_pattern(*right)),
+            left: Box::new(normalize_execution_structure(*left)),
+            right: Box::new(normalize_execution_structure(*right)),
         },
         Pattern::Iff { sort, left, right } => Pattern::Iff {
             sort,
-            left: Box::new(normalize_execution_pattern(*left)),
-            right: Box::new(normalize_execution_pattern(*right)),
+            left: Box::new(normalize_execution_structure(*left)),
+            right: Box::new(normalize_execution_structure(*right)),
         },
         Pattern::Rewrites { sort, left, right } => Pattern::Rewrites {
             sort,
-            left: Box::new(normalize_execution_pattern(*left)),
-            right: Box::new(normalize_execution_pattern(*right)),
+            left: Box::new(normalize_execution_structure(*left)),
+            right: Box::new(normalize_execution_structure(*right)),
         },
         Pattern::Exists {
             sort,
@@ -738,7 +805,7 @@ fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
         } => Pattern::Exists {
             sort,
             variable,
-            body: Box::new(normalize_execution_pattern(*body)),
+            body: Box::new(normalize_execution_structure(*body)),
         },
         Pattern::Forall {
             sort,
@@ -747,15 +814,15 @@ fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
         } => Pattern::Forall {
             sort,
             variable,
-            body: Box::new(normalize_execution_pattern(*body)),
+            body: Box::new(normalize_execution_structure(*body)),
         },
         Pattern::Mu { variable, body } => Pattern::Mu {
             variable,
-            body: Box::new(normalize_execution_pattern(*body)),
+            body: Box::new(normalize_execution_structure(*body)),
         },
         Pattern::Nu { variable, body } => Pattern::Nu {
             variable,
-            body: Box::new(normalize_execution_pattern(*body)),
+            body: Box::new(normalize_execution_structure(*body)),
         },
         Pattern::Ceil {
             operand_sort,
@@ -764,7 +831,7 @@ fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
         } => Pattern::Ceil {
             operand_sort,
             result_sort,
-            argument: Box::new(normalize_execution_pattern(*argument)),
+            argument: Box::new(normalize_execution_structure(*argument)),
         },
         Pattern::Floor {
             operand_sort,
@@ -773,7 +840,7 @@ fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
         } => Pattern::Floor {
             operand_sort,
             result_sort,
-            argument: Box::new(normalize_execution_pattern(*argument)),
+            argument: Box::new(normalize_execution_structure(*argument)),
         },
         Pattern::Equals {
             operand_sort,
@@ -783,8 +850,8 @@ fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
         } => Pattern::Equals {
             operand_sort,
             result_sort,
-            left: Box::new(normalize_execution_pattern(*left)),
-            right: Box::new(normalize_execution_pattern(*right)),
+            left: Box::new(normalize_execution_structure(*left)),
+            right: Box::new(normalize_execution_structure(*right)),
         },
         Pattern::In {
             operand_sort,
@@ -794,8 +861,8 @@ fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
         } => Pattern::In {
             operand_sort,
             result_sort,
-            left: Box::new(normalize_execution_pattern(*left)),
-            right: Box::new(normalize_execution_pattern(*right)),
+            left: Box::new(normalize_execution_structure(*left)),
+            right: Box::new(normalize_execution_structure(*right)),
         },
         Pattern::AssociativeApplication {
             associativity,
@@ -806,7 +873,7 @@ fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
             symbol,
             arguments: arguments
                 .into_iter()
-                .map(normalize_execution_pattern)
+                .map(normalize_execution_structure)
                 .collect(),
         },
         leaf @ (Pattern::String(_)
@@ -831,6 +898,184 @@ fn flatten_collection(symbol: &Symbol, pattern: Pattern, output: &mut Vec<Patter
     }
 }
 
+fn compare_execution_modulo_implication(
+    reference: &Pattern,
+    actual: &Pattern,
+    definition: Option<&Path>,
+    module: &str,
+) -> Result<(), String> {
+    if reference == actual {
+        return Ok(());
+    }
+
+    let reference_disjuncts = execution_disjuncts(reference);
+    let actual_disjuncts = execution_disjuncts(actual);
+    let mut paired_actual = vec![false; actual_disjuncts.len()];
+    for reference_disjunct in reference_disjuncts {
+        let (reference_term, mut reference_constraints) = split_constrained(reference_disjunct);
+        let Some((actual_index, actual_disjunct)) =
+            actual_disjuncts
+                .iter()
+                .enumerate()
+                .find(|(index, actual_disjunct)| {
+                    !paired_actual[*index] && split_constrained(actual_disjunct).0 == reference_term
+                })
+        else {
+            return Err(format!("unpaired disjunct: {reference_term}"));
+        };
+        paired_actual[actual_index] = true;
+        let (_, mut actual_constraints) = split_constrained(actual_disjunct);
+        reference_constraints.sort();
+        actual_constraints.sort();
+        if reference_constraints == actual_constraints {
+            continue;
+        }
+        let Some(definition) = definition else {
+            return Err(format!(
+                "constraints differ for paired disjunct {reference_term}; K_DIFFERENTIAL_DEFINITION is not set"
+            ));
+        };
+        prove_implication_both_ways(reference_disjunct, actual_disjunct, definition, module)?;
+    }
+    if let Some((index, _)) = paired_actual
+        .iter()
+        .enumerate()
+        .find(|(_, paired)| !**paired)
+    {
+        let (term, _) = split_constrained(actual_disjuncts[index]);
+        return Err(format!("unpaired disjunct: {term}"));
+    }
+    Ok(())
+}
+
+fn execution_disjuncts(pattern: &Pattern) -> Vec<&Pattern> {
+    match pattern {
+        Pattern::Or { arguments, .. } => arguments.iter().collect(),
+        pattern => vec![pattern],
+    }
+}
+
+fn split_constrained(pattern: &Pattern) -> (&Pattern, Vec<Pattern>) {
+    let Pattern::And { arguments, .. } = pattern else {
+        return (pattern, Vec::new());
+    };
+    let terms = arguments
+        .iter()
+        .enumerate()
+        .filter(|(_, argument)| !is_predicate_pattern(argument))
+        .collect::<Vec<_>>();
+    let [(term_index, term)] = terms.as_slice() else {
+        return (pattern, Vec::new());
+    };
+    let constraints = arguments
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| index != term_index)
+        .map(|(_, argument)| argument.clone())
+        .collect();
+    (term, constraints)
+}
+
+fn is_predicate_pattern(pattern: &Pattern) -> bool {
+    match pattern {
+        Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::Ceil { .. }
+        | Pattern::Floor { .. }
+        | Pattern::Equals { .. }
+        | Pattern::In { .. } => true,
+        Pattern::Not { argument, .. } => is_predicate_pattern(argument),
+        Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => {
+            arguments.iter().all(is_predicate_pattern)
+        }
+        _ => false,
+    }
+}
+
+fn prove_implication_both_ways(
+    reference: &Pattern,
+    actual: &Pattern,
+    definition: &Path,
+    module: &str,
+) -> Result<(), String> {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("system clock before Unix epoch: {error}"))?
+        .as_nanos();
+    let directory = env::temp_dir().join(format!(
+        "k-rust-execution-implication-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir(&directory).map_err(|error| format!("create implication fixture: {error}"))?;
+    let reference_path = directory.join("reference.kore");
+    let actual_path = directory.join("actual.kore");
+    fs::write(&reference_path, reference.to_string())
+        .map_err(|error| format!("write reference implication pattern: {error}"))?;
+    fs::write(&actual_path, actual.to_string())
+        .map_err(|error| format!("write actual implication pattern: {error}"))?;
+
+    let result = (|| {
+        prove_implication(
+            &reference_path,
+            &actual_path,
+            definition,
+            module,
+            "reference => actual",
+        )?;
+        prove_implication(
+            &actual_path,
+            &reference_path,
+            definition,
+            module,
+            "actual => reference",
+        )
+    })();
+    let _ = fs::remove_dir_all(directory);
+    result
+}
+
+fn prove_implication(
+    antecedent: &Path,
+    consequent: &Path,
+    definition: &Path,
+    module: &str,
+    direction: &str,
+) -> Result<(), String> {
+    let krust = env::var_os("K_RUST_KRUST")
+        .map(std::path::PathBuf::from)
+        .or_else(|| option_env!("CARGO_BIN_EXE_krust").map(std::path::PathBuf::from))
+        .unwrap_or_else(|| std::path::PathBuf::from("target/release/krust"));
+    let output = Command::new(&krust)
+        .arg("kore-implies")
+        .arg(definition)
+        .arg("--module")
+        .arg(module)
+        .arg("--antecedent")
+        .arg(antecedent)
+        .arg("--consequent")
+        .arg(consequent)
+        .output()
+        .map_err(|error| format!("run {} for {direction}: {error}", krust.display()))?;
+    if !output.status.success() {
+        return Err(format!(
+            "constraint implication {direction} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|error| {
+        format!(
+            "constraint implication {direction} returned invalid JSON ({error}): {}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    })?;
+    if response["status"] != "valid" {
+        return Err(format!(
+            "constraint implication {direction} is not valid: {response}"
+        ));
+    }
+    Ok(())
+}
+
 fn parse_macro_sentences(source: &str) -> Definition {
     parse_definition(&format!("[]\nmodule MACROS\n{source}\nendmodule []\n"))
         .expect("macro sentence list should parse")
@@ -841,6 +1086,75 @@ fn comparator_ignores_generated_variable_suffixes() {
     let reference = differential_definition("axiom{} Var'Unds'Gen7:S{} []");
     let actual = differential_definition("axiom{} Var'Unds'Gen9:S{} []");
 
+    compare_definitions(reference, actual);
+}
+
+#[test]
+fn comparator_detects_unique_id_differences_by_default() {
+    let reference = differential_definition(r#"axiom{} a{}() [UNIQUE'Unds'ID{}("reference-id")]"#);
+    let actual = differential_definition(r#"axiom{} a{}() [UNIQUE'Unds'ID{}("actual-id")]"#);
+
+    assert!(
+        std::panic::catch_unwind(|| compare_definitions(reference, actual)).is_err(),
+        "UNIQUE_ID must participate in the default differential comparison"
+    );
+}
+
+#[test]
+fn comparator_counts_unique_id_only_divergences_when_ignoring_ids() {
+    let reference = differential_definition(r#"axiom{} a{}() [UNIQUE'Unds'ID{}("reference-id")]"#);
+    let actual = differential_definition(r#"axiom{} a{}() [UNIQUE'Unds'ID{}("actual-id")]"#);
+
+    let report = compare_definitions_with(
+        reference,
+        actual,
+        CompareOptions {
+            ignore_unique_id: true,
+            ..CompareOptions::default()
+        },
+    );
+
+    assert_eq!(report.verdict, CompareVerdict::Equal);
+    assert_eq!(report.unique_id_only_divergences, 1);
+}
+
+#[test]
+fn comparator_skips_ids_of_multi_alias_freezer_axioms() {
+    let definition = |first_id: &str, second_id: &str| {
+        parse_definition(&format!(
+            r#"[]
+            module TEST
+              sort S{{}} []
+              symbol Lbl'Hash'freezerfoo'Unds'0{{}}() : S{{}} []
+              symbol Lbl'Hash'freezerfoo'Unds'1{{}}() : S{{}} []
+              axiom{{}} Lbl'Hash'freezerfoo'Unds'0{{}}() [UNIQUE'Unds'ID{{}}("{first_id}")]
+              axiom{{}} Lbl'Hash'freezerfoo'Unds'1{{}}() [UNIQUE'Unds'ID{{}}("{second_id}")]
+            endmodule []"#,
+        ))
+        .unwrap()
+    };
+
+    compare_definitions(
+        definition("reference-zero", "reference-one"),
+        definition("actual-zero", "actual-one"),
+    );
+}
+
+#[test]
+fn comparator_keeps_distinct_generated_variables_distinct() {
+    let distinct =
+        differential_definition(r"axiom{} \and{S{}}(Var'Unds'X1:S{}, Var'Unds'X2:S{}) []");
+    let repeated =
+        differential_definition(r"axiom{} \and{S{}}(Var'Unds'X1:S{}, Var'Unds'X1:S{}) []");
+
+    assert!(
+        std::panic::catch_unwind(|| compare_definitions(distinct, repeated)).is_err(),
+        "two generated variables must not compare equal to one repeated variable"
+    );
+
+    let reference =
+        differential_definition(r"axiom{} \and{S{}}(Var'Unds'X1:S{}, Var'Unds'X2:S{}) []");
+    let actual = differential_definition(r"axiom{} \and{S{}}(Var'Unds'X7:S{}, Var'Unds'X9:S{}) []");
     compare_definitions(reference, actual);
 }
 
@@ -859,6 +1173,18 @@ fn comparator_reorders_existential_binder_chains() {
     );
     let actual = differential_definition(
         r"axiom{} \exists{S{}}(Y:S{}, \exists{S{}}(X:S{}, \and{S{}}(X:S{}, Y:S{}))) []",
+    );
+
+    compare_definitions(reference, actual);
+}
+
+#[test]
+fn comparator_reorders_universal_binder_chains() {
+    let reference = differential_definition(
+        r"axiom{} \forall{S{}}(X:S{}, \forall{S{}}(Y:S{}, \and{S{}}(X:S{}, Y:S{}))) []",
+    );
+    let actual = differential_definition(
+        r"axiom{} \forall{S{}}(Y:S{}, \forall{S{}}(X:S{}, \and{S{}}(X:S{}, Y:S{}))) []",
     );
 
     compare_definitions(reference, actual);
@@ -918,12 +1244,102 @@ fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
     }
 }
 
-fn compare_definitions(mut reference: Definition, mut actual: Definition) {
+#[derive(Clone, Copy, Debug)]
+struct CompareOptions {
+    ignore_unique_id: bool,
+    skip_multi_alias_ids: bool,
+}
+
+impl Default for CompareOptions {
+    fn default() -> Self {
+        Self {
+            ignore_unique_id: false,
+            skip_multi_alias_ids: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum CompareVerdict {
+    Equal,
+    Differs(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CompareReport {
+    verdict: CompareVerdict,
+    unique_id_only_divergences: usize,
+    multi_alias_axioms: usize,
+}
+
+fn compare_definitions(reference: Definition, actual: Definition) {
+    let report = compare_definitions_with(
+        reference,
+        actual,
+        CompareOptions {
+            ignore_unique_id: env::var("K_DIFFERENTIAL_IGNORE_UNIQUE_ID").as_deref() == Ok("1"),
+            ..CompareOptions::default()
+        },
+    );
+    println!(
+        "unique-id divergences: {}",
+        report.unique_id_only_divergences
+    );
+    println!("multi-alias freezer axioms: {}", report.multi_alias_axioms);
+    if let CompareVerdict::Differs(message) = report.verdict {
+        panic!("{message}");
+    }
+}
+
+fn compare_definitions_with(
+    mut reference: Definition,
+    mut actual: Definition,
+    options: CompareOptions,
+) -> CompareReport {
     let raw_reference = reference.clone();
     let raw_actual = actual.clone();
     strip_source_metadata(&mut reference);
     strip_source_metadata(&mut actual);
+    let multi_alias_axioms = if options.skip_multi_alias_ids {
+        let reference_count = strip_multi_alias_freezer_ids(&mut reference);
+        let actual_count = strip_multi_alias_freezer_ids(&mut actual);
+        reference_count.max(actual_count)
+    } else {
+        0
+    };
+    let strict_reference = reference.clone();
+    let strict_actual = actual.clone();
+    if options.ignore_unique_id {
+        strip_unique_ids(&mut reference);
+        strip_unique_ids(&mut actual);
+    }
 
+    let verdict = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        compare_stripped_definitions(reference, actual, &raw_reference, &raw_actual)
+    })) {
+        Ok(()) => CompareVerdict::Equal,
+        Err(panic) => CompareVerdict::Differs(panic_message(panic)),
+    };
+    let unique_id_only_divergences = if options.ignore_unique_id && verdict == CompareVerdict::Equal
+    {
+        count_unique_id_divergences(&strict_reference, &strict_actual)
+    } else {
+        0
+    };
+
+    CompareReport {
+        verdict,
+        unique_id_only_divergences,
+        multi_alias_axioms,
+    }
+}
+
+fn compare_stripped_definitions(
+    reference: Definition,
+    actual: Definition,
+    raw_reference: &Definition,
+    raw_actual: &Definition,
+) {
     assert_eq!(
         reference.attributes, actual.attributes,
         "definition attributes"
@@ -1202,8 +1618,8 @@ fn canonicalized_sentence(sentence: &Sentence) -> Sentence {
             attributes,
             ..
         } => {
-            canonicalize_existentials(left);
-            canonicalize_existentials(right);
+            canonicalize_pattern(left);
+            canonicalize_pattern(right);
             canonicalize_attributes(attributes);
         }
         Sentence::Axiom {
@@ -1216,7 +1632,7 @@ fn canonicalized_sentence(sentence: &Sentence) -> Sentence {
             attributes,
             ..
         } => {
-            canonicalize_existentials(pattern);
+            canonicalize_pattern(pattern);
             canonicalize_attributes(attributes);
         }
         Sentence::Import { attributes, .. }
@@ -1230,8 +1646,13 @@ fn canonicalized_sentence(sentence: &Sentence) -> Sentence {
 
 fn canonicalize_attributes(attributes: &mut Attributes) {
     for attribute in &mut attributes.0 {
-        canonicalize_existentials(attribute);
+        canonicalize_pattern(attribute);
     }
+}
+
+fn canonicalize_pattern(pattern: &mut Pattern) {
+    rename_generated_variables(pattern);
+    canonicalize_existentials(pattern);
 }
 
 fn canonicalize_existentials(pattern: &mut Pattern) {
@@ -1272,71 +1693,140 @@ fn canonicalize_existentials(pattern: &mut Pattern) {
             canonicalize_existentials(left);
             canonicalize_existentials(right);
         }
-        Pattern::Exists { variable, body, .. }
-        | Pattern::Forall { variable, body, .. }
-        | Pattern::Mu { variable, body }
-        | Pattern::Nu { variable, body } => {
-            variable.name = canonical_generated_name(&variable.name);
+        Pattern::Exists { body, .. }
+        | Pattern::Forall { body, .. }
+        | Pattern::Mu { body, .. }
+        | Pattern::Nu { body, .. } => {
             canonicalize_existentials(body);
         }
         Pattern::String(_)
         | Pattern::Top { .. }
         | Pattern::Bottom { .. }
         | Pattern::DomainValue { .. } => {}
-        Pattern::Variable(variable) => {
-            variable.name = canonical_generated_name(&variable.name);
-        }
+        Pattern::Variable(_) => {}
     }
 
-    if !matches!(pattern, Pattern::Exists { .. }) {
-        return;
+    #[derive(Clone, Copy)]
+    enum Quantifier {
+        Exists,
+        Forall,
     }
+    let quantifier = match pattern {
+        Pattern::Exists { .. } => Quantifier::Exists,
+        Pattern::Forall { .. } => Quantifier::Forall,
+        _ => return,
+    };
     let mut current = std::mem::replace(pattern, Pattern::String(String::new()));
     let mut binders = Vec::new();
-    while let Pattern::Exists {
-        sort,
-        variable,
-        body,
-    } = current
-    {
-        binders.push((sort, variable));
-        current = *body;
+    loop {
+        match (quantifier, current) {
+            (
+                Quantifier::Exists,
+                Pattern::Exists {
+                    sort,
+                    variable,
+                    body,
+                },
+            )
+            | (
+                Quantifier::Forall,
+                Pattern::Forall {
+                    sort,
+                    variable,
+                    body,
+                },
+            ) => {
+                binders.push((sort, variable));
+                current = *body;
+            }
+            (_, body) => {
+                current = body;
+                break;
+            }
+        }
     }
     binders.sort_by(|left, right| {
         let key = |(_, variable): &(_, k_rust::kore::ast::Variable)| {
-            (
-                canonical_generated_name(&variable.name),
-                variable.sort.clone(),
-                variable.kind,
-            )
+            (variable.name.clone(), variable.sort.clone(), variable.kind)
         };
         key(left).cmp(&key(right))
     });
     for (sort, variable) in binders.into_iter().rev() {
-        current = Pattern::Exists {
-            sort,
-            variable,
-            body: Box::new(current),
+        current = match quantifier {
+            Quantifier::Exists => Pattern::Exists {
+                sort,
+                variable,
+                body: Box::new(current),
+            },
+            Quantifier::Forall => Pattern::Forall {
+                sort,
+                variable,
+                body: Box::new(current),
+            },
         };
     }
     *pattern = current;
 }
 
-fn canonical_generated_name(name: &str) -> String {
-    for prefix in ["Var'Unds'Gen", "Var'Unds'DotVar"] {
-        if let Some(suffix) = name.strip_prefix(prefix)
-            && suffix.chars().all(|character| character.is_ascii_digit())
-        {
-            return prefix.into();
-        }
-    }
+fn generated_stem(name: &str) -> Option<&str> {
     if let Some(suffix) = name.strip_prefix("Var'Unds'") {
         let stem = suffix.trim_end_matches(|character: char| character.is_ascii_digit());
         if !stem.is_empty() && stem.len() != suffix.len() {
-            return format!("Var'Unds'{stem}");
+            return Some(stem);
         }
     }
-    name.into()
+    None
+}
+
+fn rename_generated_variables(pattern: &mut Pattern) {
+    fn visit(pattern: &mut Pattern, indices: &mut BTreeMap<String, usize>) {
+        let mut rename = |variable: &mut k_rust::kore::ast::Variable| {
+            let Some(stem) = generated_stem(&variable.name) else {
+                return;
+            };
+            let stem = stem.to_owned();
+            let next = indices.len();
+            let index = *indices.entry(variable.name.clone()).or_insert(next);
+            variable.name = format!("Var'Unds'{stem}#{index}");
+        };
+
+        match pattern {
+            Pattern::Application { arguments, .. }
+            | Pattern::And { arguments, .. }
+            | Pattern::Or { arguments, .. }
+            | Pattern::AssociativeApplication { arguments, .. } => {
+                for argument in arguments {
+                    visit(argument, indices);
+                }
+            }
+            Pattern::Not { argument, .. }
+            | Pattern::Next { argument, .. }
+            | Pattern::Ceil { argument, .. }
+            | Pattern::Floor { argument, .. } => visit(argument, indices),
+            Pattern::Implies { left, right, .. }
+            | Pattern::Iff { left, right, .. }
+            | Pattern::Rewrites { left, right, .. }
+            | Pattern::Equals { left, right, .. }
+            | Pattern::In { left, right, .. } => {
+                visit(left, indices);
+                visit(right, indices);
+            }
+            Pattern::Exists { variable, body, .. }
+            | Pattern::Forall { variable, body, .. }
+            | Pattern::Mu { variable, body }
+            | Pattern::Nu { variable, body } => {
+                rename(variable);
+                visit(body, indices);
+            }
+            Pattern::Variable(variable) => rename(variable),
+            Pattern::String(_)
+            | Pattern::Top { .. }
+            | Pattern::Bottom { .. }
+            | Pattern::DomainValue { .. } => {}
+        }
+    }
+
+    visit(pattern, &mut BTreeMap::new());
 }
 
 fn strip_source_metadata(definition: &mut Definition) {
@@ -1357,6 +1847,137 @@ fn strip_source_metadata(definition: &mut Definition) {
     }
 }
 
+fn strip_unique_ids(definition: &mut Definition) {
+    strip_unique_id_attributes(&mut definition.attributes);
+    for module in &mut definition.modules {
+        strip_unique_id_attributes(&mut module.attributes);
+        for sentence in &mut module.sentences {
+            let attributes = match sentence {
+                Sentence::Import { attributes, .. }
+                | Sentence::SortDeclaration { attributes, .. }
+                | Sentence::SymbolDeclaration { attributes, .. }
+                | Sentence::AliasDeclaration { attributes, .. }
+                | Sentence::Axiom { attributes, .. }
+                | Sentence::Claim { attributes, .. } => attributes,
+            };
+            strip_unique_id_attributes(attributes);
+        }
+    }
+}
+
+fn strip_multi_alias_freezer_ids(definition: &mut Definition) -> usize {
+    let mut stripped = 0;
+    for module in &mut definition.modules {
+        let freezers = multi_alias_freezer(module);
+        if freezers.is_empty() {
+            continue;
+        }
+        for sentence in &mut module.sentences {
+            let Sentence::Axiom {
+                pattern,
+                attributes,
+                ..
+            } = sentence
+            else {
+                continue;
+            };
+            if pattern_mentions_any_symbol(pattern, &freezers) {
+                strip_unique_id_attributes(attributes);
+                stripped += 1;
+            }
+        }
+    }
+    stripped
+}
+
+fn multi_alias_freezer(module: &k_rust::kore::ast::Module) -> BTreeSet<String> {
+    let mut by_hint = BTreeMap::<String, Vec<String>>::new();
+    for sentence in &module.sentences {
+        let Sentence::SymbolDeclaration { symbol, .. } = sentence else {
+            continue;
+        };
+        let Some(hint) = multi_alias_freezer_hint(&symbol.name) else {
+            continue;
+        };
+        by_hint
+            .entry(hint.into())
+            .or_default()
+            .push(symbol.name.clone());
+    }
+    by_hint
+        .into_values()
+        .filter(|names| names.len() > 1)
+        .flatten()
+        .collect()
+}
+
+fn multi_alias_freezer_hint(name: &str) -> Option<&str> {
+    let suffix = name.strip_prefix("Lbl'Hash'freezer")?;
+    let (hint, number) = suffix.rsplit_once("'Unds'")?;
+    (!hint.is_empty() && !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()))
+        .then_some(hint)
+}
+
+fn pattern_mentions_any_symbol(pattern: &Pattern, symbols: &BTreeSet<String>) -> bool {
+    match pattern {
+        Pattern::Application { symbol, arguments }
+        | Pattern::AssociativeApplication {
+            symbol, arguments, ..
+        } => {
+            symbols.contains(&symbol.name)
+                || arguments
+                    .iter()
+                    .any(|argument| pattern_mentions_any_symbol(argument, symbols))
+        }
+        Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => arguments
+            .iter()
+            .any(|argument| pattern_mentions_any_symbol(argument, symbols)),
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => pattern_mentions_any_symbol(argument, symbols),
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. } => {
+            pattern_mentions_any_symbol(left, symbols)
+                || pattern_mentions_any_symbol(right, symbols)
+        }
+        Pattern::Exists { body, .. }
+        | Pattern::Forall { body, .. }
+        | Pattern::Mu { body, .. }
+        | Pattern::Nu { body, .. } => pattern_mentions_any_symbol(body, symbols),
+        Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => false,
+    }
+}
+
+fn strip_unique_id_attributes(attributes: &mut Attributes) {
+    attributes.0.retain(|attribute| {
+        !matches!(
+            attribute,
+            Pattern::Application { symbol, .. } if symbol.name == "UNIQUE'Unds'ID"
+        )
+    });
+}
+
+fn count_unique_id_divergences(reference: &Definition, actual: &Definition) -> usize {
+    reference
+        .modules
+        .iter()
+        .zip(&actual.modules)
+        .map(|(reference, actual)| {
+            let reference = multiset(reference.sentences.iter().map(canonical_sentence).collect());
+            let actual = multiset(actual.sentences.iter().map(canonical_sentence).collect());
+            count_differences(&reference, &actual).len()
+        })
+        .sum()
+}
+
 fn strip_attributes(attributes: &mut Attributes) {
     attributes.0.retain(|attribute| {
         !matches!(
@@ -1364,7 +1985,6 @@ fn strip_attributes(attributes: &mut Attributes) {
             Pattern::Application { symbol, .. }
                 if symbol.name == "org'Stop'kframework'Stop'attributes'Stop'Location"
                     || symbol.name == "org'Stop'kframework'Stop'attributes'Stop'Source"
-                    || symbol.name == "UNIQUE'Unds'ID"
         )
     });
 }

@@ -1,0 +1,217 @@
+version = 1
+
+# This register is the authority for every equivalence or exclusion applied by
+# the reference gates. A normalisation must name the contract that permits it
+# and the condition under which it can be removed.
+
+[[normalisation]]
+id = "N1"
+gate = "compile and conformance kompile"
+anchor = "crates/k-rust/tests/reference_differential.rs:strip_source_metadata"
+anchor_symbol = "strip_source_metadata"
+rule = "Drop Location and Source attributes from definitions, modules, and sentences."
+justification = "Scratch checkout paths and byte offsets differ by construction."
+fate = "keep-with-comment"
+
+[[normalisation]]
+id = "N2"
+gate = "compile and conformance kompile"
+anchor = "crates/k-rust/tests/reference_differential.rs:strip_unique_ids"
+anchor_symbol = "strip_unique_ids"
+rule = "Compare UNIQUE_ID by default; K_DIFFERENTIAL_IGNORE_UNIQUE_ID=1 may ignore it while reporting the number of ID-only divergences."
+justification = "B2-03 keeps the known divergence visible without making every pre-fix compile case unusable."
+fate = "gate-behind-env; delete-after-B2-03"
+env = "K_DIFFERENTIAL_IGNORE_UNIQUE_ID"
+
+[[normalisation]]
+id = "N3"
+gate = "compile semantic KORE"
+anchor = "crates/k-rust/tests/reference_differential.rs:multi_alias_freezer"
+anchor_symbol = "multi_alias_freezer"
+rule = "Ignore UNIQUE_ID only for freezer axioms whose shared hint has multiple generated suffixes."
+justification = "The reference suffix derives from Scala HashSet order and therefore is not a stable oracle."
+fate = "keep-with-comment"
+
+[[normalisation]]
+id = "N4"
+gate = "compile and execution"
+anchor = "crates/k-rust/tests/reference_differential.rs:rename_generated_variables"
+anchor_symbol = "rename_generated_variables"
+rule = "Rename generated variables by the first-occurrence index of each original name, preserving distinct-name multiplicity."
+justification = "Alpha-renaming is irrelevant, but collapsing two names into one changes the pattern."
+fate = "modify"
+
+[[normalisation]]
+id = "N5"
+gate = "compile"
+anchor = "crates/k-rust/tests/reference_differential.rs:canonicalize_existentials"
+anchor_symbol = "canonicalize_existentials"
+rule = "Sort same-kind existential and universal binder chains by canonical variable identity, sort, and kind."
+justification = "The reference emits binders from unordered Scala sets."
+fate = "keep-with-comment"
+
+[[normalisation]]
+id = "N6"
+gate = "compile"
+anchor = "crates/k-rust/tests/reference_differential.rs:canonicalize_existentials"
+anchor_symbol = "canonicalize_existentials"
+rule = "Flatten and sort nested same-sort disjunctions in axioms."
+justification = "Owise competitor order derives from an unordered reference set."
+fate = "keep-with-comment"
+
+[[normalisation]]
+id = "N7"
+gate = "execution, symbolic execution, and MIR execution"
+anchor = "crates/k-rust/tests/reference_differential.rs:normalize_execution_pattern"
+anchor_symbol = "normalize_execution_pattern"
+rule = "Flatten and sort top-level same-sort disjunctions while retaining multiplicity."
+justification = "Disjunction order is semantically empty; duplicated branches remain observable."
+fate = "keep-with-comment"
+
+[[normalisation]]
+id = "N8"
+gate = "execution, symbolic execution, and MIR execution"
+anchor = "crates/k-rust/tests/reference_differential.rs:flatten_collection"
+anchor_symbol = "flatten_collection"
+rule = "Flatten, sort, and right-associate map and set concatenations."
+justification = "The symbols are associative and commutative while the reference prints an internal order."
+fate = "keep-with-comment"
+
+[[normalisation]]
+id = "N9"
+gate = "parsed-definition compile artifact"
+anchor = "crates/k-rust/tests/reference_differential.rs:normalize_definition_json"
+anchor_symbol = "normalize_definition_json"
+rule = "Canonicalize regex languages, user lists, generated variables, and set-valued outer-syntax fields in parsed JSON."
+justification = "The outer definition contains order-free collections and equivalent regex encodings."
+fate = "keep-with-comment"
+
+[[normalisation]]
+id = "N10"
+gate = "kast"
+anchor = "crates/k-rust/tests/reference_differential.rs:parsed_kast_matches_the_reference_frontend"
+anchor_symbol = "parsed_kast_matches_the_reference_frontend"
+rule = "Compare KAST JSON structurally after decoding both version-4 documents."
+justification = "JSON object layout is not semantic and the reference-derived contract is structural."
+fate = "keep-with-comment"
+
+[[normalisation]]
+id = "N11"
+gate = "rpc"
+anchor = "scripts/reference-rpc-differential.sh:jq -S"
+anchor_symbol = "jq -S"
+rule = "Sort JSON object keys before comparing responses."
+justification = "JSON object key order is not part of JSON-RPC."
+fate = "keep-with-comment"
+
+[[normalisation]]
+id = "N12"
+gate = "proof"
+anchor = "scripts/reference-proof-differential.sh:failure-claim"
+anchor_symbol = "failure_claim"
+rule = "Compare failure verdicts without comparing backend-specific counterexample framing."
+justification = "Generated counter cells differ while the disproved verdict is the contract."
+fate = "keep-with-comment"
+
+[[normalisation]]
+id = "N13"
+gate = "compile"
+anchor = "crates/k-rust/tests/reference_differential.rs:compare_stripped_definitions"
+anchor_symbol = "compare_stripped_definitions"
+rule = "Compare sentences as a multiset per module while comparing module order and count exactly."
+justification = "Reference sentence order follows unordered Scala collections."
+fate = "keep-with-comment"
+
+[[normalisation]]
+id = "N14"
+gate = "concrete execution and rpc"
+anchor = "scripts/reference-non-imp-execution-differential.sh:--smt none"
+anchor_symbol = "--smt none"
+rule = "Run the concrete reference program without SMT while the port uses its in-process solver."
+justification = "Concrete cases do not need the solver; symbolic cases use the symbolic gate with both solvers enabled."
+fate = "keep-with-comment"
+
+[[normalisation]]
+id = "N15"
+gate = "execution, symbolic execution, and MIR execution"
+anchor = "crates/k-rust/tests/reference_differential.rs:compare_execution_modulo_implication"
+anchor_symbol = "compare_execution_modulo_implication"
+rule = "After structural comparison fails, pair equal term branches and prove both implications between their constraint sets."
+justification = "Equivalent constraint spellings and solver-discharged requires clauses must compare equal."
+fate = "new; gate-behind-env K_DIFFERENTIAL_DEFINITION"
+env = "K_DIFFERENTIAL_DEFINITION"
+
+[[normalisation]]
+id = "N16"
+gate = "execution and symbolic execution"
+anchor = "crates/k-rust/tests/reference_differential.rs:normalize_execution_disjunct"
+anchor_symbol = "normalize_execution_disjunct"
+rule = "Drop only the outer existential prefix of each result disjunct before generated-variable renaming."
+justification = "The reference leaves an AC remainder variable free where the port quantifies the corresponding variable."
+fate = "new"
+
+[[normalisation]]
+id = "N17"
+gate = "symbolic execution"
+anchor = "scripts/reference-symbolic-execution-differential.sh:gotstuck"
+anchor_symbol = "gotstuck"
+rule = "For a depth-bounded exec case marked gotstuck, require the reference leaves to be a sub-multiset of the port leaves."
+justification = "The reference graph traversal drops Stop leaves when another leaf remains; the port keeps them."
+fate = "new"
+
+[[normalisation]]
+id = "N18"
+gate = "hook execution"
+anchor = "scripts/reference-non-imp-execution-differential.sh:oracle-exception"
+anchor_symbol = "oracle-exception"
+rule = "Compare an adjudicated hook exception against committed port and reference expectations independently."
+justification = "Arbiter row 4 keeps domains.md over the two known Kore deviations."
+fate = "new"
+
+[[normalisation]]
+id = "N19"
+gate = "rpc"
+anchor = "scripts/reference-rpc-differential.sh:oracle-exception"
+anchor_symbol = "oracle-exception"
+rule = "Compare an adjudicated response against its committed port expectation and print the recorded reason."
+justification = "Known oracle-side proxy behavior must remain explicit rather than silently normalized."
+fate = "new"
+
+[[normalisation]]
+id = "N20"
+gate = "all Java-backed scripts"
+anchor = "scripts/reference-memory-guard.sh:reference_default_k_opts"
+anchor_symbol = "reference_default_k_opts"
+rule = "Define the bounded JVM option string once in the shared guard and consume it from every Java-backed script."
+justification = "One authority prevents memory-bound drift between gate scripts."
+fate = "modify"
+
+[[conformance]]
+id = "C1"
+rule = "Compare krun and search disjunctions as sorted multisets."
+justification = "Arbiter row 12 declares disjunction order semantically empty."
+
+[[conformance]]
+id = "C2"
+rule = "Record K/KItem fallback separately and never fold it into the case verdict."
+justification = "The fallback diagnoses D1-04 rather than certifying the requested sort."
+
+[[conformance]]
+id = "C3"
+rule = "Record rejection message classes separately until the definition-check bucket promotes them into verdicts."
+justification = "Accept/reject parity can hide a rejection for the wrong reason."
+
+[[conformance]]
+id = "C4"
+rule = "Verify each emitted definition.kore before comparing it."
+justification = "A structurally comparable artifact can still violate KORE well-formedness."
+
+[[conformance]]
+id = "C5"
+rule = "Compare proof verdicts without backend-specific counterexample text."
+justification = "Counterexample framing is not the proof verdict."
+
+[[conformance]]
+id = "C6"
+rule = "Record dropped K flags and classify untranslatable flags as unsupported."
+justification = "Arbiter row 15 assigns K-to-krust flag translation to the driver."
