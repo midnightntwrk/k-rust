@@ -22,6 +22,7 @@ use crate::provenance::{
     GeneratingPass, ProvenanceLink, seed_generated_sentence_origin, sentence_origin_links,
 };
 
+use super::fresh_names::FreshNames;
 use super::passes::number_sentence;
 use super::sort_injections::{SortInjectionError, SortInjector};
 use super::term_to_kore::{TermConversionError, TermConverter};
@@ -238,6 +239,11 @@ pub enum ModuleToKoreError {
     EquationExistentials {
         variables: Vec<String>,
     },
+    InconsistentVariableSorts {
+        sentence: String,
+        name: String,
+        sorts: Vec<String>,
+    },
     UnsupportedRuleKind {
         kind: String,
     },
@@ -301,6 +307,15 @@ impl fmt::Display for ModuleToKoreError {
                 formatter,
                 "cannot encode equations with existential variables: {}",
                 variables.join(", ")
+            ),
+            Self::InconsistentVariableSorts {
+                sentence,
+                name,
+                sorts,
+            } => write!(
+                formatter,
+                "variable {name} occurs with sorts {} in one axiom ({sentence}); a kompile pass minted a fresh name that another pass already used",
+                sorts.join(" and ")
             ),
             Self::UnsupportedRuleKind { kind } => {
                 write!(formatter, "KORE emission for {kind} is not implemented yet")
@@ -689,6 +704,13 @@ pub fn module_to_kore_from_resolved_with_options(
 
     let generated_axioms =
         generated_axioms(&productions, &sorts, &overloads, &subsorts, &constructors)?;
+    for sentence in generated_axioms
+        .semantics
+        .iter()
+        .chain(&generated_axioms.syntax)
+    {
+        check_variable_sorts(sentence, &|| sentence.to_string())?;
+    }
     modules
         .semantics
         .sentences
@@ -706,6 +728,7 @@ pub fn module_to_kore_from_resolved_with_options(
             &sorted_rules,
             default_reachability,
         )?;
+        check_variable_sorts(&emitted, &|| describe_source_sentence(rule))?;
         if is_macro_rule(rule) {
             modules.macros.push(emitted);
         } else {
@@ -718,7 +741,7 @@ pub fn module_to_kore_from_resolved_with_options(
                 kind: "macro claim".into(),
             });
         }
-        modules.semantics.sentences.push(emit_rule_or_claim(
+        let emitted = emit_rule_or_claim(
             claim,
             true,
             &valued,
@@ -727,9 +750,28 @@ pub fn module_to_kore_from_resolved_with_options(
             &converter,
             &sorted_rules,
             default_reachability,
-        )?);
+        )?;
+        check_variable_sorts(&emitted, &|| describe_source_sentence(claim))?;
+        modules.semantics.sentences.push(emitted);
     }
     Ok(modules)
+}
+
+fn describe_source_sentence(sentence: &Sentence) -> String {
+    let attributes = sentence.attributes();
+    if let Some(label) = attributes.get_str("label") {
+        return label.to_owned();
+    }
+    if let Some(unique_id) = attributes.get_str("UNIQUE_ID") {
+        return unique_id.to_owned();
+    }
+    if let Some(location) = attributes.get(LOCATION_ATTRIBUTE) {
+        return attribute_value_string(LOCATION_ATTRIBUTE, location);
+    }
+    match sentence {
+        Sentence::Rule { body, .. } | Sentence::Claim { body, .. } => body.to_string(),
+        _ => format!("{sentence:?}"),
+    }
 }
 
 fn generate_map_ceil_rules(
@@ -1282,6 +1324,9 @@ fn no_junk_axioms(
         let result_sort = encode_kore_sort(sort);
         let result_head = SortHead::from(sort);
         let mut alternatives = Vec::new();
+        let mut variable_names = BTreeMap::new();
+        let mut used_variable_names = BTreeSet::new();
+        let mut variable_suffixes = BTreeMap::new();
         let mut has_token = false;
         for (_, production) in productions.sorted_productions() {
             let Sentence::Production {
@@ -1309,15 +1354,28 @@ fn no_junk_axioms(
             } else if label.is_some()
                 && let Some(production) = generated_production_for_sort(production, sort)
             {
-                let mut alternative = generated_application(&production, "X");
-                for (index, argument_sort) in production.arguments.iter().enumerate().rev() {
+                let variables = production
+                    .arguments
+                    .iter()
+                    .enumerate()
+                    .map(|(index, argument_sort)| {
+                        consistent_generated_variable(
+                            &format!("X{index}"),
+                            argument_sort,
+                            &mut variable_names,
+                            &mut used_variable_names,
+                            &mut variable_suffixes,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let mut alternative = Pattern::Application {
+                    symbol: production.symbol,
+                    arguments: variables.iter().cloned().map(Pattern::Variable).collect(),
+                };
+                for variable in variables.into_iter().rev() {
                     alternative = Pattern::Exists {
                         sort: result_sort.clone(),
-                        variable: Variable {
-                            kind: VariableKind::Element,
-                            name: format!("X{index}"),
-                            sort: argument_sort.clone(),
-                        },
+                        variable,
                         body: Box::new(alternative),
                     };
                 }
@@ -1330,11 +1388,13 @@ fn no_junk_axioms(
                 .filter(|subsort| subsorts.less_than(subsort, sort))
             {
                 let subsort = encode_kore_sort(subsort);
-                let variable = Variable {
-                    kind: VariableKind::Element,
-                    name: "Val".into(),
-                    sort: subsort.clone(),
-                };
+                let variable = consistent_generated_variable(
+                    "Val",
+                    &subsort,
+                    &mut variable_names,
+                    &mut used_variable_names,
+                    &mut variable_suffixes,
+                );
                 alternatives.push(Pattern::Exists {
                     sort: result_sort.clone(),
                     variable: variable.clone(),
@@ -1374,6 +1434,37 @@ fn no_junk_axioms(
         });
     }
     axioms
+}
+
+fn consistent_generated_variable(
+    base: &str,
+    sort: &KoreSort,
+    assigned: &mut BTreeMap<(String, KoreSort), String>,
+    used: &mut BTreeSet<String>,
+    suffixes: &mut BTreeMap<String, usize>,
+) -> Variable {
+    let key = (base.to_owned(), sort.clone());
+    let name = assigned.get(&key).cloned().unwrap_or_else(|| {
+        let name = if used.insert(base.to_owned()) {
+            base.to_owned()
+        } else {
+            let suffix = suffixes.entry(base.to_owned()).or_insert(2);
+            loop {
+                let candidate = format!("{base}V{suffix}");
+                *suffix += 1;
+                if used.insert(candidate.clone()) {
+                    break candidate;
+                }
+            }
+        };
+        assigned.insert(key, name.clone());
+        name
+    });
+    Variable {
+        kind: VariableKind::Element,
+        name,
+        sort: sort.clone(),
+    }
 }
 
 fn generated_production_for_sort(
@@ -2468,7 +2559,10 @@ fn emit_owise_equation(
         converter,
     )?;
 
-    let mut counter = 0;
+    let mut fresh = FreshNames::default();
+    for name in avoid_variables {
+        fresh.reserve(name.clone());
+    }
     let mut competitors = Vec::new();
     for sentence in sorted_rules {
         let injected = injector.inject_sentence(sentence)?;
@@ -2498,19 +2592,9 @@ fn emit_owise_equation(
         let mut renames = BTreeMap::new();
         // Java refreshes the complete rule before filtering ignored competitors, so unused
         // RHS and condition variables still consume names from the shared `_GenN` counter.
-        let refreshed_body = refresh_variables(body, avoid_variables, &mut counter, &mut renames);
-        let refreshed_requires = refresh_variables(
-            competitor_requires,
-            avoid_variables,
-            &mut counter,
-            &mut renames,
-        );
-        let _refreshed_ensures = refresh_variables(
-            competitor_ensures,
-            avoid_variables,
-            &mut counter,
-            &mut renames,
-        );
+        let refreshed_body = refresh_variables(body, &mut fresh, &mut renames);
+        let refreshed_requires = refresh_variables(competitor_requires, &mut fresh, &mut renames);
+        let _refreshed_ensures = refresh_variables(competitor_ensures, &mut fresh, &mut renames);
         if ignore_owise_competitor(sentence) {
             continue;
         }
@@ -2676,46 +2760,39 @@ fn variable_terms<'a>(roots: impl IntoIterator<Item = &'a Term>) -> BTreeMap<Str
 
 fn refresh_variables(
     term: &Term,
-    avoid: &BTreeSet<String>,
-    counter: &mut usize,
+    fresh: &mut FreshNames,
     renames: &mut BTreeMap<(String, Option<Sort>), String>,
 ) -> Term {
     let refreshed = match term.unannotated() {
         Term::Variable { name, sort } => {
             let identity = (name.clone(), sort.clone());
-            let name = renames.entry(identity).or_insert_with(|| {
-                loop {
-                    let candidate = format!("_Gen{counter}");
-                    *counter += 1;
-                    if !avoid.contains(&candidate) {
-                        break candidate;
-                    }
-                }
-            });
+            let name = renames
+                .entry(identity)
+                .or_insert_with(|| fresh.mint("_Gen"));
             Term::Variable {
                 name: name.clone(),
                 sort: sort.clone(),
             }
         }
         Term::Rewrite { left, right } => Term::Rewrite {
-            left: Box::new(refresh_variables(left, avoid, counter, renames)),
-            right: Box::new(refresh_variables(right, avoid, counter, renames)),
+            left: Box::new(refresh_variables(left, fresh, renames)),
+            right: Box::new(refresh_variables(right, fresh, renames)),
         },
         Term::As { pattern, alias } => Term::As {
-            pattern: Box::new(refresh_variables(pattern, avoid, counter, renames)),
-            alias: Box::new(refresh_variables(alias, avoid, counter, renames)),
+            pattern: Box::new(refresh_variables(pattern, fresh, renames)),
+            alias: Box::new(refresh_variables(alias, fresh, renames)),
         },
         Term::Sequence(items) => Term::Sequence(
             items
                 .iter()
-                .map(|item| refresh_variables(item, avoid, counter, renames))
+                .map(|item| refresh_variables(item, fresh, renames))
                 .collect(),
         ),
         Term::Apply { label, arguments } => Term::Apply {
             label: label.clone(),
             arguments: arguments
                 .iter()
-                .map(|argument| refresh_variables(argument, avoid, counter, renames))
+                .map(|argument| refresh_variables(argument, fresh, renames))
                 .collect(),
         },
         Term::InjectedLabel(label) => Term::InjectedLabel(label.clone()),
@@ -2786,40 +2863,67 @@ fn variable_list_attribute_overrides(
 }
 
 fn collect_pattern_variables(pattern: &Pattern, variables: &mut BTreeMap<String, Variable>) {
+    visit_pattern_variables(pattern, &mut |variable| {
+        variables
+            .entry(variable.name.clone())
+            .or_insert_with(|| variable.clone());
+    });
+}
+
+fn check_variable_sorts(
+    sentence: &KoreSentence,
+    describe: &dyn Fn() -> String,
+) -> Result<(), ModuleToKoreError> {
+    let pattern = match sentence {
+        KoreSentence::Axiom { pattern, .. } | KoreSentence::Claim { pattern, .. } => pattern,
+        _ => return Ok(()),
+    };
+    let mut by_name = BTreeMap::<String, BTreeSet<KoreSort>>::new();
+    visit_pattern_variables(pattern, &mut |variable| {
+        by_name
+            .entry(variable.name.clone())
+            .or_default()
+            .insert(variable.sort.clone());
+    });
+    let Some((name, sorts)) = by_name.into_iter().find(|(_, sorts)| sorts.len() > 1) else {
+        return Ok(());
+    };
+    Err(ModuleToKoreError::InconsistentVariableSorts {
+        sentence: describe(),
+        name,
+        sorts: sorts.into_iter().map(|sort| sort.to_string()).collect(),
+    })
+}
+
+fn visit_pattern_variables<'a>(pattern: &'a Pattern, visitor: &mut impl FnMut(&'a Variable)) {
     match pattern {
-        Pattern::Variable(variable) => {
-            variables
-                .entry(variable.name.clone())
-                .or_insert_with(|| variable.clone());
-        }
+        Pattern::Variable(variable) => visitor(variable),
         Pattern::Application { arguments, .. }
         | Pattern::And { arguments, .. }
         | Pattern::Or { arguments, .. }
         | Pattern::AssociativeApplication { arguments, .. } => {
             for argument in arguments {
-                collect_pattern_variables(argument, variables);
+                visit_pattern_variables(argument, visitor);
             }
         }
         Pattern::Not { argument, .. }
         | Pattern::Next { argument, .. }
         | Pattern::Ceil { argument, .. }
-        | Pattern::Floor { argument, .. } => collect_pattern_variables(argument, variables),
+        | Pattern::Floor { argument, .. } => visit_pattern_variables(argument, visitor),
         Pattern::Implies { left, right, .. }
         | Pattern::Iff { left, right, .. }
         | Pattern::Rewrites { left, right, .. }
         | Pattern::Equals { left, right, .. }
         | Pattern::In { left, right, .. } => {
-            collect_pattern_variables(left, variables);
-            collect_pattern_variables(right, variables);
+            visit_pattern_variables(left, visitor);
+            visit_pattern_variables(right, visitor);
         }
         Pattern::Exists { variable, body, .. }
         | Pattern::Forall { variable, body, .. }
         | Pattern::Mu { variable, body }
         | Pattern::Nu { variable, body } => {
-            variables
-                .entry(variable.name.clone())
-                .or_insert_with(|| variable.clone());
-            collect_pattern_variables(body, variables);
+            visitor(variable);
+            visit_pattern_variables(body, visitor);
         }
         Pattern::String(_)
         | Pattern::Top { .. }
@@ -3854,6 +3958,56 @@ mod tests {
     }
 
     #[test]
+    fn rejects_axioms_that_use_one_name_at_two_sorts() {
+        let generated_top = KoreSort::Application {
+            name: "SortGeneratedTopCell".into(),
+            arguments: Vec::new(),
+        };
+        let int = KoreSort::Application {
+            name: "SortInt".into(),
+            arguments: Vec::new(),
+        };
+        let k_cell = KoreSort::Application {
+            name: "SortKCell".into(),
+            arguments: Vec::new(),
+        };
+        let variable = |sort| Variable {
+            kind: VariableKind::Element,
+            name: "Var'Unds'Gen0".into(),
+            sort,
+        };
+        let sentence = KoreSentence::Axiom {
+            parameters: Vec::new(),
+            pattern: Box::new(Pattern::And {
+                sort: generated_top,
+                arguments: vec![
+                    Pattern::Variable(variable(int)),
+                    Pattern::Exists {
+                        sort: k_cell.clone(),
+                        variable: variable(k_cell.clone()),
+                        body: Box::new(Pattern::Top { sort: k_cell }),
+                    },
+                ],
+            }),
+            attributes: Attributes::default(),
+        };
+
+        let error = check_variable_sorts(&sentence, &|| "TEST.collision".into()).unwrap_err();
+        assert_eq!(
+            error,
+            ModuleToKoreError::InconsistentVariableSorts {
+                sentence: "TEST.collision".into(),
+                name: "Var'Unds'Gen0".into(),
+                sorts: vec!["SortInt{}".into(), "SortKCell{}".into()],
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "variable Var'Unds'Gen0 occurs with sorts SortInt{} and SortKCell{} in one axiom (TEST.collision); a kompile pass minted a fresh name that another pass already used"
+        );
+    }
+
+    #[test]
     fn refreshes_same_named_variables_at_distinct_sorts_independently() {
         let term = Term::apply(
             "pair",
@@ -3868,7 +4022,7 @@ mod tests {
                 },
             ],
         );
-        let refreshed = refresh_variables(&term, &BTreeSet::new(), &mut 0, &mut BTreeMap::new());
+        let refreshed = refresh_variables(&term, &mut FreshNames::default(), &mut BTreeMap::new());
         let variables = variable_terms([&refreshed]);
 
         assert_eq!(

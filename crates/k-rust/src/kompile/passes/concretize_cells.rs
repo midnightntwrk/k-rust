@@ -12,6 +12,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
+    kompile::fresh_names::FreshNames,
     provenance::{GeneratingPass, record_generated_origins},
 };
 
@@ -466,9 +467,8 @@ impl CellModel {
 struct Concretizer<'a> {
     model: &'a CellModel,
     productions: &'a ProductionCatalog<'a>,
-    variables: BTreeSet<String>,
+    fresh: FreshNames,
     fragments: BTreeMap<String, FragmentInfo>,
-    counter: usize,
 }
 
 #[derive(Clone)]
@@ -483,9 +483,8 @@ impl<'a> Concretizer<'a> {
         Self {
             model,
             productions,
-            variables: BTreeSet::new(),
+            fresh: FreshNames::default(),
             fragments: BTreeMap::new(),
-            counter: 0,
         }
     }
 
@@ -493,16 +492,8 @@ impl<'a> Concretizer<'a> {
         if matches!(&sentence, Sentence::Claim { body, .. } if !contains_cell(body, self.model)) {
             return Ok(sentence);
         }
-        self.variables.clear();
+        self.fresh = FreshNames::for_sentence(&sentence);
         self.fragments.clear();
-        self.counter = 0;
-        for root in sentence_roots(&sentence) {
-            root.visit_preorder(&mut |term| {
-                if let Term::Variable { name, .. } = term.unannotated() {
-                    self.variables.insert(name.clone());
-                }
-            });
-        }
         match sentence {
             Sentence::Rule {
                 body,
@@ -1288,14 +1279,10 @@ impl<'a> Concretizer<'a> {
     }
 
     fn fresh_variable(&mut self, sort: Option<Sort>, prefix: &str) -> Term {
-        let name = loop {
-            let name = format!("{prefix}{}", self.counter);
-            self.counter += 1;
-            if self.variables.insert(name.clone()) {
-                break name;
-            }
-        };
-        Term::Variable { name, sort }
+        Term::Variable {
+            name: self.fresh.mint(prefix),
+            sort,
+        }
     }
 }
 
@@ -1563,26 +1550,6 @@ fn set_variable_sort(term: Term, sort: Sort) -> Term {
         },
         metadata,
     )
-}
-
-fn sentence_roots(sentence: &Sentence) -> Vec<&Term> {
-    match sentence {
-        Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            ..
-        }
-        | Sentence::Claim {
-            body,
-            requires,
-            ensures,
-            ..
-        } => vec![body, requires, ensures],
-        Sentence::Context { body, requires, .. }
-        | Sentence::ContextAlias { body, requires, .. } => vec![body, requires],
-        _ => Vec::new(),
-    }
 }
 
 fn with_metadata(term: Term, metadata: Option<crate::kast::TermMetadata>) -> Term {

@@ -13,7 +13,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
-    kompile::SortInjector,
+    kompile::{SortInjector, fresh_names::FreshNames},
     provenance::{GeneratingPass, record_generated_origins},
 };
 
@@ -135,11 +135,7 @@ pub fn expand_macros_in_term(
         .module_id(module)
         .ok_or_else(|| format!("unknown module {module}"))?;
     let mut expander = Expander::new(&resolved, module)?;
-    term.visit_preorder(&mut |term| {
-        if let Term::Variable { name, .. } = term.unannotated() {
-            expander.variables.insert(name.clone());
-        }
-    });
+    expander.fresh = FreshNames::for_terms([&term]);
     expander.expand_term(term, &BTreeSet::new())
 }
 
@@ -151,8 +147,7 @@ struct Expander<'a> {
     overloads: crate::definition::OverloadOrder<'a>,
     macros: BTreeMap<Label, Vec<MacroRule>>,
     token_macros: BTreeMap<Sort, Vec<MacroRule>>,
-    variables: BTreeSet<String>,
-    counter: usize,
+    fresh: FreshNames,
 }
 
 impl<'a> Expander<'a> {
@@ -208,20 +203,12 @@ impl<'a> Expander<'a> {
             overloads,
             macros,
             token_macros,
-            variables: BTreeSet::new(),
-            counter: 0,
+            fresh: FreshNames::default(),
         })
     }
 
     fn expand_sentence(&mut self, sentence: Sentence) -> Result<Sentence, String> {
-        self.variables.clear();
-        for root in sentence_roots(&sentence) {
-            root.visit_preorder(&mut |term| {
-                if let Term::Variable { name, .. } = term.unannotated() {
-                    self.variables.insert(name.clone());
-                }
-            });
-        }
+        self.fresh = FreshNames::for_sentence(&sentence);
         match sentence {
             Sentence::Rule {
                 body,
@@ -440,14 +427,10 @@ impl<'a> Expander<'a> {
                 if name == "#Configuration" {
                     Term::Variable { name, sort }
                 } else {
-                    let fresh = loop {
-                        let fresh = format!("_Gen{}", self.counter);
-                        self.counter += 1;
-                        if self.variables.insert(fresh.clone()) {
-                            break fresh;
-                        }
+                    let variable = Term::Variable {
+                        name: self.fresh.mint("_Gen"),
+                        sort,
                     };
-                    let variable = Term::Variable { name: fresh, sort };
                     substitution.insert(name, variable.clone());
                     variable
                 }

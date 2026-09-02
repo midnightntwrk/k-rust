@@ -188,7 +188,7 @@ module MAIN
   axiom{}
     \or{SortNumber{}}(
       \exists{SortNumber{}}(X0:SortInt{}, LblfromNumber{}(X0:SortInt{})),
-      \exists{SortNumber{}}(X0:SortNumber{}, Lblwide{}(X0:SortNumber{})),
+      \exists{SortNumber{}}(X0V2:SortNumber{}, Lblwide{}(X0V2:SortNumber{})),
       \exists{SortNumber{}}(Val:SortInt{}, inj{SortInt{}, SortNumber{}}(Val:SortInt{})),
       \bottom{SortNumber{}}()
     )
@@ -196,10 +196,10 @@ module MAIN
   axiom{}
     \or{SortValue{}}(
       \exists{SortValue{}}(X0:SortInt{}, LblasInt{}(X0:SortInt{})),
-      \exists{SortValue{}}(X0:SortNumber{}, LblasNumber{}(X0:SortNumber{})),
-      \exists{SortValue{}}(X0:SortValue{}, Lblwidest{}(X0:SortValue{})),
+      \exists{SortValue{}}(X0V2:SortNumber{}, LblasNumber{}(X0V2:SortNumber{})),
+      \exists{SortValue{}}(X0V3:SortValue{}, Lblwidest{}(X0V3:SortValue{})),
       \exists{SortValue{}}(Val:SortInt{}, inj{SortInt{}, SortValue{}}(Val:SortInt{})),
-      \exists{SortValue{}}(Val:SortNumber{}, inj{SortNumber{}, SortValue{}}(Val:SortNumber{})),
+      \exists{SortValue{}}(ValV2:SortNumber{}, inj{SortNumber{}, SortValue{}}(ValV2:SortNumber{})),
       \bottom{SortValue{}}()
     )
     [constructor{}()]

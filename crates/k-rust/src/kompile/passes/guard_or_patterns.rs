@@ -1,11 +1,9 @@
 //! Give matching-logic disjunctions explicit aliases.
 
-use std::collections::BTreeSet;
-
 use crate::{
     definition::{Definition, ResolvedDefinition, Sentence},
     kast::{Sort, Term},
-    kompile::SortInjector,
+    kompile::{SortInjector, fresh_names::FreshNames},
     provenance::{GeneratingPass, record_generated_origins},
 };
 
@@ -13,11 +11,11 @@ use crate::{
 pub fn guard_or_patterns(definition: &Definition) -> Result<Definition, String> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(|error| error.to_string())?;
     let mut output = definition.clone();
-    let mut counter = 0usize;
     for module in &mut output.modules {
         let injector =
             SortInjector::new(&resolved, &module.name).map_err(|error| error.to_string())?;
         for sentence in &mut module.local_sentences {
+            let mut fresh = FreshNames::for_sentence(sentence);
             let roots = match sentence {
                 Sentence::Rule {
                     body,
@@ -28,17 +26,9 @@ pub fn guard_or_patterns(definition: &Definition) -> Result<Definition, String> 
                 Sentence::Context { body, requires, .. } => vec![body, requires],
                 _ => continue,
             };
-            let mut variables = BTreeSet::new();
-            for root in &roots {
-                root.visit_preorder(&mut |term| {
-                    if let Term::Variable { name, .. } = term.unannotated() {
-                        variables.insert(name.clone());
-                    }
-                });
-            }
             for root in roots {
                 let taken = std::mem::replace(root, Term::Sequence(Vec::new()));
-                *root = transform(taken, &injector, &mut variables, &mut counter);
+                *root = transform(taken, &injector, &mut fresh);
             }
         }
     }
@@ -49,12 +39,7 @@ pub fn guard_or_patterns(definition: &Definition) -> Result<Definition, String> 
     ))
 }
 
-fn transform(
-    term: Term,
-    injector: &SortInjector<'_>,
-    variables: &mut BTreeSet<String>,
-    counter: &mut usize,
-) -> Term {
+fn transform(term: Term, injector: &SortInjector<'_>, fresh: &mut FreshNames) -> Term {
     let metadata = term.metadata().cloned();
     let rebuilt = match term.into_unannotated() {
         Term::Apply { label, arguments } if label.name == "#Or" => {
@@ -62,17 +47,10 @@ fn transform(
             let sort = injector
                 .term_sort(&application, None)
                 .unwrap_or_else(|_| Sort::new("K"));
-            let name = loop {
-                let name = format!("_Gen{counter}");
-                *counter += 1;
-                if variables.insert(name.clone()) {
-                    break name;
-                }
-            };
             Term::As {
                 pattern: Box::new(application),
                 alias: Box::new(Term::Variable {
-                    name,
+                    name: fresh.mint("_Gen"),
                     sort: Some(sort),
                 }),
             }
@@ -83,13 +61,13 @@ fn transform(
             label,
             arguments: arguments
                 .into_iter()
-                .map(|argument| transform(argument, injector, variables, counter))
+                .map(|argument| transform(argument, injector, fresh))
                 .collect(),
         },
         Term::Sequence(items) => Term::Sequence(
             items
                 .into_iter()
-                .map(|item| transform(item, injector, variables, counter))
+                .map(|item| transform(item, injector, fresh))
                 .collect(),
         ),
         leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,

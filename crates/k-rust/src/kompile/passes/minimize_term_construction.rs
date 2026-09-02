@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     definition::{Definition, LabelHead, ProductionCatalog, ResolvedDefinition, Sentence},
     kast::{Sort, Term},
+    kompile::fresh_names::FreshNames,
     provenance::{GeneratingPass, record_generated_origins},
 };
 
@@ -52,11 +53,14 @@ fn minimize_term_construction_inner(
             if attributes.get("simplification").is_some() {
                 continue;
             }
-            let mut minimizer =
-                Minimizer::new(&productions, &converter, &main_productions, &main_converter);
-            minimizer.gather_variables(body);
-            minimizer.gather_variables(requires);
-            minimizer.gather_variables(ensures);
+            let fresh = FreshNames::for_terms([&*body, &*requires, &*ensures]);
+            let mut minimizer = Minimizer::new(
+                &productions,
+                &converter,
+                &main_productions,
+                &main_converter,
+                fresh,
+            );
             minimizer.gather_terms(body, Position::Both, true, false)?;
             minimizer.gather_terms(requires, Position::Right, true, false)?;
             minimizer.gather_terms(ensures, Position::Right, true, false)?;
@@ -83,10 +87,9 @@ struct Minimizer<'a> {
     converter: &'a TermConverter<'a>,
     main_productions: &'a ProductionCatalog<'a>,
     main_converter: &'a TermConverter<'a>,
-    variables: BTreeSet<(String, Option<Sort>)>,
+    fresh: FreshNames,
     cache: BTreeMap<Term, Term>,
     used_on_rhs: BTreeSet<Term>,
-    counter: usize,
 }
 
 impl<'a> Minimizer<'a> {
@@ -95,25 +98,17 @@ impl<'a> Minimizer<'a> {
         converter: &'a TermConverter<'a>,
         main_productions: &'a ProductionCatalog<'a>,
         main_converter: &'a TermConverter<'a>,
+        fresh: FreshNames,
     ) -> Self {
         Self {
             productions,
             converter,
             main_productions,
             main_converter,
-            variables: BTreeSet::new(),
+            fresh,
             cache: BTreeMap::new(),
             used_on_rhs: BTreeSet::new(),
-            counter: 0,
         }
-    }
-
-    fn gather_variables(&mut self, term: &Term) {
-        term.visit_preorder(&mut |term| {
-            if let Term::Variable { name, sort } = term {
-                self.variables.insert((name.clone(), sort.clone()));
-            }
-        });
     }
 
     fn gather_terms(
@@ -270,16 +265,9 @@ impl<'a> Minimizer<'a> {
     }
 
     fn new_variable(&mut self, sort: Sort) -> Term {
-        loop {
-            let name = format!("_Gen{}", self.counter);
-            self.counter += 1;
-            let key = (name.clone(), Some(sort.clone()));
-            if self.variables.insert(key) {
-                return Term::Variable {
-                    name,
-                    sort: Some(sort),
-                };
-            }
+        Term::Variable {
+            name: self.fresh.mint("_Gen"),
+            sort: Some(sort),
         }
     }
 

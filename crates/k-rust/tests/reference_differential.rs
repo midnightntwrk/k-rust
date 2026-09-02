@@ -1361,6 +1361,24 @@ fn comparator_reorders_universal_binder_chains() {
 }
 
 #[test]
+fn comparator_alpha_normalizes_disjoint_bound_variable_names() {
+    let reference = differential_definition(
+        r"axiom{} \or{S{}}(
+            \exists{S{}}(X:S{}, X:S{}),
+            \exists{S{}}(X:T{}, X:T{})
+        ) []",
+    );
+    let actual = differential_definition(
+        r"axiom{} \or{S{}}(
+            \exists{S{}}(X:S{}, X:S{}),
+            \exists{S{}}(X0V2:T{}, X0V2:T{})
+        ) []",
+    );
+
+    compare_definitions(reference, actual);
+}
+
+#[test]
 fn comparator_detects_multiplicity_differences() {
     let reference = differential_definition("axiom{} a{}() []\naxiom{} a{}() []");
     let actual = differential_definition("axiom{} a{}() []");
@@ -1823,6 +1841,62 @@ fn canonicalize_attributes(attributes: &mut Attributes) {
 fn canonicalize_pattern(pattern: &mut Pattern) {
     rename_generated_variables(pattern);
     canonicalize_existentials(pattern);
+    alpha_normalize_bound_variables(pattern);
+    // Bound names participate in `Pattern::Ord`, so re-sort disjunctions after replacing them.
+    canonicalize_existentials(pattern);
+}
+
+fn alpha_normalize_bound_variables(pattern: &mut Pattern) {
+    fn visit(pattern: &mut Pattern, scopes: &mut Vec<(k_rust::kore::ast::Variable, String)>) {
+        match pattern {
+            Pattern::Application { arguments, .. }
+            | Pattern::And { arguments, .. }
+            | Pattern::Or { arguments, .. }
+            | Pattern::AssociativeApplication { arguments, .. } => {
+                for argument in arguments {
+                    visit(argument, scopes);
+                }
+            }
+            Pattern::Not { argument, .. }
+            | Pattern::Next { argument, .. }
+            | Pattern::Ceil { argument, .. }
+            | Pattern::Floor { argument, .. } => visit(argument, scopes),
+            Pattern::Implies { left, right, .. }
+            | Pattern::Iff { left, right, .. }
+            | Pattern::Rewrites { left, right, .. }
+            | Pattern::Equals { left, right, .. }
+            | Pattern::In { left, right, .. } => {
+                visit(left, scopes);
+                visit(right, scopes);
+            }
+            Pattern::Exists { variable, body, .. }
+            | Pattern::Forall { variable, body, .. }
+            | Pattern::Mu { variable, body }
+            | Pattern::Nu { variable, body } => {
+                let original = variable.clone();
+                let canonical = format!("#KDiffBound{}", scopes.len());
+                variable.name.clone_from(&canonical);
+                scopes.push((original, canonical));
+                visit(body, scopes);
+                scopes.pop();
+            }
+            Pattern::Variable(variable) => {
+                if let Some((_, canonical)) = scopes.iter().rev().find(|(bound, _)| {
+                    bound.kind == variable.kind
+                        && bound.name == variable.name
+                        && bound.sort == variable.sort
+                }) {
+                    variable.name.clone_from(canonical);
+                }
+            }
+            Pattern::String(_)
+            | Pattern::Top { .. }
+            | Pattern::Bottom { .. }
+            | Pattern::DomainValue { .. } => {}
+        }
+    }
+
+    visit(pattern, &mut Vec::new());
 }
 
 fn canonicalize_existentials(pattern: &mut Pattern) {
