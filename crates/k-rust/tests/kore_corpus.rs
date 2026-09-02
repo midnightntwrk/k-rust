@@ -4,8 +4,7 @@ use std::path::{Path, PathBuf};
 use k_rust::kore::parser::{parse_definition, parse_pattern};
 
 const PASS_DEFINITION_COUNT: usize = 73;
-const FAIL_DEFINITION_COUNT: usize = 9;
-const SCALA_COMPAT_DEFINITION_COUNT: usize = 1;
+const FAIL_DEFINITION_COUNT: usize = 10;
 const PATTERN_COUNT: usize = 4;
 
 #[test]
@@ -42,16 +41,6 @@ fn parses_standalone_reference_patterns() {
 
     for path in fixtures {
         assert_pattern_round_trip(&path);
-    }
-}
-
-#[test]
-fn preserves_scala_unknown_escape_compatibility() {
-    let fixtures = fixtures("definitions/scala-compat");
-    assert_eq!(fixtures.len(), SCALA_COMPAT_DEFINITION_COUNT);
-
-    for path in fixtures {
-        assert_definition_round_trip(&path);
     }
 }
 

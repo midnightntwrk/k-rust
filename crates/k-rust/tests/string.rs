@@ -1,4 +1,4 @@
-// Cases ported from pyk and expanded to pin scala-kore StringUtil compatibility.
+// Cases ported from pyk and expanded to pin reference KORE string behavior.
 
 use k_rust::kore::string::{quote, unquote};
 
@@ -58,8 +58,21 @@ fn round_trips_unicode_scalar_values() {
 }
 
 #[test]
-fn matches_unknown_escape_compatibility() {
-    assert_eq!(unquote(r#""\q""#).as_deref(), Ok("q"));
+fn rejects_unknown_escapes() {
+    for input in [r#""\q""#, r#""\0""#] {
+        let error = unquote(input).expect_err("unknown escapes must be rejected");
+        assert_eq!(error.offset, 1, "input: {input}");
+        assert_eq!(error.message, "unknown escape", "input: {input}");
+    }
+}
+
+#[test]
+fn rejects_raw_control_characters() {
+    for input in ["\"a\nb\"", "\"a\rb\"", "\"a\tb\""] {
+        let error = unquote(input).expect_err("raw control characters must be rejected");
+        assert_eq!(error.offset, 1, "input: {input:?}");
+        assert_eq!(error.message, "non-printable character in string");
+    }
 }
 
 #[test]
