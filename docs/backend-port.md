@@ -61,3 +61,11 @@ The port is complete only when all of the following are demonstrated from the cu
 
 Incremental checkpoints may implement narrower vertical slices, but they do not reduce this
 completion contract.
+
+## Final search depth cuts
+
+FINAL search treats `--depth N` as a cut of the execution graph.
+A simplified configuration at depth `N` is a result without an additional rewrite attempt, including the initial configuration when `N` is zero.
+A configuration below the bound is a result only when no rule applies.
+Configurations whose constraints simplify to false and whole-state trivial or vacuous outcomes are not results.
+The host backend retains `DepthBound` as an incompleteness signal for accepted frontier configurations; the CLI does not render that signal as an error.
