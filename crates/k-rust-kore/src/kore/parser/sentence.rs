@@ -1,4 +1,4 @@
-use crate::kore::ast::{Attributes, Sentence};
+use crate::kore::ast::{Attributes, Pattern, Sentence, VariableKind};
 use crate::kore::lexer::TokenKind;
 
 use super::{ParseError, Parser};
@@ -26,7 +26,7 @@ impl Parser<'_> {
 
     pub(super) fn attributes(&mut self) -> Result<Attributes, ParseError> {
         let patterns = self.delimited(TokenKind::LBracket, TokenKind::RBracket, |parser| {
-            parser.application()
+            parser.pattern()
         })?;
         Ok(Attributes(patterns))
     }
@@ -82,7 +82,13 @@ impl Parser<'_> {
         self.expect(TokenKind::Colon)?;
         let result_sort = self.sort()?;
         self.expect(TokenKind::Where)?;
-        let left = self.application()?;
+        let symbol = self.symbol()?;
+        let arguments = self.delimited(
+            TokenKind::LParen,
+            TokenKind::RParen,
+            Self::alias_left_variable,
+        )?;
+        let left = Pattern::Application { symbol, arguments };
         self.expect(TokenKind::Walrus)?;
         let right = self.pattern()?;
         let attributes = self.attributes()?;
@@ -94,6 +100,40 @@ impl Parser<'_> {
             right: Box::new(right),
             attributes,
         })
+    }
+
+    fn alias_left_variable(&mut self) -> Result<Pattern, ParseError> {
+        let Some(token) = self.peek() else {
+            return Err(ParseError {
+                offset: self.input_len,
+                message: "expected variable in alias left-hand side, found end of input".into(),
+            });
+        };
+        let kind = match token.kind {
+            TokenKind::Id => VariableKind::Element,
+            TokenKind::SetVarId => VariableKind::Set,
+            actual => {
+                return Err(ParseError {
+                    offset: token.offset,
+                    message: format!("expected variable in alias left-hand side, found {actual:?}"),
+                });
+            }
+        };
+        if !self
+            .tokens
+            .get(self.cursor + 1)
+            .is_some_and(|next| next.kind == TokenKind::Colon)
+        {
+            let offending = self.tokens.get(self.cursor + 1).copied().unwrap_or(token);
+            return Err(ParseError {
+                offset: offending.offset,
+                message: format!(
+                    "expected variable in alias left-hand side, found {:?}",
+                    offending.kind
+                ),
+            });
+        }
+        self.variable(kind).map(Pattern::Variable)
     }
 
     fn axiom(&mut self, claim: bool) -> Result<Sentence, ParseError> {

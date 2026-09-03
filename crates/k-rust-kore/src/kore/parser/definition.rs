@@ -25,7 +25,7 @@ impl Parser<'_> {
 
     pub(super) fn definition(&mut self) -> Result<Definition, ParseError> {
         let attributes = self.attributes()?;
-        let mut modules = Vec::new();
+        let mut modules = vec![self.module()?];
         while self.peek().is_some() {
             modules.push(self.module()?);
         }
