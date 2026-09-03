@@ -1,7 +1,7 @@
 //! Warnings for terms parsed through deprecated productions.
 
 use super::{Sentence, checked_terms};
-use crate::definition::{ProductionCatalog, ProductionId};
+use crate::definition::{LabelHead, ProductionCatalog, ProductionId};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::Term;
 
@@ -13,17 +13,7 @@ pub fn check_deprecated_productions(
     for sentence in sentences {
         for term in checked_terms(sentence) {
             visit_with_metadata(term, &mut |term| {
-                let Some(resolved) = term.metadata().and_then(|metadata| metadata.production)
-                else {
-                    return;
-                };
-                if resolved.0 >= productions.len()
-                    || productions
-                        .production(ProductionId(resolved.0))
-                        .attributes()
-                        .get("deprecated")
-                        .is_none()
-                {
+                if !uses_deprecated_production(term, productions) {
                     return;
                 }
                 diagnostics.push(Diagnostic::warning(
@@ -35,6 +25,34 @@ pub fn check_deprecated_productions(
         }
     }
     diagnostics
+}
+
+fn uses_deprecated_production(term: &Term, productions: &ProductionCatalog<'_>) -> bool {
+    if let Some(resolved) = term.metadata().and_then(|metadata| metadata.production)
+        && resolved.0 < productions.len()
+    {
+        let production = productions.production(ProductionId(resolved.0));
+        let metadata_matches = match (term.unannotated(), production) {
+            (
+                Term::Apply { label, .. },
+                Sentence::Production {
+                    label: Some(production_label),
+                    ..
+                },
+            ) => LabelHead::from(label) == LabelHead::from(production_label),
+            (Term::Apply { .. }, _) => false,
+            _ => true,
+        };
+        if metadata_matches {
+            return production.attributes().get("deprecated").is_some();
+        }
+    }
+    let Term::Apply { label, .. } = term.unannotated() else {
+        return false;
+    };
+    let candidates = productions.productions_for(&LabelHead::from(label));
+    matches!(candidates, [production]
+        if productions.production(*production).attributes().get("deprecated").is_some())
 }
 
 fn visit_with_metadata(term: &Term, visitor: &mut impl FnMut(&Term)) {
