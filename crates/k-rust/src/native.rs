@@ -7,11 +7,14 @@ use std::{
 };
 
 use crate::{
-    builtin::{embedded, source_name},
+    builtin::embedded,
     outer::{ResolvedSource, SourceResolver, normalize_virtual_path},
 };
 
 /// Filesystem-backed resolution for entry files and recursive `requires`.
+///
+/// Relative requirements follow K's `ParserUtils.slurp` order: the first lookup directory, the requiring file's directory, the remaining lookup directories, and finally the configured or embedded builtin source.
+/// With no lookup directory, the builtin source therefore precedes the requiring file's directory.
 #[derive(Clone, Debug)]
 pub struct FileResolver {
     builtin_directory: Option<PathBuf>,
@@ -26,11 +29,22 @@ impl FileResolver {
         working_directory: impl Into<PathBuf>,
         lookup_directories: impl IntoIterator<Item = PathBuf>,
     ) -> Self {
+        let working_directory = working_directory.into();
+        let lookup_directories = lookup_directories
+            .into_iter()
+            .map(|directory| {
+                if directory.is_absolute() {
+                    directory
+                } else {
+                    working_directory.join(directory)
+                }
+            })
+            .collect();
         Self {
             builtin_directory: None,
             project_root: None,
-            working_directory: working_directory.into(),
-            lookup_directories: lookup_directories.into_iter().collect(),
+            working_directory,
+            lookup_directories,
             prepared_sources: BTreeSet::new(),
         }
     }
@@ -46,7 +60,12 @@ impl FileResolver {
     }
 
     pub fn with_builtin_directory(mut self, directory: impl Into<PathBuf>) -> Self {
-        self.builtin_directory = Some(directory.into());
+        let directory = directory.into();
+        self.builtin_directory = Some(if directory.is_absolute() {
+            directory
+        } else {
+            self.working_directory.join(directory)
+        });
         self
     }
 
@@ -80,29 +99,39 @@ impl FileResolver {
         })
     }
 
-    fn candidates(&self, requiring_source: &str, required: &str) -> Vec<PathBuf> {
-        let required = PathBuf::from(source_name(required));
-        let required = required.as_path();
+    fn candidates(&self, requiring_source: &str, required: &str) -> Vec<Candidate> {
+        let required = Path::new(required);
         if required.is_absolute() {
-            return vec![required.to_owned()];
+            return vec![Candidate::Path(required.to_owned())];
         }
 
-        let mut candidates = Vec::new();
-        if let Some(directory) = &self.builtin_directory {
-            candidates.push(directory.join(required));
+        let mut candidates = self
+            .lookup_directories
+            .iter()
+            .map(|directory| Candidate::Path(directory.join(required)))
+            .collect::<Vec<_>>();
+        candidates.push(match &self.builtin_directory {
+            Some(directory) => Candidate::Path(directory.join(required)),
+            None => Candidate::Embedded,
+        });
+        let requiring_directory = (!requiring_source.starts_with("krust-builtin://"))
+            .then(|| Path::new(requiring_source).parent())
+            .flatten()
+            .filter(|parent| !parent.as_os_str().is_empty());
+        if let Some(directory) = requiring_directory {
+            candidates.insert(
+                1.min(candidates.len()),
+                Candidate::Path(directory.join(required)),
+            );
         }
-        if let Some(parent) = Path::new(requiring_source).parent() {
-            candidates.push(parent.join(required));
-        }
-        candidates.push(self.working_directory.join(required));
-        candidates.extend(
-            self.lookup_directories
-                .iter()
-                .map(|directory| directory.join(required)),
-        );
-        candidates.dedup();
         candidates
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Candidate {
+    Path(PathBuf),
+    Embedded,
 }
 
 impl SourceResolver for FileResolver {
@@ -113,33 +142,40 @@ impl SourceResolver for FileResolver {
     ) -> Result<ResolvedSource, String> {
         let candidates = self.candidates(requiring_source, required);
         for candidate in &candidates {
-            let identity = fs::canonicalize(candidate)
-                .map(|path| path.to_string_lossy().into_owned())
-                .unwrap_or_else(|_| {
-                    normalize_virtual_path(&self.working_directory.join(candidate))
-                });
-            if self.prepared_sources.contains(&identity) {
-                return Ok(ResolvedSource::new(identity, ""));
-            }
-            match self.read(candidate) {
-                Ok(source) => return Ok(source),
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => {
-                    return Err(format!("could not read {}: {error}", candidate.display()));
+            match candidate {
+                Candidate::Path(path) => {
+                    let identity = fs::canonicalize(path)
+                        .map(|path| path.to_string_lossy().into_owned())
+                        .unwrap_or_else(|_| normalize_virtual_path(&self.working_directory.join(path)));
+                    if self.prepared_sources.contains(&identity) {
+                        return Ok(ResolvedSource::new(identity, ""));
+                    }
+                    match self.read(path) {
+                    Ok(source) => return Ok(source),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                    Err(error) => {
+                        return Err(format!("could not read {}: {error}", path.display()));
+                    }
+                    }
+                }
+                Candidate::Embedded => {
+                    if let Some(source) = embedded(required) {
+                        if self.prepared_sources.contains(&source.source) {
+                            return Ok(ResolvedSource::new(source.source, ""));
+                        }
+                        return Ok(source);
+                    }
                 }
             }
-        }
-        if let Some(source) = embedded(required) {
-            if self.prepared_sources.contains(&source.source) {
-                return Ok(ResolvedSource::new(source.source, ""));
-            }
-            return Ok(source);
         }
         Err(format!(
             "not found; searched {}",
             candidates
                 .iter()
-                .map(|path| path.display().to_string())
+                .map(|candidate| match candidate {
+                    Candidate::Path(path) => path.display().to_string(),
+                    Candidate::Embedded => format!("krust-builtin://{required}"),
+                })
                 .collect::<Vec<_>>()
                 .join(", ")
         ))
@@ -148,31 +184,151 @@ impl SourceResolver for FileResolver {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     use super::*;
 
+    struct ResolverFixture(PathBuf);
+
+    impl ResolverFixture {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "k-rust-resolver-{}-{nonce}-{sequence}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&root).unwrap();
+            Self(root)
+        }
+
+        fn directory(&self, relative: &str) -> PathBuf {
+            let directory = self.0.join(relative);
+            fs::create_dir_all(&directory).unwrap();
+            directory
+        }
+
+        fn write(&self, relative: &str, text: &str) -> PathBuf {
+            let path = self.0.join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, text).unwrap();
+            path
+        }
+    }
+
+    impl Drop for ResolverFixture {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
     #[test]
-    fn resolves_relative_requires_before_lookup_directories() {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!("k-rust-resolver-{nonce}"));
-        let local = root.join("local");
-        let lookup = root.join("lookup");
-        fs::create_dir_all(&local).unwrap();
-        fs::create_dir_all(&lookup).unwrap();
-        fs::write(local.join("shared.k"), "local").unwrap();
-        fs::write(lookup.join("shared.k"), "lookup").unwrap();
+    fn requires_order_matches_parser_utils_slurp() {
+        let fixture = ResolverFixture::new();
+        let local = fixture.directory("definition");
+        let first = fixture.directory("include-first");
+        let second = fixture.directory("include-second");
+        let builtin = fixture.directory("builtin");
+        let requiring = fixture.write("definition/main.k", "module MAIN endmodule");
 
-        let mut resolver = FileResolver::new(&root, [lookup]);
-        let source = resolver
-            .resolve(&local.join("main.k").to_string_lossy(), "shared.k")
-            .unwrap();
+        fixture.write("include-first/first.k", "first include");
+        fixture.write("definition/first.k", "local");
+        fixture.write("include-second/first.k", "second include");
+        fixture.write("definition/local.k", "local");
+        fixture.write("include-second/local.k", "second include");
+        fixture.write("include-second/second.k", "second include");
+        fixture.write("definition/json.md", "local json");
 
-        assert_eq!(source.text, "local");
-        fs::remove_dir_all(root).unwrap();
+        let mut resolver = FileResolver::new(&fixture.0, [first, second]);
+        assert_eq!(
+            resolver
+                .resolve(&requiring.to_string_lossy(), "first.k")
+                .unwrap()
+                .text,
+            "first include"
+        );
+        assert_eq!(
+            resolver
+                .resolve(&requiring.to_string_lossy(), "local.k")
+                .unwrap()
+                .text,
+            "local"
+        );
+        assert_eq!(
+            resolver
+                .resolve(&requiring.to_string_lossy(), "second.k")
+                .unwrap()
+                .text,
+            "second include"
+        );
+        assert_eq!(
+            resolver
+                .resolve(&requiring.to_string_lossy(), "json.md")
+                .unwrap()
+                .text,
+            "local json",
+            "the requiring directory follows the first -I directory and precedes the builtin"
+        );
+
+        let mut no_includes = FileResolver::new(&fixture.0, []);
+        assert_eq!(
+            no_includes
+                .resolve(&requiring.to_string_lossy(), "json.md")
+                .unwrap()
+                .source,
+            "krust-builtin://json.md",
+            "the builtin precedes the requiring directory when there is no -I directory"
+        );
+        assert_eq!(
+            no_includes
+                .resolve(
+                    &fixture.0.join("arbitrary/main.k").to_string_lossy(),
+                    "domains.md",
+                )
+                .unwrap()
+                .source,
+            "krust-builtin://domains.md"
+        );
+
+        fixture.write("builtin/json.md", "configured builtin");
+        let mut configured = FileResolver::new(&fixture.0, []).with_builtin_directory(&builtin);
+        assert_eq!(
+            configured
+                .resolve(&requiring.to_string_lossy(), "json.md")
+                .unwrap()
+                .text,
+            "configured builtin"
+        );
+        assert!(
+            configured
+                .resolve(&requiring.to_string_lossy(), "domains.md")
+                .is_err(),
+            "a configured builtin directory disables the embedded fallback"
+        );
+
+        let absolute = fixture.write("absolute.k", "absolute");
+        assert_eq!(
+            resolver
+                .resolve(&requiring.to_string_lossy(), &absolute.to_string_lossy(),)
+                .unwrap()
+                .text,
+            "absolute"
+        );
+
+        fixture.write("cwd-only.k", "working directory");
+        assert!(
+            no_includes
+                .resolve(&local.join("main.k").to_string_lossy(), "cwd-only.k")
+                .is_err(),
+            "the working directory is not an implicit requires candidate"
+        );
     }
 
     #[test]
@@ -217,7 +373,7 @@ mod tests {
         let local = root.join("shared.k");
         fs::write(&local, "new local source").unwrap();
         let mut resolver =
-            FileResolver::new(&root, [root.join("prepared")]).with_prepared_sources([root
+            FileResolver::new(&root, [root.join("first"), root.join("prepared")]).with_prepared_sources([root
                 .join("prepared/shared.k")
                 .to_string_lossy()
                 .into_owned()]);
@@ -243,5 +399,39 @@ mod tests {
             .unwrap();
         assert_eq!(source.source, identity);
         assert!(source.text.is_empty());
+    }
+
+    #[test]
+    fn reference_local_builtin_name_is_reserved() {
+        // reference: kompile test.k --backend haskell --main-module LOCAL-SHADOWS-BUILTIN
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/reference/outer/local-shadows-builtin");
+        let reference =
+            include_str!("../tests/fixtures/reference/outer/local-shadows-builtin/diagnostic.txt");
+        assert!(reference.contains("Could not find module: JSON-LOCAL"));
+
+        let mut resolver = FileResolver::new(&fixture, []);
+        let entry = resolver.load_entry(fixture.join("test.k")).unwrap();
+        let prelude = resolver.resolve(&entry.source, "prelude.md").unwrap();
+        let error = crate::outer::load_with_options(
+            entry,
+            "LOCAL-SHADOWS-BUILTIN",
+            &mut resolver,
+            &crate::outer::LoadOptions {
+                implicit_sources: vec![prelude],
+                ..crate::outer::LoadOptions::default()
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            crate::outer::LoadError::DefinitionResolution(
+                crate::definition::ResolveError::MissingImport {
+                    module: "LOCAL-SHADOWS-BUILTIN".into(),
+                    import: "JSON-LOCAL".into(),
+                }
+            )
+        );
     }
 }

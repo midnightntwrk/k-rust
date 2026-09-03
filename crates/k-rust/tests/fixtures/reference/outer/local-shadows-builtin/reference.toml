@@ -1,0 +1,23 @@
+case = "local-shadows-builtin"
+subsystem = "outer"
+source_ticket = "A1-12"
+harvested_from = "draft/fable51-review/fixtures/a1-fixtures/local-shadows-builtin"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "diagnostic.txt"
+command = "kompile test.k --backend haskell --main-module LOCAL-SHADOWS-BUILTIN >/dev/null 2> raw.stderr; status=$?; awk 'NR == 1 || /Location/' raw.stderr > diagnostic.txt; exit $status"
+tool = "kompile + awk"
+exit_code = 113
+sha256 = "74441f6a34264955f4957dbc996f551de2323bff09048e9b486e8eb92add3bb4"
+
+[[input]]
+file = "test.k"
+source = "draft/fable51-review/fixtures/a1-fixtures/local-shadows-builtin/test.k"
+sha256 = "4a23d45234e89f747ec63979fb76f03a2af513403d21454a297679f44e89ab3f"
+
+[[input]]
+file = "json.md"
+source = "draft/fable51-review/fixtures/a1-fixtures/local-shadows-builtin/json.md"
+sha256 = "645eeac8ce458602d44cdf68a08aa8e36fcf5d017679beda87904673f9f369c6"

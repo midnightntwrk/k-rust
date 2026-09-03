@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 
 use indoc::indoc;
 use k_rust::definition::Sentence;
-use k_rust::diagnostic::{DiagnosticCode, DiagnosticPolicy, Severity, WarningLevel};
+use k_rust::diagnostic::{
+    DiagnosticCode, DiagnosticPolicy, Severity, WarningCategory, WarningLevel,
+};
 use k_rust::kast::TermSpan;
 use k_rust::outer::{LoadError, LoadOptions, ResolvedSource, load, load_with_options};
 use k_rust::provenance::SourceId;
@@ -198,6 +200,65 @@ fn load_time_warnings_fail_the_load_under_warnings_to_errors() {
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].code, DiagnosticCode::MarkdownWarning);
     assert_eq!(diagnostics[0].severity, Severity::Error);
+}
+
+#[test]
+fn legacy_builtin_names_warn_and_rewrite() {
+    for (legacy, current) in [
+        ("ffi.k", "ffi.md"),
+        ("json.k", "json.md"),
+        ("rat.k", "rat.md"),
+        ("substitution.k", "substitution.md"),
+        ("domains.k", "domains.md"),
+        ("kast.k", "kast.md"),
+    ] {
+        let source =
+            format!("requires \"{legacy}\"\nmodule MAIN\n  imports LEGACY-BUILTIN\nendmodule\n");
+        let mut resolved_name = None;
+        let mut resolver = |_: &str, required: &str| {
+            resolved_name = Some(required.to_owned());
+            Ok(ResolvedSource::new(
+                required,
+                "```k\nmodule LEGACY-BUILTIN endmodule\n```\n",
+            ))
+        };
+        let loaded = load(
+            ResolvedSource::new("main.k", &source),
+            "MAIN",
+            &mut resolver,
+        )
+        .unwrap();
+
+        assert_eq!(resolved_name.as_deref(), Some(current));
+        let [warning] = loaded.diagnostics.as_slice() else {
+            panic!(
+                "expected one legacy-requires warning, got {:#?}",
+                loaded.diagnostics
+            );
+        };
+        assert_eq!(warning.code, DiagnosticCode::FutureError);
+        assert_eq!(
+            warning.code.warning_category(),
+            Some(WarningCategory::FutureError)
+        );
+        assert_eq!(warning.severity, Severity::Warning);
+        assert_eq!(
+            warning.message,
+            format!(
+                "Requiring a K file in the K builtin directory via a deprecated filename. Please replace \"{legacy}\" with \"{current}\"."
+            )
+        );
+        assert_eq!(warning.source.as_deref(), Some("main.k"));
+        assert_eq!(
+            warning.location,
+            Some(k_rust::definition::Location {
+                start_line: 1,
+                start_column: 1,
+                end_line: 1,
+                end_column: u32::try_from(format!("requires \"{legacy}\"").len()).unwrap() + 1,
+            })
+        );
+    }
 }
 
 #[test]

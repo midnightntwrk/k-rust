@@ -72,8 +72,10 @@ impl Default for LoadOptions {
     }
 }
 
-/// Resolves a `requires` path without coupling the portable frontend to a
-/// filesystem, URL loader, editor workspace, or JavaScript host.
+/// Resolves a `requires` path without coupling the portable frontend to a filesystem, URL loader, editor workspace, or JavaScript host.
+///
+/// `requiring_source` is the stable identity returned for the source containing the requirement.
+/// The loader normalizes deprecated builtin `.k` names to their current `.md` names before passing `required` to the resolver.
 pub trait SourceResolver {
     fn resolve(&mut self, requiring_source: &str, required: &str)
     -> Result<ResolvedSource, String>;
@@ -589,9 +591,21 @@ impl<R: SourceResolver> Loader<'_, R> {
         parsed.source_id = source_id;
 
         for requirement in &parsed.requires {
+            let (required_name, legacy) = builtin::source_name_with_flag(&requirement.path);
+            if legacy {
+                self.diagnostics.push(Diagnostic::warning_at_location(
+                    DiagnosticCode::FutureError,
+                    format!(
+                        "Requiring a K file in the K builtin directory via a deprecated filename. Please replace \"{}\" with \"{required_name}\".",
+                        requirement.path
+                    ),
+                    source.source.clone(),
+                    location(requirement.span),
+                ));
+            }
             let required = self
                 .resolver
-                .resolve(&source.source, &requirement.path)
+                .resolve(&source.source, required_name)
                 .map_err(|message| LoadError::ResolveRequire {
                     source: source.source.clone(),
                     required: requirement.path.clone(),
@@ -607,6 +621,15 @@ impl<R: SourceResolver> Loader<'_, R> {
         self.states.insert(source.source, VisitState::Complete);
         self.files.push(parsed);
         Ok(())
+    }
+}
+
+fn location(span: Span) -> Location {
+    Location {
+        start_line: span.start.line,
+        start_column: span.start.column,
+        end_line: span.end.line,
+        end_column: span.end.column,
     }
 }
 
