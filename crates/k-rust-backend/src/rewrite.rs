@@ -4870,6 +4870,30 @@ mod tests {
             .expect("function rewrite definition should internalize")
     }
 
+    fn rigid_no_evaluators_rewrite_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol opaque{}(SortInt{}) : SortInt{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
+                symbol state{}(SortInt{}) : SortState{} [constructor{}()]
+                symbol done{}() : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        state{}(\dv{SortInt{}}("0")),
+                        \top{SortState{}}()
+                    ),
+                    done{}()
+                ) [label{}("zero")]
+            endmodule []"#,
+        )
+        .expect("rigid function rewrite definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("rigid function rewrite definition should internalize")
+    }
+
     fn non_evaluable_function_rewrite_definition() -> BackendDefinition {
         let syntax = parse_definition(
             r#"[]
@@ -5826,6 +5850,89 @@ mod tests {
                 },
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn rigid_no_evaluators_equality_reports_smt_indeterminacy_without_a_solver() {
+        let definition = rigid_no_evaluators_rewrite_definition();
+        let pattern = Pattern {
+            term: internal_term(&definition, "state{}(opaque{}(N:SortInt{}))"),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        assert!(matches!(
+            rewrite_step(&definition, &pattern, &mut fresh),
+            RewriteResult::Indeterminate {
+                reason: IndeterminateReason::Smt {
+                    error: SmtError::Unavailable,
+                    ..
+                },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rigid_no_evaluators_equality_is_an_applied_and_complementary_condition() {
+        let definition = rigid_no_evaluators_rewrite_definition();
+        let pattern = Pattern {
+            term: internal_term(&definition, "state{}(opaque{}(N:SortInt{}))"),
+            constraints: Vec::new(),
+        };
+        let solver = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Indeterminate),
+        };
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            ..
+        } = rewrite_step_with_solver(&definition, &pattern, &mut fresh, &solver)
+        else {
+            panic!("the rigid/function pair should narrow into a branch and remainder");
+        };
+        let [applied] = branches.as_slice() else {
+            panic!("expected one conditional application, found {branches:?}");
+        };
+        assert_eq!(applied.pattern.term, internal_term(&definition, "done{}()"));
+        let [condition @ Predicate::Equals(left, right)] = applied.pattern.constraints.as_slice()
+        else {
+            panic!("expected the function equality on the applied branch");
+        };
+        assert_eq!(left, &internal_term(&definition, r#"\dv{SortInt{}}("0")"#));
+        assert_eq!(right, &internal_term(&definition, "opaque{}(N:SortInt{})"));
+        assert_eq!(
+            remainder.pattern.constraints,
+            vec![Predicate::Not(Box::new(condition.clone()))]
+        );
+
+        let mut fresh = 0;
+        assert!(matches!(
+            rewrite_step_with_solver(&definition, &remainder.pattern, &mut fresh, &solver),
+            RewriteResult::Stuck(_)
+        ));
+    }
+
+    #[test]
+    fn solver_refutes_a_rigid_no_evaluators_function_equality() {
+        let definition = rigid_no_evaluators_rewrite_definition();
+        let pattern = Pattern {
+            term: internal_term(&definition, "state{}(opaque{}(N:SortInt{}))"),
+            constraints: Vec::new(),
+        };
+        let solver = FixedSolver {
+            satisfiability: Ok(Satisfiability::Unsat),
+            validity: Ok(Validity::Indeterminate),
+        };
+        let mut fresh = 0;
+
+        assert!(matches!(
+            rewrite_step_with_solver(&definition, &pattern, &mut fresh, &solver),
+            RewriteResult::Stuck(_)
         ));
     }
 
