@@ -10,6 +10,7 @@ use crate::definition::{
 use crate::kast::{self, Label, Sort, Term};
 use crate::kore::ast::{Pattern, Symbol, Variable, VariableKind};
 
+use super::fresh_names::is_generated_anonymous;
 use super::module_to_kore::{encode_kore_identifier, encode_kore_label};
 
 /// A failure to recover information required by KORE from the compact public KAST.
@@ -315,22 +316,108 @@ impl<'a> TermConverter<'a> {
                 message: "the first argument must be a variable".into(),
             });
         };
-        let variable = self.variable(name, sort);
-        let sort = self.parameter(label, label.parameters.len().saturating_sub(1))?;
-        let body = Box::new(self.pattern(&arguments[1])?);
-        if label.name == "#Exists" {
-            Ok(Pattern::Exists {
-                sort,
-                variable,
-                body,
-            })
+        let result_sort = self.parameter(label, label.parameters.len().saturating_sub(1))?;
+        if self.is_ml_binder(label) && is_generated_anonymous(name) {
+            let mut seen = BTreeSet::new();
+            let mut variables = Vec::new();
+            self.collect_anonymous_variables(&arguments[1], &mut seen, &mut variables)?;
+            let mut body = self.pattern(&arguments[1])?;
+            for (name, sort) in variables.into_iter().rev() {
+                body = self.bind_quantifier(
+                    label,
+                    result_sort.clone(),
+                    self.variable(&name, &sort),
+                    body,
+                );
+            }
+            Ok(body)
         } else {
-            Ok(Pattern::Forall {
+            Ok(self.bind_quantifier(
+                label,
+                result_sort,
+                self.variable(name, sort),
+                self.pattern(&arguments[1])?,
+            ))
+        }
+    }
+
+    fn bind_quantifier(
+        &self,
+        label: &Label,
+        sort: crate::kore::ast::Sort,
+        variable: Variable,
+        body: Pattern,
+    ) -> Pattern {
+        if label.name == "#Exists" {
+            Pattern::Exists {
                 sort,
                 variable,
-                body,
-            })
+                body: Box::new(body),
+            }
+        } else {
+            Pattern::Forall {
+                sort,
+                variable,
+                body: Box::new(body),
+            }
         }
+    }
+
+    fn is_ml_binder(&self, label: &Label) -> bool {
+        matches!(label.name.as_str(), "#Exists" | "#Forall")
+            || self
+                .productions
+                .attributes_for(&LabelHead::from(label))
+                .is_some_and(|attributes| attributes.get("mlBinder").is_some())
+    }
+
+    fn collect_anonymous_variables(
+        &self,
+        term: &Term,
+        seen: &mut BTreeSet<String>,
+        variables: &mut Vec<(String, Option<Sort>)>,
+    ) -> Result<(), TermConversionError> {
+        match term.unannotated() {
+            Term::Variable { name, sort } => {
+                if is_generated_anonymous(name) && seen.insert(name.clone()) {
+                    variables.push((name.clone(), sort.clone()));
+                }
+            }
+            Term::Apply { label, arguments } => {
+                if self.is_ml_binder(label)
+                    && arguments.first().is_some_and(|argument| {
+                        matches!(
+                            argument.unannotated(),
+                            Term::Variable { name, .. } if is_generated_anonymous(name)
+                        )
+                    })
+                {
+                    return Err(TermConversionError::InvalidBuiltin {
+                        label: label.name.clone(),
+                        message: "Nested quantifier over anonymous variables.".into(),
+                    });
+                }
+                for argument in arguments {
+                    self.collect_anonymous_variables(argument, seen, variables)?;
+                }
+            }
+            Term::Rewrite { left, right } => {
+                self.collect_anonymous_variables(left, seen, variables)?;
+                self.collect_anonymous_variables(right, seen, variables)?;
+            }
+            Term::As { pattern, alias } => {
+                self.collect_anonymous_variables(pattern, seen, variables)?;
+                self.collect_anonymous_variables(alias, seen, variables)?;
+            }
+            Term::Sequence(items) => {
+                for item in items {
+                    self.collect_anonymous_variables(item, seen, variables)?;
+                }
+            }
+            Term::InjectedLabel(_) | Term::Token { .. } => {}
+            Term::Annotated { .. } => unreachable!(),
+        }
+        Ok(())
     }
 
     fn parameter(
