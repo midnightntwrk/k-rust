@@ -89,8 +89,8 @@ pub struct ExecuteRequest {
     pub max_breadth: Option<usize>,
     /// Maximum simplifier iterations per rewrite step.
     ///
-    /// Exhaustion returns a leaf whose reason is `simplification` and whose detail names the
-    /// typed [`k_rust_backend::simplify::SimplificationError::IterationLimit`] stop.
+    /// Execution keeps a partially simplified term or the original constraints after exhaustion
+    /// and records a backend diagnostic before continuing.
     pub max_simplification_iterations: usize,
     pub strategy: ExecutionStrategy,
     pub stop_at_branch: bool,
@@ -222,6 +222,8 @@ pub struct ProveRequest {
     pub breadth_limit: Option<usize>,
     pub max_counterexamples: usize,
     /// Maximum simplifier iterations per proof step.
+    /// Proof configuration simplification keeps partial terms or original constraints after
+    /// exhaustion and records a backend diagnostic before continuing.
     pub max_simplification_iterations: usize,
     pub allow_vacuous: bool,
     pub depth_first: bool,

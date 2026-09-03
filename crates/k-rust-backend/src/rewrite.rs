@@ -406,9 +406,7 @@ fn execute_using(
             definition,
             &state.pattern.constraints,
             &[],
-            SimplificationOptions {
-                max_iterations: options.max_simplification_iterations,
-            },
+            SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
         );
         finish_if_interrupted!();
@@ -444,9 +442,7 @@ fn execute_using(
             definition,
             &state.pattern.term,
             &state.pattern.constraints,
-            SimplificationOptions {
-                max_iterations: options.max_simplification_iterations,
-            },
+            SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
         );
         finish_if_interrupted!();
@@ -492,9 +488,7 @@ fn execute_using(
             definition,
             &state.pattern,
             &mut fresh_counter,
-            SimplificationOptions {
-                max_iterations: options.max_simplification_iterations,
-            },
+            SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
             options.mode,
             options.assume_initial_defined,
@@ -644,9 +638,7 @@ fn execute_using(
                         &mut branches,
                         &mut remainder,
                         &mut fresh_counter,
-                        SimplificationOptions {
-                            max_iterations: options.max_simplification_iterations,
-                        },
+                        SimplificationOptions::keep_partial(options.max_simplification_iterations),
                         solver,
                         (options.mode, options.assume_initial_defined),
                     ) {
@@ -1026,7 +1018,7 @@ fn simplify_result_pattern(
     } = simplify_pattern_details_with_solver(
         definition,
         pattern,
-        SimplificationOptions { max_iterations },
+        SimplificationOptions::keep_partial(max_iterations),
         solver,
     )?;
     if let Some(observation) = observation {
@@ -1193,6 +1185,24 @@ pub(crate) fn rewrite_step_with_options(
         simplification_options,
         solver,
         ExecutionMode::All,
+        false,
+    )
+}
+
+pub(crate) fn rewrite_step_sequential_with_options(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    fresh_counter: &mut u64,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> RewriteResult {
+    rewrite_step_with_mode(
+        definition,
+        pattern,
+        fresh_counter,
+        simplification_options,
+        solver,
+        ExecutionMode::Any,
         false,
     )
 }
@@ -6728,8 +6738,8 @@ mod tests {
         ));
     }
 
-    fn assert_iteration_limit(reason: &HaltReason) {
-        assert!(matches!(
+    fn assert_not_iteration_limit(reason: &HaltReason) {
+        assert!(!matches!(
             reason,
             HaltReason::Simplification(
                 SimplificationError::IterationLimit { .. }
@@ -6917,6 +6927,7 @@ mod tests {
             &size,
             SimplificationOptions {
                 max_iterations: OVERRIDE,
+                ..SimplificationOptions::default()
             },
         )
         .expect("the request-level override should complete finite concrete recursion");
@@ -6966,14 +6977,7 @@ mod tests {
                 exhausted.leaves
             );
         };
-        assert_eq!(leaf.depth, 0);
-        assert!(matches!(
-            leaf.halt_reason,
-            HaltReason::Simplification(SimplificationError::IterationLimit {
-                limit: DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
-                ..
-            })
-        ));
+        assert_not_iteration_limit(&leaf.halt_reason);
 
         let completed = execute(
             &definition,
@@ -6998,7 +7002,7 @@ mod tests {
     }
 
     #[test]
-    fn rule_requires_simplification_failure_halts_execution() {
+    fn rule_requires_budget_exhaustion_is_not_a_simplification_error() {
         let definition = definition(
             r#"
             symbol expand{}(SortS{}) : SortS{} [function{}()]
@@ -7040,11 +7044,11 @@ mod tests {
                 result.leaves
             );
         };
-        assert_iteration_limit(&leaf.halt_reason);
+        assert_not_iteration_limit(&leaf.halt_reason);
     }
 
     #[test]
-    fn terminal_rule_result_simplification_failure_halts_execution() {
+    fn terminal_rule_keeps_a_partial_result_after_budget_exhaustion() {
         let definition = definition(
             r#"
             symbol expand{}(SortS{}) : SortS{} [function{}()]
@@ -7081,11 +7085,11 @@ mod tests {
                 result.leaves
             );
         };
-        assert_iteration_limit(&leaf.halt_reason);
+        assert_not_iteration_limit(&leaf.halt_reason);
     }
 
     #[test]
-    fn stopped_branch_simplification_failure_is_recorded_at_the_branch_point() {
+    fn stopped_branch_keeps_partial_successors_after_budget_exhaustion() {
         let definition = definition(
             r#"
             symbol expand{}(SortS{}) : SortS{} [function{}(), total{}()]
@@ -7125,14 +7129,12 @@ mod tests {
             },
         );
 
-        // The failure belongs to the branch point itself: a leaf for the failing successor
-        // alone would lose the `left` and `right` successors that remain reachable.
         let [leaf] = result.leaves.as_slice() else {
             panic!("expected one branch-point leaf, found {:?}", result.leaves);
         };
         assert_eq!(leaf.depth, 0);
         assert_eq!(leaf.pattern, initial);
-        assert_iteration_limit(&leaf.halt_reason);
+        assert_not_iteration_limit(&leaf.halt_reason);
     }
 
     #[test]

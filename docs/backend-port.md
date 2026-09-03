@@ -62,6 +62,13 @@ The port is complete only when all of the following are demonstrated from the cu
 Incremental checkpoints may implement narrower vertical slices, but they do not reduce this
 completion contract.
 
+## Simplification iteration budgets
+
+The backend limits simplification per fixed-point lineage rather than counting whole-pattern passes as Booster's `--equation-max-iterations` does.
+Execution, search, and proof configuration simplification follow Booster's exhaustion outcome: they retain the partial term or the original unsimplified constraints, record a `SimplificationBudgetExhausted` diagnostic, and continue.
+The standalone term simplifier and nested side-condition evaluation retain typed `IterationLimit` errors.
+The backend does not yet implement Booster's separate equation-loop detector, so a genuinely non-terminating equation set may produce a partial configuration with a diagnostic.
+
 ## Final search depth cuts
 
 FINAL search treats `--depth N` as a cut of the execution graph.
