@@ -4,7 +4,8 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
 use super::{
-    BuiltinError, BuiltinResult, bool_term, check_interrupted, expect_arity, int_term, read_int,
+    BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, check_interrupted, expect_arity,
+    int_term, read_int,
 };
 use crate::term::{Sort, Term, TermKind};
 
@@ -32,7 +33,9 @@ pub(super) fn evaluate(
         "STRING.ord" => ord(arguments),
         "STRING.token2string" => token_to_string(arguments),
         "STRING.string2token" => string_to_token(arguments, result_sort),
-        _ => Ok(BuiltinResult::NotApplicable),
+        _ => Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::NotImplemented,
+        )),
     }
 }
 

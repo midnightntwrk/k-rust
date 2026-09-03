@@ -3,6 +3,7 @@
 use std::cell::RefCell;
 
 use crate::{
+    builtin::UnsupportedHookReason,
     rule::Predicate,
     simplify::{BudgetSubject, ConditionIndeterminacy},
 };
@@ -22,6 +23,10 @@ pub enum BackendDiagnostic {
         limit: usize,
         subject: BudgetSubject,
     },
+    UnsupportedHookUnevaluated {
+        hook: String,
+        reason: UnsupportedHookReason,
+    },
 }
 
 thread_local! {
@@ -32,6 +37,19 @@ thread_local! {
 pub fn emit(diagnostic: BackendDiagnostic) {
     SINK.with(|sink| {
         if let Some(diagnostics) = sink.borrow_mut().as_mut() {
+            if let BackendDiagnostic::UnsupportedHookUnevaluated { hook, .. } = &diagnostic
+                && diagnostics.iter().any(|existing| {
+                    matches!(
+                        existing,
+                        BackendDiagnostic::UnsupportedHookUnevaluated {
+                            hook: existing_hook,
+                            ..
+                        } if existing_hook == hook
+                    )
+                })
+            {
+                return;
+            }
             diagnostics.push(diagnostic);
         }
     });

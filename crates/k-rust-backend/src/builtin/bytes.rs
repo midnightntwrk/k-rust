@@ -3,7 +3,10 @@
 use num_bigint::{BigInt, Sign};
 use num_traits::{ToPrimitive, Zero};
 
-use super::{BuiltinError, BuiltinResult, check_interrupted, expect_arity, int_term, read_int};
+use super::{
+    BuiltinError, BuiltinResult, UnsupportedHookReason, check_interrupted, expect_arity, int_term,
+    read_int,
+};
 use crate::term::{Sort, Term, TermKind};
 
 #[derive(Clone, Copy)]
@@ -36,7 +39,9 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
         "BYTES.concat" => concatenate(arguments),
         "BYTES.int2bytes" => int_to_bytes(arguments),
         "BYTES.bytes2int" => bytes_to_int(arguments),
-        _ => Ok(BuiltinResult::NotApplicable),
+        _ => Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::NotImplemented,
+        )),
     }
 }
 

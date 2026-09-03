@@ -4,14 +4,16 @@ use std::sync::Arc;
 
 use num_bigint::BigInt;
 
-use super::{BuiltinError, bool_term, expect_arity, int_term};
+use super::{
+    BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, expect_arity, int_term,
+};
 use crate::{
     builtin::list::k_item_definition as k_item_list_definition,
     term::{CollectionSymbols, SetDefinition, Term, TermKind},
 };
 
-pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
-    match hook {
+pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    let result = match hook {
         "SET.concat" => concat(arguments),
         "SET.element" => element(arguments),
         "SET.unit" => unit(arguments),
@@ -22,8 +24,13 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<Option<Term>, B
         "SET.intersection" => intersection(arguments),
         "SET.list2set" => list_to_set(arguments),
         "SET.inclusion" => inclusion(arguments),
-        _ => Ok(None),
-    }
+        _ => {
+            return Ok(BuiltinResult::Unsupported(
+                UnsupportedHookReason::NotImplemented,
+            ));
+        }
+    }?;
+    Ok(result.into())
 }
 
 pub(super) fn k_item_set_definition() -> Arc<SetDefinition> {

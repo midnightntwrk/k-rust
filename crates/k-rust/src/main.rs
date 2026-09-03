@@ -59,7 +59,7 @@ use k_rust_backend::{
     },
     session::BackendSession,
     simplify::{
-        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationOptions,
+        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
         simplify_and_decide_predicate_with_solver, simplify_pattern_with_solver,
     },
     smt::{ModelResult, SmtError, SmtSolver, Z3Options, Z3Solver},
@@ -2405,9 +2405,18 @@ fn run_backend(
             HaltReason::Cancelled | HaltReason::Indeterminate(_) | HaltReason::Simplification(_)
         )
     }) {
+        let reason = match &leaf.halt_reason {
+            HaltReason::Simplification(
+                error @ SimplificationError::UnsupportedHook { term, .. },
+            ) => {
+                let application = KorePrinter::pretty(100).print_pattern(&externalize::term(term));
+                format!("{error}\n{application}")
+            }
+            reason => format!("{reason:?}"),
+        };
         return Err(io::Error::other(format!(
-            "in-process backend halted at depth {}: {:?}",
-            leaf.depth, leaf.halt_reason
+            "in-process backend halted at depth {}: {reason}",
+            leaf.depth
         ))
         .into());
     }

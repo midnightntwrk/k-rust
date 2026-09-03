@@ -319,6 +319,11 @@ pub enum SearchFailureOutput {
         hook: String,
         symbol: String,
     },
+    UnsupportedHook {
+        hook: String,
+        reason: String,
+        term: Value,
+    },
     Match {
         rule: String,
         bindings: Vec<BindingOutput>,
@@ -812,6 +817,13 @@ fn simplification_failure_output(
             SearchFailureOutput::InvalidBuiltinResultSymbol {
                 hook: hook.into(),
                 symbol: symbol.into(),
+            }
+        }
+        SimplificationError::UnsupportedHook { hook, reason, term } => {
+            SearchFailureOutput::UnsupportedHook {
+                hook,
+                reason: reason.to_string(),
+                term: encode_term(&term)?,
             }
         }
     })

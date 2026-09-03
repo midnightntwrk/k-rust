@@ -12,7 +12,8 @@ use sha3::{Keccak256, Sha3_256};
 use substrate_bn::{AffineG1, AffineG2, Fq, Fq2, Fr, G1, G2, Group, Gt, pairing_batch};
 
 use super::{
-    BuiltinError, BuiltinResult, bool_term, bytes, check_interrupted, expect_arity, read_int,
+    BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, bytes, check_interrupted,
+    expect_arity, read_int,
 };
 use crate::term::{Sort, Symbol, Term, TermKind};
 
@@ -33,7 +34,9 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
         "KRYPTO.bn128add" => bn128_add(hook, arguments),
         "KRYPTO.bn128mul" => bn128_mul(hook, arguments),
         "KRYPTO.bn128ate" => bn128_ate(hook, arguments),
-        _ => Ok(BuiltinResult::NotApplicable),
+        _ => Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::NotImplemented,
+        )),
     }
 }
 
