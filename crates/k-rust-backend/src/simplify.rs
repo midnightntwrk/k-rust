@@ -1999,7 +1999,7 @@ mod tests {
             r#"[]
             module MAIN
                 sort SortS{{}} [hasDomainValues{{}}()]
-                sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
                 symbol wrap{{}}(SortS{{}}) : SortS{{}} [constructor{{}}()]
                 symbol budgetPair{{}}(SortS{{}}, SortS{{}}) : SortS{{}} [constructor{{}}()]
                 symbol f{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
