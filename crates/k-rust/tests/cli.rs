@@ -559,6 +559,37 @@ endmodule
 }
 
 #[test]
+fn reference_fun_with_an_uncast_variable_executes_on_an_empty_user_list() {
+    // reference: k/result/bin/kompile --backend haskell test.k && k/result/bin/krun program.pgm
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/kompile/fun-int-list-config");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("test.k").to_str().unwrap(),
+            "--main-module",
+            "FUN-INT-LIST-CONFIG",
+            "--syntax-module",
+            "FUN-INT-LIST-CONFIG",
+            "--sort",
+            "KItem",
+            fixtures.join("program.pgm").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(output.contains(r#"\dv{SortInt{}}("0")"#), "{output}");
+    assert!(!output.contains("Hash'lambda"), "{output}");
+    assert!(!output.contains(r"\ceil"), "{output}");
+}
+
+#[test]
 fn krun_populates_additional_configuration_variables() {
     let (root, definition) = fixture();
     fs::write(
