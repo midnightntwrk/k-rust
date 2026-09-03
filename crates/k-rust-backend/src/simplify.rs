@@ -14,6 +14,7 @@ use crate::{
     cancellation::cancellation_requested,
     definedness::ceil_term,
     definition::BackendDefinition,
+    diagnostic::{self, BackendDiagnostic},
     matching::{
         MatchMode, MatchResult, match_collection_remainders_all_in_definition,
         match_term_pairs_in_definition, match_terms_in_definition,
@@ -488,12 +489,24 @@ fn evaluate_rule_condition(
         Err(SmtError::Unavailable) => Ok(RuleCondition::Indeterminate(
             ConditionIndeterminacy::NoSolver,
         )),
-        Ok(Validity::InconsistentGroundTruth) => Ok(RuleCondition::Indeterminate(
-            ConditionIndeterminacy::InconsistentPathCondition,
-        )),
-        Ok(Validity::Unknown(reason)) => Ok(RuleCondition::Indeterminate(
-            ConditionIndeterminacy::SmtUnknown(reason),
-        )),
+        Ok(Validity::InconsistentGroundTruth) => {
+            let reason = ConditionIndeterminacy::InconsistentPathCondition;
+            diagnostic::emit(BackendDiagnostic::UndecidedCondition {
+                rule_id: rule_id.to_owned(),
+                reason: reason.clone(),
+                predicates,
+            });
+            Ok(RuleCondition::Indeterminate(reason))
+        }
+        Ok(Validity::Unknown(message)) => {
+            let reason = ConditionIndeterminacy::SmtUnknown(message);
+            diagnostic::emit(BackendDiagnostic::UndecidedCondition {
+                rule_id: rule_id.to_owned(),
+                reason: reason.clone(),
+                predicates,
+            });
+            Ok(RuleCondition::Indeterminate(reason))
+        }
         Err(error) => Err(SimplificationError::Smt {
             rule_id: rule_id.to_owned(),
             error,
@@ -551,8 +564,21 @@ pub fn simplify_and_decide_predicate_with_solver(
     ) {
         Ok(Validity::Valid) => Ok(Predicate::True),
         Ok(Validity::Invalid) => Ok(Predicate::False),
-        Ok(Validity::Indeterminate | Validity::InconsistentGroundTruth | Validity::Unknown(_))
-        | Err(SmtError::Unavailable) => Ok(simplified),
+        Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => Ok(simplified),
+        Ok(Validity::InconsistentGroundTruth) => {
+            diagnostic::emit(BackendDiagnostic::UndecidedPredicate {
+                predicate: simplified.clone(),
+                reason: ConditionIndeterminacy::InconsistentPathCondition,
+            });
+            Ok(simplified)
+        }
+        Ok(Validity::Unknown(message)) => {
+            diagnostic::emit(BackendDiagnostic::UndecidedPredicate {
+                predicate: simplified.clone(),
+                reason: ConditionIndeterminacy::SmtUnknown(message),
+            });
+            Ok(simplified)
+        }
         Err(error) => Err(SimplificationError::SmtPredicate {
             predicate: Box::new(simplified),
             error,
