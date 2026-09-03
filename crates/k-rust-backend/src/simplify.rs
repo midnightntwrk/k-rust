@@ -3002,6 +3002,204 @@ mod tests {
         assert_eq!(result.applied_rules, ["through-g"]);
     }
 
+    fn same_priority_term_equations(attribute: &str) -> BackendDefinition {
+        definition(&format!(
+            r#"
+            axiom{{R}} \implies{{R}}(
+                \top{{R}}(),
+                \equals{{SortS{{}}, R}}(
+                    f{{}}(X:SortS{{}}),
+                    \and{{SortS{{}}}}(\dv{{SortS{{}}}}("first"), \top{{SortS{{}}}}())
+                )
+            ) [label{{}}("z-first"){attribute}]
+            axiom{{R}} \implies{{R}}(
+                \top{{R}}(),
+                \equals{{SortS{{}}, R}}(
+                    f{{}}(X:SortS{{}}),
+                    \and{{SortS{{}}}}(\dv{{SortS{{}}}}("second"), \top{{SortS{{}}}}())
+                )
+            ) [label{{}}("a-second"){attribute}]
+            "#
+        ))
+    }
+
+    #[test]
+    fn applies_the_first_of_two_same_priority_simplification_equations() {
+        let definition = same_priority_term_equations(", simplification{}()");
+        let input = term(&definition, r#"f{}(\dv{SortS{}}("value"))"#);
+
+        let result = simplify(&definition, &input, SimplificationOptions::default())
+            .expect("the first applicable simplification equation should win");
+
+        assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("first")"#));
+        assert_eq!(result.applied_rules, ["z-first"]);
+    }
+
+    #[test]
+    fn applies_the_first_of_two_same_priority_function_equations() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                symbol f{}() : SortS{} [function{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \top{R}()),
+                    \equals{SortS{}, R}(
+                        f{}(),
+                        \and{SortS{}}(\dv{SortS{}}("first"), \top{SortS{}}())
+                    )
+                ) [label{}("function-first")]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \top{R}()),
+                    \equals{SortS{}, R}(
+                        f{}(),
+                        \and{SortS{}}(\dv{SortS{}}("second"), \top{SortS{}}())
+                    )
+                ) [label{}("function-second")]
+            endmodule []"#,
+        )
+        .expect("function definition should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("function definition should internalize");
+        let input = term(&definition, "f{}()");
+
+        let result = simplify(&definition, &input, SimplificationOptions::default())
+            .expect("the first applicable function equation should win");
+
+        assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("first")"#));
+        assert_eq!(result.applied_rules, ["function-first"]);
+    }
+
+    #[test]
+    fn applies_the_first_of_two_same_priority_ceil_equations() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                symbol f{}(SortS{}) : SortS{} [function{}()]
+                axiom{R, Q} \implies{R}(
+                    \top{R}(),
+                    \equals{Q, R}(
+                        \ceil{SortS{}, Q}(f{}(X:SortS{})),
+                        \and{Q}(\top{Q}(), \top{Q}())
+                    )
+                ) [label{}("ceil-first"), simplification{}()]
+                axiom{R, Q} \implies{R}(
+                    \top{R}(),
+                    \equals{Q, R}(
+                        \ceil{SortS{}, Q}(f{}(X:SortS{})),
+                        \and{Q}(\bottom{Q}(), \top{Q}())
+                    )
+                ) [label{}("ceil-second"), simplification{}()]
+            endmodule []"#,
+        )
+        .expect("ceil definition should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("ceil definition should internalize");
+        let predicate = Predicate::Ceil(term(&definition, r#"f{}(\dv{SortS{}}("value"))"#));
+        assert_eq!(
+            definition
+                .ceil_theory
+                .values()
+                .flat_map(|groups| groups.values())
+                .flatten()
+                .count(),
+            2
+        );
+
+        let result = apply_ceil_theory(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &BTreeSet::new(),
+            &NoSolver,
+        )
+        .expect("the first applicable ceil equation should win")
+        .expect("the first ceil equation should apply");
+
+        assert_eq!(result, Predicate::True);
+    }
+
+    #[test]
+    fn applies_the_first_of_two_same_priority_predicate_equations() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                symbol f{}(SortS{}) : SortS{} [function{}()]
+                axiom{R, Q} \implies{R}(
+                    \top{R}(),
+                    \equals{Q, R}(
+                        \equals{SortS{}, Q}(f{}(X:SortS{}), X:SortS{}),
+                        \and{Q}(\top{Q}(), \top{Q}())
+                    )
+                ) [label{}("predicate-first"), simplification{}()]
+                axiom{R, Q} \implies{R}(
+                    \top{R}(),
+                    \equals{Q, R}(
+                        \equals{SortS{}, Q}(f{}(X:SortS{}), X:SortS{}),
+                        \and{Q}(\bottom{Q}(), \top{Q}())
+                    )
+                ) [label{}("predicate-second"), simplification{}()]
+            endmodule []"#,
+        )
+        .expect("predicate definition should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("predicate definition should internalize");
+        let value = term(&definition, r#"\dv{SortS{}}("value")"#);
+        let predicate =
+            Predicate::Equals(term(&definition, r#"f{}(\dv{SortS{}}("value"))"#), value);
+
+        let result = simplify_predicate_with_solver(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the first applicable predicate equation should win");
+
+        assert_eq!(result, Predicate::True);
+    }
+
+    #[test]
+    fn function_group_with_an_indeterminate_sibling_still_blocks_owise() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                symbol f{}() : SortS{} [function{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \equals{SortS{}, R}(X:SortS{}, \dv{SortS{}}("zero")),
+                        \top{R}()
+                    ),
+                    \equals{SortS{}, R}(
+                        f{}(),
+                        \and{SortS{}}(\dv{SortS{}}("conditional"), \top{SortS{}}())
+                    )
+                ) [label{}("conditional")]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \top{R}()),
+                    \equals{SortS{}, R}(
+                        f{}(),
+                        \and{SortS{}}(\dv{SortS{}}("owise"), \top{SortS{}}())
+                    )
+                ) [label{}("owise"), priority{}("200")]
+            endmodule []"#,
+        )
+        .expect("function definition should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("function definition should internalize");
+        let input = term(&definition, "f{}()");
+
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+        assert_eq!(result.term, input);
+        assert!(result.applied_rules.is_empty());
+    }
+
     #[test]
     fn normalizes_boolean_k_disequality_conditions_to_native_predicates() {
         let syntax = parse_definition(
