@@ -7,6 +7,8 @@ use std::{
     sync::Arc,
 };
 
+use num_bigint::BigInt;
+
 use crate::smt::SmtType;
 
 pub type Name = Arc<str>;
@@ -363,17 +365,17 @@ impl Term {
     }
 
     pub fn domain_value(sort: Sort, value: impl Into<Arc<str>>) -> Self {
+        let value = value.into();
+        let value = if is_int_sort(&sort) {
+            canonical_int_text(value)
+        } else {
+            value
+        };
         let attributes = TermAttributes {
             constructor_like: true,
             ..TermAttributes::default()
         };
-        Self::new(
-            TermKind::DomainValue {
-                sort,
-                value: value.into(),
-            },
-            attributes,
-        )
+        Self::new(TermKind::DomainValue { sort, value }, attributes)
     }
 
     pub fn variable(variable: Variable) -> Self {
@@ -569,6 +571,31 @@ impl Term {
         attributes.hash = calculate_hash(&kind);
         Self(Arc::new(TermData { attributes, kind }))
     }
+}
+
+fn is_int_sort(sort: &Sort) -> bool {
+    matches!(
+        sort,
+        Sort::Application { name, arguments }
+            if arguments.is_empty() && name.as_ref() == "SortInt"
+    )
+}
+
+fn canonical_int_text(value: Arc<str>) -> Arc<str> {
+    let bytes = value.as_bytes();
+    let canonical = match bytes {
+        [b'0'] => true,
+        [b'-', b'1'..=b'9', rest @ ..] | [b'1'..=b'9', rest @ ..] => {
+            rest.iter().all(u8::is_ascii_digit)
+        }
+        _ => false,
+    };
+    if canonical {
+        return value;
+    }
+    value
+        .parse::<BigInt>()
+        .map_or(value.clone(), |integer| integer.to_string().into())
 }
 
 fn map_parts(definition: &Arc<MapDefinition>, term: &Term) -> (Vec<(Term, Term)>, Option<Term>) {
