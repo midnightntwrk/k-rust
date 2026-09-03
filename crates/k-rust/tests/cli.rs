@@ -2549,6 +2549,66 @@ fn warnings_to_errors_fails_kcompile_on_an_unused_variable() {
 }
 
 #[test]
+fn configured_builtin_paths_are_exempt_after_canonicalization() {
+    let (root, definition) = fixture();
+    let builtin_directory = root.join("builtin");
+    let noncanonical_directory = root.join("alias").join("..").join("builtin");
+    fs::create_dir_all(root.join("alias")).unwrap();
+    fs::create_dir_all(&builtin_directory).unwrap();
+    fs::write(
+        builtin_directory.join("builtin.k"),
+        r#"
+module BUILTIN
+  syntax Builtin ::= "builtin"
+endmodule
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &definition,
+        r#"
+requires "builtin.k"
+
+module MAIN
+  imports BUILTIN
+  syntax User ::= "user"
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--syntax-module",
+            "MAIN",
+            "--output-directory",
+            root.join("compiled").to_str().unwrap(),
+            "--builtin-directory",
+            noncanonical_directory.to_str().unwrap(),
+            "--no-prelude",
+            "--warnings",
+            "all",
+            "--warnings-to-errors",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(stderr.matches("Error[UnusedSymbol]").count(), 1, "{stderr}");
+    assert!(stderr.contains("Symbol 'user_MAIN_User' defined but not used."), "{stderr}");
+    assert!(
+        !stderr.contains("Symbol 'builtin_BUILTIN_Builtin' defined but not used."),
+        "{stderr}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kcompile_hook_namespaces_default_per_backend() {
     let source = r#"
 module MAIN
