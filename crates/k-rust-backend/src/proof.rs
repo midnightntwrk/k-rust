@@ -1115,6 +1115,10 @@ mod tests {
                 symbol a{{}}() : SortS{{}} [constructor{{}}()]
                 symbol b{{}}() : SortS{{}} [constructor{{}}()]
                 symbol c{{}}() : SortS{{}} [constructor{{}}()]
+                alias weakExistsFinally{{S}}(S) : S
+                    where weakExistsFinally{{S}}(@X:S) := @X:S []
+                alias weakAlwaysFinally{{S}}(S) : S
+                    where weakAlwaysFinally{{S}}(@X:S) := @X:S []
                 {rules}
                 {claims}
             endmodule []"#
@@ -2177,6 +2181,8 @@ mod tests {
                     [function{}(), total{}(), hook{}("INT.pow")]
                 symbol state{}(SortInt{}) : SortState{} [constructor{}()]
                 symbol done{}() : SortState{} [constructor{}()]
+                alias weakExistsFinally{S}(S) : S
+                    where weakExistsFinally{S}(@X:S) := @X:S []
                 claim{} \implies{SortState{}}(
                     \and{SortState{}}(
                         \top{SortState{}}(),
