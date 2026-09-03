@@ -587,6 +587,8 @@ fn loader_parses_rules_against_generated_rule_cells() {
             <counter> N => N + 1 </counter>
           </top>
           rule [[ X => 1 ]] <counter> N </counter>
+          syntax K
+          syntax Map
         endmodule
     "#};
     let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
@@ -638,6 +640,8 @@ fn loader_parses_parenthesized_sequence_rewrites_before_cell_dots() {
           syntax Foo ::= "a"
           configuration <k> a </k>
           claim <k> (a ~> _ => .K) ... </k>
+          syntax K
+          syntax Map
         endmodule
     "#};
     let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
@@ -678,6 +682,8 @@ fn loader_parses_legacy_empty_k_before_cell_dots() {
           rule <k> #setAStateSymbolic => . ... </k>
                <a-state> _ => ?X </a-state>
                ensures condition(?X)
+          syntax K
+          syntax Map
         endmodule
     "##};
     let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
@@ -725,6 +731,8 @@ fn loader_parses_rewrites_between_bags_inside_collection_cells() {
             <map>...
               .Bag => <entry> <key> Key </key> <value> Value </value> </entry>
             ...</map>
+          syntax K
+          syntax Map
         endmodule
     "#};
     let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
@@ -774,6 +782,8 @@ fn loader_parses_parenthesized_rewrites_between_bags_before_cell_dots() {
               ( .Bag => <entry> <key> Key </key> <value> Value </value> </entry> )
               ...
             </map>
+          syntax K
+          syntax Map
         endmodule
     "#};
     let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
