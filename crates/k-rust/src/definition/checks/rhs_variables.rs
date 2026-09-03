@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use super::Sentence;
 use super::term_position::{TermPosition, positioned_children};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::{Label, Sort, Term};
+use crate::kast::{Label, Term};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum StructuralCheckBackend {
@@ -73,20 +73,7 @@ pub fn check_rhs_variables(
     diagnostics
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct VariableKey {
-    name: String,
-    sort: Option<Sort>,
-}
-
-impl VariableKey {
-    fn new(name: &str, sort: Option<&Sort>) -> Self {
-        Self {
-            name: name.to_owned(),
-            sort: sort.cloned(),
-        }
-    }
-}
+type VariableName = String;
 
 fn check_rule_variables(
     sentence: &Sentence,
@@ -114,7 +101,6 @@ fn check_rule_variables(
         body,
         TermPosition::BODY,
         false,
-        None,
         error_existential,
         &mut bound,
         sentence,
@@ -124,7 +110,6 @@ fn check_rule_variables(
         ensures,
         TermPosition::CONDITION,
         false,
-        None,
         error_existential,
         &mut bound,
         sentence,
@@ -134,7 +119,6 @@ fn check_rule_variables(
         requires,
         requires_position,
         false,
-        None,
         error_existential,
         &mut bound,
         sentence,
@@ -183,7 +167,6 @@ fn check_context_variables(
         body,
         TermPosition::BODY,
         false,
-        None,
         false,
         &mut bound,
         sentence,
@@ -193,7 +176,6 @@ fn check_context_variables(
         requires,
         TermPosition::CONDITION,
         false,
-        None,
         false,
         &mut bound,
         sentence,
@@ -245,15 +227,14 @@ fn gather_variables(
     term: &Term,
     position: TermPosition,
     in_binder_lhs: bool,
-    context_sort: Option<&Sort>,
     error_existential: bool,
-    bound: &mut BTreeSet<VariableKey>,
+    bound: &mut BTreeSet<VariableName>,
     sentence: &Sentence,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    if let Term::Variable { name, sort } = term.unannotated() {
+    if let Term::Variable { name, .. } = term.unannotated() {
         if position.lhs || position.rhs && in_binder_lhs {
-            bound.insert(VariableKey::new(name, context_sort.or(sort.as_ref())));
+            bound.insert(name.to_owned());
         }
         if error_existential && name.starts_with('?') {
             diagnostics.push(Diagnostic::error(
@@ -266,31 +247,18 @@ fn gather_variables(
     }
 
     if let Term::Apply { label, arguments } = term.unannotated()
-        && let Some(sort) = semantic_cast_sort(label)
+        && is_semantic_cast(label)
         && let Some(argument) = arguments.first()
     {
         gather_variables(
             argument,
             position,
             in_binder_lhs,
-            Some(&sort),
             error_existential,
             bound,
             sentence,
             diagnostics,
         );
-        for argument in &arguments[1..] {
-            gather_variables(
-                argument,
-                position,
-                in_binder_lhs,
-                context_sort,
-                error_existential,
-                bound,
-                sentence,
-                diagnostics,
-            );
-        }
         return;
     }
 
@@ -302,7 +270,6 @@ fn gather_variables(
             &arguments[0],
             position,
             true,
-            context_sort,
             error_existential,
             bound,
             sentence,
@@ -312,7 +279,6 @@ fn gather_variables(
             &arguments[1],
             position,
             in_binder_lhs,
-            context_sort,
             error_existential,
             bound,
             sentence,
@@ -323,7 +289,6 @@ fn gather_variables(
                 argument,
                 position,
                 in_binder_lhs,
-                context_sort,
                 error_existential,
                 bound,
                 sentence,
@@ -338,7 +303,6 @@ fn gather_variables(
             child,
             child_position,
             in_binder_lhs,
-            None,
             error_existential,
             bound,
             sentence,
@@ -351,22 +315,22 @@ fn report_unbound(
     term: &Term,
     position: TermPosition,
     is_alias: bool,
-    bound: &BTreeSet<VariableKey>,
+    bound: &BTreeSet<VariableName>,
     allowed: &BTreeSet<String>,
     sentence: &Sentence,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let mut unbound = BTreeSet::new();
-    compute_unbound(term, position, false, None, bound, &mut unbound);
+    compute_unbound(term, position, false, bound, &mut unbound);
     for variable in unbound {
-        if allowed.contains(&variable.name) || is_alias && variable.name == "HOLE" {
+        if allowed.contains(&variable) || is_alias && variable == "HOLE" {
             continue;
         }
         diagnostics.push(Diagnostic::error(
             DiagnosticCode::UnboundVariable,
             format!(
                 "Found variable {} on right hand side of rule, not bound on left hand side. Did you mean \"?{}\"?",
-                variable.name, variable.name
+                variable, variable
             ),
             sentence,
         ));
@@ -377,12 +341,10 @@ fn compute_unbound(
     term: &Term,
     position: TermPosition,
     in_k_lhs: bool,
-    context_sort: Option<&Sort>,
-    bound: &BTreeSet<VariableKey>,
-    unbound: &mut BTreeSet<VariableKey>,
+    bound: &BTreeSet<VariableName>,
+    unbound: &mut BTreeSet<VariableName>,
 ) {
-    if let Term::Variable { name, sort } = term.unannotated() {
-        let variable = VariableKey::new(name, context_sort.or(sort.as_ref()));
+    if let Term::Variable { name, .. } = term.unannotated() {
         if position.rhs
             && !in_k_lhs
             && name != "THIS_CONFIGURATION"
@@ -390,45 +352,40 @@ fn compute_unbound(
                 || (name != "_"
                     && !name.starts_with('?')
                     && !name.starts_with('!')
-                    && !bound.contains(&variable)))
+                    && !bound.contains(name)))
         {
-            unbound.insert(variable);
+            unbound.insert(name.to_owned());
         }
         return;
     }
 
     if let Term::Apply { label, arguments } = term.unannotated() {
         if matches!(label.name.as_str(), "_:=K_" | "_:/=K_") && arguments.len() >= 2 {
-            compute_unbound(&arguments[0], position, true, context_sort, bound, unbound);
-            compute_unbound(
-                &arguments[1],
-                position,
-                in_k_lhs,
-                context_sort,
-                bound,
-                unbound,
-            );
+            compute_unbound(&arguments[0], position, true, bound, unbound);
+            compute_unbound(&arguments[1], position, in_k_lhs, bound, unbound);
             for argument in &arguments[2..] {
-                compute_unbound(argument, position, in_k_lhs, context_sort, bound, unbound);
+                compute_unbound(argument, position, in_k_lhs, bound, unbound);
             }
             return;
         }
-        if let Some(sort) = semantic_cast_sort(label)
+        if is_semantic_cast(label)
             && let Some(argument) = arguments.first()
         {
-            compute_unbound(argument, position, in_k_lhs, Some(&sort), bound, unbound);
+            compute_unbound(argument, position, in_k_lhs, bound, unbound);
             return;
         }
     }
 
     for (child, child_position) in positioned_children(term, position) {
-        compute_unbound(child, child_position, in_k_lhs, None, bound, unbound);
+        compute_unbound(child, child_position, in_k_lhs, bound, unbound);
     }
 }
 
-fn semantic_cast_sort(label: &Label) -> Option<Sort> {
-    let name = label.name.strip_prefix("#SemanticCastTo")?;
-    (!name.is_empty()).then(|| Sort::new(name))
+fn is_semantic_cast(label: &Label) -> bool {
+    label
+        .name
+        .strip_prefix("#SemanticCastTo")
+        .is_some_and(|name| !name.is_empty())
 }
 
 fn unbound_variable_names(sentence: &Sentence) -> BTreeSet<String> {
@@ -459,12 +416,11 @@ mod tests {
             &Term::variable("_"),
             TermPosition::BODY,
             false,
-            None,
             false,
             &mut bound,
             &sentence,
             &mut Vec::new(),
         );
-        assert_eq!(bound, BTreeSet::from([VariableKey::new("_", None)]));
+        assert_eq!(bound, BTreeSet::from(["_".to_owned()]));
     }
 }
