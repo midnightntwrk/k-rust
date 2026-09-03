@@ -173,6 +173,11 @@ fn structured_definition_with_optional_configuration_cell(
         // Configuration initializers read their variables from the configuration map. Structured
         // callers currently supply that builtin closure themselves; this minimal declaration is
         // the only prelude contract this fixture needs.
+        local_sentences.push(Sentence::SyntaxSort {
+            parameters: Vec::new(),
+            sort: Sort::new("Map"),
+            attributes: Attributes::default(),
+        });
         local_sentences.push(Sentence::Production {
             label: Some(Label::new("Map:lookup")),
             parameters: Vec::new(),

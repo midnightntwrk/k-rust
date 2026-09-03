@@ -610,7 +610,7 @@ fn internal_keys_and_group_values_are_checked_on_user_source() {
 fn structured_json_internal_keys_remain_accepted() {
     let parsed = parse(
         "structured-user-list.k",
-        "module MAIN\n  syntax Items ::= List{Item, \",\"}\nendmodule\n",
+        "module MAIN\n  syntax Item\n  syntax Items ::= List{Item, \",\"}\nendmodule\n",
     )
     .unwrap();
     let definition = lower(&parsed, "MAIN").unwrap();
