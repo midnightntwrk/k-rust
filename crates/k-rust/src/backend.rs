@@ -1189,6 +1189,13 @@ mod tests {
                 [function{}(), total{}(), hook{}("IO.logString")]
         endmodule []"#;
 
+    const UNSUPPORTED_HOOK_DEFINITION: &str = r#"[]
+        module MAIN
+            sort SortState{} [hasDomainValues{}()]
+            hooked-symbol missing{}(SortState{}) : SortState{}
+                [function{}(), hook{}("TEST.missing")]
+        endmodule []"#;
+
     fn backend() -> Backend {
         Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap()
     }
@@ -1400,6 +1407,47 @@ mod tests {
             })
             .unwrap();
         assert_eq!(proof.status, "proven");
+    }
+
+    #[test]
+    fn persistent_backend_names_and_structures_unsupported_hook_failures() {
+        let state = json(r#"missing{}(\dv{SortState{}}("value"))"#);
+        let mut backend = Backend::new(
+            UNSUPPORTED_HOOK_DEFINITION,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+
+        let execution = backend
+            .execute(ExecuteRequest {
+                state: state.clone(),
+                ..ExecuteRequest::default()
+            })
+            .unwrap();
+        assert_eq!(execution.leaves[0].reason, "unsupported-hook");
+        assert!(
+            execution.leaves[0]
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.contains("TEST.missing")),
+            "{:#?}",
+            execution.leaves[0]
+        );
+
+        let search = backend
+            .search(SearchRequest {
+                state,
+                ..SearchRequest::default()
+            })
+            .unwrap();
+        let encoded = serde_json::to_value(search).unwrap();
+        let encoded = encoded.to_string();
+        assert!(
+            encoded.contains(r#""kind":"unsupported-hook""#),
+            "{encoded}"
+        );
+        assert!(encoded.contains("TEST.missing"), "{encoded}");
     }
 
     #[test]

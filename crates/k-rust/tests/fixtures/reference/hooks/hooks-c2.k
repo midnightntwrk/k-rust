@@ -1,7 +1,7 @@
 module HOOKS-C2-SYNTAX
   imports DOMAINS-SYNTAX
   imports BYTES-SYNTAX
-  syntax Pgm ::= "pc" | "y14"
+  syntax Pgm ::= "pc" | "y14" | "y16"
 endmodule
 
 module HOOKS-C2
@@ -15,4 +15,5 @@ module HOOKS-C2
   rule s(X) => X
   rule <k> pc => ListItem(substrString(s("hello"), i(-2), i(3))) ListItem(substrString(s("hello"), i(1), i(10))) ListItem(substrString(s("hello"), i(3), i(1))) ListItem(findString(s("hello"), s("l"), i(1))) ListItem(findString(s("hello"), s("l"), i(3))) ListItem(findString(s("hello"), s(""), i(5))) ListItem(findString(s("hello"), s(""), i(6))) ListItem(findString(s("hello"), s("h"), i(-1))) ... </k>
   rule <k> y14 => ListItem(replaceAtBytes(b"abc", i(2), b"xyz")) ... </k>
+  rule <k> y16 => ListItem(memsetBytes(b"abc", i(0), i(2), i(65))) ... </k>
 endmodule

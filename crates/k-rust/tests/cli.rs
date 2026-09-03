@@ -1079,6 +1079,35 @@ fn reference_hook_pc_findstring_follows_domains_md() {
 }
 
 #[test]
+fn krun_reports_an_unsupported_hook_with_a_nonzero_exit() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("hooks-c2.k").to_str().unwrap(),
+            "--main-module",
+            "HOOKS-C2",
+            "--syntax-module",
+            "HOOKS-C2-SYNTAX",
+            "--sort",
+            "Pgm",
+            fixtures.join("y16.hooks").to_str().unwrap(),
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success(), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("unsupported hook 'BYTES.memset'"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn default_search_binds_the_reference_result_variable() {
     let (root, definition) = branching_search_fixture();
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))

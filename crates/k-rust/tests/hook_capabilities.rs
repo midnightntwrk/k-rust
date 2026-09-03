@@ -108,10 +108,12 @@ fn crypto_namespace_hooks_have_an_enforced_classification() {
     for hook in &unsupported {
         let arity = manifest.crypto.arities[hook];
         let arguments = vec![dummy_term(); arity + 1];
-        assert_eq!(
-            evaluate_hook(hook, &arguments),
-            Ok(BuiltinResult::NotApplicable),
-            "unsupported crypto hook unexpectedly became evaluable; reclassify it: {hook}"
+        let result = evaluate_hook(hook, &arguments)
+            .unwrap_or_else(|error| panic!("unsupported crypto hook {hook} failed: {error:?}"));
+        assert_ne!(
+            result,
+            BuiltinResult::NotApplicable,
+            "unsupported crypto hook was silently treated as symbolic: {hook}"
         );
     }
 }
@@ -215,10 +217,12 @@ fn pinned_prelude_hooks_have_an_enforced_capability_classification() {
         );
         for arity in &declaration.arities {
             let arguments = vec![dummy_term(); arity + 1];
-            assert_eq!(
-                evaluate_hook(hook, &arguments),
-                Ok(BuiltinResult::NotApplicable),
-                "unsupported hook unexpectedly became evaluable; reclassify it: {hook}"
+            let result = evaluate_hook(hook, &arguments)
+                .unwrap_or_else(|error| panic!("unsupported hook {hook} failed: {error:?}"));
+            assert_ne!(
+                result,
+                BuiltinResult::NotApplicable,
+                "unsupported hook was silently treated as symbolic: {hook}"
             );
         }
     }
