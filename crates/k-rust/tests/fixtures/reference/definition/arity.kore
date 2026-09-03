@@ -1,0 +1,7 @@
+[]
+module M
+  sort SortA{} []
+  symbol c{}() : SortA{} [constructor{}()]
+  symbol d{}(SortA{}) : SortA{} [constructor{}()]
+  axiom{} \equals{SortA{}, SortA{}}(d{}(), c{}()) [assoc{}()]
+endmodule []

@@ -1,0 +1,8 @@
+[]
+module M
+  sort SortA{} []
+  sort SortB{} []
+  symbol c{}() : SortA{} [constructor{}()]
+  symbol f{}(SortA{}, SortB{}) : SortA{} [function{}()]
+  axiom{} \rewrites{SortA{}}(\and{SortA{}}(f{}(X:SortA{}, X:SortB{}), \top{SortA{}}()), \and{SortA{}}(c{}(), \top{SortA{}}())) [label{}("vs")]
+endmodule []

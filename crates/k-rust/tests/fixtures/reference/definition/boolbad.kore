@@ -1,0 +1,7 @@
+[]
+module M
+  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+  sort SortA{} []
+  symbol c{}() : SortA{} [constructor{}()]
+  axiom{} \rewrites{SortA{}}(\and{SortA{}}(c{}(), \equals{SortBool{}, SortA{}}(\dv{SortBool{}}("maybe"), \dv{SortBool{}}("true"))), \and{SortA{}}(c{}(), \top{SortA{}}())) [label{}("bb")]
+endmodule []
