@@ -887,10 +887,8 @@ fn observation_options(
 }
 
 fn decode_pattern(value: Value) -> Result<KorePattern, BackendError> {
-    kore_json::from_str_unbounded(
-        &serde_json::to_string(&value).map_err(error("invalid KORE JSON"))?,
-    )
-    .map_err(error("invalid KORE JSON"))
+    kore_json::from_str(&serde_json::to_string(&value).map_err(error("invalid KORE JSON"))?)
+        .map_err(error("invalid KORE JSON"))
 }
 
 fn encode_pattern(pattern: &KorePattern) -> Result<Value, BackendError> {

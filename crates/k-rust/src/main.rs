@@ -2508,7 +2508,7 @@ fn decode_kore_syntax(
     let source = std::str::from_utf8(input)
         .map_err(|error| invalid_kore_pattern(path, purpose, "UTF-8", error))?;
     if source.trim_start().starts_with('{') {
-        kore_json::from_str_unbounded(source)
+        kore_json::from_str(source)
             .map_err(|error| invalid_kore_pattern(path, purpose, "JSON", error))
     } else {
         parse_kore_pattern(source)
@@ -2529,7 +2529,7 @@ fn decode_backend_pattern(
         let source = std::str::from_utf8(input)
             .map_err(|error| invalid_kore_pattern(path, purpose, "UTF-8", error))?;
         if source.trim_start().starts_with('{') {
-            kore_json::from_str_unbounded(source)
+            kore_json::from_str(source)
                 .map_err(|error| invalid_kore_pattern(path, purpose, "JSON", error))?
         } else {
             parse_kore_pattern(source)

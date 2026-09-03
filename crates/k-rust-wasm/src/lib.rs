@@ -128,51 +128,53 @@ impl WasmBackend {
     }
 
     pub fn execute(&mut self, options: &str) -> Result<String, JsError> {
-        let request = serde_json::from_str::<ExecuteRequest>(options).map_err(js_error)?;
+        let request = deserialize_backend_request::<ExecuteRequest>(options).map_err(js_error)?;
         serialize(&self.inner.execute(request).map_err(js_error)?).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = executeObserved)]
     pub fn execute_observed(&mut self, options: &str) -> Result<String, JsError> {
-        let request =
-            serde_json::from_str::<ObservedRequest<ExecuteRequest>>(options).map_err(js_error)?;
+        let request = deserialize_backend_request::<ObservedRequest<ExecuteRequest>>(options)
+            .map_err(js_error)?;
         serialize(&self.inner.execute_observed(request).map_err(js_error)?).map_err(js_error)
     }
 
     pub fn search(&mut self, options: &str) -> Result<String, JsError> {
-        let request = serde_json::from_str::<SearchRequest>(options).map_err(js_error)?;
+        let request = deserialize_backend_request::<SearchRequest>(options).map_err(js_error)?;
         serialize(&self.inner.search(request).map_err(js_error)?).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = searchPaths)]
     pub fn search_paths(&mut self, options: &str) -> Result<String, JsError> {
-        let request = serde_json::from_str::<SearchRequest>(options).map_err(js_error)?;
+        let request = deserialize_backend_request::<SearchRequest>(options).map_err(js_error)?;
         serialize(&self.inner.search_paths(request).map_err(js_error)?).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = searchPattern)]
     pub fn search_pattern(&mut self, options: &str) -> Result<String, JsError> {
-        let request = serde_json::from_str::<SearchPatternRequest>(options).map_err(js_error)?;
+        let request =
+            deserialize_backend_request::<SearchPatternRequest>(options).map_err(js_error)?;
         serialize(&self.inner.search_pattern(request).map_err(js_error)?).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = searchPatternPaths)]
     pub fn search_pattern_paths(&mut self, options: &str) -> Result<String, JsError> {
-        let request = serde_json::from_str::<SearchPatternRequest>(options).map_err(js_error)?;
+        let request =
+            deserialize_backend_request::<SearchPatternRequest>(options).map_err(js_error)?;
         serialize(&self.inner.search_pattern_paths(request).map_err(js_error)?).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = searchObserved)]
     pub fn search_observed(&mut self, options: &str) -> Result<String, JsError> {
-        let request =
-            serde_json::from_str::<ObservedRequest<SearchRequest>>(options).map_err(js_error)?;
+        let request = deserialize_backend_request::<ObservedRequest<SearchRequest>>(options)
+            .map_err(js_error)?;
         serialize(&self.inner.search_observed(request).map_err(js_error)?).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = searchPathsObserved)]
     pub fn search_paths_observed(&mut self, options: &str) -> Result<String, JsError> {
-        let request =
-            serde_json::from_str::<ObservedRequest<SearchRequest>>(options).map_err(js_error)?;
+        let request = deserialize_backend_request::<ObservedRequest<SearchRequest>>(options)
+            .map_err(js_error)?;
         serialize(
             &self
                 .inner
@@ -184,7 +186,7 @@ impl WasmBackend {
 
     #[wasm_bindgen(js_name = searchPatternObserved)]
     pub fn search_pattern_observed(&mut self, options: &str) -> Result<String, JsError> {
-        let request = serde_json::from_str::<ObservedRequest<SearchPatternRequest>>(options)
+        let request = deserialize_backend_request::<ObservedRequest<SearchPatternRequest>>(options)
             .map_err(js_error)?;
         serialize(
             &self
@@ -197,7 +199,7 @@ impl WasmBackend {
 
     #[wasm_bindgen(js_name = searchPatternPathsObserved)]
     pub fn search_pattern_paths_observed(&mut self, options: &str) -> Result<String, JsError> {
-        let request = serde_json::from_str::<ObservedRequest<SearchPatternRequest>>(options)
+        let request = deserialize_backend_request::<ObservedRequest<SearchPatternRequest>>(options)
             .map_err(js_error)?;
         serialize(
             &self
@@ -209,23 +211,24 @@ impl WasmBackend {
     }
 
     pub fn simplify(&mut self, options: &str) -> Result<String, JsError> {
-        let request = serde_json::from_str::<PatternRequest>(options).map_err(js_error)?;
+        let request = deserialize_backend_request::<PatternRequest>(options).map_err(js_error)?;
         serialize(&self.inner.simplify(request).map_err(js_error)?).map_err(js_error)
     }
 
     pub fn implies(&mut self, options: &str) -> Result<String, JsError> {
-        let request = serde_json::from_str::<ImplicationRequest>(options).map_err(js_error)?;
+        let request =
+            deserialize_backend_request::<ImplicationRequest>(options).map_err(js_error)?;
         serialize(&self.inner.implies(request).map_err(js_error)?).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = getModel)]
     pub fn get_model(&mut self, options: &str) -> Result<String, JsError> {
-        let request = serde_json::from_str::<PatternRequest>(options).map_err(js_error)?;
+        let request = deserialize_backend_request::<PatternRequest>(options).map_err(js_error)?;
         serialize(&self.inner.get_model(request).map_err(js_error)?).map_err(js_error)
     }
 
     pub fn prove(&mut self, options: &str) -> Result<String, JsError> {
-        let request = serde_json::from_str::<ProveRequest>(options).map_err(js_error)?;
+        let request = deserialize_backend_request::<ProveRequest>(options).map_err(js_error)?;
         serialize(&self.inner.prove(request).map_err(js_error)?).map_err(js_error)
     }
 
@@ -429,7 +432,7 @@ pub fn print_kore_wasm(json: &str, width: Option<u32>) -> Result<String, JsError
 }
 
 fn print_kore(json: &str, width: Option<u32>) -> Result<String, String> {
-    let pattern = kore_json::from_str_unbounded(json).map_err(display_error)?;
+    let pattern = kore_json::from_str(json).map_err(display_error)?;
     Ok(kore_printer(width).print_pattern(&pattern))
 }
 
@@ -446,6 +449,14 @@ fn kore_printer(width: Option<u32>) -> KorePrinter {
 
 fn serialize(value: &impl Serialize) -> Result<String, String> {
     serde_json::to_string(value).map_err(display_error)
+}
+
+fn deserialize_backend_request<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, String> {
+    let mut deserializer = serde_json::Deserializer::from_str(json);
+    deserializer.disable_recursion_limit();
+    let value = T::deserialize(&mut deserializer).map_err(display_error)?;
+    deserializer.end().map_err(display_error)?;
+    Ok(value)
 }
 
 fn json_value(json: String) -> Result<Value, String> {

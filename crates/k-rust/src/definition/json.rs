@@ -92,7 +92,10 @@ struct Envelope {
 }
 
 pub fn from_str(input: &str) -> Result<Definition, Error> {
-    let envelope: Envelope = serde_json::from_str(input)?;
+    let mut deserializer = serde_json::Deserializer::from_str(input);
+    deserializer.disable_recursion_limit();
+    let envelope = Envelope::deserialize(&mut deserializer)?;
+    deserializer.end()?;
     if envelope.format != term_json::FORMAT {
         return Err(Error::UnsupportedFormat(envelope.format));
     }
