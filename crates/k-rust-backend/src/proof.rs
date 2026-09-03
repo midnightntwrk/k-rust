@@ -442,6 +442,7 @@ pub fn prove_claim(
             RewriteResult::Branch {
                 branches,
                 remainder,
+                trivial,
                 ..
             } => {
                 if extend_frontier(
@@ -456,11 +457,28 @@ pub fn prove_claim(
                 if let Some(remainder) = remainder
                     && extend_frontier(
                         &mut pending,
-                        std::iter::once(state.remaining(remainder)),
+                        std::iter::once(state.clone().remaining(remainder)),
                         options.breadth_limit,
                     )
                 {
                     return Ok(finish_at_breadth_limit(leaves, pending, explored_states));
+                }
+                for trivial in trivial {
+                    let mut trivial_state = state.clone();
+                    trivial_state.depth += 1;
+                    trivial_state.trace.push(TraceEntry {
+                        depth: trivial_state.depth,
+                        kind: TraceKind::Rewrite,
+                        label: trivial.label,
+                        unique_id: trivial.rule_id,
+                    });
+                    extend_unique(
+                        &mut trivial_state.pattern.constraints,
+                        vec![trivial.applicability],
+                    );
+                    let outcome =
+                        vacuous_outcome(&trivial_state, options, ProofLeafOutcome::Trivial);
+                    record_leaf!(trivial_state.leaf(outcome));
                 }
             }
             RewriteResult::Stuck(_) => {

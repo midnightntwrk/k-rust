@@ -75,3 +75,8 @@ frontiers, while preserving the first leaf's trace and halt reason. Whole-state 
 leaves carry no final configuration and are not merged. Printed execution, search, and pattern-match
 disjunctions use the structural order of the externalized KORE pattern; the order of an `\or` is not
 part of the compatibility contract, and differential gates compare its disjuncts as a multiset.
+
+A rule whose left-hand side matches and whose `requires` holds has applied even when its result is
+empty (an `ensures false` or bottom right-hand side). Lower priorities and `owise` do not see that
+sub-case. This follows kore-exec semantics and arbiter row 1; Booster's `OnlyTrivial` fall-through
+is intentionally not mirrored, and the RPC differential excludes that oracle-specific shape.
