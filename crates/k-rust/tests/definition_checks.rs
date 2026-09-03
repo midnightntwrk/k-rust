@@ -1018,7 +1018,23 @@ fn ml_binders_bind_their_rhs_variables() {
 }
 
 #[test]
-fn semantic_casts_supply_variable_sort_context() {
+fn variables_bind_by_name_across_differing_casts() {
+    let sentence = rule_with_body(rewrite(
+        Term::apply("#SemanticCastToBig", vec![Term::variable("X")]),
+        Term::apply(
+            "foo",
+            vec![Term::apply(
+                "#SemanticCastToSmall",
+                vec![Term::variable("X")],
+            )],
+        ),
+    ));
+
+    assert!(check_rhs_variables(&[&sentence], StructuralCheckOptions::default()).is_empty());
+}
+
+#[test]
+fn variable_sort_annotations_do_not_affect_binding() {
     let typed = Term::Variable {
         name: "X".into(),
         sort: Some(Sort::new("Int")),
@@ -1030,10 +1046,7 @@ fn semantic_casts_supply_variable_sort_context() {
     let untyped = rule_with_body(rewrite(typed, Term::variable("X")));
 
     assert!(check_rhs_variables(&[&cast], StructuralCheckOptions::default()).is_empty());
-    assert_eq!(
-        check_rhs_variables(&[&untyped], StructuralCheckOptions::default()).len(),
-        1
-    );
+    assert!(check_rhs_variables(&[&untyped], StructuralCheckOptions::default()).is_empty());
 }
 
 #[test]
