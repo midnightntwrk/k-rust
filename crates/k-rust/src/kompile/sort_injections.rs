@@ -50,6 +50,9 @@ pub enum SortInjectionError {
         expected: usize,
         actual: usize,
     },
+    InvalidSortPredicate {
+        label: String,
+    },
     MissingParameters {
         label: String,
         expected: usize,
@@ -123,6 +126,10 @@ impl fmt::Display for SortInjectionError {
             } => write!(
                 formatter,
                 "KLabel {label:?} expects {expected} arguments but received {actual}"
+            ),
+            Self::InvalidSortPredicate { label } => write!(
+                formatter,
+                "Invalid sort predicate {label} that depends directly or indirectly on the current configuration. Is it possible to replace the sort predicate with a regular function?"
             ),
             Self::MissingParameters {
                 label,
@@ -755,6 +762,15 @@ impl<'a> SortInjector<'a> {
             })
             .collect::<Vec<_>>();
         if argument_sorts.len() != arguments.len() {
+            if label.name.strip_prefix("is").is_some_and(|sort| {
+                self.sorts
+                    .defined_heads()
+                    .contains(&SortHead::nullary(sort))
+            }) {
+                return Err(SortInjectionError::InvalidSortPredicate {
+                    label: label.name.clone(),
+                });
+            }
             return Err(SortInjectionError::InvalidArity {
                 label: label.name.clone(),
                 expected: argument_sorts.len(),
