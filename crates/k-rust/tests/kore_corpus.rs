@@ -114,7 +114,7 @@ fn fixtures(relative: &str) -> Vec<PathBuf> {
 }
 
 fn fixtures_in(directory: &Path, extension: &str) -> Vec<PathBuf> {
-    let mut fixtures: Vec<_> = fs::read_dir(&directory)
+    let mut fixtures: Vec<_> = fs::read_dir(directory)
         .unwrap_or_else(|error| panic!("{}: {error}", directory.display()))
         .map(|entry| entry.expect("fixture entry should be readable").path())
         .filter(|path| {
