@@ -2576,6 +2576,7 @@ fn apply_rule_with_match(
             .iter()
             .map(|alternative| (&alternative.term, alternative.ensures.as_slice()))
             .collect(),
+        RuleRhs::Top => return RuleAttempt::NotApplicable,
         RuleRhs::Bottom => return RuleAttempt::Trivial,
         RuleRhs::Predicates(_) => return RuleAttempt::NotApplicable,
     };

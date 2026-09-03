@@ -783,6 +783,11 @@ fn simplification_failure_output(
         } => SearchFailureOutput::ConflictingResults {
             rules: vec![rule_id; alternatives],
         },
+        SimplificationError::TopEquationOutsideConjunction { rule_id } => {
+            SearchFailureOutput::ConflictingResults {
+                rules: vec![rule_id],
+            }
+        }
         SimplificationError::Smt { rule_id, error } => SearchFailureOutput::Smt {
             rule: Some(rule_id),
             error: smt_failure_output(error, result_sort)?,
