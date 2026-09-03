@@ -7,7 +7,7 @@ use k_rust_kore::kore::ast as kore;
 use crate::{
     definition::{BackendDefinition, DefinitionError, PendingAxiom, SubsortValidation},
     rewrite::Pattern,
-    rule::{RuleAttributes, contains_term_component, internalize_rule_pattern},
+    rule::{RuleAttributes, internalize_rule_pattern, term_disjuncts},
     term::Variable,
 };
 
@@ -50,17 +50,17 @@ pub enum ClaimError {
 pub(crate) fn internalize_reachability_claim(
     definition: &BackendDefinition,
     claim: &PendingAxiom,
-) -> Result<Option<ReachabilityClaim>, DefinitionError> {
+) -> Result<Vec<ReachabilityClaim>, DefinitionError> {
     let kore::Pattern::Implies { left, right, .. } = &claim.pattern else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
     let kore::Pattern::Application { symbol, arguments } = right.as_ref() else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
     let mode = match symbol.name.as_str() {
         ONE_PATH_MODALITY => ReachabilityMode::OnePath,
         ALL_PATH_MODALITY => ReachabilityMode::AllPath,
-        _ => return Ok(None),
+        _ => return Ok(Vec::new()),
     };
     let [right] = arguments.as_slice() else {
         return Err(DefinitionError::Claim(ClaimError::MalformedModality {
@@ -74,7 +74,7 @@ pub(crate) fn internalize_reachability_claim(
         .into_iter()
         .map(|variable| definition.internalize_variable(variable, &claim.parameters))
         .collect::<Result<BTreeSet<_>, DefinitionError>>()?;
-    let rhs = distribute_term_or(right)
+    let rhs = term_disjuncts(right)
         .into_iter()
         .map(|branch| {
             let (term, constraints) = internalize_rule_pattern(
@@ -89,31 +89,33 @@ pub(crate) fn internalize_reachability_claim(
     if rhs.is_empty() {
         return Err(DefinitionError::Claim(ClaimError::MissingRightHandSide));
     }
-    let (lhs, constraints) = internalize_rule_pattern(
-        definition,
-        left,
-        &claim.parameters,
-        SubsortValidation::Ignore,
-    )?;
     let parsed_attributes =
         RuleAttributes::parse(&claim.attributes).map_err(DefinitionError::Axiom)?;
-
-    Ok(Some(ReachabilityClaim {
-        lhs: Pattern {
-            term: lhs,
-            constraints,
-        },
-        rhs,
-        existentials,
-        mode,
-        attributes: ClaimAttributes {
-            label: parsed_attributes.label,
-            unique_id: parsed_attributes.unique_id,
-            trusted: has_attribute(&claim.attributes, "trusted"),
-            source: parsed_attributes.source,
-            location: parsed_attributes.location,
-        },
-    }))
+    let attributes = ClaimAttributes {
+        label: parsed_attributes.label,
+        unique_id: parsed_attributes.unique_id,
+        trusted: has_attribute(&claim.attributes, "trusted"),
+        source: parsed_attributes.source,
+        location: parsed_attributes.location,
+    };
+    term_disjuncts(left)
+        .into_iter()
+        .map(|left| {
+            let (term, constraints) = internalize_rule_pattern(
+                definition,
+                &left,
+                &claim.parameters,
+                SubsortValidation::Ignore,
+            )?;
+            Ok(ReachabilityClaim {
+                lhs: Pattern { term, constraints },
+                rhs: rhs.clone(),
+                existentials: existentials.clone(),
+                mode,
+                attributes: attributes.clone(),
+            })
+        })
+        .collect()
 }
 
 fn extract_existentials(mut pattern: &kore::Pattern) -> (&kore::Pattern, Vec<&kore::Variable>) {
@@ -123,73 +125,6 @@ fn extract_existentials(mut pattern: &kore::Pattern) -> (&kore::Pattern, Vec<&ko
         pattern = body;
     }
     (pattern, variables)
-}
-
-/// Distribute term-level disjunction through term constructors and conjunction while leaving
-/// predicate-only disjunctions intact as constraints.
-fn distribute_term_or(pattern: &kore::Pattern) -> Vec<kore::Pattern> {
-    distribute_term_or_with_context(pattern, false)
-}
-
-fn distribute_term_or_with_context(
-    pattern: &kore::Pattern,
-    inside_term: bool,
-) -> Vec<kore::Pattern> {
-    match pattern {
-        kore::Pattern::Or { arguments, .. }
-            if inside_term || arguments.iter().any(contains_term_component) =>
-        {
-            arguments
-                .iter()
-                .flat_map(|argument| distribute_term_or_with_context(argument, true))
-                .collect()
-        }
-        kore::Pattern::And { sort, arguments } => distribute_arguments(arguments, inside_term)
-            .into_iter()
-            .map(|arguments| kore::Pattern::And {
-                sort: sort.clone(),
-                arguments,
-            })
-            .collect(),
-        kore::Pattern::Application { symbol, arguments } => distribute_arguments(arguments, true)
-            .into_iter()
-            .map(|arguments| kore::Pattern::Application {
-                symbol: symbol.clone(),
-                arguments,
-            })
-            .collect(),
-        kore::Pattern::AssociativeApplication {
-            associativity,
-            symbol,
-            arguments,
-        } => distribute_arguments(arguments, true)
-            .into_iter()
-            .map(|arguments| kore::Pattern::AssociativeApplication {
-                associativity: *associativity,
-                symbol: symbol.clone(),
-                arguments,
-            })
-            .collect(),
-        _ => vec![pattern.clone()],
-    }
-}
-
-fn distribute_arguments(arguments: &[kore::Pattern], inside_term: bool) -> Vec<Vec<kore::Pattern>> {
-    let mut combinations = vec![Vec::new()];
-    for argument in arguments {
-        let alternatives = distribute_term_or_with_context(argument, inside_term);
-        combinations = combinations
-            .into_iter()
-            .flat_map(|prefix| {
-                alternatives.iter().cloned().map(move |alternative| {
-                    let mut combined = prefix.clone();
-                    combined.push(alternative);
-                    combined
-                })
-            })
-            .collect();
-    }
-    combinations
 }
 
 fn has_attribute(attributes: &kore::Attributes, name: &str) -> bool {

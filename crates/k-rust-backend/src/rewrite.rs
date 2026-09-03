@@ -305,7 +305,7 @@ pub fn execute_observed_with_solver(
 ) -> ExecutionResult {
     execute_using(
         definition,
-        initial,
+        vec![initial],
         options,
         solver,
         Some(observation),
@@ -320,12 +320,22 @@ pub fn execute_with_solver_and_observer(
     solver: &dyn SmtSolver,
     observe: impl FnMut(&BuiltinEffect),
 ) -> ExecutionResult {
+    execute_using(definition, vec![initial], options, solver, None, observe)
+}
+
+pub fn execute_disjunction_with_solver_and_observer(
+    definition: &BackendDefinition,
+    initial: Vec<Pattern>,
+    options: ExecutionOptions,
+    solver: &dyn SmtSolver,
+    observe: impl FnMut(&BuiltinEffect),
+) -> ExecutionResult {
     execute_using(definition, initial, options, solver, None, observe)
 }
 
 fn execute_using(
     definition: &BackendDefinition,
-    initial: Pattern,
+    initial: Vec<Pattern>,
     options: ExecutionOptions,
     solver: &dyn SmtSolver,
     observation: Option<&ObservationOptions>,
@@ -333,12 +343,15 @@ fn execute_using(
 ) -> ExecutionResult {
     let mut fresh_counter = 0;
     let mut observation_log = ObservationLog::default();
-    let mut pending = VecDeque::from([ExecutionState {
-        pattern: initial,
-        depth: 0,
-        trace: Vec::new(),
-        observation: None,
-    }]);
+    let mut pending = initial
+        .into_iter()
+        .map(|pattern| ExecutionState {
+            pattern,
+            depth: 0,
+            trace: Vec::new(),
+            observation: None,
+        })
+        .collect::<VecDeque<_>>();
     let mut leaves = Vec::new();
     let mut effects = Vec::new();
     let mut discarded = Vec::new();
@@ -2554,15 +2567,75 @@ fn apply_rule_with_match(
         return RuleAttempt::NotApplicable;
     }
 
-    let rhs = match &rule.rhs {
-        RuleRhs::Term(rhs) => rhs,
+    let existential_substitution = freshen_existentials(rule, pattern);
+    let mut condition_knowledge = match_knowledge;
+    extend_unique(&mut condition_knowledge, unclear_requires.iter().cloned());
+    let alternatives = match &rule.rhs {
+        RuleRhs::Term(rhs) => vec![(rhs, rule.ensures.as_slice())],
+        RuleRhs::Disjunction(alternatives) => alternatives
+            .iter()
+            .map(|alternative| (&alternative.term, alternative.ensures.as_slice()))
+            .collect(),
         RuleRhs::Bottom => return RuleAttempt::Trivial,
         RuleRhs::Predicates(_) => return RuleAttempt::NotApplicable,
     };
-    let existential_substitution = freshen_existentials(rule, pattern);
-    let rhs = substitute(&substitute(rhs, &substitution), &existential_substitution);
-    let mut condition_knowledge = match_knowledge;
-    extend_unique(&mut condition_knowledge, unclear_requires.iter().cloned());
+    let mut applications = Vec::new();
+    for (rhs, alternative_ensures) in alternatives {
+        let mut ensures = rule.ensures.clone();
+        extend_unique(&mut ensures, alternative_ensures.iter().cloned());
+        match apply_rhs_alternative(
+            definition,
+            rule,
+            pattern,
+            rhs,
+            &ensures,
+            &substitution,
+            &existential_substitution,
+            &condition_knowledge,
+            &match_conditions,
+            &unclear_requires,
+            &applicability,
+            simplification_options,
+            solver,
+        ) {
+            RhsAlternativeAttempt::Applied(application) => applications.push(application),
+            RhsAlternativeAttempt::Trivial => {}
+            RhsAlternativeAttempt::Indeterminate(reason) => {
+                return RuleAttempt::Indeterminate(reason);
+            }
+        }
+    }
+    if applications.is_empty() {
+        RuleAttempt::Trivial
+    } else {
+        RuleAttempt::Applied(applications)
+    }
+}
+
+enum RhsAlternativeAttempt {
+    Applied(RuleApplication),
+    Trivial,
+    Indeterminate(IndeterminateReason),
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_rhs_alternative(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    pattern: &Pattern,
+    rhs: &Term,
+    ensures: &[Predicate],
+    substitution: &Substitution,
+    existential_substitution: &Substitution,
+    condition_knowledge: &[Predicate],
+    match_conditions: &[Predicate],
+    unclear_requires: &[Predicate],
+    applicability: &Predicate,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> RhsAlternativeAttempt {
+    let rhs = substitute(&substitute(rhs, substitution), existential_substitution);
+    let mut condition_knowledge = condition_knowledge.to_vec();
     let (rhs, mut rhs_constraints, effects) =
         if rule.computed_attributes.undefined_symbols.is_empty() {
             (rhs, Vec::new(), Vec::new())
@@ -2576,10 +2649,12 @@ fn apply_rule_with_match(
             ) {
                 Ok(simplified) => (simplified.term, simplified.constraints, simplified.effects),
                 Err(error) => {
-                    return RuleAttempt::Indeterminate(IndeterminateReason::simplification(
-                        Some(&rule.attributes.unique_id),
-                        error,
-                    ));
+                    return RhsAlternativeAttempt::Indeterminate(
+                        IndeterminateReason::simplification(
+                            Some(&rule.attributes.unique_id),
+                            error,
+                        ),
+                    );
                 }
             }
         };
@@ -2595,7 +2670,7 @@ fn apply_rule_with_match(
         ) {
             Ok(obligations) => obligations,
             Err(error) => {
-                return RuleAttempt::Indeterminate(IndeterminateReason::simplification(
+                return RhsAlternativeAttempt::Indeterminate(IndeterminateReason::simplification(
                     Some(&rule.attributes.unique_id),
                     error,
                 ));
@@ -2603,7 +2678,7 @@ fn apply_rule_with_match(
         };
         match predicates_truth(&obligations) {
             Truth::True => {}
-            Truth::False => return RuleAttempt::Trivial,
+            Truth::False => return RhsAlternativeAttempt::Trivial,
             Truth::Unknown => match solver.check_predicates(
                 &condition_knowledge,
                 &Substitution::new(),
@@ -2611,7 +2686,7 @@ fn apply_rule_with_match(
             ) {
                 Ok(Validity::Valid) => {}
                 Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
-                    return RuleAttempt::Trivial;
+                    return RhsAlternativeAttempt::Trivial;
                 }
                 Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => {
                     extend_unique(&mut rhs_constraints, obligations);
@@ -2620,8 +2695,8 @@ fn apply_rule_with_match(
         }
     }
     let ensures = substitute_predicates(
-        &substitute_predicates(&rule.ensures, &substitution),
-        &existential_substitution,
+        &substitute_predicates(ensures, substitution),
+        existential_substitution,
     );
     let mut ensures = match simplify_predicates_with_solver(
         definition,
@@ -2632,30 +2707,30 @@ fn apply_rule_with_match(
     ) {
         Ok(ensures) => ensures,
         Err(error) => {
-            return RuleAttempt::Indeterminate(IndeterminateReason::simplification(
+            return RhsAlternativeAttempt::Indeterminate(IndeterminateReason::simplification(
                 Some(&rule.attributes.unique_id),
                 error,
             ));
         }
     };
     match predicates_truth(&ensures) {
-        Truth::False => return RuleAttempt::Trivial,
+        Truth::False => return RhsAlternativeAttempt::Trivial,
         Truth::True => {}
         Truth::Unknown => {
             match solver.check_predicates(&condition_knowledge, &Substitution::new(), &ensures) {
                 Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
-                    return RuleAttempt::Trivial;
+                    return RhsAlternativeAttempt::Trivial;
                 }
                 Ok(Validity::Valid) => ensures.clear(),
                 Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => {}
                 Ok(Validity::Unknown(reason)) => {
-                    return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
+                    return RhsAlternativeAttempt::Indeterminate(IndeterminateReason::Smt {
                         rule_id: rule.attributes.unique_id.clone(),
                         error: SmtError::Unknown(reason),
                     });
                 }
                 Err(error) => {
-                    return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
+                    return RhsAlternativeAttempt::Indeterminate(IndeterminateReason::Smt {
                         rule_id: rule.attributes.unique_id.clone(),
                         error,
                     });
@@ -2676,12 +2751,12 @@ fn apply_rule_with_match(
     extend_unique(&mut rule_predicates, ensures);
     let mut constraints = pattern.constraints.clone();
     extend_unique(&mut constraints, rule_predicates.iter().cloned());
-    let remainder = if applicability == Predicate::True {
+    let remainder = if *applicability == Predicate::True {
         Predicate::False
     } else {
-        Predicate::Not(Box::new(applicability))
+        Predicate::Not(Box::new(applicability.clone()))
     };
-    RuleAttempt::Applied(vec![RuleApplication {
+    RhsAlternativeAttempt::Applied(RuleApplication {
         applied: AppliedRule {
             before: pattern.clone(),
             pattern: Pattern {
@@ -2690,13 +2765,13 @@ fn apply_rule_with_match(
             },
             label: rule.attributes.label.clone(),
             unique_id: rule.attributes.unique_id.clone(),
-            substitution,
+            substitution: substitution.clone(),
             rule_substitution,
             rule_predicates,
             effects,
         },
         remainder,
-    }])
+    })
 }
 
 fn term_alias_variables(term: &Term) -> BTreeSet<Variable> {

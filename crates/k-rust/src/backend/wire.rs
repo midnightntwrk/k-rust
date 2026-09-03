@@ -777,6 +777,12 @@ fn simplification_failure_output(
         SimplificationError::ConflictingResults { rule_ids } => {
             SearchFailureOutput::ConflictingResults { rules: rule_ids }
         }
+        SimplificationError::DisjunctiveResult {
+            rule_id,
+            alternatives,
+        } => SearchFailureOutput::ConflictingResults {
+            rules: vec![rule_id; alternatives],
+        },
         SimplificationError::Smt { rule_id, error } => SearchFailureOutput::Smt {
             rule: Some(rule_id),
             error: smt_failure_output(error, result_sort)?,

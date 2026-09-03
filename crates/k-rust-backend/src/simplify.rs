@@ -79,6 +79,10 @@ pub enum SimplificationError {
     ConflictingResults {
         rule_ids: Vec<String>,
     },
+    DisjunctiveResult {
+        rule_id: String,
+        alternatives: usize,
+    },
     Smt {
         rule_id: String,
         error: SmtError,
@@ -1916,13 +1920,106 @@ fn apply_equation(
         RuleCondition::Refuted => return Ok(EquationAttempt::NotApplicable),
         RuleCondition::Indeterminate => return Ok(EquationAttempt::Indeterminate),
     }
-    let (rhs, rhs_is_bottom) = match &rule.rhs {
-        RuleRhs::Term(rhs) => (substitute(rhs, &substitution), false),
-        RuleRhs::Bottom => (term.clone(), true),
+    let (alternatives, is_disjunction) = match &rule.rhs {
+        RuleRhs::Term(rhs) => (
+            vec![(substitute(rhs, &substitution), rule.ensures.clone(), false)],
+            false,
+        ),
+        RuleRhs::Bottom => (vec![(term.clone(), rule.ensures.clone(), true)], false),
+        RuleRhs::Disjunction(alternatives) => (
+            alternatives
+                .iter()
+                .map(|alternative| {
+                    let mut ensures = rule.ensures.clone();
+                    for predicate in &alternative.ensures {
+                        if !ensures.contains(predicate) {
+                            ensures.push(predicate.clone());
+                        }
+                    }
+                    (substitute(&alternative.term, &substitution), ensures, false)
+                })
+                .collect(),
+            true,
+        ),
         RuleRhs::Predicates(_) => return Ok(EquationAttempt::NotApplicable),
     };
-    let ensures = substitute_predicates(&rule.ensures, &substitution);
-    let mut ensures = simplify_rule_predicates(
+    let mut live = Vec::new();
+    for (rhs, ensures, rhs_is_bottom) in alternatives {
+        match evaluate_ensures(
+            definition,
+            rule,
+            term,
+            &substitution,
+            &ensures,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        )? {
+            EnsuresVerdict::Refuted => {
+                if !is_disjunction {
+                    live.push((rhs, vec![Predicate::False]));
+                }
+            }
+            EnsuresVerdict::Holds => live.push((
+                rhs,
+                if rhs_is_bottom {
+                    vec![Predicate::False]
+                } else {
+                    Vec::new()
+                },
+            )),
+            EnsuresVerdict::Open(mut constraints) => {
+                if rhs_is_bottom {
+                    constraints.push(Predicate::False);
+                }
+                live.push((rhs, constraints));
+            }
+        }
+    }
+    match live.len() {
+        0 => Ok(EquationAttempt::Applied(Simplification {
+            term: term.clone(),
+            constraints: vec![Predicate::False],
+            applied_rules: vec![rule.attributes.unique_id.clone()],
+            effects: Vec::new(),
+        })),
+        1 => {
+            let (term, constraints) = live.pop().expect("one live alternative");
+            Ok(EquationAttempt::Applied(Simplification {
+                term,
+                constraints,
+                applied_rules: vec![rule.attributes.unique_id.clone()],
+                effects: Vec::new(),
+            }))
+        }
+        alternatives => Err(SimplificationError::DisjunctiveResult {
+            rule_id: rule.attributes.unique_id.clone(),
+            alternatives,
+        }),
+    }
+}
+
+enum EnsuresVerdict {
+    Refuted,
+    Holds,
+    Open(Vec<Predicate>),
+}
+
+#[allow(clippy::too_many_arguments)]
+fn evaluate_ensures(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    term: &Term,
+    substitution: &Substitution,
+    ensures: &[Predicate],
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> Result<EnsuresVerdict, SimplificationError> {
+    let ensures = substitute_predicates(ensures, substitution);
+    let ensures = simplify_rule_predicates(
         definition,
         (&rule.attributes.unique_id, term),
         &ensures,
@@ -1933,33 +2030,12 @@ fn apply_equation(
     )
     .unwrap_or(ensures);
     match predicates_truth(&ensures) {
-        Truth::False => Ok(EquationAttempt::Applied(Simplification {
-            term: rhs,
-            constraints: vec![Predicate::False],
-            applied_rules: vec![rule.attributes.unique_id.clone()],
-            effects: Vec::new(),
-        })),
-        Truth::True => Ok(EquationAttempt::Applied(Simplification {
-            term: rhs,
-            constraints: if rhs_is_bottom {
-                vec![Predicate::False]
-            } else {
-                Vec::new()
-            },
-            applied_rules: vec![rule.attributes.unique_id.clone()],
-            effects: Vec::new(),
-        })),
+        Truth::False => Ok(EnsuresVerdict::Refuted),
+        Truth::True => Ok(EnsuresVerdict::Holds),
         Truth::Unknown => {
             match solver.check_predicates(known_predicates, &Substitution::new(), &ensures) {
-                Ok(Validity::Invalid) => {
-                    return Ok(EquationAttempt::Applied(Simplification {
-                        term: rhs,
-                        constraints: vec![Predicate::False],
-                        applied_rules: vec![rule.attributes.unique_id.clone()],
-                        effects: Vec::new(),
-                    }));
-                }
-                Ok(Validity::Valid) => ensures.clear(),
+                Ok(Validity::Invalid) => return Ok(EnsuresVerdict::Refuted),
+                Ok(Validity::Valid) => return Ok(EnsuresVerdict::Holds),
                 Ok(
                     Validity::Indeterminate
                     | Validity::InconsistentGroundTruth
@@ -1973,16 +2049,7 @@ fn apply_equation(
                     });
                 }
             }
-            let mut constraints = ensures;
-            if rhs_is_bottom {
-                constraints.push(Predicate::False);
-            }
-            Ok(EquationAttempt::Applied(Simplification {
-                term: rhs,
-                constraints,
-                applied_rules: vec![rule.attributes.unique_id.clone()],
-                effects: Vec::new(),
-            }))
+            Ok(EnsuresVerdict::Open(ensures))
         }
     }
 }

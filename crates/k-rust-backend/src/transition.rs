@@ -116,12 +116,12 @@ impl ObservationOptions {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        let mut available = BTreeMap::<String, usize>::new();
+        let mut available = BTreeMap::<(String, Option<usize>), usize>::new();
         for priorities in definition.rewrite_theory.values() {
             for rules in priorities.values() {
                 for rule in rules {
                     *available
-                        .entry(rule.attributes.unique_id.clone())
+                        .entry((rule.attributes.unique_id.clone(), rule.lhs_alternative))
                         .or_default() += 1;
                 }
             }
@@ -132,10 +132,15 @@ impl ObservationOptions {
             if !selected.insert(rule.clone()) {
                 return Err(ObservationFilterError::DuplicateRule(rule));
             }
-            match available.get(&rule).copied() {
-                None => return Err(ObservationFilterError::UnknownRule(rule)),
-                Some(1) => {}
-                Some(_) => return Err(ObservationFilterError::AmbiguousRule(rule)),
+            let counts = available
+                .iter()
+                .filter_map(|((id, _), count)| (id == &rule).then_some(*count))
+                .collect::<Vec<_>>();
+            if counts.is_empty() {
+                return Err(ObservationFilterError::UnknownRule(rule));
+            }
+            if counts.iter().any(|count| *count > 1) {
+                return Err(ObservationFilterError::AmbiguousRule(rule));
             }
         }
         Ok(Self {
