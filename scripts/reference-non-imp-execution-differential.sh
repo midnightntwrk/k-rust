@@ -83,22 +83,28 @@ fi
 
 run_reference_krun() {
   local output=$1
-  shift
-  local attempt
+  local expected_status=$2
+  shift 2
+  local attempt status
   for ((attempt = 1; attempt <= reference_retries; attempt++)); do
-    if (
+    set +e
+    (
       ulimit -v "$reference_memory_kib"
       export GHCRTS=${GHCRTS:--N1}
       export K_OPTS="$reference_k_opts"
       "$krun" "$@" >"$output"
-    ); then
+    )
+    status=$?
+    set -e
+    if ((status == expected_status)); then
       return 0
     fi
     rm -f "$output"
     if ((attempt < reference_retries)); then
-      echo "reference krun preprocessing failed; retrying ($attempt/$reference_retries)" >&2
+      echo "reference krun exited $status instead of $expected_status; retrying ($attempt/$reference_retries)" >&2
     fi
   done
+  echo "error: reference krun exited $status instead of $expected_status" >&2
   return 1
 }
 
@@ -144,6 +150,7 @@ for name in "${selected[@]}"; do
   export K_KAST="$kast"
   export KAST_PROGRAM_SORT="$program_sort"
   execution_depth=$(jq -r '.depth' <<<"$suite")
+  expected_exit_code=$(jq -r '.["exit-code"] // 0' <<<"$suite")
   mapfile -t configuration_args < <(
     jq -r '(.configuration // [])[] | "-c" + .' <<<"$suite"
   )
@@ -187,6 +194,7 @@ for name in "${selected[@]}"; do
     program_name=$(basename "$program")
     echo "[$name:$program_name] executing with reference krun"
     run_reference_krun "$work/$name-$program_name.reference.kore" \
+      "$expected_exit_code" \
       "$program" \
       --definition "$definition" \
       --parser "$workspace/scripts/reference-kast-parser.sh" \
@@ -196,6 +204,7 @@ for name in "${selected[@]}"; do
       --output kore
 
     echo "[$name:$program_name] executing with krust krun"
+    set +e
     (
       ulimit -v "$rust_memory_kib"
       export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
@@ -210,6 +219,12 @@ for name in "${selected[@]}"; do
         --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin" \
         >"$work/$name-$program_name.rust.kore"
     )
+    rust_status=$?
+    set -e
+    if ((rust_status != expected_exit_code)); then
+      echo "error: krust krun exited $rust_status instead of $expected_exit_code" >&2
+      exit 1
+    fi
 
     oracle_exception=$(jq -c --arg program "$program" \
       '(."oracle-exception" // [])[] | select(.program == $program)' <<<"$suite")
@@ -275,6 +290,7 @@ for name in "${selected[@]}"; do
 
     echo "[$name:$search_name] searching with reference krun"
     run_reference_krun "$work/$name-$search_name.reference.kore" \
+      0 \
       "$program" \
       --definition "$definition" \
       --parser "$workspace/scripts/reference-kast-parser.sh" \

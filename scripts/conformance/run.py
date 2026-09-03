@@ -708,7 +708,7 @@ def do_krun(case, rec, search_file=False):
     case.logfile(f"{tag}.krust.log", out + "\n--- stderr ---\n" + err)
     if to:
         step.update(verdict="krust-error", stage="krun", reason="krust krun timed out"); return step_record(case, **step)
-    if rc != 0 or not out.strip():
+    if not out.strip():
         stage = classify_error(err)
         step.update(verdict="krust-error", stage=stage, divergence=(err or out)[-1200:])
         if stage == "inner-parse" and sort in ("K", "KItem"):
@@ -719,7 +719,7 @@ def do_krun(case, rec, search_file=False):
                 step["fallback_krust_cmd"] = " ".join(shlex.quote(a) for a in args2)
                 case.logfile(f"{tag}.krust.fallback.log", out2 + "\n--- stderr ---\n" + err2)
                 if to2: step["fallback_verdict"] = "krust-error"; step["fallback_stage"] = "krun"; step["fallback_reason"] = "timed out"
-                elif rc2 != 0 or not out2.strip():
+                elif not out2.strip():
                     step["fallback_verdict"] = "krust-error"; step["fallback_stage"] = classify_error(err2)
                     step["fallback_divergence"] = (err2 or out2)[-800:]
                 else:
@@ -732,6 +732,9 @@ def do_krun(case, rec, search_file=False):
         return step_record(case, **step)
     step["stage"] = "search" if any(x.startswith("--search") for x in extra) else "krun"
     if completion_only:
+        if rc != 0:
+            step.update(verdict="krust-error", stage="krun", reason=f"krust krun exited {rc} where the reference recipe requires successful completion")
+            return step_record(case, **step)
         case.logfile(f"{tag}.krust.kore", out)
         step.update(verdict="match", comparison="completion only: the reference recipe runs with --output none, so only successful termination is compared")
         return step_record(case, **step)

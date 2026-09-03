@@ -1085,6 +1085,20 @@ programs = [
 ]
 
 [[execution]]
+name = "exit"
+requires = ["reference-toolchain"]
+constructs = ["exit-cell-status"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/cli/exit/test.k"
+main-module = "EXIT"
+syntax-module = "EXIT"
+sort = "Int"
+depth = 1
+exit-code = 7
+programs = [
+  "${workspace}/crates/k-rust/tests/fixtures/reference/cli/exit/program.pgm",
+]
+
+[[execution]]
 name = "macro-runtime"
 requires = ["reference-toolchain"]
 constructs = ["macro-runtime"]

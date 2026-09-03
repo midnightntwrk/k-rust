@@ -65,6 +65,64 @@ fn output_with_stdin(command: &mut Command, input: &[u8]) -> Output {
     child.wait_with_output().unwrap()
 }
 
+fn exit_reference_fixtures() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/exit")
+}
+
+fn exit_krun_command() -> Command {
+    let fixtures = exit_reference_fixtures();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command
+        .arg("krun")
+        .arg(fixtures.join("test.k"))
+        .arg(fixtures.join("program.pgm"))
+        .args([
+            "--main-module",
+            "EXIT",
+            "--syntax-module",
+            "EXIT",
+            "--sort",
+            "Int",
+        ]);
+    command
+}
+
+fn compiled_exit_fixture() -> (PathBuf, PathBuf, PathBuf) {
+    let (root, _) = fixture();
+    let fixtures = exit_reference_fixtures();
+    let compiled = root.join("compiled");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(fixtures.join("test.k"))
+        .args([
+            "--main-module",
+            "EXIT",
+            "--syntax-module",
+            "EXIT",
+            "--backend",
+            "rust",
+            "--output-directory",
+        ])
+        .arg(&compiled)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let initial = root.join("initial.kore");
+    let output = exit_krun_command().args(["--depth", "0"]).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    fs::write(&initial, output.stdout).unwrap();
+    (root, compiled.join("definition.kore"), initial)
+}
+
 fn branching_search_fixture() -> (PathBuf, PathBuf) {
     let (root, definition) = fixture();
     fs::write(
@@ -1043,6 +1101,211 @@ endmodule
         ),
         "{}",
         String::from_utf8_lossy(&output.stderr)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reference_krun_exits_with_the_exit_cell_value_and_prints_the_final_pattern() {
+    let output = exit_krun_command().output().unwrap();
+
+    assert_eq!(output.status.code(), Some(7));
+    assert!(
+        output.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Lbl'-LT-'exit'-GT-'{}"), "{stdout}");
+    assert!(stdout.contains(r#"\dv{SortInt{}}("7")"#), "{stdout}");
+}
+
+#[test]
+fn reference_kore_exec_exits_with_the_exit_cell_value() {
+    let (root, definition, initial) = compiled_exit_fixture();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            definition.to_str().unwrap(),
+            "--module",
+            "EXIT",
+            "--pattern",
+            initial.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(7));
+    assert!(
+        output.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .contains(r#"\dv{SortInt{}}("7")"#)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_exits_zero_without_an_exit_cell() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  configuration <k> $PGM:Int </k>
+  rule <k> _:Int => .K </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--syntax-module",
+            "MAIN",
+            "--sort",
+            "Int",
+            "--expression",
+            "7",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_exits_111_on_divergent_exit_values() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  configuration <k> $PGM:Int </k> <exit exit=""> 0 </exit>
+  rule <k> N:Int => .K </k> <exit> _ => N </exit>
+  rule <k> N:Int => .K </k> <exit> _ => N +Int 1 </exit>
+endmodule
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--syntax-module",
+            "MAIN",
+            "--sort",
+            "Int",
+            "--expression",
+            "7",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(111));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(r#"\dv{SortInt{}}("7")"#), "{stdout}");
+    assert!(stdout.contains(r#"\dv{SortInt{}}("8")"#), "{stdout}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kore_exec_exits_111_on_a_symbolic_exit_value() {
+    let (root, definition, initial) = compiled_exit_fixture();
+    let concrete = r#"Lbl'-LT-'exit'-GT-'{}(\dv{SortInt{}}("0"))"#;
+    let symbolic = "Lbl'-LT-'exit'-GT-'{}(VarExit:SortInt{})";
+    let initial_source = fs::read_to_string(&initial).unwrap();
+    assert!(initial_source.contains(concrete), "{initial_source}");
+    fs::write(&initial, initial_source.replacen(concrete, symbolic, 1)).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            definition.to_str().unwrap(),
+            "--module",
+            "EXIT",
+            "--pattern",
+            initial.to_str().unwrap(),
+            "--depth",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(111));
+    assert!(
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .contains("VarExit:SortInt{}")
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_search_exits_zero_regardless_of_the_exit_cell() {
+    let output = exit_krun_command().arg("--search-final").output().unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!output.stdout.is_empty());
+}
+
+#[test]
+fn krun_bottom_final_with_an_exit_cell_exits_111() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  syntax KItem ::= fail(Int) [function, symbol(fail)]
+  rule fail(_:Int) => #Bottom
+  configuration <k> fail($PGM:Int) </k> <exit exit=""> 0 </exit>
+endmodule
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--syntax-module",
+            "MAIN",
+            "--sort",
+            "Int",
+            "--expression",
+            "7",
+            "--depth",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(111));
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "\\bottom{SortGeneratedTopCell{}}()\n"
     );
     fs::remove_dir_all(root).unwrap();
 }
