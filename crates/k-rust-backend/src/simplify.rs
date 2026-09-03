@@ -2114,6 +2114,43 @@ mod tests {
         );
     }
 
+    const TOP_RHS_EQUATION: &str = r#"
+        axiom{R} \implies{R}(
+            \top{R}(),
+            \equals{SortS{}, R}(
+                f{}(X:SortS{}),
+                \and{SortS{}}(\top{SortS{}}(), \top{SortS{}}())
+            )
+        ) [label{}("erase-f"), simplification{}()]
+    "#;
+
+    #[test]
+    fn drops_conjunction_operands_rewritten_to_top() {
+        let definition = definition(TOP_RHS_EQUATION);
+        let retained = term(&definition, r#"\dv{SortS{}}("retained")"#);
+        let input = Term::and(
+            retained.clone(),
+            term(&definition, r#"f{}(\dv{SortS{}}("removed"))"#),
+        );
+
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+        assert_eq!(result.term, retained);
+        assert!(result.applied_rules.iter().any(|rule| rule == "erase-f"));
+    }
+
+    #[test]
+    fn top_equation_outside_a_conjunction_is_an_explicit_error() {
+        let definition = definition(TOP_RHS_EQUATION);
+        let input = term(&definition, r#"f{}(\dv{SortS{}}("removed"))"#);
+
+        assert!(matches!(
+            simplify(&definition, &input, SimplificationOptions::default()),
+            Err(SimplificationError::TopEquationOutsideConjunction { rule_id })
+                if rule_id == "erase-f"
+        ));
+    }
+
     const IDENTITY: &str = r#"
         axiom{R} \implies{R}(
             \top{R}(),
