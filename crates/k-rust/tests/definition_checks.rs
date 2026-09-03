@@ -2010,16 +2010,17 @@ fn check_sorts_rejects_undeclared_instantiations_and_parametric_results() {
 }
 
 fn user_list_at(source: &str, line: u32) -> Sentence {
-    production(
-        None,
-        "Elements",
-        &[],
-        attrs(&[
+    Sentence::Production {
+        label: None,
+        parameters: Vec::new(),
+        sort: Sort::new("Elements"),
+        items: vec![ProductionItem::Terminal(format!("separator-{line}"))],
+        attributes: attrs(&[
             ("userList", json!("*")),
             (SOURCE_ATTRIBUTE, json!(source)),
             (LOCATION_ATTRIBUTE, json!([line, 3, line, 30])),
         ]),
-    )
+    }
 }
 
 fn duplicate_user_list_diagnostics(diagnostics: &[Diagnostic]) -> Vec<&Diagnostic> {
