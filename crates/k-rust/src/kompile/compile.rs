@@ -65,14 +65,14 @@ impl CompilationBackend {
             Self::Llvm => StructuralCheckOptions {
                 builtin_source_prefixes,
                 mode,
-                ..StructuralCheckOptions::default()
+                symbolic: false,
+                backend: StructuralCheckBackend::Other,
             },
             Self::Rust => StructuralCheckOptions {
                 symbolic: true,
                 backend: StructuralCheckBackend::Rust,
                 builtin_source_prefixes,
                 mode,
-                ..StructuralCheckOptions::default()
             },
         }
     }
