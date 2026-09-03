@@ -2432,6 +2432,47 @@ fn kcompile_writes_parseable_kore_outputs() {
 }
 
 #[test]
+fn kcompile_rejects_missing_user_syntax_module_and_warns_on_missing_default() {
+    let (root, definition) = fixture();
+    let run = |name: &str, arguments: &[&str]| {
+        let output_directory = root.join(name);
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--output-directory",
+            output_directory.to_str().unwrap(),
+            "--no-prelude",
+        ]);
+        command.args(arguments);
+        command.output().unwrap()
+    };
+
+    let explicit = run("explicit", &["--syntax-module", "FOO"]);
+    assert!(!explicit.status.success());
+    assert!(
+        String::from_utf8_lossy(&explicit.stderr)
+            .contains("Could not find main syntax module with name FOO in definition."),
+        "{}",
+        String::from_utf8_lossy(&explicit.stderr)
+    );
+
+    let default = run("default", &["--warnings-to-errors"]);
+    assert!(!default.status.success());
+    assert!(
+        String::from_utf8_lossy(&default.stderr).contains(
+            "Could not find main syntax module with name MAIN-SYNTAX in definition.  Use --syntax-module to specify one. Using MAIN as default."
+        ),
+        "{}",
+        String::from_utf8_lossy(&default.stderr)
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn warning_flags_are_exposed_by_every_diagnostic_subcommand() {
     for command in ["kcompile", "kast", "krun", "kprove"] {
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
