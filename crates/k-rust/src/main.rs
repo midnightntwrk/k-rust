@@ -3735,7 +3735,7 @@ mod tests {
 
         assert_eq!(options.common.definition, Path::new("definition.k"));
         assert_eq!(options.common.module, "MAIN");
-        assert_eq!(options.syntax_module, "GRAMMAR");
+        assert_eq!(options.syntax_module.as_deref(), Some("GRAMMAR"));
         assert_eq!(options.sort, "Exp");
         assert_eq!(options.expression.as_deref(), Some("1 + 2"));
         assert_eq!(options.config_vars, ["ENV=.Map"]);
@@ -4166,7 +4166,7 @@ mod tests {
             panic!("expected krun command");
         };
         let krun = KrunOptions::from(krun);
-        assert_eq!(krun.syntax_module, "MAIN");
+        assert_eq!(krun.syntax_module, None);
         assert_eq!(krun.depth, u64::MAX);
         assert_eq!(krun.max_simplification_iterations, 17);
 
