@@ -207,6 +207,14 @@ fn part_b_pending_and_special_case_schema_is_complete() {
         }
     }
 
+    let exit = manifest["execution"]
+        .as_array()
+        .expect("execution cases")
+        .iter()
+        .find(|entry| entry["name"].as_str() == Some("exit"))
+        .expect("D1-01 exit execution case");
+    assert_eq!(exit["exit-code"].as_integer(), Some(7));
+
     let hook_exceptions = manifest["execution"]
         .as_array()
         .unwrap()
@@ -350,6 +358,8 @@ fn part_b_gate_scripts_wire_the_runtime_contract() {
         assert!(script.contains("K_DIFFERENTIAL_MODULE"));
     }
     assert!(EXECUTION_SCRIPT.contains("oracle-exception"));
+    assert!(EXECUTION_SCRIPT.contains("expected_exit_code"));
+    assert!(EXECUTION_SCRIPT.contains("rust_status != expected_exit_code"));
     assert!(PROOF_SCRIPT.contains("if ((${#proven_claims[@]})); then"));
     for needle in [
         "--no-smt",
