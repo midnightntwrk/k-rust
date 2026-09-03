@@ -94,6 +94,7 @@ impl DiagnosticPolicy {
 pub enum DiagnosticCode {
     ClaimInDefinition,
     DeprecatedAttribute,
+    DeprecatedProduction,
     DuplicateOverload,
     DuplicateSentenceLabel,
     DuplicateConfigurationCell,
@@ -150,6 +151,7 @@ impl DiagnosticCode {
     pub fn warning_category(self) -> Option<WarningCategory> {
         match self {
             Self::DeprecatedAttribute => Some(WarningCategory::FutureError),
+            Self::DeprecatedProduction => Some(WarningCategory::DeprecatedSymbol),
             Self::DuplicateOverload => Some(WarningCategory::DuplicateOverload),
             Self::FutureError => Some(WarningCategory::FutureError),
             Self::InvalidAssociativity => Some(WarningCategory::InvalidAssociativity),
