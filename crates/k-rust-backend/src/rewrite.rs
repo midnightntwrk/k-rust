@@ -4899,6 +4899,46 @@ mod tests {
             .expect("term should internalize")
     }
 
+    fn assert_constrained_rewrite_applies(attribute: &str, subject: &str) {
+        let definition = definition(&format!(
+            r#"
+            axiom{{}} \rewrites{{SortS{{}}}}(
+                \and{{SortS{{}}}}(wrap{{}}(X:SortS{{}}), \top{{SortS{{}}}}()),
+                \dv{{SortS{{}}}}("done")
+            ) [{attribute}, label{{}}("constrained-rewrite")]
+            "#,
+        ));
+        let subject = Pattern {
+            term: internal_term(&definition, subject),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh)
+        else {
+            panic!("concreteness attributes must not block rewrite rules");
+        };
+        assert_eq!(
+            applied.pattern.term,
+            internal_term(&definition, r#"\dv{SortS{}}("done")"#)
+        );
+    }
+
+    #[test]
+    fn concrete_rewrite_rules_apply_to_symbolic_configurations() {
+        assert_constrained_rewrite_applies("concrete{}()", "wrap{}(Y:SortS{})");
+    }
+
+    #[test]
+    fn symbolic_rewrite_rules_apply_to_concrete_configurations() {
+        assert_constrained_rewrite_applies("symbolic{}()", r#"wrap{}(\dv{SortS{}}("value"))"#);
+    }
+
+    #[test]
+    fn named_concreteness_lists_are_ignored_on_rewrite_rules() {
+        assert_constrained_rewrite_applies("concrete{}(X:SortS{})", "wrap{}(Y:SortS{})");
+    }
+
     #[test]
     fn treats_an_undefined_matched_subterm_as_trivial() {
         let definition = definition(
