@@ -8,6 +8,17 @@ use std::collections::BTreeSet;
 
 use crate::{definition::Sentence, kast::Term};
 
+/// Whether a variable name is one of the forms that Java's fresh-name passes mark anonymous.
+pub(crate) fn is_generated_anonymous(name: &str) -> bool {
+    ["_Gen", "?_Gen", "!_Gen", "@_Gen", "_DotVar"]
+        .iter()
+        .any(|prefix| {
+            name.strip_prefix(prefix).is_some_and(|suffix| {
+                !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+            })
+        })
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct FreshNames {
     used: BTreeSet<String>,
@@ -99,5 +110,15 @@ mod tests {
 
         assert_eq!(fresh.mint("_Gen"), "_Gen1");
         assert_eq!(fresh.mint("_Gen"), "_Gen3");
+    }
+
+    #[test]
+    fn recognizes_only_generated_anonymous_variable_spellings() {
+        for name in ["_Gen0", "?_Gen1", "!_Gen2", "@_Gen3", "_DotVar4"] {
+            assert!(is_generated_anonymous(name), "{name}");
+        }
+        for name in ["_Gen", "_Genx", "X_Gen0", "_DotVar-1", "Gen0"] {
+            assert!(!is_generated_anonymous(name), "{name}");
+        }
     }
 }
