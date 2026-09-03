@@ -108,6 +108,18 @@ pub struct RemainderBranch {
     pub rule_ids: Vec<String>,
 }
 
+/// A rule that unified but whose rewritten result is bottom. Kore retains its unifier in the
+/// priority-group remainder even though execution and search have no successor to enqueue.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrivialApplication {
+    pub rule_id: String,
+    pub label: Option<String>,
+    /// The sub-case that rewrites to bottom: the incoming constraints and this predicate.
+    pub applicability: Predicate,
+    /// The complementary sub-case retained in the priority-group remainder.
+    pub remainder: Predicate,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RewriteResult {
     Stuck(Pattern),
@@ -118,6 +130,8 @@ pub enum RewriteResult {
         original: Pattern,
         branches: Vec<AppliedRule>,
         remainder: Option<RemainderBranch>,
+        /// Bottom-result sub-cases, ignored by execution/search and consumed by proof vacuity.
+        trivial: Vec<TrivialApplication>,
     },
     Indeterminate {
         pattern: Pattern,
@@ -622,6 +636,7 @@ fn execute_using(
                 original,
                 mut branches,
                 mut remainder,
+                ..
             } => {
                 if options.branch_mode == ExecutionBranchMode::StopAtBranch {
                     if let Err(error) = expand_stopped_branch_remainder(
@@ -1226,9 +1241,9 @@ fn rewrite_step_all(
     if priority_groups.is_empty() {
         return RewriteResult::Stuck(pattern.clone());
     }
-    let mut saw_trivial = false;
     for rules in priority_groups.values() {
         let mut applied = Vec::new();
+        let mut trivial = Vec::new();
         for rule in rules {
             match apply_rule(
                 definition,
@@ -1240,8 +1255,13 @@ fn rewrite_step_all(
                 assume_initial_defined,
             ) {
                 RuleAttempt::NotApplicable => {}
-                RuleAttempt::Trivial => saw_trivial = true,
-                RuleAttempt::Applied(results) => applied.extend(results),
+                RuleAttempt::Unified {
+                    applied: found,
+                    trivial: found_trivial,
+                } => {
+                    applied.extend(found);
+                    trivial.extend(found_trivial);
+                }
                 RuleAttempt::Indeterminate(reason) => {
                     return RewriteResult::Indeterminate {
                         pattern: pattern.clone(),
@@ -1250,9 +1270,26 @@ fn rewrite_step_all(
                 }
             }
         }
+        if applied.is_empty() && trivial.is_empty() {
+            continue;
+        }
+        let rule_ids = applied
+            .iter()
+            .map(|application| application.applied.unique_id.clone())
+            .chain(
+                trivial
+                    .iter()
+                    .map(|application| application.rule_id.clone()),
+            )
+            .collect::<Vec<_>>();
         let raw_remainder = applied
             .iter()
             .map(|application| application.remainder.clone())
+            .chain(
+                trivial
+                    .iter()
+                    .map(|application| application.remainder.clone()),
+            )
             .collect::<Vec<_>>();
         let remainder = match simplify_predicates_with_solver(
             definition,
@@ -1269,8 +1306,7 @@ fn rewrite_step_all(
                 };
             }
         };
-        let remainder_result = if applied.is_empty() || predicates_truth(&remainder) == Truth::False
-        {
+        let remainder_result = if predicates_truth(&remainder) == Truth::False {
             Ok(Satisfiability::Unsat)
         } else {
             let mut predicates = pattern.constraints.clone();
@@ -1284,25 +1320,17 @@ fn rewrite_step_all(
         if !matches!(
             remainder_result,
             Ok(Satisfiability::Unsat | Satisfiability::Sat)
-        ) && !applied.is_empty()
-        {
+        ) {
             return RewriteResult::Indeterminate {
                 pattern: pattern.clone(),
                 reason: IndeterminateReason::Remainder {
-                    rule_ids: applied
-                        .iter()
-                        .map(|application| application.applied.unique_id.clone())
-                        .collect(),
+                    rule_ids,
                     predicates: remainder,
                     satisfiability: remainder_result,
                 },
             };
         }
         let remainder = if matches!(remainder_result, Ok(Satisfiability::Sat)) {
-            let rule_ids = applied
-                .iter()
-                .map(|application| application.applied.unique_id.clone())
-                .collect();
             let mut remainder_pattern = pattern.clone();
             extend_unique(
                 &mut remainder_pattern.constraints,
@@ -1315,28 +1343,21 @@ fn rewrite_step_all(
         } else {
             None
         };
-        match applied.len() {
-            0 => {}
-            1 if remainder.is_none() => {
-                return RewriteResult::Finished(applied.pop().unwrap().applied);
-            }
-            _ => {
-                return RewriteResult::Branch {
-                    original: pattern.clone(),
-                    branches: applied
-                        .into_iter()
-                        .map(|application| application.applied)
-                        .collect(),
-                    remainder,
-                };
-            }
-        }
+        return match (applied.len(), trivial.is_empty(), remainder) {
+            (0, false, None) => RewriteResult::Trivial(pattern.clone()),
+            (1, true, None) => RewriteResult::Finished(applied.pop().unwrap().applied),
+            (_, _, remainder) => RewriteResult::Branch {
+                original: pattern.clone(),
+                branches: applied
+                    .into_iter()
+                    .map(|application| application.applied)
+                    .collect(),
+                remainder,
+                trivial,
+            },
+        };
     }
-    if saw_trivial {
-        RewriteResult::Trivial(pattern.clone())
-    } else {
-        RewriteResult::Stuck(pattern.clone())
-    }
+    RewriteResult::Stuck(pattern.clone())
 }
 
 fn rewrite_step_any(
@@ -1355,7 +1376,7 @@ fn rewrite_step_any(
     let mut remaining = pattern.clone();
     let mut remainder_conditions = Vec::new();
     let mut applied = Vec::new();
-    let mut saw_trivial = false;
+    let mut trivial = Vec::new();
     for rule in priority_groups.values().flatten() {
         if predicates_truth(&remaining.constraints) == Truth::False {
             break;
@@ -1370,8 +1391,10 @@ fn rewrite_step_any(
             false,
         ) {
             RuleAttempt::NotApplicable => {}
-            RuleAttempt::Trivial => saw_trivial = true,
-            RuleAttempt::Applied(results) => {
+            RuleAttempt::Unified {
+                applied: results,
+                trivial: found_trivial,
+            } => {
                 for application in results {
                     extend_unique(
                         &mut remainder_conditions,
@@ -1382,6 +1405,17 @@ fn rewrite_step_any(
                         std::iter::once(application.remainder),
                     );
                     applied.push(application.applied);
+                }
+                for application in found_trivial {
+                    extend_unique(
+                        &mut remainder_conditions,
+                        std::iter::once(application.remainder.clone()),
+                    );
+                    extend_unique(
+                        &mut remaining.constraints,
+                        std::iter::once(application.remainder.clone()),
+                    );
+                    trivial.push(application);
                 }
                 match simplify_predicates_with_solver(
                     definition,
@@ -1411,12 +1445,8 @@ fn rewrite_step_any(
         }
     }
 
-    if applied.is_empty() {
-        return if saw_trivial {
-            RewriteResult::Trivial(pattern.clone())
-        } else {
-            RewriteResult::Stuck(pattern.clone())
-        };
+    if applied.is_empty() && trivial.is_empty() {
+        return RewriteResult::Stuck(pattern.clone());
     }
 
     let remainder_result = if predicates_truth(&remaining.constraints) == Truth::False
@@ -1436,6 +1466,11 @@ fn rewrite_step_any(
                 rule_ids: applied
                     .iter()
                     .map(|application| application.unique_id.clone())
+                    .chain(
+                        trivial
+                            .iter()
+                            .map(|application| application.rule_id.clone()),
+                    )
                     .collect(),
                 predicates: remainder_conditions,
                 satisfiability: remainder_result,
@@ -1447,16 +1482,22 @@ fn rewrite_step_any(
         rule_ids: applied
             .iter()
             .map(|application| application.unique_id.clone())
+            .chain(
+                trivial
+                    .iter()
+                    .map(|application| application.rule_id.clone()),
+            )
             .collect(),
     });
-    if applied.len() == 1 && remainder.is_none() {
-        RewriteResult::Finished(applied.pop().unwrap())
-    } else {
-        RewriteResult::Branch {
+    match (applied.len(), trivial.is_empty(), remainder) {
+        (0, false, None) => RewriteResult::Trivial(pattern.clone()),
+        (1, true, None) => RewriteResult::Finished(applied.pop().unwrap()),
+        (_, _, remainder) => RewriteResult::Branch {
             original: pattern.clone(),
             branches: applied,
             remainder,
-        }
+            trivial,
+        },
     }
 }
 
@@ -1485,8 +1526,11 @@ fn applicable_groups(
 
 enum RuleAttempt {
     NotApplicable,
-    Trivial,
-    Applied(Vec<RuleApplication>),
+    /// The rule unified in at least one sub-case, including results that simplify to bottom.
+    Unified {
+        applied: Vec<RuleApplication>,
+        trivial: Vec<TrivialApplication>,
+    },
     Indeterminate(IndeterminateReason),
 }
 
@@ -2000,6 +2044,23 @@ struct RuleApplication {
     remainder: Predicate,
 }
 
+fn remainder_of(applicability: &Predicate) -> Predicate {
+    if *applicability == Predicate::True {
+        Predicate::False
+    } else {
+        Predicate::Not(Box::new(applicability.clone()))
+    }
+}
+
+fn trivial_application(rule: &RewriteRule, applicability: &Predicate) -> TrivialApplication {
+    TrivialApplication {
+        rule_id: rule.attributes.unique_id.clone(),
+        label: rule.attributes.label.clone(),
+        applicability: applicability.clone(),
+        remainder: remainder_of(applicability),
+    }
+}
+
 struct PartialRuleMatch {
     substitution: Substitution,
     conditions: Vec<Predicate>,
@@ -2486,7 +2547,11 @@ fn apply_rule_with_match(
         }
     };
     if predicates_truth(&definedness_conditions) == Truth::False {
-        return RuleAttempt::Trivial;
+        let applicability = quantify_introduced_variables(pattern, match_conditions);
+        return RuleAttempt::Unified {
+            applied: Vec::new(),
+            trivial: vec![trivial_application(rule, &applicability)],
+        };
     }
     extend_unique(
         &mut match_conditions,
@@ -2598,10 +2663,16 @@ fn apply_rule_with_match(
             .map(|alternative| (&alternative.term, alternative.ensures.as_slice()))
             .collect(),
         RuleRhs::Top => return RuleAttempt::NotApplicable,
-        RuleRhs::Bottom => return RuleAttempt::Trivial,
+        RuleRhs::Bottom => {
+            return RuleAttempt::Unified {
+                applied: Vec::new(),
+                trivial: vec![trivial_application(rule, &applicability)],
+            };
+        }
         RuleRhs::Predicates(_) => return RuleAttempt::NotApplicable,
     };
     let mut applications = Vec::new();
+    let mut trivial = Vec::new();
     for (rhs, alternative_ensures) in alternatives {
         let mut ensures = rule.ensures.clone();
         extend_unique(&mut ensures, alternative_ensures.iter().cloned());
@@ -2621,16 +2692,17 @@ fn apply_rule_with_match(
             solver,
         ) {
             RhsAlternativeAttempt::Applied(application) => applications.push(application),
-            RhsAlternativeAttempt::Trivial => {}
+            RhsAlternativeAttempt::Trivial => {
+                trivial.push(trivial_application(rule, &applicability));
+            }
             RhsAlternativeAttempt::Indeterminate(reason) => {
                 return RuleAttempt::Indeterminate(reason);
             }
         }
     }
-    if applications.is_empty() {
-        RuleAttempt::Trivial
-    } else {
-        RuleAttempt::Applied(applications)
+    RuleAttempt::Unified {
+        applied: applications,
+        trivial,
     }
 }
 
@@ -2773,11 +2845,6 @@ fn apply_rhs_alternative(
     extend_unique(&mut rule_predicates, ensures);
     let mut constraints = pattern.constraints.clone();
     extend_unique(&mut constraints, rule_predicates.iter().cloned());
-    let remainder = if *applicability == Predicate::True {
-        Predicate::False
-    } else {
-        Predicate::Not(Box::new(applicability.clone()))
-    };
     RhsAlternativeAttempt::Applied(RuleApplication {
         applied: AppliedRule {
             before: pattern.clone(),
@@ -2792,7 +2859,7 @@ fn apply_rhs_alternative(
             rule_predicates,
             effects,
         },
-        remainder,
+        remainder: remainder_of(applicability),
     })
 }
 
@@ -3631,23 +3698,27 @@ fn recover_overload_symbolic_match(
 
 fn combine_rule_attempts(attempts: impl IntoIterator<Item = RuleAttempt>) -> RuleAttempt {
     let mut applications = Vec::new();
-    let mut trivial = false;
+    let mut trivial = Vec::new();
     for attempt in attempts {
         match attempt {
             RuleAttempt::NotApplicable => {}
-            RuleAttempt::Trivial => trivial = true,
-            RuleAttempt::Applied(mut found) => applications.append(&mut found),
+            RuleAttempt::Unified {
+                applied: mut found,
+                trivial: mut found_trivial,
+            } => {
+                applications.append(&mut found);
+                trivial.append(&mut found_trivial);
+            }
             RuleAttempt::Indeterminate(reason) => return RuleAttempt::Indeterminate(reason),
         }
     }
-    if applications.is_empty() {
-        if trivial {
-            RuleAttempt::Trivial
-        } else {
-            RuleAttempt::NotApplicable
-        }
+    if applications.is_empty() && trivial.is_empty() {
+        RuleAttempt::NotApplicable
     } else {
-        RuleAttempt::Applied(applications)
+        RuleAttempt::Unified {
+            applied: applications,
+            trivial,
+        }
     }
 }
 
