@@ -1,3 +1,4 @@
+// reference: krun -cPGM='a' -> #Bottom; --search -> #Bottom
 module TR-SYNTAX
   syntax Pgm ::= "a" | "b" | "c"
 endmodule
