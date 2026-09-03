@@ -7022,6 +7022,153 @@ mod tests {
         )
     }
 
+    fn converging_execution_definition() -> BackendDefinition {
+        definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("initial")), \top{SortS{}}()),
+                wrap{}(\dv{SortS{}}("left"))
+            ) [label{}("initial-left")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("initial")), \top{SortS{}}()),
+                wrap{}(\dv{SortS{}}("right"))
+            ) [label{}("initial-right")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("left")), \top{SortS{}}()),
+                wrap{}(\dv{SortS{}}("merged"))
+            ) [label{}("left-merged")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("right")), \top{SortS{}}()),
+                wrap{}(\dv{SortS{}}("merged"))
+            ) [label{}("right-merged")]
+            "#,
+        )
+    }
+
+    #[test]
+    fn converging_branches_yield_one_final_leaf() {
+        let definition = converging_execution_definition();
+        let result = execute(
+            &definition,
+            subject(&definition, "initial"),
+            ExecutionOptions::default(),
+        );
+
+        let [leaf] = result.leaves.as_slice() else {
+            panic!(
+                "expected one merged final configuration: {:?}",
+                result.leaves
+            );
+        };
+        assert_eq!(leaf.pattern, subject(&definition, "merged"));
+        assert_eq!(leaf.depth, 2);
+        assert_eq!(leaf.halt_reason, HaltReason::Stuck);
+        assert_eq!(
+            leaf.trace
+                .iter()
+                .map(|entry| entry.label.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["initial-left", "left-merged"]
+        );
+    }
+
+    #[test]
+    fn equal_configurations_with_different_halt_reasons_merge_to_the_first() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("a")), \top{SortS{}}()),
+                wrap{}(\dv{SortS{}}("b"))
+            ) [label{}("a-b")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("a")), \top{SortS{}}()),
+                wrap{}(\dv{SortS{}}("d"))
+            ) [label{}("a-d")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("b")), \top{SortS{}}()),
+                wrap{}(\dv{SortS{}}("d"))
+            ) [label{}("b-d")]
+            "#,
+        );
+        let result = execute(
+            &definition,
+            subject(&definition, "a"),
+            ExecutionOptions {
+                max_depth: 2,
+                ..ExecutionOptions::default()
+            },
+        );
+
+        let [leaf] = result.leaves.as_slice() else {
+            panic!(
+                "expected the first final configuration only: {:?}",
+                result.leaves
+            );
+        };
+        assert_eq!(leaf.pattern, subject(&definition, "d"));
+        assert_eq!(leaf.depth, 2);
+        assert_eq!(leaf.halt_reason, HaltReason::DepthBound);
+    }
+
+    #[test]
+    fn bottom_leaves_are_not_merged() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("a")), \top{SortS{}}()),
+                \bottom{SortS{}}()
+            ) [label{}("bottom")]
+            "#,
+        );
+        let initial = subject(&definition, "a");
+        let result = execute_using(
+            &definition,
+            vec![initial.clone(), initial],
+            ExecutionOptions::default(),
+            &NoSolver,
+            None,
+            |_| {},
+        );
+
+        assert_eq!(result.leaves.len(), 2);
+        assert!(
+            result
+                .leaves
+                .iter()
+                .all(|leaf| leaf.halt_reason == HaltReason::Trivial)
+        );
+    }
+
+    #[test]
+    fn breadth_bound_frontier_is_merged() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("a")), \top{SortS{}}()),
+                wrap{}(\dv{SortS{}}("merged"))
+            ) [label{}("first")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("a")), \top{SortS{}}()),
+                wrap{}(\dv{SortS{}}("merged"))
+            ) [label{}("second")]
+            "#,
+        );
+        let result = execute(
+            &definition,
+            subject(&definition, "a"),
+            ExecutionOptions {
+                max_breadth: Some(1),
+                ..ExecutionOptions::default()
+            },
+        );
+
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one merged breadth frontier: {:?}", result.leaves);
+        };
+        assert_eq!(leaf.pattern, subject(&definition, "merged"));
+        assert_eq!(leaf.halt_reason, HaltReason::BreadthBound);
+    }
+
     #[test]
     fn observation_filter_installation_is_atomic() {
         let definition = unconditional_branch_definition();
