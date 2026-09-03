@@ -323,4 +323,84 @@ mod tests {
             BuiltinResult::Bottom
         );
     }
+
+    #[test]
+    fn substr_follows_kore_take_and_drop() {
+        for (start, end, expected) in [
+            (-2, 3, "hello"),
+            (1, 10, "ello"),
+            (3, 1, ""),
+            (-3, -1, "he"),
+            (0, 0, ""),
+        ] {
+            assert_eq!(
+                evaluate(
+                    "STRING.substr",
+                    vec![
+                        string_term("hello"),
+                        int_term(start.into()),
+                        int_term(end.into())
+                    ],
+                ),
+                BuiltinResult::Value(string_term(expected)),
+                "substrString(hello, {start}, {end})"
+            );
+        }
+    }
+
+    #[test]
+    fn chr_replaces_surrogates_and_rejects_out_of_range() {
+        assert_eq!(
+            evaluate("STRING.chr", vec![int_term(55296.into())]),
+            BuiltinResult::Value(string_term("\u{fffd}"))
+        );
+        assert_eq!(
+            evaluate("STRING.chr", vec![int_term((-1).into())]),
+            BuiltinResult::Bottom
+        );
+        assert_eq!(
+            evaluate("STRING.chr", vec![int_term(0x110000.into())]),
+            BuiltinResult::Bottom
+        );
+        assert_eq!(
+            evaluate("STRING.chr", vec![int_term(0x1f980.into())]),
+            BuiltinResult::Value(string_term("🦀"))
+        );
+    }
+
+    #[test]
+    fn find_keeps_domains_md_indices() {
+        for (needle, start, expected) in [("l", 1, 2), ("l", 3, 3), ("", 5, 5), ("", 6, -1)] {
+            assert_eq!(
+                evaluate(
+                    "STRING.find",
+                    vec![
+                        string_term("hello"),
+                        string_term(needle),
+                        int_term(start.into()),
+                    ],
+                ),
+                BuiltinResult::Value(int_term(expected.into())),
+                "findString(hello, {needle:?}, {start})"
+            );
+        }
+    }
+
+    #[test]
+    fn bases_outside_two_through_thirty_six_are_unsupported() {
+        for (hook, value) in [
+            ("STRING.string2base", string_term("ff")),
+            ("STRING.base2string", int_term(255.into())),
+        ] {
+            for base in [1, 37] {
+                assert_eq!(
+                    evaluate(hook, vec![value.clone(), int_term(base.into())]),
+                    BuiltinResult::Unsupported(UnsupportedHookReason::ArgumentOutOfRange {
+                        detail: format!("base {base} is outside 2..36"),
+                    }),
+                    "{hook} base {base}"
+                );
+            }
+        }
+    }
 }
