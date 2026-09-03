@@ -17,9 +17,14 @@ SourceFile {
                 Bubble(
                     Bubble {
                         kind: Rule,
-                        content: "X => [item]",
+                        content: "X =>",
                         label: None,
-                        attributes: [],
+                        attributes: [
+                            Attribute {
+                                key: "item",
+                                value: None,
+                            },
+                        ],
                         content_span: Span {
                             start: Position {
                                 offset: 26,
@@ -27,9 +32,9 @@ SourceFile {
                                 column: 8,
                             },
                             end: Position {
-                                offset: 37,
+                                offset: 31,
                                 line: 2,
-                                column: 19,
+                                column: 13,
                             },
                         },
                         span: Span {

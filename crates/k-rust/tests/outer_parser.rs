@@ -367,6 +367,51 @@ fn uppercase_bracketed_rule_rhs_is_not_parsed_as_attributes() {
 }
 
 #[test]
+fn bubble_attributes_and_labels_follow_make_string_sentence() {
+    let source = indoc! {r#"
+        module MAIN
+          rule a => b[priority(50)]
+          rule X => [Item]
+          rule L => [x]
+          rule Y => [other] [simplification]
+          rule Z => PATH[0]
+          rule [foo_bar]: a => b
+          rule [foo-bar]: a => b
+        endmodule
+    "#};
+    let parsed = parse("bubble-parts.k", source).unwrap();
+    let bubbles = parsed.modules[0]
+        .sentences
+        .iter()
+        .map(|sentence| match sentence {
+            Sentence::Bubble(bubble) => bubble,
+            _ => panic!("expected only rule bubbles"),
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(bubbles[0].content, "a => b");
+    assert_eq!(bubbles[0].attributes[0].key, "priority");
+    assert_eq!(bubbles[0].attributes[0].value.as_deref(), Some("50"));
+
+    assert_eq!(bubbles[1].content, "X => [Item]");
+    assert!(bubbles[1].attributes.is_empty());
+
+    assert_eq!(bubbles[2].content, "L =>");
+    assert_eq!(bubbles[2].attributes[0].key, "x");
+
+    assert_eq!(bubbles[3].content, "Y => [other]");
+    assert_eq!(bubbles[3].attributes[0].key, "simplification");
+
+    assert_eq!(bubbles[4].content, "Z => PATH[0]");
+    assert!(bubbles[4].attributes.is_empty());
+
+    assert_eq!(bubbles[5].label, None);
+    assert_eq!(bubbles[5].content, "[foo_bar]: a => b");
+    assert_eq!(bubbles[6].label.as_deref(), Some("foo-bar"));
+    assert_eq!(bubbles[6].content, "a => b");
+}
+
+#[test]
 fn preserves_edge_spaces_in_unquoted_attribute_values() {
     let source = "module MAIN\nsyntax Exp ::= \"x\" [symbol( x), smtlib(x )]\nendmodule\n";
     let parsed = parse("attribute-spaces.k", source).unwrap();
