@@ -14,6 +14,7 @@ use crate::{
     cancellation::cancellation_requested,
     definedness::ceil_term,
     definition::{BackendDefinition, ConstructorHead, constructor_head},
+    ite::{IteSplit, SplitSide, split_ite_pair},
     matching::{
         CollectionSolution, FailReason, MatchMode, MatchResult, Narrowing, SortGraph,
         match_terms_in_definition, solve_collection_pairs_in_definition,
@@ -2077,19 +2078,6 @@ struct PartialRuleMatch {
     remainder: Vec<(Term, Term)>,
 }
 
-#[derive(Clone, Copy)]
-enum SplitSide {
-    Pattern,
-    Subject,
-}
-
-struct IteSplit {
-    side: SplitSide,
-    condition: Term,
-    then_pair: (Term, Term),
-    else_pair: (Term, Term),
-}
-
 struct EqualitySplit {
     side: SplitSide,
     value: bool,
@@ -3542,40 +3530,6 @@ fn recover_ite_matches(
         });
     }
     Some(recovered)
-}
-
-fn split_ite_pair(pattern: &Term, subject: &Term) -> Option<IteSplit> {
-    if let Some((condition, then_branch, else_branch)) = ite_arguments(pattern) {
-        return Some(IteSplit {
-            side: SplitSide::Pattern,
-            condition,
-            then_pair: (then_branch, subject.clone()),
-            else_pair: (else_branch, subject.clone()),
-        });
-    }
-    let (condition, then_branch, else_branch) = ite_arguments(subject)?;
-    Some(IteSplit {
-        side: SplitSide::Subject,
-        condition,
-        then_pair: (pattern.clone(), then_branch),
-        else_pair: (pattern.clone(), else_branch),
-    })
-}
-
-fn ite_arguments(term: &Term) -> Option<(Term, Term, Term)> {
-    let TermKind::Application {
-        symbol, arguments, ..
-    } = term.kind()
-    else {
-        return None;
-    };
-    if symbol.attributes.hook.as_deref() != Some("KEQUAL.ite") {
-        return None;
-    }
-    let [condition, then_branch, else_branch] = arguments.as_slice() else {
-        return None;
-    };
-    Some((condition.clone(), then_branch.clone(), else_branch.clone()))
 }
 
 fn recover_overload_symbolic_match(
@@ -5808,7 +5762,7 @@ mod tests {
         assert_eq!(branch.pattern.term, internal_term(&definition, "done{}()"));
         assert!(matches!(
             branch.pattern.constraints.as_slice(),
-            [Predicate::Equals(..)]
+            [Predicate::Term(..)]
         ));
     }
 
@@ -5952,16 +5906,14 @@ mod tests {
         let [branch] = branches.as_slice() else {
             panic!("expected one conditional function match, found {branches:?}");
         };
-        let [equality @ Predicate::Equals(left, right)] = branch.pattern.constraints.as_slice()
-        else {
-            panic!("expected one functional equality condition");
+        let [condition @ Predicate::Term(term)] = branch.pattern.constraints.as_slice() else {
+            panic!("expected one functional Boolean condition");
         };
         assert!(matches!(
-            left.kind(),
+            term.kind(),
             TermKind::Application { symbol, .. } if symbol.name.as_ref() == "not"
         ));
-        assert_eq!(right, &Term::domain_value(Sort::simple("SortBool"), "true"));
-        let fresh_variables = equality.free_variables();
+        let fresh_variables = condition.free_variables();
         let mut fresh_variables = fresh_variables.iter();
         let fresh_variable = fresh_variables
             .next()
@@ -5971,8 +5923,8 @@ mod tests {
         assert!(matches!(
             remainder.pattern.constraints.as_slice(),
             [Predicate::Not(inner)]
-                if matches!(inner.as_ref(), Predicate::Exists(variable, condition)
-                    if variable == fresh_variable && condition.as_ref() == equality)
+                if matches!(inner.as_ref(), Predicate::Exists(variable, quantified)
+                    if variable == fresh_variable && quantified.as_ref() == condition)
         ));
     }
 
@@ -8663,10 +8615,7 @@ mod tests {
         };
         let expected = ["LEFT", "RIGHT"]
             .map(|name| {
-                Predicate::Equals(
-                    internal_term(&definition, &format!("{name}:SortBool{{}}")),
-                    Term::domain_value(Sort::simple("SortBool"), "true"),
-                )
+                Predicate::Term(internal_term(&definition, &format!("{name}:SortBool{{}}")))
             })
             .to_vec();
         assert_eq!(branch.pattern.constraints, expected);
@@ -8783,11 +8732,7 @@ mod tests {
             panic!("only the selected constructor should match, found {branches:?}");
         };
         assert_eq!(branch.pattern.term, internal_term(&definition, "done{}()"));
-        let condition = internal_term(&definition, "CONDITION:SortBool{}");
-        let selected = Predicate::Equals(
-            condition,
-            Term::domain_value(Sort::simple("SortBool"), "true"),
-        );
+        let selected = Predicate::Term(internal_term(&definition, "CONDITION:SortBool{}"));
         assert_eq!(
             branch.pattern.constraints.as_slice(),
             std::slice::from_ref(&selected)
@@ -8851,10 +8796,7 @@ mod tests {
         };
         let expected = ["OUTER", "INNER"]
             .map(|name| {
-                Predicate::Equals(
-                    internal_term(&definition, &format!("{name}:SortBool{{}}")),
-                    Term::domain_value(Sort::simple("SortBool"), "true"),
-                )
+                Predicate::Term(internal_term(&definition, &format!("{name}:SortBool{{}}")))
             })
             .to_vec();
         assert_eq!(branch.pattern.constraints, expected);
