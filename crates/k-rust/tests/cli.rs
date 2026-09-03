@@ -1441,8 +1441,8 @@ fn kore_get_model_returns_a_typed_substitution() {
         &definition,
         r#"[]
 module MAIN
-  sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
-  sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
   symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
     [function{}(), total{}(), smt-hook{}("<")]
 endmodule []

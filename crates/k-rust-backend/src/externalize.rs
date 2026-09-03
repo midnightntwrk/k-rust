@@ -576,12 +576,12 @@ mod tests {
             r#"[]
             module MAIN
                 sort SortInt{} [hasDomainValues{}()]
-                sort SortMap{} [hook{}("MAP.Map")]
-                symbol mapUnit{}() : SortMap{}
+                hooked-sort SortMap{} [hook{}("MAP.Map")]
+                hooked-symbol mapUnit{}() : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.unit"), unit{}()]
-                symbol mapItem{}(SortInt{}, SortInt{}) : SortMap{}
+                hooked-symbol mapItem{}(SortInt{}, SortInt{}) : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.element"), element{}()]
-                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
             endmodule []"#,
         )
@@ -625,12 +625,12 @@ mod tests {
             r#"[]
             module MAIN
                 sort SortInt{} [hasDomainValues{}()]
-                sort SortList{} [hook{}("LIST.List")]
-                symbol listUnit{}() : SortList{}
+                hooked-sort SortList{} [hook{}("LIST.List")]
+                hooked-symbol listUnit{}() : SortList{}
                     [function{}(), total{}(), hook{}("LIST.unit"), unit{}()]
-                symbol listItem{}(SortInt{}) : SortList{}
+                hooked-symbol listItem{}(SortInt{}) : SortList{}
                     [function{}(), total{}(), hook{}("LIST.element"), element{}()]
-                symbol listConcat{}(SortList{}, SortList{}) : SortList{}
+                hooked-symbol listConcat{}(SortList{}, SortList{}) : SortList{}
                     [function{}(), total{}(), hook{}("LIST.concat"), assoc{}()]
             endmodule []"#,
         )

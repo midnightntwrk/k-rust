@@ -840,8 +840,8 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
             module MAIN
-                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 sort SortKItem{} []
                 symbol pair{}(SortInt{}, SortInt{}) : SortKItem{} [constructor{}()]
                 symbol succ{}(SortInt{}) : SortInt{} [constructor{}()]

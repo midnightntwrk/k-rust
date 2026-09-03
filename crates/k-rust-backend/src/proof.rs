@@ -1199,7 +1199,7 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
             module MAIN
-                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 claim{} \implies{SortInt{}}(
                     \and{SortInt{}}(X:SortInt{}, \top{SortInt{}}()),
                     weakExistsFinally{SortInt{}}(
@@ -1458,11 +1458,11 @@ mod tests {
                 hooked-sort SortMap{}
                     [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
                 sort SortState{} []
-                symbol mapUnit{}() : SortMap{}
+                hooked-symbol mapUnit{}() : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.unit")]
-                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                hooked-symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.element")]
-                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
                     [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
                 symbol start{}(SortKey{}, SortMap{}) : SortState{} [constructor{}()]
                 symbol done{}(SortMap{}) : SortState{} [constructor{}()]
@@ -2177,7 +2177,7 @@ mod tests {
             module MAIN
                 hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 sort SortState{} []
-                symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
+                hooked-symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
                     [function{}(), total{}(), hook{}("INT.pow")]
                 symbol state{}(SortInt{}) : SortState{} [constructor{}()]
                 symbol done{}() : SortState{} [constructor{}()]

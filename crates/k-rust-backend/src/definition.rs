@@ -1665,10 +1665,10 @@ mod tests {
                 sort SortBox{S} []
                 hooked-sort SortMap{}
                     [hook{}("MAP.Map"), unit{}(dot{}()), element{}(item{}()), concat{}(concat{}())]
-                symbol dot{}() : SortMap{} [function{}(), functional{}(), hook{}("MAP.unit")]
-                symbol item{}(SortKey{}, SortValue{}) : SortMap{}
+                hooked-symbol dot{}() : SortMap{} [function{}(), functional{}(), hook{}("MAP.unit")]
+                hooked-symbol item{}(SortKey{}, SortValue{}) : SortMap{}
                     [function{}(), functional{}(), hook{}("MAP.element")]
-                symbol concat{}(SortMap{}, SortMap{}) : SortMap{}
+                hooked-symbol concat{}(SortMap{}, SortMap{}) : SortMap{}
                     [function{}(), assoc{}(), hook{}("MAP.concat")]
                 symbol value{}() : SortValue{} [constructor{}()]
                 symbol wrap{}(SortValue{}) : SortValue{} [constructor{}()]
@@ -1740,7 +1740,7 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
             module MAIN
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
             endmodule []"#,
         )
         .unwrap();
@@ -2195,7 +2195,7 @@ mod tests {
         let syntax = parse_definition(indoc! {r#"
             []
             module MAIN
-                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 symbol absolute{}(SortInt{}) : SortInt{}
                     [function{}(), total{}(), smt-hook{}("(ite (< #1 0) (- 0 #1) #1)")]
                 symbol opaque{}(SortInt{}) : SortInt{}
