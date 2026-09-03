@@ -31,6 +31,7 @@ use crate::{
 pub struct SortInfo {
     pub parameters: Vec<Name>,
     pub hook: Option<Name>,
+    pub has_domain_values: bool,
     collection: Option<CollectionSort>,
 }
 
@@ -168,6 +169,11 @@ pub enum DefinitionError {
     DuplicateSort(String),
     DuplicateSymbol(String),
     DuplicateAlias(String),
+    DuplicateName {
+        name: String,
+        first_module: String,
+        second_module: String,
+    },
     DuplicateParameter(String),
     UnknownSort(String),
     UnknownSymbol(String),
@@ -213,16 +219,38 @@ pub enum DefinitionError {
     MalformedAlias(String),
     AliasCycle(Vec<String>),
     MacroOrAliasInImplication(String),
+    SortWithoutDomainValues {
+        sort: Sort,
+    },
+    InvalidDomainValue {
+        sort: Sort,
+        value: String,
+    },
     ExpectedTerm(&'static str),
     EmptyAssociativeApplication(String),
     Axiom(AxiomError),
     RulePattern(RulePatternError),
     Claim(ClaimError),
+    Verification(crate::verify::VerificationError),
 }
 
 impl fmt::Display for DefinitionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{self:?}")
+        match self {
+            Self::DuplicateName { name, .. } => write!(formatter, "Duplicated name: {name}."),
+            Self::SortWithoutDomainValues { .. } => write!(
+                formatter,
+                "Sorts used with domain value must have the hasDomainValues attribute."
+            ),
+            Self::InvalidDomainValue { sort, value } => {
+                write!(
+                    formatter,
+                    "invalid domain value {value:?} for sort {sort:?}"
+                )
+            }
+            Self::Verification(error) => write!(formatter, "{error}"),
+            _ => write!(formatter, "{self:?}"),
+        }
     }
 }
 
@@ -270,6 +298,7 @@ impl BackendDefinition {
                 let info = SortInfo {
                     parameters: parameters.iter().cloned().map(Into::into).collect(),
                     hook: attribute_string(attributes, "hook")?.map(Into::into),
+                    has_domain_values: has_attribute(attributes, "hasDomainValues"),
                     collection,
                 };
                 if sorts.insert(Name::from(name.as_str()), info).is_some() {
@@ -327,6 +356,13 @@ impl BackendDefinition {
         }
 
         attach_collection_metadata(&sorts, &mut symbols)?;
+        crate::verify::verify_definition(
+            &ordered,
+            &definition.modules,
+            &sorts,
+            &symbols,
+            &aliases,
+        )?;
 
         let mut axioms = Vec::new();
         let mut claims = Vec::new();
@@ -503,6 +539,21 @@ impl BackendDefinition {
         let (term, constraints) =
             internalize_rule_pattern(self, &pattern, sort_variables, SubsortValidation::Check)?;
         Ok(Pattern { term, constraints })
+    }
+
+    /// Verify a standalone KORE pattern before internalizing a file boundary.
+    pub fn verify_standalone_pattern(
+        &self,
+        pattern: &kore::Pattern,
+    ) -> Result<(), DefinitionError> {
+        crate::verify::verify_standalone(
+            &self.main_module,
+            pattern,
+            &self.sorts,
+            &self.symbols,
+            &self.aliases,
+        )
+        .map_err(DefinitionError::Verification)
     }
 
     /// Internalize an arbitrary KORE pattern as an ML predicate and retain its result sort.
@@ -696,10 +747,11 @@ impl BackendDefinition {
                     .collect::<Result<Vec<_>, _>>()?;
                 self.internalize_application(symbol, arguments, sort_variables, subsort_validation)
             }
-            kore::Pattern::DomainValue { sort, value } => Ok(Term::domain_value(
-                internalize_sort(sort, &self.sorts, sort_variables)?,
-                value.as_str(),
-            )),
+            kore::Pattern::DomainValue { sort, value } => {
+                let sort = internalize_sort(sort, &self.sorts, sort_variables)?;
+                self.validate_domain_value(&sort, value)?;
+                Ok(Term::domain_value(sort, value.as_str()))
+            }
             kore::Pattern::And { arguments, .. } => {
                 let mut arguments = arguments
                     .iter()
@@ -766,6 +818,25 @@ impl BackendDefinition {
             kore::Pattern::Equals { .. } => Err(DefinitionError::ExpectedTerm("equals")),
             kore::Pattern::In { .. } => Err(DefinitionError::ExpectedTerm("in")),
         }
+    }
+
+    fn validate_domain_value(&self, sort: &Sort, value: &str) -> Result<(), DefinitionError> {
+        let Sort::Application { name, .. } = sort else {
+            return Err(DefinitionError::SortWithoutDomainValues { sort: sort.clone() });
+        };
+        let Some(info) = self.sorts.get(name) else {
+            return Err(DefinitionError::UnknownSort(name.to_string()));
+        };
+        if !info.has_domain_values {
+            return Err(DefinitionError::SortWithoutDomainValues { sort: sort.clone() });
+        }
+        if info.hook.as_deref() == Some("BOOL.Bool") && !matches!(value, "true" | "false") {
+            return Err(DefinitionError::InvalidDomainValue {
+                sort: sort.clone(),
+                value: value.into(),
+            });
+        }
+        Ok(())
     }
 
     fn validate_application_shape(
@@ -1089,7 +1160,7 @@ fn visit_module<'a>(
     Ok(())
 }
 
-fn internalize_sort(
+pub(crate) fn internalize_sort(
     sort: &kore::Sort,
     sorts: &BTreeMap<Name, SortInfo>,
     variables: &BTreeSet<Name>,
@@ -1121,7 +1192,7 @@ fn internalize_sort(
     }
 }
 
-fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) -> Sort {
+pub(crate) fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) -> Sort {
     match sort {
         Sort::Variable(name) => substitution
             .get(name)

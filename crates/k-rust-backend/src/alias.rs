@@ -8,9 +8,11 @@ use crate::definition::DefinitionError;
 
 #[derive(Clone, Debug)]
 pub(crate) struct AliasDefinition {
-    sort_parameters: Vec<String>,
-    parameters: Vec<kore::Variable>,
-    right: kore::Pattern,
+    pub(crate) sort_parameters: Vec<String>,
+    pub(crate) argument_sorts: Vec<kore::Sort>,
+    pub(crate) result_sort: kore::Sort,
+    pub(crate) parameters: Vec<kore::Variable>,
+    pub(crate) right: kore::Pattern,
 }
 
 pub(crate) fn collect(
@@ -22,6 +24,7 @@ pub(crate) fn collect(
             let kore::Sentence::AliasDeclaration {
                 alias,
                 argument_sorts,
+                result_sort,
                 left,
                 right,
                 ..
@@ -85,6 +88,8 @@ pub(crate) fn collect(
             }
             let definition = AliasDefinition {
                 sort_parameters,
+                argument_sorts: argument_sorts.clone(),
+                result_sort: result_sort.clone(),
                 parameters,
                 right: (**right).clone(),
             };
