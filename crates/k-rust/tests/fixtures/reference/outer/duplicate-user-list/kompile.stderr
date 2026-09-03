@@ -1,0 +1,4 @@
+[Error] Internal: Uncaught exception thrown of type AssertionError.
+Please rerun your program with the --debug flag to generate a stack trace, and
+file a bug report at https://github.com/runtimeverification/k/issues
+(AssertionError: null)

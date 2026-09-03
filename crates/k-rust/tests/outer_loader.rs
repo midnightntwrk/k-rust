@@ -613,6 +613,111 @@ fn source_checks_precede_import_resolution() {
     });
 }
 
+#[test]
+fn reference_load_rejects_undefined_sorts_and_duplicate_user_lists() {
+    let cases = [
+        (
+            "undefined-sort/test.k",
+            include_str!("fixtures/reference/outer/undefined-sort/test.k"),
+            "UNDEFINED-SORT",
+            "Could not find sorts: [Bar]",
+        ),
+        (
+            "undefined-sort-unrelated/test.k",
+            include_str!("fixtures/reference/outer/undefined-sort-unrelated/test.k"),
+            "UNDEFINED-SORT-UNRELATED",
+            "Could not find sorts: [Bar]",
+        ),
+        (
+            "duplicate-user-list/test.k",
+            include_str!("fixtures/reference/outer/duplicate-user-list/test.k"),
+            "DUPLICATE-USER-LIST",
+            "Sort Es previously declared as a user list at ",
+        ),
+    ];
+
+    for (source_name, source, main_module, expected) in cases {
+        let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+        let error = load(
+            ResolvedSource::new(source_name, source),
+            main_module,
+            &mut resolver,
+        )
+        .unwrap_err();
+        let LoadError::SourceDiagnostics(diagnostics) = error else {
+            panic!("expected source diagnostics for {source_name}, got {error:?}");
+        };
+        assert!(
+            diagnostics.iter().any(|diagnostic| {
+                diagnostic.message.starts_with(expected)
+                    && diagnostic.source.as_deref() == Some(source_name)
+                    && diagnostic.location.is_some()
+            }),
+            "{source_name}: {diagnostics:#?}"
+        );
+    }
+}
+
+#[test]
+fn temporary_cell_sort_declarations_are_removed_after_expansion() {
+    let source = indoc! {r#"
+        module CHECKCELLSORTDECLOK-SYNTAX
+          syntax Pgm
+        endmodule
+
+        module CHECKCELLSORTDECLOK
+          imports CHECKCELLSORTDECLOK-SYNTAX
+          configuration <T> <k> $PGM:Pgm </k> </T>
+          syntax Pgm ::= KCell
+        endmodule
+    "#};
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+    let loaded = load(
+        ResolvedSource::new("checkCellSortDeclOK.k", source),
+        "CHECKCELLSORTDECLOK",
+        &mut resolver,
+    )
+    .unwrap();
+
+    assert!(loaded.definition.modules.iter().all(|module| {
+        module.local_sentences.iter().all(|sentence| {
+            !matches!(sentence, Sentence::SyntaxSort { attributes, .. }
+                if attributes.get("temporary-cell-sort-decl").is_some())
+        })
+    }));
+}
+
+#[test]
+fn load_rechecks_sorts_after_configuration_expansion() {
+    let source = indoc! {r#"
+        module CHECKCELLSORTDECLFAIL-SYNTAX
+          syntax Pgm
+        endmodule
+
+        module CHECKCELLSORTDECLFAIL
+          imports CHECKCELLSORTDECLFAIL-SYNTAX
+          configuration <T> <k> $PGM:Pgm </k> </T>
+          syntax Pgm ::= MisTypedCell
+        endmodule
+    "#};
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+    let error = load(
+        ResolvedSource::new("checkCellSortDeclFail.k", source),
+        "CHECKCELLSORTDECLFAIL",
+        &mut resolver,
+    )
+    .unwrap_err();
+    let LoadError::SourceDiagnostics(diagnostics) = error else {
+        panic!("expected source diagnostics, got {error:?}");
+    };
+
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.message == "Could not find sorts: [MisTypedCell]"
+            && diagnostic.source.as_deref() == Some("checkCellSortDeclFail.k")
+            && diagnostic.location.is_some()
+    }));
+}
+
 proptest! {
     #[test]
     fn arbitrary_entry_source_never_panics(source in any::<String>()) {
