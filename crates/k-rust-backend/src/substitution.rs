@@ -124,9 +124,18 @@ pub fn extract_substitution(
     constraints: &[Predicate],
     sorts: &SortGraph,
 ) -> (Substitution, Vec<Predicate>) {
+    extract_substitution_with(constraints, |predicate| {
+        substitution_binding(predicate, sorts)
+    })
+}
+
+fn extract_substitution_with(
+    constraints: &[Predicate],
+    mut binding: impl FnMut(&Predicate) -> Option<(Variable, Term)>,
+) -> (Substitution, Vec<Predicate>) {
     let mut potential = BTreeMap::<Variable, Vec<(usize, Term)>>::new();
     for (index, constraint) in constraints.iter().enumerate() {
-        if let Some((variable, value)) = substitution_binding(constraint, sorts) {
+        if let Some((variable, value)) = binding(constraint) {
             potential.entry(variable).or_default().push((index, value));
         }
     }
@@ -209,6 +218,66 @@ pub fn extract_substitution(
         .map(|(_, predicate)| predicate.clone())
         .collect();
     (substitution, remaining)
+}
+
+/// Extract substitutions whose keys are restricted to `bindable` variables.
+///
+/// Equal sort injections are peeled before orientation so implication and claim witnesses use the
+/// same binding shape as Kore's injection simplifier. Predicates which cannot define a bindable
+/// variable are preserved unchanged.
+pub(crate) fn extract_substitution_for(
+    constraints: &[Predicate],
+    bindable: &BTreeSet<Variable>,
+    sorts: &SortGraph,
+) -> (Substitution, Vec<Predicate>) {
+    extract_substitution_with(constraints, |predicate| {
+        let (left, right) = substitution_equality(predicate)?;
+        let (left, right) = peel_equal_injections(left, right);
+        restricted_binding(&left, &right, bindable, sorts)
+            .or_else(|| restricted_binding(&right, &left, bindable, sorts))
+    })
+}
+
+fn restricted_binding(
+    candidate: &Term,
+    value: &Term,
+    bindable: &BTreeSet<Variable>,
+    sorts: &SortGraph,
+) -> Option<(Variable, Term)> {
+    let TermKind::Variable(variable) = candidate.kind() else {
+        return None;
+    };
+    (bindable.contains(variable) && !value.attributes().variables.contains(variable))
+        .then(|| align_binding_value(variable, value, sorts))
+        .flatten()
+        .map(|value| (variable.clone(), value))
+}
+
+fn peel_equal_injections(mut left: Term, mut right: Term) -> (Term, Term) {
+    loop {
+        let children = match (left.kind(), right.kind()) {
+            (
+                TermKind::Injection {
+                    source: left_source,
+                    target: left_target,
+                    term: left_child,
+                },
+                TermKind::Injection {
+                    source: right_source,
+                    target: right_target,
+                    term: right_child,
+                },
+            ) if left_source == right_source && left_target == right_target => {
+                Some((left_child.clone(), right_child.clone()))
+            }
+            _ => None,
+        };
+        let Some((left_child, right_child)) = children else {
+            return (left, right);
+        };
+        left = left_child;
+        right = right_child;
+    }
 }
 
 pub(crate) fn substitution_binding(
@@ -468,6 +537,57 @@ mod tests {
 
         assert_eq!(substitution, Substitution::from([(variable("X"), value)]));
         assert!(remaining.is_empty());
+    }
+
+    #[test]
+    fn extract_substitution_for_orients_toward_bindable_variables() {
+        let x = variable("X");
+        let z = variable("Z");
+        let value = Term::domain_value(sort(), "value");
+        let injected_z =
+            Term::injection(sort(), Sort::simple("SortKItem"), Term::variable(z.clone()));
+        let injected_value = Term::injection(sort(), Sort::simple("SortKItem"), value.clone());
+        let constraints = vec![
+            Predicate::Equals(Term::variable(x.clone()), Term::variable(z.clone())),
+            Predicate::Equals(injected_z, injected_value),
+        ];
+
+        let (substitution, remaining) = extract_substitution_for(
+            &constraints,
+            &BTreeSet::from([z.clone()]),
+            &SortGraph::default(),
+        );
+
+        assert!(
+            substitution.is_empty(),
+            "duplicate definitions stay predicates"
+        );
+        assert_eq!(remaining, constraints);
+
+        let (substitution, remaining) = extract_substitution_for(
+            &constraints[1..],
+            &BTreeSet::from([variable("Z")]),
+            &SortGraph::default(),
+        );
+        assert_eq!(
+            substitution,
+            Substitution::from([(variable("Z"), Term::domain_value(sort(), "value"))])
+        );
+        assert!(remaining.is_empty());
+    }
+
+    #[test]
+    fn extract_substitution_for_never_binds_unselected_variables() {
+        let constraint = Predicate::Equals(var("X"), con1(var("Y")));
+
+        let (substitution, remaining) = extract_substitution_for(
+            std::slice::from_ref(&constraint),
+            &BTreeSet::from([variable("Z")]),
+            &SortGraph::default(),
+        );
+
+        assert!(substitution.is_empty());
+        assert_eq!(remaining, [constraint]);
     }
 
     #[test]

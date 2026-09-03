@@ -27,7 +27,7 @@ use crate::{
         simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
-    substitution::{Substitution, substitute},
+    substitution::{Substitution, compose, extract_substitution_for, substitute},
     term::{Term, TermKind},
     timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
     unification::{UnificationResult, unify_term_pairs},
@@ -98,7 +98,6 @@ pub enum ClaimIndeterminateReason {
         substitution: Substitution,
         remainder: Vec<(Term, Term)>,
     },
-    Requires(Vec<crate::rule::Predicate>),
     Smt(SmtError),
 }
 
@@ -623,6 +622,7 @@ fn apply_claim(
     fresh_counter: &mut u64,
 ) -> ClaimApplication {
     let claim = freshen_claim(claim, subject, fresh_counter);
+    let claim_variables = variables_of_claim(&claim);
     let matched = match_terms_in_definition(
         MatchMode::Rewrite,
         definition,
@@ -688,13 +688,13 @@ fn apply_claim(
             }
         }
     };
-    let (substitution, match_conditions) =
+    let (mut substitution, match_conditions) =
         bind_subject_variables(definition, &claim, substitution, match_conditions);
     let simplification = SimplificationOptions {
         max_iterations: options.max_simplification_iterations,
         ..SimplificationOptions::default()
     };
-    let match_conditions = match simplify_predicates_with_solver(
+    let mut match_conditions = match simplify_predicates_with_solver(
         definition,
         &match_conditions,
         &subject.constraints,
@@ -711,51 +711,14 @@ fn apply_claim(
     if predicates_truth(&match_conditions) == Truth::False {
         return ClaimApplication::NotApplicable;
     }
-    // Conditions the path already satisfies do not narrow it; the remaining ones split the
-    // subject into the covered sub-case and its complement.
-    let mut match_conditions = match_conditions
-        .into_iter()
-        .filter(|condition| {
-            predicates_truth(std::slice::from_ref(condition)) == Truth::Unknown
-                && !subject.constraints.contains(condition)
-        })
-        .collect::<Vec<_>>();
-    let mut complement = None;
-    if !match_conditions.is_empty() {
-        match solver.check_predicates(
-            &subject.constraints,
-            &Substitution::new(),
-            &match_conditions,
-        ) {
-            Ok(Validity::Valid) => match_conditions.clear(),
-            Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
-                return ClaimApplication::NotApplicable;
-            }
-            Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(SmtError::Unavailable) => {}
-            Err(error) => {
-                return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Smt(error));
-            }
-        }
-        if !match_conditions.is_empty() {
-            let condition = quantify_introduced_variables(subject, match_conditions.clone());
-            let negated = crate::simplify::normalize_predicate(crate::rule::Predicate::Not(
-                Box::new(condition),
-            ));
-            if conjunctively_contains_alpha_equivalent(&subject.constraints, &negated) {
-                // This subject is the remainder of an earlier application of the same claim.
-                return ClaimApplication::NotApplicable;
-            }
-            complement = Some(negated);
-        }
-    }
-    let mut covered_knowledge = subject.constraints.clone();
-    extend_unique(&mut covered_knowledge, match_conditions);
 
     let requires = substitute_predicates(&claim.lhs.constraints, &substitution);
+    let mut match_knowledge = subject.constraints.clone();
+    extend_unique(&mut match_knowledge, match_conditions.clone());
     let requires = match simplify_predicates_with_solver(
         definition,
         &requires,
-        &covered_knowledge,
+        &match_knowledge,
         simplification,
         solver,
     ) {
@@ -766,26 +729,95 @@ fn apply_claim(
             ));
         }
     };
-    match predicates_truth(&requires) {
-        Truth::True => {}
-        Truth::False => return ClaimApplication::NotApplicable,
-        Truth::Unknown => {
-            match solver.check_predicates(&covered_knowledge, &Substitution::new(), &requires) {
-                Ok(Validity::Valid) => {}
-                Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
-                    return ClaimApplication::NotApplicable;
-                }
-                Ok(Validity::Indeterminate | Validity::Unknown(_)) => {
-                    return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Requires(
-                        requires,
-                    ));
-                }
-                Err(error) => {
-                    return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Smt(error));
-                }
+    if predicates_truth(&requires) == Truth::False {
+        return ClaimApplication::NotApplicable;
+    }
+
+    let unbound = claim_variables
+        .into_iter()
+        .filter(|variable| !substitution.contains_key(variable))
+        .collect::<BTreeSet<_>>();
+    let (defined, requires) = extract_substitution_for(&requires, &unbound, &definition.sort_graph);
+    substitution = compose(&defined, &substitution);
+    match_conditions = substitute_predicates(&match_conditions, &defined);
+    match_conditions = match simplify_predicates_with_solver(
+        definition,
+        &match_conditions,
+        &subject.constraints,
+        simplification,
+        solver,
+    ) {
+        Ok(conditions) => conditions,
+        Err(error) => {
+            return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Simplification(
+                error,
+            ));
+        }
+    };
+    if predicates_truth(&match_conditions) == Truth::False {
+        return ClaimApplication::NotApplicable;
+    }
+    let mut match_knowledge = subject.constraints.clone();
+    extend_unique(&mut match_knowledge, match_conditions.clone());
+    let requires = substitute_predicates(&requires, &defined);
+    let requires = match simplify_predicates_with_solver(
+        definition,
+        &requires,
+        &match_knowledge,
+        simplification,
+        solver,
+    ) {
+        Ok(requires) => requires,
+        Err(error) => {
+            return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Simplification(
+                error,
+            ));
+        }
+    };
+    if predicates_truth(&requires) == Truth::False {
+        return ClaimApplication::NotApplicable;
+    }
+
+    // Conditions the path already satisfies do not narrow it. Every other match or requires
+    // predicate describes the covered sub-case; their joint complement is the claim remainder.
+    let mut conditions = match_conditions;
+    extend_unique(&mut conditions, requires);
+    conditions.retain(|condition| {
+        predicates_truth(std::slice::from_ref(condition)) == Truth::Unknown
+            && !subject.constraints.contains(condition)
+    });
+    if !conditions.is_empty() {
+        match solver.check_predicates(&subject.constraints, &Substitution::new(), &conditions) {
+            Ok(Validity::Valid) => conditions.clear(),
+            Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
+                return ClaimApplication::NotApplicable;
+            }
+            Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => {}
+            Ok(Validity::Unknown(reason)) => {
+                return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Smt(
+                    SmtError::Unknown(reason),
+                ));
+            }
+            Err(error) => {
+                return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Smt(error));
             }
         }
     }
+
+    let complement = if conditions.is_empty() {
+        None
+    } else {
+        let condition = quantify_introduced_variables(subject, conditions.clone());
+        let negated =
+            crate::simplify::normalize_predicate(crate::rule::Predicate::Not(Box::new(condition)));
+        if conjunctively_contains_alpha_equivalent(&subject.constraints, &negated) {
+            // This subject is the remainder of an earlier application of the same claim.
+            return ClaimApplication::NotApplicable;
+        }
+        Some(negated)
+    };
+    let mut covered_knowledge = subject.constraints.clone();
+    extend_unique(&mut covered_knowledge, conditions);
 
     let remainder = complement.map(|complement| {
         let mut constraints = subject.constraints.clone();
@@ -828,7 +860,7 @@ fn bind_subject_variables(
     mut substitution: Substitution,
     mut conditions: Vec<crate::rule::Predicate>,
 ) -> (Substitution, Vec<crate::rule::Predicate>) {
-    let claim_variables = &claim.lhs.term.attributes().variables;
+    let claim_variables = variables_of_claim(claim);
     let bound = substitution
         .iter()
         .filter(|(variable, _)| !claim_variables.contains(*variable))
@@ -848,6 +880,32 @@ fn bind_subject_variables(
         }
     }
     (substitution, conditions)
+}
+
+fn variables_of_claim(claim: &ReachabilityClaim) -> BTreeSet<crate::term::Variable> {
+    claim
+        .lhs
+        .term
+        .attributes()
+        .variables
+        .iter()
+        .cloned()
+        .chain(
+            claim
+                .lhs
+                .constraints
+                .iter()
+                .flat_map(crate::rule::Predicate::free_variables),
+        )
+        .chain(claim.rhs.iter().flat_map(|rhs| {
+            rhs.term.attributes().variables.iter().cloned().chain(
+                rhs.constraints
+                    .iter()
+                    .flat_map(crate::rule::Predicate::free_variables),
+            )
+        }))
+        .chain(claim.existentials.iter().cloned())
+        .collect()
 }
 
 fn freshen_claim(
@@ -870,29 +928,7 @@ fn freshen_claim(
                 .map(|variable| variable.name),
         );
     }
-    let variables = claim
-        .lhs
-        .term
-        .attributes()
-        .variables
-        .iter()
-        .cloned()
-        .chain(
-            claim
-                .lhs
-                .constraints
-                .iter()
-                .flat_map(crate::rule::Predicate::free_variables),
-        )
-        .chain(claim.rhs.iter().flat_map(|rhs| {
-            rhs.term.attributes().variables.iter().cloned().chain(
-                rhs.constraints
-                    .iter()
-                    .flat_map(crate::rule::Predicate::free_variables),
-            )
-        }))
-        .chain(claim.existentials.iter().cloned())
-        .collect::<BTreeSet<_>>();
+    let variables = variables_of_claim(claim);
     let mut renaming = Substitution::new();
     for variable in variables {
         let name = loop {
@@ -2321,8 +2357,16 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
-        assert!(result.leaves[0].trace.iter().any(|entry| {
-            entry.kind == TraceKind::Claim && entry.label.as_deref() == Some("applicable-third")
+        assert!(result.leaves.iter().any(|leaf| {
+            leaf.trace.iter().any(|entry| {
+                entry.kind == TraceKind::Claim
+                    && entry.label.as_deref() == Some("indeterminate-second")
+            })
+        }));
+        assert!(result.leaves.iter().any(|leaf| {
+            leaf.trace.iter().any(|entry| {
+                entry.kind == TraceKind::Claim && entry.label.as_deref() == Some("applicable-third")
+            })
         }));
     }
 
@@ -2347,16 +2391,15 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
-        assert!(
-            result.leaves[0]
-                .trace
+        assert!(result.leaves.iter().any(|leaf| {
+            leaf.trace
                 .iter()
                 .any(|entry| entry.label.as_deref() == Some("b-to-c"))
-        );
+        }));
     }
 
     #[test]
-    fn stuck_state_reports_the_first_indeterminate_claim() {
+    fn undecidable_claim_requires_splits_covered_and_stuck_remainder() {
         let definition = optional_indeterminate_claims("", false);
 
         let result = prove_claim(
@@ -2367,15 +2410,34 @@ mod tests {
         )
         .unwrap();
 
-        assert!(matches!(
-            result.leaves.as_slice(),
-            [ProofLeaf {
-                outcome: ProofLeafOutcome::Indeterminate(
-                    ProofIndeterminateReason::Claim { claim_id, .. }
-                ),
-                ..
-            }] if claim_id == "indeterminate-second"
-        ));
+        let requires = crate::rule::Predicate::Equals(
+            term(&definition, "opaque{}()"),
+            term(&definition, "a{}()"),
+        );
+        assert_eq!(result.status, ProofStatus::Disproved, "{result:#?}");
+        assert!(result.leaves.iter().any(|leaf| {
+            leaf.pattern.term == term(&definition, "c{}()")
+                && leaf.pattern.constraints.contains(&requires)
+                && matches!(leaf.outcome, ProofLeafOutcome::Proven(_))
+                && leaf.trace.iter().any(|entry| {
+                    entry.kind == TraceKind::Claim
+                        && entry.label.as_deref() == Some("indeterminate-second")
+                })
+        }));
+        assert!(result.leaves.iter().any(|leaf| {
+            leaf.pattern.term == term(&definition, "b{}()")
+                && leaf
+                    .pattern
+                    .constraints
+                    .contains(&crate::rule::Predicate::Not(Box::new(requires.clone())))
+                && matches!(leaf.outcome, ProofLeafOutcome::Stuck)
+                && leaf
+                    .trace
+                    .iter()
+                    .any(|entry| entry.kind == TraceKind::Remainder)
+        }));
+        assert_eq!(result.explored_states, 4);
+        assert_eq!(result.unexplored_states, 0);
     }
 
     #[test]
