@@ -13,6 +13,7 @@ use k_rust::definition::{
 };
 use k_rust::diagnostic::{Diagnostic, DiagnosticCode, Severity};
 use k_rust::kast::{Label, Sort, Term};
+use k_rust::kast::{ResolvedProductionId, TermMetadata};
 use serde_json::{Value, json};
 
 fn attrs(entries: &[(&str, Value)]) -> Attributes {
@@ -391,6 +392,60 @@ fn duplicate_overload_sets_warn_once_per_disconnected_component() {
     assert!(duplicates.iter().all(|diagnostic| {
         diagnostic.message
             == "Overload `foo` is not unique. Consider renaming one of the overload sets with this key."
+    }));
+}
+
+#[test]
+fn deprecated_productions_are_reported_per_use() {
+    let deprecated = production(Some("foo"), "Foo", &[], attrs(&[("deprecated", json!(""))]));
+    let wrapper = production(Some("baz"), "Foo", &["Foo"], Attributes::default());
+    let catalog = ProductionCatalog::from_visible([&deprecated, &wrapper]);
+    let deprecated_id = catalog
+        .productions()
+        .find_map(|(id, sentence)| {
+            matches!(sentence, Sentence::Production { label: Some(label), .. } if label.name == "foo")
+                .then_some(id)
+        })
+        .unwrap();
+    let use_deprecated = || {
+        Term::apply("foo", Vec::new()).with_metadata(TermMetadata {
+            production: Some(ResolvedProductionId(deprecated_id.0)),
+            ..TermMetadata::default()
+        })
+    };
+    let sentence = Sentence::Rule {
+        body: rewrite(
+            Term::apply("baz", vec![use_deprecated()]),
+            Term::apply("baz", vec![use_deprecated()]),
+        ),
+        requires: truth(),
+        ensures: truth(),
+        attributes: located(),
+    };
+    let definition = resolved_definition(
+        "MAIN",
+        vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: vec![
+                i107_syntax_sort("Bool"),
+                i107_syntax_sort("Foo"),
+                deprecated,
+                wrapper,
+                sentence,
+            ],
+            attributes: Attributes::default(),
+        }],
+    );
+    let diagnostics = k_rust::definition::check_definition(&definition).unwrap();
+    let deprecated = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::DeprecatedProduction)
+        .collect::<Vec<_>>();
+    assert_eq!(deprecated.len(), 2);
+    assert!(deprecated.iter().all(|diagnostic| {
+        diagnostic.message
+            == "Use of deprecated production found; this syntax may be removed in the future."
     }));
 }
 
