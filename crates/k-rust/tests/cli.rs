@@ -291,6 +291,176 @@ endmodule
 }
 
 #[test]
+fn reference_krun_parses_configuration_variables_with_the_main_module() {
+    // reference: k/result/bin/krun 1.pgm --definition ref -cENV='two()' --output kore
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/cfg");
+    let expected = fs::read_to_string(fixtures.join("config-main.kore")).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("test.k").to_str().unwrap(),
+            fixtures.join("1.pgm").to_str().unwrap(),
+            "--main-module",
+            "CFG",
+            "--syntax-module",
+            "CFG-SYNTAX",
+            "--sort",
+            "Pgm",
+            "-cENV=two()",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let result = r#"\dv{SortInt{}}("3")"#;
+    assert!(expected.contains(result), "reference fixture: {expected}");
+    assert!(stdout.contains(result), "{stdout}");
+}
+
+#[test]
+fn reference_krun_defaults_the_program_grammar_to_the_syntax_module() {
+    // reference: k/result/bin/krun two.pgm --definition ref -cENV=1 exits 113
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/cfg");
+    assert_eq!(
+        fs::read_to_string(fixtures.join("program-reject.exit")).unwrap(),
+        "113\n"
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("test.k").to_str().unwrap(),
+            fixtures.join("two.pgm").to_str().unwrap(),
+            "--main-module",
+            "CFG",
+            "--sort",
+            "Pgm",
+            "-cENV=1",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success(), "program unexpectedly parsed");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("could not parse program as Pgm"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn reference_krun_honours_the_configuration_cell_parser_attribute() {
+    // reference: k/result/bin/krun go.pgm --definition parser-ref -cENV=selected --output kore
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/cfg");
+    let expected = fs::read_to_string(fixtures.join("parser-config.kore")).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("parser.k").to_str().unwrap(),
+            fixtures.join("go.pgm").to_str().unwrap(),
+            "--main-module",
+            "PARSER",
+            "--sort",
+            "Pgm",
+            "-cENV=selected",
+            "--depth",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        expected.contains("LblselectedEnv"),
+        "reference fixture: {expected}"
+    );
+    assert!(stdout.contains("LblselectedEnv"), "{stdout}");
+
+    let rejected = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("parser.k").to_str().unwrap(),
+            fixtures.join("go.pgm").to_str().unwrap(),
+            "--main-module",
+            "PARSER",
+            "--sort",
+            "Pgm",
+            "-cENV=main",
+            "--depth",
+            "0",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !rejected.status.success(),
+        "the per-cell parser unexpectedly accepted main-module-only syntax"
+    );
+}
+
+#[test]
+fn krun_warns_when_the_default_syntax_module_is_missing() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  syntax State ::= "ready" [symbol(ready)]
+  configuration <k> $PGM:State </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "ready",
+            "--depth",
+            "0",
+            "--no-prelude",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains(
+            "Could not find main syntax module with name MAIN-SYNTAX in definition.  Use --syntax-module to specify one. Using MAIN as default."
+        ),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("Lblready"),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn krun_at_kitem_matches_krun_at_the_concrete_sort() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/inner/programs/cast-kitem");

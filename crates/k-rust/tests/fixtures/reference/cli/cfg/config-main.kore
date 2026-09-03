@@ -1,0 +1,12 @@
+Lbl'-LT-'generatedTop'-GT-'{}(
+    Lbl'-LT-'k'-GT-'{}(
+        kseq{}(
+            /* Inj: */ inj{SortPgm{}, SortKItem{}}(
+                Lbldone'Unds'CFG-SYNTAX'Unds'Pgm{}()
+            ),
+            dotk{}()
+        )
+    ),
+    Lbl'-LT-'env'-GT-'{}(\dv{SortInt{}}("3")),
+    Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)
