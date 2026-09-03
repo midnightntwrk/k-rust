@@ -1,4 +1,6 @@
-use std::{error::Error, fmt, rc::Rc};
+use std::{error::Error, fmt, rc::Rc, sync::LazyLock};
+
+use regex::Regex;
 
 use crate::kast::Sort;
 
@@ -425,20 +427,6 @@ impl<'a> Parser<'a> {
         raw_start: usize,
     ) -> Result<(String, Vec<Attribute>, usize), ParseError> {
         for index in attribute_starts(raw).into_iter().rev() {
-            if index > 0
-                && !raw[..index]
-                    .chars()
-                    .next_back()
-                    .is_some_and(char::is_whitespace)
-            {
-                continue;
-            }
-            // A bracketed term can be the entire RHS of a rewrite. Without this guard, a term
-            // such as `lhs => [item]` is accepted by the permissive attribute parser and removed
-            // from the bubble as though it were `[item]` sentence metadata.
-            if raw[..index].trim_end().ends_with("=>") {
-                continue;
-            }
             let mut parser = self.subparser(raw_start + index, raw_start + raw.len());
             if let Ok(attributes) = parser.attributes() {
                 parser.skip_trivia()?;
@@ -1005,15 +993,16 @@ fn is_attribute_key(key: &str) -> bool {
 }
 
 fn split_label(raw: &str) -> (Option<String>, &str) {
-    let trimmed = raw.trim_start();
-    if let Some(rest) = trimmed.strip_prefix('[')
-        && let Some(end) = rest.find(']')
-        && let Some(after) = rest[end + 1..].trim_start().strip_prefix(':')
-    {
-        let label = rest[..end].trim();
-        if !label.is_empty() && !label.chars().any(char::is_whitespace) {
-            return (Some(label.to_owned()), after.trim_start());
-        }
+    static LABEL: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?s)\A[ \t\n\x0B\x0C\r]*\[[ \t\n\x0B\x0C\r]*([^\[\]_ \n\r\t]+)[ \t\n\x0B\x0C\r]*\][ \t\n\x0B\x0C\r]*:[ \t\n\x0B\x0C\r]*(.*)\z",
+        )
+        .expect("the bubble label pattern is valid")
+    });
+    if let Some(captures) = LABEL.captures(raw) {
+        let label = captures.get(1).expect("the label capture exists");
+        let content = captures.get(2).expect("the content capture exists");
+        return (Some(label.as_str().to_owned()), content.as_str());
     }
     (None, raw)
 }
