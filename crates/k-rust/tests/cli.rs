@@ -1408,6 +1408,31 @@ endmodule []"#,
 }
 
 #[test]
+fn reference_pattern_files_are_verified_before_internalization() {
+    // reference: k/result/bin/kore-parser ok.kore --module M --pattern dv.kore --verify
+    let root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/definition");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            root.join("ok.kore").to_str().unwrap(),
+            "--module",
+            "M",
+            "--pattern",
+            root.join("dv.kore").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("hasDomainValues"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn kore_get_model_returns_a_typed_substitution() {
     let (root, _) = fixture();
     let definition = root.join("definition.kore");

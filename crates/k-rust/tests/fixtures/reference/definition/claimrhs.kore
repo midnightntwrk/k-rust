@@ -1,0 +1,8 @@
+[]
+module M
+  sort SortA{} []
+  symbol c{}() : SortA{} [constructor{}()]
+  symbol d{}(SortA{}) : SortA{} [constructor{}()]
+  alias weakAlwaysFinally{S}(S) : S where weakAlwaysFinally{S}(@X:S) := @X:S []
+  claim{} \implies{SortA{}}(\and{SortA{}}(\top{SortA{}}(), c{}()), weakAlwaysFinally{SortA{}}(\and{SortA{}}(d{}(Y:SortA{}), \top{SortA{}}()))) [label{}("cl")]
+endmodule []

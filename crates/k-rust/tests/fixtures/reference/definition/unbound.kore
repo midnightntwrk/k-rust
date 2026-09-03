@@ -1,0 +1,11 @@
+[]
+module M
+  sort SortA{} []
+  sort SortB{} [hasDomainValues{}()]
+  symbol f{}(SortA{}) : SortA{} [function{}()]
+  symbol c{}() : SortA{} [constructor{}()]
+  symbol d{}() : SortA{} [constructor{}()]
+  symbol inj{From,To}(From) : To [sortInjection{}()]
+  axiom{} \rewrites{SortA{}}(\and{SortA{}}(c{}(), \top{SortA{}}()), \and{SortA{}}(d{}(), \top{SortA{}}())) [label{}("cd")]
+  axiom{} \rewrites{SortA{}}(\and{SortA{}}(d{}(), \top{SortA{}}()), \and{SortA{}}(X:SortA{}, \top{SortA{}}())) [label{}("unbound")]
+endmodule []

@@ -1,0 +1,84 @@
+schema = 1
+reference = "k/result/bin/kore-parser v0.1.155"
+
+[[case]]
+name = "undeclared symbol in ignored axiom"
+definition = "undef.kore"
+module = "M"
+kore_parser_exit = 1
+kore_parser_first_error = "Head 'g' not defined."
+
+[[case]]
+name = "wrong application arity in ignored axiom"
+definition = "arity.kore"
+module = "M"
+kore_parser_exit = 1
+kore_parser_first_error = "Expected 1 operands, but got 0."
+
+[[case]]
+name = "invalid Bool domain value"
+definition = "boolbad.kore"
+module = "M"
+kore_parser_exit = 1
+kore_parser_first_error = "expecting \"false\" or \"true\""
+
+[[case]]
+name = "inconsistent free variable sorts"
+definition = "varsort.kore"
+module = "M"
+kore_parser_exit = 1
+kore_parser_first_error = "Inconsistent free variable usage: X:SortA{} and X:SortB{}."
+
+[[case]]
+name = "free claim RHS variable"
+definition = "claimrhs.kore"
+module = "M"
+kore_parser_exit = 1
+kore_parser_first_error = "Found claim with universally-quantified variables appearing only on the right-hand side"
+
+[[case]]
+name = "free axiom RHS variable"
+definition = "unbound.kore"
+module = "M"
+kore_parser_exit = 0
+
+[[case]]
+name = "reflexive subsort"
+definition = "selfsub.kore"
+module = "M"
+kore_parser_exit = 0
+
+[[case]]
+name = "duplicate imported symbol"
+definition = "dupsym.kore"
+module = "N"
+kore_parser_exit = 1
+kore_parser_first_error = "Duplicated name: c."
+
+[[case]]
+name = "valid definition"
+definition = "ok.kore"
+module = "M"
+kore_parser_exit = 0
+
+[[case]]
+name = "domain value without hasDomainValues"
+definition = "ok.kore"
+module = "M"
+pattern = "dv.kore"
+kore_parser_exit = 1
+kore_parser_first_error = "Sorts used with domain value must have the hasDomainValues attribute."
+
+[[case]]
+name = "declared standalone application"
+definition = "ok.kore"
+module = "M"
+pattern = "pat.kore"
+kore_parser_exit = 0
+
+[[case]]
+name = "free standalone variable"
+definition = "ok.kore"
+module = "M"
+pattern = "var.kore"
+kore_parser_exit = 0

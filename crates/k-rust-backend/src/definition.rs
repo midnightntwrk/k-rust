@@ -1533,6 +1533,129 @@ mod tests {
 
     use super::*;
 
+    fn reference_definition_fixture(name: &str) -> kore::Definition {
+        let source = match name {
+            "undef" => include_str!("../../k-rust/tests/fixtures/reference/definition/undef.kore"),
+            "arity" => include_str!("../../k-rust/tests/fixtures/reference/definition/arity.kore"),
+            "boolbad" => {
+                include_str!("../../k-rust/tests/fixtures/reference/definition/boolbad.kore")
+            }
+            "varsort" => {
+                include_str!("../../k-rust/tests/fixtures/reference/definition/varsort.kore")
+            }
+            "claimrhs" => {
+                include_str!("../../k-rust/tests/fixtures/reference/definition/claimrhs.kore")
+            }
+            "unbound" => {
+                include_str!("../../k-rust/tests/fixtures/reference/definition/unbound.kore")
+            }
+            "selfsub" => {
+                include_str!("../../k-rust/tests/fixtures/reference/definition/selfsub.kore")
+            }
+            "dupsym" => {
+                include_str!("../../k-rust/tests/fixtures/reference/definition/dupsym.kore")
+            }
+            "ok" => include_str!("../../k-rust/tests/fixtures/reference/definition/ok.kore"),
+            _ => panic!("unknown definition fixture {name}"),
+        };
+        parse_definition(source).expect("reference definition fixture should parse")
+    }
+
+    fn reference_pattern_fixture(name: &str) -> kore::Pattern {
+        let source = match name {
+            "dv" => include_str!("../../k-rust/tests/fixtures/reference/definition/dv.kore"),
+            "pat" => include_str!("../../k-rust/tests/fixtures/reference/definition/pat.kore"),
+            "var" => include_str!("../../k-rust/tests/fixtures/reference/definition/var.kore"),
+            _ => panic!("unknown pattern fixture {name}"),
+        };
+        parse_pattern(source).expect("reference pattern fixture should parse")
+    }
+
+    #[test]
+    fn reference_rejects_undeclared_symbols_in_ignored_axioms() {
+        let error = BackendDefinition::internalize(&reference_definition_fixture("undef"), "M")
+            .expect_err("ignored axioms must be verified");
+        assert!(
+            format!("{error}").contains("Head 'g' not defined."),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn reference_rejects_arity_errors_in_ignored_axioms() {
+        let error = BackendDefinition::internalize(&reference_definition_fixture("arity"), "M")
+            .expect_err("ignored axioms must have their application arity verified");
+        assert!(
+            format!("{error}").contains("Expected 1 operands, but got 0."),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn reference_rejects_domain_values_on_unmarked_sorts() {
+        let definition = BackendDefinition::internalize(&reference_definition_fixture("ok"), "M")
+            .expect("control definition should internalize");
+        let error = definition
+            .internalize_term(&reference_pattern_fixture("dv"), &[])
+            .expect_err("domain values require hasDomainValues");
+        assert!(format!("{error}").contains("hasDomainValues"), "{error}");
+    }
+
+    #[test]
+    fn reference_rejects_non_boolean_bool_literals() {
+        let error = BackendDefinition::internalize(&reference_definition_fixture("boolbad"), "M")
+            .expect_err("Bool literals must be true or false");
+        assert!(format!("{error}").contains("BOOL.Bool"), "{error}");
+    }
+
+    #[test]
+    fn reference_rejects_inconsistent_free_variable_sorts() {
+        let error = BackendDefinition::internalize(&reference_definition_fixture("varsort"), "M")
+            .expect_err("one free variable name must have one sort");
+        assert!(
+            format!("{error}").contains("Inconsistent free variable usage"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn reference_rejects_claims_with_free_rhs_variables() {
+        let error = BackendDefinition::internalize(&reference_definition_fixture("claimrhs"), "M")
+            .expect_err("claim RHS variables must be bound on the LHS or existential");
+        assert!(
+            format!("{error}").contains("universally-quantified variables"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn reference_accepts_free_rhs_variables_in_axioms() {
+        BackendDefinition::internalize(&reference_definition_fixture("unbound"), "M")
+            .expect("Kore permits free variables appearing only on an axiom RHS");
+    }
+
+    #[test]
+    fn reference_accepts_reflexive_subsort_axioms() {
+        BackendDefinition::internalize(&reference_definition_fixture("selfsub"), "M")
+            .expect("arbiter row 8 selects Kore's reflexive subsort acceptance");
+    }
+
+    #[test]
+    fn reference_reports_duplicate_names_across_modules() {
+        let error = BackendDefinition::internalize(&reference_definition_fixture("dupsym"), "N")
+            .expect_err("duplicate names in an import closure must be rejected");
+        assert!(format!("{error}").contains("c"), "{error}");
+    }
+
+    #[test]
+    fn reference_accepts_free_standalone_variables() {
+        let definition = BackendDefinition::internalize(&reference_definition_fixture("ok"), "M")
+            .expect("control definition should internalize");
+        definition
+            .internalize_pattern(&reference_pattern_fixture("var"), &[])
+            .expect("Kore permits free variables in standalone patterns");
+    }
+
     fn definition() -> BackendDefinition {
         let syntax = parse_definition(indoc! {r#"
             []
